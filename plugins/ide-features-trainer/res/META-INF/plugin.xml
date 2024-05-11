@@ -73,10 +73,11 @@
 
     <applicationService serviceImplementation="training.lang.LangManager"/>
     <applicationService serviceImplementation="training.learn.lesson.LessonStateBase"/>
-    <toolWindow id="Learn"
-                canCloseContents="true"
-                icon="AllIcons.Toolwindows.Learn"
-                factoryClass="training.ui.LearnToolWindowFactory"/>
+    <!--<toolWindow id="Learn"-->
+    <!--            canCloseContents="true"-->
+    <!--            icon="AllIcons.Toolwindows.Learn"-->
+    <!--            factoryClass="training.ui.LearnToolWindowFactory"-->
+    <!--/>-->
 
     <applicationConfigurable groupId="tools" bundle="messages.LearnBundle" key="learn.options.panel.name" id="FeaturesTrainerSettingsPanel"
                              instance="training.ui.FeaturesTrainerSettingsPanel"/>

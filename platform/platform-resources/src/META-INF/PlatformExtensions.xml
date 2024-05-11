@@ -583,8 +583,8 @@
     <applicationService serviceInterface="com.intellij.diagnostic.EventWatcher"
                         serviceImplementation="com.intellij.diagnostic.EventWatcherService" headlessImplementation=""
                         open="true"/>
-    <toolWindow id="Events Watcher" anchor="bottom" canCloseContents="false" doNotActivateOnStart="true"
-                factoryClass="com.intellij.diagnostic.ui.EventWatcherToolWindowFactory"/>
+    <!--<toolWindow id="Events Watcher" anchor="bottom" canCloseContents="false" doNotActivateOnStart="true"-->
+    <!--            factoryClass="com.intellij.diagnostic.ui.EventWatcherToolWindowFactory"/>-->
     <toolWindow factoryClass="com.intellij.internal.inspector.themePicker.UiThemeColorPickerToolWindowFactory"
                 id="UI Theme Color Picker" icon="AllIcons.Toolwindows.ToolWindowPalette"
                 anchor="right" canCloseContents="false" doNotActivateOnStart="true"/>
