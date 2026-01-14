@@ -633,8 +633,8 @@
     <lang.elementManipulator forClass="com.intellij.psi.PsiComment"
                              implementationClass="com.intellij.psi.impl.source.resolve.reference.impl.manipulators.PsiCommentManipulator"/>
 
-    <ideRootPaneNorth implementation="com.intellij.ide.navigationToolbar.rider.NewToolbarRootPaneExtension" order="first"/>
-    <navbar implementation="com.intellij.ide.navigationToolbar.DefaultNavBarExtension" id="defaultNavbar" order="last"/>
+    <!--<ideRootPaneNorth implementation="com.intellij.ide.navigationToolbar.rider.NewToolbarRootPaneExtension" order="first"/>-->
+    <!--<navbar implementation="com.intellij.ide.navigationToolbar.DefaultNavBarExtension" id="defaultNavbar" order="last"/>-->
     <applicationService serviceInterface="com.intellij.modcommand.ModCommandExecutor"
                         serviceImplementation="com.intellij.lang.impl.modcommand.ModCommandExecutorImpl" overrides="true"/>
 
@@ -1009,11 +1009,11 @@
 
     <http.fileEditorActionProvider implementation="com.intellij.openapi.fileEditor.impl.http.LangRemoteFileEditorActionProvider"/>
 
-    <toolWindow id="Project" anchor="left" icon="AllIcons.Toolwindows.ToolWindowProject"
-                factoryClass="com.intellij.ide.projectView.impl.ProjectViewToolWindowFactory"/>
+    <!--<toolWindow id="Project" anchor="left" icon="AllIcons.Toolwindows.ToolWindowProject"-->
+    <!--            factoryClass="com.intellij.ide.projectView.impl.ProjectViewToolWindowFactory"/>-->
 
-    <toolWindow id="Structure" anchor="left" icon="AllIcons.Toolwindows.ToolWindowStructure" secondary="true"
-                factoryClass="com.intellij.ide.structureView.impl.StructureViewToolWindowFactory"/>
+    <!--<toolWindow id="Structure" anchor="left" icon="AllIcons.Toolwindows.ToolWindowStructure" secondary="true"-->
+    <!--            factoryClass="com.intellij.ide.structureView.impl.StructureViewToolWindowFactory"/>-->
 
     <psi.fileReferenceHelper implementation="com.intellij.psi.impl.source.resolve.reference.impl.providers.PsiFileReferenceHelper"/>
     <psi.fileReferenceHelper implementation="com.intellij.psi.impl.source.resolve.reference.impl.providers.JarFileReferenceHelper"/>
@@ -1536,8 +1536,8 @@
     <projectService serviceInterface="com.intellij.codeInsight.daemon.impl.HectorComponentFactory"
                     serviceImplementation="com.intellij.codeInsight.daemon.impl.HectorComponentFactoryImpl"/>
 
-    <toolWindow id="Problems View" anchor="bottom" icon="AllIcons.Toolwindows.ToolWindowProblemsEmpty" canCloseContents="true"
-                factoryClass="com.intellij.analysis.problemsView.toolWindow.ProblemsView"/>
+    <!--<toolWindow id="Problems View" anchor="bottom" icon="AllIcons.Toolwindows.ToolWindowProblemsEmpty" canCloseContents="true"-->
+    <!--            factoryClass="com.intellij.analysis.problemsView.toolWindow.ProblemsView"/>-->
     <notificationGroup id="Execution" displayType="TOOL_WINDOW" bundle="messages.ExecutionBundle" key="notification.group.execution"/>
     <notificationGroup id="Inspection Results" displayType="TOOL_WINDOW" toolWindowId="Inspection Results"
                        bundle="messages.InspectionsBundle" key="notification.group.inspection.results"/>

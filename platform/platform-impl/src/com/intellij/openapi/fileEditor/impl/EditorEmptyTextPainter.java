@@ -73,12 +73,12 @@ public class EditorEmptyTextPainter {
   }
 
   protected void advertiseActions(@NotNull JComponent splitters, @NotNull UIUtil.TextPainter painter) {
-    appendSearchEverywhere(painter);
-    appendToolWindow(painter, IdeBundle.message("empty.text.project.view"), ToolWindowId.PROJECT_VIEW, splitters);
-    appendAction(painter, IdeBundle.message("empty.text.go.to.file"), getActionShortcutText("GotoFile"));
-    appendAction(painter, IdeBundle.message("empty.text.recent.files"), getActionShortcutText(IdeActions.ACTION_RECENT_FILES));
-    appendAction(painter, IdeBundle.message("empty.text.navigation.bar"), getActionShortcutText("ShowNavBar"));
-    appendDnd(painter);
+    appendAction(painter, "Open Git Log", getActionShortcutText("Vcs.Log.OpenAnotherTabInEditor"));
+    appendToolWindow(painter, IdeBundle.message("empty.text.commit.view"), ToolWindowId.COMMIT, splitters);
+    appendToolWindow(painter, IdeBundle.message("empty.text.terminal.view"), ToolWindowId.TERMINAL, splitters);
+    appendToolWindow(painter, IdeBundle.message("empty.text.pr.view"), ToolWindowId.PULL_REQUESTS, splitters);
+    appendLine(painter, IdeBundle.message("empty.text.information"));
+    appendAction(painter, "Open GitHub Repository", getActionShortcutText("OpenGitHubRepository"));
   }
 
   protected void appendDnd(@NotNull UIUtil.TextPainter painter) {

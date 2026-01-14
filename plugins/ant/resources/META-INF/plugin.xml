@@ -76,9 +76,9 @@ To use the <b>Ant</b> tool window, select <b>View > Tool Windows > Ant</b>.
     <typeName className="com.intellij.lang.ant.dom.AntDomTarget" name="Target"/>
     <typeName className="com.intellij.lang.ant.dom.AntDomAntCallParam" name="Antcall Parameter"/>
 
-    <toolWindow anchor="right" icon="AllIcons.Toolwindows.ToolWindowAnt" id="Ant"
-                factoryClass="com.intellij.lang.ant.config.impl.AntToolWindowFactory"/>
-    <toolWindowExtractorMode id="Ant" mode="mirror"/>
+    <!--<toolWindow anchor="right" icon="AllIcons.Toolwindows.ToolWindowAnt" id="Ant"-->
+    <!--            factoryClass="com.intellij.lang.ant.config.impl.AntToolWindowFactory"/>-->
+    <!--<toolWindowExtractorMode id="Ant" mode="mirror"/>-->
     <configurationType implementation="com.intellij.lang.ant.config.execution.AntRunConfigurationType"/>
     <programRunner implementation="com.intellij.lang.ant.config.execution.AntRunner"/>
 

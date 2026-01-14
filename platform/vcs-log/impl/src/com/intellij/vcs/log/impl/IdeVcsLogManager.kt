@@ -3,6 +3,7 @@ package com.intellij.vcs.log.impl
 
 import com.intellij.openapi.application.EdtImmediate
 import com.intellij.openapi.application.UiImmediate
+import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.vfs.VirtualFile
@@ -17,11 +18,13 @@ import com.intellij.vcs.log.VcsLogUi
 import com.intellij.vcs.log.impl.VcsLogNavigationUtil.showCommit
 import com.intellij.vcs.log.impl.VcsLogNavigationUtil.showCommitSync
 import com.intellij.vcs.log.ui.MainVcsLogUi
+import com.intellij.vcs.log.ui.editor.VcsLogVirtualFileSystem
 import com.intellij.vcs.log.util.VcsLogUtil
 import com.intellij.vcs.log.visible.filters.VcsLogFilterObject
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 import org.jetbrains.annotations.ApiStatus.Internal
+import java.util.UUID
 
 internal class IdeVcsLogManager(
   project: Project,
@@ -46,9 +49,13 @@ internal class IdeVcsLogManager(
     // need EDT because of immediate toolbar update
     mainUiCs.launch(Dispatchers.EdtImmediate) {
       mainUiHolderState.collect { holder ->
+        val file = VcsLogVirtualFileSystem.Holder.getInstance().
+        createVcsLogFile(project, UUID.randomUUID().toString(), null)
+        val editor = FileEditorManager.getInstance(project).openFile(file, false, true)
+        val ui = VcsLogEditorUtil.findVcsLogUi(editor,MainVcsLogUi::class.java)
         if (holder != null) {
-          val ui = createLogUi(getMainLogUiFactory(MAIN_LOG_ID, null))
-          holder.installMainUi(this@IdeVcsLogManager, ui)
+          if (ui != null)
+            holder.installMainUi(this@IdeVcsLogManager, ui)
           mainUiState.value = ui
         }
         else {

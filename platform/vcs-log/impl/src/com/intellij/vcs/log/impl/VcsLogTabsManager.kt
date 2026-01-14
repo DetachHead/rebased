@@ -55,26 +55,26 @@ internal class VcsLogTabsManager(
       }
     }
 
-    if (toolWindowTabs.isNotEmpty()) {
-      futureToolWindow.thenAccept { toolWindow ->
-        if (!LOG.assertTrue(!logManager.isDisposed, "Attempting to open tabs on disposed VcsLogManager")) return@thenAccept
-        LOG.debug("Reopening toolwindow tabs with ids: $toolWindowTabs")
-        toolWindowTabs.forEach { openToolWindowLogTab(toolWindow, it, false, null) }
-      }
-    }
+    //if (toolWindowTabs.isNotEmpty()) {
+    //  futureToolWindow.thenAccept { toolWindow ->
+    //    if (!LOG.assertTrue(!logManager.isDisposed, "Attempting to open tabs on disposed VcsLogManager")) return@thenAccept
+    //    LOG.debug("Reopening toolwindow tabs with ids: $toolWindowTabs")
+    //    toolWindowTabs.forEach { openToolWindowLogTab(toolWindow, it, false, null) }
+    //  }
+    //}
 
-    ToolWindowManager.getInstance(project).invokeLater {
-      if (logManager.isDisposed) return@invokeLater
-
-      val toolWindow = getToolWindow(project) ?: run {
-        LOG.error("Could not find tool window by id ${ChangesViewContentManager.TOOLWINDOW_ID}")
-        return@invokeLater
-      }
-
-      if (toolWindow.isVisible) {
-        futureToolWindow.complete(toolWindow)
-      }
-    }
+    //ToolWindowManager.getInstance(project).invokeLater {
+    //  if (logManager.isDisposed) return@invokeLater
+    //
+    //  val toolWindow = getToolWindow(project) ?: run {
+    //    LOG.error("Could not find tool window by id ${ChangesViewContentManager.TOOLWINDOW_ID}")
+    //    return@invokeLater
+    //  }
+    //
+    //  if (toolWindow.isVisible) {
+    //    futureToolWindow.complete(toolWindow)
+    //  }
+    //}
   }
 
   override fun dispose() {
