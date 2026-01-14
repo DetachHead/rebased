@@ -1,9 +1,9 @@
 <component xmlns="http://jetbrains.org/intellij/schema/application-info">
   <version major="2026" minor="1" eap="true"/>
-  <company name="JetBrains s.r.o." url="https://www.jetbrains.com"/>
+  <company name="detachhead" url="https://github.com/detachhead"/>
   <build number="IC-__BUILD__" date="__BUILD_DATE__"/> <!--majorReleaseDate="20170321"-->
   <logo url="/idea_community_logo.png"/>
-  <icon svg="/idea-ce.svg" svg-small="/idea-ce_16.svg"/>
-  <icon-eap svg="/idea-ce-eap.svg" svg-small="/idea-ce-eap_16.svg"/>
-  <names product="IDEA" fullname="IntelliJ IDEA" script="idea" motto="The Leading IDE for Professional Development in Java and Kotlin"/>
+  <icon svg="/gitClient.svg" svg-small="/idea-ce_16.svg"/>
+  <icon-eap svg="/gitClient.svg" svg-small="/gitClient.svg"/>
+  <names product="Rebased" fullname="Rebased" script="idea" motto="A git client based on the Intellij platform"/>
 </component>

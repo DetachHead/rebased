@@ -1,9 +1,11 @@
-# GitClient
+# Rebased
 
-an attempt at building an open-source version of the short-lived [jetbrains git client](https://youtrack.jetbrains.com/issue/IJPL-72504/Make-git-client-a-standalone-app#focus=Comments-27-12868395.0-0)
+An open-source remake of the short-lived [jetbrains git client](https://youtrack.jetbrains.com/issue/IJPL-72504/Make-git-client-a-standalone-app#focus=Comments-27-12868395.0-0)
+
+![](screenshot.png)
 
 > [!WARNING]
-> this project is very early in development. at the moment it's literally just intellij community edition with most of the plugins removed. stay tuned.....
+> this project is very early in development. expect things to be broken
 
 # Original readme
 ___
