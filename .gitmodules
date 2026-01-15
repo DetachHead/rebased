@@ -1,0 +1,3 @@
+[submodule "android"]
+	path = android
+	url = git://git.jetbrains.org/idea/android.git
