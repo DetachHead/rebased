@@ -7,7 +7,6 @@ An open-source remake of the short-lived [jetbrains git client](https://youtrack
 > [!WARNING]
 > this project is very early in development. expect things to be broken
 
-# Original readme
 ___
 ## Getting the Source Code
 
@@ -25,7 +24,7 @@ This section will guide you through getting the project sources and help avoid c
 
 #### Clone Main Repository
 
-IntelliJ open source repository is available from the [GitHub repository](https://github.com/JetBrains/intellij-community), which can be cloned or downloaded as a zip file (based on a branch) into `<IDEA_HOME>`. 
+IntelliJ open source repository is available from the [GitHub repository](https://github.com/detachhead/rebased), which can be cloned or downloaded as a zip file (based on a branch) into `<IDEA_HOME>`. 
 The **master** (_default_) branch contains the source code which will be used to create the next major version of all JetBrains IDEs. 
 The branch names and build numbers for older releases of JetBrains IDEs can be found on the
 [Build Number Ranges](https://plugins.jetbrains.com/docs/intellij/build-number-ranges.html) page.
@@ -35,7 +34,7 @@ You can [clone this project](https://www.jetbrains.com/help/idea/manage-projects
 Alternatively, follow the steps below in a terminal:
 
    ```
-   git clone https://github.com/JetBrains/intellij-community.git
+   git clone https://github.com/JetBrains/intellij-community.git --recurse-submodules
    cd intellij-community
    ```
 
@@ -44,21 +43,14 @@ Alternatively, follow the steps below in a terminal:
 > To download only the latest revision of the repository,  add `--depth 1` option after `clone`.
 > - Cloning in IntelliJ IDEA also supports creating shallow clone.
 
-#### Get Android Modules
-IntelliJ IDEA requires additional Android modules from separate Git repositories.
-
-Run the following script from project root `<IDEA_HOME>` to get the required modules:
-- Linux/macOS: `./getPlugins.sh`
-- Windows: `getPlugins.bat`
-
-> [!IMPORTANT]
->
->  Always `git checkout` the `intellij-community` and `android` Git repositories to the same branches/tags.
-
+> [!NOTE]
+IntelliJ IDEA requires additional Android modules from separate Git repositories, which is why `--recurse-submodules` is needed.
 
 ---
-## Building IntelliJ IDEA
-These instructions will help you build IntelliJ IDEA from source code, which is the basis for IntelliJ Platform development.
+## Building Rebased
+These instructions will help you build Rebased from source code, which is based on the IntelliJ community edition. These instructions are mostly unchanged from upstream for now
+so they might be inaccurate because this project is still in early development and I am still learing how everything works and changing things around.
+
 IntelliJ IDEA '**2023.2**' or newer is required.
 
 ### Opening the IntelliJ IDEA Source Code in the IDE
