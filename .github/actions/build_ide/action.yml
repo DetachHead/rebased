@@ -18,6 +18,25 @@ inputs:
 runs:
   using: composite
   steps:
+    # https://mathio28.medium.com/squeezing-disk-space-from-github-actions-runners-an-engineers-guide-d5fbe4443692#ecb6
+    - name: download more disk space
+      shell: bash
+      run: |
+        sudo rm -rf /usr/lib/jvm
+        sudo rm -rf /usr/share/dotnet
+        sudo rm -rf /usr/share/swift
+        sudo rm -rf /usr/local/.ghcup
+        sudo rm -rf /usr/local/julia*
+        sudo rm -rf /usr/local/lib/android
+        sudo rm -rf /usr/local/share/chromium
+        sudo rm -rf /opt/microsoft /opt/google
+        sudo rm -rf /opt/az
+        sudo rm -rf /usr/local/share/powershell
+        sudo rm -rf /opt/hostedtoolcache
+        docker system prune -af || true
+        docker builder prune -af || true
+        df -h
+
     - name: Build environment
       shell: bash
       # language=bash
