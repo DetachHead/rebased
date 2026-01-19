@@ -33,7 +33,6 @@
     <orderEntry type="module" module-name="intellij.vcs.git" scope="RUNTIME" />
     <orderEntry type="module" module-name="intellij.vcs.git.shared" scope="RUNTIME" />
     <orderEntry type="module" module-name="intellij.vcs.git.frontend" scope="RUNTIME" />
-    <orderEntry type="module" module-name="intellij.vcs.git.featuresTrainer" scope="RUNTIME" />
     <orderEntry type="module" module-name="intellij.platform.images" scope="RUNTIME" />
     <orderEntry type="module" module-name="intellij.vcs.github" scope="RUNTIME" />
     <orderEntry type="module" module-name="intellij.terminal" scope="RUNTIME" />
@@ -45,8 +44,6 @@
     <orderEntry type="module" module-name="intellij.textmate.backend" scope="TEST" />
     <orderEntry type="module" module-name="intellij.emojipicker" scope="RUNTIME" />
     <orderEntry type="module" module-name="intellij.commander" scope="TEST" />
-    <orderEntry type="module" module-name="intellij.laf.macos" scope="RUNTIME" />
-    <orderEntry type="module" module-name="intellij.laf.win10" scope="RUNTIME" />
     <orderEntry type="module" module-name="intellij.keymap.eclipse" scope="RUNTIME" />
     <orderEntry type="module" module-name="intellij.keymap.visualStudio" scope="RUNTIME" />
     <orderEntry type="module" module-name="intellij.keymap.netbeans" scope="RUNTIME" />

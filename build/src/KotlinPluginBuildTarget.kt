@@ -3,7 +3,7 @@
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 import org.jetbrains.intellij.build.BuildPaths.Companion.COMMUNITY_ROOT
-import org.jetbrains.intellij.build.IdeaCommunityProperties
+import org.jetbrains.intellij.build.RebasedProperties
 import org.jetbrains.intellij.build.kotlin.CommunityKotlinPluginBuilder
 
 internal object KotlinPluginBuildTarget {
@@ -11,7 +11,7 @@ internal object KotlinPluginBuildTarget {
   fun main(args: Array<String>) {
     runBlocking(Dispatchers.Default) {
       CommunityKotlinPluginBuilder.build(home = COMMUNITY_ROOT.communityRoot,
-                                         properties = IdeaCommunityProperties(COMMUNITY_ROOT.communityRoot))
+                                         properties = RebasedProperties(COMMUNITY_ROOT.communityRoot))
     }
   }
 }

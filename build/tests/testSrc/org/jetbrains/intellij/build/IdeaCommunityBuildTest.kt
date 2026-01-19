@@ -17,7 +17,7 @@ class IdeaCommunityBuildTest {
   @Test
   fun build(testInfo: TestInfo) {
     val homePath = PathManager.getHomeDirFor(javaClass)!!
-    val productProperties = IdeaCommunityProperties(COMMUNITY_ROOT.communityRoot)
+    val productProperties = RebasedProperties(COMMUNITY_ROOT.communityRoot)
     runTestBuild(
       homeDir = COMMUNITY_ROOT.communityRoot,
       testInfo = testInfo,
@@ -41,7 +41,7 @@ class IdeaCommunityBuildTest {
       runTestBuild(
         testInfo = testInfo,
         context = {
-          val productProperties = IdeaCommunityProperties(COMMUNITY_ROOT.communityRoot)
+          val productProperties = RebasedProperties(COMMUNITY_ROOT.communityRoot)
           val options = createBuildOptionsForTest(
             productProperties = productProperties,
             homeDir = homePath,
@@ -61,7 +61,7 @@ class IdeaCommunityBuildTest {
     val homePath = PathManager.getHomeDirFor(javaClass)!!
     runEssentialPluginsTest(
       homePath = homePath,
-      productProperties = IdeaCommunityProperties(COMMUNITY_ROOT.communityRoot),
+      productProperties = RebasedProperties(COMMUNITY_ROOT.communityRoot),
       buildTools = ProprietaryBuildTools.DUMMY,
     )
   }

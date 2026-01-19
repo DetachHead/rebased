@@ -22,7 +22,6 @@ import org.jetbrains.intellij.build.impl.PluginLayout
  */
 val DEFAULT_BUNDLED_PLUGINS: PersistentList<String> = persistentListOf(
   "intellij.platform.images",
-  "intellij.dev"
 )
 
 class ProductModulesLayout {

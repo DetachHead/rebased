@@ -7,7 +7,7 @@ import io.opentelemetry.api.trace.Span
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.jetbrains.intellij.build.BuildOptions
-import org.jetbrains.intellij.build.IdeaCommunityProperties
+import org.jetbrains.intellij.build.RebasedProperties
 import org.jetbrains.intellij.build.createBuildTasks
 import org.jetbrains.intellij.build.dependencies.BuildDependenciesCommunityRoot
 import org.jetbrains.intellij.build.impl.createBuildContext
@@ -28,7 +28,7 @@ internal class PythonCommunityPluginBuilder(private val home: Path) {
     val communityRoot = BuildDependenciesCommunityRoot(homeDir)
     val buildContext = createBuildContext(
       projectHome = homeDir,
-      productProperties = IdeaCommunityProperties(communityRoot.communityRoot),
+      productProperties = RebasedProperties(communityRoot.communityRoot),
       options = options,
     )
     createBuildTasks(buildContext).buildNonBundledPlugins(listOf(

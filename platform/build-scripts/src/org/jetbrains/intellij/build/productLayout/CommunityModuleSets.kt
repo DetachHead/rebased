@@ -138,7 +138,6 @@ object CommunityModuleSets {
     module("intellij.platform.navbar.backend")
     module("intellij.platform.navbar.frontend")
     module("intellij.platform.navbar.monolith")
-    module("intellij.platform.clouds")
 
     module("intellij.platform.execution.serviceView")
     module("intellij.platform.execution.serviceView.frontend")
@@ -157,9 +156,6 @@ object CommunityModuleSets {
     embeddedModule("intellij.platform.managed.cache")
     module("intellij.platform.managed.cache.backend")
 
-    module("intellij.platform.todo")
-    module("intellij.platform.todo.backend")
-
     module("intellij.platform.bookmarks.backend")
     module("intellij.platform.bookmarks.frontend")
 
@@ -172,10 +168,6 @@ object CommunityModuleSets {
     module("intellij.platform.execution.impl.frontend")
     module("intellij.platform.execution.impl.backend")
     module("intellij.platform.eel.tcp")
-
-    module("intellij.platform.completion.common")
-    module("intellij.platform.completion.frontend")
-    module("intellij.platform.completion.backend")
 
     embeddedModule("intellij.platform.polySymbols")
 
@@ -387,12 +379,6 @@ object CommunityModuleSets {
     module("intellij.platform.collaborationTools")
     module("intellij.platform.collaborationTools.auth")
     module("intellij.platform.collaborationTools.auth.base")
-    module("intellij.platform.tasks")
-    module("intellij.platform.tasks.impl")
-    module("intellij.platform.scriptDebugger.ui")
-    module("intellij.platform.scriptDebugger.backend")
-    module("intellij.platform.scriptDebugger.protocolReaderRuntime")
-    module("intellij.platform.ml.impl")
     module("intellij.libraries.microba")
     module("intellij.platform.diagnostic.freezeAnalyzer")
     module("intellij.platform.diagnostic.freezes")
@@ -406,19 +392,14 @@ object CommunityModuleSets {
     module("intellij.platform.buildView.frontend")
     module("intellij.emojipicker")
     module("intellij.platform.ide.impl.wsl")
-    module("intellij.platform.diagnostic.telemetry.agent.extension")
     // todo: move to essential modules when not embedded
     embeddedModule("intellij.platform.polySymbols.backend")
     embeddedModule("intellij.regexp")
-    module("intellij.platform.langInjection")
-    module("intellij.platform.langInjection.backend")
     module("intellij.libraries.grpc")
     module("intellij.libraries.grpc.netty.shaded")
 
-    moduleSet(gridCore())
     moduleSet(vcs())
     moduleSet(xml())
-    moduleSet(duplicates())
     module("intellij.platform.structuralSearch")
 
     // Note: rd.common is intentionally NOT included in ide.common

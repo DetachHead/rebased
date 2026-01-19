@@ -15,7 +15,7 @@ class MavenArtifactsBuilderTest {
       MavenArtifactsBuilder(
         createBuildContext(
           projectHome = ULTIMATE_HOME,
-          productProperties = IdeaCommunityProperties(COMMUNITY_ROOT.communityRoot),
+          productProperties = RebasedProperties(COMMUNITY_ROOT.communityRoot),
           setupTracer = false,
         )
       )

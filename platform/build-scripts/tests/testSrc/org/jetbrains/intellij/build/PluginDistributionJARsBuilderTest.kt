@@ -13,7 +13,7 @@ import org.junit.Test
 class PluginDistributionJARsBuilderTest {
   @Test
   fun verifyStableClasspathOrder() {
-    val productProperties = IdeaCommunityProperties(COMMUNITY_ROOT.communityRoot)
+    val productProperties = RebasedProperties(COMMUNITY_ROOT.communityRoot)
     runBlocking(Dispatchers.Default) {
       val context = createBuildContext(COMMUNITY_ROOT.communityRoot, productProperties)
       val ideClasspath1 = createIdeClassPath(createPlatformLayout(context = context), context)

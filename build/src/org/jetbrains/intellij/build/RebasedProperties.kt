@@ -10,7 +10,6 @@ import org.jetbrains.intellij.build.impl.qodana.QodanaProductProperties
 import org.jetbrains.intellij.build.io.copyDir
 import org.jetbrains.intellij.build.io.copyFileToDir
 import org.jetbrains.intellij.build.productLayout.CommunityModuleSets
-import org.jetbrains.intellij.build.productLayout.CommunityProductFragments
 import org.jetbrains.intellij.build.productLayout.ProductModulesContentSpec
 import org.jetbrains.intellij.build.productLayout.productModules
 import java.nio.file.Path
@@ -34,13 +33,21 @@ internal suspend fun createCommunityBuildContext(
 ): BuildContext {
   return createBuildContext(
     projectHome = projectHome,
-    productProperties = IdeaCommunityProperties(COMMUNITY_ROOT.communityRoot),
+    productProperties = RebasedProperties(COMMUNITY_ROOT.communityRoot),
     setupTracer = true,
     options = options,
   )
 }
 
-open class IdeaCommunityProperties(private val communityHomeDir: Path) : JetBrainsProductProperties() {
+
+/**
+ * we have renamed from `IdeaCommunityProperties` in the upstream repo and commented out stuff that's not relevant to the git client.
+ *
+ * to avoid upstream conflicts (and to make the code less confusing), we should probably create a separate subclass of
+ * [JetBrainsProductProperties] for Rebased instead of modifying the intellij community one, but it was much easierto do it this way
+ * because it's very difficult to narrow down which plugins depend on others when treying to cut out modules we don't want
+ */
+open class RebasedProperties(private val communityHomeDir: Path) : JetBrainsProductProperties() {
   init {
     configurePropertiesForAllEditionsOfIntelliJIdea(this)
     platformPrefix = "Idea"
@@ -55,19 +62,28 @@ open class IdeaCommunityProperties(private val communityHomeDir: Path) : JetBrai
       "intellij.idea.community.customization",
     )
 
-    // TODO: to avoid upstream conflicts (and to make the code less confusing), we should probably
-    //  create a separate subclass of JetBrainsProductProperties for Rebased instead of modifying
-    //  the intellij community one
+
+    // from upstream:
+    //productLayout.bundledPluginModules = IDEA_BUNDLED_PLUGINS + sequenceOf(
+    //  "intellij.javaFX.community"
+    //)
     productLayout.bundledPluginModules = REBASED_BUNDLED_PLUGINS
 
     productLayout.prepareCustomPluginRepositoryForPublishedPlugins = false
     productLayout.buildAllCompatiblePlugins = true
-    productLayout.pluginLayouts = CommunityRepositoryModules.COMMUNITY_REPOSITORY_PLUGINS + persistentListOf(
-    )
+
+    // from upstream:
+    //productLayout.pluginLayouts = CommunityRepositoryModules.COMMUNITY_REPOSITORY_PLUGINS + persistentListOf(
+    //  JavaPluginLayout.javaPlugin(),
+    //  CommunityRepositoryModules.androidPlugin(allPlatforms = true),
+    //  CommunityRepositoryModules.groovyPlugin(),
+    //)
 
     productLayout.skipUnresolvedContentModules = true
 
     mavenArtifacts.forIdeModules = true
+    // from upstream:
+    //mavenArtifacts.additionalModules += MAVEN_ARTIFACTS_ADDITIONAL_MODULES
     mavenArtifacts.additionalModules += JewelMavenArtifacts.STANDALONE.keys
     mavenArtifacts.squashedModules += persistentListOf(
       "intellij.platform.util.base",
@@ -150,7 +166,7 @@ open class IdeaCommunityProperties(private val communityHomeDir: Path) : JetBrai
 }
 
 @Suppress("unused")
-open class AndroidStudioProperties(communityHomeDir: Path) : IdeaCommunityProperties(communityHomeDir) {
+open class AndroidStudioProperties(communityHomeDir: Path) : RebasedProperties(communityHomeDir) {
   init {
     platformPrefix = "AndroidStudio"
     applicationInfoModule = "intellij.idea.android.customization"
@@ -184,34 +200,33 @@ fun intellijCommunityBaseFragment(platformPrefix: String? = null): ProductModule
   if (platformPrefix == "AndroidStudio") {
     alias("com.intellij.modules.androidstudio")
   }
-  else {
-    alias("com.intellij.modules.idea")
-    alias("com.intellij.modules.idea.community")
-  }
 
-  alias("com.intellij.modules.java-capable")
-  alias("com.intellij.modules.python-core-capable")
-  alias("com.intellij.modules.python-in-non-pycharm-ide-capable")
-
-  if (platformPrefix != "AndroidStudio") {
-    alias("com.intellij.platform.ide.provisioner")
-    alias("com.intellij.modules.jcef")
-  }
-
-  include(CommunityProductFragments.javaIdeBaseFragment())
+  deprecatedInclude("intellij.platform.resources", "META-INF/PlatformLangPlugin.xml")
   deprecatedInclude("intellij.idea.community.customization", "META-INF/tips-intellij-idea-community.xml")
 
   moduleSet(CommunityModuleSets.debuggerStreams())
 
-  module("intellij.platform.coverage")
-  module("intellij.platform.coverage.agent")
-  module("intellij.xml.xmlbeans")
+  // from upstream:
+  //module("intellij.platform.coverage")
+  //module("intellij.platform.coverage.agent")
+  //module("intellij.xml.xmlbeans")
+  //module("intellij.platform.ide.newUiOnboarding")
+  //module("intellij.platform.ide.newUsersOnboarding")
+  //module("intellij.ide.startup.importSettings")
+
   module("intellij.platform.customization.min")
   module("intellij.idea.customization.base")
   module("intellij.idea.customization.backend")
 
+  // from upstream:
+  //module("intellij.platform.tips")
+  //if (System.getProperty("idea.platform.prefix") == "AndroidStudio") {
+  //  module("intellij.idea.android.customization")
+  //}
 
   moduleSet(CommunityModuleSets.ideCommon())
+  // from upstream:
+  //moduleSet(CommunityModuleSets.rdCommon())
 
   deprecatedInclude("intellij.idea.community.customization", "META-INF/community-customization.xml")
 }
