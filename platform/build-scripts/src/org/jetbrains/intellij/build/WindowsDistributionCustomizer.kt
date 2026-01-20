@@ -245,14 +245,14 @@ class WindowsCustomizerBuilder @PublishedApi internal constructor(private val pr
 inline fun communityWindowsCustomizer(projectHome: Path, configure: WindowsCustomizerBuilder.() -> Unit = {}): WindowsDistributionCustomizer {
   return windowsCustomizer(projectHome) {
     // Set Community defaults
-    icoPath = "build/conf/ideaCE/win/images/idea_CE.ico"
-    icoPathForEAP = "build/conf/ideaCE/win/images/idea_CE_EAP.ico"
+    icoPath = "build/conf/ideaCE/win/images/rebased.ico"
+    icoPathForEAP = "build/conf/ideaCE/win/images/rebased.ico"
     installerImagesPath = "build/conf/ideaCE/win/images"
-    fileAssociations = listOf("java", "gradle", "groovy", "kt", "kts", "pom")
+    fileAssociations = listOf()
     
-    fullName { "IntelliJ IDEA Community Edition" }
+    fullName { "Rebased" }
     
-    fullNameAndVendor { "IntelliJ IDEA Community Edition" }
+    fullNameAndVendor { "Rebased" }
     
     uninstallFeedbackUrl { appInfo ->
       "https://www.jetbrains.com/idea/uninstall/?edition=IC-${appInfo.majorVersion}.${appInfo.minorVersion}"

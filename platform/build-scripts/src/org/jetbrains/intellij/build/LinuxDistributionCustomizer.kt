@@ -185,8 +185,8 @@ class LinuxCustomizerBuilder @PublishedApi internal constructor(private val proj
 inline fun communityLinuxCustomizer(projectHome: Path, configure: LinuxCustomizerBuilder.() -> Unit = {}): LinuxDistributionCustomizer {
   return linuxCustomizer(projectHome) {
     // Set Community defaults
-    iconPngPath = "build/conf/ideaCE/linux/images/icon_CE_128.png"
-    iconPngPathForEAP = "build/conf/ideaCE/linux/images/icon_CE_EAP_128.png"
+    iconPngPath = "build/conf/ideaCE/linux/images/icon_rebased_128.png"
+    iconPngPathForEAP = "build/conf/ideaCE/linux/images/icon_rebased_128.png"
     snaps += LinuxDistributionCustomizer.Snap(
       name = "intellij-idea",
       description =
