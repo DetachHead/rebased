@@ -1,13 +1,30 @@
 # <img src="./community-resources/resources/rebased_16@2x.svg"/> Rebased
  
-An open-source remake of the short-lived [jetbrains git client](https://youtrack.jetbrains.com/issue/IJPL-72504/Make-git-client-a-standalone-app#focus=Comments-27-12868395.0-0)
+A git client based on the IntelliJ platform.
+
+This project aims to be an open-source remake of the short-lived [jetbrains git client](https://youtrack.jetbrains.com/issue/IJPL-72504/Make-git-client-a-standalone-app#focus=Comments-27-12868395.0-0).
+It's basically just a JetBrains IDE with all the bundled plugins removed except the git integration, with some additional UI tweaks.
 
 ![](screenshot.png)
 
-> [!WARNING]
-> this project is very early in development. expect things to be broken
+## Why?
 
-___
+See [this youtrack issue](https://youtrack.jetbrains.com/issue/IJPL-72504/Make-git-client-a-standalone-app) for the many reasons people have been requesting this for almost a decade. At the time of writing, it's the #3 most upvoted open issue on YouTrack.
+
+## Installation
+> [!WARNING]
+> This project is very early in development. Expect things to be broken. For this reason, I have not published a release yet. If you would like to try it out early, you can download builds from [github actions](https://github.com/DetachHead/rebased/actions/workflows/IntelliJ_IDEA.yml?query=branch%3Amaster)
+
+## Credits
+
+- https://github.com/obiscr/intellij-community - a previous attempt at creating a jetbrains git client that i cherrypicked some commits from
+- jetbrains, obviously
+
+-----
+
+> [!NOTE]
+> The remainder of this readme is mostly unchanged from the upstream intellij-community repo.
+
 ## Getting the Source Code
 
 This section will guide you through getting the project sources and help avoid common issues in git config and other steps before opening it in the IDE.
