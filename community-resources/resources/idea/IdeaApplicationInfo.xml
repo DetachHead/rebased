@@ -3,7 +3,7 @@
   <company name="detachhead" url="https://github.com/detachhead"/>
   <build number="IC-__BUILD__" date="__BUILD_DATE__"/> <!--majorReleaseDate="20170321"-->
   <logo url="/idea_community_logo.png"/>
-  <icon svg="/idea-ce.svg" svg-small="/idea-ce_16.svg"/>
-  <icon-eap svg="/idea-ce.svg" svg-small="/idea-ce_16.svg"/>
+  <icon svg="/rebased.svg" svg-small="/rebased_16.svg"/>
+  <icon-eap svg="/rebased.svg" svg-small="/rebased_16.svg"/>
   <names product="Rebased" fullname="Rebased" script="idea" motto="A git client based on the Intellij platform"/>
 </component>

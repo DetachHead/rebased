@@ -1,5 +1,5 @@
-# Rebased
-
+# <img src="./community-resources/resources/rebased_16@2x.svg"/> Rebased
+ 
 An open-source remake of the short-lived [jetbrains git client](https://youtrack.jetbrains.com/issue/IJPL-72504/Make-git-client-a-standalone-app#focus=Comments-27-12868395.0-0)
 
 ![](screenshot.png)
