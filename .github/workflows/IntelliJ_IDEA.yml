@@ -1,12 +1,8 @@
-name: IntelliJ IDEA
+name: Rebased
 on:
-  schedule:
-    # daily at 4AM for the master branch
-    - cron: '0 4 * * *'
   push:
-    # for each release
-    tags:
-      - 'idea/20*'
+    branches:
+      - master
   pull_request:
     branches:
       - master
