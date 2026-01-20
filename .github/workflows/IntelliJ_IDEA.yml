@@ -7,6 +7,9 @@ on:
     # for each release
     tags:
       - 'idea/20*'
+  pull_request:
+    branches:
+      - master
   workflow_dispatch:
 
 jobs:
