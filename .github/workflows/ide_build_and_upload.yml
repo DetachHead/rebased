@@ -11,7 +11,9 @@ on:
         description: 'artifacts directory'
         type: string
         required: true
-
+      version:
+        type: string
+        required: true
 jobs:
   build-linux-x64:
     runs-on: ubuntu-latest
@@ -25,6 +27,7 @@ jobs:
           arch: x64
           extension: tar.gz
           product: ${{inputs.product}}
+          version: ${{inputs.version}}
       - uses: ./.github/actions/upload_ide
         with:
           os: linux
@@ -43,6 +46,7 @@ jobs:
           arch: x64
           extension: exe
           product: ${{inputs.product}}
+          version: ${{inputs.version}}
       - uses: ./.github/actions/upload_ide
         with:
           os: windows
@@ -61,6 +65,7 @@ jobs:
           arch: aarch64
           extension: sit
           product: ${{inputs.product}}
+          version: ${{inputs.version}}
       - uses: ./.github/actions/upload_ide
         with:
           os: mac
