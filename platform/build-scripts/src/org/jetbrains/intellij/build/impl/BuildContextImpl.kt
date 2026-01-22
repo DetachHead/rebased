@@ -180,10 +180,6 @@ class BuildContextImpl internal constructor(
   override fun reportDistributionBuildNumber() {
     val suppliedBuildNumber = options.buildNumber
     val baseBuildNumber = SnapshotBuildNumber.BASE
-    check(suppliedBuildNumber == null || suppliedBuildNumber.startsWith(baseBuildNumber)) {
-      "Supplied build number '$suppliedBuildNumber' is expected to start with '$baseBuildNumber' base build number " +
-      "defined in ${SnapshotBuildNumber.PATH}"
-    }
     messages.setParameter("build.artifact.buildNumber", buildNumber)
     if (buildNumber != suppliedBuildNumber) {
       messages.reportBuildNumber(buildNumber)
