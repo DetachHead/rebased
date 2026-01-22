@@ -119,11 +119,13 @@ jobs:
       - name: Install appimagetool
         run: |
           wget -q https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
-          chmod +x appimagetool-x86_64.AppImage
+          mv appimagetool-x86_64.AppImage ./appimagetool
+          chmod +x appimagetool
 
       - name: Build AppImage
         run: |
-          ./appimagetool-x86_64.AppImage appdir
+          appimage_file=*.AppImage
+          ./appimagetool appdir -u "gh-releases-zsync|$GITHUB_REPOSITORY_OWNER|rebased|latest-all|$appimage_file.zsync"
 
       - name: Upload .AppImage
         uses: ./.github/actions/upload_ide
