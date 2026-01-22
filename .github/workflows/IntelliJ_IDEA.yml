@@ -46,7 +46,7 @@ jobs:
       - uses: actions/download-artifact@v4.1.8
 
       - name: create appimage zsync file
-        run: zsyncmake *.AppImage
+        run: zsyncmake **/*.AppImage
 
       - name: Create Release
         uses: marvinpinto/action-automatic-releases@v1.2.1
@@ -56,9 +56,9 @@ jobs:
           prerelease: true
           draft: true
           files: |
-            *.tar.gz
-            *.AppImage
-            *.zsync
-            *.exe
-            *.dmg
+            **/*.tar.gz
+            **/*.AppImage
+            **/*.zsync
+            **/*.exe
+            **/*.dmg
             
