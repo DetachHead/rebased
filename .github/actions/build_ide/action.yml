@@ -11,6 +11,9 @@ inputs:
   product:
     description: 'a product, available options: intellij_idea, pycharm'
     required: true
+  version:
+    description: 'build number'
+    required: true
 runs:
   using: composite
   steps:
@@ -40,4 +43,4 @@ runs:
     - name: Build ${{inputs.arch}}.${{inputs.extension}}
       shell: bash
       # language=bash
-      run: docker run --rm --user "$(id -u)" --volume "${PWD}:/community" ${{inputs.product}} -Dintellij.build.target.os=${{inputs.os}} -Dintellij.build.target.arch=${{inputs.arch}}
+      run: docker run --rm --user "$(id -u)" --volume "${PWD}:/community" ${{inputs.product}} -Dintellij.build.target.os=${{inputs.os}} -Dintellij.build.target.arch=${{inputs.arch}} -Dbuild.number=${{inputs.version}}
