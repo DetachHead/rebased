@@ -3,13 +3,15 @@ on:
   push:
     branches:
       - master
-    tags:
-      - 'rebased/*'
   pull_request:
     branches:
       - master
   workflow_dispatch:
-
+    inputs:
+      version:
+        type: string
+        description: 'build number'
+        required: true
 jobs:
   get_version:
     runs-on: ubuntu-latest
@@ -17,11 +19,13 @@ jobs:
       version: ${{ steps.get_version.outputs.version }}
     steps:
       - uses: actions/checkout@v4.2.2
+        # checkout only needed to read build.txt. if run manually we specify the version as an input value
+        if: github.event_name != 'workflow_dispatch'
       - name: get build number
         id: get_version
         run: |
-          if [ "$GITHUB_REF_TYPE" = "tag" ]; then
-            version="${GITHUB_REF_NAME##*/}"
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
+            version=${{ inputs.version }}
           else
             version="$(cat build.txt)"
           fi
@@ -42,7 +46,7 @@ jobs:
     needs:
       - get_version
       - build
-    if: startsWith(github.ref, 'refs/tags/rebased/')
+    if: github.event_name == 'workflow_dispatch'
     steps:
       - uses: actions/download-artifact@v4.1.8
 
@@ -53,6 +57,7 @@ jobs:
         uses: marvinpinto/action-automatic-releases@v1.2.1
         with:
           title: ${{ needs.get_version.outputs.version }}
+          automatic_release_tag: ${{ needs.get_version.outputs.version }}
           repo_token: ${{ secrets.GITHUB_TOKEN }}
           prerelease: true
           draft: true
