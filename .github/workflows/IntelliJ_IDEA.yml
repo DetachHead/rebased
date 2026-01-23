@@ -16,6 +16,7 @@ jobs:
     outputs:
       version: ${{ steps.get_version.outputs.version }}
     steps:
+      - uses: actions/checkout@v4.2.2
       - name: get build number
         id: get_version
         run: |
