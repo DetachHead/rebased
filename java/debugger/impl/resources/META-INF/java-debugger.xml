@@ -400,13 +400,13 @@
       <action id="Debugger.ForceEarlyReturn" class="com.intellij.debugger.actions.ForceEarlyReturnAction">
         <add-to-group group-id="XDebugger.Frames.Tree.Popup" anchor="after" relative-to-action="Debugger.PopFrame"/>
         <add-to-group group-id="DebuggingActionsGroup" anchor="after" relative-to-action="Debugger.PopFrame"/>
-        <add-to-group group-id="XDebugger.ToolWindow.TopToolbar3.Extra"/>
+        <!--<add-to-group group-id="XDebugger.ToolWindow.TopToolbar3.Extra"/>-->
       </action>
 
       <action id="Debugger.ThrowException" class="com.intellij.debugger.actions.ThrowExceptionAction">
         <add-to-group group-id="XDebugger.Frames.Tree.Popup" anchor="after" relative-to-action="Debugger.PopFrame"/>
         <add-to-group group-id="DebuggingActionsGroup" anchor="after" relative-to-action="Debugger.ForceEarlyReturn"/>
-        <add-to-group group-id="XDebugger.ToolWindow.TopToolbar3.Extra"/>
+        <!--<add-to-group group-id="XDebugger.ToolWindow.TopToolbar3.Extra"/>-->
       </action>
 
       <action id="Debugger.AddSteppingFilter" class="com.intellij.debugger.actions.AddSteppingFilterAction">
@@ -416,7 +416,7 @@
       <action id="Debugger.SwitchToTheNextContext" class="com.intellij.debugger.actions.SwitchToTheNextContextAction"/>
       <action id="Debugger.CallTracer" class="com.intellij.debugger.ui.breakpoints.CallTracer$CallTracerToggleAction"
               icon="AllIcons.Debugger.Db_set_breakpoint">
-        <add-to-group group-id="XDebugger.ToolWindow.TopToolbar"/>
+        <!--<add-to-group group-id="XDebugger.ToolWindow.TopToolbar"/>-->
       </action>
       <action id="Debugger.ReloadFile" class="com.intellij.debugger.actions.ReloadFileAction"/>
     </group>

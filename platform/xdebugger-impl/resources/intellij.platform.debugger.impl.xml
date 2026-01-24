@@ -34,5 +34,5 @@
   </dependencies>
   <!-- endregion -->
 
-  <xi:include href="intellij.platform.debugger.impl.content.xml"/>
+  <!--<xi:include href="intellij.platform.debugger.impl.content.xml"/>-->
 </idea-plugin>

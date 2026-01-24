@@ -160,9 +160,9 @@ class ExecutorRegistryImpl(private val coroutineScope: CoroutineScope) : Executo
     if (executor is ExecutorGroup<*>) {
       unregisterAction(executor.getId() + "_delegate", RUNNERS_GROUP, idToAction, actionManager)
     }
-    if (isExecutorInMainGroup(executor)) {
-      unregisterAction(executor.getContextActionId(), RUN_CONTEXT_EXECUTORS_GROUP, contextActionIdToAction, actionManager)
-    }
+    //if (isExecutorInMainGroup(executor)) {
+    //  unregisterAction(executor.getContextActionId(), RUN_CONTEXT_EXECUTORS_GROUP, contextActionIdToAction, actionManager)
+    //}
     else {
       unregisterAction(executor.getContextActionId(), RUN_CONTEXT_GROUP_MORE, contextActionIdToAction, actionManager)
     }
@@ -379,14 +379,14 @@ private fun initExecutorActions(
   )
 
   val action = registerAction(actionRegistrar, executor.getContextActionId(), runContextAction, contextActionIdToAction)
-  if (isExecutorInMainGroup(executor)) {
-    val group = actionRegistrar.getActionOrStub(RUN_CONTEXT_EXECUTORS_GROUP) as DefaultActionGroup
-    actionRegistrar.addToGroup(group, action, Constraints.LAST)
-  }
-  else {
-    val group = actionRegistrar.getActionOrStub(RUN_CONTEXT_GROUP_MORE) as DefaultActionGroup
-    actionRegistrar.addToGroup(group, action, Constraints(Anchor.BEFORE, "CreateRunConfiguration"))
-  }
+  //if (isExecutorInMainGroup(executor)) {
+  //  val group = actionRegistrar.getActionOrStub(RUN_CONTEXT_EXECUTORS_GROUP) as DefaultActionGroup
+  //  actionRegistrar.addToGroup(group, action, Constraints.LAST)
+  //}
+  //else {
+  //  val group = actionRegistrar.getActionOrStub(RUN_CONTEXT_GROUP_MORE) as DefaultActionGroup
+  //  actionRegistrar.addToGroup(group, action, Constraints(Anchor.BEFORE, "CreateRunConfiguration"))
+  //}
 
   val nonExistingAction = registerAction(
     actionRegistrar = actionRegistrar,
@@ -394,8 +394,8 @@ private fun initExecutorActions(
     anAction = runNonExistingContextAction,
     idToAction = contextActionIdToAction,
   )
-  val group = actionRegistrar.getActionOrStub(RUN_CONTEXT_GROUP_MORE) as DefaultActionGroup
-  actionRegistrar.addToGroup(group, nonExistingAction, Constraints(Anchor.BEFORE, "CreateNewRunConfiguration"))
+  //val group = actionRegistrar.getActionOrStub(RUN_CONTEXT_GROUP_MORE) as DefaultActionGroup
+  //actionRegistrar.addToGroup(group, nonExistingAction, Constraints(Anchor.BEFORE, "CreateNewRunConfiguration"))
 
   if (toolbarSettings.isAvailable) {
     initRunToolbarExecutorActions(executor = executor, actionRegistrar = actionRegistrar, runWidgetIdToAction = runWidgetIdToAction)

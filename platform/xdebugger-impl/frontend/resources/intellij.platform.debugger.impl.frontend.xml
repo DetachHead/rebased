@@ -18,8 +18,8 @@
     <action id="QuickEvaluateExpression" class="com.intellij.platform.debugger.impl.frontend.actions.QuickEvaluateAction"/>
 
     <action id="XDebugger.Hotswap.Modified.Files" class="com.intellij.platform.debugger.impl.frontend.hotswap.HotSwapModifiedFilesAction">
-      <add-to-group group-id="DebugReloadGroup" anchor="first"/>
-      <add-to-group group-id="EditorPopupMenuDebugHotSwap" anchor="first"/>
+      <!--<add-to-group group-id="DebugReloadGroup" anchor="first"/>-->
+      <!--<add-to-group group-id="EditorPopupMenuDebugHotSwap" anchor="first"/>-->
     </action>
     <action id="XDebugger.Split.Enable" class="com.intellij.platform.debugger.impl.frontend.EnabledSplitDebuggerAction" internal="true"/>
   </actions>

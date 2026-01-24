@@ -55,7 +55,7 @@
     </action>
 
     <action class="com.intellij.execution.testDiscovery.actions.ShowAffectedTestsAction" id="ShowDiscoveredTests">
-      <add-to-group group-id="RunTestGroup" anchor="last"/>
+      <!--<add-to-group group-id="RunTestGroup" anchor="last"/>-->
       <add-to-group group-id="ChangesViewPopupMenu" anchor="last"/>
     </action>
 
@@ -127,7 +127,7 @@
     <group id="ToolbarMakeGroup">
       <reference ref="CompileDirty"/>
 
-      <add-to-group group-id="ToolbarRunGroup" relative-to-action="RunConfiguration" anchor="before"/>
+      <!--<add-to-group group-id="ToolbarRunGroup" relative-to-action="RunConfiguration" anchor="before"/>-->
     </group>
 
     <group id="EditorTabCompileGroup">

@@ -49,7 +49,7 @@
     </group>
     <group id="CoveragePlatformMenu" popup="false">
       <reference ref="CoverageMenu"/>
-      <add-to-group group-id="RunTestGroup" anchor="last"/>
+      <!--<add-to-group group-id="RunTestGroup" anchor="last"/>-->
     </group>
   </actions>
 </idea-plugin>

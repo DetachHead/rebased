@@ -183,14 +183,14 @@
     </group>
     <group id="XDebugger.Actions">
       <action id="Debugger.AddToWatch" class="com.intellij.xdebugger.impl.actions.AddToWatchesAction" icon="AllIcons.Debugger.AddToWatch">
-        <add-to-group group-id="EditorPopupMenuDebug" anchor="after" relative-to-action="ForceRunToCursor"/>
+        <!--<add-to-group group-id="EditorPopupMenuDebug" anchor="after" relative-to-action="ForceRunToCursor"/>-->
       </action>
       <action id="Debugger.AddInlineWatch" class="com.intellij.xdebugger.impl.inline.AddInlineWatchAction"
               icon="AllIcons.Debugger.AddToWatch">
-        <add-to-group group-id="EditorPopupMenuDebug" anchor="after" relative-to-action="Debugger.AddToWatch"/>
+        <!--<add-to-group group-id="EditorPopupMenuDebug" anchor="after" relative-to-action="Debugger.AddToWatch"/>-->
       </action>
       <action id="Debugger.EvaluateInConsole" class="com.intellij.xdebugger.impl.actions.EvaluateInConsoleAction">
-        <add-to-group group-id="EditorPopupMenuDebug" anchor="after" relative-to-action="Debugger.AddInlineWatch"/>
+        <!--<add-to-group group-id="EditorPopupMenuDebug" anchor="after" relative-to-action="Debugger.AddInlineWatch"/>-->
       </action>
 
       <action id="XDebugger.Inspect" class="com.intellij.xdebugger.impl.ui.tree.actions.XInspectAction"/>

@@ -100,55 +100,6 @@ import kotlin.time.Duration.Companion.milliseconds
 
 private val DEFAULT_ACTION_GROUP_CLASS_NAME = DefaultActionGroup::class.java.name
 
-// we maintain these lists here of disabled actions/groups in Rebased so we can just ignore errors from all the references.
-// we do this to minimize the number of changes we need to make from upstream by having to remove all usages
-
-private val groupsDisabledInRebased = setOf(
-  "ProjectViewPopupMenu",
-  "NewProjectOrModuleGroup",
-  "MarkRootGroup",
-  "EditorPopupMenuDebug",
-  "EditorPopupMenuDebugHotSwap",
-  "RunTestGroup",
-  "DebugReloadGroup",
-  "RunToolbarAdditionalProcessActions",
-  "AdditionalRunningOptionsGroupMain",
-  "RunToolbarMainMoreActionGroup",
-  "RunMenu",
-  "EditorPopupMenu.GoTo",
-  "GoToCodeGroup",
-  "RunTab.TopToolbar",
-  "RunTab.TopToolbar.Old",
-  "EditorLangPopupMenu",
-  "NewWebDevelopment",
-  "NewGroup",
-  "GenerateGroup",
-  "compositeResumeGroup",
-  "Floating.CodeToolbar",
-  "TouchBarDebug"
-)
-private val actionsDisabledInRebased = setOf(
-  "ExternalToolsGroup",
-  "RefactoringMenu",
-  "FindUsages",
-  "Debugger.PopFrame",
-  "ViewBreakpoints",
-  "ShowExecutionPoint",
-  "EvaluateExpression",
-  "Resume.Ref",
-  "Pause.Ref",
-  "Stop",
-  "RunToCursor",
-  "ForceRunToCursor",
-  "SmartStepInto",
-  "ForceStepInto",
-  "ForceStepOver",
-  "StepOut",
-  "StepInto",
-  "StepOver.Ref",
-  "Rerun",
-)
-
 @ApiStatus.Internal
 open class ActionManagerImpl protected constructor(private val coroutineScope: CoroutineScope) : ActionManagerEx() {
   private val notRegisteredInternalActionIds = ArrayList<String>()
@@ -837,11 +788,9 @@ open class ActionManagerImpl protected constructor(private val coroutineScope: C
 
     val parentGroup = getAction(id = groupId, canReturnStub = true, actionRegistrar = actionRegistrar)
     if (parentGroup == null) {
-      if (groupId !in groupsDisabledInRebased) {
-        reportActionError(module = module,
-                          message = "$actionName: group with id \"$groupId\" isn't registered so the action won't be added to it; the action can be invoked via \"Find Action\"",
-                          cause = null)
-      }
+      reportActionError(module = module,
+                        message = "$actionName: group with id \"$groupId\" isn't registered so the action won't be added to it; the action can be invoked via \"Find Action\"",
+                        cause = null)
       return null
     }
     if (parentGroup !is DefaultActionGroup) {
@@ -922,7 +871,7 @@ open class ActionManagerImpl protected constructor(private val coroutineScope: C
 
     val action = getAction(id = ref, canReturnStub = true, actionRegistrar = actionRegistrar)
     if (action == null) {
-      if (!notRegisteredInternalActionIds.contains(ref) && ref !in actionsDisabledInRebased) {
+      if (!notRegisteredInternalActionIds.contains(ref)) {
         reportActionError(module, "action specified by reference isn't registered (ID=$ref)", null)
       }
       return null

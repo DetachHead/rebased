@@ -12,6 +12,9 @@
   <xi:include href="/META-INF/PlatformLangComponents.xml"/>
   <xi:include href="/idea/PriorityEditorLangActions.xml"/>
   <xi:include href="/idea/PlatformActions.xml"/>
+  <xi:include href="/META-INF/PlatformExecutionActions.xml"/>
+  <!--<xi:include href="/idea/ExecutionActions.xml"/>-->
+  <xi:include href="/idea/LangActions.xml"/>
   <xi:include href="/idea/UsageViewActions.xml"/>
   <xi:include href="/idea/ProblemsViewActions.xml"/>
 
@@ -34,6 +37,7 @@
   <xi:include href="/META-INF/LangExtensionPoints.xml"/>
 
   <xi:include href="/META-INF/PlatformExtensions.xml"/>
+  <xi:include href="/META-INF/PlatformExecutionExtensions.xml"/>
 
   <xi:include href="/META-INF/LangExtensions.xml"/>
   <xi:include href="/META-INF/ProjectModelLangExtensions.xml"/>

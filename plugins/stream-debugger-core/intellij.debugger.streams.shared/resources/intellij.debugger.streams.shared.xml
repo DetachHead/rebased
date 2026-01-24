@@ -7,8 +7,8 @@
     <action id="StreamTracerAction"
             class="com.intellij.debugger.streams.shared.TraceStreamAction"
             icon="com.intellij.debugger.streams.shared.icons.DebuggerStreamsSharedIcons.Stream_debugger">
-      <add-to-group group-id="XDebugger.ToolWindow.TopToolbar" anchor="after" relative-to-action="EvaluateExpression"/>
-      <add-to-group group-id="XDebugger.ToolWindow.TopToolbar3.Extra"/>
+      <!--<add-to-group group-id="XDebugger.ToolWindow.TopToolbar" anchor="after" relative-to-action="EvaluateExpression"/>-->
+      <!--<add-to-group group-id="XDebugger.ToolWindow.TopToolbar3.Extra"/>-->
     </action>
   </actions>
   <extensions defaultExtensionNs="com.intellij">

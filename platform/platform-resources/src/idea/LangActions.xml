@@ -568,8 +568,8 @@
 
     <group id="NavBarToolBarOthers"/>
     <group id="NavBarToolBar">
-      <reference ref="ToolbarRunGroup"/>
-      <separator/>
+      <!--<reference ref="ToolbarRunGroup"/>-->
+      <!--<separator/>-->
       <reference ref="NavBarVcsGroup"/>
       <separator/>
       <reference ref="NavBarToolBarOthers"/>
@@ -628,7 +628,7 @@
       <separator/>
       <reference ref="ProjectViewPopupMenuModifyGroup"/>
       <separator/>
-      <reference ref="ProjectViewPopupMenuRunGroup"/>
+      <!--<reference ref="ProjectViewPopupMenuRunGroup"/>-->
       <reference ref="SplitRevealGroup"/>
       <separator/>
       <reference ref="VersionControlsGroup"/>
@@ -683,7 +683,7 @@
       <separator/>
       <reference ref="ProjectViewPopupMenuModifyGroup"/>
       <separator/>
-      <reference ref="ProjectViewPopupMenuRunGroup"/>
+      <!--<reference ref="ProjectViewPopupMenuRunGroup"/>-->
       <reference ref="SplitRevealGroup"/>
       <separator/>
       <reference ref="VersionControlsGroup"/>
@@ -806,7 +806,7 @@
       <separator/>
       <reference ref="CutCopyPasteGroup"/>
       <separator/>
-      <reference ref="RunContextPopupGroup"/>
+      <!--<reference ref="RunContextPopupGroup"/>-->
       <reference ref="SplitRevealGroup"/>
       <reference ref="VersionControlsGroup"/>
       <separator/>
@@ -836,9 +836,9 @@
       <reference ref="Generate"/>
       <separator/>
 
-      <group id="EditorPopupMenu.Run">
-        <reference ref="RunContextPopupGroup"/>
-      </group>
+      <!--<group id="EditorPopupMenu.Run">-->
+      <!--  <reference ref="RunContextPopupGroup"/>-->
+      <!--</group>-->
       <reference ref="SplitRevealGroup"/>
       <separator/>
       <reference ref="VersionControlsGroup"/>
@@ -854,7 +854,7 @@
       <reference ref="AssociateWithFileType"/>
       <reference ref="MarkFileAs"/>
       <separator/>
-      <reference ref="RunContextPopupGroup"/>
+      <!--<reference ref="RunContextPopupGroup"/>-->
       <reference ref="SplitRevealGroup"/>
       <separator/>
       <reference ref="VersionControlsGroup"/>
@@ -879,8 +879,8 @@
       <separator/>
       <action id="UsageView.ShowRecentFindUsages" class="com.intellij.find.impl.ShowRecentFindUsagesAction" use-shortcut-of="ShowSearchHistory"/>
       <separator/>
-      <reference ref="RunContextGroup"/>
-      <separator/>
+      <!--<reference ref="RunContextGroup"/>-->
+      <!--<separator/>-->
       <reference ref="ExportToTextFile"/>
     </group>
 
@@ -925,7 +925,7 @@
       <reference ref="FindUsages"/>
       <reference ref="RefactoringMenu"/>
       <separator/>
-      <reference ref="RunContextPopupGroup"/>
+      <!--<reference ref="RunContextPopupGroup"/>-->
       <reference ref="SplitRevealGroup"/>
       <separator/>
       <reference ref="ReformatCode"/>
@@ -940,17 +940,17 @@
       <reference ref="CompareFileWithEditor"/>
     </group>
 
-    <group id="EditorPopupMenuDebug">
-      <separator/>
-      <reference ref="EvaluateExpression"/>
-      <reference ref="RunToCursor"/>
-      <reference ref="ForceRunToCursor"/>
-      <separator/>
-      <group id="EditorPopupMenuDebugHotSwap">
-        <separator/>
-      </group>
-      <add-to-group group-id="EditorLangPopupMenu" relative-to-action="EditorPopupMenu.Run" anchor="before"/>
-    </group>
+    <!--<group id="EditorPopupMenuDebug">-->
+    <!--  <separator/>-->
+    <!--  <reference ref="EvaluateExpression"/>-->
+    <!--  <reference ref="RunToCursor"/>-->
+    <!--  <reference ref="ForceRunToCursor"/>-->
+    <!--  <separator/>-->
+    <!--  <group id="EditorPopupMenuDebugHotSwap">-->
+    <!--    <separator/>-->
+    <!--  </group>-->
+    <!--  <add-to-group group-id="EditorLangPopupMenu" relative-to-action="EditorPopupMenu.Run" anchor="before"/>-->
+    <!--</group>-->
 
     <group id="ConsoleView.PopupMenu">
       <reference ref="ConsoleEditorPopupMenu"/>
@@ -1076,7 +1076,7 @@
     <action id="UpdateRunningApplication" class="com.intellij.execution.update.UpdateRunningApplicationAction"
             icon="AllIcons.Javaee.UpdateRunningApplication">
       <keyboard-shortcut first-keystroke="control F10" keymap="$default"/>
-      <add-to-group group-id="DebugReloadGroup" anchor="last"/>
+      <!--<add-to-group group-id="DebugReloadGroup" anchor="last"/>-->
     </action>
 
     <!--region TouchBar-->
