@@ -620,8 +620,8 @@
                     serviceImplementation="com.intellij.openapi.project.IncompleteDependenciesServiceImpl"/>
     <statistics.counterUsagesCollector implementationClass="com.intellij.openapi.project.DumbModeBlockedFunctionalityCollector"/>
 
-    <projectService serviceInterface="com.intellij.openapi.project.UnindexedFilesScannerExecutor"
-                    serviceImplementation="com.intellij.util.indexing.UnindexedFilesScannerExecutorImpl"/>
+    <!--<projectService serviceInterface="com.intellij.openapi.project.UnindexedFilesScannerExecutor"-->
+    <!--                serviceImplementation="com.intellij.util.indexing.UnindexedFilesScannerExecutorImpl"/>-->
     <registryKey defaultValue="true" key="scanning.waits.for.non.dumb.mode" restartRequired="false"
                  description="Scanning will wait until the end of current dumb mode (if any)"/>
     <registryKey defaultValue="true" key="scanning.hide.progress.in.smart.mode" restartRequired="false"
