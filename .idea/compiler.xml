@@ -7,7 +7,7 @@
     <project-library name="devkit.runtime.module.repository.jps" />
   </component>
   <component name="CompilerConfiguration">
-    <option name="BUILD_PROCESS_HEAP_SIZE" value="10000" />
+    <option name="BUILD_PROCESS_HEAP_SIZE" value="3000" />
     <option name="BUILD_PROCESS_ADDITIONAL_VM_OPTIONS" value="-Dorg.jetbrains.jps.incremental.dependencies.resolution.retry.download.corrupted.zip=true" />
     <option name="PARALLEL_COMPILATION_OPTION" value="Disabled" />
     <resourceExtensions>
