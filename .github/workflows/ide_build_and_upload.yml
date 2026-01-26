@@ -123,7 +123,7 @@ jobs:
           chmod +x appimagetool
 
       - name: Build AppImage
-        run: ./appimagetool appdir -u "gh-releases-zsync|$GITHUB_REPOSITORY_OWNER|rebased|latest-all|Rebased-x86_64.AppImage.zsync"
+        run: ./appimagetool appdir -u "gh-releases-zsync|$GITHUB_REPOSITORY_OWNER|rebased|latest|Rebased-x86_64.AppImage.zsync"
 
       - name: Upload .AppImage
         uses: ./.github/actions/upload_ide
