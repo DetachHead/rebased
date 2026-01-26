@@ -251,7 +251,7 @@ internal class UpdateInfoPanel(
     }
     return when {
       patchSize != null -> IdeBundle.message("updates.from.to.size", appInfo.fullVersion, newBuild.version, newBuild.number.withoutProductCode(), patchSize)
-      else -> IdeBundle.message("updates.from.to", appInfo.fullVersion, newBuild.version, newBuild.number.withoutProductCode())
+      else -> IdeBundle.message("updates.from.to", appInfo.build.withoutProductCode(), newBuild.version)
     }
   }
 

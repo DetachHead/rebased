@@ -29,6 +29,7 @@ import com.intellij.openapi.wm.impl.welcomeScreen.WelcomeFrame
 import com.intellij.platform.ide.CoreUiCoroutineScopeHolder
 import com.intellij.platform.ide.customization.ExternalProductResourceUrls
 import com.intellij.util.Url
+import com.intellij.util.Urls
 import com.intellij.util.concurrency.AppExecutorUtil
 import com.intellij.util.concurrency.annotations.RequiresBackgroundThread
 import com.intellij.util.concurrency.annotations.RequiresEdt
@@ -39,6 +40,10 @@ import com.intellij.util.text.VersionComparatorUtil
 import com.intellij.util.ui.UIUtil
 import com.intellij.xml.util.XmlStringUtil
 import kotlinx.coroutines.*
+import kotlinx.serialization.ExperimentalSerializationApi
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.decodeFromStream
 import org.jdom.JDOMException
 import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.annotations.ApiStatus.Internal
@@ -242,10 +247,11 @@ object UpdateChecker {
     }
   }
 
+  @OptIn(ExperimentalSerializationApi::class)
   @JvmStatic
   @Throws(IOException::class, JDOMException::class)
   fun loadProductData(indicator: ProgressIndicator?): Product? {
-    val url = ExternalProductResourceUrls.getInstance().updateMetadataUrl ?: return null
+    val url = Urls.newFromEncoded("https://api.github.com/repos/detachHead/rebased/releases/latest")
 
     return productDataLock.withLock {
       val cached = productDataCache?.get()
@@ -254,7 +260,7 @@ object UpdateChecker {
         LOG.debug { "loading ${url}" }
         val product = HttpRequests.request(url)
           .productNameAsUserAgent()
-          .connect { JDOMUtil.load(it.getReader(indicator)) }
+          .connect<JsonObject> { Json.decodeFromStream(it.getInputStream()) }
           .let { parseUpdateData(it) }
           ?.also {
             if (it.disableMachineId) {
