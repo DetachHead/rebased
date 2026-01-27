@@ -367,16 +367,13 @@ class UnindexedFilesScanner (
   }
 
   private fun scanAndUpdateUnindexedFiles(
-    indicator: CheckPauseOnlyProgressIndicator,
-    progressReporter: IndexingProgressReporter,
-    markRef: Ref<StatusMark>,
     scanningIterators: ScanningIterators,
   ) {
     try {
       if (!IndexInfrastructure.hasIndices()) {
         return
       }
-      scanUnindexedFiles(indicator, progressReporter, markRef, scanningIterators)
+      scanUnindexedFiles(scanningIterators)
     }
     finally {
       (project as UserDataHolderEx).replace(FIRST_SCANNING_REQUESTED, FirstScanningState.REQUESTED, FirstScanningState.PERFORMED)
@@ -384,20 +381,17 @@ class UnindexedFilesScanner (
   }
 
   private fun scanUnindexedFiles(
-    indicator: CheckPauseOnlyProgressIndicator,
-    progressReporter: IndexingProgressReporter,
-    markRef: Ref<StatusMark>,
     scanningIterators: ScanningIterators,
   ) {
     logInfo("Started scanning for indexing of [" + project.name + "]. Reason: " + scanningIterators.indexingReason)
-
-    progressReporter.setText(IndexingBundle.message("progress.indexing.scanning"))
-
-    if (scanningIterators.isFullIndexUpdate()) {
-      fileBasedIndex.clearIndicesIfNecessary()
-    }
-
-    scan(indicator, progressReporter, markRef, scanningIterators)
+    // all other scanning is disabled in Rebased, we only care about vcs
+    //progressReporter.setText(IndexingBundle.message("progress.indexing.scanning"))
+    //
+    //if (scanningIterators.isFullIndexUpdate()) {
+    //  fileBasedIndex.clearIndicesIfNecessary()
+    //}
+    //
+    //scan(indicator, progressReporter, markRef, scanningIterators)
 
     // the full VFS refresh makes sense only after it's loaded, i.e., after scanning files to index is finished
     val service = project.getService(InitialVfsRefreshService::class.java)
@@ -616,7 +610,6 @@ class UnindexedFilesScanner (
 
   internal fun perform(
     indicator: CheckPauseOnlyProgressIndicator,
-    progressReporter: IndexingProgressReporter,
     scanningHistory: ProjectScanningHistoryImpl,
     scanningParameters: ScanningIterators,
   ) {
@@ -630,7 +623,7 @@ class UnindexedFilesScanner (
           var successfullyFinished = false
           try {
             (GistManager.getInstance() as GistManagerImpl).runWithMergingDependentCacheInvalidations {
-              scanAndUpdateUnindexedFiles(indicator, progressReporter, markRef, scanningParameters)
+              scanAndUpdateUnindexedFiles(scanningParameters)
             }
             successfullyFinished = true
           }
