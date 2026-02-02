@@ -1,0 +1,13 @@
+on:
+  pull_request:
+    branches:
+      - master
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4.2.2
+        with:
+          submodules: true
+      - run: ./tests.cmd
