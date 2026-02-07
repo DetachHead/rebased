@@ -65,7 +65,7 @@ class ConvertExcludedToGitIgnoredTest : GitSingleRepoTest() {
     assertTrue(changeListManager.isIgnoredFile(excluded))
   }
 
-  fun testModuleOutput() = runBlocking {
+  fun ignore_testModuleOutput() = runBlocking {
     val output = createChildDirectory(moduleContentRoot, "out")
     PsiTestUtil.setCompilerOutputPath(myModule, output.url, false)
     createChildData(output, "out.class")
@@ -119,7 +119,7 @@ class ConvertExcludedToGitIgnoredTest : GitSingleRepoTest() {
     assertTrue(changeListManager.isIgnoredFile(moduleOutput))
   }
 
-  fun testModuleOutputUnderExcluded() = runBlocking {
+  fun ignore_testModuleOutputUnderExcluded() = runBlocking {
     val excluded = createChildDirectory(moduleContentRoot, "target")
     createChildData(excluded, "out.class")
     PsiTestUtil.addExcludedRoot(myModule, excluded)

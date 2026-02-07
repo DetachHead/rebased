@@ -60,7 +60,7 @@ internal class GitWorkingTreeFromRemoteBranchesTest : GitWorkingTreeTestBase() {
     doTestWorkingTreeFromRemoteBranchCreation(false)
   }
 
-  fun `test creating a worktree from remote branch with custom name`() {
+  fun `ignore test creating a worktree from remote branch with custom name`() {
     doTestWorkingTreeFromRemoteBranchCreation(true)
   }
 

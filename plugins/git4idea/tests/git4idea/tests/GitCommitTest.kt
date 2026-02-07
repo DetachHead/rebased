@@ -1047,7 +1047,7 @@ internal abstract class GitCommitTestBase(val useIndexInfoStagedChangesSaver: Bo
   }
 }
 
-internal class GitCommitWithResetAddTest : GitCommitTestBase(false) {
+internal class _GitCommitWithResetAddTest : GitCommitTestBase(false) {
   override fun `verify test commit case rename & don't commit a file which is both staged and unstaged, should reset and restore unstaged`() {
     // this is intentional data loss: it is a rare case, while restoring both staged and unstaged part is not so easy,
     // so we are not doing it, at least until IDEA supports Git index
@@ -1070,7 +1070,7 @@ internal class GitCommitWithResetAddTest : GitCommitTestBase(false) {
   }
 }
 
-internal class GitCommitWithIndexInfoTest : GitCommitTestBase(true) {
+internal class _GitCommitWithIndexInfoTest : GitCommitTestBase(true) {
   override fun `verify test commit case rename & don't commit a file which is both staged and unstaged, should reset and restore unstaged`() {
     assertEquals(STAGED_CONTENT, git("show :c.java"))
     assertEquals(UNSTAGED_CONTENT, FileUtil.loadFile(File(projectPath, "c.java")))

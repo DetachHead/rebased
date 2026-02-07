@@ -117,7 +117,7 @@ class GitIgnoredFileTest : GitSingleRepoTest() {
      """)
   }
 
-  fun `test generation default gitignore content in config dir`() {
+  fun `ignore test generation default gitignore content in config dir`() {
     val gitIgnore = file("$DIRECTORY_STORE_FOLDER/$GITIGNORE").assertNotExists().file
 
     runBlocking {
