@@ -19,6 +19,7 @@ val REBASED_BUNDLED_PLUGINS = DEFAULT_BUNDLED_PLUGINS + persistentListOf(
   "intellij.keymap.visualStudio",
   "intellij.keymap.netbeans",
   "intellij.terminal",
+  "intellij.textmate.plugin",
 )
 
 
@@ -31,7 +32,6 @@ val IDEA_BUNDLED_PLUGINS: PersistentList<String> = REBASED_BUNDLED_PLUGINS + per
   "intellij.java.ide.customization",
   "intellij.copyright",
   "intellij.properties",
-  "intellij.textmate.plugin",
   "intellij.editorconfig.plugin",
   "intellij.configurationScript",
   "intellij.json",
