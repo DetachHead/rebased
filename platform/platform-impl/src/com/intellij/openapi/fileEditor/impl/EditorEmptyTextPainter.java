@@ -77,8 +77,6 @@ public class EditorEmptyTextPainter {
     appendToolWindow(painter, IdeBundle.message("empty.text.commit.view"), ToolWindowId.COMMIT, splitters);
     appendToolWindow(painter, IdeBundle.message("empty.text.terminal.view"), ToolWindowId.TERMINAL, splitters);
     appendToolWindow(painter, IdeBundle.message("empty.text.pr.view"), ToolWindowId.PULL_REQUESTS, splitters);
-    appendLine(painter, IdeBundle.message("empty.text.information"));
-    appendAction(painter, "Open GitHub Repository", getActionShortcutText("OpenGitHubRepository"));
   }
 
   protected void appendDnd(@NotNull UIUtil.TextPainter painter) {

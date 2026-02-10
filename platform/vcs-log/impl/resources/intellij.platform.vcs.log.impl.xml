@@ -159,9 +159,6 @@
         <keyboard-shortcut first-keystroke="control G" keymap="$default"/>
         <add-to-group group-id="EditorTabsEntryPoint" anchor="before" relative-to-action="RecentFiles"/>
       </action>
-      <action class="com.intellij.vcs.log.ui.actions.OpenGitHubAction" id="OpenGitHubRepository">
-        <keyboard-shortcut first-keystroke="alt G" keymap="$default"/>
-      </action>
       <action class="com.intellij.vcs.log.ui.actions.RefreshLogAction" id="Vcs.Log.Refresh" use-shortcut-of="Refresh" icon="AllIcons.Actions.Refresh"/>
       <action class="com.intellij.vcs.log.ui.actions.ShowCommitTooltipAction" id="Vcs.Log.ShowTooltip"
               use-shortcut-of="QuickJavaDoc"/>
