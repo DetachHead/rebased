@@ -60,7 +60,7 @@ internal class IdeVcsLogManager(
     mainUiCs.launch(Dispatchers.EdtImmediate) {
       mainUiHolderState.collect { holder ->
         val file = VcsLogVirtualFileSystem.Holder.getInstance().
-        createVcsLogFile(project, UUID.randomUUID().toString(), null)
+        createVcsLogFile(project, "", null)
         val editor = FileEditorManager.getInstance(project).openFile(file, false, true)
         val ui = VcsLogEditorUtil.findVcsLogUi(editor,MainVcsLogUi::class.java)
         if (holder != null) {
