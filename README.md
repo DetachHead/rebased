@@ -19,7 +19,7 @@ See [this youtrack issue](https://youtrack.jetbrains.com/issue/IJPL-72504/Make-g
 Download from [GitHub releases](https://github.com/DetachHead/rebased/releases)
 
 > [!TIP]
-> For linux users, we recommend installing the AppImage using [Gear Lever](https://github.com/mijorus/gearlever), which manages updates and allows you to install it to your applications menu.
+> For linux users, we recommend using either [AppManager](https://github.com/kem-a/AppManager) or [Gear Lever](https://github.com/mijorus/gearlever) to install the AppImage to your applications menu, and for automatic updates.
 
 ## Credits
 
