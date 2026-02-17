@@ -108,7 +108,7 @@ jobs:
           [Desktop Entry]
           Name=Rebased
           Exec=AppRun
-          Icon=/usr/bin/idea
+          Icon=rebased
           Type=Application
           Categories=Development;IDE;
           Terminal=false
@@ -116,6 +116,9 @@ jobs:
           StartupNotify=true
           X-AppImage-Version=${{inputs.version}}
           EOF
+          
+          # icon
+          ln -s usr/bin/idea.png appdir/rebased.png
 
       - name: Install appimagetool
         run: |
