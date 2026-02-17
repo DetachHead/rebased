@@ -114,6 +114,7 @@ jobs:
           Terminal=false
           StartupWMClass=jetbrains-rebased
           StartupNotify=true
+          X-AppImage-Version=${{inputs.version}}
           EOF
 
       - name: Install appimagetool
