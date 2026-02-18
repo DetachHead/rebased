@@ -159,8 +159,8 @@
       </action>
       <group class="com.intellij.vcs.log.ui.actions.ToggleLogColumnsActionGroup" id="Vcs.Log.ToggleColumns"/>
       <group class="com.intellij.vcs.log.ui.actions.HighlightersActionGroup" id="Vcs.Log.HighlightersActionGroup"/>
-      <action class="com.intellij.vcs.log.ui.actions.OpenAnotherLogTabAction$InToolWindow" id="Vcs.Log.OpenAnotherTab"
-              icon="AllIcons.General.Add"/>
+      <!--<action class="com.intellij.vcs.log.ui.actions.OpenAnotherLogTabAction$InToolWindow" id="Vcs.Log.OpenAnotherTab"-->
+      <!--        icon="AllIcons.General.Add"/>-->
       <action class="com.intellij.vcs.log.ui.actions.OpenAnotherLogTabAction$InEditor" id="Vcs.Log.OpenAnotherTabInEditor" icon="AllIcons.Actions.OpenNewTab">
         <keyboard-shortcut first-keystroke="control G" keymap="$default"/>
         <add-to-group group-id="EditorTabsEntryPoint" anchor="before" relative-to-action="RecentFiles"/>
@@ -271,10 +271,10 @@
       <reference ref="Vcs.Log.ShowChangesFromParents"/>
     </group>
     <group id="Vcs.Log.ToolWindow.TabActions">
-      <reference ref="Vcs.Log.OpenAnotherTab"/>
+      <!--<reference ref="Vcs.Log.OpenAnotherTab"/>-->
       <group id="Vcs.Log.ToolWindow.TabActions.DropDown" icon="AllIcons.Toolbar.Expand" popup="true"
              class="com.intellij.vcs.log.ui.actions.VcsLogToolWindowDropdownActionGroup">
-        <reference ref="Vcs.Log.OpenAnotherTabInEditor"/>
+        <!--<reference ref="Vcs.Log.OpenAnotherTabInEditor"/>-->
         <reference ref="Vcs.ShowTabbedFileHistory"/>
         <reference ref="Vcs.ShowConsoleTab"/>
         <separator/>
@@ -346,7 +346,7 @@
       <reference ref="Vcs.Log.Diff.Preview.Location"/>
       <separator/>
       <reference ref="Vcs.Log.Refresh"/>
-      <reference ref="Vcs.Log.OpenAnotherTab"/>
+      <!--<reference ref="Vcs.Log.OpenAnotherTab"/>-->
       <reference ref="Vcs.Log.OpenAnotherTabInEditor"/>
       <reference ref="Vcs.Log.ResumeIndexing"/>
 
