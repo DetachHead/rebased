@@ -141,9 +141,9 @@ object CommunityModuleSets {
     module("intellij.platform.navbar.frontend")
     module("intellij.platform.navbar.monolith")
 
-    module("intellij.platform.execution.serviceView")
-    module("intellij.platform.execution.serviceView.frontend")
-    module("intellij.platform.execution.serviceView.backend")
+    //module("intellij.platform.execution.serviceView")
+    //module("intellij.platform.execution.serviceView.frontend")
+    //module("intellij.platform.execution.serviceView.backend")
     module("intellij.platform.execution.dashboard")
     module("intellij.platform.execution.dashboard.frontend")
     module("intellij.platform.execution.dashboard.backend")
