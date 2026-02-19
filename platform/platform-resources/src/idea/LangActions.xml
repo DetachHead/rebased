@@ -65,6 +65,10 @@
     <!-- File -->
 
     <group id="NewProjectOrModuleGroup">
+      <action id="ProjectFromVersionControl" class="com.intellij.openapi.wm.impl.welcomeScreen.ProjectFromVersionControlAction">
+        <override-text place="ProjectWidgetPopup"/>
+        <add-to-group group-id="ProjectWidget.Actions"/>
+      </action>
     </group>
 
     <action id="SaveFileAsTemplate" class="com.intellij.ide.actions.SaveFileAsTemplateAction">
