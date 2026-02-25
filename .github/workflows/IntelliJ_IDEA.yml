@@ -50,9 +50,6 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4.1.8
 
-      - name: create appimage zsync file
-        run: zsyncmake **/*.AppImage
-
       - name: Create Release
         uses: marvinpinto/action-automatic-releases@v1.2.1
         with:

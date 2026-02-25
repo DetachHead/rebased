@@ -44,3 +44,4 @@ runs:
           ${{inputs.artifacts_dir}}/*.${{inputs.extension}}
           ${{inputs.artifacts_dir}}/*.spdx.json
           ${{inputs.artifacts_dir}}/*.sha256
+          ${{inputs.artifacts_dir}}/*.zsync
