@@ -776,9 +776,9 @@
                              bundle="messages.IdeBundle"
                              key="title.plugins"/>
 
-    <applicationConfigurable parentId="preferences.general" instance="com.intellij.ide.gdpr.ConsentConfigurable" id="consents"
-                             bundle="messages.IdeBundle"
-                             key="consent.configurable"/>
+    <!--<applicationConfigurable parentId="preferences.general" instance="com.intellij.ide.gdpr.ConsentConfigurable" id="consents"-->
+    <!--                         bundle="messages.IdeBundle"-->
+    <!--                         key="consent.configurable"/>-->
 
     <applicationConfigurable parentId="preferences.general" instance="com.intellij.ide.ui.text.DateTimeFormatConfigurable"
                              id="ide.date.format"
