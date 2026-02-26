@@ -2,7 +2,7 @@
 <idea-plugin>
   <extensions defaultExtensionNs="com.intellij">
     <applicationService serviceInterface="com.intellij.platform.ide.customization.ExternalProductResourceUrls"
-                        serviceImplementation="com.intellij.idea.customization.base.IntelliJIdeaExternalResourceUrls"
+                        serviceImplementation="com.intellij.idea.customization.base.RebasedExternalResourceUrls"
                         overrides="true"/>
   </extensions>
 </idea-plugin>

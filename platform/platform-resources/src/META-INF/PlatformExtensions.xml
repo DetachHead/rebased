@@ -20,7 +20,7 @@
       serviceImplementation="com.intellij.openapi.editor.impl.EditorThreadingImpl"
     />
 
-    <errorHandler implementation="com.intellij.diagnostic.ITNReporter"/>
+    <errorHandler implementation="com.intellij.diagnostic.GithubIssueReporter"/>
     <appStarter id="save" implementation="com.intellij.openapi.application.SaveStarter"/>
     <appStarter id="exit" implementation="com.intellij.openapi.application.ExitStarter"/>
     <appStarter id="dumpLaunchParameters" implementation="com.intellij.openapi.application.DumpLaunchParametersStarter"/>
