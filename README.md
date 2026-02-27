@@ -5,9 +5,6 @@ A git client based on the IntelliJ platform.
 This project aims to be an open-source remake of the short-lived [jetbrains git client](https://youtrack.jetbrains.com/issue/IJPL-72504/Make-git-client-a-standalone-app#focus=Comments-27-12868395.0-0).
 It's basically just a JetBrains IDE with all the bundled plugins removed except the git integration, with some additional UI tweaks.
 
-> [!WARNING]
-> Rebased is still in early development. Expect some things to be broken.
-
 ![](screenshot.png)
 
 ## Why?
