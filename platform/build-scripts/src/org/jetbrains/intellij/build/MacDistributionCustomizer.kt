@@ -300,21 +300,16 @@ class MacCustomizerBuilder @PublishedApi internal constructor(private val projec
 inline fun communityMacCustomizer(projectHome: Path, configure: MacCustomizerBuilder.() -> Unit = {}): MacDistributionCustomizer {
   return macCustomizer(projectHome) {
     // Set Community defaults
-    icnsPath = "build/conf/ideaCE/mac/images/idea.icns"
-    icnsPathForEAP = "build/conf/ideaCE/mac/images/communityEAP.icns"
-    urlSchemes = listOf("idea")
+    icnsPath = "build/conf/ideaCE/mac/images/rebased.icns"
+    icnsPathForEAP = "build/conf/ideaCE/mac/images/rebased.icns"
+    urlSchemes = listOf("rebased")
     associateIpr = true
     fileAssociations = FileAssociation.from("java", "groovy", "kt", "kts")
-    bundleIdentifier = "com.jetbrains.intellij.ce"
+    bundleIdentifier = "io.github.detachhead.rebased"
     dmgImagePath = "build/conf/ideaCE/mac/images/dmg_background.tiff"
     
-    rootDirectoryName { appInfo, buildNumber ->
-      if (appInfo.isEAP) {
-        "IntelliJ IDEA ${appInfo.majorVersion}.${appInfo.minorVersionMainPart} CE EAP.app"
-      }
-      else {
-        "IntelliJ IDEA CE.app"
-      }
+    rootDirectoryName { _, _ ->
+      "Rebased.app"
     }
     
     executableFilePatterns { base, includeRuntime, arch, context ->
