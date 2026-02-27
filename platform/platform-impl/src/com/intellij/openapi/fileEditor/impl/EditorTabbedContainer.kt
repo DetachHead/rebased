@@ -419,11 +419,11 @@ private class TabMouseListener(private val window: EditorWindow, private val edi
         if (tabInfo == info) {
           continue
         }
-        window.manager.closeFile((tabInfo.`object` as VirtualFile), window)
+        window.manager.closeFileWithChecks((tabInfo.`object` as VirtualFile), window)
       }
     }
     else {
-      window.manager.closeFile((info.`object` as VirtualFile), window)
+      window.manager.closeFileWithChecks((info.`object` as VirtualFile), window)
     }
   }
 
@@ -541,9 +541,13 @@ internal fun createTabInfo(
   val tab = TabInfo(component).setObject(file)
   customizer(tab)
   tab.setTestableUi { it.put("editorTab", tab.text) }
-
-  val closeTab = CloseTab(component = component, file = file, editorWindow = window, parentDisposable = parentDisposable)
-  tab.setTabLabelActions(DefaultActionGroup(editorActionGroup, closeTab), ActionPlaces.EDITOR_TAB)
+  val actions = if (canCloseFile(file)) {
+    val closeTab = CloseTab(component = component, file = file, editorWindow = window, parentDisposable = parentDisposable)
+    DefaultActionGroup(editorActionGroup, closeTab)
+  } else {
+    DefaultActionGroup(editorActionGroup)
+  }
+  tab.setTabLabelActions(actions, ActionPlaces.EDITOR_TAB)
   return tab
 }
 
@@ -622,7 +626,10 @@ private class EditorTabs(
     super.uiDataSnapshot(sink)
     sink[CommonDataKeys.PROJECT] = window.owner.manager.project
     sink[EditorWindow.DATA_KEY] = window
-    sink[CloseTarget.KEY] = if (selectedInfo == null) null else this
+    val file = selectedInfo?.`object` as? VirtualFile
+    if (file == null || canCloseFile(file)) {
+      sink[CloseTarget.KEY] = if (selectedInfo == null) null else this
+    }
 
     sink[PlatformCoreDataKeys.FILE_EDITOR] = window.selectedComposite?.selectedEditor
     sink[PlatformDataKeys.LAST_ACTIVE_FILE_EDITOR] = window.owner.currentCompositeFlow.value?.selectedEditor
@@ -633,7 +640,7 @@ private class EditorTabs(
 
   override fun close() {
     val selected = targetInfo ?: return
-    window.manager.closeFile((selected.`object` as VirtualFile), window)
+    window.manager.closeFileWithChecks((selected.`object` as VirtualFile), window)
   }
 
   override fun getEditorWindow(): EditorWindow = window

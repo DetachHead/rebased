@@ -18,6 +18,7 @@ import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.NlsContexts;
 import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.vcs.FileStatusManager;
+import com.intellij.openapi.vfs.VirtualFile;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.ArrayList;
@@ -60,9 +61,17 @@ public abstract class CloseEditorsActionBase extends AnAction implements DumbAwa
     commandProcessor.executeCommand(
       project, () -> {
         List<Pair<EditorComposite, EditorWindow>> filesToClose = getFilesToClose(e);
+        FileEditorManagerEx fileEditorManager = project == null ? null : FileEditorManagerEx.getInstanceEx(project);
         for (int i = 0; i != filesToClose.size(); ++i) {
           final Pair<EditorComposite, EditorWindow> we = filesToClose.get(i);
-          we.getSecond().closeFile(we.getFirst().getFile());
+          final VirtualFile file = we.getFirst().getFile();
+          final EditorWindow window = we.getSecond();
+          // idk if this can actually be null but fall back to the old behavior just in case
+          if (fileEditorManager == null) {
+            window.closeFile(file);
+          } else {
+            fileEditorManager.closeFileWithChecks(file,window);
+          }
         }
       }, IdeBundle.message("command.close.all.unmodified.editors"), null
     );

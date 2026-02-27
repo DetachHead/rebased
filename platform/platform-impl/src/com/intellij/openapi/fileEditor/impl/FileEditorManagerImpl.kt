@@ -194,6 +194,15 @@ import kotlin.time.Duration.Companion.milliseconds
 
 private val LOG = logger<FileEditorManagerImpl>()
 
+/**
+ * Runs pre-close checks on virtual file
+ * @return true if all the checks were successfully passed and the file can be closed
+ */
+internal fun canCloseFile(file: VirtualFile): Boolean {
+  val checks = VirtualFilePreCloseCheck.EP_NAME.extensionsIfPointIsRegistered
+  return checks.all { it.canCloseFile(file) }
+}
+
 @Internal
 @OptIn(ExperimentalCoroutinesApi::class)
 @State(name = "FileEditorManager", storages = [Storage(StoragePathMacros.PRODUCT_WORKSPACE_FILE)], getStateRequiresEdt = true)
@@ -855,15 +864,6 @@ open class FileEditorManagerImpl(
       window.closeFile(file = file, composite = composite)
     }
     return true
-  }
-
-  /**
-   * Runs pre-close checks on virtual file
-   * @return true if all the checks were successfully passed and the file can be closed
-   */
-  private fun canCloseFile(file: VirtualFile): Boolean {
-    val checks = VirtualFilePreCloseCheck.EP_NAME.extensionsIfPointIsRegistered
-    return checks.all { it.canCloseFile(file) }
   }
 
   @RequiresEdt

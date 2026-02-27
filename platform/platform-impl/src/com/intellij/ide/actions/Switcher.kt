@@ -530,7 +530,7 @@ object Switcher : BaseSwitcherAction(null) {
             fileEditorManager.closeFile(virtualFile, false, false)
           }
           else {
-            fileEditorManager.closeFile(virtualFile, window)
+            fileEditorManager.closeFileWithChecks(virtualFile, window)
           }
           ListUtil.removeItem(files.model, selectedIndex)
           if (item.window == null) {

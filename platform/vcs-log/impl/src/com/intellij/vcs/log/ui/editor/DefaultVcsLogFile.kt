@@ -32,8 +32,10 @@ import com.intellij.vcs.log.util.VcsLogUtil
 import java.awt.BorderLayout
 import javax.swing.JComponent
 
-internal class DefaultVcsLogFile(private val pathId: VcsLogVirtualFileSystem.VcsLogComplexPath,
-                                 private var filters: VcsLogFilterCollection? = null) :
+internal class DefaultVcsLogFile(
+  private val pathId: VcsLogVirtualFileSystem.VcsLogComplexPath,
+  private var filters: VcsLogFilterCollection? = null,
+) :
   VcsLogFile(VcsLogTabsUtil.getFullName(pathId.logId)), VirtualFilePathWrapper { //NON-NLS not displayed
 
   private val fileSystemInstance: VcsLogVirtualFileSystem = VcsLogVirtualFileSystem.Holder.getInstance()
@@ -93,6 +95,9 @@ internal class DefaultVcsLogFile(private val pathId: VcsLogVirtualFileSystem.Vcs
   override fun hashCode(): Int {
     return tabId.hashCode()
   }
+
+  // the first log file always gets created with an empty log ID in IdeVcsLogManager.createUi
+  val isFirstLogFile by lazy { pathId.logId == "" }
 
   companion object {
     private val LOG = logger<DefaultVcsLogFile>()

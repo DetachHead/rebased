@@ -110,7 +110,7 @@ internal class CloseTab(
         window.closeAllExcept(file)
       }
       else {
-        fileEditorManager.closeFile(file = file, window = window)
+        fileEditorManager.closeFileWithChecks(file = file, window = window)
       }
     }
 

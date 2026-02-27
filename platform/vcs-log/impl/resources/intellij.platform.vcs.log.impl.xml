@@ -120,6 +120,7 @@
                  defaultValue="true"
                  description="Handles scrolling to the selected commit in the VCS log table. If true, the selected commit will be centered. If false, it will be on the bottom of the table."/>."
     />
+    <virtualFilePreCloseCheck implementation="com.intellij.vcs.log.ui.CanCloseVirtualLogFile"/>
   </extensions>
 
   <projectListeners>
