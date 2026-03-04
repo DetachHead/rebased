@@ -38,7 +38,7 @@ ${it.throwableText.take((maxStackTraceLength))}
 ```"""
     }
     val description =
-"""$additionalInfo
+"""${additionalInfo ?: ""}
 <details><summary>Exceptions</summary><p>
 
 $errorDescriptions
