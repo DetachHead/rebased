@@ -57,6 +57,7 @@ open class RebasedProperties(private val communityHomeDir: Path) : JetBrainsProd
     useSplash = false
     buildCrossPlatformDistribution = true
     buildSourcesArchive = true
+    runtimeDistribution = JetBrainsRuntimeDistribution.LIGHTWEIGHT
 
     productLayout.productImplementationModules = listOf(
       "intellij.platform.starter",
