@@ -175,7 +175,7 @@ private suspend fun prepareConfigurationFiles(nsiConfDir: Path, uninstallerFileN
   val appInfo = context.applicationInfo
   val uninstallFeedbackPage = if (appInfo.isEAP) null else customizer.getUninstallFeedbackPageUrl(appInfo)
   val installDirAndShortcutName = customizer.getNameForInstallDirAndDesktopShortcut(appInfo, context.buildNumber)
-  val fileVersionNum = amendVersionNumber(context.buildNumber.replace(".SNAPSHOT", ".0"))
+  val fileVersionNum = amendVersionNumber(context.buildNumber)
   val productVersionNum = amendVersionNumber(appInfo.majorVersion + '.' + appInfo.minorVersion)
   val versionString = if (appInfo.isEAP) context.buildNumber else "${appInfo.majorVersion}.${appInfo.minorVersion}"
 
@@ -225,7 +225,10 @@ private suspend fun prepareConfigurationFiles(nsiConfDir: Path, uninstallerFileN
     """.trimIndent())
 }
 
-private fun amendVersionNumber(base: String): String = base + ".0".repeat(3 - base.count { it == '.' })
+private fun amendVersionNumber(base: String): String {
+  val versionWithoutSnapshot = base.replace(".SNAPSHOT", ".0")
+  return versionWithoutSnapshot + ".0".repeat(3 - versionWithoutSnapshot.count { it == '.' })
+}
 
 private suspend fun prepareSignTool(nsiConfDir: Path, context: BuildContext, uninstallerCopy: Path): Path {
   val toolFile =
