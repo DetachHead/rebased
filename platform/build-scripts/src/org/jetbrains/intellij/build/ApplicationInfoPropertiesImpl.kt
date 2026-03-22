@@ -110,9 +110,6 @@ internal class ApplicationInfoPropertiesImpl(
             )
           }
         }
-        majorReleaseDate == null || majorReleaseDate.startsWith("__") -> {
-          error("majorReleaseDate may be omitted only for EAP")
-        }
       }
       formatMajorReleaseDate(majorReleaseDateRaw = majorReleaseDate, buildDateInSeconds = buildOptions.buildDateInSeconds)
     }
