@@ -29,7 +29,7 @@
     </xs:complexType>
   </xs:element>
   <xs:complexType name="versionType">
-    <xs:attribute type="xs:positiveInteger" name="major"/>
+    <xs:attribute type="xs:string" name="major"/>
     <xs:attribute type="xs:string" name="minor"/>
     <xs:attribute type="xs:string" name="micro"/>
     <xs:attribute type="xs:string" name="patch"/>

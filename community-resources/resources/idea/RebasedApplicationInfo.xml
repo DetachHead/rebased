@@ -1,5 +1,5 @@
 <component xmlns="http://jetbrains.org/intellij/schema/application-info">
-  <version/> <!-- inferred from build number or version argument in ci -->
+  <version major="__MAJOR_VERSION__" minor="__MINOR_VERSION__"/>
   <company name="detachhead" url="https://github.com/detachhead"/>
   <build number="IC-__BUILD__" date="__BUILD_DATE__"/>
   <logo url="/idea_community_logo.png"/>
