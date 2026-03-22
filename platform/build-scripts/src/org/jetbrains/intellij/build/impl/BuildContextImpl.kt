@@ -165,7 +165,7 @@ class BuildContextImpl internal constructor(
     get() = productProperties.getSystemSelector(applicationInfo, buildNumber)
 
   override val buildNumber: String by lazy {
-    options.buildNumber ?: SnapshotBuildNumber.VALUE
+    options.buildNumber ?: SnapshotBuildNumber.BASE
   }
 
   override val pluginBuildNumber: String by lazy {
