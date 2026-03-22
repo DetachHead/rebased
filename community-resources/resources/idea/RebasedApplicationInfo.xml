@@ -1,0 +1,9 @@
+<component xmlns="http://jetbrains.org/intellij/schema/application-info">
+  <version/> <!-- inferred from build number or version argument in ci -->
+  <company name="detachhead" url="https://github.com/detachhead"/>
+  <build number="IC-__BUILD__" date="__BUILD_DATE__"/>
+  <logo url="/idea_community_logo.png"/>
+  <icon svg="/rebased.svg" svg-small="/rebased_16.svg"/>
+  <icon-eap svg="/rebased.svg" svg-small="/rebased_16.svg"/>
+  <names product="Rebased" fullname="Rebased" script="idea" motto="A git client based on the Intellij platform"/>
+</component>

@@ -7,7 +7,6 @@ import org.jdom.Element
 import org.jdom.Namespace
 import org.jetbrains.annotations.VisibleForTesting
 import org.jetbrains.intellij.build.impl.BuildUtils
-import org.jetbrains.intellij.build.impl.SnapshotBuildNumber
 import org.jetbrains.intellij.build.impl.logging.reportBuildProblem
 import org.jetbrains.jps.model.JpsProject
 import java.nio.file.Files
@@ -65,8 +64,8 @@ internal class ApplicationInfoPropertiesImpl(
     @Suppress("DEPRECATION")
     val applicationInfoOverrides = productProperties.applicationInfoOverride(project)
     val versionTag = root.getChild("version")!!
-    majorVersion = applicationInfoOverrides?.majorVersion ?: versionTag.getAttributeValue("major")!!
-    minorVersion = applicationInfoOverrides?.minorVersion ?: versionTag.getAttributeValue("minor") ?: "0"
+    majorVersion = buildOptions.majorVersion
+    minorVersion = buildOptions.minorVersion
     microVersion = applicationInfoOverrides?.microVersion ?: versionTag.getAttributeValue("micro") ?: "0"
     patchVersion = applicationInfoOverrides?.patchVersion ?: versionTag.getAttributeValue("patch") ?: "0"
     fullVersionFormat = applicationInfoOverrides?.fullVersionFormat ?: versionTag.getAttributeValue("full") ?: "{0}.{1}"
@@ -136,10 +135,6 @@ internal class ApplicationInfoPropertiesImpl(
 
 internal fun computeAppInfoXml(appInfo: ApplicationInfoProperties, context: BuildContext): String {
   val appInfoXmlPath = findApplicationInfoInSources(context.project, context.productProperties)
-  val snapshotBuildNumber = SnapshotBuildNumber.VALUE.takeWhile { it != '.' }
-  check("${appInfo.majorVersion}${appInfo.minorVersion}".removePrefix("20").take(snapshotBuildNumber.count()) == snapshotBuildNumber) {
-    "'major=${appInfo.majorVersion}' and 'minor=${appInfo.minorVersion}' attributes of '$appInfoXmlPath' don't match snapshot build number '$snapshotBuildNumber'"
-  }
 
   val artifactServer = context.proprietaryBuildTools.artifactsServer
   var builtinPluginsRepoUrl = ""
@@ -154,6 +149,8 @@ internal fun computeAppInfoXml(appInfo: ApplicationInfoProperties, context: Buil
   var patchedAppInfo = BuildUtils.replaceAll(
     text = Files.readString(appInfoXmlPath),
     replacements = mapOf(
+      "MAJOR_VERSION" to appInfo.majorVersion,
+      "MINOR_VERSION" to appInfo.minorVersion,
       "BUILD_NUMBER" to "${appInfo.productCode}-${context.buildNumber}",
       "BUILD_DATE" to buildDate.format(BUILD_DATE_PATTERN),
       "BUILD" to context.buildNumber,

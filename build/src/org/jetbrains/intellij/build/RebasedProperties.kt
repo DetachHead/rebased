@@ -45,13 +45,13 @@ internal suspend fun createCommunityBuildContext(
  * we have renamed from `IdeaCommunityProperties` in the upstream repo and commented out stuff that's not relevant to the git client.
  *
  * to avoid upstream conflicts (and to make the code less confusing), we should probably create a separate subclass of
- * [JetBrainsProductProperties] for Rebased instead of modifying the intellij community one, but it was much easierto do it this way
- * because it's very difficult to narrow down which plugins depend on others when treying to cut out modules we don't want
+ * [JetBrainsProductProperties] for Rebased instead of modifying the intellij community one, but it was much easier to do it this way
+ * because it's very difficult to narrow down which plugins depend on others when trying to cut out modules we don't want
  */
 open class RebasedProperties(private val communityHomeDir: Path) : JetBrainsProductProperties() {
   init {
     configurePropertiesForAllEditionsOfIntelliJIdea(this)
-    platformPrefix = "Idea"
+    platformPrefix = "Rebased"
     applicationInfoModule = "intellij.idea.community.customization"
     scrambleMainJar = false
     useSplash = false

@@ -14,6 +14,7 @@ import org.jetbrains.intellij.build.BuildOptions.Companion.MAC_DMG_STEP
 import org.jetbrains.intellij.build.BuildPaths.Companion.COMMUNITY_ROOT
 import org.jetbrains.intellij.build.dependencies.DependenciesProperties
 import org.jetbrains.intellij.build.dependencies.TeamCityHelper
+import org.jetbrains.intellij.build.impl.SnapshotBuildNumber
 import org.jetbrains.jps.api.GlobalOptions
 import java.nio.file.Path
 import java.time.DayOfWeek
@@ -437,6 +438,11 @@ data class BuildOptions(
    * If `true`, and the incremental compilation fails, fallback to downloading Portable Compilation Cache and full rebuild.
    */
   var incrementalCompilationFallbackRebuild: Boolean = getBooleanProperty(INCREMENTAL_COMPILATION_FALLBACK_REBUILD_PROPERTY, true)
+
+  private val version by lazy { System.getProperty("build.version", buildNumber ?: SnapshotBuildNumber.VALUE).split(".", limit = 2) }
+
+  val majorVersion: String by lazy { version[0] }
+  val minorVersion: String by lazy { version[1] }
 
   /**
    * Use [BuildContext.buildNumber] to get the actual build number in build scripts.
