@@ -42,9 +42,12 @@ open class UpdateStrategy @JvmOverloads constructor(
              } ?: PlatformUpdates.Empty
   }
 
+  protected fun isIgnored(candidate: BuildInfo, ignoredBuilds: Set<String>): Boolean =
+    candidate.number.asStringWithoutProductCode() in ignoredBuilds
+
   protected open fun isApplicable(candidate: BuildInfo, ignoredBuilds: Set<String>): Boolean =
     customization.isNewerVersion(candidate.number, currentBuild) &&
-    candidate.number.asStringWithoutProductCode() !in ignoredBuilds &&
+    !isIgnored(candidate, ignoredBuilds) &&
     candidate.target?.inRange(currentBuild) ?: true
 
   private fun compareBuilds(n1: BuildNumber, n2: BuildNumber): Int {

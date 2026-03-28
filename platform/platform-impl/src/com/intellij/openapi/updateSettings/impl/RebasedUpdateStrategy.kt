@@ -16,5 +16,5 @@ class RebasedUpdateStrategy(
   customization: UpdateStrategyCustomization = UpdateStrategyCustomization.getInstance(),
 ) : UpdateStrategy(applicationInfo.build, product, settings, customization) {
   override fun isApplicable(candidate: BuildInfo, ignoredBuilds: Set<String>): Boolean =
-    Version.parseVersion(candidate.version)!! > Version.parseVersion(applicationInfo.fullVersion)!!
+    Version.parseVersion(candidate.version)!! > Version.parseVersion(applicationInfo.fullVersion)!! && !isIgnored(candidate, ignoredBuilds)
 }
