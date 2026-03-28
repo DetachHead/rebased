@@ -15,7 +15,7 @@ import java.util.Collections.emptyList
 import kotlin.io.path.createSymbolicLinkPointingTo
 
 class VcsRootDetectorTest : VcsRootBaseTest() {
-  fun `test no roots`() {
+  fun `ignore no roots`() {
     expect(emptyList())
   }
 
