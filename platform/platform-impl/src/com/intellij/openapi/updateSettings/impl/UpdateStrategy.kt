@@ -11,7 +11,7 @@ import org.jetbrains.annotations.ApiStatus
 
 @IntellijInternalApi
 @ApiStatus.Internal
-class UpdateStrategy @JvmOverloads constructor(
+open class UpdateStrategy @JvmOverloads constructor(
   private val currentBuild: BuildNumber,
   private val product: Product? = null,
   private val settings: UpdateSettings = UpdateSettings.getInstance(),
@@ -42,7 +42,7 @@ class UpdateStrategy @JvmOverloads constructor(
              } ?: PlatformUpdates.Empty
   }
 
-  private fun isApplicable(candidate: BuildInfo, ignoredBuilds: Set<String>): Boolean =
+  protected open fun isApplicable(candidate: BuildInfo, ignoredBuilds: Set<String>): Boolean =
     customization.isNewerVersion(candidate.number, currentBuild) &&
     candidate.number.asStringWithoutProductCode() !in ignoredBuilds &&
     candidate.target?.inRange(currentBuild) ?: true

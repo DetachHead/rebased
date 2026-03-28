@@ -263,7 +263,7 @@ object UpdateChecker {
         return PlatformUpdates.Empty
       }
       else {
-        return UpdateStrategy(ApplicationInfo.getInstance().build, productData, settings).checkForUpdates()
+        return RebasedUpdateStrategy(ApplicationInfo.getInstance(), productData, settings).checkForUpdates()
       }
     }
     catch (e: Exception) {
