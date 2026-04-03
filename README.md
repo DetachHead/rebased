@@ -18,6 +18,14 @@ Download from [GitHub releases](https://github.com/DetachHead/rebased/releases)
 > [!TIP]
 > For linux users, we recommend using either [AppManager](https://github.com/kem-a/AppManager) or [Gear Lever](https://github.com/mijorus/gearlever) to install the AppImage to your applications menu, and for automatic updates.
 
+> [!WARNING]
+> **macOS users**: After copying Rebased.app to your Applications folder, you may see *"Rebased.app is damaged and can't be opened"*. This happens because the releases are not code-signed with an Apple Developer certificate.
+>
+> Only run the following command if you trust the download source, such as the official [GitHub releases](https://github.com/DetachHead/rebased/releases). It removes macOS quarantine metadata for this app and reduces Gatekeeper's security protections for it.
+> ```bash
+> xattr -rd com.apple.quarantine /Applications/Rebased.app
+> ```
+
 ## Credits
 
 - https://github.com/obiscr/intellij-community - a previous attempt at creating a jetbrains git client that i cherrypicked some commits from
