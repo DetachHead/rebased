@@ -46,6 +46,7 @@
     <action id="Vcs.UpdateProject" class="com.intellij.openapi.vcs.update.CommonUpdateProjectAction" icon="AllIcons.Actions.CheckOut">
       <keyboard-shortcut first-keystroke="control T" keymap="$default"/>
       <add-to-group group-id="SegmentedVcsActionsBarGroup" anchor="first"/>
+      <add-to-group group-id="MainToolbarVCSGroup" anchor="before" relative-to-action="Vcs.Push"/>
     </action>
     <action id="Vcs.Toolbar.ShowMoreActions" class="com.intellij.openapi.vcs.actions.VcsQuickActionsToolbarPopup">
       <add-to-group group-id="SegmentedVcsActionsBarGroup" anchor="last"/>

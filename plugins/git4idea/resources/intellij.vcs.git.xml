@@ -500,10 +500,15 @@
     </group>
 
     <group id="Git.Experimental.Branch.Popup.Actions">
-      <reference ref="Vcs.UpdateProject"/>
+      <!--
+      in rebased, pull & push are moved to the toolbar instead. unlike gitclient, we keep the commit action here
+      because unlike gitclient, commit is still a tool window and having two buttons so close to each other that
+      do the same thing would look stupid.
+      -->
+      <!--<reference ref="Vcs.UpdateProject"/>-->
       <reference ref="CheckinProject"/>
       <reference ref="Git.Commit.Stage"/>
-      <reference ref="Vcs.Push"/>
+      <!--<reference ref="Vcs.Push"/>-->
     </group>
 
     <group id="Vcs.ToolbarWidget.CreateRepository" searchable="false">
