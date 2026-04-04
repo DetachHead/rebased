@@ -18,6 +18,15 @@ Download from [GitHub releases](https://github.com/DetachHead/rebased/releases)
 > [!TIP]
 > For linux users, we recommend using either [AppManager](https://github.com/kem-a/AppManager) or [Gear Lever](https://github.com/mijorus/gearlever) to install the AppImage to your applications menu, and for automatic updates.
 
+> [!NOTE]
+> For macOS users, after copying `Rebased.app` to your Applications folder, you may see the following error message:
+> > "Rebased.app" is damaged and can't be opened. You should move it to the Bin.
+> 
+> **This is Apple lying to you.** Nothing is "damaged", it's just not code-signed with an Apple Developer certificate. To fix it, run the following command:
+> ```bash
+> xattr -rd com.apple.quarantine /Applications/Rebased.app
+> ```
+
 ## Credits
 
 - https://github.com/obiscr/intellij-community - a previous attempt at creating a jetbrains git client that i cherrypicked some commits from
