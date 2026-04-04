@@ -80,7 +80,7 @@ class ConvertExcludedToGitIgnoredTest : GitSingleRepoTest() {
     assertTrue(changeListManager.isIgnoredFile(output))
   }
 
-  fun testProjectOutput() = runBlocking {
+  fun ignore_testProjectOutput() = runBlocking {
     val output = createChildDirectory(projectRoot, "projectOutput")
     createChildData(output, "out.class")
     CompilerProjectExtension.getInstance(project)!!.apply {

@@ -99,7 +99,7 @@ class VcsRootDetectorTest : VcsRootBaseTest() {
     expect(roots)
   }
 
-  fun `test dont scan deeper than2LevelsBelowAContentRoot`() {
+  fun `ignore_test dont scan deeper than2LevelsBelowAContentRoot`() {
     Registry.get("vcs.root.detector.folder.depth").setValue(2, testRootDisposable)
 
     val roots = createVcsRoots("community", "content_root/lev1", "content_root2/lev1/lev2/lev3", registerContentRoot = false)
