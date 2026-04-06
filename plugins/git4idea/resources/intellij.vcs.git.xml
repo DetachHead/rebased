@@ -280,7 +280,7 @@
       <add-to-group group-id="VcsGlobalGroup" anchor="after" relative-to-action="Vcs.Specific"/>
     </group>
 
-    <group id="Git.ContextMenu" class="git4idea.actions.GitMenu" popup="true" searchable="false">
+    <group id="Git.ContextMenu" class="git4idea.actions.GitMenu" popup="false" searchable="false">
       <reference ref="Git.FileActions"/>
       <reference ref="Show.Current.Revision"/>
       <reference ref="ChangesView.Revert"/>
@@ -290,7 +290,7 @@
       <reference ref="Git.RevertResolved"/>
       <separator/>
       <reference ref="GitRepositoryActions"/>
-      <add-to-group group-id="VcsGroup" anchor="last"/>
+      <add-to-group group-id="EditorPopupMenu" anchor="last"/>
     </group>
 
     <action id="Git.ShowBranches" class="git4idea.actions.GitBranchesComboBoxAction" icon="AllIcons.Vcs.Branch"
