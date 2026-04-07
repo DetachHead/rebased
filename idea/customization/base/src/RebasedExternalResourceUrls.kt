@@ -35,9 +35,6 @@ internal class RebasedExternalResourceUrls : IntelliJIdeaExternalResourceUrls() 
   override val youTubeChannelUrl
     get() = null
 
-  override val keyboardShortcutsPdfUrl
-    get() = null
-
   override val gettingStartedPageUrl
     get() = null
 }
