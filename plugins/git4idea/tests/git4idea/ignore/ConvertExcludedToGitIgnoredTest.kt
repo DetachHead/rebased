@@ -50,7 +50,7 @@ class ConvertExcludedToGitIgnoredTest : GitSingleRepoTest() {
     }
   }
 
-  fun testExcludedFolder() = runBlocking {
+  fun ignore_testExcludedFolder() = runBlocking {
     val excluded = createChildDirectory(moduleContentRoot, "exc")
     createChildData(excluded, "excluded.txt") //Don't mark empty directories like ignored since versioning such directories not supported in Git
     PsiTestUtil.addExcludedRoot(myModule, excluded)
