@@ -37,4 +37,7 @@ internal class RebasedExternalResourceUrls : IntelliJIdeaExternalResourceUrls() 
 
   override val gettingStartedPageUrl
     get() = null
+
+  override val whatIsNewPageUrl: Url
+    get() = productPageUrl.resolve("releases/latest")
 }
