@@ -6,7 +6,7 @@ import com.intellij.platform.ide.impl.customization.BaseJetBrainsExternalProduct
 import com.intellij.util.Url
 import com.intellij.util.Urls
 
-internal class IntelliJIdeaExternalResourceUrls : BaseJetBrainsExternalProductResourceUrls() {
+internal open class IntelliJIdeaExternalResourceUrls : BaseJetBrainsExternalProductResourceUrls() {
   override val basePatchDownloadUrl: Url
     get() = Urls.newFromEncoded("https://download.jetbrains.com/idea/")
 
@@ -16,7 +16,7 @@ internal class IntelliJIdeaExternalResourceUrls : BaseJetBrainsExternalProductRe
   override val youtrackProjectId: String
     get() = "IDEA"
 
-  override val shortProductNameUsedInForms: String
+  override val shortProductNameUsedInForms: String?
     get() = "IDEA"
 
   override val useInIdeGeneralFeedback: Boolean
@@ -25,16 +25,16 @@ internal class IntelliJIdeaExternalResourceUrls : BaseJetBrainsExternalProductRe
   override val useInIdeEvaluationFeedback: Boolean
     get() = true
 
-  override val youTubeChannelUrl: Url
+  override val youTubeChannelUrl: Url?
     get() = Urls.newFromEncoded("https://www.youtube.com/user/intellijideavideo")
 
-  override val keyboardShortcutsPdfUrl: Url
+  override val keyboardShortcutsPdfUrl: Url?
     get() {
       val suffix = if (SystemInfoRt.isMac) "_Mac" else ""
       return baseWebSiteUrl.resolve("idea/docs/IntelliJIDEA_ReferenceCard$suffix.pdf")
     }
 
-  override val gettingStartedPageUrl: Url
+  override val gettingStartedPageUrl: Url?
     get() = baseWebSiteUrl.resolve("idea/resources/")
 
   override val baseWebHelpUrl: Url

@@ -4,7 +4,7 @@ import com.intellij.platform.ide.impl.customization.BaseJetBrainsExternalProduct
 import com.intellij.util.Url
 import com.intellij.util.Urls
 
-internal class RebasedExternalResourceUrls : BaseJetBrainsExternalProductResourceUrls() {
+internal class RebasedExternalResourceUrls : IntelliJIdeaExternalResourceUrls() {
   override val basePatchDownloadUrl: Url
     get() {
       throw NotImplementedError()
@@ -39,8 +39,5 @@ internal class RebasedExternalResourceUrls : BaseJetBrainsExternalProductResourc
     get() = null
 
   override val gettingStartedPageUrl
-    get() = null
-
-  override val baseWebHelpUrl
     get() = null
 }
