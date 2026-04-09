@@ -79,6 +79,32 @@ jobs:
           if-no-files-found: 'error'
           retention-days: 1
           path: ${{inputs.artifacts_dir}}/macos-dmg-build/
+  build-macos-x64:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4.2.2
+        with:
+          submodules: true
+      - uses: ./.github/actions/build_ide
+        with:
+          os: mac
+          arch: x64  # 将此处改为 x64
+          extension: sit
+          product: ${{inputs.product}}
+          version: ${{inputs.version}}
+      - uses: ./.github/actions/upload_ide
+        with:
+          os: mac
+          arch: x64  # 对应上传的架构
+          extension: sit
+          artifacts_dir: ${{inputs.artifacts_dir}}
+      - name: Upload .dmg build scripts (x64)
+        uses: actions/upload-artifact@v4.4.3
+        with:
+          name: dmg-build-scripts-x64 # 建议区分名称
+          if-no-files-found: 'error'
+          retention-days: 1
+          path: ${{inputs.artifacts_dir}}/macos-dmg-build/
   build-appimage:
     runs-on: ubuntu-latest
     needs: build-linux-x64
@@ -158,5 +184,28 @@ jobs:
         with:
           os: mac
           arch: aarch64
+          extension: dmg
+          artifacts_dir: .
+  build-dmg-x64:
+    runs-on: macos-latest
+    needs: build-macos-x64 # 依赖上面刚创建的任务
+    steps:
+      - uses: actions/checkout@v4.2.2
+      - name: Download .dmg build scripts
+        uses: actions/download-artifact@v4.1.8
+        with:
+          name: dmg-build-scripts-x64
+      - name: Download x64.sit
+        uses: actions/download-artifact@v4.1.8
+        with:
+          name: mac-x64-sit-unsigned # 注意这里要对应 build_ide 生成的 Artifact 名称
+      - name: Build x64.dmg
+        shell: bash
+        run: /bin/bash ./build.sh
+      - name: Upload .dmg
+        uses: ./.github/actions/upload_ide
+        with:
+          os: mac
+          arch: x64
           extension: dmg
           artifacts_dir: .
