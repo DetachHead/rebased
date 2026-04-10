@@ -330,7 +330,7 @@ abstract class WindowsDistributionCustomizer {
    * Name of the Windows installation directory and Desktop shortcut.
    */
   open fun getNameForInstallDirAndDesktopShortcut(appInfo: ApplicationInfoProperties, buildNumber: String): String {
-    return "${getFullNameIncludingEdition(appInfo)} ${if (appInfo.isEAP) buildNumber else appInfo.fullVersion}"
+    return getFullNameIncludingEdition(appInfo)
   }
 
   /**
