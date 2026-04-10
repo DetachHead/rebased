@@ -370,7 +370,7 @@ object CommunityModuleSets {
 
     // Additional IDE-specific modules
     module("intellij.platform.lvcs.impl")
-    module("intellij.platform.smRunner.vcs")
+    //module("intellij.platform.smRunner.vcs")
     module("intellij.platform.collaborationTools")
     module("intellij.platform.collaborationTools.auth")
     module("intellij.platform.collaborationTools.auth.base")
