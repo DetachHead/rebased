@@ -360,7 +360,7 @@ FunctionEnd
 
 Function uninstallOldVersionDialog
   StrCpy $R8 $control_fields
-  !insertmacro INSTALLOPTIONS_WRITE "UninstallOldVersions.ini" "Field 2" "State" "0"
+  !insertmacro INSTALLOPTIONS_WRITE "UninstallOldVersions.ini" "Field 2" "State" "1"
 
   StrCpy $R0 0  ; HKLM
   StrCpy $R1 "Software"
@@ -461,7 +461,7 @@ Function enumerateInstalledVersions
 
         !insertmacro INSTALLOPTIONS_WRITE "UninstallOldVersions.ini" "Field $R8" "Top" "$R6"
         !insertmacro INSTALLOPTIONS_WRITE "UninstallOldVersions.ini" "Field $R8" "Bottom" "$R7"
-        !insertmacro INSTALLOPTIONS_WRITE "UninstallOldVersions.ini" "Field $R8" "State" "0"
+        !insertmacro INSTALLOPTIONS_WRITE "UninstallOldVersions.ini" "Field $R8" "State" "1"
         !insertmacro INSTALLOPTIONS_WRITE "UninstallOldVersions.ini" "Field $R8" "Text" "$R3"
       ${EndIf}
     ${EndIf}
