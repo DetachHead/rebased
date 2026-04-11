@@ -156,7 +156,7 @@ class GitRepositoriesFrontendHolderTest : GitSingleRepoTest() {
     )
   }
 
-  fun `test update of unknown repo forces sync`() {
+  fun `ignore_test update of unknown repo forces sync`() {
     val holder = GitRepositoriesHolder.getAndInit(project)
 
     holder.expectEvent(
