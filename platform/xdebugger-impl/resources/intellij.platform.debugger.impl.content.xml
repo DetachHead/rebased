@@ -216,7 +216,7 @@
       <action class="com.intellij.xdebugger.memory.action.SwitchUpdateModeAction" id="MemoryView.SwitchUpdateMode"/>
     </group>
 
-    <action class="com.intellij.execution.actions.ActivateDebugToolWindowAction" id="ActivateDebugToolWindow">
+    <action class="com.intellij.openapi.actionSystem.EmptyAction" id="ActivateDebugToolWindow">
       <add-to-group group-id="ActivateToolWindowActions"/>
     </action>
     <group id="XDebugger.Attach.Dialog.Settings" class="com.intellij.xdebugger.impl.ui.attach.dialog.AttachDialogSettings" popup="true"/>
