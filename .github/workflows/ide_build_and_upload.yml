@@ -53,7 +53,10 @@ jobs:
           arch: x64
           extension: exe
           artifacts_dir: ${{inputs.artifacts_dir}}
-  build-macos-aarch64:
+  build-macos:
+    strategy:
+      matrix:
+        arch: [aarch64, x64]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4.2.2
@@ -62,20 +65,20 @@ jobs:
       - uses: ./.github/actions/build_ide
         with:
           os: mac
-          arch: aarch64
+          arch: ${{ matrix.arch }}
           extension: sit
           product: ${{inputs.product}}
           version: ${{inputs.version}}
       - uses: ./.github/actions/upload_ide
         with:
           os: mac
-          arch: aarch64
+          arch: ${{ matrix.arch }}
           extension: sit
           artifacts_dir: ${{inputs.artifacts_dir}}
       - name: Upload .dmg build scripts
         uses: actions/upload-artifact@v4.4.3
         with:
-          name: dmg-build-scripts
+          name: dmg-build-scripts-${{ matrix.arch }}
           if-no-files-found: 'error'
           retention-days: 1
           path: ${{inputs.artifacts_dir}}/macos-dmg-build/
@@ -140,26 +143,28 @@ jobs:
           extension: AppImage
           artifacts_dir: .
   build-dmg:
+    strategy:
+      matrix:
+        arch: [aarch64, x64]
     runs-on: macos-latest
-    needs: build-macos-aarch64
+    needs: build-macos
     steps:
       - uses: actions/checkout@v4.2.2
       - name: Download .dmg build scripts
         uses: actions/download-artifact@v4.1.8
         with:
-          name: dmg-build-scripts
-      - name: Download aarch64.sit
+          name: dmg-build-scripts-${{ matrix.arch }}
+      - name: Download ${{ matrix.arch }}.sit
         uses: actions/download-artifact@v4.1.8
         with:
-          name: mac-aarch64-sit-unsigned
-      - name: Build aarch64.dmg
+          name: mac-${{ matrix.arch }}-sit-unsigned
+      - name: Build ${{ matrix.arch }}.dmg
         shell: bash
-        # language=bash
         run: /bin/bash ./build.sh
       - name: Upload .dmg
         uses: ./.github/actions/upload_ide
         with:
           os: mac
-          arch: aarch64
+          arch: ${{ matrix.arch }}
           extension: dmg
           artifacts_dir: .
