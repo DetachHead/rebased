@@ -166,7 +166,6 @@
       <!--<action class="com.intellij.vcs.log.ui.actions.OpenAnotherLogTabAction$InToolWindow" id="Vcs.Log.OpenAnotherTab"-->
       <!--        icon="AllIcons.General.Add"/>-->
       <action class="com.intellij.vcs.log.ui.actions.OpenAnotherLogTabAction$InEditor" id="Vcs.Log.OpenAnotherTabInEditor" icon="AllIcons.Actions.OpenNewTab">
-        <keyboard-shortcut first-keystroke="control G" keymap="$default"/>
         <add-to-group group-id="EditorTabsEntryPoint" anchor="before" relative-to-action="RecentFiles"/>
       </action>
       <action class="com.intellij.vcs.log.ui.actions.RefreshLogAction" id="Vcs.Log.Refresh" use-shortcut-of="Refresh" icon="AllIcons.Actions.Refresh"/>
