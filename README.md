@@ -13,13 +13,26 @@ See [this youtrack issue](https://youtrack.jetbrains.com/issue/IJPL-72504/Make-g
 
 ## Installation
 
-Download from [GitHub releases](https://github.com/DetachHead/rebased/releases)
+### Linux
 
-> [!TIP]
-> For linux users, we recommend using either [AppManager](https://github.com/kem-a/AppManager) or [Gear Lever](https://github.com/mijorus/gearlever) to install the AppImage to your applications menu, and for automatic updates.
+Download the appimage from [GitHub releases](https://github.com/DetachHead/rebased/releases).
+
+We recommend using either [AppManager](https://github.com/kem-a/AppManager) or [Gear Lever](https://github.com/mijorus/gearlever) to install it to your applications menu, and for automatic updates.
+
+### Windows
+
+You can either download the installer `.exe` from [GitHub releases](https://github.com/DetachHead/rebased/releases) or install via winget:
+
+```ps1
+winget install detachhead.rebased --source winget
+```
+
+### macOS
+
+Download the `.dmg` from [GitHub releases](https://github.com/DetachHead/rebased/releases)
 
 > [!NOTE]
-> For macOS users, after copying `Rebased.app` to your Applications folder, you may see the following error message:
+> After copying `Rebased.app` to your Applications folder, you may see the following error message:
 > > "Rebased.app" is damaged and can't be opened. You should move it to the Bin.
 > 
 > **This is Apple lying to you.** Nothing is "damaged", it's just not code-signed with an Apple Developer certificate. To fix it, run the following command:
