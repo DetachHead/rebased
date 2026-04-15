@@ -1,0 +1,13 @@
+name: Publish to WinGet
+on:
+  release:
+    types: [released]
+jobs:
+  publish:
+    runs-on: ubuntu-slim
+    steps:
+      - uses: vedantmgoyal9/winget-releaser@main
+        with:
+          identifier: detachhead.rebased
+          token: ${{ secrets.WINGET_TOKEN }}
+          installers-regex: ^ideaIC.*\.exe$
