@@ -95,6 +95,7 @@ jobs:
           tar -xzf *.tar.gz -C appdir/usr/ --strip-components=1
 
       - name: Prepare AppDir
+        # language=bash
         run: |
           # AppRun file
           cat > appdir/AppRun <<'EOF'
@@ -121,12 +122,14 @@ jobs:
           ln -s usr/bin/idea.png appdir/rebased.png
 
       - name: Install appimagetool
+        # language=bash
         run: |
           wget -q https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
           mv appimagetool-x86_64.AppImage ./appimagetool
           chmod +x appimagetool
 
       - name: Build AppImage
+        # language=bash
         run: ./appimagetool appdir -u "gh-releases-zsync|$GITHUB_REPOSITORY_OWNER|rebased|latest|Rebased-x86_64.AppImage.zsync"
 
       - name: Upload .AppImage
