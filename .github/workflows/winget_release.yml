@@ -10,4 +10,4 @@ jobs:
         with:
           identifier: detachhead.rebased
           token: ${{ secrets.WINGET_TOKEN }}
-          installers-regex: ^ideaIC.*\.exe$
+          installers-regex: ^rebased.exe$

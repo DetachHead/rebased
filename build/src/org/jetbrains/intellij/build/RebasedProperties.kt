@@ -161,7 +161,7 @@ open class RebasedProperties(private val communityHomeDir: Path) : JetBrainsProd
     return "IdeaIC${appInfo.majorVersion}.${appInfo.minorVersionMainPart}"
   }
 
-  override fun getBaseArtifactName(appInfo: ApplicationInfoProperties, buildNumber: String): String = "ideaIC-$buildNumber"
+  override fun getBaseArtifactName(appInfo: ApplicationInfoProperties, buildNumber: String): String = "rebased"
 
   override fun getOutputDirectoryName(appInfo: ApplicationInfoProperties): String = "idea-ce"
 }
