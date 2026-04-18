@@ -1,5 +1,12 @@
 on:
+  # we have to run on push for all release branches and pull_request for everything else to avoid github's "feature" where it
+  # runs the CI on the merged state but also if there are conflicts it just silently doesn't run anything and doesn't tell you why...
+  push:
+    branches:
+      - release/*
   pull_request:
+    branches-ignore:
+      - release/*
 
 jobs:
   tests:

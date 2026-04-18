@@ -1,11 +1,15 @@
 name: Rebased
 on:
+  # we have to run on push for all release branches and pull_request for everything else to avoid github's "feature" where it
+  # runs the CI on the merged state but also if there are conflicts it just silently doesn't run anything and doesn't tell you why...
   push:
     branches:
-      # i had to fix up the history of master due to the messed up way upstream releases are done.
-      # i didn't want to actually touch its history so i created a new master branch instead.
-      - master2
+      - master
+      - release/*
   pull_request:
+    branches-ignore:
+      - release/*
+
   workflow_dispatch:
     inputs:
       version:
