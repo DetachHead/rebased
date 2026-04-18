@@ -29,16 +29,25 @@ winget install detachhead.rebased --source winget
 
 ### macOS
 
-Download the `.dmg` from [GitHub releases](https://github.com/DetachHead/rebased/releases)
+Install with [homebrew](https://brew.sh/):
 
-> [!NOTE]
-> After copying `Rebased.app` to your Applications folder, you may see the following error message:
-> > "Rebased.app" is damaged and can't be opened. You should move it to the Bin.
-> 
-> **This is Apple lying to you.** Nothing is "damaged", it's just not code-signed with an Apple Developer certificate. To fix it, run the following command:
-> ```bash
-> xattr -rd com.apple.quarantine /Applications/Rebased.app
-> ```
+```bash
+brew install detachhead/tap/rebased
+```
+
+<details>
+  <summary>Manual installation</summary>
+
+  Download the `.dmg` from [GitHub releases](https://github.com/DetachHead/rebased/releases)
+
+  After copying `Rebased.app` to your Applications folder, you may see the following error message:
+  > "Rebased.app" is damaged and can't be opened. You should move it to the Bin.
+
+  **This is Apple lying to you.** Nothing is "damaged", it's just not code-signed with an Apple Developer certificate. To fix it, run the following command:
+  ```bash
+  xattr -rd com.apple.quarantine /Applications/Rebased.app
+  ```
+</details>
 
 ## Credits
 
