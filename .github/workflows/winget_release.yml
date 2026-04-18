@@ -1,9 +1,9 @@
-name: Publish to WinGet
+name: Publish to package managers
 on:
   release:
     types: [released]
 jobs:
-  publish:
+  winget:
     runs-on: ubuntu-slim
     steps:
       - uses: vedantmgoyal9/winget-releaser@main
@@ -11,3 +11,14 @@ jobs:
           identifier: detachhead.rebased
           token: ${{ secrets.WINGET_TOKEN }}
           installers-regex: ^rebased.exe$
+
+  homebrew:
+    runs-on: macos-latest
+    steps:
+    - uses: dawidd6/action-homebrew-bump-formula@1446dca236b0440c6f02723a3f14f13be2c04ab0
+      with:
+        # Required, custom GitHub access token with the 'public_repo' and 'workflow' scopes
+        token: ${{secrets.HOMEBREW_TOKEN}}
+        no_fork: true
+        tap: detachhead/homebrew-tap
+        formula: rebased
