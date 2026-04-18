@@ -6,7 +6,7 @@ jobs:
   winget:
     runs-on: ubuntu-slim
     steps:
-      - uses: vedantmgoyal9/winget-releaser@4ffc7888bffd451b357355dc214d43bb9f23917e
+      - uses: vedantmgoyal9/winget-releaser@7bd472be23763def6e16bd06cc8b1cdfab0e2fd5
         with:
           identifier: detachhead.rebased
           token: ${{ secrets.WINGET_TOKEN }}
@@ -20,4 +20,4 @@ jobs:
         # Required, custom GitHub access token with the 'public_repo' and 'workflow' scopes
         token: ${{ secrets.HOMEBREW_TOKEN }}
         tap: DetachHead/homebrew-tap
-        livecheck: false
+        livecheck: true # https://github.com/DetachHead/rebased/pull/148#discussion_r3105035885
