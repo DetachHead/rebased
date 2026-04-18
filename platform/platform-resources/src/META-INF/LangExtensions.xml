@@ -1018,7 +1018,7 @@
 
     <http.fileEditorActionProvider implementation="com.intellij.openapi.fileEditor.impl.http.LangRemoteFileEditorActionProvider"/>
 
-    <toolWindow id="Project" anchor="left" doNotActivateOnStart="true" icon="AllIcons.Toolwindows.ToolWindowProject"
+    <toolWindow id="Project" anchor="left" secondary="true" doNotActivateOnStart="true" icon="AllIcons.Toolwindows.ToolWindowProject"
                 factoryClass="com.intellij.ide.projectView.impl.ProjectViewToolWindowFactory"/>
 
     <!--<toolWindow id="Structure" anchor="left" icon="AllIcons.Toolwindows.ToolWindowStructure" secondary="true"-->
@@ -1099,7 +1099,7 @@
     <statistics.counterUsagesCollector implementationClass="com.intellij.codeInsight.hints.codeVision.CodeVisionFusCollector"/>
     <editorFactoryListener implementation="com.intellij.codeInsight.hints.codeVision.CodeVisionFusEditorListener" />
 
-    <projectViewPane implementation="com.intellij.ide.scopeView.ScopeViewPane"/>
+    <!--<projectViewPane implementation="com.intellij.ide.scopeView.ScopeViewPane"/>-->
 
     <renamerFactory implementation="com.intellij.refactoring.rename.RenameHandlerRenamerFactory"/>
     <renamerFactory implementation="com.intellij.refactoring.rename.impl.SymbolRenameTargetRenamerFactory"/>
