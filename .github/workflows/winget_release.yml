@@ -15,10 +15,9 @@ jobs:
   homebrew:
     runs-on: macos-latest
     steps:
-    - uses: dawidd6/action-homebrew-bump-formula@1446dca236b0440c6f02723a3f14f13be2c04ab0
+    - uses: FriesI23/action-homebrew-bump-cask@561bbe447f8915a50a62e65483061bea1e7f136f
       with:
         # Required, custom GitHub access token with the 'public_repo' and 'workflow' scopes
-        token: ${{secrets.HOMEBREW_TOKEN}}
-        no_fork: true
-        tap: detachhead/homebrew-tap
-        formula: rebased
+        token: ${{ secrets.HOMEBREW_TOKEN }}
+        tap: DetachHead/homebrew-tap
+        livecheck: false
