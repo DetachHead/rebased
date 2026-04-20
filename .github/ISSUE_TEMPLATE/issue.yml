@@ -1,0 +1,16 @@
+name: New issue
+description: A generic issue
+body:
+  - type: markdown
+    attributes:
+      # this notice is needed because rebased seems to be quite popular in china and i dont speak chinese
+      value: |
+        > [!IMPORTANT]
+        > I only speak English so please use English when opening issues on this project. If you aren't fluent in English, please use a
+        > translation tool if possible.
+  - type: textarea
+    validations:
+      required: false
+    attributes:
+      label: Description
+      description: A description of the issue

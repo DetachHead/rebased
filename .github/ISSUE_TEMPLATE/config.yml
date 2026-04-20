@@ -1,0 +1,3 @@
+# blank issues are redundant because the only template we use is just to display a single message and a free text field.
+# i deliberately don't enforce a strict template because they are annoying.
+blank_issues_enabled: false
