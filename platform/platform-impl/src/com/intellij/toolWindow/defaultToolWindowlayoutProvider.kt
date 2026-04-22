@@ -257,6 +257,7 @@ internal class DefaultToolWindowLayoutBuilderImpl : DefaultToolWindowLayoutBuild
           addOrUpdate("Project") {
             weight = 0.25f
             contentUiType = ToolWindowDescriptor.ToolWindowContentUiType.COMBO
+            isSplit = true
           }
           addOrUpdate("Commit") { weight = 0.25f }
           addOrUpdate("Structure") {

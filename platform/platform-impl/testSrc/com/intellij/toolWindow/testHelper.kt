@@ -138,7 +138,11 @@ suspend fun testDefaultLayout(isNewUi: Boolean, project: Project) {
     // order allocation logic is the same for old and new ui, but by default not all tool windows are shown in a new UI,
     //  so the button for T O D O is not created by default, therefore, order is not set
     assertThat(todoInfo.order).let { if (isNewUi) it.isEqualTo(-1) else it.isNotEqualTo(-1) }
-    assertThat(manager.getEntry("Project")!!.readOnlyWindowInfo.order).isNotEqualTo(-1)
+    val projectInfo = manager.getEntry("Project")!!.readOnlyWindowInfo
+    assertThat(projectInfo.order).isNotEqualTo(-1)
+    if (isNewUi) {
+      assertThat(projectInfo.isSplit).isTrue()
+    }
   }
   finally {
     Disposer.dispose(manager)
