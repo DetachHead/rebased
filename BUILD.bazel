@@ -180,6 +180,10 @@ jvm_library(
     "//plugins/git4idea/terminal",
     "//plugins/git4idea/terminal:terminal_test_lib",
     "//platform/instanceContainer:instanceContainer-tests_test_lib",
+    "//plugins/agent-workbench/chat",
+    "//plugins/agent-workbench/plugin",
+    "//plugins/agent-workbench/plugin:agent-workbench-plugin-tests_test_lib",
+    "//plugins/agent-workbench/sessions",
     "//platform/polySymbols:polySymbols-tests_test_lib",
   ]
 )
