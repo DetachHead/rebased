@@ -160,6 +160,7 @@ jvm_library(
     "//platform/execution",
     "//libraries/rd/core",
     "//platform/forms_rt:java-guiForms-rt",
+    "//libraries/markdown",
   ],
   exports = [
     "//platform/platform-api:ide",
@@ -332,6 +333,7 @@ jvm_library(
     "//platform/execution",
     "//libraries/rd/core",
     "//platform/forms_rt:java-guiForms-rt",
+    "//libraries/markdown",
   ],
   exports = [
     "//platform/platform-api:ide",
