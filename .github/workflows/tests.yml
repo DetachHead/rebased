@@ -4,13 +4,15 @@ on:
   push:
     branches:
       - release/*
+
+  # we only run on pull_request when the source branch name doesn't start with "release/". unfortunately branches-ignore refers to
+  # the source branch not the target branch so we can't do that here. we use an `if` statement in the get_version job instead
   pull_request:
-    branches-ignore:
-      - release/*
 
 jobs:
   tests:
     runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request' || !startsWith(github.event.pull_request.head.ref, 'release/')
     steps:
       - uses: actions/checkout@v4.2.2
         with:
