@@ -52,8 +52,6 @@ import com.intellij.openapi.util.SystemInfoRt
 import com.intellij.openapi.util.registry.RegistryManager
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.openapi.wm.ToolWindow
-import com.intellij.openapi.wm.ToolWindowEP
-import com.intellij.openapi.wm.ToolWindowId
 import com.intellij.openapi.wm.ToolWindowManager
 import com.intellij.openapi.wm.WindowManager
 import com.intellij.openapi.wm.ex.ProjectFrameCapabilitiesService
@@ -638,7 +636,7 @@ private fun installMaximizeListener(frame: IdeFrameImpl) {
 }
 
 private suspend fun openProjectViewIfNeeded(project: Project, toolWindowInitJob: Job) {
-  if (!shouldOpenProjectViewOnStartup(serviceAsync<RegistryManager>())) {
+  if (!serviceAsync<RegistryManager>().`is`("ide.open.project.view.on.startup")) {
     return
   }
 
@@ -657,15 +655,6 @@ private suspend fun openProjectViewIfNeeded(project: Project, toolWindowInitJob:
       }
     }
   }
-}
-
-internal fun shouldOpenProjectViewOnStartup(registryManager: RegistryManager): Boolean {
-  if (!registryManager.`is`("ide.open.project.view.on.startup")) {
-    return false
-  }
-
-  val projectViewToolWindow = ToolWindowEP.EP_NAME.lazySequence().firstOrNull { it.id == ToolWindowId.PROJECT_VIEW }
-  return projectViewToolWindow?.isDoNotActivateOnStart != true
 }
 
 private suspend fun findAndOpenReadmeIfNeeded(project: Project) {

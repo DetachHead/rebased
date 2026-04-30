@@ -116,10 +116,9 @@ class ToolWindowDefaultLayoutManager(private val isNewUi: Boolean)
     else {
       state.withoutLayout(FACTORY_DEFAULT_LAYOUT_NAME) // Just in case the storage is corrupted and actually has an empty name.
     }
-    val migratedState = migrateProjectToolWindowPlacement(state = newState, isNewUi = isNewUi)
-    this.state = migratedState
-    if (migratedState.activeLayoutName != FACTORY_DEFAULT_LAYOUT_NAME) {
-      setLayout(migratedState.activeLayoutName, migratedState.getActiveLayoutCopy(isNewUi))
+    this.state = newState
+    if (newState.activeLayoutName != FACTORY_DEFAULT_LAYOUT_NAME) {
+      setLayout(newState.activeLayoutName, newState.getActiveLayoutCopy(isNewUi))
     }
   }
 }
@@ -221,27 +220,6 @@ private fun withUpdatedLayout(
   weights: Map<String, Float>,
 ): ToolWindowLayoutDescriptor {
   return (layoutDescriptor ?: ToolWindowLayoutDescriptor()).withUpdatedLayout(layout = layout, isNewUi = isNewUi, weights = weights)
-}
-
-private fun migrateProjectToolWindowPlacement(
-  state: ToolWindowLayoutStorageManagerState,
-  isNewUi: Boolean,
-): ToolWindowLayoutStorageManagerState {
-  if (!isNewUi) {
-    return state
-  }
-
-  val migratedLayouts = state.layouts.mapValues { (_, descriptor) ->
-    descriptor.copy(v2 = descriptor.v2.map(::migrateProjectToolWindowDescriptor))
-  }
-  return state.copy(layouts = migratedLayouts)
-}
-
-private fun migrateProjectToolWindowDescriptor(descriptor: ToolWindowDescriptor): ToolWindowDescriptor {
-  if (descriptor.id != "Project" || descriptor.anchor != ToolWindowDescriptor.ToolWindowAnchor.LEFT || descriptor.isSplit) {
-    return descriptor
-  }
-  return descriptor.copy(isSplit = true)
 }
 
 private fun convertWindowStateToDescriptor(it: WindowInfoImpl): ToolWindowDescriptor {
