@@ -562,8 +562,8 @@ Function UninstallRecord
   WriteRegStr SHCTX $0 "QuietUninstallString" '"$INSTDIR\bin\Uninstall.exe" /S'
   WriteRegStr SHCTX $0 "InstallLocation" "$INSTDIR"
   WriteRegStr SHCTX $0 "DisplayIcon" "$productLauncher"
-  WriteRegStr SHCTX $0 "DisplayVersion" "${VER_BUILD}"
-  WriteRegStr SHCTX $0 "Publisher" "JetBrains s.r.o."
+  WriteRegStr SHCTX $0 "DisplayVersion" "${MUI_VERSION_MAJOR}.${MUI_VERSION_MINOR}"
+  WriteRegStr SHCTX $0 "Publisher" "detachhead"
   WriteRegStr SHCTX $0 "URLInfoAbout" "https://www.jetbrains.com/products"
   WriteRegDWORD SHCTX $0 "NoModify" 1
   WriteRegDWORD SHCTX $0 "NoRepair" 1
