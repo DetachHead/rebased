@@ -70,7 +70,7 @@ public final class ApplicationInfoImpl extends ApplicationInfoEx {
   private String myApiVersion;
   private String myVersionSuffix;
   private String myCompanyName = "JetBrains s.r.o.";
-  private String myCopyrightStart = "2000";
+  private String myCopyrightStart = "2026";
   private String myShortCompanyName;
   private String myCompanyUrl = "https://www.jetbrains.com/";
   private @Nullable String splashImageUrl;
