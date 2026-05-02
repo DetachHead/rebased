@@ -160,6 +160,7 @@ jobs:
           name: mac-${{ matrix.arch }}-sit-unsigned
       - name: Build ${{ matrix.arch }}.dmg
         shell: bash
+        # language=bash
         run: /bin/bash ./build.sh
       - name: Upload .dmg
         uses: ./.github/actions/upload_ide
