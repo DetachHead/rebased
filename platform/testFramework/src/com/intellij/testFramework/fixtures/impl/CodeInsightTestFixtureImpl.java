@@ -35,8 +35,6 @@ import com.intellij.codeInspection.InspectionToolProvider;
 import com.intellij.codeInspection.LocalInspectionTool;
 import com.intellij.codeInspection.actions.CleanupInspectionIntention;
 import com.intellij.codeInspection.ex.InspectionToolWrapper;
-import com.intellij.facet.Facet;
-import com.intellij.facet.FacetManager;
 import com.intellij.find.FindManager;
 import com.intellij.find.actions.SearchTarget2UsageTarget;
 import com.intellij.find.findUsages.FindUsagesHandler;
@@ -1797,13 +1795,14 @@ public class CodeInsightTestFixtureImpl extends BaseFixture implements CodeInsig
 
       EditorTestUtil.setCaretsAndSelection(editor, loader.caretState);
 
-      Module module = getModule();
-      if (module != null) {
-        FacetManager facetManager = FacetManager.getInstance(module);
-        for (Facet<?> facet : facetManager.getAllFacets()) {
-          facetManager.facetConfigurationChanged(facet);
-        }
-      }
+      // facets are disabled in rebased
+      //Module module = getModule();
+      //if (module != null) {
+      //  FacetManager facetManager = FacetManager.getInstance(module);
+      //  for (Facet<?> facet : facetManager.getAllFacets()) {
+      //    facetManager.facetConfigurationChanged(facet);
+      //  }
+      //}
       PsiDocumentManager.getInstance(getProject()).commitAllDocuments();
 
       IndexingTestUtil.waitUntilIndexesAreReady(getProject());

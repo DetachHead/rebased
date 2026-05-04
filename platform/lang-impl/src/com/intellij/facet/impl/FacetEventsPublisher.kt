@@ -5,14 +5,12 @@ package com.intellij.facet.impl
 
 import com.intellij.facet.Facet
 import com.intellij.facet.FacetManager
-import com.intellij.facet.FacetManagerFactory
 import com.intellij.facet.FacetType
 import com.intellij.facet.FacetTypeId
 import com.intellij.facet.ProjectFacetListener
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
 import com.intellij.openapi.extensions.ExtensionPointName
-import com.intellij.openapi.module.Module
 import com.intellij.openapi.project.ModuleListener
 import com.intellij.openapi.project.Project
 import com.intellij.util.containers.ContainerUtil
@@ -43,19 +41,20 @@ internal class FacetEventsPublisher(private val project: Project) {
   internal fun listen() {
     val connection = project.messageBus.simpleConnect()
     connection.subscribe(ModuleListener.TOPIC, object : ModuleListener {
-      override fun modulesAdded(project: Project, modules: List<Module>) {
-        val facetManagerFactory = project.service<FacetManagerFactory>()
-        val listeners by lazy { getAnyFacetListeners() }
-        for (module in modules) {
-          for (facet in facetManagerFactory.getFacetManager(module).allFacets) {
-            onFacetAdded(facet, listeners)
-          }
-        }
-      }
-
-      override fun moduleRemoved(project: Project, module: Module) {
-        project.service<FacetEventsPublisher>().onModuleRemoved(module)
-      }
+      // facets are disabled in rebased
+      //override fun modulesAdded(project: Project, modules: List<Module>) {
+      //  val facetManagerFactory = project.service<FacetManagerFactory>()
+      //  val listeners by lazy { getAnyFacetListeners() }
+      //  for (module in modules) {
+      //    for (facet in facetManagerFactory.getFacetManager(module).allFacets) {
+      //      onFacetAdded(facet, listeners)
+      //    }
+      //  }
+      //}
+      //
+      //override fun moduleRemoved(project: Project, module: Module) {
+      //  project.service<FacetEventsPublisher>().onModuleRemoved(module)
+      //}
     })
   }
 
@@ -99,11 +98,11 @@ internal class FacetEventsPublisher(private val project: Project) {
     onFacetChanged(facet)
   }
 
-  private fun onModuleRemoved(module: Module) {
-    for (facet in FacetManager.getInstance(module).allFacets) {
-      onFacetRemoved(facet, false)
-    }
-  }
+  //private fun onModuleRemoved(module: Module) {
+  //  for (facet in FacetManager.getInstance(module).allFacets) {
+  //    onFacetRemoved(facet, false)
+  //  }
+  //}
 
   private fun <F : Facet<*>> onFacetRemoved(facet: F, before: Boolean) {
     val typeId = facet.typeId
