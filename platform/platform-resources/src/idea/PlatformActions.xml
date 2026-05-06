@@ -1074,6 +1074,11 @@
       </group>
     </group>
 
+    <!-- in rebased this is moved from plugins/git4idea/shared/resources/intellij.vcs.git.shared.xml -->
+    <group id="MainToolbarVCSGroup">
+      <add-to-group group-id="MainToolbarLeft" relative-to-action="MainToolbarGeneralActionsGroup" anchor="before"/>
+    </group>
+
     <group id="NavBarVcsGroup"/>
     <group id="SegmentedVcsActionsBarGroup"/>
     <group id="EditorPopupMenu">

@@ -7,9 +7,7 @@
   </dependencies>
 
   <actions resource-bundle="messages.GitBundle">
-    <group id="MainToolbarVCSGroup">
-      <add-to-group group-id="MainToolbarLeft" relative-to-action="MainToolbarGeneralActionsGroup" anchor="before"/>
-    </group>
+    <!-- in rebased MainToolbarVCSGroup is moved to PlatformActions to fix unit tests when run locally -->
 
     <action id="git.branches.show.tags" class="com.intellij.vcs.git.actions.GitBranchesTreeShowTagsAction"/>
 
