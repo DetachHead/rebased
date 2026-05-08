@@ -147,6 +147,9 @@ Function ConfirmDesktopShortcut
   !insertmacro INSTALLOPTIONS_WRITE "Desktop.ini" "Field $updateContextMenu" "Text" "$(update_context_menu_label)"
   !insertmacro INSTALLOPTIONS_WRITE "Desktop.ini" "Field ${INSTALL_OPTION_ELEMENTS}" "Text" "$(create_associations_group)"
 
+  ; enable by default
+  !insertmacro INSTALLOPTIONS_WRITE "Desktop.ini" "Field $updateContextMenu" "State" "1"
+
   Call customPreInstallActions
 
   ${If} "${ASSOCIATION}" == "NoAssociation"
