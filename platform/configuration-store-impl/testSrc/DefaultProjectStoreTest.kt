@@ -61,9 +61,18 @@ class DefaultProjectStoreTest {
 
   @Test
   fun `project settings stored outside project root`(): Unit = runBlocking(Dispatchers.Default) {
-    GeneralSettings.getInstance().storeProjectSettingsInProjectRoot = false
-    val project = openAsNewProjectAndUseDefaultSettings(fsRule.fs.getPath("/test"))
-    assertThat(project is ProjectImpl && project.componentStore.storeDescriptor.dotIdea!!.startsWith(PathManager.getConfigDir())).isTrue
+    checkDefaultProjectAsTemplate {
+      GeneralSettings.getInstance().storeProjectSettingsInProjectRoot = false
+      try {
+        val project = openAsNewProjectAndUseDefaultSettings(fsRule.fs.getPath("/test"))
+        project.useProject {
+          assertThat(project is ProjectImpl && project.componentStore.storeDescriptor.dotIdea!!.startsWith(PathManager.getConfigDir())).isTrue
+        }
+      } finally {
+        // TODO: this messes with global state. is there a better way to do this?
+        GeneralSettings.getInstance().storeProjectSettingsInProjectRoot = true
+      }
+    }
   }
 
   @Test
