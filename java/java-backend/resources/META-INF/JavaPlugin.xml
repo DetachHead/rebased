@@ -560,7 +560,7 @@
 
     <elementLookupRenderer implementation="com.intellij.codeInsight.lookup.impl.JavaElementLookupRenderer"/>
 
-    <!--<projectViewPane implementation="com.intellij.ide.projectView.impl.PackageViewPane"/>-->
+    <projectViewPane implementation="com.intellij.ide.projectView.impl.PackageViewPane"/>
 
     <resolveScopeEnlarger implementation="com.intellij.ide.scratch.ScratchResolveScopeEnlarger"/>
 
