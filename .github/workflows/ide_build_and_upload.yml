@@ -15,7 +15,10 @@ on:
         type: string
         required: true
 jobs:
-  build-linux-x64:
+  build-linux:
+    strategy:
+      matrix:
+        arch: [aarch64, x64]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4.2.2
@@ -24,14 +27,14 @@ jobs:
       - uses: ./.github/actions/build_ide
         with:
           os: linux
-          arch: x64
+          arch: ${{ matrix.arch }}
           extension: tar.gz
           product: ${{inputs.product}}
           version: ${{inputs.version}}
       - uses: ./.github/actions/upload_ide
         with:
           os: linux
-          arch: x64
+          arch: ${{ matrix.arch }}
           extension: tar.gz
           artifacts_dir: ${{inputs.artifacts_dir}}
   build-windows-x64:
@@ -83,14 +86,22 @@ jobs:
           retention-days: 1
           path: ${{inputs.artifacts_dir}}/macos-dmg-build/
   build-appimage:
+    strategy:
+      matrix:
+        # appimagetool expects a different format for the architecture so we need two variables
+        arch:
+          - build: x64
+            appimage: x86_64
+          - build: aarch64
+            appimage: aarch64
     runs-on: ubuntu-latest
-    needs: build-linux-x64
+    needs: build-linux
     steps:
       - uses: actions/checkout@v4.2.2
       - name: Download .tar.gz
         uses: actions/download-artifact@v4.1.8
         with:
-          name: linux-x64-tar.gz-unsigned
+          name: linux-${{ matrix.arch.build }}-tar.gz-unsigned
 
       - name: Extract tar.gz
         run: |
@@ -132,14 +143,16 @@ jobs:
           chmod +x appimagetool
 
       - name: Build AppImage
+        env:
+          ARCH: ${{ matrix.arch.appimage }}
         # language=bash
-        run: ./appimagetool appdir -u "gh-releases-zsync|$GITHUB_REPOSITORY_OWNER|rebased|latest|Rebased-x86_64.AppImage.zsync"
+        run: ./appimagetool appdir -u "gh-releases-zsync|$GITHUB_REPOSITORY_OWNER|rebased|latest|Rebased-${{ matrix.arch.appimage }}.AppImage.zsync"
 
       - name: Upload .AppImage
         uses: ./.github/actions/upload_ide
         with:
           os: linux
-          arch: x64
+          arch: ${{ matrix.arch.build }}
           extension: AppImage
           artifacts_dir: .
   build-dmg:
