@@ -16,6 +16,7 @@ import ai.grazie.spell.language.LanguageModel
 import ai.grazie.spell.suggestion.filter.feature.RadiusSuggestionFilter
 import ai.grazie.utils.mpp.Resources
 import com.github.benmanes.caffeine.cache.Caffeine
+import com.intellij.grazie.GrazieConfig
 import com.intellij.grazie.spellcheck.async.WordListLoader
 import com.intellij.grazie.spellcheck.dictionary.ExtendedWordListWithFrequency
 import com.intellij.grazie.spellcheck.dictionary.WordListAdapter
@@ -24,10 +25,12 @@ import com.intellij.grazie.spellcheck.ranker.DiacriticSuggestionRanker
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.readAction
+import com.intellij.openapi.components.serviceAsync
 import com.intellij.openapi.extensions.ExtensionNotApplicableException
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.startup.ProjectActivity
 import com.intellij.openapi.util.io.FileUtil
+import com.intellij.spellchecker.SpellCheckerManager
 import com.intellij.spellchecker.dictionary.Dictionary
 import com.intellij.spellchecker.dictionary.EditableDictionary
 import com.intellij.spellchecker.dictionary.Loader
@@ -83,6 +86,7 @@ class GrazieSpellCheckerEngine(private val project: Project, private val corouti
 
     override suspend fun execute(project: Project) {
       getInstance(project).initializeSpeller(project)
+      project.serviceAsync<SpellCheckerManager>()
       knownPhrases.computeIfAbsent(Language.ENGLISH) { KnownPhrases.forLanguage(Language.ENGLISH) }
         .validPhrases("Bugfix")
     }
@@ -225,10 +229,7 @@ class GrazieSpellCheckerEngine(private val project: Project, private val corouti
 
       override fun iterator(): Iterator<RuleDictionary> {
         val replacingRules = mutableSetOf(IgnoreRuleDictionary.standard(tooShortLength = 2), enDictionary.ruleDictionary!!)
-        val hunspellReplacingRules = dictionaryNames
-          .map { adapter.getDictionary(it) }
-          .mapNotNull { (it as? HunspellDictionary)?.ruleDictionary }
-          .toSet()
+        val hunspellReplacingRules = GrazieConfig.get().dictionaries.mapNotNull { it.ruleDictionary }
         return (replacingRules + hunspellReplacingRules).iterator()
       }
     }

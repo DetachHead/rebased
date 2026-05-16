@@ -11,7 +11,10 @@ import com.intellij.python.hatch.HatchConfiguration
 import com.intellij.python.hatch.HatchVirtualEnvironment
 import com.intellij.python.hatch.getHatchService
 import com.intellij.ui.dsl.builder.Panel
+import com.intellij.platform.util.progress.withProgressText
 import com.jetbrains.python.PyBundle
+import com.jetbrains.python.PyBundle.message
+import com.jetbrains.python.packaging.PyPackageName
 import com.jetbrains.python.Result
 import com.jetbrains.python.errorProcessing.ErrorSink
 import com.jetbrains.python.errorProcessing.PyResult
@@ -61,7 +64,7 @@ internal class HatchNewEnvironmentCreator<P : PathHolder>(
 
     val hatchService = module.getHatchService(hatchExecutablePath).getOr { return it }
 
-    val projectStructure = hatchService.createNewProject(module.project.name).getOr { return it }
+    val projectStructure = hatchService.createNewProject(PyPackageName.normalizeProjectName(module.project.name)).getOr { return it }
     ModuleRootModificationUtil.updateModel(module) { moduleRootModel ->
       val contentEntry = moduleRootModel.contentEntries.firstOrNull() ?: return@updateModel
 
@@ -90,10 +93,12 @@ internal class HatchNewEnvironmentCreator<P : PathHolder>(
     }
     val hatchService = moduleBasePath.getHatchService(hatchExecutablePath = hatchExecutablePath).getOr { return it }
 
-    val virtualEnvironment = hatchService.createVirtualEnvironment(
-      basePythonBinaryPath = basePythonBinaryEelPath,
-      envName = hatchEnv.name
-    ).getOr { return it }
+    val virtualEnvironment = withProgressText(message("python.sdk.progress.hatch.creating")) {
+      hatchService.createVirtualEnvironment(
+        basePythonBinaryPath = basePythonBinaryEelPath,
+        envName = hatchEnv.name
+      )
+    }.getOr { return it }
 
     val hatchVirtualEnv = HatchVirtualEnvironment(hatchEnv, virtualEnvironment)
     return hatchVirtualEnv.createSdk(hatchService.getWorkingDirectoryPath())

@@ -1,4 +1,4 @@
-// Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.jetbrains.python;
 
 import com.intellij.idea.TestFor;
@@ -531,7 +531,7 @@ public class Py3TypeTest extends PyTestCase {
   }
 
   public void testAsyncDefReturnType() {
-    doTest("Coroutine[Any, Any, int]",
+    doTest("CoroutineType[Any, Any, int]",
            """
              async def foo(x):
                  await x
@@ -562,6 +562,18 @@ public class Py3TypeTest extends PyTestCase {
              
              async def bar():
                  expr = await foo()
+             """);
+  }
+
+  public void testAwaitOnTypingCoroutineAnnotation() {
+    doTest("int",
+           """
+             from typing import Any, Coroutine
+             
+             x: Coroutine[Any, Any, int]
+             
+             async def bar():
+                 expr = await x
              """);
   }
 
@@ -1553,7 +1565,7 @@ public class Py3TypeTest extends PyTestCase {
 
   // PY-24067
   public void testAsyncFunctionReturnTypeInDocstring() {
-    doTest("Coroutine[Any, Any, int]",
+    doTest("CoroutineType[Any, Any, int]",
            """
              async def f():
                  ""\"
@@ -1565,7 +1577,7 @@ public class Py3TypeTest extends PyTestCase {
 
   // PY-27518
   public void testAsyncFunctionReturnTypeInNumpyDocstring() {
-    doTest("Coroutine[Any, Any, int]",
+    doTest("CoroutineType[Any, Any, int]",
            """
              async def f():
                  ""\"
@@ -1592,7 +1604,7 @@ public class Py3TypeTest extends PyTestCase {
 
   // PY-26643
   public void testReplaceSelfInCoroutine() {
-    doTest("Coroutine[Any, Any, B]",
+    doTest("CoroutineType[Any, Any, B]",
            """
              class A:
                  async def foo(self):
@@ -3066,7 +3078,7 @@ public class Py3TypeTest extends PyTestCase {
   }
 
   public void testTypeGuardResultIsAssignedButValIsReassigned() {
-    doTest("list[object]",
+    doTest("int",
            """
              from typing import List
              from typing import TypeGuard
@@ -3084,7 +3096,7 @@ public class Py3TypeTest extends PyTestCase {
   }
 
   public void testTypeGuardResultIsAssignedButValIsReassignedSometimes() {
-    doTest("list[str] | list[object]",
+    doTest("list[str] | int",
            """
              from typing import List
              from typing import TypeGuard
@@ -3634,7 +3646,7 @@ public class Py3TypeTest extends PyTestCase {
 
   // PY-64474
   public void testTupleElementAccessedWithNegativeIndex() {
-    doTest("bool",
+    doTest("Literal[True]",
            """
              xs = (1, True, "foo")
              expr = xs[-2]
@@ -4606,6 +4618,21 @@ public class Py3TypeTest extends PyTestCase {
       """);
   }
 
+  @TestFor(issues = "PY-81651")
+  public void testEqWithNewAny() {
+    withNewAnyTypeEnabled(() -> {
+      doTest("Any", """
+        from typing import Any
+        
+        class A:
+            def __eq__(self, other) -> Any:
+              return "hello :)"
+        
+        expr = A() == 1
+        """);
+    });
+  }
+
   @TestFor(issues = "PY-84524")
   public void testBuiltinsCallable() {
     doTest("(...) -> object", """
@@ -5031,6 +5058,544 @@ public class Py3TypeTest extends PyTestCase {
       def f(foo):
           _ = foo.illegal
           expr = MyClass.foo
+      """);
+  }
+
+  // PY-86873
+  public void testNestedListUnpacking1() {
+    doTest("int", """
+      def f(edges: list[list[int]]):
+                       [[node_a], second_edge] = edges
+                       expr = node_a
+      """);
+  }
+
+  // PY-86873
+  public void testNestedListUnpacking2() {
+    doTest("list[int]", """
+      def f(edges: list[list[int]]):
+                       [[node_a], second_edge] = edges
+                       expr = second_edge
+      """);
+  }
+
+  // PY-86873
+  public void testNestedListUnpacking3() {
+    doTest("int", """
+      def f(edges: list[list[int]]):
+                       [edge, [node_b]] = edges
+                       expr = node_b
+      """);
+  }
+
+  // PY-86873
+  public void testNestedListUnpacking4() {
+    doTest("list[int]", """
+      def f(edges: list[list[int]]):
+                       [edge, [node_b]] = edges
+                       expr = edge
+      """);
+  }
+
+  // PY-86873
+  public void testNestedListUnpacking5() {
+    doTest("int", """
+      def f(edges: list[list[int]]):
+                       [edge, [node_b], edge_2] = edges
+                       expr = node_b
+      """);
+  }
+
+  // PY-86873
+  public void testNestedListUnpacking6() {
+    doTest("tuple[int, int, int]", """
+      def f(edges: list[list[int]]):
+                       [[node_a], [node_b], [node_c]] = edges
+                       expr = (node_a, node_b, node_c)
+      """);
+  }
+
+  // PY-86873
+  public void testNestedListDepth3Unpacking1() {
+    doTest("list[int]", """
+      def f(edges: list[list[list[int]]]):
+                       [edge, [node_a]] = edges
+                       expr = node_a
+      """);
+  }
+
+  // PY-86873
+  public void testNestedListDepth3Unpacking2() {
+    doTest("int", """
+      def f(edges: list[list[list[int]]]):
+                       [edge, [edge_2, [node_a]]] = edges
+                       expr = node_a
+      """);
+  }
+
+  // PY-86873
+  public void testNestedListDepth3Unpacking3() {
+    doTest("list[int]", """
+      def f(edges: list[list[list[int]]]):
+                       [edge, [edge_2, [node_a]]] = edges
+                       expr = edge_2
+      """);
+  }
+
+  // PY-86873
+  public void testNestedListDepth3Unpacking4() {
+    doTest("list[list[int]]", """
+      def f(edges: list[list[list[int]]]):
+                       [edge, [edge_2, [node_a]]] = edges
+                       expr = edge
+      """);
+  }
+
+  @TestFor(issues = "PY-57621")
+  public void testTupleWithLiteralValues() {
+    doTest("tuple[Literal[1]]", """
+      expr = (1,)
+      """);
+  }
+
+  // PY-87575
+  public void testIterDefinedInMetaclass() {
+    doTest("set[int]", """
+      from collections.abc import Iterator
+      
+      class MyIterMeta(type):
+          def __iter__(self) -> Iterator[int]: ...
+      
+      class MyClass(metaclass=MyIterMeta): ...
+      
+      expr = set(MyClass)
+      """);
+  }
+
+  // PY-87575
+  public void testIterDefinedInMetaclassHasHigherPriorityThatInheritedClass() {
+    doTest("set[int]", """
+      from collections.abc import Iterator
+      
+      class MyIterMeta(type):
+          def __iter__(self) -> Iterator[int]: ...
+      
+      class IterBase:
+          def __iter__(self) -> Iterator[str]: ...
+      
+      class MyClass(IterBase, metaclass=MyIterMeta): ...
+      
+      expr = set(MyClass)
+      """);
+  }
+
+  // PY-87575
+  public void testIterDefinedInMetaclassHasHigherPriorityThatInheritedBuiltinStr() {
+    doTest("set[int]", """
+      from collections.abc import Iterator
+      
+      class MyIterMeta(type):
+          def __iter__(self) -> Iterator[int]: ...
+      
+      # even though str inherits Iterable[str], MyIterMeta.__iter__ will be called in runtime and has higher priority
+      class MyClass(str, metaclass=MyIterMeta): ...
+      
+      expr = set(MyClass)
+      """);
+  }
+
+  // PY-87344
+  public void testIteratorTypeCorrectlyInferredFromStrEnum() {
+    doTest("set[Variant]", """
+      from enum import StrEnum
+      from typing import Self
+
+      class Variant(StrEnum):
+          CREATED = "created"
+      
+          @classmethod
+          def values(cls) -> set[Self]:
+              return set(cls)
+      
+      expr = set(Variant)
+      """);
+  }
+
+  // PY-87344
+  public void testTypeOfSetOfStrEnumViaCls() {
+    doTest("set[Self@Variant]", """
+      from enum import StrEnum
+      from typing import Self
+      
+      class Variant(StrEnum):
+          CREATED = "created"
+      
+          @classmethod
+          def values(cls):
+              expr = set(cls)
+      """);
+  }
+
+  @TestFor(issues = "PY-88281")
+  public void testUnionPartialUnresolved() {
+    doTest("int | Any", """
+      expr: int | asdf
+      """);
+  }
+
+  @TestFor(issues = "PY-88281")
+  public void testIntersectionPartialUnresolved() {
+    doTest("int & Any", """
+      expr: int & asdf
+      """);
+  }
+
+  public void testRightHandOrClass() {
+    doTest("UnionType | type[str] | int", """
+      class M(type):
+          def __ror__(self, other: object) -> int:
+              return 1
+      
+      class A(metaclass=M): ...
+      
+      expr = str | A
+      """);
+  }
+
+  @TestFor(issues="PY-57621")
+  public void testTupleInListWidens() {
+    doTest("list[tuple[int, str]]", """
+      t = (1, 'hello')
+      expr = [t]
+    """);
+  }
+
+  @TestFor(issues="PY-57621")
+  public void testTupleInTupleIsLiteral() {
+    var t = "tuple[Literal[1], Literal['hello']]";
+    doTest("tuple[" + t + ", " + t + "]", """
+      t = (1, 'hello')
+      expr = (t, t)
+    """);
+  }
+
+  @TestFor(issues="PY-57621")
+  public void testTupleInGenericWidens() {
+    doTest("list[tuple[int, str]]", """
+      def f[T](t: T) -> list[T]: ...
+      expr = f((1, "hello"))
+    """);
+  }
+
+  @TestFor(issues="PY-57621")
+  public void testTupleAsGenericInTupleNarrows() {
+    var t = "tuple[Literal[1], Literal['hello']]";
+    doTest("tuple[list[tuple[int, str]], " + t + "]" + " | " + t, """
+      def f[T](t: T) -> tuple[list[T], T] | T: ...
+      expr = f((1, 'hello'))
+    """);
+  }
+
+  @TestFor(issues="PY-57621")
+  public void testTupleAsBareTypeVariableIsLiteral() {
+    doTest("tuple[Literal[1], Literal[\"hello\"]]", """
+      def f[T](t: T) -> T: ...
+      expr = f((1, "hello"))
+    """);
+  }
+
+  public void testOverloadImpl() {
+    doTest("Overload[(x: int) -> str, (x: str) -> int]", """
+      from typing import overload
+      
+      @overload
+      def foo(x: int) -> str: ...
+      
+      @overload
+      def foo(x: str) -> int: ...
+      
+      def foo(x): ...
+      
+      expr = foo
+      """);
+  }
+
+  public void testOverloadStub() {
+    runWithAdditionalFileInLibDir(
+      "stub.pyi", """
+        from typing import overload
+        
+        @overload
+        def foo(x: int) -> str: ...
+        
+        @overload
+        def foo(x: str) -> int: ...
+        """, (x) -> {
+        doTest("Overload[(x: int) -> str, (x: str) -> int]", """
+          from stub import foo
+          
+          expr = foo
+          """);
+      }
+    );
+  }
+
+  // PY-88682
+  public void testIterateOverCollectionsNamedTuple() {
+    doTest("Instruction",
+           """
+             from collections import namedtuple
+             Instruction = namedtuple("Instruction", "direction distance")
+             def process(instructions: list[Instruction]) -> None:
+                 for instruction in instructions:
+                     expr = instruction
+             """);
+  }
+
+  @TestFor(issues = "PY-51321")
+  public void testClassDecoratedFunction() {
+    doTest("A",
+           """
+             class A:
+                 def __init__(self, fn): ...
+             
+             @A
+             def bar(): ...
+             
+             expr = bar
+             """);
+  }
+
+  @TestFor(issues="PY-79204")
+  public void testInferParameterFromDecorator() {
+    RecursionManager.assertOnRecursionPrevention(myFixture.getTestRootDisposable());
+    doTest("int", """
+      from collections.abc import Callable
+
+      def d(fn: Callable[[int], object]) -> None: ...
+
+      @d
+      def f(i):
+          expr = i
+      """);
+  }
+
+  @TestFor(issues="PY-79204")
+  public void testInferParameterFromDecoratorCalled() {
+    RecursionManager.assertOnRecursionPrevention(myFixture.getTestRootDisposable());
+    doTest("int", """
+      from collections.abc import Callable
+
+      def d() -> Callable[[Callable[[int], object]], None]: ...
+
+      @d()
+      def f(i):
+          expr = i
+      """);
+  }
+
+  @TestFor(issues="PY-79204")
+  public void testInferParameterFromDecoratorMethod() {
+    RecursionManager.assertOnRecursionPrevention(myFixture.getTestRootDisposable());
+    doTest("int", """
+      from collections.abc import Callable
+      
+      def d(fn: Callable[[int], object]) -> None: ...
+      
+      class A:
+        @d
+        def m(self) -> None:
+          expr = self
+      """);
+  }
+
+  @TestFor(issues = "PY-79204")
+  public void testInferParameterFromDecoratorVariadicUnpacked() {
+    RecursionManager.assertOnRecursionPrevention(myFixture.getTestRootDisposable());
+    doTest("int", """
+      from typing import Protocol
+      
+      class P(Protocol):
+        def __call__(self, *args: int): ...
+      
+      def d(fn: P) -> None: ...
+      
+      @d
+      def f(a, b, c):
+          // not a true match
+          expr = c
+      """);
+  }
+
+  @TestFor(issues = "PY-89342")
+  public void testInferParameterFromDecoratorVariadic() {
+    RecursionManager.assertOnRecursionPrevention(myFixture.getTestRootDisposable());
+    fixme("testInferParameterFromDecoratorVariadic", AssertionError.class, "expected:<[int]>", () ->
+      doTest("int", """
+        from typing import Protocol
+        
+        class P(Protocol):
+          def __call__(self, *args: int): ...
+        
+        def d(fn: P) -> None: ...
+        
+        @d
+        def f(*args):
+            expr = args[100]
+        """)
+    );
+  }
+
+  @TestFor(issues = "PY-89342")
+  public void testInferParameterFromDecoratorVariadicKwargs() {
+    RecursionManager.assertOnRecursionPrevention(myFixture.getTestRootDisposable());
+    fixme("testInferParameterFromDecoratorVariadicKwargs", AssertionError.class, "expected:<[int]>", () ->
+      doTest("int", """
+        from typing import Protocol
+        
+        class P(Protocol):
+          def __call__(self, **kwargs: int): ...
+        
+        def d(fn: P) -> None: ...
+        
+        @d
+        def f(**kwargs):
+            expr = kwargs["100"]
+        """)
+    );
+  }
+
+  @TestFor(issues="PY-79204")
+  public void testInferParameterFromDecoratorPositionalOnly() {
+    RecursionManager.assertOnRecursionPrevention(myFixture.getTestRootDisposable());
+    doTest("str", """
+      from typing import Protocol
+
+      class P(Protocol):
+        def __call__(self, x: int, /, y: str): ...
+
+      def d(fn: P) -> None: ...
+
+      @d
+      def f(a, b):
+          # despite not fully matching, we can still match `b` with `y`
+          expr = b
+      """);
+  }
+
+  @TestFor(issues="PY-89342")
+  public void testInferParameterFromDecoratorKeywordOnly() {
+    RecursionManager.assertOnRecursionPrevention(myFixture.getTestRootDisposable());
+    fixme("testInferParameterFromDecoratorKeywordOnly", AssertionError.class, "expected:<[int]>", () ->
+      doTest("int", """
+        from typing import Protocol
+
+        class P(Protocol):
+          def __call__(self, *, x: int, y: str): ...
+
+        def d(fn: P) -> None: ...
+
+        @d
+        def f(*, y, x):
+            expr = x
+        """)
+    );
+  }
+
+  @TestFor(issues = "PY-79204")
+  public void testInferParameterFromDecoratorIndexOnly() {
+    RecursionManager.assertOnRecursionPrevention(myFixture.getTestRootDisposable());
+    doTest("int", """
+      from typing import Protocol
+      
+      class P(Protocol):
+        def __call__(self, x: int, y: str, /): ...
+      
+      def d(fn: P) -> None: ...
+      
+      @d
+      def f(a, b, /):
+          expr = a
+      """
+    );
+  }
+
+  @TestFor(issues="PY-89342")
+  public void testInferParameterFromDecoratorUnpackedTuple() {
+    RecursionManager.assertOnRecursionPrevention(myFixture.getTestRootDisposable());
+    fixme("testInferParameterFromDecoratorUnpackedTuple", AssertionError.class, "expected:<[int]>", () ->
+      doTest("int", """
+        from typing import Protocol
+
+        class P(Protocol):
+          def __call__(self, *i: *tuple[int, str]): ...
+
+        def d(fn: P) -> None: ...
+
+        @d
+        def f(a, b):
+            expr = b
+        """)
+    );
+  }
+
+  @TestFor(issues="PY-79204")
+  public void testInferParameterFromDecoratorInnermostUsed() {
+    RecursionManager.assertOnRecursionPrevention(myFixture.getTestRootDisposable());
+    doTest("int", """
+      from typing import Protocol
+      from collections.abc import Callable
+
+      class P(Protocol):
+        def __call__(self, i: int): ...
+
+      def d(fn: Callable[[int], None]) -> None: ...
+      def outer(fn: Callable[[str], None]) -> None: ...
+
+      @outer
+      @d
+      def f(i):
+          expr = i
+      """);
+  }
+
+  @TestFor(issues="PY-85768")
+  public void testInferParameterFromDecoratorGenericChain() {
+    RecursionManager.assertOnRecursionPrevention(myFixture.getTestRootDisposable());
+    fixme("testInferParameterFromDecoratorGenericChain", AssertionError.class, "expected:<[int]> but was:<[T]>", () ->
+      doTest("int", """
+        from typing import Callable
+  
+        def d1[T](fn: Callable[[T], object]) -> T: ...
+        def d2(i: int) -> None: ...
+  
+        @d2
+        @d1
+        def f(i):
+            expr = i
+        """)
+    );
+  }
+
+  @TestFor(issues = "PY-89265")
+  public void testExplicitNoneAttribute() {
+    doTest("None", """
+      class A:
+          x: None
+      
+      def f(a: A):
+          expr = a.x
+      """);
+  }
+
+  @TestFor(issues = "PY-89265")
+  public void testExplicitNoneGeneric() {
+    doTest("None", """
+      class A[T]:
+          x: T
+      
+      def f(a: A[None]):
+          expr = a.x
       """);
   }
 

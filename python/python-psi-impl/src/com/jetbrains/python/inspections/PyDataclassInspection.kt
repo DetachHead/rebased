@@ -48,20 +48,17 @@ import one.util.streamex.StreamEx
 
 class PyDataclassInspection : PyInspection() {
 
-  companion object {
-    private val ORDER_OPERATORS = setOf("__lt__", "__le__", "__gt__", "__ge__")
-
-    private enum class ClassOrder {
-      MANUALLY, DC_ORDERED, DC_UNORDERED, UNKNOWN
-    }
-  }
-
   override fun buildVisitor(
     holder: ProblemsHolder,
     isOnTheFly: Boolean,
     session: LocalInspectionToolSession,
-  ): PsiElementVisitor = Visitor(
-    holder, PyInspectionVisitor.getContext(session))
+  ): PsiElementVisitor {
+    val context = PyInspectionVisitor.getContext(session)
+    if (context.usesExternalTypeEngine) {
+      return PsiElementVisitor.EMPTY_VISITOR
+    }
+    return Visitor(holder, context)
+  }
 
   private class Visitor(holder: ProblemsHolder, context: TypeEvalContext) : PyInspectionVisitor(holder, context) {
 
@@ -133,7 +130,7 @@ class PyDataclassInspection : PyInspection() {
 
         processAnnotationsExistence(node, dataclassParameters)
 
-        PyNamedTupleInspection.inspectFieldsOrder(
+        PyNamedTupleInspection.Helper.inspectFieldsOrder(
           cls = node,
           classFieldsFilter = {
             val parameters = parseDataclassParameters(it, myTypeEvalContext)
@@ -429,7 +426,7 @@ class PyDataclassInspection : PyInspection() {
       }
 
       if (dataclassParameters.order && dataclassParameters.frozen == true && hashMethod != null) {
-        registerProblem(hashMethod?.nameIdentifier,
+        registerProblem(hashMethod.nameIdentifier,
                         PyPsiBundle.message("INSP.dataclasses.hash.ignored.if.class.already.defines.cmp.or.order.or.frozen.parameters"),
                         ProblemHighlightType.GENERIC_ERROR_OR_WARNING)
       }
@@ -774,4 +771,10 @@ class PyDataclassInspection : PyInspection() {
              )
     }
   }
+}
+
+private val ORDER_OPERATORS = setOf("__lt__", "__le__", "__gt__", "__ge__")
+
+private enum class ClassOrder {
+  MANUALLY, DC_ORDERED, DC_UNORDERED, UNKNOWN
 }

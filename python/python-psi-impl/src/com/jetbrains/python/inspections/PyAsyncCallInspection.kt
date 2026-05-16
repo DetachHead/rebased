@@ -31,7 +31,10 @@ import com.jetbrains.python.refactoring.PyReplaceExpressionUtil
 class PyAsyncCallInspection : PyInspection() {
 
   override fun buildVisitor(holder: ProblemsHolder, isOnTheFly: Boolean, session: LocalInspectionToolSession): PsiElementVisitor {
-    return Visitor(holder, PyInspectionVisitor.getContext(session))
+      val context = PyInspectionVisitor.getContext(session)
+      return Visitor(holder, context).also {
+          it.downgradeHighlightForTypeEngine = context.usesExternalTypeEngine
+      }
   }
 
   private class Visitor(holder: ProblemsHolder, context: TypeEvalContext) : PyInspectionVisitor(holder, context) {
@@ -70,36 +73,6 @@ class PyAsyncCallInspection : PyInspection() {
     }
   }
 
-  companion object {
-    enum class AwaitableType {
-      AWAITABLE, COROUTINE
-    }
-
-    val ignoreReturnedType = listOf(
-      "asyncio.tasks.Task",
-      "asyncio.Task",
-      "_asyncio.Task"
-    )
-    val ignoreBuiltinFunctions = listOf("asyncio.events.AbstractEventLoop.run_in_executor",
-                                        "asyncio.tasks.ensure_future",
-                                        "asyncio.ensure_future")
-
-    private fun getCalledCoroutineName(callExpression: PyCallExpression, resolveContext: PyResolveContext): String? {
-      val callee = callExpression.callee as? PyReferenceExpression ?: return null
-      val function = callExpression.multiResolveCalleeFunction(resolveContext).firstOrNull() as? PyFunction ?: return null
-      return if (PyUtil.isInitMethod(function)) callee.name else function.name
-    }
-
-    fun isOuterFunctionAsync(node: PyExpression): Boolean {
-      return (ScopeUtil.getScopeOwner(node) as? PyFunction)?.isAsync ?: false
-    }
-
-    private fun isOuterFunctionCoroutine(node: PyExpression, typeEvalContext: TypeEvalContext): Boolean {
-      val pyFunction = (ScopeUtil.getScopeOwner(node) as? PyFunction) ?: return false
-      return PyKnownDecoratorUtil.hasGeneratorBasedCoroutineDecorator(pyFunction, typeEvalContext)
-    }
-  }
-
   private class PyAddAwaitCallForCoroutineFix(val type: AwaitableType) : PsiUpdateModCommandQuickFix() {
     override fun getFamilyName() = PyPsiBundle.message("QFIX.coroutine.is.not.awaited")
 
@@ -126,4 +99,32 @@ class PyAsyncCallInspection : PyInspection() {
       }
     }
   }
+}
+
+private enum class AwaitableType {
+  AWAITABLE, COROUTINE
+}
+
+private val ignoreReturnedType = listOf(
+  "asyncio.tasks.Task",
+  "asyncio.Task",
+  "_asyncio.Task"
+)
+private val ignoreBuiltinFunctions = listOf("asyncio.events.AbstractEventLoop.run_in_executor",
+                                            "asyncio.tasks.ensure_future",
+                                            "asyncio.ensure_future")
+
+private fun getCalledCoroutineName(callExpression: PyCallExpression, resolveContext: PyResolveContext): String? {
+  val callee = callExpression.callee as? PyReferenceExpression ?: return null
+  val function = callExpression.multiResolveCalleeFunction(resolveContext).firstOrNull() as? PyFunction ?: return null
+  return if (PyUtil.isInitMethod(function)) callee.name else function.name
+}
+
+private fun isOuterFunctionAsync(node: PyExpression): Boolean {
+  return (ScopeUtil.getScopeOwner(node) as? PyFunction)?.isAsync ?: false
+}
+
+private fun isOuterFunctionCoroutine(node: PyExpression, typeEvalContext: TypeEvalContext): Boolean {
+  val pyFunction = (ScopeUtil.getScopeOwner(node) as? PyFunction) ?: return false
+  return PyKnownDecoratorUtil.hasGeneratorBasedCoroutineDecorator(pyFunction, typeEvalContext)
 }

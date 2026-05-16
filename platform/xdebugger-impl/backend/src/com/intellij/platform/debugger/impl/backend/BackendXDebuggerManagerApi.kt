@@ -109,6 +109,8 @@ internal class BackendXDebuggerManagerApi : XDebuggerManagerApi {
       debugProcess.editorsProvider.toRpc(cs),
       initialSessionState,
       currentSession.suspendData(),
+      debugProcess.currentStateMessage,
+      debugProcess.currentStateMessageFlow?.toRpc(),
       currentSession.sessionName,
       currentSession.getSessionEventsFlow(initialSessionState).toRpc(),
       sessionDataDto,
@@ -280,7 +282,7 @@ fun XDebugSessionImpl.getSessionEventsFlow(
 ): Flow<XDebuggerSessionEvent> = channelFlow {
   val currentSession = this@getSessionEventsFlow
   // Offload serialization from listener to background
-  val rawEvents = Channel<() -> XDebuggerSessionEvent>(Channel.UNLIMITED)
+  val rawEvents = Channel<suspend () -> XDebuggerSessionEvent>(Channel.UNLIMITED)
 
   val listener = object : XDebugSessionListener {
     override fun sessionPaused() {
@@ -321,7 +323,7 @@ fun XDebugSessionImpl.getSessionEventsFlow(
     }
 
     override fun settingsChanged() {
-      rawEvents.trySend { XDebuggerSessionEvent.SettingsChanged }
+      rawEvents.trySend { XDebuggerSessionEvent.SettingsChanged(currentSession.state()) }
     }
 
     override fun settingsChangedFromFrontend() {
@@ -361,4 +363,5 @@ private fun XDebugSessionImpl.state(): XDebugSessionState = XDebugSessionState(
   isStepOverActionAllowed = isStepOverActionAllowed,
   isStepOutActionAllowed = isStepOutActionAllowed,
   isRunToCursorActionAllowed = isRunToCursorActionAllowed,
+  isForceStepIntoActionAllowed = isForceStepIntoActionAllowed,
 )

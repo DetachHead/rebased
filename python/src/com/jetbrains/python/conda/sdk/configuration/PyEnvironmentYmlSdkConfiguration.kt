@@ -32,9 +32,9 @@ import com.jetbrains.python.sdk.PythonSdkUpdater
 import com.jetbrains.python.sdk.baseDir
 import com.jetbrains.python.sdk.conda.PyCondaSdkCustomizer
 import com.jetbrains.python.sdk.conda.createCondaSdkAlongWithNewEnv
-import com.jetbrains.python.sdk.conda.createCondaSdkFromExistingEnv
+import com.jetbrains.python.sdk.conda.createCondaSdkFromExistingEnvironment
 import com.jetbrains.python.sdk.conda.execution.CondaExecutor
-import com.jetbrains.python.sdk.conda.suggestCondaPath
+import com.jetbrains.python.sdk.conda.findConda
 import com.jetbrains.python.sdk.configuration.CONDA_TOOL_ID
 import com.jetbrains.python.sdk.configuration.CreateSdkInfo
 import com.jetbrains.python.sdk.configuration.EnvCheckerResult
@@ -77,7 +77,7 @@ internal class PyEnvironmentYmlSdkConfiguration : PyProjectSdkConfigurationExten
   private suspend fun checkManageableEnv(module: Module): EnvCheckerResult =
     withBackgroundProgress(module.project, PyBundle.message("python.sdk.validating.environment")) {
       val condaPath = withContext(Dispatchers.IO) {
-        suggestCondaPath()?.let { LocalFileSystem.getInstance().findFileByPath(it) }
+        findConda()?.let { LocalFileSystem.getInstance().findFileByPath(it) }
       }
       val canManage = condaPath != null
       val intentionName = PyBundle.message("sdk.create.condaenv.suggestion")
@@ -107,7 +107,7 @@ internal class PyEnvironmentYmlSdkConfiguration : PyProjectSdkConfigurationExten
     }
 
     // Again: only local conda is supported for now
-    val condaExecutable = suggestCondaPath()?.let { LocalFileSystem.getInstance().findFileByPath(it) }
+    val condaExecutable = findConda()?.let { LocalFileSystem.getInstance().findFileByPath(it) }
     validateCondaPath(condaExecutable?.path, PlatformAndRoot.local)?.let {
       return PyResult.localizedError(it.message)
     }
@@ -149,12 +149,12 @@ internal class PyEnvironmentYmlSdkConfiguration : PyProjectSdkConfigurationExten
 
   private suspend fun useExistingCondaEnv(module: Module, condaExecutable: String): PyResult<Sdk> {
     val project = module.project
-    return PyResult.success(PyCondaCommand(condaExecutable, null).createCondaSdkFromExistingEnv(
+    return PyCondaCommand(condaExecutable, null).createCondaSdkFromExistingEnvironment(
       getCondaEnvIdentity(module, condaExecutable)
       ?: return PyResult.localizedError(PyBundle.message("sdk.cannot.use.existing.conda.environment")),
       PyConfigurableInterpreterList.getInstance(project).model.sdks.toList(),
       project
-    ))
+    )
   }
 
   private suspend fun getCondaEnvIdentity(module: Module, condaExecutable: String): PyCondaEnvIdentity? {

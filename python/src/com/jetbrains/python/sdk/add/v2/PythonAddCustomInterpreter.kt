@@ -172,6 +172,18 @@ internal class PythonAddCustomInterpreter<P : PathHolder>(
               extension.extendDialogPanelWithOptionalFields(this)
               model.state.targetPanelExtension.set(extension)
             }
+
+            fun updateAutoUploadRequired() {
+              val autoUploadRequired = when (selectionMethod.get()) {
+                PythonInterpreterSelectionMethod.CREATE_NEW -> newInterpreterManager.get().sshAutoUploadRequired
+                PythonInterpreterSelectionMethod.SELECT_EXISTING -> existingInterpreterManager.get().sshAutoUploadRequired
+              }
+              extension.setAutoUploadRequired(autoUploadRequired)
+            }
+            selectionMethod.afterChange { updateAutoUploadRequired() }
+            newInterpreterManager.afterChange { updateAutoUploadRequired() }
+            existingInterpreterManager.afterChange { updateAutoUploadRequired() }
+            updateAutoUploadRequired()
           }
         }
       }
@@ -207,7 +219,7 @@ internal class PythonAddCustomInterpreter<P : PathHolder>(
 
   private fun selectBestTool(createSdkInfoWithTool: CreateSdkInfoWithTool) {
     val (manager, configurators) = when (createSdkInfoWithTool.createSdkInfo) {
-      is CreateSdkInfo.WillCreateEnv -> {
+      is CreateSdkInfo.WillCreateEnv, is CreateSdkInfo.WillInstallTool -> {
         selectionMethod.set(PythonInterpreterSelectionMethod.CREATE_NEW)
         newInterpreterManager to newInterpreterCreators
       }

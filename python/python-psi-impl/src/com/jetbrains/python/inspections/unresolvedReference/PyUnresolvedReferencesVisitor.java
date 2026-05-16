@@ -435,6 +435,7 @@ public abstract class PyUnresolvedReferencesVisitor extends PyInspectionVisitor 
       }
     }
     ProblemHighlightType hlType;
+
     if (severity == HighlightSeverity.WARNING) {
       hlType = ProblemHighlightType.GENERIC_ERROR_OR_WARNING;
     }
@@ -446,6 +447,9 @@ public abstract class PyUnresolvedReferencesVisitor extends PyInspectionVisitor 
     }
     else {
       hlType = ProblemHighlightType.LIKE_UNKNOWN_SYMBOL;
+    }
+    if (myTypeEvalContext.getUsesExternalTypeEngine()) {
+      hlType = ProblemHighlightType.INFORMATION;
     }
 
     ContainerUtil.addAll(fixes, getImportStatementQuickFixes(element));

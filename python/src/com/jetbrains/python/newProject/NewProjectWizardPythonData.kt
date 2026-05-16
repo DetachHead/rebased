@@ -13,6 +13,7 @@ import com.intellij.openapi.projectRoots.Sdk
 import com.intellij.platform.ide.progress.runWithModalProgressBlocking
 import com.intellij.ui.dsl.builder.Panel
 import com.jetbrains.python.PyBundle
+import com.jetbrains.python.sdk.runWithSdkConfigurationLock
 import com.jetbrains.python.PythonModuleTypeBase
 import com.jetbrains.python.errorProcessing.ErrorSink
 import com.jetbrains.python.errorProcessing.emit
@@ -127,10 +128,10 @@ class NewPythonProjectStep(parent: NewProjectWizardStep, val createPythonModuleS
       }
     }
 
-    runWithModalProgressBlocking(project, PyBundle.message("python.sdk.creating.python.sdk")) {
+    runWithSdkConfigurationLock(project) {
       val (sdk, _) = pySdkCreator.getSdk(moduleOrProject).getOr {
         errorSink.emit(it.error, project)
-        return@runWithModalProgressBlocking
+        return@runWithSdkConfigurationLock
       }
       pythonSdk = sdk
       moduleOrProject.moduleIfExists?.let { module ->

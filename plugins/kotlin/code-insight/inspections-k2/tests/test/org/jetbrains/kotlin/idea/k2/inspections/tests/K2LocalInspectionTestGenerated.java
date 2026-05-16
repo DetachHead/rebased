@@ -3697,6 +3697,11 @@ public abstract class K2LocalInspectionTestGenerated extends AbstractK2LocalInsp
                 runTest("../../../idea/tests/testData/inspectionsLocal/inconsistentCommentForJavaParameter/annotation.kt");
             }
 
+            @TestMetadata("clsParameter.kt")
+            public void testClsParameter() throws Exception {
+                runTest("../../../idea/tests/testData/inspectionsLocal/inconsistentCommentForJavaParameter/clsParameter.kt");
+            }
+
             @TestMetadata("comment.kt")
             public void testComment() throws Exception {
                 runTest("../../../idea/tests/testData/inspectionsLocal/inconsistentCommentForJavaParameter/comment.kt");
@@ -9846,6 +9851,11 @@ public abstract class K2LocalInspectionTestGenerated extends AbstractK2LocalInsp
             runTest("../../../idea/tests/testData/inspectionsLocal/replaceManualRangeWithIndicesCalls/notUsedAsIndex.kt");
         }
 
+        @TestMetadata("openRangeLastIndex.kt")
+        public void testOpenRangeLastIndex() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/replaceManualRangeWithIndicesCalls/openRangeLastIndex.kt");
+        }
+
         @TestMetadata("qualifiedReceiverDifferentCollection.kt")
         public void testQualifiedReceiverDifferentCollection() throws Exception {
             runTest("../../../idea/tests/testData/inspectionsLocal/replaceManualRangeWithIndicesCalls/qualifiedReceiverDifferentCollection.kt");
@@ -9914,6 +9924,11 @@ public abstract class K2LocalInspectionTestGenerated extends AbstractK2LocalInsp
         @TestMetadata("typeMismatch.kt")
         public void testTypeMismatch() throws Exception {
             runTest("../../../idea/tests/testData/inspectionsLocal/replaceManualRangeWithIndicesCalls/typeMismatch.kt");
+        }
+
+        @TestMetadata("untilLastIndex.kt")
+        public void testUntilLastIndex() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/replaceManualRangeWithIndicesCalls/untilLastIndex.kt");
         }
 
         @TestMetadata("usedForOtherArray.kt")
@@ -13657,75 +13672,6 @@ public abstract class K2LocalInspectionTestGenerated extends AbstractK2LocalInsp
             @TestMetadata("withInitialization.kt")
             public void testWithInitialization() throws Exception {
                 runTest("testData/inspectionsLocal/convertToExplicitBackingFields/withInitialization.kt");
-            }
-        }
-
-        @RunWith(JUnit3RunnerWithInners.class)
-        @TestMetadata("testData/inspectionsLocal/destructuringWrongNameInspection")
-        public static class DestructuringWrongNameInspection extends AbstractK2LocalInspectionTest {
-            @java.lang.Override
-            @org.jetbrains.annotations.NotNull
-            public final KotlinPluginMode getPluginMode() {
-                return KotlinPluginMode.K2;
-            }
-
-            private void runTest(String testDataFilePath) throws Exception {
-                KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
-            }
-
-            @TestMetadata("flexibleTypeDestructuring.kt")
-            public void testFlexibleTypeDestructuring() throws Exception {
-                runTest("testData/inspectionsLocal/destructuringWrongNameInspection/flexibleTypeDestructuring.kt");
-            }
-
-            @TestMetadata("forDestructuring.kt")
-            public void testForDestructuring() throws Exception {
-                runTest("testData/inspectionsLocal/destructuringWrongNameInspection/forDestructuring.kt");
-            }
-
-            @TestMetadata("fullDestructuring.kt")
-            public void testFullDestructuring() throws Exception {
-                runTest("testData/inspectionsLocal/destructuringWrongNameInspection/fullDestructuring.kt");
-            }
-
-            @TestMetadata("hasSyntheticComponent.kt")
-            public void testHasSyntheticComponent() throws Exception {
-                runTest("testData/inspectionsLocal/destructuringWrongNameInspection/hasSyntheticComponent.kt");
-            }
-
-            @TestMetadata("incompatibleTypeDestructuring.kt")
-            public void testIncompatibleTypeDestructuring() throws Exception {
-                runTest("testData/inspectionsLocal/destructuringWrongNameInspection/incompatibleTypeDestructuring.kt");
-            }
-
-            @TestMetadata("incompatibleTypeDestructuringFull.kt")
-            public void testIncompatibleTypeDestructuringFull() throws Exception {
-                runTest("testData/inspectionsLocal/destructuringWrongNameInspection/incompatibleTypeDestructuringFull.kt");
-            }
-
-            @TestMetadata("lambdaDestructuring.kt")
-            public void testLambdaDestructuring() throws Exception {
-                runTest("testData/inspectionsLocal/destructuringWrongNameInspection/lambdaDestructuring.kt");
-            }
-
-            @TestMetadata("nonDataClass.kt")
-            public void testNonDataClass() throws Exception {
-                runTest("testData/inspectionsLocal/destructuringWrongNameInspection/nonDataClass.kt");
-            }
-
-            @TestMetadata("nullableDataClass.kt")
-            public void testNullableDataClass() throws Exception {
-                runTest("testData/inspectionsLocal/destructuringWrongNameInspection/nullableDataClass.kt");
-            }
-
-            @TestMetadata("partialDestructuring.kt")
-            public void testPartialDestructuring() throws Exception {
-                runTest("testData/inspectionsLocal/destructuringWrongNameInspection/partialDestructuring.kt");
-            }
-
-            @TestMetadata("wrongNameForSyntheticComponent.kt")
-            public void testWrongNameForSyntheticComponent() throws Exception {
-                runTest("testData/inspectionsLocal/destructuringWrongNameInspection/wrongNameForSyntheticComponent.kt");
             }
         }
 

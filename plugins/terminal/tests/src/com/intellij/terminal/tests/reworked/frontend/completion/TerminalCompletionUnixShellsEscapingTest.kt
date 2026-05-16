@@ -9,6 +9,7 @@ import com.intellij.testFramework.fixtures.BasePlatformTestCase
 import kotlinx.coroutines.Dispatchers
 import org.jetbrains.plugins.terminal.block.completion.TerminalCommandCompletionShowingMode
 import org.jetbrains.plugins.terminal.session.impl.TerminalStartupOptionsImpl
+import org.jetbrains.plugins.terminal.startup.TerminalProcessType
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.junit.runners.JUnit4
@@ -69,7 +70,9 @@ internal class TerminalCompletionUnixShellsEscapingTest : BasePlatformTestCase()
     val startupOptions = TerminalStartupOptionsImpl(
       shellCommand = listOf("/bin/zsh", "--login", "-i"),
       workingDirectory = System.getProperty("user.home"),
-      envVariables = emptyMap()
+      envVariables = emptyMap(),
+      processType = TerminalProcessType.SHELL,
+      pid = null,
     )
     val session = EchoingTerminalSession(startupOptions, fixtureScope.childScope("EchoingTerminalSession"))
     doWithCompletionFixture(project, session, fixtureScope) { fixture ->

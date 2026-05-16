@@ -9,7 +9,6 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.IdentityHashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -209,6 +208,11 @@ public abstract class PyCloningTypeVisitor extends PyTypeVisitorExt<PyType> {
   }
 
   @Override
+  public PyType visitPyOverloadType(@NotNull PyOverloadType overloadType) {
+    return new PyOverloadType(ContainerUtil.map(overloadType.getItems(), this::clone), overloadType.getImpl());
+  }
+
+  @Override
   public PyType visitPyTypeVarType(@NotNull PyTypeVarType typeVarType) {
     return typeVarType;
   }
@@ -242,6 +246,7 @@ public abstract class PyCloningTypeVisitor extends PyTypeVisitorExt<PyType> {
           parameter.getParameter(),
           parameter.isPositionalContainer(),
           parameter.isKeywordContainer(),
+          parameter.isSelf(),
           parameter.getDeclarationElement()
         ))
     );

@@ -24,8 +24,8 @@ import com.jetbrains.python.psi.resolve.PyResolveContext
 import com.jetbrains.python.psi.resolve.RatedResolveResult
 import com.jetbrains.python.psi.types.ConstraintReducer.reduce
 import com.jetbrains.python.psi.types.PyRecursiveTypeVisitor.PyTypeTraverser
-import com.jetbrains.python.psi.types.PyTypeUtil.getEffectiveBound
-import com.jetbrains.python.psi.types.PyTypeVarType.Variance
+import com.jetbrains.python.psi.types.PyTypeParameterType.Variance
+import com.jetbrains.python.psi.types.PyTypeUtil.derefOrUnknown
 import com.jetbrains.python.psi.types.SubtypeJudgement.isRawSubtype
 import com.jetbrains.python.psi.types.SubtypeJudgement.isSubtype
 import com.jetbrains.python.psi.types.SubtypeJudgement.sameTypes
@@ -138,32 +138,42 @@ class CspBuilder(val context: TypeEvalContext) {
   fun getSolution(keepUnconstrained: Boolean): Solution {
     val instantiations = if (cp.failed) cp.instantiations else cp.solution
     val typeVars2TypeRefs: MutableMap<PyTypeVarType, Ref<PyType?>> = LinkedHashMap()
-    for (entry in instantiations) {
-      val instantiatedType = entry.value
-      val instantiatedTypeOrTypeVar: PyType?
-      if (instantiatedType is PyUnconstrainedTypeVariable) {
-        val originalTypeVar = instantiatedType.typeVariable
-        instantiatedTypeOrTypeVar = if (keepUnconstrained) originalTypeVar else originalTypeVar.defaultType?.get()
-      }
-      else if (instantiatedType is PyTypeVarType) {
-        // if the solution is another PyTypeVarType, check the declared default types
-        if (instantiatedType.defaultType?.get() != null) {
-          instantiatedTypeOrTypeVar = instantiatedType.defaultType?.get()
-        }
-        else if (entry.key.typeVariable.defaultType?.get() != null) {
-          instantiatedTypeOrTypeVar = entry.key.typeVariable.defaultType?.get()
-        }
-        else {
-          instantiatedTypeOrTypeVar = instantiatedType
-        }
-      }
-      else {
-        instantiatedTypeOrTypeVar = instantiatedType
-      }
-      typeVars2TypeRefs[entry.key.typeVariable] = Ref.create(instantiatedTypeOrTypeVar)
+    for ((inferenceVariable, instantiatedType) in instantiations) {
+      val instantiatedTypeOrTypeVar = getPostComputedSolution(instantiatedType, inferenceVariable, keepUnconstrained)
+      typeVars2TypeRefs[inferenceVariable.typeVariable] = Ref.create(instantiatedTypeOrTypeVar)
     }
     val complete = instantiations.keys.containsAll(cp.inferenceVars.values())
     return Solution(cp.failed, complete, typeVars2TypeRefs)
+  }
+
+  private fun getPostComputedSolution(
+    instantiatedType: PyType?,
+    inferenceVariable: InferenceVariable,
+    keepUnconstrained: Boolean,
+  ): PyType? {
+    when (instantiatedType) {
+      is PyUnconstrainedTypeVariable -> {
+        val originalTypeVar = instantiatedType.typeVariable
+        return when {
+          keepUnconstrained -> originalTypeVar
+          originalTypeVar.defaultType != null -> originalTypeVar.defaultType.derefOrUnknown()
+          originalTypeVar.bound != null -> originalTypeVar.bound
+          else -> PyAnyType.unknown
+        }
+      }
+      is PyTypeVarType -> {
+        // if the solution is another PyTypeVarType, check the declared default types
+        if (inferenceVariable.typeVariable.defaultType != null) {
+          return inferenceVariable.typeVariable.defaultType.derefOrUnknown()
+        }
+        else {
+          return instantiatedType
+        }
+      }
+      else -> {
+        return instantiatedType
+      }
+    }
   }
 }
 
@@ -519,11 +529,14 @@ private object ConstraintReducer {
           return
         }
       }
-      Variance.INVARIANT, Variance.BIVARIANT -> {
+      Variance.INVARIANT -> {
         if (!sameTypes(left, right, cp.context)) {
           cp.fail()
           return
         }
+      }
+      Variance.BIVARIANT -> {
+        // success
       }
       Variance.INFER_VARIANCE -> {
         UNREACHABLE()
@@ -1370,6 +1383,12 @@ private object TypeBoundResolver {
       return PyUnionType.union(lowerBoundsWidened)
     }
     else if (lowerBounds.isEmpty() && upperBounds.isNotEmpty()) {
+      if (upperBounds.size == 1 && upperBounds[0] == infVar.typeVariable.bound) {
+        // special case: the type variable is constrained only by its bound (i.e., `[T : int]`).
+        // Therefore, we treat this type variable as unconstrained and use its bound when necessary based on `#keepUnconstrained`.
+        return PyUnconstrainedTypeVariable(infVar.typeVariable)
+      }
+
       // It is debatable whether we should just return PyIntersectionType.intersection(*upperBounds)
       // Note however that intersection types are not part of Python (as of 2026).
       // Hence, the following logic makes it mandatory that the user declares a common subtype at some point.
@@ -1416,7 +1435,7 @@ private object TypeBoundResolver {
    */
   private fun collectLowerBounds(cp: ConstraintProblem, infVar: InferenceVariable, context: TypeEvalContext): Array<PyType?> {
     return collectBounds(cp, infVar, context) { b: TypeBound ->
-      (b.variance === Variance.INVARIANT) || (b.variance === Variance.CONTRAVARIANT && b.right != null)
+      (b.variance === Variance.INVARIANT) || (b.variance === Variance.CONTRAVARIANT && !b.right.isUnknown)
     }
   }
 
@@ -1545,8 +1564,8 @@ private object SubtypeJudgement {
 
   /** True iff left is a subtype of right */
   fun isSubtype(left: PyType?, right: PyType?, context: TypeEvalContext): Boolean {
-    val leftProper = if (left is PyUnconstrainedTypeVariable) left.typeVariable.defaultType?.get() else left
-    val rightProper = if (right is PyUnconstrainedTypeVariable) right.typeVariable.defaultType?.get() else right
+    val leftProper = if (left is PyUnconstrainedTypeVariable) left.typeVariable.defaultType.derefOrUnknown() else left
+    val rightProper = if (right is PyUnconstrainedTypeVariable) right.typeVariable.defaultType.derefOrUnknown() else right
     return PyTypeChecker.match(rightProper, leftProper, context)
   }
 
@@ -1657,7 +1676,7 @@ private fun substituteByInferenceVars(
 }
 
 private fun substitutePyTypeVarTypes(original: PyType?, inferenceVars: InferenceVariablePool, context: TypeEvalContext): PyType? {
-  if (original == null) {
+  if (original.isUnknown) {
     return original
   }
   return PyCloningTypeVisitor.clone(original, object : PyCloningTypeVisitor(context) {
@@ -1688,7 +1707,7 @@ private fun PyType?.isTopType(context: TypeEvalContext): Boolean {
 }
 
 private fun PyType?.isBottomType(): Boolean {
-  return this == null || this is PyNeverType // Any or Never
+  return this.isAnyOrUnknown || this is PyNeverType // Any or Never
 }
 
 private fun PyType?.isOptional(): Boolean {

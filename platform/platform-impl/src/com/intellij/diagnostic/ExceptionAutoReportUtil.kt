@@ -4,38 +4,97 @@ package com.intellij.diagnostic
 import com.intellij.ide.AboutPopupDescriptionProvider
 import com.intellij.ide.gdpr.Consent
 import com.intellij.ide.gdpr.ConsentOptions
-import com.intellij.ide.plugins.IdeaPluginDescriptor
 import com.intellij.ide.plugins.PluginManagerCore
 import com.intellij.ide.plugins.PluginUtil
 import com.intellij.ide.util.PropertiesComponent
 import com.intellij.idea.AppMode
-import com.intellij.internal.statistic.utils.getPluginInfoByDescriptor
+import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.application.ex.ApplicationManagerEx
 import com.intellij.openapi.application.impl.ApplicationInfoImpl
+import com.intellij.openapi.diagnostic.ProblematicPluginInfo
 import com.intellij.openapi.diagnostic.thisLogger
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.startup.ProjectActivity
 import com.intellij.openapi.util.NlsContexts
 import com.intellij.openapi.util.registry.Registry
-import com.intellij.util.PlatformUtils
+import com.intellij.platform.ide.impl.diagnostic.errorsDialog.ErrorMessageClustering
+import com.intellij.util.text.nullize
 import org.jetbrains.annotations.ApiStatus
+import org.jetbrains.annotations.TestOnly
 
 @ApiStatus.Internal
 object ExceptionAutoReportUtil {
   private const val EA_AUTO_REPORT_OFFERED_PROPERTY: String = "ea.auto.report.offered"
+  private const val ENABLED_FOR_DEVELOPMENT = false
 
+  // may be queried before Application started
   val autoReportIsForbiddenForProduct: Boolean
-    get() = AppMode.isRemoteDevHost() || PlatformUtils.isJetBrainsClient() || !ApplicationInfoImpl.getShadowInstance().isVendorJetBrains
+    get() = !ApplicationInfoImpl.getShadowInstance().isVendorJetBrains
+            || AppMode.isRemoteDevHost() // we handle everything on client
+            || AppMode.isHeadless()
 
   @JvmStatic
   val isAutoReportVisible: Boolean
     get() = !autoReportIsForbiddenForProduct && Registry.`is`("ea.auto.report.feature.visible", false)
 
   @JvmStatic
+  val isAutoReportForced: Boolean
+    get() = getForcedAutoReportLevel() != ForcedReportLevel.NONE
+
+  @JvmStatic
   val isAutoReportEnabled: Boolean
     get() {
       if (!isAutoReportVisible) return false
+      return isAutoReportAllowedByUser()
+    }
+
+  @JvmStatic
+  val isConsentAllowedToBeVisible: Boolean
+    get() = isAutoReportVisible && !isAutoReportForced // do not show consents UI if level is forced
+
+  fun getAutoReportTag(): String? {
+    return Registry.stringValue("ea.auto.report.forced.tag", "").nullize()
+  }
+
+  internal fun getForcedAutoReportLevel(): ForcedReportLevel {
+    return try {
+      ForcedReportLevel.valueOf(Registry.stringValue("ea.auto.report.forced", ForcedReportLevel.NONE.name).uppercase())
+    }
+    catch (_: IllegalArgumentException) {
+      return ForcedReportLevel.NONE
+    }
+  }
+
+  private val isDevelopmentEnvironment: Boolean
+    get() = ApplicationManagerEx.isInIntegrationTest()
+            || AppMode.isRunningFromDevBuild()
+            || PluginManagerCore.isRunningFromSources()
+
+  private fun isAutoReportAllowedByUser(): Boolean {
+    if (isDevelopmentEnvironment) return ENABLED_FOR_DEVELOPMENT
+
+    if (isAutoReportForced) return true // set by provisioning
+    if (ConsentOptions.getInstance().isEAP) {
+      return ExceptionEAPAutoReportManager.getInstance().enabledInEAP
+    }
+
+    val (consent, needsReconfirm) = getConsentAndNeedsReconfirm()
+    return consent?.isAccepted == true && !needsReconfirm
+  }
+
+  @JvmStatic
+  val isAutoReportEnabledOrUndecided: Boolean
+    get() {
+      if (!isAutoReportVisible) return false
+
+      if (isDevelopmentEnvironment) return ENABLED_FOR_DEVELOPMENT
+      if (isAutoReportForced) return true // set by provisioning
+      if (ConsentOptions.getInstance().isEAP) {
+        return ExceptionEAPAutoReportManager.getInstance().enabledInEAP
+      }
+
       val (consent, needsReconfirm) = getConsentAndNeedsReconfirm()
-      return consent?.isAccepted == true && !needsReconfirm
+      return consent?.isAccepted == true || needsReconfirm
     }
 
   private fun getConsentAndNeedsReconfirm(): Pair<Consent?, Boolean> {
@@ -47,7 +106,10 @@ object ExceptionAutoReportUtil {
   }
 
   fun shouldOfferEnablingAutoReport(): Boolean {
-    if (!isAutoReportVisible) return false
+    if (!isAutoReportVisible || ConsentOptions.getInstance().isEAP) return false
+    if (isDevelopmentEnvironment) return false
+    if (isAutoReportForced) return false
+
     val (consent, needsReconfirm) = getConsentAndNeedsReconfirm()
     if (consent == null) return false
     // the feature is already enabled
@@ -72,23 +134,60 @@ object ExceptionAutoReportUtil {
   /**
    * Checks only [message], not the state of functionality
    */
-  fun isAutoReportableException(message: AbstractMessage): Boolean = getRelevantData(message) != null
-
-  fun getRelevantData(message: AbstractMessage): Pair<ITNReporter, IdeaPluginDescriptor?>? {
-    val throwable = message.throwable
-    if (throwable is JBRCrash) return null
-    val plugin = PluginManagerCore.getPlugin(PluginUtil.getInstance().findPluginId(message.throwable))
-    if (plugin != null && !getPluginInfoByDescriptor(plugin).isDevelopedByJetBrains()) {
-      return null
-    }
-    val submitter = DefaultIdeaErrorLogger.findSubmitter(throwable, plugin)
-    if (submitter !is ITNReporter || !isDefaultSubmitter(submitter)) {
-      return null
-    }
-    return Pair(submitter, plugin)
+  suspend fun isAutoReportableException(message: AbstractMessage): Boolean {
+    return getRelevantData(message) != null
   }
 
-  private fun isDefaultSubmitter(submitter: ITNReporter): Boolean = submitter.javaClass == ITNReporter::class.java
+  suspend fun getRelevantData(message: AbstractMessage): Pair<ITNReporter, ProblematicPluginInfo?>? {
+    val throwable = message.throwable
+    if (throwable is JBRCrash) return null
+
+    // if level is ALL or NONE, then we report exceptions based on regular rules
+    val level = getForcedAutoReportLevel()
+    if (level == ForcedReportLevel.FREEZES && !isFreeze(throwable)) {
+      thisLogger().debug("Ignoring it as not a freeze: ${getThrowableFqn(throwable)}. Only freezes are allowed to be auto-reported.")
+      return null
+    }
+
+    val pluginId = PluginUtil.getInstance().findPluginId(throwable)
+    val pluginInfo = ErrorMessageClustering.getInstance().createPluginInfo(pluginId)
+    val submitter = DefaultIdeaErrorLogger.findSubmitterByPluginInfo(throwable, pluginInfo)
+    val itnReporter = submitter as? ITNReporter ?: return null
+
+    val isErrorSendable = if (pluginInfo == null || PluginManagerCore.isDevelopedByJetBrains(pluginInfo.vendor)) {
+      isDefaultSubmitter(submitter)
+    }
+    else {
+      submitter.javaClass == JetBrainsMarketplaceErrorReportSubmitter::class.java
+    }
+
+    if (isErrorSendable) {
+      return Pair(itnReporter, pluginInfo)
+    }
+    else {
+      return null
+    }
+  }
+
+  private fun isDefaultSubmitter(submitter: ITNReporter): Boolean {
+    val cls = submitter.javaClass
+    return cls == ITNReporter::class.java
+           || cls.name == $$"com.intellij.rustrover.RustRoverMessagePoolAutoReporter$MyITNReporter"
+           && ApplicationManager.getApplication().isEAP
+  }
+
+  fun isFreeze(throwable: Throwable): Boolean {
+    return throwable is Freeze
+           || throwable is RemoteSerializedThrowable && throwable.classFqn == Freeze::class.qualifiedName
+  }
+
+  fun getThrowableFqn(throwable: Throwable): String? {
+    if (throwable is RemoteSerializedThrowable) return throwable.classFqn
+    return throwable::class.qualifiedName
+  }
+
+  @TestOnly
+  fun createFreezeLogMessage(): LogMessage = LogMessage(Freeze(emptyList()), null, emptyList())
 }
 
 internal class ReporterIdForEAAutoReporters : AboutPopupDescriptionProvider {
@@ -100,4 +199,8 @@ internal class ReporterIdLoggerActivity : ProjectActivity {
   override suspend fun execute(project: Project) {
     thisLogger().info(DiagnosticBundle.message("about.dialog.text.ea.reporting.id", ITNProxy.DEVICE_ID))
   }
+}
+
+internal enum class ForcedReportLevel {
+  ALL, FREEZES, NONE
 }

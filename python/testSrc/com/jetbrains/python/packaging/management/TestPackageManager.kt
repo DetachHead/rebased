@@ -2,6 +2,7 @@
 package com.jetbrains.python.packaging.management
 
 import com.intellij.openapi.application.readAction
+import com.intellij.openapi.module.Module
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.projectRoots.Sdk
 import com.intellij.openapi.util.Key
@@ -45,7 +46,7 @@ class TestPythonPackageManager(project: Project, sdk: Sdk) : PythonPackageManage
     return PyResult.success(Unit)
   }
 
-  override suspend fun installPackageCommand(installRequest: PythonPackageInstallRequest, options: List<String>): PyResult<Unit> {
+  override suspend fun installPackageCommand(installRequest: PythonPackageInstallRequest, options: List<String>, module: Module?): PyResult<Unit> {
     if (installRequest !is PythonPackageInstallRequest.ByRepositoryPythonPackageSpecifications) {
       return PyResult.localizedError("Test Manager supports only simple repository package specification")
     }
@@ -90,7 +91,7 @@ class TestPythonPackageManager(project: Project, sdk: Sdk) : PythonPackageManage
     }
   }
 
-  override suspend fun extractDependencies(): PyResult<List<PythonPackage>>? {
+  override suspend fun listDeclaredPackages(): PyResult<List<PythonPackage>>? {
     val providerType = sdk.getUserData(REQUIREMENTS_PROVIDER_KEY) ?: return null
     val moduleDir = sdk.associatedModuleDir ?: return null
 
@@ -126,9 +127,7 @@ class TestPythonPackageManager(project: Project, sdk: Sdk) : PythonPackageManage
   }
 
   private suspend fun extractFromEnvironmentYml(file: VirtualFile): PyResult<List<PythonPackage>>? {
-    val requirements = readAction {
-      CondaEnvironmentYmlParser.fromFile(file)
-    } ?: return null
+    val requirements = CondaEnvironmentYmlParser.fromFile(file) ?: return null
     return PyResult.success(requirements.toPythonPackages())
   }
 

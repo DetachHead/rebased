@@ -46,13 +46,13 @@ internal class PythonAddLocalInterpreterDialog(private val dialogPresenter: Pyth
   override fun doOKAction() {
     super.doOKAction()
     val addEnvironment = mainPanel.currentSdkManager
-    PyPackageCoroutine.launch(dialogPresenter.moduleOrProject.project, ModalityState.current().asContextElement()) {
+    PyPackageCoroutine.launch(dialogPresenter.moduleOrProject.project, ModalityState.stateForComponent(owner).asContextElement()) {
       dialogPresenter.okClicked(addEnvironment)
     }
   }
 
   override fun createCenterPanel(): JComponent {
-    val errorSink = ShowingMessageErrorSync
+    val errorSink = ShowingMessageErrorSync.withProject(dialogPresenter.moduleOrProject.project)
 
     val rootPanel = panel {
       model = PythonLocalAddInterpreterModel(ProjectPathFlows.create(basePath), FileSystem.Eel(eelApi = localEel))

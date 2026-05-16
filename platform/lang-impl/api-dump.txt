@@ -652,6 +652,8 @@ com.intellij.ide.actions.runAnything.activity.RunAnythingProvider
 - a:getMainListItem(com.intellij.openapi.actionSystem.DataContext,java.lang.Object):com.intellij.ide.actions.runAnything.items.RunAnythingItem
 - a:getMatcher(com.intellij.openapi.actionSystem.DataContext,java.lang.String):com.intellij.util.text.Matcher
 - a:getValues(com.intellij.openapi.actionSystem.DataContext,java.lang.String):java.util.Collection
+c:com.intellij.ide.actions.searcheverywhere.FileSearchEverywhereContributor
+- dispose():V
 f:com.intellij.ide.actions.searcheverywhere.PSIPresentationBgRendererWrapper
 - <init>(com.intellij.ide.actions.searcheverywhere.WeightedSearchEverywhereContributor):V
 - getDelegate():com.intellij.ide.actions.searcheverywhere.WeightedSearchEverywhereContributor
@@ -1029,7 +1031,7 @@ com.intellij.openapi.roots.ui.configuration.libraryEditor.LibraryEditor
 - a:setName(java.lang.String):V
 com.intellij.openapi.roots.ui.configuration.projectRoot.SdkDownload
 - getIconForDownloadAction(com.intellij.openapi.projectRoots.SdkTypeId):javax.swing.Icon
-- pickSdk(com.intellij.openapi.projectRoots.SdkTypeId,com.intellij.openapi.projectRoots.SdkModel,javax.swing.JComponent,com.intellij.openapi.projectRoots.Sdk):com.intellij.openapi.roots.ui.configuration.projectRoot.SdkDownloadTask
+- pickSdk(com.intellij.openapi.projectRoots.SdkTypeId,com.intellij.openapi.projectRoots.SdkModel,javax.swing.JComponent,com.intellij.openapi.projectRoots.Sdk,java.util.function.Predicate):com.intellij.openapi.roots.ui.configuration.projectRoot.SdkDownloadTask
 - showDownloadUI(com.intellij.openapi.projectRoots.SdkTypeId,com.intellij.openapi.projectRoots.SdkModel,javax.swing.JComponent,com.intellij.openapi.project.Project,com.intellij.openapi.projectRoots.Sdk,java.util.function.Predicate,java.util.function.Consumer):V
 - a:showDownloadUI(com.intellij.openapi.projectRoots.SdkTypeId,com.intellij.openapi.projectRoots.SdkModel,javax.swing.JComponent,com.intellij.openapi.projectRoots.Sdk,java.util.function.Consumer):V
 - a:supportsDownload(com.intellij.openapi.projectRoots.SdkTypeId):Z
@@ -1189,6 +1191,8 @@ f:com.intellij.tools.ToolManager
 - sf:getInstance():com.intellij.tools.ToolManager
 f:com.intellij.tools.ToolManager$Companion
 - f:getInstance():com.intellij.tools.ToolManager
+f:com.intellij.unscramble.AnalyzeStacktraceUtil
+- sf:printStacktrace(com.intellij.execution.ui.ConsoleView,java.lang.String,com.intellij.execution.ui.ConsoleViewContentType):V
 com.intellij.unscramble.AnalyzeStacktraceUtil$ConsoleFactory
 - a:createConsoleComponent(com.intellij.execution.ui.ConsoleView,com.intellij.openapi.actionSystem.DefaultActionGroup):javax.swing.JComponent
 c:com.intellij.util.indexing.IndexInfrastructureVersionBase

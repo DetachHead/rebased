@@ -112,12 +112,14 @@
       "inactiveBackground": "BackgroundLight",
       "borderColor": "BorderTransparent",
       "Dropdown.transparentHoverBackground": "#FFFFFF12",
-      "Button.arc.compact": 8
+      "Button.arc.compact": 8,
+      "Icon.insets": "6,5,4,5"
     },
 
     "StatusBar": {
       "background": "BackgroundLight",
       "borderColor": "BorderTransparent",
+      "topBorderWidth": 0,
       "Breadcrumbs.foreground": "#9da0a8",
       "Widget.foreground": "#9da0a8",
       "Breadcrumbs.hoverBackground": "#FFFFFF18",
@@ -436,9 +438,20 @@
     "Bookmark.MnemonicAssigned.foreground": "#1e1f22",
 
     "LineProfiler": {
-      "HotLine.foreground": "#db5c5c",
-      "IgnoredLine.foreground": "#4e5157",
-      "Line.foreground": "#6f737a"
+      "Line": {
+        "labelBackground": "#FFFFFF17",
+        "foreground": "#9FA2A8",
+        "hoverBackground": "#FFFFFF29"
+      },
+      "HotLine": {
+        "labelBackground": "#402929",
+        "foreground": "#DB5C5C",
+        "hoverBackground": "#5E3838"
+      },
+      "IgnoredLine": {
+        "labelBackground": "#FFFFFF17",
+        "foreground": "#73767C"
+      }
     },
 
     "PresentationAssistant": {

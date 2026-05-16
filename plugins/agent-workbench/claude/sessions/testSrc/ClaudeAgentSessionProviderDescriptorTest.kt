@@ -1,0 +1,289 @@
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+package com.intellij.agent.workbench.claude.sessions
+
+import com.intellij.agent.workbench.common.AgentWorkbenchActionIds
+import com.intellij.agent.workbench.common.session.AgentSessionLaunchMode
+import com.intellij.agent.workbench.common.session.AgentSessionProvider
+import com.intellij.agent.workbench.common.session.AgentSessionThread
+import com.intellij.agent.workbench.prompt.core.AgentPromptContextItem
+import com.intellij.agent.workbench.prompt.core.AgentPromptContextRendererIds
+import com.intellij.agent.workbench.prompt.core.AgentPromptInitialMessageRequest
+import com.intellij.agent.workbench.sessions.core.providers.AGENT_PROMPT_PROVIDER_OPTION_PLAN_MODE
+import com.intellij.agent.workbench.sessions.core.providers.AGENT_PROMPT_PROVIDER_PLAN_MODE_OPTION
+import com.intellij.agent.workbench.sessions.core.providers.AgentInitialMessageStartupPolicy
+import com.intellij.agent.workbench.sessions.core.providers.AgentInitialMessageTimeoutPolicy
+import com.intellij.agent.workbench.sessions.core.providers.AgentSessionSource
+import com.intellij.agent.workbench.sessions.core.providers.AgentSessionSourceUpdateEvent
+import com.intellij.agent.workbench.sessions.core.providers.AgentThreadRenameContext
+import com.intellij.agent.workbench.sessions.core.providers.AgentThreadRenameHandler
+import com.intellij.openapi.project.Project
+import com.intellij.testFramework.junit5.TestApplication
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.emptyFlow
+import kotlinx.coroutines.runBlocking
+import org.assertj.core.api.Assertions.assertThat
+import org.junit.jupiter.api.Test
+
+@TestApplication
+class ClaudeAgentSessionProviderDescriptorTest {
+  private val bridge = ClaudeAgentSessionProviderDescriptor()
+
+  @Test
+  fun buildNewEntryLaunchSpec() {
+    assertThat(bridge.buildNewEntryLaunchSpec().command)
+      .containsExactly("claude", "--permission-mode", "default")
+    assertThat(bridge.buildNewEntryLaunchSpec().envVariables)
+      .containsExactlyEntriesOf(mapOf("DISABLE_AUTOUPDATER" to "1"))
+  }
+
+  @Test
+  fun buildResumeLaunchSpec() {
+    assertThat(bridge.buildResumeLaunchSpec("session-1").command)
+      .containsExactly("claude", "--resume", "session-1")
+    assertThat(bridge.buildResumeLaunchSpec("session-1").envVariables)
+      .containsExactlyEntriesOf(mapOf("DISABLE_AUTOUPDATER" to "1"))
+  }
+
+  @Test
+  fun buildYoloLaunchSpec() {
+    assertThat(bridge.buildNewSessionLaunchSpec(AgentSessionLaunchMode.YOLO).command)
+      .containsExactly("claude", "--dangerously-skip-permissions")
+  }
+
+  @Test
+  fun buildStandardLaunchSpec() {
+    assertThat(bridge.buildNewSessionLaunchSpec(AgentSessionLaunchMode.STANDARD).command)
+      .containsExactly("claude", "--permission-mode", "default")
+  }
+
+  @Test
+  fun enablesPendingEditorTabRebind() {
+    assertThat(bridge.supportsPendingEditorTabRebind).isTrue()
+    assertThat(bridge.emitsScopedRefreshSignals).isTrue()
+    assertThat(bridge.refreshPathAfterCreateNewSession).isTrue()
+    assertThat(bridge.supportsNewThreadRebind).isFalse()
+    assertThat(bridge.supportsArchiveThread).isTrue()
+    assertThat(bridge.supportsUnarchiveThread).isTrue()
+    assertThat(bridge.suppressArchivedThreadsDuringRefresh).isTrue()
+    assertThat(bridge.archiveRefreshDelayMs).isEqualTo(1_000L)
+    assertThat(bridge.editorTabActionIds)
+      .containsExactly(AgentWorkbenchActionIds.Sessions.BIND_PENDING_AGENT_THREAD_FROM_EDITOR_TAB)
+  }
+
+  @Test
+  fun renameThreadHandlerDelegatesToBackendRenameEngine() {
+    val renameHandler = bridge.threadRenameHandler
+
+    assertThat(renameHandler).isInstanceOf(AgentThreadRenameHandler.Backend::class.java)
+    assertThat(renameHandler.supportedContexts)
+      .containsExactlyInAnyOrder(AgentThreadRenameContext.TREE_POPUP, AgentThreadRenameContext.EDITOR_TAB)
+  }
+
+  @Test
+  fun buildLaunchSpecWithInitialPromptAddsPermissionModeDefault() {
+    val baseLaunchSpec = bridge.buildNewSessionLaunchSpec(AgentSessionLaunchMode.STANDARD)
+
+    val launchSpec = bridge.buildLaunchSpecWithInitialPrompt(baseLaunchSpec, "Refactor this")
+
+    assertThat(launchSpec.command)
+      .containsExactly("claude", "--permission-mode", "default", "--", "Refactor this")
+  }
+
+  @Test
+  fun buildLaunchSpecWithInitialPromptSwitchesToPlanMode() {
+    val baseLaunchSpec = bridge.buildNewSessionLaunchSpec(AgentSessionLaunchMode.STANDARD)
+
+    val launchSpec = bridge.buildLaunchSpecWithInitialPrompt(baseLaunchSpec, "/plan Refactor this")
+
+    assertThat(launchSpec.command)
+      .containsExactly("claude", "--permission-mode", "plan", "--", "Refactor this")
+  }
+
+  @Test
+  fun buildLaunchSpecWithInitialPromptDoesNotTreatPlannerAsPlanMode() {
+    val baseLaunchSpec = bridge.buildNewSessionLaunchSpec(AgentSessionLaunchMode.STANDARD)
+
+    val launchSpec = bridge.buildLaunchSpecWithInitialPrompt(baseLaunchSpec, "/planner Refactor this")
+
+    assertThat(launchSpec.command)
+      .containsExactly("claude", "--permission-mode", "default", "--", "/planner Refactor this")
+  }
+
+  @Test
+  fun buildLaunchSpecWithInitialPromptForResumeCommand() {
+    val resumeLaunchSpec = bridge.buildResumeLaunchSpec("session-1")
+
+    val launchSpec = bridge.buildLaunchSpecWithInitialPrompt(resumeLaunchSpec, "-summarize\nchanges")
+
+    assertThat(launchSpec.command)
+      .containsExactly("claude", "--resume", "session-1", "--permission-mode", "default", "--", "-summarize\nchanges")
+    assertThat(launchSpec.envVariables)
+      .containsExactlyEntriesOf(mapOf("DISABLE_AUTOUPDATER" to "1"))
+  }
+
+  @Test
+  fun composeInitialMessageUsesCompactContextBlock() {
+    val plan = bridge.buildInitialMessagePlan(
+      AgentPromptInitialMessageRequest(
+        prompt = "Summarize changes",
+        contextItems = listOf(
+          AgentPromptContextItem(
+            rendererId = AgentPromptContextRendererIds.PATHS,
+            title = "Project Selection",
+            body = "file: /tmp/demo.kt",
+            source = "projectView",
+          )
+        ),
+      )
+    )
+    val message = checkNotNull(plan.message)
+
+    assertThat(plan.startupPolicy).isEqualTo(AgentInitialMessageStartupPolicy.TRY_STARTUP_COMMAND)
+    assertThat(plan.timeoutPolicy).isEqualTo(AgentInitialMessageTimeoutPolicy.ALLOW_TIMEOUT_FALLBACK)
+    assertThat(message).startsWith("Summarize changes\n\n### IDE Context")
+    assertThat(message).contains("path: /tmp/demo.kt")
+    assertThat(message).doesNotContain("soft-cap:")
+    assertThat(message).doesNotContain("Metadata:")
+    assertThat(message).doesNotContain("Items:")
+    assertThat(message).doesNotContain("\"schema\"")
+  }
+
+  @Test
+  fun composeInitialMessagePrefixesPlanCommandWhenProviderOptionIsEnabled() {
+    val plan = bridge.buildInitialMessagePlan(
+      AgentPromptInitialMessageRequest(
+        prompt = "Refactor this",
+        providerOptionIds = setOf(AGENT_PROMPT_PROVIDER_OPTION_PLAN_MODE),
+      )
+    )
+    val message = checkNotNull(plan.message)
+
+    assertThat(message).isEqualTo("/plan Refactor this")
+    assertThat(plan.startupPolicy).isEqualTo(AgentInitialMessageStartupPolicy.TRY_STARTUP_COMMAND)
+    assertThat(plan.timeoutPolicy).isEqualTo(AgentInitialMessageTimeoutPolicy.REQUIRE_EXPLICIT_READINESS)
+  }
+
+  @Test
+  fun composeInitialMessagePrefixesPlanCommandWhenLegacyFlagIsEnabled() {
+    val plan = bridge.buildInitialMessagePlan(
+      AgentPromptInitialMessageRequest(
+        prompt = "Refactor this",
+        planModeEnabled = true,
+      )
+    )
+    val message = checkNotNull(plan.message)
+
+    assertThat(message).isEqualTo("/plan Refactor this")
+    assertThat(plan.startupPolicy).isEqualTo(AgentInitialMessageStartupPolicy.TRY_STARTUP_COMMAND)
+    assertThat(plan.timeoutPolicy).isEqualTo(AgentInitialMessageTimeoutPolicy.REQUIRE_EXPLICIT_READINESS)
+  }
+
+  @Test
+  fun composeInitialMessageDoesNotDoublePrefixPlanCommand() {
+    val plan = bridge.buildInitialMessagePlan(
+      AgentPromptInitialMessageRequest(
+        prompt = " /plan Refactor this ",
+        planModeEnabled = true,
+      )
+    )
+    val message = checkNotNull(plan.message)
+
+    assertThat(message).isEqualTo("/plan Refactor this")
+  }
+
+  @Test
+  fun initialMessagePlanPoliciesDefaultWithoutPlanMode() {
+    val defaultPlan = bridge.buildInitialMessagePlan(
+      AgentPromptInitialMessageRequest(prompt = "Refactor this")
+    )
+
+    assertThat(defaultPlan.startupPolicy).isEqualTo(AgentInitialMessageStartupPolicy.TRY_STARTUP_COMMAND)
+    assertThat(defaultPlan.timeoutPolicy).isEqualTo(AgentInitialMessageTimeoutPolicy.ALLOW_TIMEOUT_FALLBACK)
+
+    val plannerPlan = bridge.buildInitialMessagePlan(
+      AgentPromptInitialMessageRequest(prompt = "/planner follow-up")
+    )
+    assertThat(plannerPlan.timeoutPolicy).isEqualTo(AgentInitialMessageTimeoutPolicy.ALLOW_TIMEOUT_FALLBACK)
+
+    val manualPlanCommand = bridge.buildInitialMessagePlan(
+      AgentPromptInitialMessageRequest(prompt = "/plan follow-up")
+    )
+    assertThat(manualPlanCommand.startupPolicy).isEqualTo(AgentInitialMessageStartupPolicy.TRY_STARTUP_COMMAND)
+    assertThat(manualPlanCommand.timeoutPolicy).isEqualTo(AgentInitialMessageTimeoutPolicy.REQUIRE_EXPLICIT_READINESS)
+  }
+
+  @Test
+  fun promptOptionsUseSharedPlanModeOption() {
+    assertThat(bridge.promptOptions).containsExactly(AGENT_PROMPT_PROVIDER_PLAN_MODE_OPTION)
+  }
+
+  @Test
+  fun archiveAndRenameDelegateToRenameEngine() {
+    runBlocking(Dispatchers.Default) {
+      var archivedPath: String? = null
+      var archivedThreadId: String? = null
+      var unarchivedPath: String? = null
+      var unarchivedThreadId: String? = null
+      var renamedPath: String? = null
+      var renamedThreadId: String? = null
+      var renamedNewTitle: String? = null
+      val descriptor = ClaudeAgentSessionProviderDescriptor(
+        backend = emptyBackend(),
+        sessionSource = emptySource(),
+        renameEngine = object : ClaudeThreadRenameEngine {
+          override suspend fun rename(path: String, threadId: String, newTitle: String): Boolean {
+            renamedPath = path
+            renamedThreadId = threadId
+            renamedNewTitle = newTitle
+            return true
+          }
+
+          override suspend fun archiveThread(path: String, threadId: String): Boolean {
+            archivedPath = path
+            archivedThreadId = threadId
+            return true
+          }
+
+          override suspend fun unarchiveThread(path: String, threadId: String): Boolean {
+            unarchivedPath = path
+            unarchivedThreadId = threadId
+            return true
+          }
+        },
+      )
+
+      assertThat(descriptor.archiveThread(path = "/tmp/project", threadId = "session-1")).isTrue()
+      assertThat(descriptor.unarchiveThread(path = "/tmp/project", threadId = "session-1")).isTrue()
+      val renameHandler = descriptor.threadRenameHandler as AgentThreadRenameHandler.Backend
+      assertThat(renameHandler.execute(path = "/tmp/project", threadId = "session-1", normalizedName = "Renamed thread")).isTrue()
+      assertThat(archivedPath).isEqualTo("/tmp/project")
+      assertThat(archivedThreadId).isEqualTo("session-1")
+      assertThat(unarchivedPath).isEqualTo("/tmp/project")
+      assertThat(unarchivedThreadId).isEqualTo("session-1")
+      assertThat(renamedPath).isEqualTo("/tmp/project")
+      assertThat(renamedThreadId).isEqualTo("session-1")
+      assertThat(renamedNewTitle).isEqualTo("Renamed thread")
+    }
+  }
+}
+
+private fun emptyBackend(): ClaudeSessionBackend {
+  return object : ClaudeSessionBackend {
+    override suspend fun listThreads(path: String, openProject: Project?): List<ClaudeBackendThread> = emptyList()
+  }
+}
+
+private fun emptySource(): AgentSessionSource {
+  return object : AgentSessionSource {
+    override val provider: AgentSessionProvider
+      get() = AgentSessionProvider.CLAUDE
+
+    override suspend fun listThreadsFromOpenProject(path: String, project: Project): List<AgentSessionThread> = emptyList()
+
+    override suspend fun listThreadsFromClosedProject(path: String): List<AgentSessionThread> = emptyList()
+
+    override val updateEvents: Flow<AgentSessionSourceUpdateEvent>
+      get() = emptyFlow()
+  }
+}

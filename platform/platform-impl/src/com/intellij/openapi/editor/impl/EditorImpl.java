@@ -1,4 +1,4 @@
-// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.openapi.editor.impl;
 
 import com.intellij.application.options.CodeStyle;
@@ -169,6 +169,7 @@ import com.intellij.ui.ColorUtil;
 import com.intellij.ui.DirtyUI;
 import com.intellij.ui.EditorNotifications;
 import com.intellij.ui.ExperimentalUI;
+import com.intellij.ui.IslandsState;
 import com.intellij.ui.JBColor;
 import com.intellij.ui.NewUI;
 import com.intellij.ui.components.JBLayeredPane;
@@ -490,7 +491,6 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
   private boolean myCurrentDragIsSubstantial;
   private boolean myForcePushHappened;
   private boolean myMouseIsInDrag;
-  private boolean myIsInFocus = true;
 
   private @Nullable VisualPosition mySuppressedByBreakpointsLastPressPosition;
 
@@ -834,52 +834,21 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
   public void focusGained(@NotNull FocusEvent e) {
     myCaretCursor.activate();
     gainedFocus.set(true);
-
     for (Caret caret : myCaretModel.getAllCarets()) {
       int caretLine = caret.getLogicalPosition().line;
       repaintLines(caretLine, caretLine);
     }
-
     fireFocusGained(e);
-
-    SwingUtilities.invokeLater(() -> {
-      if (isDisposed()) return;
-
-      if (myKeepSelectionOnMousePress && myMousePressedEvent != null) {
-        return;
-      }
-
-      setFocusGained();
-    });
-  }
-
-  private void setFocusGained() {
-    if (myIsInFocus) return;
-
-    myIsInFocus = true;
-    mySelectionModel.reinitSettings();
-    for (Caret caret : myCaretModel.getAllCarets()) {
-      if (caret.hasSelection()) {
-        repaint(caret.getSelectionStart(), caret.getSelectionEnd());
-      }
-    }
   }
 
   @Override
   public void focusLost(@NotNull FocusEvent e) {
-    myIsInFocus = false;
-    mySelectionModel.reinitSettings();
-
     clearCaretThread();
     for (Caret caret : myCaretModel.getAllCarets()) {
       int caretLine = caret.getLogicalPosition().line;
       repaintLines(caretLine, caretLine);
     }
     fireFocusLost(e);
-  }
-
-  boolean isInFocus() {
-    return myIsInFocus;
   }
 
   private void queueErrorStipeRepaintRequest(int start, int end) {
@@ -3018,7 +2987,6 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
         return;
       }
 
-      setFocusGained();
       if (mySuppressedByBreakpointsLastPressPosition != null) {
         getCaretModel().removeSecondaryCarets();
         getCaretModel().moveToVisualPosition(mySuppressedByBreakpointsLastPressPosition);
@@ -3388,16 +3356,21 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
     }
   }
 
-  private boolean shouldSetCursorPositionImmediately() {
-    return !getSettings().isAnimatedCaret() ||
-           gainedFocus.getAndSet(false) ||
-           myMouseIsInDrag ||
-           Registry.is("ui.simplified", false) ||
+  boolean shouldDisableAnimations() {
+    return Registry.is("ui.simplified", false) ||
            PowerSaveMode.isEnabled() ||
            RemoteDesktopService.isRemoteSession();
   }
 
+  private boolean shouldSetCursorPositionImmediately() {
+    return !getSettings().isSmoothCaretMovement() ||
+           gainedFocus.getAndSet(false) ||
+           myMouseIsInDrag ||
+           shouldDisableAnimations();
+  }
+
   private void setCursorPosition() {
+    caretMoveProcessor.invalidateStaleCarets();
     if (shouldSetCursorPositionImmediately()) {
       caretMoveProcessor.setCursorPositionImmediately();
     } else {
@@ -4191,6 +4164,7 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
         myMarkupModelListener.attributesChanged((RangeHighlighterEx)highlighter, true,
                                                 EditorUtil.attributesImpactFontStyle(attributes),
                                                 EditorUtil.attributesImpactForegroundColor(attributes));
+        errorStripeMarkerChanged((RangeHighlighterEx)highlighter);
         HighlightInfo fileLevelInfo = HighlightInfo.fromRangeHighlighter(highlighter);
         if (fileLevelInfo != null && fileLevelInfo.isFileLevelAnnotation()) {
           if (textEditor == null) {
@@ -4554,7 +4528,6 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
             Math.abs(e.getY() - myMousePressedEvent.getY()) < getLineHeight()) {
           runMouseClickedCommand(e);
         }
-        setFocusGained();
       });
     }
 
@@ -5434,6 +5407,18 @@ public final class EditorImpl extends UserDataHolderBase implements EditorEx, Hi
     if (myProject != null && myVirtualFile != null && replace(CONTAINS_BIDI_TEXT, null, Boolean.TRUE)) {
       EditorNotifications.getInstance(myProject).updateNotifications(myVirtualFile);
     }
+  }
+
+  private boolean hasBidiText() {
+    return Boolean.TRUE.equals(getUserData(CONTAINS_BIDI_TEXT));
+  }
+
+  @ApiStatus.Internal
+  public boolean shouldUseNewSelection() {
+    return !Registry.is("editor.old.full.horizontal.selection.enabled")
+           && !isColumnMode()
+           && !hasBidiText()
+           && IslandsState.Companion.isEnabled();
   }
 
   @TestOnly

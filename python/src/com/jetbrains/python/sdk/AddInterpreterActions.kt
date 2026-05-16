@@ -11,7 +11,8 @@ import com.intellij.icons.AllIcons
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.AnActionEvent
-import com.intellij.openapi.application.runInEdt
+import com.intellij.openapi.actionSystem.ActionUpdateThread
+import com.intellij.openapi.actionSystem.PlatformCoreDataKeys
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
 import com.intellij.openapi.fileEditor.FileDocumentManager
@@ -31,8 +32,8 @@ import com.intellij.psi.util.CachedValuesManager
 import com.intellij.psi.util.ParameterizedCachedValue
 import com.intellij.python.pyproject.model.api.ModuleCreateInfo
 import com.intellij.python.pyproject.model.api.getModuleInfo
+import com.jetbrains.python.NON_INTERACTIVE_ROOT_TRACE_CONTEXT
 import com.jetbrains.python.PyBundle
-import com.jetbrains.python.TraceContext
 import com.jetbrains.python.run.PythonInterpreterTargetEnvironmentFactory
 import com.jetbrains.python.run.allowCreationTargetOfThisType
 import com.jetbrains.python.sdk.ModuleOrProject.ModuleAndProject
@@ -63,6 +64,22 @@ abstract class DialogAction(
   val target: @Nls String,
 ) : AnAction(dynamicText, icon) {
   abstract fun createDialog(): DialogWrapper?
+
+  override fun getActionUpdateThread(): ActionUpdateThread = ActionUpdateThread.BGT
+
+  override fun update(e: AnActionEvent) {
+    val project = e.project ?: return
+    if (e.getData(PlatformCoreDataKeys.IS_MODAL_CONTEXT) == true) {
+      e.presentation.isEnabled = !project.isSdkConfigurationInProgress.value
+    }
+  }
+
+  final override fun actionPerformed(e: AnActionEvent) {
+    val project = e.project ?: return
+    if (e.getData(PlatformCoreDataKeys.IS_MODAL_CONTEXT) == true && project.isSdkConfigurationInProgress.value) return
+    FileDocumentManager.getInstance().saveAllDocuments()
+    createDialog()?.show()
+  }
 }
 
 @ApiStatus.Internal
@@ -102,13 +119,6 @@ internal class AddLocalInterpreterAction(
   icon = AllIcons.Nodes.HomeFolder,
   target = PyBundle.message("sdk.create.targets.local"),
 ), DumbAware {
-  override fun actionPerformed(e: AnActionEvent) {
-    runInEdt {
-      FileDocumentManager.getInstance().saveAllDocuments()
-    }
-    createDialog().show()
-  }
-
   override fun createDialog(): PythonAddLocalInterpreterDialog {
     val dialogPresenter = PythonAddLocalInterpreterPresenter(
       moduleOrProject, errorSink = ShowingMessageErrorSync, bestGuessCreateSdkInfo = bestGuessCreateSdkInfo
@@ -133,12 +143,8 @@ internal class AddInterpreterOnTargetAction(
   icon = targetType.icon,
   target = targetType.displayName,
 ), DumbAware {
-  override fun actionPerformed(e: AnActionEvent) {
-    createDialog()?.show()
-  }
-
   override fun createDialog(): TargetEnvironmentWizard? {
-    val wizard = TargetEnvironmentWizard.createWizard(project, targetType, PythonLanguageRuntimeType.getInstance())
+    val wizard = TargetEnvironmentWizard.createWizard(project, targetType, PythonLanguageRuntimeType.Helper.getInstance())
 
     wizard?.let {
       Disposer.register(it.disposable, Disposable {
@@ -158,22 +164,6 @@ internal class AddInterpreterOnTargetAction(
     }
     onSdkCreated(sdk)
   }
-}
-
-@ApiStatus.Internal
-fun switchToSdk(module: Module, sdk: Sdk, currentSdk: Sdk?) {
-  val project = module.project
-  (sdk.sdkType as PythonSdkType).setupSdkPaths(sdk)
-
-  removeTransferredRootsFromModulesWithInheritedSdk(project, currentSdk)
-  project.pythonSdk = sdk
-  transferRootsToModulesWithInheritedSdk(project, sdk)
-
-  removeTransferredRoots(module, currentSdk)
-  module.pythonSdk = sdk
-  transferRoots(module, sdk)
-
-  module.excludeInnerVirtualEnv(sdk)
 }
 
 @Service
@@ -203,7 +193,7 @@ private class ToolDetectionService(project: Project, val coroutineScope: Corouti
 
   private fun detectBestToolAsync(module: Module): CachedValueProvider.Result<Deferred<CreateSdkInfoWithTool?>> {
     val result = coroutineScope.async {
-      withContext(TraceContext(PyBundle.message("trace.context.python.tool.detection.service.detect.tools.for.module", module.name))) {
+      withContext(NON_INTERACTIVE_ROOT_TRACE_CONTEXT) {
         detectBestToolForModule(module)
       }
     }

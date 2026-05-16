@@ -120,7 +120,9 @@ class KotlinMPPGradleModelBuilder : AbstractModelBuilderService() {
     ): List<KotlinSourceSetImpl> {
         val sourceSetBuilder = KotlinSourceSetBuilder(importingContext)
         return importingContext.kotlinExtensionReflection.sourceSets
-            .mapNotNull { sourceSetReflection -> sourceSetBuilder.buildKotlinSourceSet(sourceSetReflection) }
+            .mapNotNull { sourceSetReflection ->
+                sourceSetBuilder.buildKotlinSourceSet(sourceSetReflection, importingContext.kotlinGradlePluginVersion)
+            }
     }
 
     private fun buildTargets(
@@ -162,6 +164,7 @@ class KotlinMPPGradleModelBuilder : AbstractModelBuilderService() {
             // Otherwise, the tooling might be upset after trying to provide some support for a target which actually
             // doesn't exist in this project (e.g. after trying to draw gutters, while test tasks do not exist)
             sourceSet.actualPlatforms.pushPlatforms(projectPlatforms)
+            sourceSet.isManagedByComAndroidLibraryPlugin = targets.all { it.isManagedByComAndroidLibraryPlugin }
             return
         }
 
@@ -178,6 +181,7 @@ class KotlinMPPGradleModelBuilder : AbstractModelBuilderService() {
 
         compilationsBySourceSet(sourceSet)?.let { compilations ->
             val platforms = compilations.map { it.platform }
+            sourceSet.isManagedByComAndroidLibraryPlugin = compilations.all { it.isManagedByComAndroidLibraryPlugin }
             sourceSet.actualPlatforms.pushPlatforms(platforms)
         }
     }

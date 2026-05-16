@@ -23,6 +23,7 @@ import com.intellij.openapi.vfs.VirtualFileManager;
 import com.intellij.openapi.vfs.VirtualFileUrlChangeAdapter;
 import com.intellij.openapi.vfs.ex.http.HttpFileSystem;
 import com.intellij.openapi.vfs.impl.BulkVirtualFileListenerAdapter;
+import com.intellij.platform.debugger.impl.shared.BreakpointRequestCounter;
 import com.intellij.util.EventDispatcher;
 import com.intellij.util.SmartList;
 import com.intellij.util.concurrency.SequentialTaskExecutor;
@@ -30,6 +31,7 @@ import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.containers.MultiMap;
 import com.intellij.util.messages.SimpleMessageBusConnection;
 import com.intellij.util.ui.UIUtil;
+import com.intellij.xdebugger.BreakpointErrorData;
 import com.intellij.xdebugger.SplitDebuggerMode;
 import com.intellij.xdebugger.XDebugSession;
 import com.intellij.xdebugger.XDebuggerUtil;
@@ -88,7 +90,7 @@ public final class XBreakpointManagerImpl implements XBreakpointManager {
   private final XDebuggerManagerImpl myDebuggerManager;
   private final XDependentBreakpointManager myDependentBreakpointManager;
   @NotNull private final CoroutineScope myCoroutineScope;
-  private final BackendBreakpointRequestCounter myRequestCounter = new BackendBreakpointRequestCounter();
+  private final BreakpointRequestCounter myRequestCounter = new BreakpointRequestCounter();
   private long myTime;
   private volatile @Nullable String myDefaultGroup;
   private RemovedBreakpointData myLastRemovedBreakpoint = null;
@@ -199,7 +201,7 @@ public final class XBreakpointManagerImpl implements XBreakpointManager {
   }
 
   @ApiStatus.Internal
-  public BackendBreakpointRequestCounter getRequestCounter() {
+  public BreakpointRequestCounter getRequestCounter() {
     return myRequestCounter;
   }
 
@@ -282,6 +284,22 @@ public final class XBreakpointManagerImpl implements XBreakpointManager {
   public void fireBreakpointPresentationUpdated(XBreakpoint<?> breakpoint, @Nullable XDebugSession session) {
     if (isRegistered(breakpoint)) {
       sendBreakpointEvent(breakpoint.getType(), listener -> listener.breakpointPresentationUpdated(breakpoint, session));
+    }
+  }
+
+  public void fireBreakpointError(@NotNull XBreakpoint<?> breakpoint,
+                                  @NotNull XDebugSession session,
+                                  @NotNull BreakpointErrorData error) {
+    if (isRegistered(breakpoint)) {
+      sendBreakpointEvent(breakpoint.getType(), listener -> listener.breakpointError(breakpoint, session, error));
+    }
+  }
+
+  public void fireBreakpointLogMessage(@NotNull XBreakpoint<?> breakpoint,
+                                       @NotNull XDebugSession session,
+                                       @NotNull String message) {
+    if (isRegistered(breakpoint)) {
+      sendBreakpointEvent(breakpoint.getType(), listener -> listener.breakpointLogMessage(breakpoint, session, message));
     }
   }
 

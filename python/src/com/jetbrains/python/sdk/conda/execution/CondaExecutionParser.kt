@@ -11,6 +11,7 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 
+@OptIn(IntellijInternalApi::class)
 internal object CondaExecutionParser {
   private val json = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }
   fun parseCondaPackageList(text: String): List<CondaPackage> {

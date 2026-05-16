@@ -200,6 +200,8 @@
 
     <applicationService serviceInterface="com.intellij.openapi.updateSettings.impl.UpdateCheckerFacade"
                         serviceImplementation="com.intellij.openapi.updateSettings.impl.UpdateCheckerFacadeImpl"/>
+    <applicationService serviceInterface="com.intellij.openapi.updateSettings.impl.PluginUpdateHandlerProvider"
+                        serviceImplementation="com.intellij.openapi.updateSettings.impl.DefaultPluginUpdateHandlerProvider" open="true"/>
 
     <applicationService serviceInterface="com.intellij.execution.wsl.WslDistributionManager"
                         serviceImplementation="com.intellij.execution.wsl.WslDistributionManagerImpl"/>
@@ -313,7 +315,6 @@
 
     <cachesInvalidator implementation="com.intellij.openapi.vfs.newvfs.FSRecordsCacheInvalidator" order="after rootCachesInvalidator"/>
     <cachesInvalidator id="rootCachesInvalidator" implementation="com.intellij.ide.actions.RootCachesInvalidator" order="first"/>
-    <logsPreprocessor implementation="com.intellij.ide.logsUploader.DefaultLogsProcessor"/>
 
     <applicationService serviceInterface="com.intellij.util.ui.RestartDialog" open="true"
                         serviceImplementation="com.intellij.util.ui.RestartDialogImpl"/>
@@ -997,7 +998,7 @@
       implementation="com.intellij.internal.statistic.collectors.fus.fileTypes.ProjectStructureUsageCollector"/>
     <statistics.projectUsagesCollector implementation="com.intellij.internal.statistic.collectors.fus.FacetTypeUsageCollector"/>
     <statistics.projectUsagesCollector
-      implementation="com.intellij.internal.statistic.collectors.fus.otherIde.LaunchJsonUsagesCollector"/>
+      implementation="com.intellij.internal.statistic.collectors.fus.otherIde.DotVSCodeProjectCollector"/>
     <statistics.applicationUsagesCollector implementation="com.intellij.internal.statistic.collectors.fus.plugins.PluginsUsagesCollector"
                                            allowOnStartup="true"/>
     <statistics.counterUsagesCollector implementationClass="com.intellij.internal.statistic.collectors.fus.plugins.PluginSyncUsageCollector"/>
@@ -1804,6 +1805,21 @@
 
     <applicationService serviceInterface="com.intellij.diagnostic.PerformanceWatcher"
                         serviceImplementation="com.intellij.diagnostic.PerformanceWatcherImpl"/>
+    <registryKey key="performance.watcher.maxDumpDuration.ms" defaultValue="40000"
+                 description="Maximum duration of performance watcher dumps in ms"/>
+    <registryKey key="performance.watcher.unresponsive.interval.ms" defaultValue="5000"
+                 description="Log UI freezes longer than the specified time interval in ms"/>
+    <registryKey key="performance.watcher.enable.smoke.and.mirrors.compensation" defaultValue="true"
+                 description="Enable UI freezes reporting for long-running background tasks that may impale UI interactions without a visible impact on UI rendering"/>
+
+    <registryKey key="performance.watcher.pooled.enabled" defaultValue="true"
+                 description="Write thread dumps if none pooled threads are available."/>
+    <registryKey key="performance.watcher.pooled.unresponsive.interval.ms" defaultValue="15000"
+                 description="Log if none pooled threads are available for longer than the specified time interval in ms"/>
+    <registryKey key="performance.watcher.pooled.progressive.interval" defaultValue="true"
+                 description="Increase unresponsive interval after each recorded dump"/>
+    <registryKey key="performance.watcher.pooled.maximum.dumps" defaultValue="10"
+                 description="Stop recording thread dumps after specified amount. Use '-1' to keep writing the thread dumps."/>
 
     <applicationService serviceInterface="com.intellij.diagnostic.WriteLockMeasurer"
                         serviceImplementation="com.intellij.diagnostic.WriteLockMeasurerImpl"/>
@@ -1861,6 +1877,14 @@
     <backgroundPostStartupActivity implementation="com.intellij.openapi.vfs.newvfs.monitoring.VFSInitializationConditionsToFusReporter"/>
 
     <idePerformanceListener implementation="com.intellij.diagnostic.FusFreezeReporter"/>
+    <registryKey key="freeze.reporter.enabled" defaultValue="true"
+                 description="Report UI freezes to JetBrains"/>
+    <registryKey key="freeze.reporter.maxDumpDuration.ms" defaultValue="40000"
+                 description="Maximum duration of the 'report.txt' performance snapshot in ms"/>
+    <registryKey key="freeze.reporter.profiling" defaultValue="true"
+                 description="Start CPU profiling when the IDE is frozen"/>
+    <registryKey key="freeze.reporter.profiling.all.threads" defaultValue="true"
+                 description="Capture all threads including sleeping and blocked (wall-clock mode)"/>
 
     <applicationActivity implementation="com.intellij.internal.DumpPluginDescriptorsOnAppStartTrigger"/>
     <applicationActivity implementation="com.intellij.ide.plugins.PluginInitializationErrorReporterStartupTrigger"/>
@@ -2066,6 +2090,8 @@
     <registryKey key="wayland.notification.delay.after.previous.activity" defaultValue="1"
                  description="Show the notification about the native Wayland toolkit after this many minutes have passed since the previous user activity" />
     <notificationGroup id="Wayland" displayType="BALLOON" bundle="messages.IdeBundle" key="notification.group.wayland" isLogByDefault="true"/>
+
+    <statistics.counterUsagesCollector implementationClass="com.intellij.execution.impl.EditorHyperlinkUsageCollector"/>
   </extensions>
 
   <applicationListeners>
@@ -2122,6 +2148,8 @@
     <listener class="com.intellij.ui.ExperimentalUiAppLifecycleListener" topic="com.intellij.ide.AppLifecycleListener"/>
     <listener class="com.intellij.ide.ui.laf.LafAndEditorColorSchemeDynamicPluginListener"
               topic="com.intellij.ide.plugins.DynamicPluginListener"/>
+    <listener class="com.intellij.ide.ui.laf.DBusSettingsMonitorLifecycleListener"
+              topic="com.intellij.ide.AppLifecycleListener" os="linux"/>
 
     <listener class="com.intellij.diff.tools.combined.CombinedDiffAdvancedSettingsChangeListener"
               topic="com.intellij.openapi.options.advanced.AdvancedSettingsChangeListener"/>
@@ -2147,6 +2175,8 @@
 
     <listener class="com.intellij.ide.file.XdgTrashBinPreloader" topic="com.intellij.ide.AppLifecycleListener"
               os="unix" activeInTestMode="false" activeInHeadlessMode="false"/>
+
+    <listener class="com.intellij.ide.actions.IdeScaleAppLifecycleListener" topic="com.intellij.ide.AppLifecycleListener"/>
   </applicationListeners>
 
   <projectListeners>

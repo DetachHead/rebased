@@ -51,7 +51,7 @@ import com.intellij.openapi.wm.impl.content.ContentLayout
 import com.intellij.openapi.wm.impl.customFrameDecorations.header.CustomWindowHeaderUtil
 import com.intellij.openapi.wm.impl.headertoolbar.MainToolbar
 import com.intellij.openapi.wm.impl.isInternal
-import com.intellij.toolWindow.InternalDecoratorImpl.Companion.preventRecursiveBackgroundUpdateOnToolwindow
+import com.intellij.toolWindow.InternalDecoratorImpl
 import com.intellij.toolWindow.ToolWindowButtonManager
 import com.intellij.toolWindow.ToolWindowPaneNewButtonManager
 import com.intellij.toolWindow.xNext.island.XNextIslandHolder
@@ -61,6 +61,7 @@ import com.intellij.ui.DefaultBorderPainter
 import com.intellij.ui.EditorNotificationPanel
 import com.intellij.ui.ExperimentalUI
 import com.intellij.ui.Gray
+import com.intellij.ui.IslandsState
 import com.intellij.ui.JBColor
 import com.intellij.ui.SideBorder
 import com.intellij.ui.WindowRoundedCornersManager
@@ -120,36 +121,35 @@ private val DEFAULT_THEME_IDS = setOf(
   "Darcula",
 )
 
+private fun isDefaultTheme(): Boolean {
+  val id = LafManager.getInstance().currentUIThemeLookAndFeel?.id ?: return false
+  return id in DEFAULT_THEME_IDS
+}
+
 internal val islandsInactiveAlpha: Float
   get() = JBUI.getFloat("Island.inactiveAlpha", 0.5f)
-
-internal val isManyIslandEnabled: Boolean
-  get() {
-    if (!ExperimentalUI.isNewUI()) return false
-
-    return when (JBUI.getInt("Islands", 0)) {
-      1 -> true
-      0 -> {
-        val id = LafManager.getInstance().currentUIThemeLookAndFeel?.id ?: return false
-        val isDefaultTheme = id in DEFAULT_THEME_IDS
-        !isDefaultTheme && AdvancedSettings.getBoolean("ide.ui.theme.custom.islands")
-      }
-      else -> false
-    }
-  }
 
 internal class IslandsUICustomization : InternalUICustomization() {
 
   private var isManyIslandEnabledCache: Boolean? = null
 
-  private var isManyIslandCustomTheme = false
-
   private val isManyIslandEnabled: Boolean
     get() {
       var value = isManyIslandEnabledCache
       if (value == null) {
-        value = com.intellij.openapi.application.impl.islands.isManyIslandEnabled
+        val isManyIslandCustomTheme: Boolean
+
+        if (ExperimentalUI.isNewUI()) {
+          val themeValue = JBUI.getInt("Islands", 0)
+          isManyIslandCustomTheme = themeValue == 0 && !isDefaultTheme() && AdvancedSettings.getBoolean("ide.ui.theme.custom.islands")
+          value = isManyIslandCustomTheme || themeValue == 1
+        }
+        else {
+          value = false
+          isManyIslandCustomTheme = false
+        }
         isManyIslandEnabledCache = value
+        IslandsState.setEnabled(value, isManyIslandCustomTheme)
       }
       return value
     }
@@ -196,9 +196,6 @@ internal class IslandsUICustomization : InternalUICustomization() {
     get() {
       return !isManyIslandEnabled
     }
-
-  override val isTabOccupiesWholeHeight: Boolean
-    get() = !isManyIslandEnabled
 
   override val isRoundedTabDuringDrag: Boolean
     get() = isManyIslandEnabled && (WindowRoundedCornersManager.isAvailable() || StartupUiUtil.isWaylandToolkit())
@@ -274,7 +271,7 @@ internal class IslandsUICustomization : InternalUICustomization() {
     val isToolWindow = UIUtil.getGeneralizedParentOfType(InternalDecorator::class.java, component) != null
 
     if (isToolWindow) {
-      if (component.background == JBColor.PanelBackground) {
+      if (component.background == JBColor.PanelBackground && !InternalDecoratorImpl.isRecursiveBackgroundUpdateDisabled(component)) {
         if (UIUtil.getGeneralizedParentOfType(SearchReplaceWrapper::class.java, component) != null) {
           return@AWTEventListener
         }
@@ -331,7 +328,7 @@ internal class IslandsUICustomization : InternalUICustomization() {
   }
 
   private fun applyMissingKeys() {
-    if (isManyIslandCustomTheme) {
+    if (IslandsState.isCustomEnabled()) {
       val uiDefaults = UIManager.getLookAndFeelDefaults()
 
       uiDefaults["MainToolbar.borderColor"] = Gray.TRANSPARENT
@@ -654,7 +651,7 @@ internal class IslandsUICustomization : InternalUICustomization() {
   override fun configureTerminalSearchReplaceComponent(component: EditorHeaderComponent): JComponent {
     component.putClientProperty("originalBorder", component.border)
     val header = configureSearchReplaceComponent(component, 6)
-    preventRecursiveBackgroundUpdateOnToolwindow(header)
+    InternalDecoratorImpl.preventRecursiveBackgroundUpdateOnToolwindow(header)
     return header
   }
 
@@ -787,7 +784,12 @@ internal class IslandsUICustomization : InternalUICustomization() {
             val parent = c.parent
             if (parent != null) {
               val index = parent.components.indexOf(c)
-              val top = if (index == 0) 1 else 4
+              val top = if (index == 0) {
+                if (UISettings.getInstance().editorTabPlacement == SwingConstants.TOP) 1 else 7
+              }
+              else {
+                4
+              }
               val bottom = if (index == parent.componentCount - 1) 1 else 4
               val leftRight = if (UISettings.getInstance().compactMode) 11 else 13
               return JBInsets(top, leftRight, bottom, leftRight)

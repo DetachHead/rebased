@@ -4,6 +4,7 @@ import com.intellij.ui.content.ContentManager
 import com.intellij.util.concurrency.annotations.RequiresEdt
 import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.plugins.terminal.fus.TerminalStartupFusInfo
+import org.jetbrains.plugins.terminal.startup.TerminalProcessType
 
 /**
  * Builder for creating a new [TerminalToolWindowTab].
@@ -29,6 +30,23 @@ interface TerminalToolWindowTabBuilder {
    * ([org.jetbrains.plugins.terminal.TerminalProjectOptionsProvider.shellPath])
    */
   fun shellCommand(command: List<String>?): TerminalToolWindowTabBuilder
+
+  /**
+   * Specifies additional environment variables to set for the shell process.
+   * These variables are added on top of the base environment determined by the [processType].
+   *
+   * If not specified, no additional environment variables will be set.
+   */
+  fun envVariables(envs: Map<String, String>): TerminalToolWindowTabBuilder
+
+  /**
+   * Specifies the type of the process that should be started in the terminal.
+   * It directly affects what base set of environment variables is used to start the process.
+   *
+   * If not specified, the default value is [TerminalProcessType.SHELL].
+   * Specify [TerminalProcessType.NON_SHELL] if you start some arbitrary PTY process that is not a shell.
+   */
+  fun processType(processType: TerminalProcessType): TerminalToolWindowTabBuilder
 
   /**
    * The title show in the tool window tab.
@@ -58,6 +76,12 @@ interface TerminalToolWindowTabBuilder {
    * If it is `null`, the tab will be opened in the top-left split area (or in the main area if there are no splits).
    */
   fun contentManager(manager: ContentManager?): TerminalToolWindowTabBuilder
+
+  /**
+   * Whether to close the tool window tab when the process terminates on its own.
+   * Default value depends on user settings: [org.jetbrains.plugins.terminal.TerminalOptionsProvider.closeSessionOnLogout].
+   */
+  fun closeOnProcessTermination(shouldClose: Boolean): TerminalToolWindowTabBuilder
 
   /**
    * Whether to add the tab to the Terminal tool window or create the detached tab.

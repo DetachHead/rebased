@@ -1,4 +1,4 @@
-// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.jetbrains.python.inlayHints
 
 import com.intellij.codeInsight.hints.declarative.EndOfLinePosition
@@ -18,6 +18,7 @@ import com.jetbrains.python.codeInsight.typing.PyTypingTypeProvider
 import com.jetbrains.python.documentation.PythonDocumentationProvider
 import com.jetbrains.python.psi.PyCallExpression
 import com.jetbrains.python.psi.PyFunction
+import com.jetbrains.python.psi.PyNamedParameter
 import com.jetbrains.python.psi.PyReferenceExpression
 import com.jetbrains.python.psi.PySubscriptionExpression
 import com.jetbrains.python.psi.PyTupleExpression
@@ -26,8 +27,8 @@ import com.jetbrains.python.psi.resolve.PyResolveContext
 import com.jetbrains.python.psi.types.PyClassLikeType
 import com.jetbrains.python.psi.types.PyCollectionType
 import com.jetbrains.python.psi.types.PyInferredVarianceJudgment
-import com.jetbrains.python.psi.types.PyTypeVarType
-import com.jetbrains.python.psi.types.PyTypeVarType.Variance
+import com.jetbrains.python.psi.types.PyTypeParameterType
+import com.jetbrains.python.psi.types.PyTypeParameterType.Variance
 import com.jetbrains.python.psi.types.TypeEvalContext
 
 class PyTypeInlayHintsProvider : InlayHintsProvider {
@@ -35,6 +36,7 @@ class PyTypeInlayHintsProvider : InlayHintsProvider {
     const val REVEAL_TYPE_OPTION_ID: String = "python.type.inlays.reveal_type"
     const val FUNCTION_RETURN_TYPE_OPTION_ID: String = "python.type.inlays.function.return"
     const val VARIANCE_OPTION_ID: String = "python.type.inlays.variance"
+    const val PARAMETER_TYPE_ANNOTATION: String = "python.type.inlays.parameter.annotation"
   }
 
   override fun createCollector(file: PsiFile, editor: Editor): InlayHintsCollector = Collector()
@@ -59,6 +61,10 @@ class PyTypeInlayHintsProvider : InlayHintsProvider {
       sink.whenOptionEnabled(VARIANCE_OPTION_ID) {
         getInlaysForTypeVariableVariance(element, sink, resolveContext)
         getInlaysForTypeParameterVariance(element, sink, resolveContext)
+      }
+
+      sink.whenOptionEnabled(PARAMETER_TYPE_ANNOTATION) {
+        getInlaysForParameterAnnotations(element, sink, resolveContext)
       }
     }
 
@@ -117,7 +123,7 @@ class PyTypeInlayHintsProvider : InlayHintsProvider {
       val qualifier = subscriptionExpr.qualifier as? PyReferenceExpression ?: return
       val qualifierType = resolveContext.typeEvalContext.getType(qualifier) as? PyClassLikeType ?: return
       if (PyTypingTypeProvider.GENERIC != qualifierType.classQName) return
-      val typeVarType = PyTypingTypeProvider.getType(refExpr, resolveContext.typeEvalContext)?.get() as? PyTypeVarType ?: return
+      val typeVarType = PyTypingTypeProvider.getType(refExpr, resolveContext.typeEvalContext)?.get() as? PyTypeParameterType ?: return
       if (typeVarType.variance == Variance.INVARIANT) return
 
       val inferredVariance = PyInferredVarianceJudgment.getInferredVariance(typeVarType, resolveContext.typeEvalContext)
@@ -138,6 +144,37 @@ class PyTypeInlayHintsProvider : InlayHintsProvider {
       }
       if (inferredVariance == Variance.CONTRAVARIANT) {
         this.addPresentation(position = position, hintFormat = varianceHintFormat) { text("in") }
+      }
+    }
+
+    private fun getInlaysForParameterAnnotations(element: PsiElement, sink: InlayTreeSink, resolveContext: PyResolveContext) {
+      val parameter = element as? PyNamedParameter ?: return
+
+      if (parameter.isSelf) return
+
+      if (parameter.annotationValue != null || parameter.typeCommentAnnotation != null) return
+
+      val typeEvalContext = resolveContext.typeEvalContext
+
+      val rawParameterType = typeEvalContext.getType(parameter)
+
+      // Unwrap the type of *args and **kwargs parameters to show the element type
+      val parameterType = when {
+                            parameter.isPositionalContainer -> (rawParameterType as? PyCollectionType)?.getIteratedItemType()
+                            parameter.isKeywordContainer -> (rawParameterType as? PyCollectionType)?.elementTypes?.getOrNull(1)
+                            else -> rawParameterType
+                          } ?: return
+
+      val typeHint = PythonDocumentationProvider.getTypeHint(parameterType, typeEvalContext)
+
+      val offset = parameter.nameIdentifier?.textRange?.endOffset ?: parameter.textRange.endOffset
+
+
+      sink.addPresentation(
+        position = InlineInlayPosition(offset, true),
+        hintFormat = HintFormat.default
+      ) {
+        text(": $typeHint")
       }
     }
   }

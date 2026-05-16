@@ -46,6 +46,62 @@ class EventSchemeBuilderTest : BasePlatformTestCase() {
     doFieldTest(EventFields.String("class", listOf("foo", "bar")), hashSetOf("{enum:foo|bar}"))
   }
 
+  fun `test generate string field with required true`() {
+    doFieldTest(
+      EventFields.String("status", listOf("open", "closed"), required = true),
+      hashSetOf("{enum:open|closed}", "{required:true}")
+    )
+  }
+
+  fun `test generate string field with required false`() {
+    doFieldTest(
+      EventFields.String("status", listOf("open", "closed"), required = false),
+      hashSetOf("{enum:open|closed}", "{required:false}")
+    )
+  }
+
+  fun `test generate string field with required unspecified`() {
+    doFieldTest(
+      EventFields.String("status", listOf("open", "closed"), required = null),
+      hashSetOf("{enum:open|closed}")
+    )
+  }
+
+  fun `test generate string field with default value`() {
+    doFieldTest(
+      EventFields.String("mode", listOf("auto", "manual"), defaultValue = "auto"),
+      hashSetOf("{enum:auto|manual}", "{default_value:auto}")
+    )
+  }
+
+  fun `test generate string field with explicitly removed default value`() {
+    doFieldTest(
+      EventFields.String("mode", listOf("auto", "manual"), defaultValue = ""),
+      hashSetOf("{enum:auto|manual}", "{default_value:}")
+    )
+  }
+
+  fun `test generate string field with no default value`() {
+    doFieldTest(
+      EventFields.String("mode", listOf("auto", "manual"), defaultValue = null),
+      hashSetOf("{enum:auto|manual}")
+    )
+  }
+
+  fun `test generate string field with required and default value`() {
+    doFieldTest(
+      EventFields.String("type", listOf("A", "B", "C"), required = true, defaultValue = "A"),
+      hashSetOf("{enum:A|B|C}", "{required:true}", "{default_value:A}")
+    )
+  }
+
+  fun `test generate string field with required false and empty default`() {
+    doFieldTest(
+      EventFields.String("type", listOf("A", "B", "C"), required = false, defaultValue = ""),
+      hashSetOf("{enum:A|B|C}", "{required:false}", "{default_value:}")
+    )
+  }
+
   fun `test generate enum field`() {
     doFieldTest(EventFields.Enum("enum", TestEnum::class.java), hashSetOf("{enum:FOO|BAR}"))
   }
@@ -84,6 +140,12 @@ class EventSchemeBuilderTest : BasePlatformTestCase() {
   fun `test generate plugin section`() {
     val descriptors = buildEventsScheme()
     assertTrue(descriptors.any { x -> x.plugin.id == "com.intellij" })
+  }
+
+  fun `test system collector is not included when filtering by specific plugin id`() {
+    val descriptors = buildEventsScheme(recorder = "FUS", pluginId = "org.jetbrains.hexana")
+    assertFalse("System collector 'fus.event.log' should not be included when filtering by a specific plugin id",
+                descriptors.any { it.id == "fus.event.log" })
   }
 
   fun `test generate fileName`() {

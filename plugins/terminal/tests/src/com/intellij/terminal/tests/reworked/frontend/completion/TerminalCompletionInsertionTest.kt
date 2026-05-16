@@ -12,6 +12,7 @@ import org.jetbrains.plugins.terminal.block.completion.TerminalCommandCompletion
 import org.jetbrains.plugins.terminal.block.completion.spec.ShellCommandSpec
 import org.jetbrains.plugins.terminal.block.completion.spec.ShellCompletionSuggestion
 import org.jetbrains.plugins.terminal.session.impl.TerminalStartupOptionsImpl
+import org.jetbrains.plugins.terminal.startup.TerminalProcessType
 import org.jetbrains.plugins.terminal.view.TerminalOffset
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -222,7 +223,9 @@ internal class TerminalCompletionInsertionTest : BasePlatformTestCase() {
       val startupOptions = TerminalStartupOptionsImpl(
         shellCommand = if (isPowerShell) listOf("powershell.exe") else listOf("/bin/zsh", "--login", "-i"),
         workingDirectory = "fakeDir",
-        envVariables = emptyMap()
+        envVariables = emptyMap(),
+        processType = TerminalProcessType.SHELL,
+        pid = null,
       )
       val session = EchoingTerminalSession(startupOptions, fixtureScope.childScope("EchoingTerminalSession"))
       doWithCompletionFixture(project, session, fixtureScope) { fixture ->

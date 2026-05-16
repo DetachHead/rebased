@@ -427,6 +427,7 @@ open class IDETestContext(
     launchName: String = "",
     expectedKill: Boolean = false,
     expectedExitCode: Int = 0,
+    analyzeProcessExit: Boolean = true,
     collectNativeThreads: Boolean = false,
     stdOut: ExecOutputRedirect? = null,
     configure: IDERunContext.() -> Unit = {},
@@ -440,6 +441,7 @@ open class IDETestContext(
         launchName = launchName,
         expectedKill = expectedKill,
         expectedExitCode = expectedExitCode,
+        analyzeProcessExit = analyzeProcessExit,
         collectNativeThreads = collectNativeThreads,
         stdOut = stdOut,
         configure = configure,
@@ -458,6 +460,7 @@ open class IDETestContext(
     launchName: String = "",
     expectedKill: Boolean = false,
     expectedExitCode: Int = 0,
+    analyzeProcessExit: Boolean = true,
     collectNativeThreads: Boolean = false,
     stdOut: ExecOutputRedirect? = null,
     configure: suspend IDERunContext.() -> Unit = {},
@@ -473,6 +476,7 @@ open class IDETestContext(
         launchName = launchName,
         expectedKill = expectedKill,
         expectedExitCode = expectedExitCode,
+        analyzeProcessExit = analyzeProcessExit,
         collectNativeThreads = collectNativeThreads,
         stdOut = stdOut
       )
@@ -599,8 +603,9 @@ open class IDETestContext(
       logOutput("License is not provided")
       return this
     }
-    this.onRemDevContext {
-      return frontendIDEContext.setLicense(license)
+    onRemDevContext {
+      frontendIDEContext.setLicense(license)
+      return this
     }
 
     val licenseKeyFileName: String = when (this.ide.productCode) {

@@ -1,20 +1,29 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.ide.ui.laf
 
+import com.intellij.ide.AppLifecycleListener
+import com.intellij.openapi.application.EDT
+import com.intellij.openapi.application.ModalityState
+import com.intellij.openapi.application.asContextElement
 import com.intellij.openapi.components.Service
+import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.thisLogger
 import com.intellij.openapi.util.SystemInfoRt
 import com.intellij.openapi.wm.impl.ExecResult
-import com.intellij.openapi.wm.impl.X11UiUtilKt
+import com.intellij.openapi.wm.impl.LinuxUiUtil
 import com.intellij.openapi.wm.impl.output
 import com.intellij.util.concurrency.ThreadingAssertions
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.FlowPreview
+import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.time.Duration.Companion.seconds
 
@@ -41,18 +50,19 @@ private val QUERY_COLOR_SCHEME = arrayOf(
   "string:org.freedesktop.appearance",
   "string:color-scheme")
 
-@Suppress("OPT_IN_USAGE")
 @Service
 internal class DBusSettingsMonitorService(private val scope: CoroutineScope) {
 
   private var LOG = thisLogger()
 
+  @Volatile
+  private var listener: ((Boolean) -> Unit)? = null
   private val darkSchemeFlow = MutableStateFlow<Boolean?>(null)
-  private val darkSchemeDebounceFlow = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+  private val darkSchemeDebounceFlow = MutableSharedFlow<Unit>(extraBufferCapacity = 1, onBufferOverflow = BufferOverflow.DROP_LATEST)
   private var dbusMonitorProcess = AtomicReference<Process?>(null)
 
   val isServiceAllowed: Boolean
-    get() = SystemInfoRt.isLinux && System.getProperty("ide.linux.color.scheme.sync.support").toBoolean()
+    get() = SystemInfoRt.isLinux
 
   val darkScheme: StateFlow<Boolean?> = darkSchemeFlow.asStateFlow()
 
@@ -62,6 +72,7 @@ internal class DBusSettingsMonitorService(private val scope: CoroutineScope) {
         darkSchemeFlow.value = calcDarkScheme()
 
         try {
+          @OptIn(FlowPreview::class)
           darkSchemeDebounceFlow.debounce(DEBOUNCE_DURATION).collect {
             darkSchemeFlow.value = calcDarkScheme()
           }
@@ -82,14 +93,18 @@ internal class DBusSettingsMonitorService(private val scope: CoroutineScope) {
     }
   }
 
-  fun runSchemeCollector(listener: (Boolean) -> Unit) {
+  fun setDarkSchemeListener(listener: (Boolean) -> Unit) {
+    this.listener = listener
+  }
+
+  fun runSchemeCollector() {
     if (!isServiceAllowed) {
       return
     }
 
-    scope.launch {
+    scope.launch(Dispatchers.EDT + ModalityState.any().asContextElement()) {
       darkScheme.collect {
-        listener(it ?: false)
+        listener?.invoke(it ?: false)
       }
     }
   }
@@ -97,7 +112,7 @@ internal class DBusSettingsMonitorService(private val scope: CoroutineScope) {
   private fun calcDarkScheme(): Boolean? {
     ThreadingAssertions.assertBackgroundThread()
 
-    val output = X11UiUtilKt.exec("DBusSettingsMonitorService gets color scheme", *QUERY_COLOR_SCHEME).output() ?: return null
+    val output = LinuxUiUtil.exec("DBusSettingsMonitorService gets color scheme", *QUERY_COLOR_SCHEME).output() ?: return null
 
     val split = output.splitOutput()
     val value = split.lastOrNull()?.toIntOrNull()
@@ -124,42 +139,55 @@ internal class DBusSettingsMonitorService(private val scope: CoroutineScope) {
     return result
   }
 
-  private fun startDbusMonitorListener() {
-    ThreadingAssertions.assertBackgroundThread()
-
-    if (X11UiUtilKt.exec("DBusSettingsMonitorService checks dbus-monitor", *CHECK_MONITOR_CMD) !is ExecResult.Success) {
-      return
-    }
-
-    try {
-      dbusMonitorProcess.set(ProcessBuilder(*MONITOR_CMD).start())
-      LOG.info("DBus listener started")
-    }
-    catch (e: Throwable) {
-      LOG.info("DBus listener cannot start", e)
-    }
-
-    val process = dbusMonitorProcess.get() ?: return
-
-    try {
-      process.inputStream.bufferedReader().forEachLine { line ->
-        val split = line.splitOutput()
-        if (split.size > 2 && split[split.size - 2] == SETTINGS_INTERFACE && split[split.size - 1] == SETTINGS_MEMBER) {
-          LOG.info("SettingChanged received: $line")
-          darkSchemeDebounceFlow.tryEmit(Unit)
-        }
+  /**
+   * The method starts a process and reads its output for the entire lifetime of the IDE.
+   * It uses I/O operations and doesn't obey coroutine cancellation
+   */
+  private suspend fun startDbusMonitorListener() {
+    withContext(Dispatchers.IO) {
+      if (LinuxUiUtil.exec("DBusSettingsMonitorService checks dbus-monitor", *CHECK_MONITOR_CMD) !is ExecResult.Success) {
+        return@withContext
       }
 
-      LOG.info("DBus listener stopped: output ended unexpectedly (no errors)")
-    }
-    catch (e: Throwable) {
-      LOG.info("DBus listener stopped", e)
+      try {
+        dbusMonitorProcess.set(ProcessBuilder(*MONITOR_CMD).start())
+        LOG.info("DBus listener started")
+      }
+      catch (e: Throwable) {
+        LOG.info("DBus listener cannot start", e)
+      }
+
+      val process = dbusMonitorProcess.get() ?: return@withContext
+
+      try {
+        process.inputStream.bufferedReader().forEachLine { line ->
+          val split = line.splitOutput()
+          if (split.size > 2 && split[split.size - 2] == SETTINGS_INTERFACE && split[split.size - 1] == SETTINGS_MEMBER) {
+            LOG.info("SettingChanged received: $line")
+            check(darkSchemeDebounceFlow.tryEmit(Unit))
+          }
+        }
+
+        LOG.info("DBus listener stopped: output ended unexpectedly (no errors)")
+      }
+      catch (e: Throwable) {
+        LOG.info("DBus listener stopped", e)
+      }
     }
   }
 
   private fun killDbusMonitorListener() {
     val process = dbusMonitorProcess.getAndSet(null)
     process?.destroyForcibly()
+  }
+}
+
+private class DBusSettingsMonitorLifecycleListener : AppLifecycleListener {
+
+  override fun appStarted() {
+    // This code also preloads the service, so LinuxThemeDetector.detectionSupported will contain actual value when needed.
+    // Example of a possible problem: IJPL-235150
+    service<DBusSettingsMonitorService>().runSchemeCollector()
   }
 }
 

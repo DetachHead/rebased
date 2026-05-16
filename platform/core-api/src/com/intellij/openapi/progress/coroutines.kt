@@ -199,15 +199,16 @@ private fun getLockContext(currentThreadContext: CoroutineContext): Pair<Corouti
 }
 
 /**
- * **DO NOT USE**: if there is no current job or indicator, then the calling code cannot cancel this call from outside.
+ * **Avoid**: if there is no current job or indicator, then the calling code cannot cancel this call from outside.
  * This function is needed for compatibility: the same code could be cancellable when run under job/indicator,
  * and non-cancellable when run in raw context.
  *
  * This function repeats semantics of [runBlockingCancellable] but doesn't log an error when there is no current job or indicator.
  * Instead, it silently creates a new orphan job, and installs it as the [current job][Cancellation.currentJob],
  * which makes inner [runBlockingCancellable] a child of the orphan job.
+ *
+ * @see runBlockingCancellable
  */
-@Internal
 @RequiresBackgroundThread(generateAssertion = false)
 @RequiresBlockingContext
 fun <T> runBlockingMaybeCancellable(action: suspend CoroutineScope.() -> T): T {
@@ -558,7 +559,7 @@ private fun <T> contextToIndicator(ctx: CoroutineContext, action: () -> T): T {
  * We keep this class as an inheritor of [EmptyProgressIndicator] for ease of debugging -- if one sees an instance of this class,
  * it means that the currently used indicator depends on some job.
  */
-private class JobDependentIndicator(modalityState: ModalityState): EmptyProgressIndicator(modalityState)
+private class JobDependentIndicator(modalityState: ModalityState): BridgeJobIndicatorBase(modalityState)
 
 @Throws(CancellationException::class)
 @Internal

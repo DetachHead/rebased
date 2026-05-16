@@ -201,6 +201,7 @@
   <technology name="json4s" root="json4s"/>
   <technology name="jsoniter-scala" root="jsoniter_scala"/>
   <technology name="jsoup" root="org.jsoup"/>
+  <technology name="jspecify" root="org.jspecify"/>
   <technology name="junit" root="org.junit"/>
   <technology name="junit3" root="junit.framework"/>
   <technology name="junit5" root="org.junit.jupiter"/>
@@ -209,6 +210,7 @@
   <technology name="karate" root="com.intuit.karate"/>
   <technology name="klaxon" root="com.beust.klaxon"/>
   <technology name="klock" root="com.soywiz.klock"/>
+  <technology name="kmp-protobuf" root="kotlinx.rpc.protobuf"/>
   <technology name="kodein" root="org.kodein"/>
   <technology name="kodein-db" root="org.kodein.db"/>
   <technology name="kodein-di" root="org.kodein.di"/>
@@ -228,9 +230,19 @@
   <technology name="kotlinx-datetime" root="kotlinx.datetime"/>
   <technology name="kotlinx-html" root="kotlinx.html"/>
   <technology name="kotlinx-io" root="kotlinx.io"/>
-  <technology name="kotlinx-jupyter-ktor-client" root="org.jetbrains.kotlinx.jupyter.ktor.client"/>
+  <technology name="kotlinx-jupyter-database" root="org.jetbrains.kotlinx.jupyter.database"/>
+  <technology name="kotlinx-jupyter-intellij-platform" root="org.jetbrains.kotlinx.jupyter.intellij"/>
   <technology name="kotlinx-jupyter-json-generation" root="org.jetbrains.kotlinx.jupyter.json"/>
+  <technology name="kotlinx-jupyter-json2kt" root="org.jetbrains.kotlinx.jupyter.json2kt"/>
+  <technology name="kotlinx-jupyter-ktor-client" root="org.jetbrains.kotlinx.jupyter.ktor.client"/>
+  <technology name="kotlinx-jupyter-notebook-parser" root="org.jetbrains.jupyter.parser"/>
+  <technology name="kotlinx-jupyter-notekit" root="org.jetbrains.kotlinx.jupyter.notebook"/>
+  <technology name="kotlinx-jupyter-serialization" root="org.jetbrains.kotlinx.jupyter.serialization"/>
+  <technology name="kotlinx-jupyter-widgets" root="org.jetbrains.kotlinx.jupyter.widget"/>
   <technology name="kotlin-logging" root="io.github.oshai.kotlinlogging"/>
+  <technology name="kotlinx-rpc-core" root="kotlinx.rpc.annotations"/>
+  <technology name="kotlinx-rpc-krpc-core" root="kotlinx.rpc.krpc"/>
+  <technology name="kotlinx-rpc-grpc-core" root="kotlinx.rpc.grpc"/>
   <technology name="kotlinx-serialization" root="kotlinx.serialization"/>
   <technology name="ktlint" root="com.pinterest.ktlint"/>
   <technology name="ktor-client" root="io.ktor.client"/>
