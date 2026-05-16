@@ -248,7 +248,7 @@ inline fun communityWindowsCustomizer(projectHome: Path, configure: WindowsCusto
     icoPath = "build/conf/ideaCE/win/images/rebased.ico"
     icoPathForEAP = "build/conf/ideaCE/win/images/rebased.ico"
     installerImagesPath = "build/conf/ideaCE/win/images"
-    fileAssociations = listOf()
+    fileAssociations = emptyList()
     
     fullName { "Rebased" }
     

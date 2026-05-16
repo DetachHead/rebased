@@ -304,7 +304,7 @@ inline fun communityMacCustomizer(projectHome: Path, configure: MacCustomizerBui
     icnsPathForEAP = "build/conf/ideaCE/mac/images/rebased.icns"
     urlSchemes = listOf("rebased")
     associateIpr = true
-    fileAssociations = FileAssociation.from("java", "groovy", "kt", "kts")
+    fileAssociations = emptyList()
     bundleIdentifier = "io.github.detachhead.rebased"
     dmgImagePath = "build/conf/ideaCE/mac/images/dmg_background.tiff"
     
