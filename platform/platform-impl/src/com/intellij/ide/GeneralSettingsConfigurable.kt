@@ -3,7 +3,9 @@ package com.intellij.ide
 
 import com.intellij.application.options.editor.CheckboxDescriptor
 import com.intellij.application.options.editor.checkBox
+import com.intellij.ide.IdeBundle.message
 import com.intellij.ide.ui.search.BooleanOptionDescription
+import com.intellij.openapi.application.ApplicationNamesInfo
 import com.intellij.openapi.extensions.ExtensionPointName
 import com.intellij.openapi.fileChooser.FileChooserDescriptorFactory
 import com.intellij.openapi.fileChooser.PathChooserDialog
@@ -29,6 +31,7 @@ import com.intellij.ui.dsl.builder.panel
 import com.intellij.ui.dsl.builder.selected
 import com.intellij.util.PlatformUtils
 import com.intellij.util.io.TrashBin
+import com.intellij.util.ui.RestartDialogImpl
 
 private val model: GeneralSettings
   get() = GeneralSettings.getInstance()
@@ -49,6 +52,8 @@ private val myChkAutoSaveIfInactive
   get() = CheckboxDescriptor(IdeBundle.message("checkbox.save.files.automatically"), model::isAutoSaveIfInactive)
 private val myChkUseSafeWrite
   get() = CheckboxDescriptor(IdeBundle.message("checkbox.safe.write"), model::isUseSafeWrite)
+private val myChkStoreProjectSettingsInProjectRoot
+  get() = CheckboxDescriptor(message("checkbox.store.project.settings.in.project.root"), model::storeProjectSettingsInProjectRoot)
 
 internal val allOptionDescriptors: List<BooleanOptionDescription>
   get() =
@@ -60,7 +65,8 @@ internal val allOptionDescriptors: List<BooleanOptionDescription>
       myChkSyncInBackground,
       myChkSaveOnFrameDeactivation,
       myChkAutoSaveIfInactive,
-      myChkUseSafeWrite
+      myChkUseSafeWrite,
+      myChkStoreProjectSettingsInProjectRoot
     )
     .map(CheckboxDescriptor::asUiOptionDescriptor)
 
@@ -126,6 +132,11 @@ internal class GeneralSettingsConfigurable :
             .columns(COLUMNS_MEDIUM)
             .comment(IdeBundle.message("settings.general.directory.preselected"), 80)
         }
+        row {
+          checkBox(myChkStoreProjectSettingsInProjectRoot)
+            .comment(message("ide.restart.required.comment"))
+            .contextHelp(message("tooltip.store.project.settings.in.project.root", ApplicationNamesInfo.getInstance().productName))
+        }
       }
 
       group(IdeBundle.message("settings.general.files")) {
@@ -169,6 +180,14 @@ internal class GeneralSettingsConfigurable :
         appendDslConfigurable(configurable)
       }
     }
+
+  override fun apply() {
+    val previousValue = model.storeProjectSettingsInProjectRoot
+    super.apply()
+    if (previousValue !=  model.storeProjectSettingsInProjectRoot) {
+      RestartDialogImpl.showRestartRequired()
+    }
+  }
 
   override fun getId(): String = helpTopic!!
 

@@ -2,8 +2,10 @@
 package com.intellij.configurationStore
 
 import com.intellij.diagnostic.PluginException
+import com.intellij.ide.GeneralSettings
 import com.intellij.ide.highlighter.ProjectFileType
 import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.application.PathManager
 import com.intellij.openapi.components.PersistentStateComponent
 import com.intellij.openapi.components.State
 import com.intellij.openapi.components.StateSplitterEx
@@ -23,12 +25,15 @@ import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.util.PathUtil
 import com.intellij.util.PathUtilRt
+import com.intellij.util.system.OS
 import org.jdom.Element
 import org.jetbrains.annotations.VisibleForTesting
 import org.jetbrains.jps.util.JpsPathUtil
 import java.nio.file.AccessDeniedException
 import java.nio.file.Files
 import java.nio.file.Path
+import java.nio.file.Paths
+import kotlin.io.path.div
 
 private val EP_NAME: ExtensionPointName<ProjectStorePathCustomizer> = ExtensionPointName("com.intellij.projectStorePathCustomizer")
 private val DEPRECATED_PROJECT_FILE_STORAGE_ANNOTATION = FileStorageAnnotation(StoragePathMacros.PROJECT_FILE, true)
@@ -93,6 +98,23 @@ internal class NestedProjectStorePathManager : ProjectStorePathManager {
   }
 }
 
+/**
+ * used for embedding an absolute into another path, for example a path `/home/user/projects/foo` gets converted to `home/user/projects/foo`
+ * and eventually becomes `/home/user/.config/detachhead/rebased/home/user/projects/foo` where `/home/user/.config/detachhead/rebased`
+ * is the global IDE config directory.
+ *
+ * we do it this way so that projects can have their settings stored in a single spot outside their own root directory, and with predictable
+ * locations.
+ */
+private fun Path.toRelativeWithNoDriveLetterSyntax(): Path {
+  val pathString = this.toString()
+  return Paths.get(
+    if (OS.CURRENT == OS.Windows)
+      pathString.replaceFirst(':', '\\')
+    else
+      pathString.replaceFirst("/", ""))
+}
+
 private class DotIdeaProjectStoreDescriptor(
   override val projectIdentityFile: Path,
   override val historicalProjectBasePath: Path,
@@ -100,7 +122,11 @@ private class DotIdeaProjectStoreDescriptor(
   private var lastSavedProjectName: String? = null
 
 
-  override val dotIdea: Path = projectIdentityFile.resolve(Project.DIRECTORY_STORE_FOLDER)
+  override val dotIdea: Path =
+    if (GeneralSettings.getInstance().storeProjectSettingsInProjectRoot)
+      projectIdentityFile.resolve(Project.DIRECTORY_STORE_FOLDER)
+    else
+      (PathManager.getConfigDir() / Project.DIRECTORY_STORE_FOLDER).resolve(projectIdentityFile.toRelativeWithNoDriveLetterSyntax())
 
   override fun getJpsBridgeAwareStorageSpec(filePath: String, project: Project): Storage {
     return doGetJpsBridgeAwareStorageSpec(filePath, project)
