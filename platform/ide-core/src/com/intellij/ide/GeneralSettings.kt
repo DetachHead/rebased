@@ -134,6 +134,15 @@ class GeneralSettings : PersistentStateComponent<GeneralSettingsState> {
       state.processCloseConfirmation = value
     }
 
+  // TODO: figure out why this doesn't work. it doesn't save the setting when changed for some reason
+  // var storeProjectSettingsInProjectRoot by state::storeProjectSettingsInProjectRoot
+
+  var storeProjectSettingsInProjectRoot: Boolean
+    get() = state.storeProjectSettingsInProjectRoot
+    set(value) {
+      state.storeProjectSettingsInProjectRoot = value
+    }
+
   init {
     val app = ApplicationManager.getApplication()
     if (app != null && !app.isHeadlessEnvironment &&
@@ -254,7 +263,9 @@ data class GeneralSettingsState(
   @JvmField
   var inactiveTimeout: Int = 15,
   @JvmField
-  var supportScreenReaders: Boolean = false
+  var supportScreenReaders: Boolean = false,
+  @JvmField
+  var storeProjectSettingsInProjectRoot: Boolean = true
 )
 
 enum class ProcessCloseConfirmation {

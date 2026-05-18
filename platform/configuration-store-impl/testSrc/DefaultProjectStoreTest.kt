@@ -1,9 +1,11 @@
 // Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.configurationStore
 
+import com.intellij.ide.GeneralSettings
 import com.intellij.ide.highlighter.ProjectFileType
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.EDT
+import com.intellij.openapi.application.PathManager
 import com.intellij.openapi.application.ex.PathManagerEx
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.impl.stores.stateStore
@@ -11,6 +13,7 @@ import com.intellij.openapi.components.service
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.ProjectManager
 import com.intellij.openapi.project.ex.ProjectManagerEx
+import com.intellij.openapi.project.impl.ProjectImpl
 import com.intellij.openapi.project.impl.ProjectManagerImpl
 import com.intellij.openapi.util.JDOMUtil
 import com.intellij.testFramework.ProjectRule
@@ -54,6 +57,13 @@ class DefaultProjectStoreTest {
         checkTask(project, true)
       }
     }
+  }
+
+  @Test
+  fun `project settings stored outside project root`(): Unit = runBlocking(Dispatchers.Default) {
+    GeneralSettings.getInstance().storeProjectSettingsInProjectRoot = false
+    val project = openAsNewProjectAndUseDefaultSettings(fsRule.fs.getPath("/test"))
+    assertThat(project is ProjectImpl && project.componentStore.storeDescriptor.dotIdea!!.startsWith(PathManager.getConfigDir())).isTrue
   }
 
   @Test
