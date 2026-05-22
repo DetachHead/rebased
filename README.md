@@ -81,19 +81,19 @@ One of the goals of Rebased is to prevent users from having to install bloated p
 
 ## Credits
 
-- https://github.com/obiscr/intellij-community - a previous attempt at creating a jetbrains git client that i cherrypicked some commits from
-- jetbrains, obviously
+- https://github.com/obiscr/intellij-community - a previous attempt at creating a JetBrains git client that I cherrypicked some commits from
+- JetBrains (obviously)
 
------
+## Contributing
 
 > [!NOTE]
-> The remainder of this readme is mostly unchanged from the upstream intellij-community repo.
+> This section is mostly unchanged from the upstream intellij-community repo, but with a few small tweaks to match the changes I've made to the build process.
 
-## Getting the Source Code
+### Getting the Source Code
 
 This section will guide you through getting the project sources and help avoid common issues in git config and other steps before opening it in the IDE.
 
-#### Prerequisites
+##### Prerequisites
 - [Git](https://git-scm.com/) installed
 - Install [IntelliJ IDEA 2023.2](https://www.jetbrains.com/idea/download) or higher.
 - For **Windows** set these git config to avoid common issues during cloning:
@@ -102,12 +102,10 @@ This section will guide you through getting the project sources and help avoid c
   git config --global core.autocrlf input
   ```
 
-#### Clone Main Repository
+##### Clone Main Repository
 
-IntelliJ open source repository is available from the [GitHub repository](https://github.com/detachhead/rebased), which can be cloned or downloaded as a zip file (based on a branch) into `<IDEA_HOME>`. 
-The **master** (_default_) branch contains the source code which will be used to create the next major version of all JetBrains IDEs. 
-The branch names and build numbers for older releases of JetBrains IDEs can be found on the
-[Build Number Ranges](https://plugins.jetbrains.com/docs/intellij/build-number-ranges.html) page.
+Rebased is available from the [GitHub repository](https://github.com/detachhead/rebased). 
+The **master** (_default_) branch contains the source code which is periodically merged with upstream, however Rebased tracks upstream IntelliJ Community releases in [separate release branches](https://github.com/DetachHead/rebased/pulls?q=is%3Apr+label%3A%22release+branch%22). Releases are always published from the latest release branch instead of the master branch.
 
 You can [clone this project](https://www.jetbrains.com/help/idea/manage-projects-hosted-on-github.html#clone-from-GitHub) directly using IntelliJ IDEA. 
 
@@ -129,24 +127,18 @@ Alternatively, follow the steps below in a terminal:
 > relying on a script. This way, the project is always pinned to a version of the android repo that works with it.
 
 ---
-## Building Rebased
+### Building Rebased
 
-> [Standard GitHub runners](https://docs.github.com/en/actions/concepts/runners/github-hosted-runners) can no longer be used to build the project due to the disk size limitation.
-> Now we use [larger runners](https://docs.github.com/en/enterprise-cloud@latest/actions/concepts/runners/larger-runners) which are only available for organizations and enterprises using the GitHub Team or GitHub Enterprise Cloud plans.
-> Users of personal GitHub accounts can use [the prebuilt binaries](https://github.com/JetBrains/intellij-community/releases), 
-> or build IntelliJ IDEA from source code locally.
-
-These instructions will help you build Rebased from source code, which is based on the IntelliJ community edition. These instructions are mostly unchanged from upstream for now
-so they might be inaccurate because this project is still in early development and I am still learing how everything works and changing things around.
+These instructions will help you build Rebased from source code, which is based on the IntelliJ community edition.
 IntelliJ IDEA '**2023.2**' or newer is required.
 
-### Opening the IntelliJ IDEA Source Code in the IDE
+#### Opening the Rebased Source Code in the IDE
 Using the latest IntelliJ IDEA, click '**File | Open**', select the `<IDEA_HOME>` directory.
 If IntelliJ IDEA displays a message about a missing or out-of-date required plugin (e.g. Kotlin),
 [enable, upgrade, or install that plugin](https://www.jetbrains.com/help/idea/managing-plugins.html) and restart IntelliJ IDEA.
 
 
-### Build Configuration Steps
+#### Build Configuration Steps
 1. **JDK Setup**
 
 - Use JetBrains Runtime 21 (without JCEF) to compile
@@ -168,9 +160,9 @@ If IntelliJ IDEA displays a message about a missing or out-of-date required plug
   - With notably higher available RAM, Increase "**User-local heap size**" to `3000`.
 
 
-### Building the IntelliJ IDEA Application from Source
+#### Building the Rebased Application from Source
 
-**To build IntelliJ IDEA from source**, choose '**Build | Build Project**' from the main menu.
+**To build Rebased from source**, choose '**Build | Build Project**' from the main menu.
 
 **To build installation packages**, run the [installers.cmd](installers.cmd) script in `<IDEA_HOME>` directory. `installers.cmd` will work on both Windows and Unix systems.
 Options to build installers are passed as system properties to `installers.cmd` command.
@@ -189,10 +181,10 @@ Installer build examples:
 > [!TIP]
 > 
 > The `installers.cmd` is used to run [OpenSourceCommunityInstallersBuildTarget](build/src/OpenSourceCommunityInstallersBuildTarget.kt) from the command line.
-> You can also call it directly from IDEA, using run configuration `Build IntelliJ IDEA Installers (current OS)`.
+> You can also call it directly from IDEA, using run configuration `Build Rebased Installers (current OS)`.
 
 
-#### Dockerized Build Environment
+##### Dockerized Build Environment
 To build installation packages inside a Docker container with preinstalled dependencies and tools, run the following command in `<IDEA_HOME>` directory (on Windows, use PowerShell):
 ```bash
 docker build . --target intellij_idea --tag intellij_idea_env
@@ -207,15 +199,15 @@ To reuse the existing Maven cache from the host system, add the following option
 `--volume "$HOME/.m2:/home/ide_builder/.m2"`
 
 ---
-## Running IntelliJ IDEA
-To run the IntelliJ IDEA that was built from source, choose '**Run | Run**' from the main menu. This will use the preconfigured run configuration `IDEA`.
+### Running Rebased
+To run the version of Rebased that was built from source, choose '**Run | Run**' from the main menu. This will use the preconfigured run configuration `Rebased`.
 
 To run tests on the build, apply these settings to the '**Run | Edit Configurations... | Templates | JUnit**' configuration tab:
 * Working dir: `<IDEA_HOME>/bin`
 * VM options:  `-ea`
 
 
-#### Running IntelliJ IDEA in CI/CD environment
+#### Running Rebased in CI/CD environment
 
 To run tests outside of IntelliJ IDEA, run the `tests.cmd` command in `<IDEA_HOME>` directory.`tests.cmd` can be used in both Windows and Unix systems.
 Options to run tests are passed as system properties to `tests.cmd` command.
