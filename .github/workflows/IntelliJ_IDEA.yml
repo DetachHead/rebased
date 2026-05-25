@@ -72,4 +72,5 @@ jobs:
             **/*.zsync
             **/*.exe
             **/*.dmg
+            **/*.spdx.json
             
