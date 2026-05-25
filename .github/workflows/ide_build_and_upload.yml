@@ -136,11 +136,17 @@ jobs:
           ln -s usr/bin/idea.png appdir/rebased.png
 
       - name: Install appimagetool
+        # this sucks. bash is the worst language ever made. appimagetool should be available on a package manager with lockfile support
+        env:
+          filename: "appimagetool-x86_64.AppImage"
+          sha256: "ed4ce84f0d9caff66f50bcca6ff6f35aae54ce8135408b3fa33abfc3cb384eb0"
         # language=bash
         run: |
-          wget -q https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
-          mv appimagetool-x86_64.AppImage ./appimagetool
-          chmod +x appimagetool
+          set -euo pipefail # work properly flags! we don't want to risk running it even if the validation fails
+          wget -q https://github.com/AppImage/appimagetool/releases/download/1.9.1/$filename
+          echo "$sha256 $filename" | sha256sum -c
+          chmod +x $filename
+          mv $filename ./appimagetool
 
       - name: Build AppImage
         env:
