@@ -374,6 +374,12 @@ object CommunityModuleSets {
     module("intellij.platform.collaborationTools")
     module("intellij.platform.collaborationTools.auth")
     module("intellij.platform.collaborationTools.auth.base")
+
+    // this seems like bloat (it's used for the Task Management plugin) which we would ideally disable in rebased,
+    // but GitToolBox depends on it. it's a very popular 3rd party git-focused plugin so we make an effort to support it
+    module("intellij.platform.tasks")
+    module("intellij.platform.tasks.impl")
+
     module("intellij.libraries.microba")
     module("intellij.platform.diagnostic.freezeAnalyzer")
     module("intellij.platform.diagnostic.freezes")
