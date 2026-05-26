@@ -57,7 +57,9 @@ jobs:
       - uses: actions/download-artifact@v4.1.8
 
       - name: Create Release
-        uses: marvinpinto/action-automatic-releases@v1.2.1
+        # the maintainer said they archived this action because "there are much better alternatives these days"
+        # but i have yet to find a single alternative that works the way i want (automatically creates the tag)
+        uses: marvinpinto/action-automatic-releases@919008cf3f741b179569b7a6fb4d8860689ab7f0 # zizmor: ignore[archived-uses]
         with:
           title: ${{ needs.get_version.outputs.version }}
           automatic_release_tag: ${{ needs.get_version.outputs.version }}

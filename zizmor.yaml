@@ -1,0 +1,4 @@
+rules:
+  anonymous-definition:
+    # the docs say actions without a name render anonymously in github but that's not the case, it uses the yaml key
+    disable: true
