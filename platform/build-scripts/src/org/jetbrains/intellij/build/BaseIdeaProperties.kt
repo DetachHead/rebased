@@ -15,9 +15,6 @@ val REBASED_BUNDLED_PLUGINS = DEFAULT_BUNDLED_PLUGINS + persistentListOf(
   "intellij.vcs.git.commit.modal",
   "intellij.vcs.github",
   "intellij.vcs.gitlab",
-  "intellij.keymap.eclipse",
-  "intellij.keymap.visualStudio",
-  "intellij.keymap.netbeans",
   "intellij.terminal",
   "intellij.textmate.plugin",
 )
@@ -63,6 +60,9 @@ val IDEA_BUNDLED_PLUGINS: PersistentList<String> = REBASED_BUNDLED_PLUGINS + per
   "intellij.grazie",
   "intellij.toml",
   KotlinPluginBuilder.MAIN_KOTLIN_PLUGIN_MODULE,
+  "intellij.keymap.eclipse",
+  "intellij.keymap.visualStudio",
+  "intellij.keymap.netbeans",
   "intellij.performanceTesting",
   "intellij.compose.ide.plugin",
 )
