@@ -8,6 +8,12 @@ inputs:
   artifacts_dir:
     description: 'IDE artifacts output directory'
     required: true
+
+outputs:
+  artifact-id:
+    description: 'output from actions/upload-artifact'
+    value: ${{ steps.upload.outputs.artifact-id }}
+
 runs:
   using: composite
   steps:
@@ -35,6 +41,7 @@ runs:
         fi
     - name: Upload ${{inputs.suffix}}
       uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+      id: upload
       with:
         name: ${{inputs.os}}${{inputs.suffix}}-unsigned
         if-no-files-found: 'error'

@@ -41,6 +41,7 @@ jobs:
   build:
     needs: get_version
     uses: ./.github/workflows/ide_build_and_upload.yml
+    secrets: inherit
     with:
       artifacts_dir: out/idea-ce/artifacts
       product: intellij_idea
