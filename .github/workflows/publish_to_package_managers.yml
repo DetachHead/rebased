@@ -15,7 +15,7 @@ jobs:
   homebrew:
     runs-on: macos-latest
     steps:
-    - uses: FriesI23/action-homebrew-bump-cask@561bbe447f8915a50a62e65483061bea1e7f136f
+    - uses: LanikSJ/homebrew-bump-cask@d5866213d3bef867ee98352732bc26ea165c66c1 #v1
       with:
         # Required, custom GitHub access token with the 'public_repo' and 'workflow' scopes
         token: ${{ secrets.HOMEBREW_TOKEN }}
