@@ -68,11 +68,12 @@ jobs:
           prerelease: false
           draft: true
           files: |
-            **/*.tar.gz
-            **/*.AppImage
-            **/*.zsync
-            **/*.exe
+            linux-*/*.tar.gz
+            linux-*/*.AppImage
+            linux-*/*.zsync
+            linux-*/*.spdx.json
+            windows-signed/rebased.exe
+            windows-signed/*.spdx.json
             **/*.win.zip
-            **/*.dmg
-            **/*.spdx.json
-            
+            mac-*/*.dmg
+            mac-*/*.spdx.json
