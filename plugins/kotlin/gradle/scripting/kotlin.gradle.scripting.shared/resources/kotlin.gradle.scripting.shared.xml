@@ -3,7 +3,6 @@
     <module name="intellij.gradle"/>
     <module name="intellij.kotlin.gradle.tooling"/>
     <module name="intellij.kotlin.base.scripting.shared"/>
-    <module name="intellij.gradle.completion"/>
   </dependencies>
   <extensions defaultExtensionNs="org.jetbrains.plugins.gradle">
     <projectResolve implementation="org.jetbrains.kotlin.gradle.scripting.shared.importing.KotlinDslScriptModelResolver" order="first"/>
@@ -15,10 +14,6 @@
 
   <extensions defaultExtensionNs="com.intellij">
     <internalFileTemplate name="Kotlin Script Gradle"/>
-    <completion.contributor language="kotlin"
-                            id="KotlinGradleScriptCompletionContributor"
-                            order="first, before KotlinCompletionContributor, before liveTemplates"
-                            implementationClass="org.jetbrains.kotlin.gradle.scripting.shared.completion.KotlinGradleScriptCompletionContributor"/>
   </extensions>
 
   <actions resource-bundle="messages.KotlinGradleScriptingBundle">

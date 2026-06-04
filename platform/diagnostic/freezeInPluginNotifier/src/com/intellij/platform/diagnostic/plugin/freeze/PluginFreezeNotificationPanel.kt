@@ -9,23 +9,29 @@ import com.intellij.diagnostic.ThreadDump
 import com.intellij.featureStatistics.fusCollectors.LifecycleUsageTriggerCollector
 import com.intellij.ide.plugins.PluginManagerCore
 import com.intellij.ide.plugins.PluginManagerCore.isVendorJetBrains
+import com.intellij.ide.setToolTipText
+import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.application.impl.ApplicationInfoImpl
+import com.intellij.openapi.diagnostic.UnhandledReportSinkService
+import com.intellij.openapi.diagnostic.UnhandledReportSinkService.PluginFreezeReportData
 import com.intellij.openapi.extensions.PluginDescriptor
 import com.intellij.openapi.fileEditor.FileEditor
 import com.intellij.openapi.project.IntelliJProjectUtil
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.ProjectManager
 import com.intellij.openapi.util.registry.Registry
+import com.intellij.openapi.util.text.HtmlChunk
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.ui.EditorNotificationPanel
 import com.intellij.ui.EditorNotificationProvider
 import com.intellij.ui.EditorNotifications
+import com.intellij.util.application
 import java.nio.file.Path
 import java.util.Collections
 import java.util.function.Function
 import javax.swing.JComponent
 
-internal class PluginFreezeNotifier: FreezeNotifier {
+internal class PluginFreezeNotifier : FreezeNotifier {
   override fun notifyFreeze(event: LogMessage, currentDumps: Collection<ThreadDump>, reportDir: Path, durationMs: Long) {
     val freezeWatcher = PluginFreezeWatcher.getInstance()
 
@@ -36,8 +42,15 @@ internal class PluginFreezeNotifier: FreezeNotifier {
       val reason = freezeWatcher.dumpedThreads(event, dump, durationMs)
       if (reason != null) {
         LifecycleUsageTriggerCollector.pluginFreezeDetected(reason.pluginId, durationMs, reason.reportToUser)
-
         reportFreeze()
+
+        UnhandledReportSinkService.getInstance()?.report(PluginFreezeReportData(
+          reason.pluginId,
+          reason.event.message,
+          durationMs,
+          reason.event.allAttachments,
+          currentDumps
+        ))
         break
       }
     }
@@ -81,13 +94,13 @@ internal class PluginFreezeNotificationPanel : EditorNotificationProvider {
 
           closePanel(project)
         }.apply {
-          toolTipText = PluginFreezeBundle.message("action.ignore.plugin.tooltip")
+          setToolTipText(HtmlChunk.text(PluginFreezeBundle.message("action.ignore.plugin.tooltip")))
         }
 
         createActionLabel(PluginFreezeBundle.message("action.close.panel.text")) {
           closePanel(project)
         }.apply {
-          toolTipText = PluginFreezeBundle.message("action.dismiss.tooltip")
+          setToolTipText(HtmlChunk.text(PluginFreezeBundle.message("action.dismiss.tooltip")))
         }
       }
     }
@@ -96,21 +109,26 @@ internal class PluginFreezeNotificationPanel : EditorNotificationProvider {
   private fun reportFreeze(project: Project, pluginDescriptor: PluginDescriptor, freezeReason: FreezeReason, ijProject: Boolean) {
     if (reported.add(freezeReason)) {
       // must be added only once
-      MessagePool.getInstance().addIdeFatalMessage(freezeReason.event)
-    }
+      MessagePool.getInstance().addErrorMessage(freezeReason.event).invokeOnCompletion {
+        application.invokeLater(
+          {
+            if (project.isDisposed) return@invokeLater
 
-    val dialog = object : IdeErrorsDialog(MessagePool.getInstance(), project, ijProject, freezeReason.event) {
-      override fun updateOnSubmit() {
-        super.updateOnSubmit()
+            val dialog = object : IdeErrorsDialog(MessagePool.getInstance(), project, ijProject, freezeReason.event) {
+              override fun updateOnSubmit() {
+                super.updateOnSubmit()
 
-        PluginsFreezesService.getInstance().mutePlugin(pluginDescriptor.pluginId)
+                PluginsFreezesService.getInstance().mutePlugin(pluginDescriptor.pluginId)
 
-        LifecycleUsageTriggerCollector.pluginFreezeReported(pluginDescriptor.pluginId)
-        closePanel(project)
+                LifecycleUsageTriggerCollector.pluginFreezeReported(pluginDescriptor.pluginId)
+                closePanel(project)
+              }
+            }
+
+            dialog.show()
+          }, ModalityState.nonModal())
       }
     }
-
-    dialog.show()
   }
 
   private fun closePanel(project: Project) {

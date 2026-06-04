@@ -7,6 +7,7 @@ import com.intellij.debugger.JavaDebuggerBundle;
 import com.intellij.debugger.PositionManager;
 import com.intellij.debugger.PositionManagerFactory;
 import com.intellij.debugger.engine.evaluation.DebuggerImplicitEvaluationContextUtil;
+import com.intellij.debugger.engine.evaluation.EvaluateException;
 import com.intellij.debugger.engine.evaluation.EvaluationContextImpl;
 import com.intellij.debugger.engine.events.DebuggerCommandImpl;
 import com.intellij.debugger.engine.events.SuspendContextCommandImpl;
@@ -49,7 +50,12 @@ import com.intellij.util.ConcurrencyUtil;
 import com.intellij.util.TimeoutUtil;
 import com.intellij.util.concurrency.AppExecutorUtil;
 import com.intellij.util.containers.ContainerUtil;
+import com.intellij.xdebugger.DapMode;
+import com.intellij.xdebugger.BreakpointErrorData;
+import com.intellij.xdebugger.XBreakpointBehaviorPolicy.BreakpointErrorAction;
 import com.intellij.xdebugger.XDebugSession;
+import com.intellij.xdebugger.XBreakpointBehaviorPolicy;
+import com.intellij.xdebugger.XDebuggerManager;
 import com.intellij.xdebugger.breakpoints.XBreakpoint;
 import com.intellij.xdebugger.impl.XDebugSessionImpl;
 import com.intellij.xdebugger.impl.XDebuggerManagerImpl;
@@ -693,16 +699,20 @@ public class DebugProcessEvents extends DebugProcessImpl {
 
         final LocatableEventRequestor requestor = (LocatableEventRequestor)RequestManagerImpl.findRequestor(event.request());
 
-        Method isUnderBreakpointCheckFn = myIsUnderBreakpointCheckFnMap.get(suspendContext.getVirtualMachineProxy());
-        if (isUnderBreakpointCheckFn != null && shouldCheckForSkipBreakpoint(event)) {
+        Method checkIsDoneFn = null;
+        EnterAndExitEvaluationCheck enterAndExitEvaluationCheck = myBreakpointCheckFnMap.get(suspendContext.getVirtualMachineProxy());
+        if (enterAndExitEvaluationCheck != null && shouldCheckForSkipBreakpoint(event)) {
+          Method enterBreakpointCheckFn = enterAndExitEvaluationCheck.enterBreakpointCheckFn;
+
           EvaluationContextImpl evaluationContext = new EvaluationContextImpl(suspendContext, null);
           try {
             Value value = invokeMethod(
               evaluationContext,
-              (ClassType)isUnderBreakpointCheckFn.declaringType(),
-              isUnderBreakpointCheckFn,
+              (ClassType)enterBreakpointCheckFn.declaringType(),
+              enterBreakpointCheckFn,
               Collections.emptyList()
             );
+            checkIsDoneFn = enterAndExitEvaluationCheck.checkIsDoneFn;
             if (value instanceof BooleanValue booleanValue) {
               if (booleanValue.value()) {
                 notifySkippedBreakpointInEvaluation(event, suspendContext);
@@ -745,6 +755,8 @@ public class DebugProcessEvents extends DebugProcessImpl {
                   notifySkippedBreakpoints(event, SkippedBreakpointReason.STEPPING);
                 }
                 logSuspendContext(suspendContext, () -> "Skip breakpoint because of filter " + filter);
+
+                markForInstrumentationThatBreakpointCheksAreDone(suspendContext, checkIsDoneFn);
                 suspendManager.voteResume(suspendContext);
                 return;
               } else {
@@ -766,13 +778,30 @@ public class DebugProcessEvents extends DebugProcessImpl {
         catch (final LocatableEventRequestor.EventProcessingException ex) {
           // stop timer here to prevent reporting dialog opened time
           endTimeNs = System.nanoTime();
-          String exceptionMessage = ex.getMessage();
+          String exceptionMessage = Objects.toString(ex.getMessage(), "");
           if (LOG.isDebugEnabled()) {
             LOG.debug(exceptionMessage);
           }
           String title = ex.getTitle();
+          XBreakpoint<?> xBreakpoint = requestor instanceof Breakpoint<?> breakpoint ? breakpoint.getXBreakpoint() : null;
+          XDebugSession xDebugSession = getSession().getXDebugSession();
+          BreakpointErrorData errorData = new BreakpointErrorData(title, exceptionMessage, ex.getCause());
+          BreakpointErrorAction policyAction = (xDebugSession == null || xBreakpoint == null)
+                                               ? BreakpointErrorAction.UNHANDLED
+                                               : XBreakpointBehaviorPolicy.doChooseBreakpointErrorAction(xDebugSession, xBreakpoint, errorData);
+
           final String displayName = DebuggerUtilsImpl.getRequestorStringForUser(requestor);
-          requestHit = DebuggerUtilsImpl.askAboutPauseOnException(getProject(), displayName, exceptionMessage, title);
+          if (policyAction != BreakpointErrorAction.UNHANDLED) {
+            requestHit = policyAction == BreakpointErrorAction.PAUSE;
+          }
+          else {
+            requestHit = DebuggerUtilsImpl.askAboutPauseOnException(getProject(), displayName, exceptionMessage, title);
+          }
+
+          if (xDebugSession != null && xBreakpoint != null) {
+            XDebuggerManagerImpl debuggerManager = (XDebuggerManagerImpl)XDebuggerManager.getInstance(xDebugSession.getProject());
+            debuggerManager.getBreakpointManager().fireBreakpointError(xBreakpoint, xDebugSession, errorData);
+          }
           resumePreferred = !requestHit;
         }
         catch (VMDisconnectedException e) {
@@ -827,6 +856,8 @@ public class DebugProcessEvents extends DebugProcessImpl {
           }
         }
 
+        markForInstrumentationThatBreakpointCheksAreDone(suspendContext, checkIsDoneFn);
+
         if (!requestHit || resumePreferred) {
           boolean finalRequestHit = requestHit;
           boolean finalResumePreferred = resumePreferred;
@@ -854,6 +885,20 @@ public class DebugProcessEvents extends DebugProcessImpl {
         }
       }
     });
+  }
+
+  private void markForInstrumentationThatBreakpointCheksAreDone(@NotNull SuspendContextImpl suspendContext, Method checkIsDoneFn) {
+    if (checkIsDoneFn == null) {
+      return;
+    }
+    EvaluationContextImpl evaluationContext = new EvaluationContextImpl(suspendContext, null);
+
+    try {
+      invokeMethod(evaluationContext, (ClassType)checkIsDoneFn.declaringType(), checkIsDoneFn, Collections.emptyList());
+    }
+    catch (EvaluateException e) {
+      throw new RuntimeException(e);
+    }
   }
 
   private static boolean shouldCheckForSkipBreakpoint(LocatableEvent event) {

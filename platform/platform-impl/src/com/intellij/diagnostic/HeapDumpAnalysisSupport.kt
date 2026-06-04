@@ -7,6 +7,7 @@ import com.intellij.diagnostic.hprof.action.AnalysisRunnable
 import com.intellij.diagnostic.hprof.action.getHeapDumpReportText
 import com.intellij.diagnostic.report.HeapReportProperties
 import com.intellij.diagnostic.report.MemoryReportReason
+import com.intellij.ide.plugins.IdeaPluginDescriptor
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.PathManager
 import com.intellij.openapi.components.service
@@ -35,7 +36,7 @@ internal open class HeapDumpAnalysisSupport {
     val text = getHeapDumpReportText(reportText, heapReportProperties)
     val attachment = Attachment("report.txt", text).apply { isIncluded = true }
     attachment.isIncluded = true
-    val event = IdeaLoggingEvent("Heap analysis results", OutOfMemoryError(), listOf(attachment), null, null)
+    val event = IdeaLoggingEvent("Heap analysis results", OutOfMemoryError(), listOf(attachment), null as IdeaPluginDescriptor?, null)
     ErrorReportSubmitter.EP_NAME.findExtension(ITNReporter::class.java)?.submit(arrayOf(event), null, parentComponent) { }
   }
 
@@ -102,7 +103,7 @@ internal class AnalyzePendingSnapshotActivity: ProjectActivity {
       val hprofPath = Path.of(it)
       if (hprofPath.exists()) {
         val heapProperties = HeapReportProperties(reason ?: MemoryReportReason.None, liveStats ?: "")
-        AnalysisRunnable(hprofPath, heapProperties, true).run()
+        AnalysisRunnable(hprofPath, heapProperties, false).run()
       }
     }
   }

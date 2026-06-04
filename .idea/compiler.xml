@@ -17,9 +17,7 @@
       <entry name="!*" />
     </wildcardResourcePatterns>
     <annotationProcessing>
-      <profile name="jmh" enabled="true">
-        <module name="intellij.platform.benchmarks" />
-      </profile>
+      <profile name="jmh" enabled="true" />
     </annotationProcessing>
   </component>
   <component name="EclipseCompilerSettings">

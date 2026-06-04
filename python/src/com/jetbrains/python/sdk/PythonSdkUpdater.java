@@ -258,12 +258,7 @@ public final class PythonSdkUpdater {
 
     @Override
     public void run(@NotNull ProgressIndicator indicator) {
-      if (myProject.isDisposed()) {
-        return;
-      }
-      if (isSdkDisposed()) {
-        return;
-      }
+      PythonPackageManager manager = PythonPackageManager.Companion.forSdk(myProject, mySdk);
       // Cancel the indicator when the SDK is disposed to terminate any running processes (e.g., skeleton generation).
       // This explicit cancellation should become unnecessary on migrating PythonSdkUpdater to coroutines and withBackgroundProgress.
       Disposable indicatorDisposable = getIndicatorDisposable(indicator);
@@ -291,9 +286,9 @@ public final class PythonSdkUpdater {
         // This step also includes setting mapped interpreter paths
         generateSkeletons(mySdk, indicator);
         if (myRequestData.withPackagesUpdate) {
-          refreshPackages(mySdk, indicator);
+          refreshPackages(manager, indicator);
         }
-        addBundledPyiStubsToInterpreterPaths(mySdk);
+        addBundledPyiStubsToInterpreterPaths(manager);
       }
       catch (ExecutionException e) {
         LOG.warn("Update for SDK " + mySdk.getName() + " failed", e);
@@ -309,11 +304,10 @@ public final class PythonSdkUpdater {
       }
     }
 
-    private void addBundledPyiStubsToInterpreterPaths(@NotNull Sdk sdk) {
+    private static void addBundledPyiStubsToInterpreterPaths(@NotNull PythonPackageManager packageManager) {
       List<VirtualFile> allStubRoots = new ArrayList<>();
       ContainerUtil.addIfNotNull(allStubRoots, PyTypeShed.INSTANCE.getThirdPartyStubRoot());
       ContainerUtil.addIfNotNull(allStubRoots, PyBundledStubs.INSTANCE.getRoot());
-      PythonPackageManager packageManager = PythonPackageManager.Companion.forSdk(myProject, sdk);
       Set<String> installedPackageNames = ContainerUtil.map2Set(packageManager.listInstalledPackagesSnapshot(), PythonPackage::getName);
       List<VirtualFile> bundledStubRoots = StreamEx.of(allStubRoots)
         .flatArray(root -> root.getChildren())
@@ -331,8 +325,8 @@ public final class PythonSdkUpdater {
         })
         .toList();
 
-      LOG.info("Bundled .pyi stub roots for SDK " + sdk + ":" + bundledStubRoots);
-      changeSdkModificator(sdk, effectiveModificator -> {
+      LOG.info("Bundled .pyi stub roots for SDK " + packageManager.getSdk() + ":" + bundledStubRoots);
+      changeSdkModificator(packageManager.getSdk(), effectiveModificator -> {
         VirtualFile[] currentRoots = effectiveModificator.getRoots(OrderRootType.CLASSES);
         effectiveModificator.removeAllRoots();
         for (VirtualFile sdkPath : ContainerUtil.concat(List.of(currentRoots), bundledStubRoots)) {
@@ -354,21 +348,12 @@ public final class PythonSdkUpdater {
       };
     }
 
-    private void refreshPackages(@NotNull Sdk sdk, @NotNull ProgressIndicator indicator) {
-      try {
-        LOG.info("Performing background scan of packages for SDK " + getSdkPresentableName(sdk));
-        indicator.setIndeterminate(true);
-        indicator.setText(PyBundle.message("python.sdk.scanning.installed.packages"));
-        indicator.setText2("");
-        if (Disposer.isDisposed((Disposable)sdk)) {
-          return;
-        }
-        PythonPackageManager manager = PythonPackageManager.Companion.forSdk(myProject, sdk);
-        PythonPackageManagerExt.reloadPackagesBlocking(manager);
-      }
-      catch (Throwable e) {
-        LOG.warn(e.getMessage());
-      }
+    private static void refreshPackages(@NotNull PythonPackageManager manager, @NotNull ProgressIndicator indicator) {
+      LOG.info("Performing background scan of packages for SDK " + getSdkPresentableName(manager.getSdk()));
+      indicator.setIndeterminate(true);
+      indicator.setText(PyBundle.message("python.sdk.scanning.installed.packages"));
+      indicator.setText2("");
+      PythonPackageManagerExt.reloadPackagesBlocking(manager);
     }
 
     /**
@@ -471,7 +456,7 @@ public final class PythonSdkUpdater {
    */
   private static void updateLocalSdkVersionAndPaths(@NotNull Sdk sdk, @Nullable Project project)
     throws InvalidSdkException {
-    updateLocalSdkVersion(sdk);
+    updateSdkVersion(sdk);
     if (!PythonSdkUtil.isRemote(sdk)) {
       try {
         updateSdkPaths(sdk, evaluateSysPath(sdk, project != null ? project : ProjectManager.getInstance().getDefaultProject()), project);
@@ -487,12 +472,10 @@ public final class PythonSdkUpdater {
    * <p>
    * May be invoked from any thread. May freeze the current thread while evaluating the run-time Python version.
    */
-  private static void updateLocalSdkVersion(@NotNull Sdk sdk) {
-    if (!PythonSdkUtil.isRemote(sdk)) {
-      ProgressManager.progress(PyBundle.message("sdk.updating.interpreter.version"));
-      final String versionString = sdk.getSdkType().getVersionString(sdk);
-      commitSdkVersionIfChanged(sdk, versionString);
-    }
+  private static void updateSdkVersion(@NotNull Sdk sdk) {
+    ProgressManager.progress(PyBundle.message("sdk.updating.interpreter.version"));
+    final String versionString = sdk.getSdkType().getVersionString(sdk);
+    commitSdkVersionIfChanged(sdk, versionString);
   }
 
   private static void commitSdkVersionIfChanged(@NotNull Sdk sdk, @Nullable String versionString) {

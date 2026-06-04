@@ -45,6 +45,8 @@ public object GitHubTableProcessorExtension : MarkdownProcessorExtension {
     override val htmlConverterExtension: MarkdownHtmlConverterExtension = GitHubTablesHtmlConverterExtension
 
     private object GitHubTablesProcessorExtension : MarkdownBlockProcessorExtension {
+        override val allowsMergingWithNextBlock: Boolean = true
+
         override fun canProcess(block: CustomBlock): Boolean = block is CommonMarkTableBlock
 
         override fun processMarkdownBlock(
@@ -172,7 +174,11 @@ private object GitHubTablesHtmlConverterExtension : MarkdownHtmlConverterExtensi
             }
             val header = TableHeader(markdownRows.first())
             val rows = markdownRows.drop(1).mapIndexed(::TableRow)
-            return TableBlock(header, rows)
+            return try {
+                TableBlock(header, rows)
+            } catch (_: IllegalArgumentException) {
+                null
+            }
         }
 
         // html allows mixing header (<th>) and row (<td>) elements deliberately,

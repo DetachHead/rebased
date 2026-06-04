@@ -225,6 +225,8 @@ f:com.intellij.icons.AllIcons$Breakpoints
 - sf:BreakpointFieldUnsuspendentDisabled:javax.swing.Icon
 - sf:BreakpointMethodUnsuspendentDisabled:javax.swing.Icon
 - sf:BreakpointUnsuspendentDisabled:javax.swing.Icon
+- sf:ConditionalInstrumentation:javax.swing.Icon
+- sf:LoggingInstrumentation:javax.swing.Icon
 - sf:MultipleBreakpointsDisabled:javax.swing.Icon
 - sf:MultipleBreakpointsMuted:javax.swing.Icon
 - <init>():V
@@ -1860,6 +1862,8 @@ com.intellij.ui.Colors
 - sf:DARK_RED:java.awt.Color
 - sf:DISABLED_COLOR:java.awt.Color
 f:com.intellij.ui.ComponentUtil
+- s:convertPoint(java.awt.Component,java.awt.Point,java.awt.Component):java.awt.Point
+- s:convertRectangle(java.awt.Component,java.awt.Rectangle,java.awt.Component):java.awt.Rectangle
 - s:decorateWindowHeader(javax.swing.JRootPane):V
 - s:findComponentsOfType(javax.swing.JComponent,java.lang.Class):java.util.List
 - s:findParentByCondition(java.awt.Component,java.util.function.Predicate):java.awt.Component
@@ -4443,6 +4447,11 @@ f:com.intellij.util.ui.JBUI$CurrentTheme$List$Selection
 com.intellij.util.ui.JBUI$CurrentTheme$List$Tag
 - sf:BACKGROUND:java.awt.Color
 - sf:FOREGROUND:java.awt.Color
+f:com.intellij.util.ui.JBUI$CurrentTheme$MainMenu
+f:com.intellij.util.ui.JBUI$CurrentTheme$MainMenu$Selection
+- s:fullScreenArc():com.intellij.util.ui.JBValue
+- s:fullScreenOuterInsets():com.intellij.util.ui.JBInsets
+- s:outerInsets():com.intellij.util.ui.JBInsets
 f:com.intellij.util.ui.JBUI$CurrentTheme$MainToolbar
 - <init>():V
 - s:borderColor():java.awt.Color
@@ -5715,6 +5724,8 @@ f:com.intellij.util.ui.html.HRViewEx
 - getBreakWeight(I,F,F):I
 - getPreferredSpan(I):F
 - getResizeWeight(I):I
+- modelToView(I,java.awt.Shape,javax.swing.text.Position$Bias):java.awt.Shape
+- viewToModel(F,F,java.awt.Shape,javax.swing.text.Position$Bias[]):I
 c:com.intellij.util.ui.html.ParagraphViewEx
 - javax.swing.text.html.ParagraphView
 - p:fixedLineHeight:java.lang.Float

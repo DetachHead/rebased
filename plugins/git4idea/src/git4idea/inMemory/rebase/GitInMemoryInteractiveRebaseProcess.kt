@@ -163,39 +163,44 @@ internal suspend fun performInMemoryRebase(
   objectRepo: GitObjectRepository,
   entries: List<GitRebaseEntry>,
   model: GitRebaseTodoModel<out GitRebaseEntry>,
+  origin: InMemoryRebaseOrigin,
   notifySuccess: Boolean = true,
 ): GitCommitEditingOperationResult {
-  if (!isInMemoryRebaseSupported(objectRepo.repository)) {
-    return GitCommitEditingOperationResult.Incomplete
+  val unsupportedGitVersionResult = checkInMemoryRebaseSupport(objectRepo.repository)
+  if (unsupportedGitVersionResult != null) {
+    return unsupportedGitVersionResult
   }
   val showFailureNotification = Registry.`is`("git.in.memory.interactive.rebase.debug.notify.errors")
 
   val rebaseData = createRebaseData(model, entries, objectRepo.repository, showFailureNotification)
-                   ?: return GitCommitEditingOperationResult.Incomplete
-  val rebaseActivity = GitOperationsCollector.startInMemoryInteractiveRebase(objectRepo.repository.project)
+                   ?: return GitCommitEditingOperationResult.Incomplete.Unspecified
+  val rebaseActivity = GitOperationsCollector.startInMemoryInteractiveRebase(objectRepo.repository.project, origin)
   val operationResult = executeRebase(objectRepo, rebaseData, showFailureNotification, rebaseActivity)
-                        ?: return GitCommitEditingOperationResult.Incomplete
 
-  if (operationResult is GitCommitEditingOperationResult.Complete) {
-    GitOperationsCollector.endInMemoryInteractiveRebase(rebaseActivity, InMemoryRebaseResult.SUCCESS)
-    if (notifySuccess) {
-      operationResult.notifySuccess(
-        GitBundle.message("in.memory.rebase.log.interactive.action.notification.successful"),
-        null,
-        GitBundle.message("in.memory.rebase.log.interactive.action.progress.indicator.undo.title"),
-        GitBundle.message("in.memory.rebase.log.interactive.action.notification.undo.not.allowed.title"),
-        GitBundle.message("in.memory.rebase.log.interactive.action.notification.undo.failed.title")
-      )
+  when (operationResult) {
+    is GitCommitEditingOperationResult.Complete -> {
+      GitOperationsCollector.endInMemoryInteractiveRebase(rebaseActivity, InMemoryRebaseResult.SUCCESS)
+      if (notifySuccess) {
+        operationResult.notifySuccess(
+          GitBundle.message("in.memory.rebase.log.interactive.action.notification.successful"),
+          null,
+          GitBundle.message("in.memory.rebase.log.interactive.action.progress.indicator.undo.title"),
+          GitBundle.message("in.memory.rebase.log.interactive.action.notification.undo.not.allowed.title"),
+          GitBundle.message("in.memory.rebase.log.interactive.action.notification.undo.failed.title")
+        )
+      }
     }
-  }
-  else {
-    GitOperationsCollector.endInMemoryInteractiveRebase(rebaseActivity, InMemoryRebaseResult.ERROR)
+    is GitCommitEditingOperationResult.Incomplete.Conflict ->
+      GitOperationsCollector.endInMemoryInteractiveRebase(rebaseActivity, InMemoryRebaseResult.CONFLICT)
+    is GitCommitEditingOperationResult.Incomplete ->
+      GitOperationsCollector.endInMemoryInteractiveRebase(rebaseActivity, InMemoryRebaseResult.ERROR)
   }
   return operationResult
 }
 
-private fun isInMemoryRebaseSupported(repository: GitRepository): Boolean {
-  return GitVersionSpecialty.MERGE_TREE_MERGE_BASE_OPTION_SUPPORTED.existsIn(repository)
+private fun checkInMemoryRebaseSupport(repository: GitRepository): GitCommitEditingOperationResult.Incomplete.UnsupportedGitVersion? {
+  if (GitVersionSpecialty.MERGE_TREE_PASS_THREE_TREES_SUPPORTED.existsIn(repository)) return null
+  return GitCommitEditingOperationResult.Incomplete.UnsupportedGitVersion(GitVersionSpecialty.MERGE_TREE_PASS_THREE_TREES_SUPPORTED.version)
 }
 
 private fun createRebaseData(
@@ -226,16 +231,15 @@ private suspend fun executeRebase(
   rebaseData: GitInMemoryRebaseData,
   showFailureNotification: Boolean,
   rebaseActivity: StructuredIdeActivity,
-): GitCommitEditingOperationResult? {
+): GitCommitEditingOperationResult {
   return try {
     GitInMemoryInteractiveRebaseProcess(objectRepo, rebaseData).execute(showFailureNotification)
   }
   catch (e: MergeConflictException) {
-    GitOperationsCollector.endInMemoryInteractiveRebase(rebaseActivity, InMemoryRebaseResult.CONFLICT)
     if (showFailureNotification) {
       notifyMergeConflict(objectRepo.repository, e)
     }
-    null
+    GitCommitEditingOperationResult.Incomplete.Conflict(e.description)
   }
   catch (e: CancellationException) {
     GitOperationsCollector.endInMemoryInteractiveRebase(rebaseActivity, InMemoryRebaseResult.CANCELED)
@@ -335,4 +339,11 @@ internal enum class InMemoryRebaseResult {
   CONFLICT,
   CANCELED,
   ERROR
+}
+
+internal enum class InMemoryRebaseOrigin {
+  INTERACTIVE_REBASE,
+  SQUASH,
+  DROP,
+  AMEND_COMMIT
 }

@@ -5,11 +5,9 @@ import com.intellij.icons.AllIcons
 import com.intellij.openapi.actionSystem.ActionGroup
 import com.intellij.openapi.actionSystem.ActionManager
 import com.intellij.openapi.actionSystem.ActionPlaces
-import com.intellij.openapi.actionSystem.DataSink
 import com.intellij.openapi.actionSystem.PlatformCoreDataKeys
 import com.intellij.openapi.actionSystem.UiDataProvider
 import com.intellij.openapi.actionSystem.toolbarLayout.ToolbarLayoutStrategy
-import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.help.HelpManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.io.FileUtil
@@ -28,17 +26,16 @@ import com.intellij.ui.content.Content
 import com.intellij.ui.content.ContentManagerEvent
 import com.intellij.ui.content.ContentManagerListener
 import com.intellij.util.ui.JBUI
-import com.intellij.util.ui.StatusText
 import com.intellij.util.ui.components.BorderLayoutPanel
+import com.intellij.util.ui.launchOnShow
 import com.intellij.vcs.git.repo.GitRepositoriesHolder
 import git4idea.GitWorkingTree
 import git4idea.actions.workingTree.GitCreateWorkingTreeService
 import git4idea.actions.workingTree.GitWorkingTreeTabActionsDataKeys
 import git4idea.i18n.GitBundle
-import git4idea.repo.GitRepository
 import git4idea.workingTrees.GitWorkingTreesNewBadgeUtil
 import git4idea.workingTrees.GitWorkingTreesService
-import kotlinx.coroutines.launch
+import git4idea.workingTrees.GitWorktreeSupportStatus
 import org.jetbrains.annotations.Nls
 import java.awt.Component
 import java.awt.ComponentOrientation
@@ -60,87 +57,99 @@ internal class GitWorkingTreesContentProvider(private val project: Project) : Ch
   }
 
   override fun initTabContent(content: Content) {
-    content.component = GitWorkingTreesUi()
+    content.component = createGitWorkingTreesMainPanel(project)
   }
 
-  private inner class GitWorkingTreesUi : BorderLayoutPanel() {
-    init {
-      val list = WorkingTreesList(project)
-      val scrollPane = ScrollPaneFactory.createScrollPane(list, true)
-      addToCenter(scrollPane)
+  private fun createGitWorkingTreesMainPanel(project: Project): BorderLayoutPanel {
+    val model = WorkingTreesListModel(project)
+    val list = createWorktreeList(project, model)
+    val scrollPane = ScrollPaneFactory.createScrollPane(list, true)
 
-      val actionManager = ActionManager.getInstance()
-      val toolbarActionGroup = actionManager.getAction("Git.WorkingTrees.ToolwindowGroup.Toolbar") as ActionGroup
-      val toolbar = actionManager.createActionToolbar(GIT_WORKING_TREE_TOOLWINDOW_TAB_TOOLBAR,
-                                                      toolbarActionGroup, false)
-      toolbar.setTargetComponent(list)
-      toolbar.layoutStrategy = ToolbarLayoutStrategy.AUTOLAYOUT_STRATEGY
-      toolbar.setOrientation(SwingConstants.VERTICAL)
-      addToLeft(toolbar.component)
-    }
-  }
+    val actionManager = ActionManager.getInstance()
+    val toolbarActionGroup = actionManager.getAction("Git.WorkingTrees.ToolwindowGroup.Toolbar") as ActionGroup
+    val toolbar = actionManager.createActionToolbar(GIT_WORKING_TREE_TOOLWINDOW_TAB_TOOLBAR, toolbarActionGroup, false)
+    toolbar.setTargetComponent(list)
+    toolbar.layoutStrategy = ToolbarLayoutStrategy.AUTOLAYOUT_STRATEGY
+    toolbar.setOrientation(SwingConstants.VERTICAL)
 
-  private class WorkingTreesList(project: Project) : BorderLayoutPanel(), UiDataProvider {
-    private val model: WorkingTreesListModel = WorkingTreesListModel(project)
-    private val list: JBList<GitWorkingTree> = JBList(model)
-
-    init {
-      list.cellRenderer = WorkingTreesListRenderer()
-      initEmptyText(list.emptyText)
-      addToCenter(list)
-
-      list.addMouseListener(object : PopupHandler() {
-        override fun invokePopup(comp: Component, x: Int, y: Int) {
-          val index = list.locationToIndex(Point(x, y))
-          if (index != -1 && list.getCellBounds(index, index).contains(x, y)) {
-            list.selectedIndex = index
-          }
-          val actionGroup = ActionManager.getInstance().getAction("Git.WorkingTrees.ToolwindowGroup.Popup") as ActionGroup
-          val popupMenu = ActionManager.getInstance().createActionPopupMenu(ActionPlaces.POPUP, actionGroup)
-          popupMenu.setTargetComponent(list)
-          popupMenu.component.show(comp, x, y)
-        }
-      })
-
-      GitWorkingTreesService.getInstance(project).coroutineScope.launch {
-        GitRepositoriesHolder.getInstance(project).updates.collect { event ->
-          if (event == GitRepositoriesHolder.UpdateType.WORKING_TREES_LOADED) {
-            ApplicationManager.getApplication().invokeLater {
-              model.reload(project)
-            }
-          }
+    list.launchOnShow("worktree list") {
+      GitRepositoriesHolder.getInstance(project).updates.collect { event ->
+        if (event == GitRepositoriesHolder.UpdateType.WORKING_TREES_LOADED) {
+            model.reload(project)
+            updateEmptyText(list, model)
         }
       }
     }
 
-    private fun initEmptyText(emptyText: StatusText) {
-      emptyText.text = GitBundle.message("toolwindow.working.trees.tab.empty.text")
-      emptyText.withUnscaledGapAfter(20)
-      emptyText.appendLine(GitBundle.message("toolwindow.working.trees.tab.empty.text.create.working.tree"),
-                           SimpleTextAttributes.LINK_PLAIN_ATTRIBUTES) { _ ->
-        val repository = model.repository
-        if (repository != null) {
-          GitCreateWorkingTreeService.getInstance().collectDataAndCreateWorkingTree(repository,
-                                                                                    null,
-                                                                                    GIT_WORKING_TREE_TOOLWINDOW_TAB_EMPTY_LIST)
-        }
-      }
-      emptyText.appendLine(AllIcons.General.ContextHelp,
-                           GitBundle.message("toolwindow.working.trees.tab.empty.what.git.worktree"),
-                           SimpleTextAttributes.LINK_PLAIN_ATTRIBUTES) { _ ->
-        HelpManager.getInstance().invokeHelp(EMPTY_TAB_WORKING_TREE_CONCEPT_HELP_ID)
-      }
-    }
-
-    override fun uiDataSnapshot(sink: DataSink) {
+    val wrappedComponent = UiDataProvider.wrapComponent(scrollPane) { sink ->
       sink[GitWorkingTreeTabActionsDataKeys.SELECTED_WORKING_TREES] = list.selectedValuesList
-      sink[GitWorkingTreeTabActionsDataKeys.CURRENT_REPOSITORY] = model.repository
+      sink[GitWorkingTreeTabActionsDataKeys.CURRENT_REPOSITORY] =
+        (model.worktreeSupportStatus as? GitWorktreeSupportStatus.SingleRepository)?.repository
       sink[PlatformCoreDataKeys.HELP_ID] = TOOLWINDOW_CONTENT_HELP_ID
+    }
+
+    updateEmptyText(list, model)
+
+    return BorderLayoutPanel().addToCenter(wrappedComponent).addToLeft(toolbar.component)
+  }
+
+  private fun createWorktreeList(
+    project: Project,
+    model: WorkingTreesListModel = WorkingTreesListModel(project),
+  ): JBList<GitWorkingTree> {
+    val list: JBList<GitWorkingTree> = JBList(model)
+
+    list.cellRenderer = WorkingTreesListRenderer()
+
+    list.addMouseListener(object : PopupHandler() {
+      override fun invokePopup(comp: Component, x: Int, y: Int) {
+        val index = list.locationToIndex(Point(x, y))
+        if (index != -1 && list.getCellBounds(index, index).contains(x, y)) {
+          list.selectedIndex = index
+        }
+        val actionGroup = ActionManager.getInstance().getAction("Git.WorkingTrees.ToolwindowGroup.Popup") as ActionGroup
+        val popupMenu = ActionManager.getInstance().createActionPopupMenu(ActionPlaces.POPUP, actionGroup)
+        popupMenu.setTargetComponent(list)
+        popupMenu.component.show(comp, x, y)
+      }
+    })
+
+    return list
+  }
+
+  private fun updateEmptyText(list: JBList<GitWorkingTree>, model: WorkingTreesListModel) {
+    val emptyText = list.emptyText
+    emptyText.clear()
+
+    val worktreeSupportStatus = model.worktreeSupportStatus
+
+    when (worktreeSupportStatus) {
+      is GitWorktreeSupportStatus.SingleRepository -> {
+        emptyText.appendLine(GitBundle.message("toolwindow.working.trees.tab.empty.text")).withUnscaledGapAfter(20)
+          .appendLine(GitBundle.message("toolwindow.working.trees.tab.empty.text.create.working.tree"),
+                      SimpleTextAttributes.LINK_PLAIN_ATTRIBUTES) { _ ->
+            val repository = worktreeSupportStatus.repository
+            GitCreateWorkingTreeService.getInstance()
+              .collectDataAndCreateWorkingTree(repository, null, GIT_WORKING_TREE_TOOLWINDOW_TAB_EMPTY_LIST)
+          }
+      }
+
+      is GitWorktreeSupportStatus.MultipleRepository -> {
+        emptyText.appendLine(GitBundle.message("toolwindow.working.trees.tab.empty.text.multirepo"))
+      }
+
+      GitWorktreeSupportStatus.Unsupported -> {}
+    }
+
+    emptyText.appendLine(AllIcons.General.ContextHelp,
+                         GitBundle.message("toolwindow.working.trees.tab.empty.what.git.worktree"),
+                         SimpleTextAttributes.LINK_PLAIN_ATTRIBUTES) { _ ->
+      HelpManager.getInstance().invokeHelp(EMPTY_TAB_WORKING_TREE_CONCEPT_HELP_ID)
     }
   }
 
   private class WorkingTreesListModel(project: Project) : DefaultListModel<GitWorkingTree>() {
-    var repository: GitRepository? = null
+    var worktreeSupportStatus: GitWorktreeSupportStatus = GitWorktreeSupportStatus.Unsupported
       private set
 
     init {
@@ -149,10 +158,12 @@ internal class GitWorkingTreesContentProvider(private val project: Project) : Ch
 
     fun reload(project: Project) {
       clear()
-      val currentRepository = GitWorkingTreesService.getRepoForWorkingTreesSupport(project)
-      repository = currentRepository
-      val workingTrees = currentRepository?.workingTreeHolder?.getWorkingTrees()
-      if (workingTrees != null && workingTrees.size > 1) {
+
+      val status = GitWorkingTreesService.getWorktreeSupportStatus(project)
+      worktreeSupportStatus = status
+
+      if (status is GitWorktreeSupportStatus.SingleRepository) {
+        val workingTrees = status.repository.workingTreeHolder.getWorkingTrees()
         workingTrees.forEach {
           if (it.isMain) {
             add(0, it)
@@ -241,9 +252,5 @@ internal class GitWorkingTreesContentPreloader(val project: Project) : ChangesVi
 }
 
 internal class GitWorkingTreesContentVisibilityPredicate : Predicate<Project> {
-  override fun test(project: Project): Boolean {
-    val shouldWorkingTreesTabBeShown = GitWorkingTreesService.getInstance(project).shouldWorkingTreesTabBeShown()
-    return shouldWorkingTreesTabBeShown
-  }
+  override fun test(project: Project): Boolean = GitWorkingTreesService.getInstance(project).shouldWorkingTreesTabBeShown()
 }
-

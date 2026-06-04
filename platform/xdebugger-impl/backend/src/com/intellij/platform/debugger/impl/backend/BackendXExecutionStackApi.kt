@@ -13,8 +13,8 @@ import com.intellij.platform.debugger.impl.rpc.XStackFramePresentation
 import com.intellij.platform.debugger.impl.rpc.XStackFramePresentationFragment
 import com.intellij.platform.debugger.impl.rpc.XStackFramesEvent
 import com.intellij.platform.debugger.impl.rpc.toRpc
-import com.intellij.xdebugger.frame.XExecutionStack
 import com.intellij.xdebugger.frame.XStackFrame
+import com.intellij.xdebugger.impl.frame.XStackFrameContainerEx
 import com.intellij.xdebugger.impl.rpc.models.findValue
 import com.intellij.xdebugger.impl.settings.XDebuggerSettingManagerImpl
 import kotlinx.coroutines.CoroutineName
@@ -43,8 +43,16 @@ internal class BackendXExecutionStackApi : XExecutionStackApi {
       val executionStack = executionStackModel.executionStack
       val pendingPresentationJobs = mutableListOf<Job>()
 
-      executionStack.computeStackFrames(firstFrameIndex, object : XExecutionStack.XStackFrameContainer {
+      executionStack.computeStackFrames(firstFrameIndex, object : XStackFrameContainerEx {
         override fun addStackFrames(stackFrames: List<XStackFrame>, last: Boolean) {
+          addStackFrames(stackFrames, null, last)
+        }
+
+        override fun addStackFrames(
+          stackFrames: List<XStackFrame>,
+          toSelect: XStackFrame?,
+          last: Boolean,
+        ) {
           // Create a copy of stackFrames to avoid concurrent modification
           val framesCopy = stackFrames.toList()
 
@@ -52,7 +60,11 @@ internal class BackendXExecutionStackApi : XExecutionStackApi {
           val frameDtos = framesCopy.map { frame ->
             frame.toRpc(executionStackModel.coroutineScope, session)
           }
-          trySend(XStackFramesEvent.XNewStackFrames(frameDtos, last))
+          val frameToSelectId = toSelect?.let {
+            val index = framesCopy.indexOf(it)
+            if (index >= 0) frameDtos[index].stackFrameId else null
+          }
+          trySend(XStackFramesEvent.XNewStackFrames(frameDtos, frameToSelectId, last))
           val framesWithIds = frameDtos.zip(framesCopy) { dto, frame -> dto.stackFrameId to frame }
           subscribeToPresentationUpdates(executionStackId, framesWithIds, last)
         }

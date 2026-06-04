@@ -4,6 +4,7 @@ package com.jetbrains.python.newProjectWizard
 import com.intellij.openapi.GitRepositoryInitializer
 import com.intellij.openapi.module.Module
 import com.intellij.openapi.projectRoots.Sdk
+import com.intellij.openapi.vfs.VfsUtil
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.platform.ide.progress.withBackgroundProgress
 import com.jetbrains.python.PyBundle
@@ -14,9 +15,11 @@ import com.jetbrains.python.newProject.collector.InterpreterStatisticsInfo
 import com.jetbrains.python.sdk.ModuleOrProject
 import com.jetbrains.python.sdk.add.v2.PySdkCreator
 import com.jetbrains.python.sdk.configurePythonSdk
+import com.jetbrains.python.sdk.withSdkConfigurationLock
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * Settings each Python project has: [sdkCreator] and [createGitRepository]
@@ -33,14 +36,24 @@ class PyV3BaseProjectSettings(var createGitRepository: Boolean = false) {
         }
       }
     }
-    if (supportsNotEmptyModuleStructure) {
-      sdkCreator.createPythonModuleStructure(module).getOr { return@coroutineScope it }
-    }
-    val (sdk: Sdk, interpreterStatistics: InterpreterStatisticsInfo) = getSdkAndInterpreter(module)
-      .getOr { return@coroutineScope it }
 
-    configurePythonSdk(project, module, sdk)
-    return@coroutineScope Result.success(Pair(sdk, interpreterStatistics))
+    if (supportsNotEmptyModuleStructure) {
+      withBackgroundProgress(project, PyBundle.message("python.sdk.creating.python.module.structure")) {
+        withContext(Dispatchers.IO) {
+          sdkCreator.createPythonModuleStructure(module).also {
+            VfsUtil.markDirtyAndRefresh(false, true, true, baseDir)
+          }
+        }
+      }.getOr { return@coroutineScope it }
+    }
+
+    val sdkResult = withSdkConfigurationLock(module.project) {
+      val (sdk: Sdk, interpreterStatistics: InterpreterStatisticsInfo) = getSdkAndInterpreter(module).getOr { return@withSdkConfigurationLock it }
+
+      configurePythonSdk(project, module, sdk)
+      Result.success(Pair(sdk, interpreterStatistics))
+    }
+    return@coroutineScope sdkResult
   }
 
   private suspend fun getSdkAndInterpreter(module: Module): PyResult<Pair<Sdk, InterpreterStatisticsInfo>> =

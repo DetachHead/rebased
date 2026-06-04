@@ -25,6 +25,7 @@ import androidx.compose.ui.test.assertHeightIsEqualTo
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsFocused
 import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.assertIsNotSelected
 import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.assertTextEquals
@@ -46,12 +47,14 @@ import androidx.compose.ui.test.performScrollToIndex
 import androidx.compose.ui.test.performTextClearance
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.pressKey
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import junit.framework.TestCase.assertEquals
 import kotlin.test.assertTrue
 import org.jetbrains.jewel.foundation.lazy.rememberSelectableLazyListState
 import org.jetbrains.jewel.foundation.theme.JewelTheme
 import org.jetbrains.jewel.intui.standalone.styling.default
+import org.jetbrains.jewel.intui.standalone.styling.defaultWithRowCount
 import org.jetbrains.jewel.intui.standalone.theme.IntUiTheme
 import org.jetbrains.jewel.ui.component.interactions.performKeyPress
 import org.jetbrains.jewel.ui.component.styling.ComboBoxMetrics
@@ -61,8 +64,12 @@ import org.junit.Ignore
 import org.junit.Rule
 import org.junit.Test
 
-@OptIn(ExperimentalTestApi::class)
+const val NUMBER_OF_ROWS = 5
+val COMBOBOX_TOTAL_VERTICAL_PADDING = 16.dp
+val LIST_ITEM_DEFAULT_HEIGHT = 24.dp
+
 @Suppress("LargeClass")
+@OptIn(ExperimentalTestApi::class)
 class ListComboBoxUiTest {
     @get:Rule val composeRule = createComposeRule()
 
@@ -1033,6 +1040,37 @@ class ListComboBoxUiTest {
     }
 
     @Test
+    fun `popup height should be calculated based on maxPopupRowCount`() {
+        composeRule.setContent {
+            IntUiTheme {
+                ListComboBox(
+                    items = List(20) { "Item $it" }, // More items than maxPopupRowCount
+                    selectedIndex = 0,
+                    onSelectedItemChange = {},
+                    modifier = Modifier.testTag("ComboBox").width(200.dp),
+                    style =
+                        ComboBoxStyle(
+                            colors = JewelTheme.comboBoxStyle.colors,
+                            metrics =
+                                ComboBoxMetrics.defaultWithRowCount(
+                                    maxPopupRowCount = 5, // Show only 5 rows
+                                    popupContentPadding = PaddingValues(vertical = 8.dp),
+                                ),
+                            icons = JewelTheme.comboBoxStyle.icons,
+                        ),
+                    itemKeys = { index: Int, _: String -> index },
+                )
+            }
+        }
+
+        comboBox.assertIsDisplayed().performClick()
+        popupMenu.assertIsDisplayed()
+
+        val expectedHeight = (LIST_ITEM_DEFAULT_HEIGHT * NUMBER_OF_ROWS) + COMBOBOX_TOTAL_VERTICAL_PADDING
+        popupMenu.assertHeightIsEqualTo(expectedHeight)
+    }
+
+    @Test
     fun `popup height must be at least as big as the combo box height`() {
         composeRule.setContent {
             IntUiTheme {
@@ -1046,7 +1084,8 @@ class ListComboBoxUiTest {
                             colors = JewelTheme.comboBoxStyle.colors,
                             metrics =
                                 ComboBoxMetrics.default(
-                                    popupContentPadding = PaddingValues(vertical = 8.dp)
+                                    popupContentPadding = PaddingValues(vertical = 8.dp),
+                                    maxPopupHeight = Dp.Unspecified,
                                 ), // Small size on theme
                             icons = JewelTheme.comboBoxStyle.icons,
                         ),
@@ -1167,7 +1206,7 @@ class ListComboBoxUiTest {
                 updatePointerTo(center)
                 advanceEventTime()
 
-                // Press and release in a short period (no advance), like a tap event from macos trackpad
+                // Press and release in a short period (no advance), like a tap event from macOS trackpad
                 press(MouseButton.Primary)
                 release(MouseButton.Primary)
             }
@@ -1175,6 +1214,212 @@ class ListComboBoxUiTest {
         composeRule.waitForIdle()
 
         assertTrue(selectedItemChangeTriggered, "Item click should be detected for faster taps")
+    }
+
+    @Test
+    fun `when ListComboBox selectedIndex is reset externally while popup is closed, selection updates correctly`() {
+        var selectedIndex by mutableIntStateOf(4) // Start at "Laughter"
+        val focusRequester = FocusRequester()
+
+        composeRule.setContent {
+            IntUiTheme {
+                ListComboBox(
+                    items = comboBoxItems,
+                    selectedIndex = selectedIndex,
+                    onSelectedItemChange = { index -> selectedIndex = index },
+                    modifier = Modifier.testTag("ComboBox").width(200.dp).focusRequester(focusRequester),
+                    itemKeys = { _, item -> item },
+                )
+            }
+        }
+
+        focusRequester.requestFocus()
+
+        comboBox.assertTextEquals("Laughter", includeEditableText = false)
+        assertEquals(4, selectedIndex)
+
+        // Reset selectedIndex externally while popup is closed
+        composeRule.runOnUiThread { selectedIndex = 0 }
+
+        // Verify combo box label updated
+        comboBox.assertTextEquals("Item 1", includeEditableText = false)
+
+        // Open popup and verify the correct item is selected
+        comboBox.performClick()
+        popupMenu.assertIsDisplayed()
+
+        comboBoxPopupList.performScrollToIndex(0)
+
+        composeRule
+            .onNode(hasAnyAncestor(hasTestTag("Jewel.ComboBox.Popup")) and hasText("Item 1"))
+            .assertExists()
+            .assertIsDisplayed()
+            .assertIsSelected()
+
+        // Previously selected item should not be selected anymore
+        composeRule
+            .onNode(hasAnyAncestor(hasTestTag("Jewel.ComboBox.Popup")) and hasText("Laughter"))
+            .assertExists()
+            .assertIsDisplayed()
+            .assertIsNotSelected()
+    }
+
+    @Test
+    fun `when ListComboBox selectedIndex is reset externally while popup is open, selection is not disrupted`() {
+        var selectedIndex by mutableIntStateOf(4) // Start at "Laughter"
+        val focusRequester = FocusRequester()
+
+        composeRule.setContent {
+            IntUiTheme {
+                ListComboBox(
+                    items = comboBoxItems,
+                    selectedIndex = selectedIndex,
+                    onSelectedItemChange = { index -> selectedIndex = index },
+                    modifier = Modifier.testTag("ComboBox").width(200.dp).focusRequester(focusRequester),
+                    itemKeys = { _, item -> item },
+                )
+            }
+        }
+
+        focusRequester.requestFocus()
+
+        // Verify initial state
+        comboBox.assertTextEquals("Laughter", includeEditableText = false)
+        assertEquals(4, selectedIndex)
+
+        // Open popup
+        comboBox.performClick()
+        popupMenu.assertIsDisplayed()
+
+        // Verify "Laughter" is selected in the popup
+        composeRule
+            .onNode(hasAnyAncestor(hasTestTag("Jewel.ComboBox.Popup")) and hasText("Laughter"))
+            .assertExists()
+            .assertIsDisplayed()
+            .assertIsSelected()
+
+        // Reset selectedIndex externally while popup is open
+        composeRule.runOnUiThread { selectedIndex = 0 }
+
+        // Verify popup still shows "Laughter" as selected (not disrupted by external change)
+        composeRule
+            .onNode(hasAnyAncestor(hasTestTag("Jewel.ComboBox.Popup")) and hasText("Laughter"))
+            .assertExists()
+            .assertIsDisplayed()
+            .assertIsSelected()
+
+        // Press Enter to commit current selection (should reconcile to internal listState)
+        comboBox.performKeyPress(Key.Enter, rule = composeRule)
+        popupMenu.assertDoesNotExist()
+
+        // After closing, selectedIndex should be reconciled back to "Laughter" (index 4)
+        assertEquals(4, selectedIndex)
+        comboBox.assertTextEquals("Laughter", includeEditableText = false)
+    }
+
+    @Test
+    fun `when EditableListComboBox selectedIndex is reset externally while popup is closed, selection updates correctly`() {
+        var selectedIndex by mutableIntStateOf(4) // Start at "Laughter"
+        val focusRequester = FocusRequester()
+
+        composeRule.setContent {
+            IntUiTheme {
+                EditableListComboBox(
+                    items = comboBoxItems,
+                    selectedIndex = selectedIndex,
+                    onSelectedItemChange = { index -> selectedIndex = index },
+                    modifier = Modifier.testTag("ComboBox").width(200.dp).focusRequester(focusRequester),
+                    itemKeys = { _, item -> item },
+                )
+            }
+        }
+
+        focusRequester.requestFocus()
+        composeRule.waitForIdle()
+
+        textField.assertTextEquals("Laughter")
+        assertEquals(4, selectedIndex)
+
+        // Reset selectedIndex externally while popup is closed
+        composeRule.runOnUiThread { selectedIndex = 0 }
+        composeRule.waitForIdle()
+
+        // Verify text field updated
+        textField.assertTextEquals("Item 1")
+
+        // Open popup and verify the correct item is selected
+        chevronContainer.performClick()
+        popupMenu.assertIsDisplayed()
+
+        comboBoxPopupList.performScrollToIndex(0)
+
+        composeRule
+            .onNode(hasAnyAncestor(hasTestTag("Jewel.ComboBox.Popup")) and hasText("Item 1"))
+            .assertExists()
+            .assertIsDisplayed()
+            .assertIsSelected()
+
+        // Previously selected item should not be selected anymore
+        composeRule
+            .onNode(hasAnyAncestor(hasTestTag("Jewel.ComboBox.Popup")) and hasText("Laughter"))
+            .assertExists()
+            .assertIsDisplayed()
+            .assertIsNotSelected()
+    }
+
+    @Test
+    fun `when EditableListComboBox selectedIndex is reset externally while popup is open, selection is not disrupted`() {
+        var selectedIndex by mutableIntStateOf(4) // Start at "Laughter"
+        val focusRequester = FocusRequester()
+
+        composeRule.setContent {
+            IntUiTheme {
+                EditableListComboBox(
+                    items = comboBoxItems,
+                    selectedIndex = selectedIndex,
+                    onSelectedItemChange = { index -> selectedIndex = index },
+                    modifier = Modifier.testTag("ComboBox").width(200.dp).focusRequester(focusRequester),
+                    itemKeys = { _, item -> item },
+                )
+            }
+        }
+
+        focusRequester.requestFocus()
+        composeRule.waitForIdle()
+
+        // Verify initial state
+        textField.assertTextEquals("Laughter")
+        assertEquals(4, selectedIndex)
+
+        // Open popup
+        chevronContainer.performClick()
+        popupMenu.assertIsDisplayed()
+
+        // Verify "Laughter" is selected in the popup
+        composeRule
+            .onNode(hasAnyAncestor(hasTestTag("Jewel.ComboBox.Popup")) and hasText("Laughter"))
+            .assertExists()
+            .assertIsDisplayed()
+            .assertIsSelected()
+
+        // Reset selectedIndex externally while popup is open
+        composeRule.runOnUiThread { selectedIndex = 0 }
+        composeRule.waitForIdle()
+
+        // Verify popup still shows "Laughter" as selected (not disrupted by external change)
+        composeRule
+            .onNode(hasAnyAncestor(hasTestTag("Jewel.ComboBox.Popup")) and hasText("Laughter"))
+            .assertExists()
+            .assertIsDisplayed()
+            .assertIsSelected()
+
+        // Press Enter to commit current selection (should reconcile to internal listState)
+        comboBox.performKeyPress(Key.Enter, rule = composeRule)
+        popupMenu.assertDoesNotExist()
+
+        // After closing, selectedIndex should be reconciled back to "Laughter" (index 4)
+        assertEquals(4, selectedIndex)
+        textField.assertTextEquals("Laughter")
     }
 
     private fun editableListComboBox(): SemanticsNodeInteraction {

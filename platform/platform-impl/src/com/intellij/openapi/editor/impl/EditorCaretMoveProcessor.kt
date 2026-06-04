@@ -16,9 +16,9 @@ import com.intellij.openapi.util.registry.Registry
 import com.intellij.platform.util.coroutines.childScope
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.channels.BufferOverflow
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.collectLatest
@@ -32,15 +32,14 @@ import kotlin.math.min
 import kotlin.math.pow
 import kotlin.time.Duration.Companion.milliseconds
 
-private data class CaretUpdate(
-  val finalPos: Point2D,
-  val finalLogicalPosition: LogicalPosition,
-  val width: Float,
+private data class CaretInfo(
   val caret: Caret,
+  val width: Float,
   val isRtl: Boolean,
 )
 
-private data class AnimationState(val startPos: Point2D, val startLogicalPosition: LogicalPosition?, val update: CaretUpdate)
+private data class CaretPosition(val pos: Point2D, val logicalPosition: LogicalPosition?)
+private data class AnimationState(val start: CaretPosition, val final: CaretPosition, val info: CaretInfo)
 
 @Service(Service.Level.APP)
 internal class EditorCaretMoveProcessorFactory(private val scope: CoroutineScope) {
@@ -58,19 +57,23 @@ internal class EditorCaretMoveProcessorFactory(private val scope: CoroutineScope
 }
 
 private val TICK_MS = 4.milliseconds
+private const val ANIMATION_DEBOUNCE_MS = 300L
+private const val MAX_SKIP_FRAMES = 3
 
 internal class EditorCaretMoveProcessor(private val coroutineScope: CoroutineScope, private val editor: EditorImpl) {
-  private val lastPosMap = mutableMapOf<Caret, Pair<Point2D, LogicalPosition?>>()
+  private val lastPosMap = mutableMapOf<Caret, Pair<CaretPosition, CaretInfo>>()
   private val cursor = editor.myCaretCursor
-  private var animationJob: Job? = null
+  private var animationScope: CoroutineScope? = null
+  private var debounceUntil: Long = 0
 
   private val setPositionRequests = MutableSharedFlow<Unit>(replay = 1, onBufferOverflow = BufferOverflow.DROP_OLDEST)
 
   init {
     coroutineScope.launch(Dispatchers.UI + ModalityState.any().asContextElement()) {
       setPositionRequests.collectLatest { _ ->
-        if (!editor.isDisposed) {
-          animationJob = this@launch.launch {
+        coroutineScope {
+          if (!editor.isDisposed) {
+            animationScope = this
             runCatching {
               processRequest()
             }.getOrHandleException { e ->
@@ -90,22 +93,38 @@ internal class EditorCaretMoveProcessor(private val coroutineScope: CoroutineSco
     check(setPositionRequests.tryEmit(Unit))
   }
 
+  private fun previousPositionRectangles(infos: List<CaretInfo>) = infos.mapNotNull {
+    val (position, _) = lastPosMap[it.caret] ?: return@mapNotNull null
+
+    EditorImpl.CaretRectangle(position.pos, it.width, it.caret, it.isRtl)
+  }.toTypedArray()
+
   private suspend fun processRequest() {
     val animationDuration = Registry.intValue("editor.smooth.caret.duration")
 
     cursor.blinkOpacity = 1.0f
     cursor.startTime = System.currentTimeMillis() + animationDuration
 
-    val animationStates = calculateUpdates().map {
-      val (lastPos, lastVisualPosition) = lastPosMap.getOrPut(it.caret) {
-        it.finalPos to it.finalLogicalPosition
+    val finalStates = calculateFinalStates()
+    val animationStates = finalStates.map { (position, info) ->
+      val (lastPos, _) = lastPosMap.getOrPut(info.caret) {
+        position to info
       }
 
-      AnimationState(lastPos, lastVisualPosition, it)
+      AnimationState(lastPos, position, info)
+    }
+
+    val hasNoLogicPositionChange = animationStates.all { it.start.logicalPosition == it.final.logicalPosition }
+    val currentTime = System.currentTimeMillis()
+    if (hasNoLogicPositionChange || debounceUntil > currentTime) {
+      cursor.startTime = currentTime
+      setFinalPositions(finalStates)
+      return
     }
 
     val easing = CaretEasing.fromSettings(editor.settings)
     val startTime = System.currentTimeMillis()
+    var lastFrame = startTime
     while (true) {
       val now = System.currentTimeMillis()
       val elapsed = now - startTime
@@ -114,35 +133,38 @@ internal class EditorCaretMoveProcessor(private val coroutineScope: CoroutineSco
 
       var allDone = true
 
-      val oldRects = animationStates.mapNotNull {
-        val (pos, _) = lastPosMap[it.update.caret] ?: return@mapNotNull null
+      if (now - lastFrame > MAX_SKIP_FRAMES * TICK_MS.inWholeMilliseconds) {
+        debounceUntil = now + ANIMATION_DEBOUNCE_MS
 
-        EditorImpl.CaretRectangle(pos, it.update.width, it.update.caret, it.update.isRtl)
-      }.toTypedArray()
+        LOG.warn("Caret animation experienced a significant slowdown at ${now} ms (last frame took ${now - lastFrame} ms), moving immediately. Debouncing until ${debounceUntil} ms.")
+        setFinalPositions(finalStates)
+      } else {
+        lastFrame = now
 
-      val interpolatedRects = animationStates.map { state ->
-        val sameLogicalPosition = state.startLogicalPosition == state.update.finalLogicalPosition
-        val isInAnimation = !sameLogicalPosition && t < 1
+        val oldRects = previousPositionRectangles(finalStates.map { it.second })
+        val interpolatedRects = animationStates.map { state ->
+          val sameLogicalPosition = state.start.logicalPosition == state.final.logicalPosition
+          val isInAnimation = !sameLogicalPosition && t < 1
 
-        val update = state.update
-        val (startPos, finalPos) = Pair(state.startPos, update.finalPos)
+          val info = state.info
+          val (startPos, finalPos) = state.start.pos to state.final.pos
 
-        if (isInAnimation) allDone = false
+          if (isInAnimation) allDone = false
 
-        val ease = easing.apply(t)
-        val x = startPos.x + (finalPos.x - startPos.x) * ease
-        val y = startPos.y + (finalPos.y - startPos.y) * ease
+          val ease = easing.apply(t)
+          val x = startPos.x + (finalPos.x - startPos.x) * ease
+          val y = startPos.y + (finalPos.y - startPos.y) * ease
 
-        val interpolated = if (isInAnimation) Point2D.Double(x, y) else finalPos
-        lastPosMap[update.caret] = Pair(
-          interpolated,
-          state.update.finalLogicalPosition.takeUnless { isInAnimation }
-        )
-        EditorImpl.CaretRectangle(interpolated, update.width, update.caret, update.isRtl)
-      }.toTypedArray()
-
-      cursor.setPositions(interpolatedRects)
-      cursor.repaint(oldRects)
+          val interpolated = if (isInAnimation) Point2D.Double(x, y) else finalPos
+          lastPosMap[info.caret] = Pair(
+            CaretPosition(interpolated, state.final.logicalPosition.takeUnless { isInAnimation }),
+            info
+          )
+          EditorImpl.CaretRectangle(interpolated, info.width, info.caret, info.isRtl)
+        }.toTypedArray()
+        cursor.setPositions(interpolatedRects)
+        cursor.repaint(oldRects)
+      }
       cursor.repaint()
 
       if (allDone) {
@@ -153,7 +175,7 @@ internal class EditorCaretMoveProcessor(private val coroutineScope: CoroutineSco
     }
   }
 
-  private fun calculateUpdates() = editor.caretModel.allCarets.map { caret ->
+  private fun calculateFinalStates() = editor.caretModel.allCarets.map { caret ->
     val isRtl = caret.isAtRtlLocation()
     val caretPosition = caret.visualPosition
     val pos1: Point2D = editor.visualPositionToPoint2D(caretPosition.leanRight(!isRtl))
@@ -165,7 +187,7 @@ internal class EditorCaretMoveProcessor(private val coroutineScope: CoroutineSco
       width = min(width, ceil(editor.view.plainSpaceWidth.toDouble()).toFloat())
     }
 
-    CaretUpdate(pos1, caret.logicalPosition, width, caret, isRtl)
+    CaretPosition(pos1, caret.logicalPosition) to CaretInfo(caret, width, isRtl)
   }
 
   /**
@@ -174,16 +196,37 @@ internal class EditorCaretMoveProcessor(private val coroutineScope: CoroutineSco
    * the ImmediatePainterTest to work.
    */
   fun setCursorPositionImmediately() {
-    animationJob?.cancel()
-    animationJob = null
+    animationScope?.cancel()
+    animationScope = null
 
-    val animationStates = calculateUpdates()
-    for (state in animationStates) {
-      lastPosMap[state.caret] = state.finalPos to state.finalLogicalPosition
+    val finalStates = calculateFinalStates()
+    setFinalPositions(finalStates)
+  }
+
+  private fun setFinalPositions(finalStates:List<Pair<CaretPosition, CaretInfo>>) {
+    val oldRects = previousPositionRectangles(finalStates.map { it.second })
+    for ((position, info) in finalStates) {
+      lastPosMap[info.caret] = position to info
     }
-    cursor.setPositions(animationStates.map { state ->
-      EditorImpl.CaretRectangle(state.finalPos, state.width, state.caret, state.isRtl)
+    cursor.setPositions(finalStates.map { (position, info) ->
+      EditorImpl.CaretRectangle(position.pos, info.width, info.caret, info.isRtl)
     }.toTypedArray())
+    cursor.repaint(oldRects)
+  }
+
+  fun invalidateStaleCarets() {
+    val currentCarets = editor.caretModel.allCarets.toSet()
+    val staleCarets = lastPosMap.filterKeys { !currentCarets.contains(it) }
+    val staleCaretRectangles = buildList {
+      for ((caret, data) in staleCarets) {
+        val (position, info) = data
+        add(EditorImpl.CaretRectangle(position.pos, info.width, caret, info.isRtl))
+
+        lastPosMap.remove(caret)
+      }
+    }
+
+    cursor.repaint(staleCaretRectangles.toTypedArray())
   }
 }
 

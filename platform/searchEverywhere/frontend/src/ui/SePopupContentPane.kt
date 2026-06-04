@@ -1,4 +1,4 @@
-// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.platform.searchEverywhere.frontend.ui
 
 import com.intellij.icons.AllIcons
@@ -36,6 +36,7 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.popup.JBPopup
 import com.intellij.openapi.ui.popup.JBPopupFactory
 import com.intellij.openapi.ui.popup.ListItemDescriptorAdapter
+import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.util.NlsContexts
 import com.intellij.openapi.util.SystemInfoRt
 import com.intellij.openapi.util.registry.Registry
@@ -476,21 +477,22 @@ class SePopupContentPane(
       vm.previewConfigurationFlow.collectLatest { configuration ->
         val isVisible = configuration?.fetchPreview != null
 
-        withContext(Dispatchers.EDT) {
-          usagePreviewPanel?.isVisible = isVisible
+        if (!isVisible) {
+          withContext(Dispatchers.EDT) {
+            usagePreviewPanel?.isVisible = false
+          }
+          return@collectLatest
         }
 
-        if (isVisible) {
-          selectedItemDataFlow.collectLatest { itemData ->
-            withContext(Dispatchers.EDT) {
-              if (itemData != null) {
-                val usageInfos = configuration.fetchPreview(itemData)
-                usagePreviewPanel?.isVisible = true
-                usagePreviewPanel?.updateLayout(configuration.project, usageInfos)
-              }
-              else {
-                usagePreviewPanel?.isVisible = false
-              }
+        selectedItemDataFlow.collectLatest { itemData ->
+          withContext(Dispatchers.EDT) {
+            if (itemData != null) {
+              val usageInfos = configuration.fetchPreview(itemData)
+              usagePreviewPanel?.isVisible = true
+              usagePreviewPanel?.updateLayout(configuration.project, usageInfos)
+            }
+            else {
+              usagePreviewPanel?.isVisible = false
             }
           }
         }
@@ -1071,6 +1073,7 @@ class SePopupContentPane(
       }
 
       override fun onEditorCreated(editor: Editor) {
+        SePreviewPanelListener.EP.forEachExtensionSafe { it.onNewPreviewEditor(editor) }
         if (editor is EditorEx) {
           editor.setRendererMode(true)
         }
@@ -1156,7 +1159,9 @@ class SePopupContentPane(
     quickDocPopup?.takeIf { it.isVisible }?.cancel()
   }
 
-  override fun dispose() {}
+  override fun dispose() {
+    usagePreviewPanel?.let { Disposer.dispose(it) }
+  }
 
   companion object {
     const val DEFAULT_FROZEN_VISIBLE_PART: Double = 1.1

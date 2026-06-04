@@ -5,6 +5,8 @@ import com.intellij.openapi.Disposable
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.projectRoots.Sdk
 import com.intellij.openapi.util.Disposer
+import com.intellij.serviceContainer.AlreadyDisposedException
+import com.intellij.util.IncorrectOperationException
 import com.jetbrains.python.packaging.PyPackageUtil
 import com.jetbrains.python.packaging.bridge.PythonPackageManagementServiceBridge
 import com.jetbrains.python.packaging.requirementsTxt.PythonRequirementTxtSdkUtils
@@ -12,7 +14,6 @@ import com.jetbrains.python.packaging.utils.PyPackageCoroutine
 import com.jetbrains.python.sdk.PythonSdkAdditionalData
 import com.jetbrains.python.sdk.PythonSdkUpdater
 import com.jetbrains.python.sdk.getOrCreateAdditionalData
-import com.jetbrains.python.sdk.legacy.PythonSdkUtil
 import kotlinx.coroutines.CoroutineScope
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
@@ -23,33 +24,51 @@ internal class PythonPackageManagerServiceImpl(private val serviceScope: Corouti
   private val bridgeCache = ConcurrentHashMap<UUID, PythonPackageManagementServiceBridge>()
 
   /**
-   * Requires Sdk to be Python Sdk and have PythonSdkAdditionalData.
+   * Returns a cached [PythonPackageManager] for the given [sdk], creating one on first access.
+   *
+   * On cache hit the call is effectively free (a [ConcurrentHashMap] lookup).
+   * On cache miss (once per SDK per project lifetime) the method creates the manager,
+   * registers Disposer listeners and sets up VFS watchers — this may involve lightweight I/O
+   * (e.g. flavor detection in [com.jetbrains.python.sdk.getOrCreateAdditionalData]).
+   * In practice the first call happens during project/SDK setup on a background thread,
+   * so subsequent EDT callers always get a cached instance.
+   *
+   * Requires [sdk] to be a Python SDK with [com.jetbrains.python.sdk.PythonSdkAdditionalData].
    */
   override fun forSdk(project: Project, sdk: Sdk): PythonPackageManager {
-    check(!PythonSdkUtil.isDisposed(sdk)) {
-      "Requesting a package manager for an already disposed SDK $sdk (${sdk.javaClass})"
-    }
-
     val cacheKey = (sdk.getOrCreateAdditionalData()).uuid
 
     return cache.computeIfAbsent(cacheKey) {
-      val createdSdk = PythonPackageManagerProvider.EP_NAME.extensionList.firstNotNullOf { it.createPackageManagerForSdk(project, sdk) }
-      Disposer.register(PyPackageCoroutine.getInstance(project), createdSdk)
-      PythonRequirementTxtSdkUtils.migrateRequirementsTxtPathFromModuleToSdk(project, sdk)
-
       val vfsListenerDisposable = Disposer.newDisposable("VFS listener for ${sdk.name} in scope of ${project.name}")
-      Disposer.register(createdSdk, vfsListenerDisposable)
 
       if (sdk is Disposable) {
-        Disposer.register(sdk, Disposable { cache.remove(cacheKey) })
-        Disposer.register(sdk, Disposable { Disposer.dispose(vfsListenerDisposable) })
+        val localCache = cache
+        try {
+          Disposer.register(sdk, Disposable { localCache.remove(cacheKey) })
+          Disposer.register(sdk, Disposable { Disposer.dispose(vfsListenerDisposable) })
+        }
+        catch (e: IncorrectOperationException) {
+          throw AlreadyDisposedException("Requesting a package manager for an already disposed SDK $sdk, ${e.localizedMessage}")
+        }
+      }
+
+      val manager = PythonPackageManagerProvider.EP_NAME.extensionList.firstNotNullOf { it.createPackageManagerForSdk(project, sdk) }
+      try {
+        Disposer.register(PyPackageCoroutine.getInstance(project), manager)
+        Disposer.register(manager, vfsListenerDisposable)
+      }
+      catch (e: IncorrectOperationException) {
+          throw AlreadyDisposedException("Requesting a package manager for an already disposed Project $project, ${e.localizedMessage}")
       }
 
       PyPackageUtil.runOnChangeUnderInterpreterPaths(sdk, vfsListenerDisposable) {
         PythonSdkUpdater.scheduleUpdate(sdk, project)
       }
 
-      createdSdk
+      // I don't think it should be here
+      PythonRequirementTxtSdkUtils.migrateRequirementsTxtPathFromModuleToSdk(project, sdk)
+
+      manager
     }
   }
 

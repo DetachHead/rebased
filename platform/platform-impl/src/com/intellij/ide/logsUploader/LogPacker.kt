@@ -64,12 +64,27 @@ object LogPacker {
 
         coroutineContext.ensureActive()
 
-        LogProvider.EP.extensionList.firstOrNull()?.let { logProvider ->
+        zip.addDirectory("", logs)
+
+        coroutineContext.ensureActive()
+
+        val filter = mutableSetOf<String>()  // temporary guard for recursive TBE provider
+        LogProvider.EP.forEachExtensionSafe { logProvider ->
           logProvider.getAdditionalLogFiles(project).forEach { entry ->
-            for (dir in entry.files) {
-              if (dir.exists()) {
-                val dirPrefix = if (entry.entryName.isNotEmpty()) "${entry.entryName}/${dir.name}" else ""
-                zip.addDirectory(dirPrefix, dir)
+            if (!filter.add(entry.entryName)) return@forEach
+            entry.files.forEach { path ->
+              coroutineContext.ensureActive()
+              if (path.isDirectory()) {
+                val prefix = when {
+                  entry.entryName.isBlank() -> ""
+                  entry.createSubdirectories -> "${entry.entryName}/${path.name}"
+                  else -> entry.entryName
+                }
+                zip.addDirectory(prefix, path)
+              }
+              else if (path.exists()) {
+                val prefix = if (entry.entryName.isNotBlank() && entry.createSubdirectories) "${entry.entryName}/" else ""
+                zip.addFile("${prefix}${path.name}", path)
               }
             }
           }

@@ -2,6 +2,7 @@
 package com.jetbrains.python.packaging.conda
 
 import com.intellij.openapi.application.writeAction
+import com.intellij.openapi.module.Module
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.projectRoots.Sdk
 import com.intellij.openapi.util.Disposer
@@ -25,10 +26,8 @@ import com.jetbrains.python.packaging.management.PythonPackageManager
 import com.jetbrains.python.packaging.management.PythonPackageManagerEngine
 import com.jetbrains.python.packaging.management.PythonRepositoryManager
 import com.jetbrains.python.packaging.pip.PipPackageManagerEngine
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.withContext
 
 class CondaPackageManager(project: Project, sdk: Sdk) : PythonPackageManager(project, sdk) {
   override val repositoryManager: PythonRepositoryManager = CondaRepositoryManger(project, sdk).also {
@@ -89,7 +88,7 @@ class CondaPackageManager(project: Project, sdk: Sdk) : PythonPackageManager(pro
     PyResult.success(condaPackages + onlyPipOutdated)
   }
 
-  override suspend fun installPackageCommand(installRequest: PythonPackageInstallRequest, options: List<String>): PyResult<Unit> = when (installRequest) {
+  override suspend fun installPackageCommand(installRequest: PythonPackageInstallRequest, options: List<String>, module: Module?): PyResult<Unit> = when (installRequest) {
     is PythonPackageInstallRequest.ByLocation -> pipPackageEngine.installPackageCommand(installRequest, options)
     is PythonPackageInstallRequest.ByRepositoryPythonPackageSpecifications -> installSeveralPackages(installRequest.specifications, options)
   }
@@ -150,11 +149,9 @@ class CondaPackageManager(project: Project, sdk: Sdk) : PythonPackageManager(pro
       pipPackageEngine
   }
 
-  override suspend fun extractDependencies(): PyResult<List<PythonPackage>>? {
+  override suspend fun listDeclaredPackages(): PyResult<List<PythonPackage>>? {
     val envFile = getDependencyFile() ?: return null
-    val requirements = withContext(Dispatchers.IO) {
-      CondaEnvironmentYmlParser.fromFile (envFile)
-    }  ?: return null
+    val requirements = CondaEnvironmentYmlParser.fromFile(envFile) ?: return null
     return PyResult.success(requirements.toPythonPackages())
   }
 

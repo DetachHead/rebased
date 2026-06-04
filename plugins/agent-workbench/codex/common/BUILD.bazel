@@ -19,8 +19,13 @@ jvm_library(
     "//platform/core-api:core",
     "//platform/util",
     "//platform/execution-impl",
+    "//plugins/agent-workbench/json",
     "//libraries/jackson/jackson",
     "//platform/platform-util-io:ide-util-io",
+    "//plugins/terminal",
+    "//plugins/terminal/backend",
+    "//platform/eel",
+    "//platform/eel-provider",
   ]
 )
 ### auto-generated section `build intellij.agent.workbench.codex.common` end

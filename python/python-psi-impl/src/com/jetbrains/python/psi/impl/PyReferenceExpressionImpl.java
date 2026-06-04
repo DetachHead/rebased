@@ -2,6 +2,7 @@
 package com.jetbrains.python.psi.impl;
 
 import com.intellij.codeInsight.controlflow.ConditionalInstruction;
+import com.intellij.codeInsight.controlflow.ControlFlowUtil;
 import com.intellij.codeInsight.controlflow.Instruction;
 import com.intellij.diagnostic.PluginException;
 import com.intellij.lang.ASTNode;
@@ -21,12 +22,14 @@ import com.intellij.util.containers.ContainerUtil;
 import com.jetbrains.python.PyNames;
 import com.jetbrains.python.PythonRuntimeService;
 import com.jetbrains.python.ast.PyAstFunction;
+import com.jetbrains.python.codeInsight.controlflow.ControlFlowCache;
 import com.jetbrains.python.codeInsight.controlflow.PyTypeAssertionEvaluator;
 import com.jetbrains.python.codeInsight.controlflow.ReadWriteInstruction;
 import com.jetbrains.python.codeInsight.controlflow.ScopeOwner;
 import com.jetbrains.python.codeInsight.dataflow.scope.ScopeUtil;
 import com.jetbrains.python.psi.AccessDirection;
 import com.jetbrains.python.psi.Property;
+import com.jetbrains.python.psi.PyAnnotationOwner;
 import com.jetbrains.python.psi.PyAugAssignmentStatement;
 import com.jetbrains.python.psi.PyCallExpression;
 import com.jetbrains.python.psi.PyCallable;
@@ -56,6 +59,7 @@ import com.jetbrains.python.psi.resolve.QualifiedNameFinder;
 import com.jetbrains.python.psi.resolve.QualifiedRatedResolveResult;
 import com.jetbrains.python.psi.resolve.QualifiedResolveResult;
 import com.jetbrains.python.psi.resolve.RatedResolveResult;
+import com.jetbrains.python.psi.types.PyAnyType;
 import com.jetbrains.python.psi.types.PyCallableType;
 import com.jetbrains.python.psi.types.PyClassLikeType;
 import com.jetbrains.python.psi.types.PyClassType;
@@ -64,12 +68,14 @@ import com.jetbrains.python.psi.types.PyDescriptorTypeUtil;
 import com.jetbrains.python.psi.types.PyImportedModuleType;
 import com.jetbrains.python.psi.types.PyModuleType;
 import com.jetbrains.python.psi.types.PyNarrowedType;
+import com.jetbrains.python.psi.types.PyOverloadType;
 import com.jetbrains.python.psi.types.PyType;
 import com.jetbrains.python.psi.types.PyTypeChecker;
 import com.jetbrains.python.psi.types.PyTypeUtil;
 import com.jetbrains.python.psi.types.PyUnionType;
 import com.jetbrains.python.psi.types.PyUnsafeUnionType;
 import com.jetbrains.python.psi.types.TypeEvalContext;
+import com.jetbrains.python.pyi.PyiUtil;
 import com.jetbrains.python.refactoring.PyDefUseUtil;
 import one.util.streamex.StreamEx;
 import org.jetbrains.annotations.NotNull;
@@ -86,6 +92,7 @@ import java.util.function.Predicate;
 
 import static com.jetbrains.python.psi.impl.PyCallExpressionHelper.getCalleeType;
 import static com.jetbrains.python.psi.types.PyNoneTypeKt.isNoneType;
+import static com.jetbrains.python.psi.types.PyTypeUtilKt.isUnknown;
 
 /**
  * Implements reference expression PSI.
@@ -232,7 +239,7 @@ public class PyReferenceExpressionImpl extends PyElementImpl implements PyRefere
     final boolean qualified = isQualified();
 
     final PyType providedType = getTypeFromProviders(context);
-    if (providedType != null) {
+    if (!isUnknown(providedType)) {
       return providedType;
     }
 
@@ -246,9 +253,27 @@ public class PyReferenceExpressionImpl extends PyElementImpl implements PyRefere
     // null means no result; Ref(null) here can mean that a variable is annotated
     // like `var: Any` earlier, so we know not to use __getattr__ later
     final Ref<PyType> typeFromTargetsRef = getTypeFromTargets(context);
-    final PyType typeFromTargets = Ref.deref(typeFromTargetsRef);
-    if (qualified && isNoneType(typeFromTargets)) {
-      return null;
+    final PyType typeFromTargets = PyTypeUtil.derefOrUnknown(typeFromTargetsRef);
+    if (qualified && isNoneType(typeFromTargets) && !isTargetAnnotated(context)) {
+      /* we support a special case where we convert an unannotated attribute of `None` to `UnsafeUnion[None, Unknown]`
+        this is because there are frequently cases in real code where inferring `None` would lead to undesirable false positives:
+        ```py
+        class C:
+            def __init__(self):
+                self.a = None  # user intends `int | None` / `late int`
+            def set_a(self):
+                self.a = 1
+        def f(c: C):
+            c.a + 1  # FP here
+        ```
+
+        we use `UnsafeUnion` to avoid cases where the `None` doesn't typically surface to usages,
+        if the user is interested in typing they should always annotate an attribute that is initialised with `None`
+
+        there is also a consideration for the case where a base class sets an attribute with `None`, expecting it to be
+        overridden with a value
+      */
+      return PyUnsafeUnionType.unsafeUnion(typeFromTargets, PyAnyType.getUnknown());
     }
 
     final Ref<PyType> descriptorType = PyDescriptorTypeUtil.getDunderGetReturnType(this, typeFromTargets, context);
@@ -264,7 +289,7 @@ public class PyReferenceExpressionImpl extends PyElementImpl implements PyRefere
       return getTypeFromDunderGetAttr(context);
     }
 
-    return Ref.deref(typeFromTargetsRef);
+    return typeFromTargets;
   }
 
   private @Nullable PyType getCallableType(@NotNull TypeEvalContext context) {
@@ -333,14 +358,29 @@ public class PyReferenceExpressionImpl extends PyElementImpl implements PyRefere
     return null;
   }
 
+  private boolean isTargetAnnotated(@NotNull TypeEvalContext context) {
+    final PyResolveContext resolveContext = PyResolveContext.defaultContext(context);
+    for (PsiElement target : PyUtil.multiResolveTopPriority(getReference(resolveContext))) {
+      if (target instanceof PyAnnotationOwner owner && owner.getAnnotation() != null) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   private @Nullable Ref<PyType> getTypeFromTargets(@NotNull TypeEvalContext context) {
     final PyResolveContext resolveContext = PyResolveContext.defaultContext(context);
     final List<Ref<PyType>> members = new ArrayList<>();
 
     final PsiFile realFile = FileContextUtil.getContextFile(this);
     if (!(getContainingFile() instanceof PyExpressionCodeFragment) || (realFile != null && context.maySwitchToAST(realFile))) {
+      final var overloadMembers = new ArrayList<>();
       for (PsiElement target : PyUtil.multiResolveTopPriority(getReference(resolveContext))) {
         if (target == this) {
+          continue;
+        }
+
+        if (overloadMembers.contains(target)) {
           continue;
         }
 
@@ -348,7 +388,11 @@ public class PyReferenceExpressionImpl extends PyElementImpl implements PyRefere
           throw new PsiInvalidElementAccessException(this);
         }
 
-        members.add(getTypeFromTarget(target, context, this));
+        var member = getTypeFromTarget(target, context, this);
+        if (Ref.deref(member) instanceof PyOverloadType && target instanceof PyFunction function) {
+          overloadMembers.addAll(PyiUtil.getOverloads(function, context));
+        }
+        members.add(member);
       }
     }
 
@@ -422,7 +466,7 @@ public class PyReferenceExpressionImpl extends PyElementImpl implements PyRefere
         LOG.info(PluginException.createByClass("Failed to get expression type via " + provider.getClass(), e, provider.getClass()));
       }
     }
-    return null;
+    return PyAnyType.getUnknown();
   }
 
   private static @Nullable Ref<PyType> getTypeFromTarget(@NotNull PsiElement target,
@@ -485,14 +529,14 @@ public class PyReferenceExpressionImpl extends PyElementImpl implements PyRefere
         if (!ScopeUtil.getElementsOfAccessType(name, scopeOwner, ReadWriteInstruction.ACCESS.ASSERTTYPE).isEmpty() ||
             (target instanceof PyTargetExpression || target instanceof PyNamedParameter) && ScopeUtil.getScopeOwner(target) == scopeOwner) {
           final PyType type = getTypeByControlFlow(name, context, anchor, scopeOwner);
-          if (type != null) {
+          if (!isUnknown(type)) {
             return Ref.create(type);
           }
         }
       }
     }
-    if (target instanceof PyFunction) {
-      final PyDecoratorList decoratorList = ((PyFunction)target).getDecoratorList();
+    if (target instanceof PyFunction function) {
+      final PyDecoratorList decoratorList = function.getDecoratorList();
       if (decoratorList != null) {
         final PyDecorator propertyDecorator = decoratorList.findDecorator(PyNames.PROPERTY);
         if (propertyDecorator != null) {
@@ -504,6 +548,13 @@ public class PyReferenceExpressionImpl extends PyElementImpl implements PyRefere
             return Ref.create(PyBuiltinCache.getInstance(target).getObjectType(PyNames.PROPERTY));
           }
         }
+      }
+      var overloads = PyiUtil.getOverloads(function, context);
+      if (!overloads.isEmpty()) {
+        return Ref.create(new PyOverloadType(
+          ContainerUtil.map(overloads, overload -> (PyCallableType)context.getType(overload)),
+          PyiUtil.isOverload(function, context) ? null : Ref.create(context.getType(function))
+        ));
       }
     }
     if (target instanceof PyTypedElement) {
@@ -548,12 +599,19 @@ public class PyReferenceExpressionImpl extends PyElementImpl implements PyRefere
                                              @NotNull ScopeOwner scopeOwner) {
     final PyAugAssignmentStatement augAssignment = PsiTreeUtil.getParentOfType(anchor, PyAugAssignmentStatement.class);
     final PyElement element = augAssignment != null ? augAssignment : anchor;
+    final Instruction[] flow = ControlFlowCache.getControlFlow(scopeOwner).getInstructions();
+    final int thisInstructionIdx = ControlFlowUtil.findInstructionNumberByElement(flow, element);
+    final int thisInstructionNum = thisInstructionIdx == -1 ? Integer.MAX_VALUE : flow[thisInstructionIdx].num();
     final List<Instruction> defs = PyDefUseUtil.getLatestDefs(scopeOwner, name, element, true, false, context);
     // null means empty set of possible types, Ref(null) means Any
     final @Nullable Ref<PyType> combinedType = StreamEx.of(defs)
       .map(instr -> {
         if (instr.getElement() == anchor) {
           // exclude recursive definition (example: type of 'i++' inside a loop)
+          return null;
+        }
+        if (instr.num() >= thisInstructionNum) {
+          // exclude back-edge definitions reached through a loop (PY-89245)
           return null;
         }
         if (instr instanceof ReadWriteInstruction readWriteInstruction) {
@@ -572,7 +630,7 @@ public class PyReferenceExpressionImpl extends PyElementImpl implements PyRefere
                 if (narrowedType.getTypeIs()) {
                   return PyTypeAssertionEvaluator.createAssertionType(initial, type, positive, false, context);
                 }
-                return Ref.create((positive) ? type : initial);
+                return Ref.create(positive ? type : initial);
               }
             }
           }
@@ -581,7 +639,7 @@ public class PyReferenceExpressionImpl extends PyElementImpl implements PyRefere
       })
       .nonNull()
       .collect(PyTypeUtil.toUnionFromRef());
-    return Ref.deref(combinedType);
+    return PyTypeUtil.derefOrUnknown(combinedType);
   }
 
   public static @Nullable Ref<PyType> getReferenceTypeFromProviders(@NotNull PsiElement target,

@@ -544,6 +544,7 @@ c:com.intellij.ide.HelpTooltip
 - p:hidePopup(Z):V
 - installOn(javax.swing.JComponent):V
 - setBrowserLink(java.lang.String,java.net.URL):com.intellij.ide.HelpTooltip
+- setDescription(com.intellij.openapi.util.text.HtmlChunk):com.intellij.ide.HelpTooltip
 - setDescription(java.lang.String):com.intellij.ide.HelpTooltip
 - setHideDelay(I):com.intellij.ide.HelpTooltip
 - setInitialDelay(I):com.intellij.ide.HelpTooltip
@@ -553,10 +554,14 @@ c:com.intellij.ide.HelpTooltip
 - s:setMasterPopup(java.awt.Component,com.intellij.openapi.ui.popup.JBPopup):V
 - s:setMasterPopupOpenCondition(java.awt.Component,java.util.function.BooleanSupplier):V
 - setNeverHideOnTimeout(Z):com.intellij.ide.HelpTooltip
+- setPlainTextTitle(java.lang.String):com.intellij.ide.HelpTooltip
+- setPlainTextTitle(java.util.function.Supplier):com.intellij.ide.HelpTooltip
 - setShortcut(com.intellij.openapi.actionSystem.Shortcut):com.intellij.ide.HelpTooltip
 - setShortcut(java.lang.String):com.intellij.ide.HelpTooltip
+- setTitle(com.intellij.openapi.util.text.HtmlChunk):com.intellij.ide.HelpTooltip
 - setTitle(java.lang.String):com.intellij.ide.HelpTooltip
 - setTitle(java.util.function.Supplier):com.intellij.ide.HelpTooltip
+- setTitleSupplier(java.util.function.Supplier):com.intellij.ide.HelpTooltip
 - p:shouldForceHiding():Z
 e:com.intellij.ide.HelpTooltip$Alignment
 - java.lang.Enum
@@ -575,6 +580,8 @@ pc:com.intellij.ide.HelpTooltip$OverTipMouseListener
 - p:doExit():V
 - mouseEntered(java.awt.event.MouseEvent):V
 - mouseExited(java.awt.event.MouseEvent):V
+f:com.intellij.ide.HelpTooltipKt
+- sf:setToolTipText(javax.swing.JComponent,com.intellij.openapi.util.text.HtmlChunk):V
 f:com.intellij.ide.IdeBundle
 - sf:BUNDLE:java.lang.String
 - s:message(java.lang.String,java.lang.Object[]):java.lang.String
@@ -3147,9 +3154,11 @@ a:com.intellij.openapi.ui.AbstractPainter
 - com.intellij.openapi.ui.Painter
 - <init>():V
 - addListener(com.intellij.openapi.ui.Painter$Listener):V
+- executePaint(java.awt.Component,java.awt.Component,java.awt.Graphics2D):V
 - a:executePaint(java.awt.Component,java.awt.Graphics2D):V
 - p:fireNeedsRepaint(javax.swing.JComponent):V
 - needsRepaint():Z
+- f:paint(java.awt.Component,java.awt.Component,java.awt.Graphics2D):V
 - f:paint(java.awt.Component,java.awt.Graphics2D):V
 - removeListener(com.intellij.openapi.ui.Painter$Listener):V
 - setNeedsRepaint(java.lang.Object,java.lang.Object):java.lang.Object
@@ -4183,6 +4192,7 @@ com.intellij.openapi.ui.OptionAction
 com.intellij.openapi.ui.Painter
 - a:addListener(com.intellij.openapi.ui.Painter$Listener):V
 - a:needsRepaint():Z
+- paint(java.awt.Component,java.awt.Component,java.awt.Graphics2D):V
 - a:paint(java.awt.Component,java.awt.Graphics2D):V
 - a:removeListener(com.intellij.openapi.ui.Painter$Listener):V
 com.intellij.openapi.ui.Painter$Listener
@@ -6495,6 +6505,12 @@ f:com.intellij.ui.InsertPathAction
 - s:addTo(javax.swing.text.JTextComponent,com.intellij.openapi.fileChooser.FileChooserDescriptor,Z):V
 - s:copyFromTo(javax.swing.text.JTextComponent,javax.swing.text.JTextComponent):V
 - s:removeFrom(javax.swing.text.JTextComponent):V
+f:com.intellij.ui.IslandsState
+- sf:Companion:com.intellij.ui.IslandsState$Companion
+- <init>():V
+f:com.intellij.ui.IslandsState$Companion
+- f:isCustomEnabled():Z
+- f:isEnabled():Z
 c:com.intellij.ui.JBCardLayout
 - java.awt.CardLayout
 - <init>():V

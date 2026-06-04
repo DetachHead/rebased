@@ -181,7 +181,7 @@ class VirtualEnvReader private constructor(
     }
   }
 
-  fun getVenvRootPath(path: Path): Path? {
+  fun getVenvRoot(path: Path): Path? {
     val bin = path.parent
 
     val binFolderName = when (forcedOs ?: path.osFamily) {
@@ -194,18 +194,26 @@ class VirtualEnvReader private constructor(
     }
 
     val venv = bin.parent
+    return venv
+  }
 
-    if (venv == null) {
+  fun getVenvName(path: Path): String? = getVenvRoot(path)?.name
+
+  fun getVenvNameForTarget(path: FullPathOnTarget, platform: Platform): String? {
+    val separator = platform.fileSeparator
+    val bin = path.substringBeforeLast(separator)
+
+    val binFolderName = when (platform) {
+      Platform.UNIX -> "bin"
+      Platform.WINDOWS -> "Scripts"
+    }
+
+    if (bin.substringAfterLast(separator) != binFolderName) {
       return null
     }
 
-    val root = venv.parent
-
-    if (root == null) {
-      return null
-    }
-
-    return root
+    val venv = bin.substringBeforeLast(separator)
+    return venv.substringAfterLast(separator).takeIf { it.isNotBlank() }
   }
 
   /**
@@ -270,8 +278,8 @@ class VirtualEnvReader private constructor(
 
     const val PYENV_DEFAULT_DIR_NAME: String = ".pyenv"
 
-    private val POSIX_PYTHON_PATTERN = Regex("^(pypy|python)(\\d+(\\.\\d+)*)?$")
-    private val WIN_PYTHON_PATTERN = Regex("^(pypy|python)(\\d+(\\.\\d+)*)?\\.exe$", RegexOption.IGNORE_CASE)
+    private val POSIX_PYTHON_PATTERN = Regex("^(pypy|pythonw?)(\\d+(\\.\\d+)*)?t?$")
+    private val WIN_PYTHON_PATTERN = Regex("^(pypy|pythonw?)(\\d+(\\.\\d+)*)?t?\\.exe$", RegexOption.IGNORE_CASE)
     private fun getLocalEelIfApp(): EelApi? = if (ApplicationManager.getApplication() != null) localEel else null
 
     /**
