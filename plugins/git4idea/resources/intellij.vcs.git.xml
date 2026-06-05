@@ -290,7 +290,7 @@
       <reference ref="Git.RevertResolved"/>
       <separator/>
       <reference ref="GitRepositoryActions"/>
-      <add-to-group group-id="EditorPopupMenu" anchor="last"/>
+      <add-to-group group-id="VersionControlsGroup" anchor="last"/>
     </group>
 
     <action id="Git.ShowBranches" class="git4idea.actions.GitBranchesComboBoxAction" icon="AllIcons.Vcs.Branch"
