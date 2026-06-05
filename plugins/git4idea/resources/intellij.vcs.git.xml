@@ -289,7 +289,11 @@
       <reference ref="Git.ResolveConflicts"/>
       <reference ref="Git.RevertResolved"/>
       <separator/>
-      <reference ref="GitRepositoryActions"/>
+      <!--
+      in rebased the git context menu has been moved up into the main menu, so to prevent it from looking bloated we remove the generic
+      git actions that aren't related to the current file (i don't think it even makes sense for them to be here regardless)
+      -->
+      <!--<reference ref="GitRepositoryActions"/>-->
       <add-to-group group-id="VersionControlsGroup" anchor="last"/>
     </group>
 
