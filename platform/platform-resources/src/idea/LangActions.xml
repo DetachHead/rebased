@@ -442,7 +442,8 @@
         <action id="CommentByBlockComment" class="com.intellij.codeInsight.generation.actions.CommentByBlockCommentAction"/>
       </group>
 
-      <group id="CodeFormatGroup">
+      <!-- disabled in rebased -->
+      <group id="CodeFormatGroup" class="com.intellij.openapi.actionSystem.EmptyActionGroup">
         <action id="ReformatCode" class="com.intellij.codeInsight.actions.ReformatCodeAction" icon="AllIcons.Actions.ReformatCode">
           <add-to-group group-id="Floating.CodeToolbar" anchor="after" relative-to-action="CommentByLineComment" />
           <synonym key="action.ReformatCode.synonym1"/>
@@ -600,8 +601,8 @@
     </group>
 
     <group id="ProjectViewPopupMenuModifyGroup">
-      <reference ref="ReformatCode"/>
-      <reference ref="OptimizeImports"/>
+      <!--<reference ref="ReformatCode"/>-->
+      <!--<reference ref="OptimizeImports"/>-->
       <reference ref="$Delete"/>
       <reference ref="Scratch.ChangeLanguage"/>
       <group id="MarkFileAs">
@@ -623,10 +624,11 @@
       <reference ref="CutCopyPasteGroup"/>
       <action id="ProjectViewEditSource" use-shortcut-of="EditSource" class="com.intellij.ide.actions.ProjectViewEditSourceAction"/>
       <separator/>
-      <reference ref="FindUsages"/>
-      <reference ref="FindInPath"/>
-      <reference ref="ReplaceInPath"/>
-      <separator/>
+      <!-- disabled in rebased -->
+      <!--<reference ref="FindUsages"/>-->
+      <!--<reference ref="FindInPath"/>-->
+      <!--<reference ref="ReplaceInPath"/>-->
+      <!--<separator/>-->
       <reference ref="RenameElement"/>
       <reference ref="ProjectViewPopupMenuRefactoringGroup"/>
       <separator/>
@@ -649,7 +651,8 @@
       <reference ref="ProjectViewPopupMenuSettingsGroup"/>
     </group>
 
-    <group id="InspectCodeActionInPopupMenus">
+    <!-- disabled in rebased -->
+    <group id="InspectCodeActionInPopupMenus" class="com.intellij.openapi.actionSystem.EmptyActionGroup">
       <reference ref="InspectCode"/>
       <add-to-group group-id="ProjectViewPopupMenu" anchor="after" relative-to-action="ReplaceInPath"/>
     </group>
@@ -932,8 +935,8 @@
       <reference ref="RunContextPopupGroup"/>
       <reference ref="SplitRevealGroup"/>
       <separator/>
-      <reference ref="ReformatCode"/>
-      <reference ref="OptimizeImports"/>
+      <!--<reference ref="ReformatCode"/>-->
+      <!--<reference ref="OptimizeImports"/>-->
       <reference ref="$Delete"/>
       <separator/>
       <reference ref="VersionControlsGroup"/>
