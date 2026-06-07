@@ -48,7 +48,16 @@ public final class Restarter {
     var launcher = switch (OS.CURRENT) {
       case Windows -> PathManager.getBinDir().resolve(baseName + (Boolean.getBoolean("ide.native.launcher") ? "64.exe" : ".bat"));
       case macOS -> PathManager.getHomeDir().resolve("MacOS").resolve(baseName);
-      case Linux -> PathManager.getBinDir().resolve(baseName + (Boolean.getBoolean("ide.native.launcher") ? "" : ".sh"));
+      case Linux -> {
+        // if we're launching from an appimage, we can't re-open the launcher because we're in a temporarily mounted directory
+        // that'll be gone when the IDE closes. luckily the APPIMAGE variable contains the path to the .AppImage file so we
+        // can relaunch using that instead.
+        String appimage = EnvironmentUtil.getValue("APPIMAGE");
+        if (appimage != null) {
+          yield Path.of(appimage);
+        }
+        yield PathManager.getBinDir().resolve(baseName + (Boolean.getBoolean("ide.native.launcher") ? "" : ".sh"));
+      }
       default -> null;
     };
     return launcher != null && Files.exists(launcher) ? launcher : null;
