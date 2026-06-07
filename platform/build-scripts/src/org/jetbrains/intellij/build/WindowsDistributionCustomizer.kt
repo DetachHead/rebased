@@ -254,10 +254,6 @@ inline fun communityWindowsCustomizer(projectHome: Path, configure: WindowsCusto
     
     fullNameAndVendor { "Rebased" }
     
-    uninstallFeedbackUrl { appInfo ->
-      "https://www.jetbrains.com/idea/uninstall/?edition=IC-${appInfo.majorVersion}.${appInfo.minorVersion}"
-    }
-    
     // Apply user configuration
     configure()
   }
