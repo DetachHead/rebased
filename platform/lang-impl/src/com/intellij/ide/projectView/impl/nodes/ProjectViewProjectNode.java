@@ -89,9 +89,10 @@ public class ProjectViewProjectNode extends AbstractProjectNode implements PathE
       }
     }
 
-    if (getSettings().isShowLibraryContents()) {
-      nodes.add(new ExternalLibrariesNode(project, getSettings()));
-    }
+    // disabled in rebased
+    // if (getSettings().isShowLibraryContents()) {
+    //   nodes.add(new ExternalLibrariesNode(project, getSettings()));
+    // }
     return nodes;
   }
 
