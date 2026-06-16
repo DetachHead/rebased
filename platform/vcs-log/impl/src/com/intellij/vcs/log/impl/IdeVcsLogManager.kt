@@ -3,6 +3,7 @@ package com.intellij.vcs.log.impl
 
 import com.intellij.openapi.application.EdtImmediate
 import com.intellij.openapi.application.UiImmediate
+import com.intellij.openapi.components.service
 import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Disposer
@@ -59,10 +60,15 @@ internal class IdeVcsLogManager(
     // need EDT because of immediate toolbar update
     mainUiCs.launch(Dispatchers.EdtImmediate) {
       mainUiHolderState.collect { holder ->
-        val file = VcsLogVirtualFileSystem.Holder.getInstance().
-        createVcsLogFile(project, "", null)
-        val editor = FileEditorManager.getInstance(project).openFile(file, false, true)
-        val ui = VcsLogEditorUtil.findVcsLogUi(editor,MainVcsLogUi::class.java)
+        val showLogInEditorWindow = service<VcsLogApplicationSettings>()[CommonUiProperties.SHOW_IN_EDITOR]
+        val ui = if (showLogInEditorWindow) {
+          val file = VcsLogVirtualFileSystem.Holder.getInstance().
+          createVcsLogFile(project, "", null)
+          val editor = FileEditorManager.getInstance(project).openFile(file, false, true)
+          VcsLogEditorUtil.findVcsLogUi(editor,MainVcsLogUi::class.java)
+        } else {
+          createLogUi(getMainLogUiFactory(MAIN_LOG_ID, null))
+        }
         if (holder != null) {
           if (ui != null)
             holder.installMainUi(this@IdeVcsLogManager, ui)

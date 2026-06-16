@@ -16,4 +16,5 @@ public final class CommonUiProperties {
   public static final VcsLogUiProperty<Boolean> LABELS_LEFT_ALIGNED = new VcsLogUiProperty<>("Table.LabelsLeftAligned");
   public static final VcsLogUiProperty<Boolean> SHOW_ISSUE_PREVIEW_ON_HOVER = new VcsLogUiProperty<>("Table.ShowIssuePreviewOnHover");
   public static final VcsLogUiProperty<Integer> SHOW_ISSUE_PREVIEW_ON_HOVER_DELAY = new VcsLogUiProperty<>("Table.ShowIssuePreviewOnHoverDelay");
+  public static final VcsLogUiProperty<Boolean> SHOW_IN_EDITOR = new VcsLogUiProperty<>("Window.ShowInEditor");
 }
