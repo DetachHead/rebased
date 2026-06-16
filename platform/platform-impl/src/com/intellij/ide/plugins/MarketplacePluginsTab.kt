@@ -50,7 +50,6 @@ import com.intellij.openapi.extensions.PluginId
 import com.intellij.openapi.project.DumbAware
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.updateSettings.impl.pluginsAdvertisement.FUSEventSource
-import com.intellij.openapi.updateSettings.impl.pluginsAdvertisement.findSuggestedPlugins
 import com.intellij.openapi.util.text.HtmlChunk
 import com.intellij.openapi.util.text.StringUtil
 import com.intellij.ui.SimpleTextAttributes
@@ -157,7 +156,7 @@ internal class MarketplacePluginsTab @RequiresEdt constructor(
     coroutineScope.launch(Dispatchers.IO) {
       myPluginModel.waitForSessionInitialization()
       val customRepositoriesMap = UiPluginManager.getInstance().getCustomRepositoryPluginMap()
-      val suggestedPlugins = if (project != null) findSuggestedPlugins(project, customRepositoriesMap) else emptyList()
+      val suggestedPlugins = emptyList<PluginUiModel>()
       val pluginManager = UiPluginManager.getInstance()
       val marketplaceData = mutableMapOf<String, PluginSearchResult>()
       val internalPluginsGroupDescriptor = getPluginsViewCustomizer().getInternalPluginsGroupDescriptor()

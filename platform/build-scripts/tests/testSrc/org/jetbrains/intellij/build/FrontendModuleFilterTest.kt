@@ -14,7 +14,7 @@ import org.junit.Test
 class FrontendModuleFilterTest {
   @Test
   fun cachesValueForConcurrentAwaiters(): Unit = runBlocking(Dispatchers.Default) {
-    val productProperties = IdeaCommunityProperties(COMMUNITY_ROOT.communityRoot).apply {
+    val productProperties = RebasedProperties(COMMUNITY_ROOT.communityRoot).apply {
       embeddedFrontendRootModule = "intellij.idea.frontend.split"
     }
     val context = createBuildContext(projectHome = ULTIMATE_HOME, productProperties = productProperties, setupTracer = false)

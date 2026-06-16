@@ -27,35 +27,30 @@ jobs:
           version: ${{inputs.version}}
       - name: upload-linux-x64
         uses: ./.github/actions/upload_ide
-        if: ${{inputs.upload_artifacts}}
         with:
           os: linux
           suffix: .tar.gz
           artifacts_dir: ${{inputs.artifacts_dir}}
       - name: upload-linux-aarch64
         uses: ./.github/actions/upload_ide
-        if: ${{inputs.upload_artifacts}}
         with:
           os: linux
           suffix: -aarch64.tar.gz
           artifacts_dir: ${{inputs.artifacts_dir}}
       - name: upload-windows-x64
         uses: ./.github/actions/upload_ide
-        if: ${{inputs.upload_artifacts}}
         with:
           os: windows
           suffix: .exe
           artifacts_dir: ${{inputs.artifacts_dir}}
       - name: upload-mac-aarch64
         uses: ./.github/actions/upload_ide
-        if: ${{inputs.upload_artifacts}}
         with:
           os: mac
           suffix: -aarch64.sit
           artifacts_dir: ${{inputs.artifacts_dir}}
       - name: upload-mac-x86
         uses: ./.github/actions/upload_ide
-        if: ${{inputs.upload_artifacts}}
         with:
           os: mac
           suffix: .sit
@@ -63,7 +58,7 @@ jobs:
       - name: Upload .dmg build scripts
         uses: actions/upload-artifact@v6.0.0
         with:
-          name: dmg-build-scripts-${{ matrix.arch }}
+          name: dmg-build-scripts
           if-no-files-found: 'error'
           retention-days: 1
           path: ${{inputs.artifacts_dir}}/macos-dmg-build/
@@ -102,9 +97,9 @@ jobs:
       matrix:
         # appimagetool expects a different format for the architecture so we need two variables
         arch:
-          - build: x64
+          - suffix: ""
             appimage: x86_64
-          - build: aarch64
+          - suffix: "-aarch64"
             appimage: aarch64
     runs-on: ubuntu-latest
     needs: distributions
@@ -113,7 +108,7 @@ jobs:
       - name: Download .tar.gz
         uses: actions/download-artifact@v4.1.8
         with:
-          name: linux-${{ matrix.arch.build }}-tar.gz-unsigned
+          name: linux${{ matrix.arch.suffix }}.tar.gz-unsigned
 
       - name: Extract tar.gz
         run: |
@@ -170,6 +165,5 @@ jobs:
         uses: ./.github/actions/upload_ide
         with:
           os: linux
-          arch: ${{ matrix.arch.build }}
           suffix: .AppImage
           artifacts_dir: .

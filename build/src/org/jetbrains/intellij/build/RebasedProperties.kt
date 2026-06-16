@@ -57,7 +57,7 @@ open class RebasedProperties(private val communityHomeDir: Path) : JetBrainsProd
     useSplash = false
     buildCrossPlatformDistribution = true
     buildSourcesArchive = true
-    runtimeDistribution = JetBrainsRuntimeDistribution.LIGHTWEIGHT
+    runtimeDistribution = JetBrainsRuntimeDistribution.VANILLA
 
     imagesDirectoryPath = communityHomeDir.resolve("build/idea-community-images")
 
@@ -212,12 +212,13 @@ fun intellijCommunityBaseFragment(platformPrefix: String? = null): ProductModule
   deprecatedInclude("intellij.idea.community.customization", "META-INF/tips-intellij-idea-community.xml")
 
   // from upstream:
-  module("intellij.platform.coverage")
-  module("intellij.platform.coverage.agent")
-  module("intellij.xml.xmlbeans")
-  module("intellij.platform.ide.newUiOnboarding")
-  module("intellij.platform.ide.newUsersOnboarding")
-  module("intellij.ide.startup.importSettings")
+  //module("intellij.platform.coverage")
+  //module("intellij.platform.coverage.agent")
+  //module("intellij.xml.xmlbeans")
+  //module("intellij.platform.ide.newUiOnboarding")
+  //module("intellij.platform.ide.newUsersOnboarding")
+  //module("intellij.ide.startup.importSettings")
+
   module("intellij.platform.customization.min")
   module("intellij.idea.customization.base")
   module("intellij.idea.customization.backend")
@@ -239,14 +240,10 @@ inline fun ideaCommunityWindowsCustomizer(
   projectHome: Path,
   configure: WindowsCustomizerBuilder.() -> Unit = {}
 ): WindowsDistributionCustomizer = windowsCustomizer(projectHome) {
-  fileAssociations = listOf("java", "gradle", "groovy", "kt", "kts", "pom")
+  fileAssociations = emptyList()
 
-  fullName { "IntelliJ IDEA Open Source" }
-  installDirNameHandler { "IntelliJ IDEA OSS" }
-
-  uninstallFeedbackUrl { appInfo ->
-    "https://www.jetbrains.com/idea/uninstall/?edition=IC-${appInfo.majorVersion}.${appInfo.minorVersion}"
-  }
+  fullName { "Rebased" }
+  installDirNameHandler { "Rebased" }
 
   configure()
 }
@@ -255,12 +252,12 @@ inline fun ideaCommunityMacCustomizer(
   projectHome: Path,
   configure: MacCustomizerBuilder.() -> Unit = {}
 ): MacDistributionCustomizer = macCustomizer(projectHome) {
-  urlSchemes = listOf("idea")
+  urlSchemes = listOf("rebased")
   associateIpr = true
-  fileAssociations = FileAssociation.from("java", "groovy", "kt", "kts")
-  bundleIdentifier = "com.jetbrains.intellij.ce"
+  fileAssociations = emptyList()
+  bundleIdentifier = "io.github.detachhead.rebased"
 
-  rootDirectoryName { _, _ -> "IntelliJ IDEA OSS.app" }
+  rootDirectoryName { _, _ -> "Rebased.app" }
 
   executableFilePatterns { base, _, _, _ ->
     val kotlinExecutables = KotlinBinaries.kotlinCompilerExecutables

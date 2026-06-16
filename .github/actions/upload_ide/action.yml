@@ -38,7 +38,7 @@ runs:
         if-no-files-found: 'error'
         retention-days: 1
         path: |
-          ${{inputs.artifacts_dir}}/*.SNAPSHOT${{inputs.suffix}}
-          ${{inputs.artifacts_dir}}/*.SNAPSHOT${{inputs.suffix}}.spdx.json
-          ${{inputs.artifacts_dir}}/*.SNAPSHOT${{inputs.suffix}}.sha256
+          ${{inputs.artifacts_dir}}/*{{inputs.suffix}}
+          ${{inputs.artifacts_dir}}/*${{inputs.suffix}}.spdx.json
+          ${{inputs.artifacts_dir}}/*${{inputs.suffix}}.sha256
           ${{inputs.artifacts_dir}}/*.zsync

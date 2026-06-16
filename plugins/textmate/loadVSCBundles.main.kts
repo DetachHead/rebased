@@ -257,6 +257,13 @@ run {
                           copy("syntaxes")
                         })
 
+    importCuratedBundle("vue",
+                        gitSource("https://github.com/vuejs/language-tools") {
+                          copy("extensions/vscode/LICENSE")
+                          copy("extensions/vscode/package.json")
+                          copy("extensions/vscode/syntaxes")
+                        })
+
     logDetail("Imported $curatedBundleCount curated bundles")
 
     logStage("Cleaning bundle directory")
