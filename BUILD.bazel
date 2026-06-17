@@ -258,18 +258,6 @@ jvm_library(
     ),
     module_name = "intellij.idea.community.main.android",
     visibility = ["//visibility:public"],
-    runtime_deps = [
-        # do not sort,
-        "//android/android:core",
-        "//:main",
-        "//android/android-plugin:plugin",
-        "//android/layoutlib",
-        "//plugins/kotlin:kotlin-plugin-community-main",
-        "//android/compose-designer",
-        "//android/compose-ide-plugin",
-        "//android/design-plugin",
-        "//android/android-navigator:navigator",
-    ],
 )
 
 jvm_library(
@@ -281,19 +269,7 @@ jvm_library(
     ),
     module_name = "intellij.idea.community.main.android",
     visibility = ["//visibility:public"],
-    runtime_deps = [
-        # do not sort,
-        ":main-android",
-        "//android/android:core_test_lib",
-        "//:main_test_lib",
-        "//android/android-plugin:plugin_test_lib",
-        "//android/layoutlib:layoutlib_test_lib",
-        "//plugins/kotlin:kotlin-plugin-community-main_test_lib",
-        "//android/compose-designer:compose-designer_test_lib",
-        "//android/compose-ide-plugin:compose-ide-plugin_test_lib",
-        "//android/design-plugin:design-plugin_test_lib",
-        "//android/android-navigator:navigator_test_lib",
-    ],
+    runtime_deps = [":main-android"],
 )
 ### auto-generated section `build intellij.idea.community.main.android` end
 
