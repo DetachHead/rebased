@@ -17,6 +17,7 @@ jobs:
       - uses: actions/checkout@v4.2.2
         with:
           submodules: true
+      - uses: ./.github/actions/free_disk_space_and_expand_swap
       - name: run tests
         # currently we only run git tests. list mostly taken from platform/testFramework/testResources/tests/testGroups.properties
         # TODO: figure out what other tests we should run
