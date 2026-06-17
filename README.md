@@ -216,12 +216,11 @@ Options to run tests are passed as system properties to `tests.cmd` command.
 You may find the list of available properties in [TestingOptions.kt](platform/build-scripts/src/org/jetbrains/intellij/build/TestingOptions.kt)
 
 ```bash
-# Run specific run configuration:
-./tests.cmd -Dintellij.build.test.configurations=ApiCheckTest
+./tests.cmd --module intellij.idea.community.main.tests
 ```
 ```bash
 # Run a specific test: 
-./tests.cmd -Dintellij.build.test.patterns=com.intellij.util.ArrayUtilTest
+./tests.cmd --module intellij.idea.community.main.tests --test com.intellij.util.ArrayUtilTest
 ```
 
 to debug tests use: `-Dintellij.build.test.debug.suspend=true -Dintellij.build.test.debug.port=5005`
