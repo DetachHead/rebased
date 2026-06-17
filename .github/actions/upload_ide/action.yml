@@ -13,6 +13,8 @@ runs:
   steps:
     - name: Generate checksums
       shell: bash
+      # using env variables breaks this script
+      # zizmor: ignore[template-injection]
       # language=bash
       run: |
         function checksum() {
@@ -32,7 +34,7 @@ runs:
           for it in *${{inputs.suffix}}.spdx.json; do checksum "$it"; done
         fi
     - name: Upload ${{inputs.suffix}}
-      uses: actions/upload-artifact@v6.0.0
+      uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
       with:
         name: ${{inputs.os}}${{inputs.suffix}}-unsigned
         if-no-files-found: 'error'

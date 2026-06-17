@@ -47,22 +47,29 @@ runs:
         df -h /
     - name: Expand swap
       shell: bash
+      env:
+        swap_size: ${{inputs.swap_size}}
       # language=bash
       run: |
         # The IDE build may hit OOM (exit 137) with the default 16 GB RAM and 4 GB swap.
         # /mnt on hosted runners has ~70 GB free, so move swap there and grow it.
         sudo swapoff -a || true
         sudo rm -f /mnt/swapfile /swapfile
-        sudo fallocate -l ${{inputs.swap_size}} /mnt/swapfile
+        sudo fallocate -l $swap_size /mnt/swapfile
         sudo chmod 600 /mnt/swapfile
         sudo mkswap /mnt/swapfile
         sudo swapon /mnt/swapfile
         free -h
     - name: Build environment
       shell: bash
+      env:
+        product: ${{inputs.product}}
       # language=bash
-      run: docker build . --target ${{inputs.product}} --tag ${{inputs.product}}
+      run: docker build . --target $product --tag $product
     - name: Build
       shell: bash
+      env:
+        product: ${{inputs.product}}
+        version: ${{inputs.version}}
       # language=bash
-      run: docker run --rm --user "$(id -u)" --volume "${PWD}:/community" ${{inputs.product}} ${{inputs.system_properties}} -Dbuild.version=${{inputs.version}}
+      run: docker run --rm --user "$(id -u)" --volume "${PWD}:/community" $product -Dbuild.version=$version
