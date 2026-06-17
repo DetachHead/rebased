@@ -10,10 +10,11 @@
 
   <dependencies>
     <plugin id="com.intellij.modules.lang"/>
+    <!-- rebased does not include jcef so we remove this plugin's dependency on it. also the script to generate this doesn't seem to be available in the community repo -->
     <!-- region Generated dependencies - run `Generate Product Layouts` to regenerate -->
-    <plugin id="com.intellij.modules.jcef"/>
-    <module name="intellij.libraries.jcef"/>
-    <module name="intellij.platform.ui.jcef"/>
+    <!--<plugin id="com.intellij.modules.jcef"/>-->
+    <!--<module name="intellij.libraries.jcef"/>-->
+    <!--<module name="intellij.platform.ui.jcef"/>-->
     <!-- endregion -->
   </dependencies>
 

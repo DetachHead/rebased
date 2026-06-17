@@ -21,20 +21,20 @@ import org.jetbrains.intellij.build.impl.PluginLayout
  * Default bundled plugins for all products.
  */
 val DEFAULT_BUNDLED_PLUGINS: PersistentList<String> = persistentListOf(
-  "intellij.dev",
+  //"intellij.dev",
   "intellij.java.aetherDependencyResolver.plugin",
-  "intellij.jcef.plugin",
+  //"intellij.jcef.plugin",
   "intellij.libraries.misc.plugin",
   "intellij.platform.bookmarks.plugin",
   "intellij.grid.core.plugin",
   "intellij.platform.navbar.plugin",
-  "intellij.platform.testRunner.plugin",
+  //"intellij.platform.testRunner.plugin",
   "intellij.platform.recentFiles.plugin",
-  "intellij.platform.structuralSearch.plugin",
-  "intellij.platform.structureView.plugin",
-  "intellij.platform.execution.serviceView.plugin",
-  "intellij.platform.todo.plugin",
-  "intellij.platform.acp.plugin",
+  //"intellij.platform.structuralSearch.plugin",
+  //"intellij.platform.structureView.plugin",
+  //"intellij.platform.execution.serviceView.plugin",
+  //"intellij.platform.todo.plugin",
+  //"intellij.platform.acp.plugin",
   "intellij.platform.images",
 )
 
