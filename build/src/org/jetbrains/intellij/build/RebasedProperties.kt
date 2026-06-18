@@ -9,7 +9,6 @@ import org.jetbrains.intellij.build.impl.createBuildContext
 import org.jetbrains.intellij.build.impl.qodana.QodanaProductProperties
 import org.jetbrains.intellij.build.io.copyDir
 import org.jetbrains.intellij.build.io.copyFileToDir
-import org.jetbrains.intellij.build.kotlin.KotlinBinaries
 import org.jetbrains.intellij.build.productLayout.CommunityModuleSets
 import org.jetbrains.intellij.build.productLayout.ProductModulesContentSpec
 import org.jetbrains.intellij.build.productLayout.productModules
@@ -209,6 +208,7 @@ fun intellijCommunityBaseFragment(platformPrefix: String? = null): ProductModule
   //}
   //
   //include(CommunityProductFragments.javaIdeBaseFragment())
+  deprecatedInclude("intellij.platform.resources", "META-INF/PlatformLangPlugin.xml")
   deprecatedInclude("intellij.idea.community.customization", "META-INF/tips-intellij-idea-community.xml")
 
   // from upstream:
@@ -259,9 +259,10 @@ inline fun ideaCommunityMacCustomizer(
 
   rootDirectoryName { _, _ -> "Rebased.app" }
 
+  // Rebased bundles no Kotlin plugin / kotlinc binaries, so don't declare executable patterns for them
+  // (os_specific_distributions fails the build on patterns that match no files).
   executableFilePatterns { base, _, _, _ ->
-    val kotlinExecutables = KotlinBinaries.kotlinCompilerExecutables
-    (base + kotlinExecutables).filterNot { it == "plugins/**/*.sh" }
+    base.filterNot { it == "plugins/**/*.sh" }
   }
 
   configure()
@@ -274,8 +275,10 @@ inline fun ideaCommunityLinuxCustomizer(
 
   rootDirectoryName { _, _ -> "idea-oss" }
 
+  // Rebased bundles no Kotlin plugin / kotlinc binaries, so don't declare executable patterns for them
+  // (os_specific_distributions fails the build on patterns that match no files).
   executableFilePatterns { base, _, _, _, _ ->
-    base.plus(KotlinBinaries.kotlinCompilerExecutables).filterNot { it == "plugins/**/*.sh" }
+    base.filterNot { it == "plugins/**/*.sh" }
   }
 
   configure()

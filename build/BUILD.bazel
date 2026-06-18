@@ -31,7 +31,17 @@ jps_to_bazel_targets_json(
 java_binary(
     name = "i_build_target",
     add_opens = INTELLIJ_ADD_OPENS,
-    data = ALL_COMMUNITY_TARGETS + [BAZEL_TARGETS_JSON_COMMUNITY],
+    # The installer build only needs production + library outputs, plus the tests of the single
+    # module it compiles tests for (see OpenSourceCommunityInstallersBuildTarget, which passes
+    # includingTestsInModules = ["intellij.platform.jps.build.tests"]). Using ALL_COMMUNITY_TARGETS
+    # would force every community test lib into runfiles, dragging in android test libs
+    # (e.g. //android/android:core-tests_test_lib) through community test deps such as
+    # //plugins/kotlin/gradle/multiplatform-tests-k2:kotlin-gradle-multiplatform-tests_test_lib.
+    data = ALL_PRODUCTION_COMMUNITY_TARGETS + ALL_LIBRARY_COMMUNITY_TARGETS + [
+        "@community//jps/jps-builders:build-tests_test_lib.jar",
+        BAZEL_TARGETS_JSON_COMMUNITY,
+    ],
+#     data = ALL_COMMUNITY_TARGETS + [BAZEL_TARGETS_JSON_COMMUNITY],
     jvm_flags = [
         "-Dintellij.build.bazel.targets.json.file=$(rlocationpath %s)" % BAZEL_TARGETS_JSON_COMMUNITY,
     ],
