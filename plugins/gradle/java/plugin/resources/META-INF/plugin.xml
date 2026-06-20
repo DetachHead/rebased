@@ -15,8 +15,6 @@
     <module name="intellij.gradle.java" loading="embedded"/>
     <module name="intellij.gradle.profiler"/>
     <module name="intellij.gradle.java.maven"/>
-    <module name="intellij.gradle.analysis"/>
-    <module name="intellij.gradle.dependencyUpdater"/>
     <module name="intellij.gradle.java.performance"/>
     <module name="intellij.gradle.java.toml"/>
     <module name="intellij.gradle.java.groovy"/>

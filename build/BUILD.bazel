@@ -33,15 +33,12 @@ java_binary(
     add_opens = INTELLIJ_ADD_OPENS,
     # The installer build only needs production + library outputs, plus the tests of the single
     # module it compiles tests for (see OpenSourceCommunityInstallersBuildTarget, which passes
-    # includingTestsInModules = ["intellij.platform.jps.build.tests"]). Using ALL_COMMUNITY_TARGETS
-    # would force every community test lib into runfiles, dragging in android test libs
-    # (e.g. //android/android:core-tests_test_lib) through community test deps such as
-    # //plugins/kotlin/gradle/multiplatform-tests-k2:kotlin-gradle-multiplatform-tests_test_lib.
+    # includingTestsInModules = ["intellij.platform.jps.build.tests"]). Restricting to those avoids
+    # force-building every community test lib into runfiles for no reason.
     data = ALL_PRODUCTION_COMMUNITY_TARGETS + ALL_LIBRARY_COMMUNITY_TARGETS + [
         "@community//jps/jps-builders:build-tests_test_lib.jar",
         BAZEL_TARGETS_JSON_COMMUNITY,
     ],
-#     data = ALL_COMMUNITY_TARGETS + [BAZEL_TARGETS_JSON_COMMUNITY],
     jvm_flags = [
         "-Dintellij.build.bazel.targets.json.file=$(rlocationpath %s)" % BAZEL_TARGETS_JSON_COMMUNITY,
     ],
@@ -88,11 +85,6 @@ intellij_dev_binary_community(
     name = "idea_community",
     platform_prefix = "community",
 )
-
-# intellij_dev_binary_community(
-#     name = "android_studio",
-#     platform_prefix = "AndroidStudio",
-# )
 
 ### auto-generated section `build intellij.idea.community.build` start
 

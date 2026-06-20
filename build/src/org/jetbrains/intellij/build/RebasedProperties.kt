@@ -167,41 +167,11 @@ open class RebasedProperties(private val communityHomeDir: Path) : JetBrainsProd
   override fun getOutputDirectoryName(appInfo: ApplicationInfoProperties): String = "idea-ce"
 }
 
-@Suppress("unused")
-open class AndroidStudioProperties(communityHomeDir: Path) : RebasedProperties(communityHomeDir) {
-  init {
-    platformPrefix = "AndroidStudio"
-    applicationInfoModule = "intellij.idea.android.customization"
-
-    productLayout.productImplementationModules += "intellij.idea.android.customization"
-
-    val defaultBundledPlugins = IDEA_BUNDLED_PLUGINS
-      .removing("intellij.mcpserver")
-      .removing("intellij.featuresTrainer")
-
-    productLayout.bundledPluginModules = defaultBundledPlugins + persistentListOf(
-      "intellij.android.compose-ide-plugin",
-      "intellij.android.design-plugin.descriptor",
-      "intellij.android.plugin.descriptor",
-      "intellij.android.smali",
-    )
-  }
-
-  override fun getProductContentDescriptor(): ProductModulesContentSpec = productModules {
-    include(intellijCommunityBaseFragment(platformPrefix))
-    // no community extensions
-  }
-}
-
 /**
  * Base IntelliJ Community content fragment.
  * This fragment is composable - subclasses can include this and optionally add community extensions.
  */
 fun intellijCommunityBaseFragment(platformPrefix: String? = null): ProductModulesContentSpec = productModules {
-  if (platformPrefix == "AndroidStudio") {
-    alias("com.intellij.modules.androidstudio")
-  }
-
   // from upstream:
   //if (platformPrefix != "AndroidStudio") {
   //  alias("com.intellij.platform.ide.provisioner")

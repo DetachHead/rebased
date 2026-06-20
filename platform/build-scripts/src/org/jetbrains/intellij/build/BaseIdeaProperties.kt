@@ -37,8 +37,6 @@ val IDEA_BUNDLED_PLUGINS: PersistentList<String> = REBASED_BUNDLED_PLUGINS + per
   "intellij.repository.search",
   "intellij.maven.plugin",
   "intellij.gradle.plugin",
-  "intellij.android.gradle.declarative.lang.ide",
-  "intellij.android.gradle.dsl",
   "intellij.gradle.java.plugin",
   "intellij.vcs.svn",
   "intellij.vcs.hg",
