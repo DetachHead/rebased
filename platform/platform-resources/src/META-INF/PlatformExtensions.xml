@@ -1747,7 +1747,8 @@ The refresh itself is toggled by (Preferences | Appearance &amp; Behavior | Syst
     <advancedSetting id="edit.source.on.enter.key.request.focus.in.editor" default="true" groupKey="group.advanced.settings.project.view"/>
     <advancedSetting id="ide.tree.collapse.recursively" default="true" groupKey="group.advanced.settings.project.view"/>
     <advancedSetting id="project.view.do.not.autoscroll.to.libraries" default="false" groupKey="group.advanced.settings.project.view"/>
-    <advancedSetting id="ide.open.readme.md.on.startup" default="true" groupKey="group.advanced.settings.startup"/>
+    <!-- in rebased we default to false because there's no markdown extension installed, so the readme markdown won't be rendered anyway -->
+    <advancedSetting id="ide.open.readme.md.on.startup" default="false" groupKey="group.advanced.settings.startup"/>
     <advancedSetting id="editor.undo.transparent.caret.movement" default="false" groupKey="group.advanced.settings.editor"/>
     <advancedSetting id="editor.skip.copy.and.cut.for.empty.selection" default="false" groupKey="group.advanced.settings.editor"/>
     <advancedSetting id="editor.skip.selecting.line.after.copy.empty.selection" default="false" groupKey="group.advanced.settings.editor"/>
