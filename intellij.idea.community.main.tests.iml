@@ -5,17 +5,33 @@
     <orderEntry type="inheritedJdk" />
     <orderEntry type="sourceFolder" forTests="false" />
     <orderEntry type="module" module-name="intellij.idea.community.main" scope="TEST" />
+    <orderEntry type="module" module-name="intellij.tasks.tests" scope="TEST" />
+    <orderEntry type="module" module-name="intellij.xml.dom.tests" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.jps.model.serialization.tests" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.tests" scope="TEST" />
+    <orderEntry type="module" module-name="intellij.platform.jps.model.tests" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.diff.tests" scope="TEST" />
+    <orderEntry type="module" module-name="intellij.platform.builtInServer.tests" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.images.build" scope="TEST" />
+    <orderEntry type="module" module-name="intellij.statsCollector.tests" scope="TEST" />
+    <orderEntry type="module" module-name="intellij.completionMlRankingModels.tests" scope="TEST" />
+    <orderEntry type="module" module-name="intellij.testng.rt.tests" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.workspace.storage.tests" scope="TEST" />
     <orderEntry type="module" module-name="intellij.textmate.plugin" scope="TEST" />
     <orderEntry type="module" module-name="intellij.textmate.backend" scope="TEST" />
+    <orderEntry type="module" module-name="intellij.junit.v5.rt.tests" scope="TEST" />
     <orderEntry type="module" module-name="intellij.commander" scope="TEST" />
     <orderEntry type="module" module-name="intellij.configurationScript" scope="TEST" />
     <orderEntry type="module" module-name="intellij.configurationScript.test.java" scope="TEST" />
+    <orderEntry type="module" module-name="intellij.platform.testFramework.junit5" scope="TEST" />
+    <orderEntry type="module" module-name="intellij.platform.runtime.repository.tests" scope="TEST" />
+    <orderEntry type="module" module-name="intellij.platform.runtime.product.tests" scope="TEST" />
+    <orderEntry type="module" module-name="intellij.platform.util.progress.tests" scope="TEST" />
+    <orderEntry type="module" module-name="intellij.platform.testFramework.junit5.jimfs" scope="TEST" />
+    <orderEntry type="module" module-name="intellij.platform.indexing.tests" scope="TEST" />
     <orderEntry type="module" module-name="intellij.textmate.tests" scope="TEST" />
+    <orderEntry type="module" module-name="intellij.tools.ide.starter.junit5" scope="TEST" />
+    <orderEntry type="module" module-name="intellij.terminal.tests" scope="TEST" />
     <orderEntry type="module" module-name="intellij.vcs.git.terminal" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.instanceContainer.tests" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.polySymbols.tests" scope="TEST" />
