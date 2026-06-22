@@ -43,6 +43,7 @@ class VcsLogApplicationSettings : PersistentStateComponent<VcsLogApplicationSett
       CommonUiProperties.PREFER_COMMIT_DATE -> _state.isPreferCommitDate
       CommonUiProperties.SHOW_ISSUE_PREVIEW_ON_HOVER -> _state.isShowIssuePreviewOnHover
       CommonUiProperties.SHOW_ISSUE_PREVIEW_ON_HOVER_DELAY -> _state.showIssuePreviewOnHoverDelay
+      CommonUiProperties.SHOW_IN_EDITOR -> _state.showInEditor
       else -> throw UnsupportedOperationException("Property $property does not exist")
     }
     @Suppress("UNCHECKED_CAST")
@@ -69,6 +70,7 @@ class VcsLogApplicationSettings : PersistentStateComponent<VcsLogApplicationSett
       CommonUiProperties.COLUMN_ID_ORDER -> _state.columnIdOrder = value as List<String>
       CommonUiProperties.SHOW_ISSUE_PREVIEW_ON_HOVER -> _state.isShowIssuePreviewOnHover = value as Boolean
       CommonUiProperties.SHOW_ISSUE_PREVIEW_ON_HOVER_DELAY -> _state.showIssuePreviewOnHoverDelay = value as Int
+      CommonUiProperties.SHOW_IN_EDITOR -> _state.showInEditor = value as Boolean
       is TableColumnVisibilityProperty -> _state.columnIdVisibility[property.name] = value as Boolean
       else -> throw UnsupportedOperationException("Property $property does not exist")
     }
@@ -87,6 +89,7 @@ class VcsLogApplicationSettings : PersistentStateComponent<VcsLogApplicationSett
            CommonUiProperties.PREFER_COMMIT_DATE == property ||
            CommonUiProperties.SHOW_ISSUE_PREVIEW_ON_HOVER == property ||
            CommonUiProperties.SHOW_ISSUE_PREVIEW_ON_HOVER_DELAY == property ||
+           CommonUiProperties.SHOW_IN_EDITOR == property ||
            property is TableColumnVisibilityProperty
   }
 
@@ -138,6 +141,9 @@ class VcsLogApplicationSettings : PersistentStateComponent<VcsLogApplicationSett
 
     @get:OptionTag("CUSTOM_BOOLEAN_PROPERTIES")
     var customBooleanProperties: MutableMap<String, Boolean> = HashMap()
+
+    @get:OptionTag("SHOW_IN_EDITOR")
+    var showInEditor = true
   }
 
   open class CustomBooleanProperty(name: @NonNls String) : VcsLogUiProperty<Boolean>(name) {
