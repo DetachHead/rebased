@@ -63,6 +63,8 @@ class VcsLogProjectTabsProperties : PersistentStateComponent<VcsLogProjectTabsPr
     addRecentGroup(_state.recentFilters, filterName, values)
   }
 
+  fun shouldShowInEditor(): Boolean = appSettings[CommonUiProperties.SHOW_IN_EDITOR]
+
   class State {
     @get:OptionTag("TAB_STATES")
     var tabStates: MutableMap<String, MyState> = TreeMap()

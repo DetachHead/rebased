@@ -1,6 +1,7 @@
 // Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.vcs.log.impl
 
+import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.thisLogger
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.vcs.changes.ui.ChangesViewContentProvider
@@ -51,7 +52,8 @@ internal class VcsLogContentProvider(private val project: Project) : ChangesView
   }
 
   internal class VcsLogVisibilityPredicate : Predicate<Project> {
-    override fun test(project: Project): Boolean = VcsProjectLog.isAvailable(project)
+    override fun test(project: Project): Boolean =
+      !service<VcsLogApplicationSettings>()[CommonUiProperties.SHOW_IN_EDITOR] && VcsProjectLog.isAvailable(project)
   }
 
   internal class DisplayNameSupplier : Supplier<String> {
