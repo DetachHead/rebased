@@ -88,6 +88,20 @@ class GitConfig private constructor(
     }.toSet()
 
   /**
+   * Returns local branches that have a configured upstream (`branch.<name>.merge` + `branch.<name>.remote`)
+   * whose upstream remote branch is no longer present in [remoteBranches] — i.e. git's `gone` state
+   * (for example, after a `fetch --prune` removed the stale remote-tracking ref). Such branches have no
+   * resolved [GitBranchTrackInfo] (see [parseTrackInfos]), so this is the only way to detect them.
+   */
+  fun parseUpstreamGoneBranches(
+    localBranches: Collection<GitLocalBranch>,
+    remoteBranches: Collection<GitRemoteBranch>,
+  ): Set<GitLocalBranch> =
+    trackedInfos.mapNotNullTo(HashSet()) { config ->
+      if (isUpstreamConfiguredButGone(config, remoteBranches)) findLocalBranch(config.name, localBranches) else null
+    }
+
+  /**
    * Return core info
    */
   fun parseCore(): Core {
@@ -204,6 +218,19 @@ class GitConfig private constructor(
         return null
       }
       return GitBranchTrackInfo(localBranch, remoteBranch, merge)
+    }
+
+    private fun isUpstreamConfiguredButGone(branchConfig: BranchConfig, remoteBranches: Collection<GitRemoteBranch>): Boolean {
+      val remoteName = branchConfig.remote
+      val mergeName = branchConfig.merge
+      val rebaseName = branchConfig.rebase
+
+      if (mergeName.isNullOrBlank() && rebaseName.isNullOrBlank()) return false
+      if (remoteName.isNullOrBlank()) return false
+
+      val merge = mergeName != null
+      val remoteBranchName = StringUtil.unquoteString((if (merge) mergeName else rebaseName)!!)
+      return findRemoteBranch(remoteBranchName, remoteName, remoteBranches) == null
     }
 
     private fun findLocalBranch(branchName: String, localBranches: Collection<GitLocalBranch>): GitLocalBranch? {

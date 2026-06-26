@@ -146,4 +146,8 @@ class GitRepositoryStateDto(
    * Maps short names of local branches to their upstream branches.
    */
   val trackingInfo: Map<String, GitStandardRemoteBranch>,
+  /**
+   * Local branches whose configured upstream no longer exists (git's `gone` state).
+   */
+  val upstreamGoneBranches: Set<GitStandardLocalBranch>,
 )

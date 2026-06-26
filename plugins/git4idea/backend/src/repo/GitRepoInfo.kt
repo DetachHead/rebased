@@ -18,7 +18,9 @@ data class GitRepoInfo(val currentBranch: GitLocalBranch?,
                        val branchTrackInfos: Collection<GitBranchTrackInfo>,
                        val submodules: Collection<GitSubmoduleInfo>,
                        val hooksInfo: GitHooksInfo,
-                       val isShallow: Boolean) {
+                       val isShallow: Boolean,
+                       /** Local branches whose configured upstream no longer exists (git's `gone` state). */
+                       val upstreamGoneBranches: Set<GitLocalBranch> = emptySet()) {
   val branchTrackInfosMap: Map<String, GitBranchTrackInfo> =
     branchTrackInfos.associateByTo(CollectionFactory.createCustomHashingStrategyMap(GitReference.BRANCH_NAME_HASHING_STRATEGY)) { it.localBranch.name }
 

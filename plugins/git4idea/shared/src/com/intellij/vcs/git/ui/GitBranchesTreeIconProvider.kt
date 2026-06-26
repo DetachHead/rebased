@@ -11,12 +11,13 @@ import javax.swing.Icon
 
 @ApiStatus.Internal
 object GitBranchesTreeIconProvider {
-  fun forRef(gitReference: GitReference, current: Boolean, favorite: Boolean, selected: Boolean, favoriteToggleOnClick: Boolean = false): Icon = when {
+  fun forRef(gitReference: GitReference, current: Boolean, favorite: Boolean, selected: Boolean, favoriteToggleOnClick: Boolean = false, upstreamGone: Boolean = false): Icon = when {
     selected && !favorite && favoriteToggleOnClick -> AllIcons.Nodes.NotFavoriteOnHover
     current && favorite -> DvcsImplIcons.CurrentBranchFavoriteLabel
     current -> DvcsImplIcons.CurrentBranchLabel
     favorite -> AllIcons.Nodes.Favorite
     gitReference is GitTag -> DvcsImplIcons.BranchLabel
+    upstreamGone -> AllIcons.General.Warning
     else -> AllIcons.Vcs.BranchNode
   }
 

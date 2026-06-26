@@ -22,6 +22,10 @@ interface GitRepositoryState {
   val recentBranches: List<GitStandardLocalBranch>
   val operationState: GitOperationState
 
+  /** Local branches whose configured upstream no longer exists (git's `gone` state). See [isUpstreamGone]. */
+  val upstreamGoneBranches: Set<GitStandardLocalBranch>
+    get() = emptySet()
+
   val currentBranch: GitStandardLocalBranch? get() = (currentRef as? GitCurrentRef.LocalBranch)?.branch
 
   /**
@@ -37,3 +41,12 @@ interface GitRepositoryState {
 
   fun getTrackingInfo(branch: GitStandardLocalBranch): GitStandardRemoteBranch?
 }
+
+/**
+ * A local branch is considered orphaned ("upstream gone") when it has a configured upstream
+ * (tracking info), but that upstream branch is no longer present among the known remote branches.
+ * This matches git's `gone` status (e.g. `git branch -vv` showing `[origin/x: gone]`), which becomes
+ * true after a fetch with `--prune` removes the stale remote-tracking ref.
+ */
+@ApiStatus.Internal
+fun GitRepositoryState.isUpstreamGone(branch: GitStandardLocalBranch): Boolean = branch in upstreamGoneBranches

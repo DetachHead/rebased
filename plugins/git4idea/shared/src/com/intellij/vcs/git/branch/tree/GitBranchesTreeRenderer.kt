@@ -24,9 +24,11 @@ import com.intellij.vcs.git.branch.popup.GitBranchesPopupStepBase
 import com.intellij.vcs.git.branch.tree.GitBranchesTreeModel.RefUnderRepository
 import com.intellij.vcs.git.branch.tree.GitBranchesTreeUtil.canHighlight
 import com.intellij.vcs.git.repo.GitRepositoryModel
+import com.intellij.vcs.git.repo.isUpstreamGone
 import com.intellij.vcs.git.ui.GitBranchesTreeIconProvider
 import git4idea.GitBranch
 import git4idea.GitReference
+import git4idea.GitStandardLocalBranch
 import org.jetbrains.annotations.ApiStatus
 import java.awt.Component
 import java.awt.Graphics2D
@@ -66,8 +68,11 @@ abstract class GitBranchesTreeRenderer(
                             selected: Boolean): Icon {
     val isCurrent = repositories.all { it.state.isCurrentRef(reference) }
     val isFavorite = repositories.all { it.favoriteRefs.contains(reference) }
+    val localBranch = reference as? GitStandardLocalBranch
+    val isUpstreamGone = localBranch != null &&
+                         repositories.isNotEmpty() && repositories.all { it.state.isUpstreamGone(localBranch) }
 
-    return GitBranchesTreeIconProvider.forRef(reference, current = isCurrent, favorite = isFavorite, favoriteToggleOnClick = favoriteToggleOnClickSupported, selected = selected)
+    return GitBranchesTreeIconProvider.forRef(reference, current = isCurrent, favorite = isFavorite, favoriteToggleOnClick = favoriteToggleOnClickSupported, selected = selected, upstreamGone = isUpstreamGone)
   }
 
   private fun getNodeIcon(treeNode: Any?, isSelected: Boolean): Icon? {

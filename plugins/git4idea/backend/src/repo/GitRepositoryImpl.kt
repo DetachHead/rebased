@@ -209,6 +209,7 @@ class GitRepositoryImpl private constructor(
       val remoteBranches = state.remoteBranches
       val localBranches = state.localBranches
       val trackInfos = config.parseTrackInfos(state.localBranches.keys, state.remoteBranches.keys)
+      val upstreamGoneBranches = config.parseUpstreamGoneBranches(state.localBranches.keys, state.remoteBranches.keys)
 
       val hooksInfo = repositoryReader.readHooksInfo()
       val submoduleFile = root.toNioPath().resolve(".gitmodules")
@@ -223,7 +224,8 @@ class GitRepositoryImpl private constructor(
                   branchTrackInfos = trackInfos,
                   submodules = submodules,
                   hooksInfo = hooksInfo,
-                  isShallow = isShallow)
+                  isShallow = isShallow,
+                  upstreamGoneBranches = upstreamGoneBranches)
     }
   }
 

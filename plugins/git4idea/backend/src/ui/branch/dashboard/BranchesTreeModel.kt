@@ -41,6 +41,10 @@ internal sealed interface RefInfo {
   val ref: GitReference
   val refName: String
     get() = ref.name
+
+  /** See [com.intellij.vcs.git.repo.isUpstreamGone]. Always `false` for refs that can't track an upstream (e.g. tags). */
+  val isUpstreamGone: Boolean
+    get() = false
 }
 
 internal data class BranchInfo(
@@ -53,6 +57,10 @@ internal data class BranchInfo(
   var isMy: ThreeState = ThreeState.UNSURE
   val branchName: @NlsSafe String get() = branch.name
   val isLocalBranch = branch is GitLocalBranch
+
+  override val isUpstreamGone: Boolean = (branch as? GitLocalBranch)?.let { local ->
+    repositories.isNotEmpty() && repositories.all { repo -> local in repo.info.upstreamGoneBranches }
+  } ?: false
 
   override val ref = branch
 

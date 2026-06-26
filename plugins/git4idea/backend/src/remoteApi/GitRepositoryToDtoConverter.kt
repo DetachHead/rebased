@@ -12,6 +12,7 @@ import com.intellij.vcs.git.repo.GitOperationState
 import com.intellij.vcs.git.rpc.GitRepositoryDto
 import com.intellij.vcs.git.rpc.GitRepositoryStateDto
 import com.intellij.vcsUtil.VcsUtil
+import git4idea.GitStandardLocalBranch
 import git4idea.GitStandardRemoteBranch
 import git4idea.branch.GitBranchType
 import git4idea.branch.GitTagType
@@ -45,7 +46,8 @@ internal object GitRepositoryToDtoConverter {
       workingTrees = repository.workingTreeHolder.getWorkingTrees(),
       recentBranches = repository.branches.recentCheckoutBranches,
       operationState = convertOperationState(repository),
-      trackingInfo = convertTrackingInfo(repoInfo.branchTrackInfosMap)
+      trackingInfo = convertTrackingInfo(repoInfo.branchTrackInfosMap),
+      upstreamGoneBranches = repoInfo.upstreamGoneBranches.filterIsInstance<GitStandardLocalBranch>().toSet(),
     )
   }
 

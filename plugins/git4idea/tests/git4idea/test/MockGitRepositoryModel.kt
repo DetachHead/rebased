@@ -33,6 +33,7 @@ internal class MockGitRepositoryModel(repo: GitRepository) : GitRepositoryModel 
     override val revision: @NlsSafe GitHash? = repo.currentRevision?.let { GitHash(it) }
     override val localBranches: Set<GitStandardLocalBranch> = repo.info.localBranchesWithHashes.keys
     override val remoteBranches: Set<GitStandardRemoteBranch> = repo.info.remoteBranchesWithHashes.keys.filterIsInstance<GitStandardRemoteBranch>().toSet()
+    override val upstreamGoneBranches: Set<GitStandardLocalBranch> = repo.info.upstreamGoneBranches.filterIsInstance<GitStandardLocalBranch>().toSet()
     override val tags: Set<GitTag>
       get() = throw UnsupportedOperationException()
     override val recentBranches: List<GitStandardLocalBranch> = repo.branches.recentCheckoutBranches

@@ -183,6 +183,7 @@ class GitRepositoriesHolder(
         recentBranches = repositoryStateDto.recentBranches,
         operationState = repositoryStateDto.operationState,
         trackingInfo = repositoryStateDto.trackingInfo,
+        upstreamGoneBranches = repositoryStateDto.upstreamGoneBranches,
       )
 
     private fun getUpdateType(rpcEvent: GitRepositoryEvent): UpdateType? = when (rpcEvent) {
@@ -223,6 +224,7 @@ private class GitRepositoryStateImpl(
   override val recentBranches: List<GitStandardLocalBranch>,
   override val operationState: GitOperationState,
   private val trackingInfo: Map<String, GitStandardRemoteBranch>,
+  override val upstreamGoneBranches: Set<GitStandardLocalBranch>,
 ) : GitRepositoryState {
   override fun getTrackingInfo(branch: GitStandardLocalBranch): GitStandardRemoteBranch? = trackingInfo[branch.name]
 

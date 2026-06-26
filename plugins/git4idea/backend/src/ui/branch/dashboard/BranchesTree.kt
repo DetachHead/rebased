@@ -21,6 +21,7 @@ import com.intellij.openapi.components.service
 import com.intellij.openapi.progress.util.BackgroundTaskUtil
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Disposer
+import com.intellij.openapi.util.NlsSafe
 import com.intellij.openapi.util.TextRange
 import com.intellij.openapi.util.registry.Registry
 import com.intellij.openapi.util.text.StringUtil
@@ -53,8 +54,10 @@ import com.intellij.vcs.git.branch.tree.GitBranchesTreeUtil
 import com.intellij.vcs.git.ui.GitBranchesTreeIconProvider
 import com.intellij.vcs.git.ui.GitIncomingOutgoingUi
 import com.intellij.vcsUtil.VcsImplUtil
+import com.intellij.xml.util.XmlStringUtil
 import git4idea.branch.GitBranchIncomingOutgoingManager
 import git4idea.config.GitVcsSettings
+import git4idea.i18n.GitBundle
 import git4idea.repo.GitRepository
 import git4idea.repo.GitRepositoryManager
 import git4idea.ui.branch.dashboard.BranchesDashboardActions.BranchesTreeActionGroup
@@ -119,7 +122,8 @@ internal class BranchesTreeComponent(project: Project) : DnDAwareTree() {
           descriptor.refInfo.ref,
           current = descriptor.refInfo.isCurrent,
           favorite = descriptor.refInfo.isFavorite,
-          selected = selected
+          selected = selected,
+          upstreamGone = descriptor.refInfo.isUpstreamGone
         )
         is BranchNodeDescriptor.Group, is BranchNodeDescriptor.RemoteGroup -> GitBranchesTreeIconProvider.forGroup()
           is BranchNodeDescriptor.Repository ->
@@ -139,7 +143,10 @@ internal class BranchesTreeComponent(project: Project) : DnDAwareTree() {
 
       if (refInfo is BranchInfo) {
         toolTipText =
-          if (refInfo.isLocalBranch) BranchPresentation.getTooltip(getBranchesTooltipData(refInfo.branchName, BranchesTreeSelection.getSelectedRepositories(value)))
+          if (refInfo.isLocalBranch) {
+            val trackingTooltip = BranchPresentation.getTooltip(getBranchesTooltipData(refInfo.branchName, BranchesTreeSelection.getSelectedRepositories(value)))
+            appendUpstreamGoneNote(trackingTooltip, refInfo.isUpstreamGone)
+          }
           else null
 
         val incomingOutgoingState = refInfo.incomingOutgoingState
@@ -167,6 +174,15 @@ internal class BranchesTreeComponent(project: Project) : DnDAwareTree() {
 
         LinkedBranchDataImpl(presentableRootName, branchName, trackedBranchName)
       }
+    }
+
+    private fun appendUpstreamGoneNote(trackingTooltip: @NlsSafe String?, isUpstreamGone: Boolean): @NlsSafe String? {
+      if (!isUpstreamGone) return trackingTooltip
+      val note = GitBundle.message("branch.upstream.gone.tooltip")
+      if (trackingTooltip.isNullOrBlank()) return note
+      // getTooltip() returns plain text for a single repo and `<tr>` rows for multiple repos
+      val body = if (trackingTooltip.contains("<tr")) "<table>$trackingTooltip</table>" else XmlStringUtil.escapeString(trackingTooltip)
+      return XmlStringUtil.wrapInHtml("$body<br>$note")
     }
 
     override fun paint(g: Graphics) {
