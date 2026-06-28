@@ -15,9 +15,17 @@ jobs:
   homebrew:
     runs-on: macos-latest
     steps:
-    - uses: FriesI23/action-homebrew-bump-cask@561bbe447f8915a50a62e65483061bea1e7f136f
+    - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       with:
-        # Required, custom GitHub access token with the 'public_repo' and 'workflow' scopes
-        token: ${{ secrets.HOMEBREW_TOKEN }}
-        tap: DetachHead/homebrew-tap
-        livecheck: true # https://github.com/DetachHead/rebased/pull/148#discussion_r3105035885
+        repository: DetachHead/homebrew-tap
+        persist-credentials: false
+        submodules: true
+    - name: bump cask pr
+      env:
+        HOMEBREW_GITHUB_API_TOKEN: "${{ secrets.HOMEBREW_TOKEN }}" # zizmor: ignore[secrets-outside-env] TODO
+        version: ${{ github.event.release.tag_name }}
+      run: |
+        cd ./brew/bin
+        ./brew tap detachhead/tap
+        ./brew trust DetachHead/tap
+        ./brew bump-cask-pr rebased --version $version
