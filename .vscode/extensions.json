@@ -1,5 +1,6 @@
 {
     "recommendations": [
-        "bazelbuild.vscode-bazel"
+        "bazelbuild.vscode-bazel",
+        "jetbrains.kotlin-server"
     ]
 }
