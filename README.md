@@ -1,13 +1,15 @@
-# <img src="./community-resources/resources/rebased_16@2x.svg"/> Rebased
-
-A git client based on the IntelliJ platform.
-
-Rebased is an open-source remake of the short-lived [jetbrains git client](https://youtrack.jetbrains.com/issue/IJPL-72504/Make-git-client-a-standalone-app#focus=Comments-27-12868395.0-0).
-It's basically just a JetBrains IDE with all the bundled plugins removed except the git integration, with some additional UI tweaks.
+<div align="center">
+  <img src="./community-resources/resources/rebased.svg" width="100" height="100" />  
+  <h1>Rebased</h1>
+  <p>A git client based on the IntelliJ platform.</p>
+</div>
 
 ![](screenshot.png)
 
-## Why?
+## Motivation
+
+Rebased is an open-source remake of the short-lived [jetbrains git client](https://youtrack.jetbrains.com/issue/IJPL-72504/Make-git-client-a-standalone-app#focus=Comments-27-12868395.0-0).
+It's basically just a JetBrains IDE with all the bundled plugins removed except the git integration, with some additional UI tweaks.
 
 See [this youtrack issue](https://youtrack.jetbrains.com/issue/IJPL-72504/Make-git-client-a-standalone-app) for the many reasons people have been requesting this for almost a decade. At the time of writing, it's the #3 most upvoted open issue on YouTrack.
 
