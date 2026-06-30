@@ -136,7 +136,8 @@ public abstract class MoveFilesOrDirectoriesDialog extends RefactoringDialog {
     return FormBuilder.createFormBuilder().addComponent(myNameLabel)
       .addLabeledComponent(RefactoringBundle.message("move.files.to.directory.label"), myTargetDirectoryField, UIUtil.LARGE_VGAP)
       .addTooltip(RefactoringBundle.message("path.completion.shortcut", shortcutText))
-      .addComponentToRightColumn(myCbSearchForReferences, UIUtil.LARGE_VGAP)
+      // disabled in rebased
+      //.addComponentToRightColumn(myCbSearchForReferences, UIUtil.LARGE_VGAP)
       .getPanel();
   }
 
