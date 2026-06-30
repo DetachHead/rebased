@@ -213,7 +213,8 @@ public abstract class RenamePsiElementProcessorBase {
   }
 
   public boolean showRenamePreviewButton(@NotNull PsiElement psiElement) {
-    return true;
+    // disabled in rebased
+    return false;
   }
 
   /**

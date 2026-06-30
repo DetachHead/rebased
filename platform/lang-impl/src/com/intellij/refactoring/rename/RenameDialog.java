@@ -264,7 +264,7 @@ public class RenameDialog extends RefactoringDialog implements RenameRefactoring
       gbConstraints.gridy = GridBagConstraints.RELATIVE;
       gbConstraints.gridwidth = 2;
       gbConstraints.fill = GridBagConstraints.BOTH;
-      panel.add(scopePanel, gbConstraints);
+      //panel.add(scopePanel, gbConstraints);
     }
     return panel;
   }
@@ -279,7 +279,7 @@ public class RenameDialog extends RefactoringDialog implements RenameRefactoring
     myCbSearchInComments = new NonFocusableCheckBox();
     myCbSearchInComments.setText(RefactoringBundle.getSearchInCommentsAndStringsText());
     myCbSearchInComments.setSelected(true);
-    panel.add(myCbSearchInComments, gbConstraints);
+    //panel.add(myCbSearchInComments, gbConstraints);
 
     gbConstraints.insets = JBUI.insets(0, UIUtil.DEFAULT_HGAP, 4, 0);
     gbConstraints.gridwidth = GridBagConstraints.REMAINDER;
@@ -289,7 +289,7 @@ public class RenameDialog extends RefactoringDialog implements RenameRefactoring
     myCbSearchTextOccurrences = new NonFocusableCheckBox();
     myCbSearchTextOccurrences.setText(RefactoringBundle.getSearchForTextOccurrencesText());
     myCbSearchTextOccurrences.setSelected(true);
-    panel.add(myCbSearchTextOccurrences, gbConstraints);
+    //panel.add(myCbSearchTextOccurrences, gbConstraints);
     if (!TextOccurrencesUtil.isSearchTextOccurrencesEnabled(myPsiElement)) {
       myCbSearchTextOccurrences.setEnabled(false);
       myCbSearchTextOccurrences.setSelected(false);
@@ -320,7 +320,7 @@ public class RenameDialog extends RefactoringDialog implements RenameRefactoring
       JCheckBox checkBox = new NonFocusableCheckBox();
       checkBox.setText(factory.getOptionName());
       checkBox.setSelected(factory.isEnabled());
-      panel.add(checkBox, gbConstraints);
+      //panel.add(checkBox, gbConstraints);
       myAutoRenamerFactories.put(factory, checkBox);
     }
   }
@@ -394,7 +394,9 @@ public class RenameDialog extends RefactoringDialog implements RenameRefactoring
   }
 
   protected boolean isSearchForTextOccurrencesEnabled() {
-    return myCbSearchTextOccurrences.isEnabled();
+    // disabled in rebased
+    //return myCbSearchTextOccurrences.isEnabled();
+    return false;
   }
 
   public RenameProcessor createRenameProcessorEx(@NotNull String newName) {
@@ -426,9 +428,10 @@ public class RenameDialog extends RefactoringDialog implements RenameRefactoring
     return myNameSuggestionsField;
   }
 
-  public JCheckBox getCbSearchInComments() {
-    return myCbSearchInComments;
-  }
+  // disabled in rebased
+  //public JCheckBox getCbSearchInComments() {
+  //  return myCbSearchInComments;
+  //}
 
   private static @NlsContexts.DialogTitle String getRefactoringName() {
     return RefactoringBundle.message("rename.title");
