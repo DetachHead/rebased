@@ -15,23 +15,25 @@ public final class RefactoringSettings implements PersistentStateComponent<Refac
     return ApplicationManager.getApplication().getService(RefactoringSettings.class);
   }
 
-  public boolean SAFE_DELETE_WHEN_DELETE = true;
-  public boolean SAFE_DELETE_SEARCH_IN_COMMENTS = true;
-  public boolean SAFE_DELETE_SEARCH_IN_NON_JAVA = true;
+  // all rename refactoring stuff is disabled in rebased. only the rename itself is supported.
 
-  public boolean RENAME_SEARCH_IN_COMMENTS_FOR_FILE = true;
-  public boolean RENAME_SEARCH_FOR_TEXT_FOR_FILE = true;
+  public boolean SAFE_DELETE_WHEN_DELETE = false;
+  public boolean SAFE_DELETE_SEARCH_IN_COMMENTS = false;
+  public boolean SAFE_DELETE_SEARCH_IN_NON_JAVA = false;
 
-  public boolean RENAME_SEARCH_FOR_REFERENCES_FOR_FILE = true;
-  public boolean RENAME_SEARCH_FOR_REFERENCES_FOR_DIRECTORY = true;
+  public boolean RENAME_SEARCH_IN_COMMENTS_FOR_FILE = false;
+  public boolean RENAME_SEARCH_FOR_TEXT_FOR_FILE = false;
 
-  public boolean MOVE_SEARCH_FOR_REFERENCES_FOR_FILE = true;
+  public boolean RENAME_SEARCH_FOR_REFERENCES_FOR_FILE = false;
+  public boolean RENAME_SEARCH_FOR_REFERENCES_FOR_DIRECTORY = false;
 
-  public boolean ASK_FOR_RENAME_DECLARATION_WHEN_RENAME_FILE = true;
+  public boolean MOVE_SEARCH_FOR_REFERENCES_FOR_FILE = false;
 
-  public boolean RENAME_DECLARATION_WHEN_RENAME_FILE = true;
+  public boolean ASK_FOR_RENAME_DECLARATION_WHEN_RENAME_FILE = false;
 
-  public boolean RENAME_SHOW_AUTOMATIC_RENAMING_DIALOG = true;
+  public boolean RENAME_DECLARATION_WHEN_RENAME_FILE = false;
+
+  public boolean RENAME_SHOW_AUTOMATIC_RENAMING_DIALOG = false;
 
   @Override
   public RefactoringSettings getState() {
