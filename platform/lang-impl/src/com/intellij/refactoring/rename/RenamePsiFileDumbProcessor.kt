@@ -86,13 +86,14 @@ private class PsiFileDumbRenameDialog(project: Project, element: PsiElement, nam
     return wrapper
   }
 
-  override fun createCheckboxes(panel: JPanel, gbConstraints: GridBagConstraints) {
-    super.createCheckboxes(panel, gbConstraints)
-    panel.components.filterIsInstance<JCheckBox>().forEach { checkbox ->
-      checkbox.isSelected = false
-      checkbox.isEnabled = false
-    }
-  }
+  // disabled in rebased
+  //override fun createCheckboxes(panel: JPanel, gbConstraints: GridBagConstraints) {
+  //  super.createCheckboxes(panel, gbConstraints)
+  //  panel.components.filterIsInstance<JCheckBox>().forEach { checkbox ->
+  //    checkbox.isSelected = false
+  //    checkbox.isEnabled = false
+  //  }
+  //}
 
   override fun getSearchForReferences(): Boolean {
     return false
@@ -108,7 +109,8 @@ private class PsiFileDumbRenameDialog(project: Project, element: PsiElement, nam
   }
 
   override fun hasPreviewButton(): Boolean {
-    return true
+    // disabled in rebased
+    return false
   }
 
   override fun isToSearchForTextOccurrencesForRename(): Boolean {

@@ -214,11 +214,12 @@ public abstract class RefactoringDialog extends DialogWrapper implements Possibl
   }
 
   protected boolean hasHelpAction() {
-    return true;
+    // disabled in rebased, as it mainly discusses refactoring which we disable. we only use this dialog for renaming
+    return false;
   }
 
   protected boolean hasPreviewButton() {
-    return true;
+    return false;
   }
 
   @Override
@@ -262,6 +263,12 @@ public abstract class RefactoringDialog extends DialogWrapper implements Possibl
       if (SystemInfo.isMac) {
         putValue(FOCUSED_ACTION, Boolean.TRUE);
       }
+    }
+
+    @Override
+    public void setEnabled(boolean newValue) {
+      // refactoring is disabled in rebased so preview is useless, so we always set it to false
+      super.setEnabled(false);
     }
 
     @Override

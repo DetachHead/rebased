@@ -40,7 +40,7 @@ public abstract class RenameWithOptionalReferencesDialog extends RenameDialog {
     gbConstraints.fill = GridBagConstraints.BOTH;
     myCbSearchForReferences = new NonFocusableCheckBox(RefactoringBundle.message("search.for.references"));
     myCbSearchForReferences.setSelected(getSearchForReferences());
-    panel.add(myCbSearchForReferences, gbConstraints);
+    //panel.add(myCbSearchForReferences, gbConstraints);
   }
 
   @Override
