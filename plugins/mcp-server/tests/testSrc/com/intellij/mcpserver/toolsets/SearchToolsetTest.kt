@@ -82,9 +82,6 @@ class SearchToolsetTest : McpToolsetTestBase() {
     val startColumn: Int? = null,
     val endLine: Int? = null,
     val endColumn: Int? = null,
-    val startOffset: Int? = null,
-    val endOffset: Int? = null,
-    val lineText: String? = null,
   )
 
   @Serializable
@@ -148,9 +145,6 @@ class SearchToolsetTest : McpToolsetTestBase() {
       assertThat(item?.startColumn).isNull()
       assertThat(item?.endLine).isNull()
       assertThat(item?.endColumn).isNull()
-      assertThat(item?.startOffset).isNull()
-      assertThat(item?.endOffset).isNull()
-      assertThat(item?.lineText).isNull()
     }
   }
 
@@ -252,30 +246,8 @@ class SearchToolsetTest : McpToolsetTestBase() {
   }
 
   @Test
-  fun search_text_returns_snippet_details() = runBlocking {
-    val query = "Search Everywhere file content"
-    testMcpTool(
-      SearchToolset::search_text.name,
-      buildJsonObject {
-        put("q", JsonPrimitive(query))
-      }
-    ) { actualResult ->
-      val result = parseResult(actualResult.textContent.text)
-      val item = result.items.firstOrNull { it.filePath.contains(searchFile.name) }
-      assertThat(item).isNotNull
-      assertThat(item?.startLine).isNotNull
-      assertThat(item?.startColumn).isNotNull
-      assertThat(item?.endLine).isNotNull
-      assertThat(item?.endColumn).isNotNull
-      assertThat(item?.startOffset).isNotNull
-      assertThat(item?.endOffset).isNotNull
-      assertThat(item?.lineText).contains("||")
-      assertThat(item?.lineText).contains("Search Everywhere")
-    }
-  }
-
-  @Test
   fun search_text_returns_match_coordinates() = runBlocking {
+    awaitExternalChangesAndIndexing(project)
     val query = "Search Everywhere file content"
     testMcpTool(
       SearchToolset::search_text.name,
@@ -289,14 +261,13 @@ class SearchToolsetTest : McpToolsetTestBase() {
       assertThat(item?.startLine).isEqualTo(1)
       assertThat(item?.endLine).isEqualTo(1)
       assertThat(item?.startColumn).isEqualTo(1)
-      assertThat(item?.startOffset).isEqualTo(0)
-      assertThat(item?.endOffset).isEqualTo(query.length)
       assertThat(item?.endColumn).isEqualTo(query.length + 1)
     }
   }
 
   @Test
   fun search_regex_returns_match_coordinates() = runBlocking {
+    awaitExternalChangesAndIndexing(project)
     testMcpTool(
       SearchToolset::search_regex.name,
       buildJsonObject {
@@ -310,8 +281,6 @@ class SearchToolsetTest : McpToolsetTestBase() {
       assertThat(item?.endLine).isNotNull
       assertThat(item?.startColumn).isNotNull
       assertThat(item?.endColumn).isNotNull
-      assertThat(item?.startOffset).isNotNull
-      assertThat(item?.endOffset).isNotNull
     }
   }
 
@@ -406,7 +375,6 @@ class SearchToolsetTest : McpToolsetTestBase() {
       val item = result.items.firstOrNull { it.filePath.contains(symbolFileInSubdir1.name) }
       assertThat(item).isNotNull
       assertThat(item?.startLine).isNotNull
-      assertThat(item?.lineText).contains(query)
     }
   }
 

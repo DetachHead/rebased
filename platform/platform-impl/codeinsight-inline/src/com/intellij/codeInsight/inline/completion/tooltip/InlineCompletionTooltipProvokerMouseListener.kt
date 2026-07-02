@@ -9,22 +9,44 @@ import java.awt.event.MouseEvent
 
 internal class InlineCompletionTooltipProvokerMouseListener : EditorMouseListener {
   override fun mousePressed(event: EditorMouseEvent) {
-    val editor = event.editor
-    if (event.isConsumed) {
+    if (!isAppropriateRightClick(event)) {
       return
     }
-    if (event.mouseEvent.button != MouseEvent.BUTTON3) { // only a right-click
+    val session = InlineCompletionSession.getOrNull(event.editor) ?: return
+
+    event.consume()
+
+    if (InlineCompletionTooltip.isShown(session)) {
+      InlineCompletionTooltip.hide(session)
+    }
+    else {
+      InlineCompletionTooltip.show(session)
+    }
+  }
+
+  override fun mouseReleased(event: EditorMouseEvent) {
+    if (!isAppropriateRightClick(event)) {
       return
+    }
+    // suppress context menu popup on Windows/Linux (popup trigger is on release there)
+    event.consume()
+  }
+
+  private fun isAppropriateRightClick(event: EditorMouseEvent): Boolean {
+    val editor = event.editor
+    if (event.isConsumed) {
+      return false
+    }
+    if (event.mouseEvent.button != MouseEvent.BUTTON3) { // only a right-click
+      return false
     }
     val session = InlineCompletionSession.getOrNull(editor)
     if (session == null || !session.context.isCurrentlyDisplaying()) {
-      return // no inline completion is showing
+      return false // no inline completion is showing
     }
     if (!session.context.state.containsPoint(event.mouseEvent.point)) {
-      return
+      return false
     }
-
-    event.consume()
-    InlineCompletionTooltip.show(session)
+    return true
   }
 }

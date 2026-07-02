@@ -1,10 +1,163 @@
 # Jewel Release Notes
 
-## v0.34 (2026-02-17)
+## v0.37 (2026-06-02)
 
 | Min supported IJP versions | Compose Multiplatform version |
 |----------------------------|-------------------------------|
-| 2025.3.3, 2026.1 EAP       | 1.10.0                        |
+| 2026.1.3                   | 1.10.0                        |
+
+### ⚠️ Important Changes
+
+* **[JEWEL-1212](https://youtrack.jetbrains.com/issue/JEWEL-1212)** introduces a behavioural breaking change for list-based combo boxes:
+  * The default sizing behaviour for `ListComboBox`, `EditableListComboBox`, and `SpeedSearchableComboBox` popup has changed from
+    pixel-based to row-count-based. Popups now default to displaying 10 rows.
+  * You can adjust this global default via `ComboBoxMetrics.maxPopupRowCount` or override it per component.
+  * Note that `ComboBoxMetrics.maxPopupHeight` is no longer used as a fallback for these list-based wrappers when their internal
+    `maxPopupHeight` is unspecified. It now only applies to standard `ComboBox` components using custom `popupContent`.
+  * If your implementation requires a fixed pixel height rather than dynamic row-based sizing, you must continue passing a value to the
+    `maxPopupHeight` parameter at the component level.
+* **[JEWEL-1228](https://youtrack.jetbrains.com/issue/JEWEL-1228)** `InlineBanner` no longer fills the available width by default; it now
+  wraps its content instead. If you want banners to span the full width, be sure to add
+  `modifier = Modifier.fillMaxWidth()` ([#3390](https://github.com/JetBrains/intellij-community/pull/3390))
+
+### New features
+*
+* **[JEWEL-368](https://youtrack.jetbrains.com/issue/JEWEL-368)** Added `Modifier.clientRegion` to simplify creating a custom title
+  bar ([#3362](https://github.com/JetBrains/intellij-community/pull/3362))
+* **[JEWEL-921](https://youtrack.jetbrains.com/issue/JEWEL-921)** Made several modifiers more performant, migrating them from the old
+  `composed()` to the newer `Modifier.Node` API ([#3423](https://github.com/JetBrains/intellij-community/pull/3423))
+  * `trackWindowActivation`
+  * `trackComponentActivation`
+  * `trackActivation`
+  * `onActivated`
+  * `border`
+* **[JEWEL-938](https://youtrack.jetbrains.com/issue/JEWEL-938)** Added `SingleSelectionLazyColumn` and `MultiSelectionLazyColumn` with
+  dedicated typed state and remember APIs ([#3450](https://github.com/JetBrains/intellij-community/pull/3450))
+  * These model explicitly the selection mode (single vs multiple) and replace the plain `SelectableLazyColumn` + selection type parameter
+  * We also added initial selection support (`initialSelectedKey`/
+    `initialSelectedKeys`) ([#3450](https://github.com/JetBrains/intellij-community/pull/3450))
+* **[JEWEL-1024](https://youtrack.jetbrains.com/issue/JEWEL-1024)** Added `dismissOnLoseFocus` property to `SpeedSearchArea`, allowing users
+  to choose if they want to keep the input visible on focus loss ([#3361](https://github.com/JetBrains/intellij-community/pull/3361))
+  * This is important for when you want to use `SpeedSearch` as a filter
+  * You can filter collections using `SpeedSearchMatcher` ([#3361](https://github.com/JetBrains/intellij-community/pull/3361))
+  * Check the `.filter()` extension functions available in the `org.jetbrains.jewel.foundation.search` package
+* **[JEWEL-1131](https://youtrack.jetbrains.com/issue/JEWEL-1131)** Added the new `Badge` component, which is designed to highlight
+  promotions, stability level, and new features ([#3365](https://github.com/JetBrains/intellij-community/pull/3365))
+* **[JEWEL-1184](https://youtrack.jetbrains.com/issue/JEWEL-1184)** Added a variant of both `DefaultSplitButton` and `OutlinedSplitButton`
+  components that let you handle the secondary click however you need to, instead of forcing you to use a predefined
+  `Popup` ([#3408](https://github.com/JetBrains/intellij-community/pull/3408))
+* **[JEWEL-1228](https://youtrack.jetbrains.com/issue/JEWEL-1228)** Now it's possible to customize the corner size and the padding of the
+  `InlineBanner` components ([#3390](https://github.com/JetBrains/intellij-community/pull/3390))
+
+### Bug fixes
+*
+* **[JEWEL-368](https://youtrack.jetbrains.com/issue/JEWEL-368)** Fixed decorated window's custom title bar mouse dragging not moving the
+  window sometimes ([#3362](https://github.com/JetBrains/intellij-community/pull/3362))
+* **[JEWEL-938](https://youtrack.jetbrains.com/issue/JEWEL-938)** Fixed `SelectableLazyColumn` multi-selection edge-case behaviour for
+  non-contiguous selection extension with keyboard ([#3450](https://github.com/JetBrains/intellij-community/pull/3450))
+* **[JEWEL-1024](https://youtrack.jetbrains.com/issue/JEWEL-1024)** Fixed an issue in `SelectableLazyColumn`s where it was not triggering
+  the `onSelectedIndexesChange` lambda when the selection is changed by
+  `SpeedSearch` ([#3361](https://github.com/JetBrains/intellij-community/pull/3361))
+* **[JEWEL-1148](https://youtrack.jetbrains.com/issue/JEWEL-1148)** Fixed a memory leak in
+  `LazyTree` ([#3468](https://github.com/JetBrains/intellij-community/pull/3468))
+  * It used to retain references to each and every single entry in the list
+  * This greatly improves memory usage and CPU usage for the component
+* **[JEWEL-1256](https://youtrack.jetbrains.com/issue/JEWEL-1256)** Fix incremental parsing for Markdown tables when the user is typing them
+  in editor mode ([#3428](https://github.com/JetBrains/intellij-community/pull/3428))
+* **[JEWEL-1258](https://youtrack.jetbrains.com/issue/JEWEL-1258)** Fixed missing `remember` keys in `DefaultMarkdownBlockRenderer` and
+  `GitHubTableBlockRenderer` that caused stale values for `onUrlClick` callbacks and `enabled` state when they
+  changed ([#3432](https://github.com/JetBrains/intellij-community/pull/3432))
+* **[JEWEL-1276](https://youtrack.jetbrains.com/issue/JEWEL-1276)** Fixed focusable popups stealing key-window status on macOS, which caused
+  the parent window title bar to appear inactive when a popup was shown via
+  `JDialogRenderer` ([#3476](https://github.com/JetBrains/intellij-community/pull/3476))
+  * This only affects standalone mode with Jewel native popups enabled (see `JewelFlags`)
+* **[JEWEL-1286](https://youtrack.jetbrains.com/issue/JEWEL-1286)** Fixed two Markdown rendering issues
+  * `MarkdownStyling.dark` now uses the correct colours for `BlockQuote` and
+    `HtmlBlock` ([#3501](https://github.com/JetBrains/intellij-community/pull/3501))
+  * `MarkdownStyling.dark` now derives its own `inlinesStyling` from the correct
+    `baseTextStyle` ([#3501](https://github.com/JetBrains/intellij-community/pull/3501))
+* **[JEWEL-1293](https://youtrack.jetbrains.com/issue/JEWEL-1293)** Fixed `SimpleListItem` colours in dark mode to use the dark IntelliJ UI
+  palette ([#3500](https://github.com/JetBrains/intellij-community/pull/3500))
+* **[JEWEL-1303](https://youtrack.jetbrains.com/issue/JEWEL-1303)** Fixed two potential sources of infinite recompositions:
+  * `TextStyle` instances in `IntUiTypography` were being re-allocated on every recomposition instead of being
+    cached ([#3486](https://github.com/JetBrains/intellij-community/pull/3486))
+  * `StandalonePainterHintsProvider` and `BridgePainterHintsProvider`/`BridgeMessageResourceResolver` were being re-allocated on every
+    recomposition of `IntUiTheme` and `SwingBridgeTheme` ([#3486](https://github.com/JetBrains/intellij-community/pull/3486))
+
+### Deprecated API
+
+* **[JEWEL-938](https://youtrack.jetbrains.com/issue/JEWEL-938)** Deprecated legacy  `SelectableLazyColumn` entry points in favor of explicit
+  single/multi selection lazy column APIs ([#3450](https://github.com/JetBrains/intellij-community/pull/3450))
+* **[JEWEL-938](https://youtrack.jetbrains.com/issue/JEWEL-938)** Deprecated legacy 2-arg
+  `rememberSelectableLazyListState(...)` ([#3450](https://github.com/JetBrains/intellij-community/pull/3450))
+  * Use `rememberSingleSelectionLazyListState` and `rememberMultiSelectionLazyListState`
+    APIs instead
+* **[JEWEL-1228](https://youtrack.jetbrains.com/issue/JEWEL-1228)** `BannerMetrics` constructor has been deprecated in favor of the new
+  constructor that takes `borderWidth`, `cornerSize` and
+  `paddingValues` ([#3390](https://github.com/JetBrains/intellij-community/pull/3390))
+  * `BannerMetrics.Companion.default(borderWidth: Dp)` has been deprecated in favor of
+    `BannerMetrics.Companion.default(borderWidth: Dp, cornerSize: CornerSize, paddingValues: PaddingValues)`
+
+## v0.36 (2026-04-27)
+
+| Min supported IJP versions | Compose Multiplatform version |
+|----------------------------|-------------------------------|
+| 2025.3.4, 2026.1.1         | 1.10.0                        |
+
+### ⚠️ Important Changes
+
+* [**JEWEL-1024**](https://youtrack.jetbrains.com/issue/JEWEL-1024) Added 'dismissOnLoseFocus' property to SpeedSearchArea, allowing users to choose if they want to keep the input visible on lose focus ([#3361](https://github.com/JetBrains/intellij-community/pull/3361))
+  * This is important for cases that you want to use SpeedSearch as a filter
+
+
+### New features
+
+* [**JEWEL-1024**](https://youtrack.jetbrains.com/issue/JEWEL-1024) Added support for filtering Collections using SpeedSearchMatcher ([#3361](https://github.com/JetBrains/intellij-community/pull/3361))
+  * Check the '.filter()' extension functions available in the 'org.jetbrains.jewel.foundation.search' package
+
+* [**JEWEL-1069**](https://youtrack.jetbrains.com/issue/JEWEL-1069) Added a new button variant called `SlimButton`, which has both `DefaultSlimButton` and `OutlinedSlimButton` styles ([#3360](https://github.com/JetBrains/intellij-community/pull/3360))
+
+### Bug fixes
+
+* [**JEWEL-1024**](https://youtrack.jetbrains.com/issue/JEWEL-1024) Fixed an issue that was not triggering the 'onSelectedIndexesChange' call when the selection gets changed by the SpeedSearch ([#3361](https://github.com/JetBrains/intellij-community/pull/3361))
+* [**JEWEL-1223**](https://youtrack.jetbrains.com/issue/JEWEL-1223) "java.lang.IllegalArgumentException: Header cannot be empty" when editing an HTML table ([#3382](https://github.com/JetBrains/intellij-community/pull/3382))
+* [**JEWEL-1258**](https://youtrack.jetbrains.com/issue/JEWEL-1258) Fixed missing `remember` keys in `DefaultMarkdownBlockRenderer` and `GitHubTableBlockRenderer` that caused stale `onUrlClick` callbacks and `enabled` state when these values changed ([#3432](https://github.com/JetBrains/intellij-community/pull/3432))
+* [**JEWEL-1284**](https://youtrack.jetbrains.com/issue/JEWEL-1284) Fixed `SelectableLazyColumn` selecting items on click and on initial focus even when `SelectionMode.None` was set ([#3446](https://github.com/JetBrains/intellij-community/pull/3446))
+* [**JEWEL-368**](https://youtrack.jetbrains.com/issue/JEWEL-368) Fixed custom title bar mouse event (drag/press) not moving the window some times ([#3362](https://github.com/JetBrains/intellij-community/pull/3362))
+* [**JEWEL-921**](https://youtrack.jetbrains.com/issue/JEWEL-921) A series of modifiers are now more performant, since they now use `Modifier.Node` API: ([#3423](https://github.com/JetBrains/intellij-community/pull/3423))
+  * `trackWindowActivation`
+  * `trackComponentActivation`
+  * `trackActivation`
+  * `onActivated`
+  * `border`
+* [**JEWEL-1303**](https://youtrack.jetbrains.com/issue/JEWEL-1303) Cache instances to avoid repeated allocations during recomposition ([#3486](https://github.com/JetBrains/intellij-community/pull/3486))
+
+### Other
+
+* [**JEWEL-1297**](https://youtrack.jetbrains.com/issue/JEWEL-1297) Update Jewel release flow and Metalava API compatibility checks ([#3465](https://github.com/JetBrains/intellij-community/pull/3465))
+
+## v0.35 (2026-03-30)
+
+| Min supported IJP versions | Compose Multiplatform version |
+|----------------------------|-------------------------------|
+| 2025.3.3, 2026.1.1         | 1.10.0                        |
+
+### New features
+
+* **JEWEL-1069** Added a new button variant called `SlimButton`, which has both `DefaultSlimButton` and `OutlinedSlimButton` styles ([#3360](https://github.com/JetBrains/intellij-community/pull/3360))
+
+### Bug fixes
+
+* **JEWEL-1223** [JEWEL-1223](https://youtrack.jetbrains.com/issue/JEWEL-1223) "java.lang.IllegalArgumentException: Header cannot be empty" when editing an HTML table ([#3382](https://github.com/JetBrains/intellij-community/pull/3382))
+* **JEWEL-1272** [JEWEL-1272](https://youtrack.jetbrains.com/issue/JEWEL-1272) Fix FencedCodeBlock Binary Compatibility Crash ([#3437](https://github.com/JetBrains/intellij-community/pull/3437))
+* **JEWEL-1280** [JEWEL-1280](https://youtrack.jetbrains.com/issue/JEWEL-1280) Jewel painter: catch Exception instead of RuntimeException in tryLoadingResource ([#3443](https://github.com/JetBrains/intellij-community/pull/3443))
+* **JEWEL-1284** Fixed `SelectableLazyColumn` selecting items on click and on initial focus even when `SelectionMode.None` was set ([#3446](https://github.com/JetBrains/intellij-community/pull/3446))
+
+## v0.34 (2026-02-17)
+
+| Min supported IJP versions | Compose Multiplatform version | Standalone Version   |
+|----------------------------|-------------------------------|----------------------|
+| 2025.3.3, 2026.1 EAP       | 1.10.0                        | 0.34.0-253.31033.149 |
 
 ### ⚠️ Important Changes
 
@@ -35,9 +188,9 @@
 
 ## v0.33 (2025-12-19)
 
-| Min supported IJP versions | Compose Multiplatform version |
-|----------------------------|-------------------------------|
-| 2025.3.2, 2026.1 EAP       | 1.10.0-rc01                   |
+| Min supported IJP versions | Compose Multiplatform version | Standalone Version |
+|----------------------------|-------------------------------|--------------------|
+| 2025.3.2, 2026.1 EAP       | 1.10.0-rc01                   | 0.33.0-253.29795   |
 
 Last release of 2025, with plenty of fixes and new features. See you in 2026! 👋
 
@@ -107,9 +260,9 @@ Last release of 2025, with plenty of fixes and new features. See you in 2026! �
 
 ## v0.32.1 (2025-12-01)
 
-| Min supported IJP versions | Compose Multiplatform version |
-|----------------------------|-------------------------------|
-| 2025.3, (2026.1)           | 1.10.0-alpha01                |
+| Min supported IJP versions | Compose Multiplatform version | Standalone Version   |
+|----------------------------|-------------------------------|----------------------|
+| 2025.3, (2026.1)           | 1.10.0-alpha01                | 0.32.1-253.28294.285 |
 
 Hotfix release for an issue introduced by CMP 1.10.0-alpha01.
 
@@ -132,9 +285,9 @@ Hotfix release for an issue introduced by CMP 1.10.0-alpha01.
 
 ## v0.32 (2025-11-25)
 
-| Min supported IJP versions | Compose Multiplatform version |
-|----------------------------|-------------------------------|
-| 2025.3, (2026.1)           | 1.10.0-alpha01                |
+| Min supported IJP versions | Compose Multiplatform version | Standalone Version   |
+|----------------------------|-------------------------------|----------------------|
+| 2025.3, (2026.1)           | 1.10.0-alpha01                | 0.32.0-253.28294.205 |
 
 This is a small release, not too much going on. But we still shipped a big improvement to Markdown rendering, which now supports some basic HTML too!
 
@@ -165,9 +318,9 @@ This is a small release, not too much going on. But we still shipped a big impro
 
 ## v0.31 (2025-10-14)
 
-| Min supported IJP versions | Compose Multiplatform version |
-|----------------------------|-------------------------------|
-| 2025.2.4, 2025.3 EAP       | 1.9.0                         |
+| Min supported IJP versions | Compose Multiplatform version | Standalone Version                    |
+|----------------------------|-------------------------------|---------------------------------------|
+| 2025.2.4, 2025.3 EAP       | 1.9.0                         | 0.31.0-253.28086.58, 0.31.0-252.27409 |
 
 ### ⚠️ Important Changes
 
@@ -216,9 +369,9 @@ This is a small release, not too much going on. But we still shipped a big impro
 
 ## v0.30 (2025-09-04)
 
-| Supported IJP versions | Compose Multiplatform version |
-|------------------------|-------------------------------|
-| 2025.2.2+, 2025.1.5+   | 1.9.0-beta03                  |
+| Supported IJP versions | Compose Multiplatform version | Standalone Version                 |
+|------------------------|-------------------------------|------------------------------------|
+| 2025.2.2+, 2025.1.5+   | 1.9.0-beta03                  | 0.30.0-252.26252, 0.30.0-251.28458 |
 
 ### ⚠️ Important Changes
 
@@ -323,9 +476,9 @@ This is a small release, not too much going on. But we still shipped a big impro
 
 ## v0.29 (2025-07-22)
 
-| Supported IJP versions | Compose Multiplatform version |
-|------------------------|-------------------------------|
-| 2025.2.1+, 2025.1.4.1+ | 1.8.2                         |
+| Supported IJP versions | Compose Multiplatform version | Standalone Version                 |
+|------------------------|-------------------------------|------------------------------------|
+| 2025.2.1+, 2025.1.4.1+ | 1.8.2                         | 0.29.0-252.24604, 0.29.0-251.27828 |
 
 ### ⚠️ Important Changes
 
@@ -425,9 +578,9 @@ This is a small release, not too much going on. But we still shipped a big impro
 
 ## v0.28 (2025-05-16)
 
-| Supported IJP versions             | Compose Multiplatform version |
-|------------------------------------|-------------------------------|
-| 2025.2 EAP1+, 2025.1.1+, 2024.3.6+ | 1.8.0-alpha04                 |
+| Supported IJP versions             | Compose Multiplatform version | Standalone Version                                                     |
+|------------------------------------|-------------------------------|------------------------------------------------------------------------|
+| 2025.2 EAP1+, 2025.1.1+, 2024.3.6+ | 1.8.0-alpha04                 | 0.28.0-243.27100, 0.28.0-251.26137, 0.28.0-252.12274, 0.28.0-252.15920 |
 
 > [!IMPORTANT]
 > Jewel 0.28 is the first Jewel version to be published since the migration into the IJP codebase.

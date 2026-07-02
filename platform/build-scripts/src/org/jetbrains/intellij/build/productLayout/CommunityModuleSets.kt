@@ -239,6 +239,14 @@ object CommunityModuleSets {
   }
 
   /**
+   * Language Server Protocol (LSP) support modules.
+   */
+  fun lsp(): ModuleSet = moduleSet("lsp") {
+    embeddedModule("intellij.platform.lsp")
+    embeddedModule("intellij.platform.lsp.impl")
+  }
+
+  /**
    * XML support modules.
    */
   fun xml(): ModuleSet = moduleSet("xml", alias = "com.intellij.modules.xml") {
@@ -401,8 +409,10 @@ object CommunityModuleSets {
     module("intellij.libraries.jspecify")
 
     moduleSet(vcs())
+    moduleSet(lsp())
     moduleSet(xml())
     module("intellij.platform.structuralSearch")
+    embeddedModule("intellij.libraries.batik")
 
     // Note: rd.common is intentionally NOT included in ide.common
     // Reason: Rider uses custom module loading mode due to early backend startup requirements.

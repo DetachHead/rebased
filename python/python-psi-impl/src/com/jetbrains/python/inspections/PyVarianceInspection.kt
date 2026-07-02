@@ -20,13 +20,13 @@ import com.jetbrains.python.psi.impl.resolveCalleeClass
 import com.jetbrains.python.psi.types.PyExpectedVarianceJudgment
 import com.jetbrains.python.psi.types.PyInferredVarianceJudgment
 import com.jetbrains.python.psi.types.PyTypeChecker
+import com.jetbrains.python.psi.types.PyTypeParameterType.Variance
+import com.jetbrains.python.psi.types.PyTypeParameterType.Variance.BIVARIANT
+import com.jetbrains.python.psi.types.PyTypeParameterType.Variance.CONTRAVARIANT
+import com.jetbrains.python.psi.types.PyTypeParameterType.Variance.COVARIANT
+import com.jetbrains.python.psi.types.PyTypeParameterType.Variance.INFER_VARIANCE
+import com.jetbrains.python.psi.types.PyTypeParameterType.Variance.INVARIANT
 import com.jetbrains.python.psi.types.PyTypeVarType
-import com.jetbrains.python.psi.types.PyTypeVarType.Variance
-import com.jetbrains.python.psi.types.PyTypeVarType.Variance.BIVARIANT
-import com.jetbrains.python.psi.types.PyTypeVarType.Variance.CONTRAVARIANT
-import com.jetbrains.python.psi.types.PyTypeVarType.Variance.COVARIANT
-import com.jetbrains.python.psi.types.PyTypeVarType.Variance.INFER_VARIANCE
-import com.jetbrains.python.psi.types.PyTypeVarType.Variance.INVARIANT
 import com.jetbrains.python.psi.types.TypeEvalContext
 
 
@@ -34,8 +34,11 @@ class PyVarianceInspection : PyInspection() {
 
   override fun buildVisitor(holder: ProblemsHolder, isOnTheFly: Boolean, session: LocalInspectionToolSession): PsiElementVisitor {
     val context = PyInspectionVisitor.getContext(session)
+    if (context.usesExternalTypeEngine) {
+      return PsiElementVisitor.EMPTY_VISITOR
+    }
     val typeExpressionVisitor = TypeExpressionVisitor(holder, context)
-    return PotentialLocationsVisitor(typeExpressionVisitor, holder, PyInspectionVisitor.getContext(session))
+    return PotentialLocationsVisitor(typeExpressionVisitor, holder, context)
   }
 
   private class PotentialLocationsVisitor(
@@ -127,6 +130,7 @@ class PyVarianceInspection : PyInspection() {
     context: TypeEvalContext,
   ) {
     val varianceExpected = PyExpectedVarianceJudgment.getExpectedVariance(node, context) ?: return
+    if (varianceExpected == BIVARIANT) return
     val varianceInferred = PyInferredVarianceJudgment.getInferredVariance(node, context) ?: return
 
     if (!isCompatibleWith(varianceInferred, varianceExpected)) {

@@ -1,6 +1,11 @@
+@file:Suppress("DuplicatedCode")
+
 package com.intellij.mcpserver.toolsets.general
 
+import com.intellij.codeInsight.TargetElementUtil
 import com.intellij.ide.actions.searcheverywhere.FoundItemDescriptor
+import com.intellij.ide.util.EditSourceUtil
+import com.intellij.ide.util.PsiNavigationSupport
 import com.intellij.ide.util.gotoByName.ChooseByNameModel
 import com.intellij.ide.util.gotoByName.ChooseByNameViewModel
 import com.intellij.ide.util.gotoByName.ContributorsBasedGotoByModel
@@ -17,21 +22,28 @@ import com.intellij.navigation.PsiElementNavigationItem
 import com.intellij.openapi.application.readAction
 import com.intellij.openapi.components.serviceAsync
 import com.intellij.openapi.fileEditor.FileDocumentManager
+import com.intellij.openapi.fileEditor.OpenFileDescriptor
 import com.intellij.openapi.progress.EmptyProgressIndicator
 import com.intellij.openapi.progress.ProgressManager
 import com.intellij.openapi.progress.blockingContextToIndicator
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.util.Segment
+import com.intellij.openapi.util.TextRange
 import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.openapi.vfs.VirtualFile
+import com.intellij.openapi.vfs.toNioPathOrNull
 import com.intellij.platform.ide.progress.withBackgroundProgress
 import com.intellij.psi.PsiElement
+import com.intellij.psi.search.DelegatingGlobalSearchScope
 import com.intellij.psi.search.GlobalSearchScope
 import com.intellij.psi.search.GlobalSearchScopes
+import com.intellij.psi.util.PsiUtilCore
 import com.intellij.util.Processor
 import com.intellij.util.asDisposable
+import com.intellij.util.concurrency.annotations.RequiresReadLock
 import com.intellij.util.indexing.FindSymbolParameters
+import org.jetbrains.annotations.ApiStatus
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.withTimeoutOrNull
 import java.nio.file.Path
@@ -40,9 +52,11 @@ import kotlin.time.Duration.Companion.milliseconds
 /**
  * Searches for symbols via Choose By Name models and maps them to [SearchItem]s.
  */
-internal suspend fun searchSymbols(
+@ApiStatus.Internal
+suspend fun searchSymbols(
   q: String,
   paths: List<String>?,
+  includeExternal: Boolean,
   limit: Int,
 ): SearchResult {
   val effectiveLimit = normalizeLimit(limit)
@@ -51,14 +65,16 @@ internal suspend fun searchSymbols(
   val pathScope = buildPathScope(projectDir, paths)
   val directoryFilterPath = resolveDirectoryFilter(project, pathScope)
   val directoryFilterFile = directoryFilterPath?.let { LocalFileSystem.getInstance().refreshAndFindFileByNioFile(it) }
-  val searchScope = directoryFilterFile?.let { GlobalSearchScopes.directoryScope(project, it, true) }
-                   ?: GlobalSearchScope.projectScope(project)
+  val baseSearchScope = directoryFilterFile?.let { GlobalSearchScopes.directoryScope(project, it, true) }
+                        ?: if (includeExternal) GlobalSearchScope.allScope(project)
+                        else GlobalSearchScope.projectScope(project)
+  val searchScope = pathScope?.let { PathFilteredGlobalSearchScope(baseSearchScope, projectDir, it) } ?: baseSearchScope
 
   val fileDocumentManager = serviceAsync<FileDocumentManager>()
   val provider = DefaultChooseByNameItemProvider(null)
   val items = LinkedHashSet<SearchItem>()
   val requestedCount = (effectiveLimit * SEARCH_SCOPE_MULTIPLIER).coerceAtMost(MAX_RESULTS_UPPER_BOUND)
-  var seenCount = 0
+  var providerStoppedEarly = false
   var reachedLimit = false
 
   val timedOut = withTimeoutOrNull(Constants.MEDIUM_TIMEOUT_MILLISECONDS_VALUE.milliseconds) {
@@ -72,10 +88,10 @@ internal suspend fun searchSymbols(
       val symbolModel = GotoSymbolModel2(project, parentDisposable).also { Disposer.register(parentDisposable, it) }
       val models = listOf(classModel, symbolModel)
       for (model in models) {
-        val viewModel = SimpleChooseByNameViewModel(project, model, requestedCount)
+        val viewModel = McpChooseByNameViewModel(project, model, requestedCount)
         val transformedPattern = viewModel.transformPattern(q)
         if (transformedPattern.isBlank()) continue
-        val localPattern = computeLocalPattern(model, transformedPattern)
+        val localPattern = computeChooseByNameLocalPattern(model, transformedPattern)
         val params = FindSymbolParameters.wrap(transformedPattern, searchScope)
           .withLocalPattern(localPattern)
 
@@ -84,9 +100,9 @@ internal suspend fun searchSymbols(
             val indicator = ProgressManager.getInstance().progressIndicator ?: EmptyProgressIndicator()
             provider.filterElementsWithWeights(viewModel, params, indicator, Processor { descriptor: FoundItemDescriptor<*> ->
               indicator.checkCanceled()
-              seenCount++
-              val navigationItem = descriptor.item as? NavigationItem ?: return@Processor seenCount < requestedCount
+              val navigationItem = descriptor.item as? NavigationItem ?: return@Processor true
               val searchItem = mapNavigationItem(
+                project = project,
                 item = navigationItem,
                 projectDir = projectDir,
                 fileDocumentManager = fileDocumentManager,
@@ -99,23 +115,46 @@ internal suspend fun searchSymbols(
                   return@Processor false
                 }
               }
-              return@Processor seenCount < requestedCount
+              return@Processor true
             })
           }
         }
 
-        if (!completed || reachedLimit || seenCount >= requestedCount) break
+        if (!completed) {
+          providerStoppedEarly = true
+        }
+        if (!completed || reachedLimit) break
       }
     }
   } == null
 
   return SearchResult(
     items = items.toList(),
-    more = timedOut || reachedLimit || seenCount >= requestedCount,
+    more = timedOut || reachedLimit || providerStoppedEarly,
   )
 }
 
-private class SimpleChooseByNameViewModel(
+private class PathFilteredGlobalSearchScope(
+  baseScope: GlobalSearchScope,
+  private val projectDir: Path,
+  private val pathScope: PathScope,
+) : DelegatingGlobalSearchScope(baseScope) {
+  @Suppress("RedundantIf")
+  override fun contains(file: VirtualFile): Boolean {
+    if (!super.contains(file)) return false
+    val filePath = file.toNioPathOrNull() ?: return false
+    val relativePath = try {
+      projectDir.relativize(filePath)
+    }
+    catch (_: IllegalArgumentException) {
+      return false
+    }
+    if (relativePath.nameCount > 0 && relativePath.getName(0).toString() == "..") return false
+    return pathScope.matches(relativePath)
+  }
+}
+
+internal class McpChooseByNameViewModel(
   private val project: Project,
   private val model: ChooseByNameModel,
   private val maximumListSizeLimit: Int,
@@ -135,7 +174,7 @@ private class SimpleChooseByNameViewModel(
   override fun getMaximumListSizeLimit(): Int = maximumListSizeLimit
 }
 
-private fun computeLocalPattern(model: ChooseByNameModel, pattern: String): String {
+internal fun computeChooseByNameLocalPattern(model: ChooseByNameModel, pattern: String): String {
   var lastSeparatorOccurrence = 0
   for (separator in model.separators) {
     var idx = pattern.lastIndexOf(separator)
@@ -148,32 +187,30 @@ private fun computeLocalPattern(model: ChooseByNameModel, pattern: String): Stri
 }
 
 private fun mapNavigationItem(
+  project: Project,
   item: NavigationItem,
   projectDir: Path,
   fileDocumentManager: FileDocumentManager,
   pathScope: PathScope?,
 ): SearchItem? {
   val psiElement = when (item) {
-    is PsiElement -> item
-    is PsiElementNavigationItem -> item.targetElement
-    else -> null
-  } ?: return null
+                     is PsiElement -> item
+                     is PsiElementNavigationItem -> item.targetElement
+                     else -> null
+                   } ?: return null
 
-  val virtualFile = psiElement.containingFile?.virtualFile ?: return null
-  val filePath = projectDir.relativizeIfPossible(virtualFile)
+  val anchor = resolveNavigationAnchor(psiElement) ?: return null
+  val filePath = projectDir.relativizeIfPossible(anchor.file)
   if (filePath.isBlank()) return null
   if (!matchesPathScope(pathScope, projectDir, filePath)) return null
 
-  val snippet = buildPsiSnippet(projectDir, fileDocumentManager, psiElement)
+  val snippet = buildSnippet(project, fileDocumentManager, anchor)
   return SearchItem(
     filePath = filePath,
     startLine = snippet?.startLine,
     startColumn = snippet?.startColumn,
     endLine = snippet?.endLine,
     endColumn = snippet?.endColumn,
-    startOffset = snippet?.startOffset,
-    endOffset = snippet?.endOffset,
-    lineText = snippet?.lineText,
   )
 }
 
@@ -192,46 +229,57 @@ private fun toRelativePath(projectDir: Path, filePath: String): Path? {
   return nioPath
 }
 
-private fun buildPsiSnippet(
-  projectDir: Path,
-  fileDocumentManager: FileDocumentManager,
-  element: PsiElement,
-): UsageSnippet? {
-  val navigationElement = element.navigationElement ?: element
-  val file = navigationElement.containingFile?.virtualFile ?: return null
-  val textRange = navigationElement.textRange
-  return buildSnippet(projectDir, fileDocumentManager, file, textRange)
-}
-
+@RequiresReadLock
 private fun buildSnippet(
-  projectDir: Path,
+  project: Project,
   fileDocumentManager: FileDocumentManager,
-  file: VirtualFile,
-  textRange: Segment,
-): UsageSnippet? {
-  val document = fileDocumentManager.getDocument(file) ?: return null
-  val snippet = buildSearchSnippet(document = document, textRange = textRange, maxTextChars = Constants.MAX_USAGE_TEXT_CHARS)
-  return UsageSnippet(
-    file = file,
-    filePath = projectDir.relativizeIfPossible(file),
-    lineText = snippet.lineText,
-    startLine = snippet.startLine,
-    startColumn = snippet.startColumn,
-    endLine = snippet.endLine,
-    endColumn = snippet.endColumn,
-    startOffset = snippet.startOffset,
-    endOffset = snippet.endOffset,
-  )
+  anchor: NavigationAnchor,
+): SearchSnippet? {
+  if (anchor.file.fileType.isBinary) {
+    return null
+  }
+  val document = fileDocumentManager.getDocument(anchor.file, project) ?: return null
+  val textRange = resolveSnippetRange(anchor, document)
+  return buildSearchSnippet(document = document, textRange = textRange)
 }
 
-private data class UsageSnippet(
+private data class NavigationAnchor(
+  @JvmField val element: PsiElement,
   @JvmField val file: VirtualFile,
-  @JvmField val filePath: String,
-  @JvmField val lineText: String,
-  @JvmField val startLine: Int,
-  @JvmField val startColumn: Int,
-  @JvmField val endLine: Int,
-  @JvmField val endColumn: Int,
-  @JvmField val startOffset: Int,
-  @JvmField val endOffset: Int,
+  @JvmField val offset: Int,
 )
+
+@RequiresReadLock
+private fun resolveNavigationAnchor(element: PsiElement): NavigationAnchor? {
+  val originalElement = EditSourceUtil.getNavigatableOriginalElement(element) ?: element
+  val navigationElement = originalElement.navigationElement ?: originalElement
+  val gotoTarget = TargetElementUtil.getInstance().getGotoDeclarationTarget(originalElement, navigationElement) ?: navigationElement
+  val descriptor = PsiNavigationSupport.getInstance().getDescriptor(gotoTarget)
+  if (descriptor is OpenFileDescriptor) {
+    val file = descriptor.file
+    if (file.isValid) {
+      return NavigationAnchor(gotoTarget, file, descriptor.offset)
+    }
+  }
+  val file = PsiUtilCore.getVirtualFile(gotoTarget) ?: return null
+  if (!file.isValid) return null
+  return NavigationAnchor(gotoTarget, file, gotoTarget.textOffset)
+}
+
+private fun resolveSnippetRange(anchor: NavigationAnchor, document: com.intellij.openapi.editor.Document): Segment {
+  val anchorElementFile = anchor.element.containingFile?.virtualFile
+  val elementRange = anchor.element.textRange
+  if (anchorElementFile == anchor.file && elementRange != null && elementRange.endOffset <= document.textLength) {
+    return elementRange
+  }
+  if (document.textLength == 0) {
+    return TextRange(0, 0)
+  }
+  val startOffset = when {
+    anchor.offset < 0 -> 0
+    anchor.offset >= document.textLength -> document.textLength - 1
+    else -> anchor.offset
+  }
+  val endOffset = minOf(document.textLength, startOffset + 1)
+  return TextRange(startOffset, endOffset)
+}

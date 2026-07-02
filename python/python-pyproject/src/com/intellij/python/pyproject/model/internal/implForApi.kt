@@ -2,12 +2,12 @@ package com.intellij.python.pyproject.model.internal
 
 import com.intellij.openapi.diagnostic.fileLogger
 import com.intellij.openapi.module.Module
-import com.intellij.platform.backend.workspace.virtualFile
 import com.intellij.platform.backend.workspace.workspaceModel
 import com.intellij.python.pyproject.model.api.SuggestedSdk
 import com.intellij.python.pyproject.model.internal.workspaceBridge.pyProjectTomlEntity
 import com.intellij.workspaceModel.ide.legacyBridge.findModule
 import com.intellij.workspaceModel.ide.legacyBridge.findModuleEntity
+import com.intellij.workspaceModel.ide.toPath
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -42,11 +42,8 @@ internal suspend fun suggestSdkImpl(module: Module): SuggestedSdk? = withContext
   }
   else {
     val tools = entity.participatedTools.keys
-    val dirWithToml = entity.dirWithToml
-    val dirWithTomlPath = (dirWithToml.virtualFile
-                           ?: error("Can't find dir for $dirWithToml . Directory might already be deleted. Try to restart IDE")
-                          ).toNioPath()
-    SuggestedSdk.PyProjectIndependent(preferTools = tools, moduleDir = dirWithTomlPath)
+    val dirWithToml = entity.dirWithToml.toPath()
+    SuggestedSdk.PyProjectIndependent(preferTools = tools, moduleDir = dirWithToml)
   }
 }
 

@@ -23,9 +23,10 @@ private val COMMON_ADDITIONAL_VM_OPTIONS = listOf(
   "-Dexternal.system.auto.import.headless.async=true",
   "-Dmaven.default.headless.import=true",
   "-Dide.do.not.check.ls.on.startup=true",
+  "-Dintellij.console.use.severe.log.level=true",
   )
 
-private const val IS_EAP = true
+private const val IS_EAP = false
 
 /**
  * Represents a set of properties specific to the Qodana product.
@@ -46,6 +47,6 @@ class QodanaProductProperties(val productCode: String, val productName: String, 
 }
 
 private fun isEap(productCode: String): Boolean = when (productCode) {
-  "QDCPP", "QDRST", "QDRUBY" -> true
+  "QDRST", "QDRUBY" -> true
   else -> IS_EAP
 }

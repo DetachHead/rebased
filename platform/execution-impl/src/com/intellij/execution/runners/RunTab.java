@@ -138,21 +138,37 @@ public abstract class RunTab implements Disposable {
   }
 
   @ApiStatus.Internal
-  protected @NotNull LogConsoleManagerBase createLogConsoleManager(AdditionalTabComponentManagerEx delegate,
-                                                                   Supplier<ProcessHandler> handlerSupplier) {
+  public @NotNull LogConsoleManagerBase createLogConsoleManager(AdditionalTabComponentManagerEx delegate,
+                                                                Supplier<ProcessHandler> handlerSupplier) {
     return new LogConsoleManagerImpl(delegate, handlerSupplier);
   }
 
   protected final void initLogConsoles(@NotNull RunProfile runConfiguration, @NotNull RunContentDescriptor contentDescriptor, @Nullable ExecutionConsole console) {
+    if (myManager == null) {
+      myManager = new LogFilesManager(myProject, getLogConsoleManager(), contentDescriptor);
+    }
     ProcessHandler processHandler = contentDescriptor.getProcessHandler();
-    if (runConfiguration instanceof RunConfigurationBase configuration) {
-      if (myManager == null) {
-        myManager = new LogFilesManager(myProject, getLogConsoleManager(), contentDescriptor);
-      }
-      myManager.addLogConsoles(configuration, processHandler);
-      if (processHandler != null) {
-        OutputFileUtil.attachDumpListener(configuration, processHandler, console);
-      }
+    configureLogConsoles(runConfiguration, myManager, processHandler);
+    if (processHandler != null) {
+      configureConsoleOutputToFile(runConfiguration, processHandler, console);
+    }
+  }
+
+  @ApiStatus.Internal
+  public static void configureLogConsoles(@NotNull RunProfile runConfiguration,
+                                          @NotNull LogFilesManager manager,
+                                          @Nullable ProcessHandler processHandler) {
+    if (runConfiguration instanceof RunConfigurationBase<?> configuration) {
+      manager.addLogConsoles(configuration, processHandler);
+    }
+  }
+
+  @ApiStatus.Internal
+  public static void configureConsoleOutputToFile(@NotNull RunProfile runConfiguration,
+                                                  @NotNull ProcessHandler processHandler,
+                                                  @Nullable ExecutionConsole console) {
+    if (runConfiguration instanceof RunConfigurationBase<?> configuration) {
+      OutputFileUtil.attachDumpListener(configuration, processHandler, console);
     }
   }
 

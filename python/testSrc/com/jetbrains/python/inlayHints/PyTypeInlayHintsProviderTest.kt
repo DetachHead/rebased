@@ -1,4 +1,4 @@
-// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.jetbrains.python.inlayHints
 
 import com.intellij.idea.TestFor
@@ -6,6 +6,7 @@ import com.intellij.testFramework.LightProjectDescriptor
 import com.intellij.testFramework.utils.inlays.declarative.DeclarativeInlayHintsProviderTestCase
 import com.jetbrains.python.fixtures.PyLightProjectDescriptor
 import com.jetbrains.python.inlayHints.PyTypeInlayHintsProvider.Companion.FUNCTION_RETURN_TYPE_OPTION_ID
+import com.jetbrains.python.inlayHints.PyTypeInlayHintsProvider.Companion.PARAMETER_TYPE_ANNOTATION
 import com.jetbrains.python.inlayHints.PyTypeInlayHintsProvider.Companion.REVEAL_TYPE_OPTION_ID
 import com.jetbrains.python.inlayHints.PyTypeInlayHintsProvider.Companion.VARIANCE_OPTION_ID
 import com.jetbrains.python.psi.LanguageLevel
@@ -124,6 +125,17 @@ class PyTypeInlayHintsProviderTest : DeclarativeInlayHintsProviderTestCase() {
     """, VARIANCE_OPTION_ID)
   }
 
+  fun `test variance on all parameter kinds`() {
+    doTest("""
+      from typing import Callable
+      
+      class A[/*<# in #>*/T, /*<# out #>*/*Ts, in **P]:
+          def method1(self, t: T): pass
+          def method2(self) -> tuple[*Ts]: pass
+          def method3(self) -> Callable[P, None]: pass
+    """, VARIANCE_OPTION_ID)
+  }
+
   fun `test variance on type parameter disabled when invariant`() {
     doTest("""
     class A[T]: # no hint here
@@ -146,10 +158,64 @@ class PyTypeInlayHintsProviderTest : DeclarativeInlayHintsProviderTestCase() {
     """.trimIndent())
   }
 
+  fun `test parameter type inlay`() {
+    doTest("""
+      def f(a/*<# : int #>*/):
+          '''
+          :type a: int
+          '''
+    """, PARAMETER_TYPE_ANNOTATION)
+  }
+
+  fun `test parameter type inlay with default`() {
+    doTest("""
+      def f(a/*<# : int #>*/=1):
+          pass
+    """, PARAMETER_TYPE_ANNOTATION)
+  }
+
+  fun `test parameter type hint with annotation`() {
+    doTest("""
+      def f(a: int): # no hint when already annotated
+          pass
+    """, false, PARAMETER_TYPE_ANNOTATION)
+  }
+
+  @TestFor(issues = ["PY-87813"])
+  fun `test parameter type hint skips self cls`() {
+    doTest("""
+      class A:
+          def __new__(cls, a/*<# : int #>*/=1):
+              cls[0]
+          
+          def f(self, a/*<# : int #>*/=1):
+              self[0]
+          
+          @classmethod
+          def c(cls, a/*<# : int #>*/=1):
+              cls[0]
+
+        
+      def f(self/*<# : {__getitem__} #>*/, a/*<# : int #>*/=1):
+          self[0]
+    """, PARAMETER_TYPE_ANNOTATION)
+  }
+
+  fun `test parameter type hint variadic`() {
+    doTest("""
+      def f(*args/*<# : int #>*/, **kwargs/*<# : str #>*/):
+          '''
+          :type args: int
+          :type kwargs: str
+          '''
+    """, PARAMETER_TYPE_ANNOTATION)
+  }
+
   private val allOptions = mapOf(
     REVEAL_TYPE_OPTION_ID to true,
     FUNCTION_RETURN_TYPE_OPTION_ID to true,
     VARIANCE_OPTION_ID to true,
+    PARAMETER_TYPE_ANNOTATION to true,
   )
 
   private fun doTest(text: String, vararg enabledOptions: String) {

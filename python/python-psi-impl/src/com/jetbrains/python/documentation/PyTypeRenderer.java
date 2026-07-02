@@ -19,6 +19,7 @@ import com.jetbrains.python.psi.LanguageLevel;
 import com.jetbrains.python.psi.PyExpression;
 import com.jetbrains.python.psi.PyQualifiedNameOwner;
 import com.jetbrains.python.psi.PyReferenceExpression;
+import com.jetbrains.python.psi.types.PyAnyType;
 import com.jetbrains.python.psi.types.PyCallableParameter;
 import com.jetbrains.python.psi.types.PyCallableParameterListType;
 import com.jetbrains.python.psi.types.PyCallableType;
@@ -30,12 +31,12 @@ import com.jetbrains.python.psi.types.PyIntersectionType;
 import com.jetbrains.python.psi.types.PyLiteralType;
 import com.jetbrains.python.psi.types.PyNarrowedType;
 import com.jetbrains.python.psi.types.PyNeverType;
+import com.jetbrains.python.psi.types.PyOverloadType;
 import com.jetbrains.python.psi.types.PyParamSpecType;
 import com.jetbrains.python.psi.types.PySelfType;
 import com.jetbrains.python.psi.types.PyTupleType;
 import com.jetbrains.python.psi.types.PyType;
 import com.jetbrains.python.psi.types.PyTypeParameterType;
-import com.jetbrains.python.psi.types.PyTypeUtil;
 import com.jetbrains.python.psi.types.PyTypeVarType;
 import com.jetbrains.python.psi.types.PyTypeVisitorExt;
 import com.jetbrains.python.psi.types.PyUnionType;
@@ -230,6 +231,11 @@ public abstract class PyTypeRenderer extends PyTypeVisitorExt<@NotNull HtmlChunk
       HtmlChunk selfTypeRender = className(isRenderingFqn() ? "typing.Self" : "Self"); //NON-NLS
       return selfType.isDefinition() ? wrapInTypingType(selfTypeRender) : selfTypeRender;
     }
+
+    @Override
+    public @NotNull HtmlChunk visitPyOverloadType(@NotNull PyOverloadType overloadType) {
+      return escaped("Callable[..., object]"); //NON-NLS
+    }
   }
 
   protected boolean maxDepthExceeded() {
@@ -284,7 +290,9 @@ public abstract class PyTypeRenderer extends PyTypeVisitorExt<@NotNull HtmlChunk
     HtmlBuilder result = new HtmlBuilder();
     boolean renderTypeArgumentList = !genericType.getElementTypes().isEmpty();
     String className = genericType.getName();
-    if (renderTypeArgumentList && !isGenericBuiltinsAvailable() && PyTypingTypeProvider.TYPING_COLLECTION_CLASSES.containsKey(className)) {
+    if (renderTypeArgumentList &&
+        !isGenericBuiltinsAvailable() &&
+        PyTypingTypeProvider.TYPING_COLLECTION_CLASSES.containsKey(className)) {
       className = PyTypingTypeProvider.TYPING_COLLECTION_CLASSES.get(className);
       if (isRenderingFqn()) {
         className = PyTypingTypeProvider.TYPING + "." + className;
@@ -467,12 +475,14 @@ public abstract class PyTypeRenderer extends PyTypeVisitorExt<@NotNull HtmlChunk
 
   @Override
   public HtmlChunk visitAnyType() {
-    return HtmlChunk.raw(isRenderingFqn() ? PyTypingTypeProvider.ANY : PyNames.ANY_TYPE); //NON-NLS
+    return HtmlChunk.raw(isRenderingFqn() ? PyTypingTypeProvider.ANY : PyNames.ANY_TYPE);
   }
 
   @Override
   public HtmlChunk visitUnknownType() {
-    // TODO: show "Unknown" instead of "typing.Any" when we convert to it
+    if (PyAnyType.isEnabled()) {
+      return HtmlChunk.raw(PyNames.UNKNOWN_TYPE);
+    }
     return visitAnyType();
   }
 
@@ -549,22 +559,20 @@ public abstract class PyTypeRenderer extends PyTypeVisitorExt<@NotNull HtmlChunk
   }
 
   @Override
-  public @NotNull HtmlChunk visitPyTypeVarType(@NotNull PyTypeVarType typeVarType) {
+  public @NotNull HtmlChunk visitPyTypeParameterType(@NotNull PyTypeParameterType typeParameterType) {
     HtmlBuilder result = new HtmlBuilder();
-    result.append(escaped(getTypeName(typeVarType)));
+    result.append(escaped(getTypeName(typeParameterType)));
     if (isRenderingTypeVarBounds()) {
-      PyType effectiveBound = PyTypeUtil.getEffectiveBound(typeVarType);
+      var effectiveBound = typeParameterType.getEffectiveBound();
       if (effectiveBound != null) {
         result.append(escaped(" ≤: "));
         result.append(render(effectiveBound));
       }
     }
-    return typeVarType.isDefinition() ? wrapInTypingType(result.toFragment()) : result.toFragment();
-  }
-
-  @Override
-  public HtmlChunk visitPyTypeParameterType(@NotNull PyTypeParameterType typeParameterType) {
-    return escaped(typeParameterType.getName());
+    if (typeParameterType instanceof PyTypeVarType typeVarType && typeVarType.isDefinition()) {
+      return wrapInTypingType(result.toFragment());
+    }
+    return result.toFragment();
   }
 
   @Override
@@ -603,6 +611,16 @@ public abstract class PyTypeRenderer extends PyTypeVisitorExt<@NotNull HtmlChunk
       String enumOrLiteral = StringUtil.notNullize(literalType.getExpression().getText()).trim();
       result.appendRaw(enumOrLiteral); // append raw since the literal can include quotes: Literal["foo"]
     }
+    result.append("]");
+    return result.toFragment();
+  }
+
+  @Override
+  public @NotNull HtmlChunk visitPyOverloadType(@NotNull PyOverloadType overloadType) {
+    var result = new HtmlBuilder();
+    result.append(overloadType.getName());
+    result.append("[");
+    result.append(renderList(ContainerUtil.map(overloadType.getItems(), this::render)));
     result.append("]");
     return result.toFragment();
   }

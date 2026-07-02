@@ -1,25 +1,27 @@
 // Copyright 2000-2022 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.kotlin.idea.compilerPlugin.lombok.gradleJava
 
-import com.intellij.openapi.externalSystem.model.Key
 import org.jetbrains.kotlin.idea.base.plugin.artifacts.KotlinArtifacts
-import org.jetbrains.kotlin.idea.compilerPlugin.CompilerPluginSetup
-import org.jetbrains.kotlin.idea.gradleJava.compilerPlugin.AbstractCompilerPluginGradleImportHandler
-import org.jetbrains.kotlin.idea.gradleTooling.model.lombok.LombokModel
-import org.jetbrains.kotlin.lombok.LombokPluginNames
+import org.jetbrains.kotlin.idea.base.plugin.artifacts.KotlinArtifactConstants
+import org.jetbrains.kotlin.idea.compiler.configuration.IdeKotlinVersion
+import org.jetbrains.kotlin.idea.gradleJava.compilerPlugin.AbstractGradleImportHandler
+import org.jetbrains.kotlin.idea.gradleJava.compilerPlugin.MavenCoordinates
 import java.nio.file.Path
 
-class LombokGradleProjectImportHandler : AbstractCompilerPluginGradleImportHandler<LombokModel>() {
+class LombokGradleProjectImportHandler: AbstractGradleImportHandler() {
+    override val pluginJarsToReplaceRegex: List<Regex> = listOf("$LOMBOK_COMPILER_PLUGIN_EMBEDDABLE_JAR_NAME-.*\\.jar".toRegex())
 
-    override val modelKey: Key<LombokModel> = LombokGradleProjectResolverExtension.KEY
-    override val pluginJarFromIdea: Path = KotlinArtifacts.lombokCompilerPluginPath
-    override val compilerPluginId: String = LombokPluginNames.PLUGIN_ID
-    override val pluginName: String = "lombok"
+    override val replacementArtifactCoordinates: MavenCoordinates = MavenCoordinates(
+        groupId = KotlinArtifactConstants.KOTLIN_MAVEN_GROUP_ID,
+        artifactId = LOMBOK_COMPILER_PLUGIN_ARTIFACT_ID,
+    )
 
-    override fun getOptions(model: LombokModel): List<CompilerPluginSetup.PluginOption> =
-        listOfNotNull(
-            model.configurationFile?.let {
-                CompilerPluginSetup.PluginOption(LombokPluginNames.CONFIG_OPTION_NAME, it.path)
-            }
-        )
+    override val replacementJarFromPluginBundle: Path = KotlinArtifacts.lombokCompilerPluginPath
+
+    override val availableSinceVersion: IdeKotlinVersion? = IdeKotlinVersion.opt("1.9.0-Beta")
+
+    companion object {
+        private const val LOMBOK_COMPILER_PLUGIN_EMBEDDABLE_JAR_NAME = "kotlin-lombok-compiler-plugin-embeddable"
+        private const val LOMBOK_COMPILER_PLUGIN_ARTIFACT_ID = "kotlin-lombok-compiler-plugin"
+    }
 }

@@ -38,6 +38,8 @@
     <!-- preload only for performance reasons -->
     <projectService serviceInterface="com.intellij.openapi.vcs.ProjectLevelVcsManager"
                     serviceImplementation="com.intellij.openapi.vcs.impl.ProjectLevelVcsManagerImpl" preload="notHeadless"/>
+    <registryKey key="vcs.watch.roots" defaultValue="true" restartRequired="true"
+                 description="Add VCS repository roots as recursive VFS watch roots"/>
     <dependencyCollector kind="vcs" implementation="com.intellij.openapi.vcs.impl.MissingVcsPluginAdvertiser"/>
     <!--suppress LightServiceMigrationXML - see DefaultProjectStoreTest (IDE needs to know correct Storage without service being loaded) -->
     <projectService serviceImplementation="com.intellij.openapi.vcs.impl.OptionsAndConfirmationsHolder"/>
@@ -186,7 +188,7 @@
                 factoryClass="com.intellij.openapi.vcs.changes.ui.ChangeViewToolWindowFactory"/>
     <registryKey defaultValue="true" description="Show Version Control tool window in project without VCS" key="vcs.empty.toolwindow.show"/>
     <registryKey key="vcs.more.plugins.search.query"
-                 defaultValue="/tag:VCS /vendor:&quot;JetBrains s.r.o.&quot;"
+                 defaultValue="/tag:&quot;VCS Integration&quot; /vendor:&quot;JetBrains s.r.o.&quot;"
                  description="Search query for 'More VCS plugins' link in VCS dialogs"/>
 
     <changesViewContent tabName="Repository"

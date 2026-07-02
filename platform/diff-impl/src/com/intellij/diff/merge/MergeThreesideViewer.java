@@ -1,4 +1,4 @@
-// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.diff.merge;
 
 import com.intellij.diff.DiffContext;
@@ -23,7 +23,6 @@ import com.intellij.diff.tools.util.base.HighlightPolicy;
 import com.intellij.diff.tools.util.base.IgnorePolicy;
 import com.intellij.diff.tools.util.base.TextDiffSettingsHolder;
 import com.intellij.diff.tools.util.base.TextDiffViewerUtil;
-import com.intellij.diff.tools.util.text.LineOffsets;
 import com.intellij.diff.tools.util.text.MergeInnerDifferences;
 import com.intellij.diff.tools.util.text.TextDiffProviderBase;
 import com.intellij.diff.util.DiffBalloons;
@@ -504,9 +503,8 @@ public class MergeThreesideViewer extends ThreesideTextDiffViewerEx {
       myResolveImportsPossible = mergeDiffData.isImportResolutionPossible();
 
       List<@NotNull MergeLineFragment> fragments = mergeDiffData.getFragmentsWithMetadata().getFragments();
-      List<@NotNull LineOffsets> offsets = mergeDiffData.getLineOffsets();
 
-      FoldingModelSupport.Data foldingState = myFoldingModel.createState(fragments, offsets, getFoldingModelSettings());
+      FoldingModelSupport.Data foldingState = myFoldingModel.createState(fragments, getFoldingModelSettings());
 
       return () -> apply(foldingState);
     }
@@ -543,29 +541,32 @@ public class MergeThreesideViewer extends ThreesideTextDiffViewerEx {
   @RequiresEdt
   private void apply(@Nullable FoldingModelSupport.Data foldingState) {
     if (isDisposed()) return;
-    myFoldingModel.updateContext(myRequest, getFoldingModelSettings());
-    clearDiffPresentation();
-    resetChangeCounters();
+    try {
+      myFoldingModel.updateContext(myRequest, getFoldingModelSettings());
+      clearDiffPresentation();
+      resetChangeCounters();
 
-    model.getAllChanges().forEach(change -> {
-      ThreesideMergeHighlighters highlighters = new ThreesideMergeHighlighters(change, null, this);
-      myHighlighters.put(change, highlighters);
+      model.getAllChanges().forEach(change -> {
+        ThreesideMergeHighlighters highlighters = new ThreesideMergeHighlighters(change, null, this);
+        myHighlighters.put(change, highlighters);
       onChangeAdded(change);
-    });
+      });
 
-    myFoldingModel.install(foldingState, myRequest, getFoldingModelSettings());
+      myFoldingModel.install(foldingState, myRequest, getFoldingModelSettings());
 
-    myInitialScrollHelper.onRediff();
+      myInitialScrollHelper.onRediff();
 
-    myContentPanel.repaintDividers();
-    myStatusPanel.update();
-
-    getEditor().setViewer(false);
-    myLoadingPanel.stopLoading();
-    myAcceptResolveAction.setEnabled(true);
+      myContentPanel.repaintDividers();
+      myStatusPanel.update();
+    }
+    finally {
+      getEditor().setViewer(false);
+      myLoadingPanel.stopLoading();
+      myAcceptResolveAction.setEnabled(true);
+      myInitialRediffFinished = true;
+    }
 
     myInnerDiffWorker.onEverythingChanged();
-    myInitialRediffFinished = true;
 
     Language language = null;
     if (myPsiFiles.size() == 3) {

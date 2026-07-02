@@ -1,3 +1,9 @@
+### auto-generated section `iml intellij.kotlin.onboarding.maven` start
+exports_files([
+  "intellij.kotlin.onboarding.maven.iml",
+], visibility = ["//visibility:public"])
+### auto-generated section `iml intellij.kotlin.onboarding.maven` end
+
 ### auto-generated section `build intellij.kotlin.onboarding.maven` start
 load("@rules_jvm//:jvm.bzl", "jvm_library", "resourcegroup")
 
@@ -34,6 +40,10 @@ jvm_library(
     "//plugins/kotlin/onboarding",
     "//plugins/maven",
     "//platform/external-system-api:externalSystem",
+    "//platform/ide-core",
+    "//platform/util:util-ui",
+    "//plugins/kotlin/maven",
+    "//platform/lang-api:lang",
   ]
 )
 ### auto-generated section `build intellij.kotlin.onboarding.maven` end

@@ -38,6 +38,25 @@ internal fun <T> withShellPathAndShellIntegration(
   }
 }
 
+internal fun <T> withShellIntegration(
+  timeout: Duration = DEFAULT_TEST_TIMEOUT,
+  action: suspend CoroutineScope.(shellIntegration: Boolean, dynamicTestDisposable: Disposable) -> T,
+): List<DynamicTest> {
+  return listOf(false, true).map { shellIntegration ->
+    DynamicTest.dynamicTest("shell integration: $shellIntegration") {
+      timeoutRunBlocking(timeout) {
+        val disposable = Disposer.newDisposable()
+        try {
+          action(shellIntegration, disposable)
+        }
+        finally {
+          Disposer.dispose(disposable)
+        }
+      }
+    }
+  }
+}
+
 internal suspend fun listAvailableShellPaths(eelApi: EelApi): List<EelPath> {
   return (findAbsoluteShellPaths(eelApi) + findShellPathsFromPATH(eelApi)).distinct()
 }

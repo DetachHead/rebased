@@ -49,5 +49,9 @@
     <orderEntry type="module" module-name="intellij.kotlin.onboarding" />
     <orderEntry type="module" module-name="intellij.maven" />
     <orderEntry type="module" module-name="intellij.platform.externalSystem" />
+    <orderEntry type="module" module-name="intellij.platform.ide.core" />
+    <orderEntry type="module" module-name="intellij.platform.util.ui" />
+    <orderEntry type="module" module-name="intellij.kotlin.maven" />
+    <orderEntry type="module" module-name="intellij.platform.lang" />
   </component>
 </module>

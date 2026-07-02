@@ -112,6 +112,7 @@
     <orderEntry type="module" module-name="intellij.kotlin.compilerPlugins.support.bundled" scope="RUNTIME" />
     <orderEntry type="module" module-name="intellij.kotlin.compilerPlugins.support" scope="RUNTIME" />
     <orderEntry type="module" module-name="intellij.kotlin.compilerPlugins.assignment.fixes" scope="RUNTIME" />
+    <orderEntry type="module" module-name="intellij.kotlin.compilerPlugins.assignment.gradle" scope="RUNTIME" />
     <orderEntry type="module" module-name="intellij.kotlin.compilerPlugins.assignment.maven" scope="RUNTIME" />
     <orderEntry type="module" module-name="intellij.kotlin.compilerPlugins.serialization" scope="RUNTIME" />
     <orderEntry type="module" module-name="intellij.kotlin.compilerPlugins.parcelize" scope="RUNTIME" />
@@ -134,9 +135,29 @@
     <orderEntry type="module" module-name="intellij.kotlin.featuresTrainer" scope="RUNTIME" />
     <orderEntry type="module" module-name="intellij.kotlin.internal" scope="RUNTIME" />
     <orderEntry type="module" module-name="intellij.kotlin.scripting" scope="RUNTIME" />
+    <orderEntry type="module" module-name="intellij.kotlin.base.scripting.shared" scope="RUNTIME" />
+    <orderEntry type="module" module-name="intellij.kotlin.base.serialization" scope="RUNTIME" />
+    <orderEntry type="module" module-name="intellij.kotlin.compilerPlugins.allopen.maven" scope="RUNTIME" />
+    <orderEntry type="module" module-name="intellij.kotlin.compilerPlugins.kapt" scope="RUNTIME" />
+    <orderEntry type="module" module-name="intellij.kotlin.compilerPlugins.lombok.maven" scope="RUNTIME" />
+    <orderEntry type="module" module-name="intellij.kotlin.compilerPlugins.noarg.maven" scope="RUNTIME" />
+    <orderEntry type="module" module-name="intellij.kotlin.compilerPlugins.parcelize.common" scope="RUNTIME" />
+    <orderEntry type="module" module-name="intellij.kotlin.compilerPlugins.powerAssert.gradle" scope="RUNTIME" />
+    <orderEntry type="module" module-name="intellij.kotlin.compilerPlugins.samWithReceiver.maven" scope="RUNTIME" />
+    <orderEntry type="module" module-name="intellij.kotlin.compilerPlugins.scripting" scope="RUNTIME" />
+    <orderEntry type="module" module-name="intellij.kotlin.compilerPlugins.serialization.maven" scope="RUNTIME" />
+    <orderEntry type="module" module-name="intellij.kotlin.compilerPlugins.support.gradle" scope="RUNTIME" />
+    <orderEntry type="module" module-name="intellij.kotlin.compilerPlugins.support.maven" scope="RUNTIME" />
+    <orderEntry type="module" module-name="intellij.kotlin.jvm.debugger.eval4j" scope="RUNTIME" />
+    <orderEntry type="module" module-name="intellij.kotlin.jvm.decompiler" scope="RUNTIME" />
+    <orderEntry type="module" module-name="intellij.kotlin.uast.base" scope="RUNTIME" />
+    <orderEntry type="module" module-name="intellij.kotlin.uast.idea.base" scope="RUNTIME" />
     <orderEntry type="module" module-name="kotlin.jvm.shared" scope="RUNTIME" />
     <orderEntry type="module" module-name="intellij.kotlin.jvm" scope="RUNTIME" />
     <orderEntry type="module" module-name="kotlin.gradle.scripting.shared" scope="RUNTIME" />
     <orderEntry type="module" module-name="intellij.kotlin.gradle.scripting" scope="RUNTIME" />
+    <orderEntry type="module" module-name="intellij.kotlin.compilerPlugins.lombok.gradle" scope="RUNTIME" />
+    <orderEntry type="module" module-name="intellij.kotlin.compilerPlugins.serialization.gradle" scope="RUNTIME" />
+    <orderEntry type="module" module-name="intellij.kotlin.compilerPlugins.noarg.gradle" scope="RUNTIME" />
   </component>
 </module>

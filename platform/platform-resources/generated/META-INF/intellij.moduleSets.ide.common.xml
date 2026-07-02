@@ -335,6 +335,11 @@
     <!-- endregion -->
     <!-- endregion -->
 
+    <!-- region nested: lsp -->
+    <module name="intellij.platform.lsp" loading="embedded"/>
+    <module name="intellij.platform.lsp.impl" loading="embedded"/>
+    <!-- endregion -->
+
     <!-- region nested: xml -->
     <module name="intellij.xml.dom" loading="embedded"/>
     <module name="intellij.xml.dom.impl" loading="embedded"/>
@@ -395,6 +400,7 @@
     <module name="intellij.libraries.grpc.netty.shaded"/>
     <module name="intellij.libraries.jspecify"/>
     <module name="intellij.platform.structuralSearch"/>
+    <module name="intellij.libraries.batik" loading="embedded"/>
     <!-- endregion -->
   </content>
 </idea-plugin>

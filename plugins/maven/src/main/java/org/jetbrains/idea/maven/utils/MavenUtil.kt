@@ -1,4 +1,4 @@
-// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.idea.maven.utils
 
 import com.intellij.codeInsight.actions.ReformatCodeProcessor
@@ -87,7 +87,6 @@ import org.jetbrains.idea.maven.utils.MavenArtifactUtil.readPluginInfo
 import org.jetbrains.idea.maven.utils.MavenEelUtil.resolveLocalRepositoryBlocking
 import org.jetbrains.idea.maven.utils.MavenEelUtil.resolveM2Dir
 import org.jetbrains.idea.maven.utils.MavenEelUtil.resolveUserSettingsPathBlocking
-import org.jetbrains.idea.maven.utils.MavenUtil.path
 import org.xml.sax.SAXException
 import org.xml.sax.SAXParseException
 import org.xml.sax.helpers.DefaultHandler
@@ -1233,16 +1232,16 @@ object MavenUtil {
     return path
   }
 
-  internal suspend fun doResolveLocalRepository(userSettingsFile: Path?, globalSettingsFile: Path?): Path? {
+  internal suspend fun doResolveLocalRepository(userSettingsFile: Path?, globalSettingsFile: Path?, properties: Properties?): Path? {
     if (userSettingsFile != null) {
-      val fromUserSettings: String? = getRepositoryFromSettings(userSettingsFile)
+      val fromUserSettings: String? = getRepositoryFromSettings(userSettingsFile, properties)
       if (!StringUtil.isEmpty(fromUserSettings)) {
         return Path.of(fromUserSettings)
       }
     }
 
     if (globalSettingsFile != null) {
-      val fromGlobalSettings: String? = getRepositoryFromSettings(globalSettingsFile)
+      val fromGlobalSettings: String? = getRepositoryFromSettings(globalSettingsFile, properties)
       if (!StringUtil.isEmpty(fromGlobalSettings)) {
         return Path.of(fromGlobalSettings)
       }
@@ -1260,6 +1259,9 @@ object MavenUtil {
     }
     catch (e: IOException) {
       MavenLog.LOG.debug("Cannot read file $file", e)
+      return null
+    }catch (e: JDOMException) {
+      MavenLog.LOG.warn("Cannot read file $file", e)
       return null
     }
 
@@ -1999,6 +2001,22 @@ object MavenUtil {
       .filter { it.isNotBlank() }
     return schemaLocations.all {
       Maven4SchemaVersionChecker.is410Xsd(it)
+    }
+  }
+
+  /**
+   * MNG-7805: Since Maven 4.0.0-alpha-7, modelVersion is optional and inferred from namespace.
+   * @return inferred modelVersion from xmlns, or null if not inferrable
+   */
+  @JvmStatic
+  fun inferModelVersionFromNamespace(xmlns: String?): String? {
+    if (xmlns == null) return null
+    val prefix = "http://maven.apache.org/POM/"
+    val prefixHttps = "https://maven.apache.org/POM/"
+    return when {
+      xmlns.startsWith(prefix) -> xmlns.removePrefix(prefix)
+      xmlns.startsWith(prefixHttps) -> xmlns.removePrefix(prefixHttps)
+      else -> null
     }
   }
 }

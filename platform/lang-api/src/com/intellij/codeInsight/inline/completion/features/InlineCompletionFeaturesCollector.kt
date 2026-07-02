@@ -30,6 +30,7 @@ interface InlineCompletionFeaturesCollector {
   fun getBlockStatementLevel(element: PsiElement): Int
   fun getSuggestionReferenceFeatures(fileWithSuggestion: PsiFile, suggestionRange: TextRange): List<SuggestionReferenceFeatures>
   fun getExtendedScopeFeatures(file: PsiFile, offset: Int): ExtendedScopeFeatures
+  fun isStringLiteral(element: PsiElement): Boolean?
 
   data class ArgumentFeatures(
     val isInArguments: Boolean,
@@ -42,10 +43,9 @@ interface InlineCompletionFeaturesCollector {
   )
 
   data class BracketFeatures(
-    val haveOpeningParenthesisOnTheLeft: Boolean,
-    val haveOpeningBracketOnTheLeft: Boolean,
-    val haveOpeningBraceOnTheLeft: Boolean,
-    val haveOpeningAngleBracketOnTheLeft: Boolean,
+    val openingBracketsLeft: Set<CommonBracketType>,
+    val balanceLeft: Map<CommonBracketType, Int>,
+    val missingOpeningBracketsLeft: Map<CommonBracketType, Int>,
   )
 
   data class SuggestionReferenceFeatures(

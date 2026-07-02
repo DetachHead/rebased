@@ -5,7 +5,6 @@ import com.intellij.codeInspection.CommonQuickFixBundle
 import com.intellij.codeInspection.ProblemsHolder
 import com.intellij.codeInspection.util.IntentionFamilyName
 import com.intellij.codeInspection.util.IntentionName
-import com.intellij.gradle.java.groovy.codeInspection.fix.GradleDependencyNamedArgumentsFix.Companion.buildSingleStringDependencyNotation
 import com.intellij.modcommand.ModPsiUpdater
 import com.intellij.openapi.project.Project
 import org.jetbrains.kotlin.analysis.api.analyze
@@ -18,6 +17,7 @@ import org.jetbrains.kotlin.psi.KtStringTemplateExpression
 import org.jetbrains.kotlin.psi.KtValueArgumentList
 import org.jetbrains.kotlin.psi.KtVisitorVoid
 import org.jetbrains.plugins.gradle.codeInspection.GradleInspectionBundle
+import org.jetbrains.plugins.gradle.util.GradleDependencyUtil.buildSingleStringDependencyNotation
 
 class KotlinAvoidDependencyNamedArgumentsNotationInspectionVisitor(private val holder: ProblemsHolder) : KtVisitorVoid() {
     override fun visitCallExpression(expression: KtCallExpression) {
@@ -35,12 +35,12 @@ class KotlinAvoidDependencyNamedArgumentsNotationInspectionVisitor(private val h
     private fun createPotentialFix(callExpression: KtCallExpression): GradleDependencyNamedArgumentsFix? {
         val argList = callExpression.valueArgumentList ?: return null
 
-        val group = findNamedOrPositionalArgument(argList, "group", 0)?.text ?: return null
-        val name = findNamedOrPositionalArgument(argList, "name", 1)?.text ?: return null
-        val version = findNamedOrPositionalArgument(argList, "version", 2)?.text
-        val targetConfig = findNamedOrPositionalArgument(argList, "configuration", 3)?.text
-        val classifier = findNamedOrPositionalArgument(argList, "classifier", 4)?.text
-        val ext = findNamedOrPositionalArgument(argList, "ext", 5)?.text
+        val group = argList.findNamedOrPositionalArgument("group", 0)?.text ?: return null
+        val name = argList.findNamedOrPositionalArgument("name", 1)?.text ?: return null
+        val version = argList.findNamedOrPositionalArgument("version", 2)?.text
+        val targetConfig = argList.findNamedOrPositionalArgument("configuration", 3)?.text
+        val classifier = argList.findNamedOrPositionalArgument("classifier", 4)?.text
+        val ext = argList.findNamedOrPositionalArgument("ext", 5)?.text
 
         // check that all arguments are single-line expressions
         if (group.contains('\n') || name.contains('\n') || version?.contains('\n') == true ||

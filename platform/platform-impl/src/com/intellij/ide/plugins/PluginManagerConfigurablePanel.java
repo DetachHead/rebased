@@ -392,14 +392,6 @@ public final class PluginManagerConfigurablePanel implements Disposable {
     }
   }
 
-  static boolean containsQuery(PluginUiModel descriptor, String searchQuery) {
-    if (descriptor.getName() == null) return false;
-    if (StringUtil.containsIgnoreCase(descriptor.getName(), searchQuery)) return true;
-
-    String description = descriptor.getDescription();
-    return description != null && StringUtil.containsIgnoreCase(description, searchQuery);
-  }
-
   static void clearUpdates(@NotNull PluginsGroupComponent panel) {
     for (UIPluginGroup group : panel.getGroups()) {
       for (ListPluginComponent plugin : group.plugins) {
@@ -739,6 +731,7 @@ public final class PluginManagerConfigurablePanel implements Disposable {
 
     @Override
     public void actionPerformed(@NotNull AnActionEvent e) {
+      List<String> oldRepoUrls = new ArrayList<>(UpdateSettings.getInstance().getStoredPluginHosts());
       if (ShowSettingsUtil.getInstance().editConfigurable(myCardPanel, new PluginHostsConfigurable())) {
         if (myPluginManagerCustomizer == null) {
           resetPanels();
@@ -746,7 +739,12 @@ public final class PluginManagerConfigurablePanel implements Disposable {
 
         PluginManagerCustomizer customizer = PluginManagerCustomizer.getInstance();
         if (customizer != null) {
-          customizer.updateCustomRepositories(UpdateSettings.getInstance().getStoredPluginHosts(), () -> {
+          List<String> newRepoUrls = UpdateSettings.getInstance().getStoredPluginHosts();
+          List<String> addedRepoUrls = new ArrayList<>(newRepoUrls);
+          addedRepoUrls.removeAll(oldRepoUrls);
+          List<String> removedRepoUrls = new ArrayList<>(oldRepoUrls);
+          removedRepoUrls.removeAll(newRepoUrls);
+          customizer.updateCustomRepositories(addedRepoUrls, removedRepoUrls, () -> {
             resetPanels();
             return null;
           });

@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.maven.testFramework
 
 import com.intellij.application.options.CodeStyle
@@ -48,7 +48,6 @@ import com.intellij.openapi.util.registry.Registry
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.openapi.vfs.VirtualFileManager
 import com.intellij.openapi.vfs.newvfs.impl.VfsRootAccess
-import com.intellij.platform.backend.observation.Observation
 import com.intellij.platform.util.progress.RawProgressReporter
 import com.intellij.pom.java.LanguageLevel
 import com.intellij.psi.codeStyle.CodeStyleSchemes
@@ -90,7 +89,6 @@ import java.nio.file.Path
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Semaphore
 import java.util.concurrent.TimeUnit
-import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 
 abstract class MavenImportingTestCase : MavenTestCase() {
@@ -135,8 +133,14 @@ abstract class MavenImportingTestCase : MavenTestCase() {
     }
     myNotificationAware = AutoImportProjectNotificationAware.getInstance(project)
     myProjectTracker = AutoImportProjectTracker.getInstance(project)
+    if (initProjectManager()) {
+      projectsManager.initForTests()
+    }
+
     project.messageBus.connect(testRootDisposable).subscribe(MavenImportListener.TOPIC, MavenImportLoggingListener())
   }
+
+  protected open fun initProjectManager(): Boolean = true
 
   @Throws(Exception::class)
   override fun tearDown() {
@@ -382,13 +386,19 @@ abstract class MavenImportingTestCase : MavenTestCase() {
 
   @Obsolete
   // use importProjectAsync(String)
-  protected open fun importProject(@Language(value = "XML", prefix = "<project>", suffix = "</project>") xml: String) {
-    createProjectPom(xml)
+  protected open fun importProject(
+    @Language(value = "XML", prefix = "<project>", suffix = "</project>") xml: String,
+    omitModelVersionTag: Boolean = false,
+  ) {
+    createProjectPom(xml, omitModelVersionTag)
     importProject()
   }
 
-  protected suspend fun importProjectAsync(@Language(value = "XML", prefix = "<project>", suffix = "</project>") xml: String) {
-    createProjectPom(xml)
+  protected suspend fun importProjectAsync(
+    @Language(value = "XML", prefix = "<project>", suffix = "</project>") xml: String,
+    omitModelVersionTag: Boolean = false,
+  ) {
+    createProjectPom(xml, omitModelVersionTag)
     importProjectAsync()
   }
 
@@ -519,22 +529,6 @@ abstract class MavenImportingTestCase : MavenTestCase() {
     assertNoPendingProjectForReload()
   }
 
-  @RequiresBackgroundThread
-  protected suspend fun awaitConfiguration() {
-    val isEdt = ApplicationManager.getApplication().isDispatchThread
-    if (isEdt) {
-      MavenLog.LOG.warn("Calling awaitConfiguration() from EDT sometimes causes deadlocks, even though it shouldn't")
-    }
-    assertFalse("Call awaitConfiguration() from background thread", isEdt)
-    Observation.awaitConfiguration(project) { message ->
-      logConfigurationMessage(message)
-    }
-  }
-
-  private fun logConfigurationMessage(message: String) {
-    if (message.contains("scanning")) return
-    MavenLog.LOG.warn(message)
-  }
 
   protected suspend fun updateAllProjects() {
     projectsManager.updateAllMavenProjects(MavenSyncSpec.incremental("MavenImportingTestCase incremental sync"))
@@ -621,52 +615,6 @@ abstract class MavenImportingTestCase : MavenTestCase() {
     }
   }
 
-  @RequiresBackgroundThread
-  protected suspend fun waitForImportWithinTimeout(action: suspend () -> Unit) {
-    MavenLog.LOG.warn("waitForImportWithinTimeout started")
-    val importStarted = AtomicBoolean(false)
-    val importFinished = AtomicBoolean(false)
-    val pluginResolutionFinished = AtomicBoolean(true)
-    val artifactDownloadingFinished = AtomicBoolean(true)
-    project.messageBus.connect(testRootDisposable)
-      .subscribe(MavenImportListener.TOPIC, object : MavenImportListener {
-        override fun importStarted() {
-          importStarted.set(true)
-        }
-
-        override fun importFinished(importedProjects: MutableCollection<MavenProject>, newModules: MutableList<Module>) {
-          if (importStarted.get()) {
-            importFinished.set(true)
-          }
-        }
-
-        override fun pluginResolutionStarted() {
-          pluginResolutionFinished.set(false)
-        }
-
-        override fun pluginResolutionFinished() {
-          pluginResolutionFinished.set(true)
-        }
-
-        override fun artifactDownloadingStarted() {
-          artifactDownloadingFinished.set(false)
-        }
-
-        override fun artifactDownloadingFinished() {
-          artifactDownloadingFinished.set(true)
-        }
-      })
-
-    action()
-
-    awaitConfiguration()
-
-    assertTrue("Import failed: start", importStarted.get())
-    assertTrue("Import failed: finish", importFinished.get())
-    assertTrue("Import failed: plugins", pluginResolutionFinished.get())
-    assertTrue("Import failed: artifacts", artifactDownloadingFinished.get())
-    MavenLog.LOG.warn("waitForImportWithinTimeout finished")
-  }
 
   private class MavenImportLoggingListener : MavenImportListener {
     private val logCounts = ConcurrentHashMap<String, Int>()

@@ -276,7 +276,7 @@ public final class QuickChangeLookAndFeel extends QuickSwitchSchemeAction implem
                                             boolean lockEditorScheme) {
       UIThemeLookAndFeelInfo cur = lafManager.getCurrentUIThemeLookAndFeel();
       if (!force && cur == lf) return;
-      ChangeLAFAnimator animator = Registry.is("ide.intellij.laf.enable.animation") ? ChangeLAFAnimator.showSnapshot() : null;
+      ChangeLAFAnimator animator = Registry.is("ide.intellij.laf.enable.animation", false) ? ChangeLAFAnimator.showSnapshot() : null;
 
       final boolean wasDarcula = StartupUiUtil.isUnderDarcula();
       lafManager.setCurrentLookAndFeel(lf, lockEditorScheme);

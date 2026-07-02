@@ -177,28 +177,14 @@ internal enum class ResourceType(val typeName: String, val resourceName: String,
     fun fromString(str: String): ResourceType =
       entries.firstOrNull { it.typeName.equals(str, ignoreCase = true) } ?: error("Unknown resource type: '$str'.")
 
-    fun fromPath(path: Path): ResourceType =
-      entries.firstOrNull { it.dirName.equals(path.parent.name, ignoreCase = true) } ?: error("Unknown resource type: '${path.parent.name}'.")
+    fun fromPath(path: Path): ResourceType {
+      val resourceDirName = path.parent.name.substringBefore('-')
+      return entries.firstOrNull { it.dirName.equals(resourceDirName, ignoreCase = true) }
+             ?: error("Unknown resource type: '${path.parent.name}'.")
+    }
 
     val KNOWN_RESOURCE_NAMES: Set<String> = entries.mapToSetOrEmpty { it.resourceName }
   }
-}
-
-/** Returns sourceSet name from a module name
- *
- * - `projectName.composeApp.commonMain` -> `commonMain`
- * - `projectName.composeApp.iosMain` -> `iosMain`
- * - except for the main Android module which should be `projectName.composeApp.main` -> `androidMain`
- */
-internal fun Module.getSourceSetNameFromComposeResourcesDir(): String =
-  name.substringAfterLast('.').takeUnless { it == "main" } ?: "androidMain"
-
-/** Returns the module name from an external project ID represented by this string, trimming leading ':' */
-internal fun String.getModuleName(): String? = when (count { it == ':' }) {
-  0 -> null
-  1 -> drop(1) // e.g. `projectName.composeApp.commonMain` -> `:composeApp` -> composeApp
-  2 -> substringBeforeLast(':').drop(1) // e.g. `projectName.composeApp.main` -> `:composeApp:main` -> composeApp
-  else -> null
 }
 
 /** check if the new layout from version 1.8.1 is used */

@@ -1,14 +1,10 @@
-// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.compose.ide.plugin.resources
 
-import com.intellij.openapi.components.service
-import com.intellij.openapi.diagnostic.fileLogger
-import com.intellij.openapi.externalSystem.util.ExternalSystemApiUtil
 import com.intellij.openapi.module.Module
-import com.intellij.openapi.project.Project
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.openapi.vfs.VirtualFileManager
-import java.nio.file.Path
+import com.intellij.psi.PsiFile
 
 internal const val COMPOSE_RESOURCES_DIR: String = "composeResources"
 internal const val STRINGS_XML_FILENAME: String = "strings.xml"
@@ -27,19 +23,6 @@ internal fun String.isValidInnerComposeResourcesDirNameFor(dirNames: Set<String>
 
 internal val String.withoutExtension: String get() = substringBeforeLast(".")
 
-/** Retrieves the module name for the Compose resources task of the given module. */
-internal fun Module.getModuleNameForComposeResourcesTask(): String? =
-  ExternalSystemApiUtil.getExternalProjectId(this)?.getModuleName()
-
-/**
- * Retrieves the directory for Compose resources for the specified source set name in the module.
- *
- * @param sourceSetName the name of the source set
- * @return the VirtualFile representing the directory for Compose resources, or null if not found
- */
-internal fun Module.getComposeResourcesDirFor(sourceSetName: String): VirtualFile? =
-  composeResourcesDirsByName[sourceSetName]?.let { VirtualFileManager.getInstance().findFileByNioPath(it.directoryPath) }
-
 /**
  * Retrieves the directory for Compose resources specific to a module's source set.
  * If the directory for the determined source set name does not exist, it defaults to 'commonMain'.
@@ -47,36 +30,24 @@ internal fun Module.getComposeResourcesDirFor(sourceSetName: String): VirtualFil
  * @return the VirtualFile representing the directory for Compose resources, or null if not found
  */
 internal fun Module.getComposeResourcesDir(): VirtualFile? {
-  val sourceSetName = getSourceSetNameFromComposeResourcesDir()
-  return getComposeResourcesDirFor(sourceSetName) ?: getComposeResourcesDirFor("commonMain") ?: run {
-    log.warn("No Compose resources directory found for module $name and source set $sourceSetName.")
-    null
-  }
+  val composeData = ComposeResourcesDataProvider.findProviderForProject(project)
+                      ?.getComposeDataForModule(this) ?: return null
+  val fileManager = VirtualFileManager.getInstance()
+  return fileManager.findFileByNioPath(composeData.directoryPath) ?: composeData.commonResourcesPath?.let(fileManager::findFileByNioPath)
 }
 
 /**
- * Return a list of all the Compose resources directories present in the given [Project]
- * */
-internal fun Project.getAllComposeResourcesDirs(): List<ComposeResourcesDir> =
-  service<ComposeResourcesManager>().composeResourcesByModulePath.flatMap { it.value.directoriesBySourceSetName.values }
-
-/** Return ComposeResourceDir associated with a given resource @param [path] or null if none is found */
-internal fun Project.findComposeResourcesDirFor(path: Path): ComposeResourcesDir? = service<ComposeResourcesManager>().findComposeResourcesDirFor(path)
-
-
-/** Return a map of all the Compose resources directories present in the given [Module] */
-internal val Module.composeResourcesDirsByName: Map<String, ComposeResourcesDir>
-  get() = getModuleNameForComposeResourcesTask()?.let { moduleName ->
-    project.service<ComposeResourcesManager>().composeResourcesByModulePath[moduleName]?.directoriesBySourceSetName.orEmpty()
-  } ?: emptyMap()
-
-internal data class ComposeResourcesDir(val moduleName: String, val sourceSetName: String, val directoryPath: Path, val isCustom: Boolean = false)
-
-internal data class ComposeResources(
-  val moduleName: String,
-  val directoriesBySourceSetName: Map<String, ComposeResourcesDir>,
-  val isPublicResClass: Boolean,
-  val nameOfResClass: String,
-)
-
-private val log by lazy { fileLogger() }
+ * Determines if the given file belongs to a Compose resources directory structure.
+ *
+ * This function checks whether the file's parent directory name is a valid inner Compose resources directory name
+ * and whether the grandparent directory is a registered Compose resources directory.
+ *
+ * @return `true` if the file is part of a Compose resources directory, `false` otherwise
+ */
+internal fun PsiFile.isComposeResourcesFile(
+  validInnerComposeResourcesDirNames: Set<String> = VALID_INNER_COMPOSE_RESOURCES_DIR_NAMES,
+): Boolean {
+  val parentName = this.parent?.name ?: return false
+  return parentName.isValidInnerComposeResourcesDirNameFor(validInnerComposeResourcesDirNames) &&
+         ComposeResourcesDataProvider.findProviderForProject(project)?.getComposeDataForResourceFile(this) != null
+}

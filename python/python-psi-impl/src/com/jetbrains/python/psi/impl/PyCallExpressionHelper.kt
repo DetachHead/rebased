@@ -11,11 +11,11 @@ import com.intellij.psi.util.PsiTreeUtil
 import com.intellij.util.ThreeState
 import com.intellij.util.containers.ContainerUtil
 import com.jetbrains.python.PyNames
+import com.jetbrains.python.PyNames.isPrivate
 import com.jetbrains.python.PythonRuntimeService
 import com.jetbrains.python.ast.PyAstFunction
 import com.jetbrains.python.codeInsight.dataflow.scope.ScopeUtil
 import com.jetbrains.python.codeInsight.typing.PyTypingTypeProvider
-import com.jetbrains.python.PyNames.isPrivate
 import com.jetbrains.python.psi.AccessDirection
 import com.jetbrains.python.psi.LanguageLevel
 import com.jetbrains.python.psi.PyArgumentList
@@ -52,6 +52,7 @@ import com.jetbrains.python.psi.resolve.PyResolveUtil
 import com.jetbrains.python.psi.resolve.QualifiedRatedResolveResult
 import com.jetbrains.python.psi.resolve.QualifiedResolveResult
 import com.jetbrains.python.psi.resolve.RatedResolveResult
+import com.jetbrains.python.psi.types.PyAnyType
 import com.jetbrains.python.psi.types.PyCallableParameter
 import com.jetbrains.python.psi.types.PyCallableParameterImpl
 import com.jetbrains.python.psi.types.PyCallableType
@@ -78,6 +79,7 @@ import com.jetbrains.python.psi.types.PyUnionType
 import com.jetbrains.python.psi.types.PyUnsafeUnionType
 import com.jetbrains.python.psi.types.TypeEvalContext
 import com.jetbrains.python.psi.types.isNoneType
+import com.jetbrains.python.psi.types.isUnknown
 import com.jetbrains.python.pyi.PyiUtil
 import com.jetbrains.python.toolbox.Maybe
 import org.jetbrains.annotations.ApiStatus
@@ -231,7 +233,7 @@ private fun PyCallExpression.getExplicitResolveResults(resolveContext: PyResolve
   for (type in calleeType.toStream()) {
     // When invoking cls(), turn type[Self] into Self.
     // Otherwise, we will delegate to __init__() of its scope class and return a concrete type class
-    // as a call result, losing Self. 
+    // as a call result, losing Self.
     // See e.g. Py3TypeCheckerInspectionTest.testSelfInClassMethods
     if (type is PySelfType) {
       result.add(type)
@@ -365,9 +367,9 @@ private fun PyCallSiteExpression.toCallableType(
       clarifiedResolved.getImplicitArgumentCount(resolvedModifier, isConstructorCall, isByInstance, isByClass)
 
     val clarifiedConstructorCallType =
-      if (PyUtil.isInitOrNewMethod(clarifiedResolved)) resolveResult.clarifyConstructorCallType(this, context) else null
+      if (PyUtil.isInitOrNewMethod(clarifiedResolved)) resolveResult.clarifyConstructorCallType(this, context) else PyAnyType.unknown
 
-    if (callableType.modifier == resolvedModifier && callableType.implicitOffset == resolvedImplicitOffset && clarifiedConstructorCallType == null) {
+    if (callableType.modifier == resolvedModifier && callableType.implicitOffset == resolvedImplicitOffset && clarifiedConstructorCallType.isUnknown) {
       return callableType
     }
 
@@ -601,14 +603,14 @@ private fun List<PyCallableType>.resolveOverloadsCallType(callSite: PyCallSiteEx
     return matchingOverloads[0].getCallType(context, callSite)
   }
   val someArgumentsHaveUnknownType = arguments.any {
-    context.getType(it) == null
+    context.getType(it).isUnknown
   }
   if (someArgumentsHaveUnknownType) {
     return matchingOverloads
       .map { it.getCallType(context, callSite) }
       .let { PyUnionType.union(it) }
   }
-  return matchingOverloads.firstOrNull()?.getCallType(context, callSite)
+  return matchingOverloads.firstOrNull()?.getCallType(context, callSite) ?: PyAnyType.unknown
 }
 
 private fun ClarifiedResolveResult.clarifyConstructorCallType(callSite: PyCallSiteExpression, context: TypeEvalContext): PyType? {
@@ -634,12 +636,12 @@ private fun ClarifiedResolveResult.clarifyConstructorCallType(callSite: PyCallSi
   if (initOrNewCallType is PyCollectionType) {
     return initOrNewCallType
   }
-  if (initOrNewCallType == null) {
+  if (initOrNewCallType.isUnknown) {
     // TODO requires weak union. See PyUnresolvedReferencesInspectionTest.testCustomNewReturnInAnotherModule
     return PyUnionType.createWeakType(PyClassTypeImpl(receiverClass, false))
   }
 
-  return null
+  return PyAnyType.unknown
 }
 
 private fun PyCallExpression.getSuperCallType(context: TypeEvalContext): Maybe<PyType?> {
@@ -856,23 +858,23 @@ fun PyCallSiteExpression.mapArguments(callable: PyCallable, context: TypeEvalCon
 }
 
 fun <T> Map<T, PyCallableParameter>.getArgumentsMappedToPositionalContainer(): List<T> {
-  return filterValues { it.isPositionalContainer() }.keys.toList()
+  return filterValues { it.isPositionalContainer }.keys.toList()
 }
 
 fun <T> Map<T, PyCallableParameter>.getArgumentsMappedToKeywordContainer(): List<T> {
-  return filterValues { it.isKeywordContainer() }.keys.toList()
+  return filterValues { it.isKeywordContainer }.keys.toList()
 }
 
 fun <T> Map<T, PyCallableParameter>.getRegularMappedParameters(): Map<T, PyCallableParameter> {
-  return filterValues { !it.isPositionalContainer() && !it.isKeywordContainer() }
+  return filterValues { !it.isPositionalContainer && !it.isKeywordContainer }
 }
 
 fun <T> Map<T, PyCallableParameter>.getMappedPositionalContainer(): PyCallableParameter? {
-  return values.find { it.isPositionalContainer() }
+  return values.find { it.isPositionalContainer }
 }
 
 fun <T> Map<T, PyCallableParameter>.getMappedKeywordContainer(): PyCallableParameter? {
-  return values.find { it.isKeywordContainer() }
+  return values.find { it.isKeywordContainer }
 }
 
 fun PyClassType.resolveImplicitlyInvokedMethods(
@@ -1036,7 +1038,7 @@ fun analyzeArguments(
       if (!parameter.isSelf && !hasSlashParameter && !parameter.isLegacyPositionalOnly()) {
         positionalOnlyMode = false
       }
-      if (parameter.isPositionalContainer()) {
+      if (parameter.isPositionalContainer) {
         for (argument in allPositionalArguments) {
           if (argument != null) {
             mappedParameters.put(argument, parameter)
@@ -1052,7 +1054,7 @@ fun analyzeArguments(
         variadicPositionalArguments.clear()
         keywordOnlyMode = true
       }
-      else if (parameter.isKeywordContainer()) {
+      else if (parameter.isKeywordContainer) {
         for (argument in keywordArguments) {
           mappedParameters.put(argument, parameter)
         }

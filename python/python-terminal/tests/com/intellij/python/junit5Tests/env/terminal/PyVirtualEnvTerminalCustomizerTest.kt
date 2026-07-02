@@ -10,6 +10,7 @@ import com.intellij.openapi.util.SystemInfo
 import com.intellij.platform.eel.EelExecApi
 import com.intellij.platform.eel.ExecuteProcessException
 import com.intellij.platform.eel.ThrowsChecked
+import com.intellij.platform.eel.provider.asEelPath
 import com.intellij.platform.eel.provider.localEel
 import com.intellij.platform.eel.provider.utils.readWholeText
 import com.intellij.platform.eel.provider.utils.sendWholeText
@@ -25,6 +26,7 @@ import com.intellij.testFramework.common.timeoutRunBlocking
 import com.intellij.testFramework.junit5.fixture.moduleFixture
 import com.intellij.testFramework.junit5.fixture.projectFixture
 import com.intellij.testFramework.junit5.fixture.tempPathFixture
+import com.jetbrains.python.getOrThrow
 import com.jetbrains.python.sdk.flavors.conda.PyCondaEnv
 import com.jetbrains.python.sdk.persist
 import com.jetbrains.python.sdk.pythonSdk
@@ -122,15 +124,16 @@ class PyVirtualEnvTerminalCustomizerTest {
     val (pythonBinary, venvDirName) =
       if (useConda) {
         val envDir = venvPath.resolve("some_path_with_underscores")
-        val sdk = createCondaEnv(condaEnv, envDir).createSdkFromThisEnv(null, emptyList())
+        val sdk = createCondaEnv(condaEnv, envDir).createSdkFromThisEnv(null, emptyList()).getOrThrow()
         sdkToDelete = sdk
         sdk.persist()
         moduleFixture.get().pythonSdk = sdk
         Pair(Path(sdk.homePath!!), envDir.toRealPath().pathString)
       }
       else {
-        val venv = VirtualEnvReader().findPythonInPythonRoot(tempDirFixture.get())!!
-        Pair(venv, tempDirFixture.get().name)
+        val venvDir = tempDirFixture.get().resolve(".venv")
+        val venv = VirtualEnvReader().findPythonInPythonRoot(venvDir)!!
+        Pair(venv, venvDir.name)
       }
 
     // binary might be like ~8.3, we need to expand it as venv might report both
@@ -203,6 +206,7 @@ class PyVirtualEnvTerminalCustomizerTest {
       env)
 
     val options = ShellStartupOptions.Builder()
+      .setFinalWorkingDirectoryEelPath(workDir.asEelPath())
       .envVariables(env)
       .shellCommand(command.toList())
       .shellIntegration(ShellIntegration(shellType, false))

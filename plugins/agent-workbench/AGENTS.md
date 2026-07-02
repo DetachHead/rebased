@@ -12,12 +12,14 @@ This file captures development references only. Product/design decisions live in
 
 ## Running Tests
 
-Run commands from repository root (`/Users/develar/projects/idea-4`).
+Run commands from repository root.
 
 Always pass fully-qualified test names (FQN). Simple class names do not match.
 
 - Single test class:
   `./tests.cmd '-Dintellij.build.test.patterns=com.intellij.agent.workbench.sessions.AgentSessionCliTest'`
+- Plugin-wired editor/action test:
+  `./tests.cmd '-Dintellij.build.test.patterns=com.intellij.agent.workbench.chat.AgentChatEditorServiceTest -Dintellij.build.test.main.module=intellij.agent.workbench.plugin.tests'`
 - Whole sessions package:
   `./tests.cmd '-Dintellij.build.test.patterns=com.intellij.agent.workbench.sessions.*'`
 - Whole Agent Workbench test suite:

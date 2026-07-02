@@ -1,4 +1,4 @@
-// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.openapi.application;
 
 import com.intellij.configurationStore.StoreUtilKt;
@@ -32,9 +32,11 @@ import com.intellij.ide.ui.laf.LookAndFeelThemeAdapterKt;
 import com.intellij.idea.AppMode;
 import com.intellij.openapi.application.impl.ApplicationInfoImpl;
 import com.intellij.openapi.application.migrations.BigDataToolsMigration253;
+import com.intellij.openapi.application.migrations.CwmMigration261;
 import com.intellij.openapi.application.migrations.Localization242;
 import com.intellij.openapi.application.migrations.NotebooksMigration242;
 import com.intellij.openapi.application.migrations.SpaceMigration252;
+import com.intellij.openapi.application.migrations.VcsPluginsMigration261;
 import com.intellij.openapi.components.StoragePathMacros;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.extensions.PluginId;
@@ -143,6 +145,8 @@ public final class ConfigImportHelper {
   private static final long PLUGIN_UPDATES_TIMEOUT_MS = 7000L;
   private static final long BROKEN_PLUGINS_TIMEOUT_MS = 3000L;
 
+  private static boolean isUnitTestMode = false;
+
   private ConfigImportHelper() { }
 
   public static void importConfigsTo(
@@ -153,6 +157,9 @@ public final class ConfigImportHelper {
   ) {
     log.info("Importing configs to '" + newConfigDir + "'; veryFirstStart=" + veryFirstStartOnThisComputer);
     System.setProperty(InitialConfigImportState.FIRST_SESSION_KEY, Boolean.TRUE.toString());
+
+    var app = ApplicationManager.getApplication();
+    isUnitTestMode = app != null && app.isUnitTestMode();
 
     var migrationOption = CustomConfigMigrationOption.readCustomConfigMigrationOptionAndRemoveMarkerFile(newConfigDir);
     log.info("Custom migration option: " + migrationOption);
@@ -1020,7 +1027,9 @@ public final class ConfigImportHelper {
       }
     }
 
-    migrateGlobalPlugins(newConfigDir, oldConfigDir, pluginsToMigrate, pluginsToDownload, options.log);
+    if (!isUnitTestMode) {
+      migrateGlobalPlugins(newConfigDir, oldConfigDir, pluginsToMigrate, pluginsToDownload, options.log);
+    }
 
     pluginsToMigrate.removeIf(hasPendingUpdate);
     if (!pluginsToMigrate.isEmpty()) {
@@ -1122,6 +1131,8 @@ public final class ConfigImportHelper {
     new NotebooksMigration242().migratePlugins(options);
     new SpaceMigration252().migratePlugins(options);
     new BigDataToolsMigration253().migratePlugins(options);
+    new VcsPluginsMigration261().migratePlugins(options);
+    new CwmMigration261().migratePlugins(options);
   }
 
   private static void migrateGlobalPlugins(
@@ -1141,7 +1152,7 @@ public final class ConfigImportHelper {
       Files.writeString(resultFile, downloadIds);
     }
     catch (IOException e) {
-      options.getLog().error("Unable to write auto install result", e);
+      log.error("Unable to write auto install result", e);
     }
   }
 

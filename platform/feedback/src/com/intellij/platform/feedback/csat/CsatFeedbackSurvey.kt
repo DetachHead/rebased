@@ -143,7 +143,7 @@ private fun getProductHash(surveyPeriod: Int): Int {
 
 internal data class NextDate(
   val isNewUser: Boolean,
-  val date: java.time.LocalDate
+  val date: java.time.LocalDate,
 )
 
 internal fun getNextCsatDay(): NextDate {
@@ -211,6 +211,7 @@ internal fun flipACoin(productCode: String, newUser: Boolean): Boolean {
       when (productCode) {
         "PC", "IU" -> 0.015
         "IC", "PY" -> 0.025
+        "RD" -> 0.25
         else -> 0.125
       }
     }
@@ -231,4 +232,8 @@ internal fun tryParseDate(it: String): java.time.LocalDate? {
   catch (_: DateTimeParseException) {
     return null
   }
+}
+
+fun showCsatFeedbackDialog(project: Project?) {
+  CsatFeedbackDialog(project, false).show()
 }

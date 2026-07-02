@@ -2,10 +2,12 @@
 package com.jetbrains.python
 
 import com.jetbrains.python.fixtures.PyTestCase
+import com.jetbrains.python.fixtures.fixme
 import com.jetbrains.python.psi.PyExpression
 import com.jetbrains.python.psi.types.PyExpectedVarianceJudgment.getExpectedVariance
-import com.jetbrains.python.psi.types.PyTypeVarType.Variance
+import com.jetbrains.python.psi.types.PyTypeParameterType.Variance
 import com.jetbrains.python.psi.types.TypeEvalContext
+import junit.framework.AssertionFailedError
 import org.intellij.lang.annotations.Language
 
 internal class PyExpectedVarianceJudgmentTest : PyTestCase() {
@@ -20,8 +22,17 @@ internal class PyExpectedVarianceJudgmentTest : PyTestCase() {
     assertEquals(expectedVariance, actualVariance)
   }
 
-  fun `test Generic class legacy syntax 1co`() {
-    doTest("T1]", Variance.COVARIANT, """
+  fun `test Generic super class expects bivariant type parameters`() {
+    doTest("T]", Variance.BIVARIANT, """
+      from typing import TypeVar, Generic
+      T = TypeVar("T")
+      class C(Generic[T]):
+          pass
+      """)
+  }
+
+  fun `test Generic super class expects bivariant type parameters co`() {
+    doTest("T1]", Variance.BIVARIANT, """
       from typing import TypeVar, Generic
       T1 = TypeVar("T1", covariant=True)
       class Box(Generic[T1]):
@@ -29,11 +40,20 @@ internal class PyExpectedVarianceJudgmentTest : PyTestCase() {
       """)
   }
 
-  fun `test Generic class legacy syntax 1contra`() {
-    doTest("T1]", Variance.CONTRAVARIANT, """
+  fun `test Generic super class expects bivariant type parameters contra`() {
+    doTest("T1]", Variance.BIVARIANT, """
       from typing import TypeVar, Generic
       T1 = TypeVar("T1", contravariant=True)
       class Box(Generic[T1]):
+          pass
+      """)
+  }
+
+  fun `test Protocol super class expects bivariant type parameters`() {
+    doTest("T]", Variance.BIVARIANT, """
+      from typing import TypeVar, Protocol
+      T = TypeVar("T")
+      class C(Protocol[T]):
           pass
       """)
   }
@@ -61,6 +81,14 @@ internal class PyExpectedVarianceJudgmentTest : PyTestCase() {
       """)
   }
 
+  fun `test Generic class readonly attribute`() {
+    doTest("T] #", Variance.COVARIANT, """
+      from typing import ReadOnly
+      class A[T]:
+          attr: ReadOnly[T] # attribute
+      """)
+  }
+
   fun `test Generic class final attribute`() {
     doTest("T] #", Variance.COVARIANT, """
       from typing import Final
@@ -74,6 +102,14 @@ internal class PyExpectedVarianceJudgmentTest : PyTestCase() {
       from typing import Final, Callable
       class A[T]:
           attr: Final[Callable[[T], None]]
+      """)
+  }
+
+  fun `test Generic class final attribute callable concatenate parameter`() {
+    doTest("T, P], None", Variance.CONTRAVARIANT, """
+      from typing import Callable, Concatenate, Final
+      class A[T, **P]:
+          attr: Final[Callable[Concatenate[T, P], None]]
       """)
   }
 
@@ -115,6 +151,14 @@ internal class PyExpectedVarianceJudgmentTest : PyTestCase() {
       """)
   }
 
+  fun `test Generic class method parameter nesting callable concatenate parameter`() {
+    doTest("T, P], None", Variance.COVARIANT, """
+      from typing import Callable, Concatenate
+      class A[T, **P]:
+          def method(self, arg: Callable[Concatenate[T, P], None]): ...
+      """)
+  }
+
   fun `test Generic class method parameter nesting callable return`() {
     doTest("T])", Variance.CONTRAVARIANT, """
       from typing import Callable
@@ -128,6 +172,14 @@ internal class PyExpectedVarianceJudgmentTest : PyTestCase() {
       from typing import Callable
       class A[T]:
           def method(self) -> Callable[[T], None]: pass
+      """)
+  }
+
+  fun `test Generic class method return nesting callable concatenate parameter`() {
+    doTest("T, P], None", Variance.CONTRAVARIANT, """
+      from typing import Callable, Concatenate
+      class A[T, **P]:
+          def f2(self, t: T) -> Callable[Concatenate[T, P], None]: ...
       """)
   }
 
@@ -206,9 +258,9 @@ internal class PyExpectedVarianceJudgmentTest : PyTestCase() {
   }
 
   fun `test Generic class type argument PEP695 syntax`() {
-    doTest("T2]", Variance.COVARIANT, """
+    doTest("T2]", Variance.BIVARIANT, """
       from typing import TypeVar, Generic
-      class Box[T1]: # actually bivariant, but we use covariant as a compromise
+      class Box[T1]:
           pass
       T2 = TypeVar('T2', contravariant=True)
       class ReadOnlyBox(Box[T2], Generic[T2]):
@@ -217,9 +269,9 @@ internal class PyExpectedVarianceJudgmentTest : PyTestCase() {
   }
 
   fun `test Generic class type argument PEP695 syntax 2a`() {
-    doTest("T3,", Variance.COVARIANT, """
+    doTest("T3,", Variance.BIVARIANT, """
       from typing import TypeVar, Generic
-      class Box[T1, T2]: # actually bivariant, but we use covariant as a compromise
+      class Box[T1, T2]:
           pass
   
       T3 = TypeVar("T3", contravariant=True)
@@ -230,9 +282,9 @@ internal class PyExpectedVarianceJudgmentTest : PyTestCase() {
   }
 
   fun `test Generic class type argument PEP695 syntax 2b`() {
-    doTest("T4]", Variance.COVARIANT, """
+    doTest("T4]", Variance.BIVARIANT, """
       from typing import TypeVar, Generic
-      class Box[T1, T2]: # actually bivariant, but we use covariant as a compromise
+      class Box[T1, T2]:
           pass
   
       T3 = TypeVar("T3", contravariant=True)
@@ -287,19 +339,69 @@ internal class PyExpectedVarianceJudgmentTest : PyTestCase() {
       """)
   }
 
-  // Expect null to avoid variance compatibility inspection check
+  fun `test Frozen attribute`() {
+    doTest("T  #", Variance.COVARIANT, """
+      from dataclasses import dataclass
+      @dataclass(frozen=True)
+      class A[T]:
+          attr: T  # read-only
+      """)
+  }
 
-  fun `test Type alias for generic class`() {
-    doTest("T2]", null, """
+  fun `test String literal type`() {
+    doTest("T\"  #", Variance.COVARIANT, """
+      from dataclasses import dataclass
+      @dataclass(frozen=True)
+      class A[T]:
+          attr: "T"  # read-only
+      """)
+  }
+
+  fun `test String literal type at return inside callable`() {
+    doTest("T\"", Variance.COVARIANT, """
+      from typing import Callable
+      class A[T]:
+          def f(self, t: Callable[["T"],None]) : ...
+      """)
+  }
+
+  fun `test String literal type at function parameter`() {
+    fixme<AssertionFailedError>("PY-87942: No AST in string literal of type annotation",
+                                "expected:<COVARIANT> but was:<CONTRAVARIANT>"
+    ) {
+      doTest("T],", Variance.COVARIANT, """
+        from typing import Callable
+        class A[T]:
+            def f(self, t: "Callable[[T],None]") : ...
+        """)
+    }
+  }
+
+  fun `test Type alias use for generic class invariant`() {
+    doTest("T2]", Variance.INVARIANT, """
       from typing import TypeVar, Generic
-      T1 = TypeVar("T1", covariant=True)
-      class Box(Generic[T1]):
-          pass
-      Box_TA = Box[T1]
+      T1 = TypeVar("T1")
+      class Box(Generic[T1]): ...
+      Box_TA: TypeAlias = Box[T1]
       T2 = TypeVar("T2", covariant=True)
       my_box: Box_TA[T2]
       """)
   }
+
+  fun `test Type alias use for generic class covariant`() {
+    doTest("T_co] #", Variance.COVARIANT, """
+      from typing import Generic, TypeVar, TypeAlias
+      T_co = TypeVar("T_co", covariant=True)
+      class ClassA(Generic[T_co]): ...
+      
+      T = TypeVar("T")
+      A_Alias_1: TypeAlias = ClassA[T]
+      
+      obj: A_Alias_1[T_co] #
+      """)
+  }
+
+  // Expect null to avoid variance compatibility inspection check
 
   fun `test Generic class dunder init special case`() {
     // actually bivariant
