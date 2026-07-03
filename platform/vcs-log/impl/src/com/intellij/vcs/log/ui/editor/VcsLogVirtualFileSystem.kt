@@ -13,15 +13,18 @@ internal class VcsLogVirtualFileSystem :
   ComplexPathVirtualFileSystem<VcsLogVirtualFileSystem.VcsLogComplexPath>(GsonComplexPathSerializer(VcsLogComplexPath::class.java)) {
 
   override fun findOrCreateFile(project: Project, path: VcsLogComplexPath): VirtualFile {
-    return createVcsLogFile(path, null)
+    return createVcsLogFile(path, null, true) // TODO: should this ever be false?
   }
 
-  fun createVcsLogFile(project: Project, tabId: String, filters: VcsLogFilterCollection?): VirtualFile {
-    return createVcsLogFile(VcsLogComplexPath(project.locationHash, project.locationHash, tabId), filters)
+  /**
+   * @param canClose if `null`, infer whether the file can be closed based on whether it's the initially opened one.
+   */
+  fun createVcsLogFile(project: Project, tabId: String, filters: VcsLogFilterCollection?, canClose: Boolean): VirtualFile {
+    return createVcsLogFile(VcsLogComplexPath(project.locationHash, project.locationHash, tabId), filters, canClose)
   }
 
-  private fun createVcsLogFile(pathId: VcsLogComplexPath, filters: VcsLogFilterCollection?): DefaultVcsLogFile {
-    return DefaultVcsLogFile(pathId, filters)
+  private fun createVcsLogFile(pathId: VcsLogComplexPath, filters: VcsLogFilterCollection?, canClose: Boolean): DefaultVcsLogFile {
+    return DefaultVcsLogFile(pathId, filters, canClose)
   }
 
   override fun getProtocol(): String = Holder.PROTOCOL

@@ -10,6 +10,6 @@ class CanCloseVirtualLogFile: VirtualFilePreCloseCheck {
    * don't allow the first vcs log window to be closed
    */
   override fun canCloseFile(file: VirtualFile): Boolean {
-    return file !is DefaultVcsLogFile || !file.isFirstLogFile
+    return file !is DefaultVcsLogFile || file.canClose
   }
 }
