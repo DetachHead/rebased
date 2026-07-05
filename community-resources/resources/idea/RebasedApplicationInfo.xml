@@ -5,5 +5,5 @@
   <logo url="/idea_community_logo.png"/>
   <icon svg="/rebased.svg" svg-small="/rebased_16.svg"/>
   <icon-eap svg="/rebased.svg" svg-small="/rebased_16.svg"/>
-  <names product="Rebased" fullname="Rebased" script="idea" motto="A git client based on the Intellij platform"/>
+  <names product="Rebased" fullname="Rebased" script="rebased" motto="A git client based on the Intellij platform"/>
 </component>

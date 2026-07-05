@@ -129,7 +129,7 @@ open class RebasedProperties(private val communityHomeDir: Path) : JetBrainsProd
   }
 
   override val baseFileName: String
-    get() = "idea"
+    get() = "rebased"
 
   override fun getProductContentDescriptor(): ProductModulesContentSpec = productModules {
     include(intellijCommunityBaseFragment(platformPrefix))
