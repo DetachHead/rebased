@@ -143,7 +143,7 @@ jobs:
           EOF
           
           # icon
-          ln -s usr/bin/idea.png appdir/rebased.png
+          ln -s usr/bin/rebased.png appdir/rebased.png
 
       - name: Install appimagetool
         # this sucks. bash is the worst language ever made. appimagetool should be available on a package manager with lockfile support
