@@ -127,8 +127,8 @@
               topic="com.intellij.openapi.roots.ModuleRootListener"/>
     <listener class="com.intellij.psi.impl.file.impl.PsiWsmListener"
               topic="com.intellij.platform.backend.workspace.WorkspaceModelChangeListener"/>
-    <listener class="com.intellij.workspaceModel.ide.impl.legacyBridge.facet.FacetEntityChangeListener$WorkspaceModelListener"
-              topic="com.intellij.platform.backend.workspace.WorkspaceModelChangeListener"/>
+    <!--<listener class="com.intellij.workspaceModel.ide.impl.legacyBridge.facet.FacetEntityChangeListener$WorkspaceModelListener"-->
+    <!--          topic="com.intellij.platform.backend.workspace.WorkspaceModelChangeListener"/>-->
     <listener class="com.intellij.workspaceModel.ide.impl.legacyBridge.module.ModuleBridgeCleaner"
               topic="com.intellij.platform.backend.workspace.WorkspaceModelChangeListener"/>
   </projectListeners>
