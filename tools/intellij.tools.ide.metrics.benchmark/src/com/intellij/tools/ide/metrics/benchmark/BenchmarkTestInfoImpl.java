@@ -101,7 +101,7 @@ public class BenchmarkTestInfoImpl implements BenchmarkTestInfo {
 
     try {
       TelemetryManager.Companion.resetGlobalSdk();
-      var telemetryClazz = Class.forName("com.intellij.platform.diagnostic.telemetry.impl.TelemetryManagerImpl");
+      var telemetryClazz = Class.forName("com.intellij.platform.diagnostic.telemetry.NoopTelemetryManager");
       var instance = telemetryClazz
         .getDeclaredConstructor(CoroutineScope.class, boolean.class, boolean.class)
         .newInstance(coroutineScope, true, false);

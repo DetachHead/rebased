@@ -67,8 +67,8 @@ import com.intellij.openapi.keymap.KeymapManager
 import com.intellij.openapi.updateSettings.impl.UpdateSettings
 import com.intellij.openapi.util.SystemPropertyBean
 import com.intellij.openapi.util.io.OSAgnosticPathUtil
+import com.intellij.platform.diagnostic.telemetry.NoopTelemetryManager
 import com.intellij.platform.diagnostic.telemetry.TelemetryManager
-import com.intellij.platform.diagnostic.telemetry.impl.TelemetryManagerImpl
 import com.intellij.platform.diagnostic.telemetry.impl.span
 import com.intellij.platform.ide.CoreUiCoroutineScopeHolder
 import com.intellij.platform.ide.ideFingerprint
@@ -160,7 +160,7 @@ internal suspend fun loadApp(
 
     TelemetryManager.setTelemetryManager(async(CoroutineName("opentelemetry configuration")) {
       return@async try {
-        TelemetryManagerImpl(app.getCoroutineScope(), app.isUnitTestMode)
+        NoopTelemetryManager()
       }
       catch (e: CancellationException) {
         throw e
