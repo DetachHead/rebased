@@ -124,7 +124,7 @@ jobs:
           # AppRun file
           cat > appdir/AppRun <<'EOF'
           #!/bin/bash
-          exec "$APPDIR/usr/bin/idea" "$@"
+          exec "$APPDIR/usr/bin/rebased" "$@"
           EOF
           chmod +x appdir/AppRun
           
