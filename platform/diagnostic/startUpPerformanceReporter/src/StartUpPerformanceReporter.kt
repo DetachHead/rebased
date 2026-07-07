@@ -14,8 +14,6 @@ import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.io.OSAgnosticPathUtil
-import com.intellij.platform.diagnostic.telemetry.TelemetryManager
-import com.intellij.platform.diagnostic.telemetry.impl.TelemetryManagerImpl
 import com.intellij.util.SystemProperties
 import com.intellij.util.io.createParentDirectories
 import com.intellij.util.lang.ClassPath
@@ -124,8 +122,9 @@ private suspend fun logAndClearStats(projectName: String, perfFilePath: String?)
     }
   }
 
-  (TelemetryManager.getInstance() as? TelemetryManagerImpl)
-    ?.addStartupActivities((activities.get(ActivityCategory.DEFAULT.jsonName) ?: emptyList()).sortedWith(itemComparator))
+  // telemetry is disabled in rebased
+  //(TelemetryManager.getInstance() as? TelemetryManagerImpl)
+  //  ?.addStartupActivities((activities.get(ActivityCategory.DEFAULT.jsonName) ?: emptyList()).sortedWith(itemComparator))
 
   val pluginCostMap = computePluginCostMap()
 

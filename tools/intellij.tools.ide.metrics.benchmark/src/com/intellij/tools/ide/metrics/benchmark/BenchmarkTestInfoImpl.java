@@ -100,7 +100,7 @@ public class BenchmarkTestInfoImpl implements BenchmarkTestInfo {
 
     try {
       TelemetryManager.Companion.resetGlobalSdk();
-      var telemetryClazz = Class.forName("com.intellij.platform.diagnostic.telemetry.impl.TelemetryManagerImpl");
+      var telemetryClazz = Class.forName("com.intellij.platform.diagnostic.telemetry.NoopTelemetryManager");
       var instance = Arrays.stream(telemetryClazz.getDeclaredConstructors())
         .filter((it) -> it.getParameterCount() > 0).findFirst()
         .get()
