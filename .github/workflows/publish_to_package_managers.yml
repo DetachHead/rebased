@@ -22,7 +22,8 @@ jobs:
         submodules: true
     - name: bump cask pr
       env:
-        HOMEBREW_GITHUB_API_TOKEN: "${{ secrets.HOMEBREW_TOKEN }}" # zizmor: ignore[secrets-outside-env] TODO
+        # zizmor: ignore[secrets-outside-env] TODO
+        HOMEBREW_GITHUB_API_TOKEN: "${{ secrets.HOMEBREW_TOKEN }}"
         version: ${{ github.event.release.tag_name }}
       run: |
         cd ./brew/bin
