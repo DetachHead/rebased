@@ -47,8 +47,14 @@
     <projectService serviceInterface="com.intellij.ide.structureView.StructureViewFactory"
                     serviceImplementation="com.intellij.ide.structureView.impl.StructureViewFactoryImpl"/>
 
-    <toolWindow id="Structure" anchor="left" icon="AllIcons.Toolwindows.ToolWindowStructure" secondary="true"
-                factoryClass="com.intellij.ide.structureView.impl.StructureViewToolWindowFactory"/>
+    <!--
+    structure view is disabled in rebased. ideally we would just remove the structure view plugin entirely, but the markdown extension
+    depends on it, and many users seem to expect rebased to support markdown preview.
+    unlike jetbrains IDEs however, we don't bundle the markdown extension, users are expected to install it from the marketplace themselves.
+    the structure view plugin on the other hand isn't on the marketplace so we are forced to bundle it to support this use case
+    -->
+    <!--<toolWindow id="Structure" anchor="left" icon="AllIcons.Toolwindows.ToolWindowStructure" secondary="true"-->
+    <!--            factoryClass="com.intellij.ide.structureView.impl.StructureViewToolWindowFactory"/>-->
 
     <statistics.counterUsagesCollector implementationClass="com.intellij.ide.structureView.StructureViewEventsCollector"/>
 
