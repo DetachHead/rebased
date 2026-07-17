@@ -40,9 +40,7 @@ import com.intellij.workspaceModel.ide.impl.legacyBridge.project.ModuleRootListe
 import com.intellij.workspaceModel.ide.legacyBridge.ModuleBridge
 import com.intellij.workspaceModel.ide.toPath
 import kotlinx.coroutines.CompletableDeferred
-import kotlinx.coroutines.CoroutineName
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.launch
 import org.jetbrains.annotations.ApiStatus
 import java.io.IOException
 import java.nio.file.Path
@@ -170,10 +168,11 @@ open class ModuleManagerComponentBridge(private val project: Project, coroutineS
   }
 
   final override fun initFacets(modules: Collection<Pair<ModuleEntity, ModuleBridge>>, globalWsmAppliedToProjectWsm: CompletableDeferred<Project>?) {
-    coroutineScope.launch(CoroutineName("init facets")) {
-      globalWsmAppliedToProjectWsm?.await() // PythonFacetConfiguration expects to find an SDK by its name in ProjectJdkTable (which looks it up in project WSM)
-      ModuleBridgeImpl.initFacets(modules = modules, project = project)
-    }
+    // facets are disabled in rebased
+    //coroutineScope.launch(CoroutineName("init facets")) {
+    //  globalWsmAppliedToProjectWsm?.await() // PythonFacetConfiguration expects to find an SDK by its name in ProjectJdkTable (which looks it up in project WSM)
+    //  ModuleBridgeImpl.initFacets(modules = modules, project = project)
+    //}
   }
 
   override fun createModule(
