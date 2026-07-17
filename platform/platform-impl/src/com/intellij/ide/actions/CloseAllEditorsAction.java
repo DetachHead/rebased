@@ -41,7 +41,6 @@ public class CloseAllEditorsAction extends AnAction implements DumbAware, Action
           fileEditorManager.closeFilesWithChecks(getFilesToClose(window));
           return;
         }
-        FileEditorManagerEx fileEditorManager = FileEditorManagerEx.getInstanceEx(project);
         VirtualFile selectedFile = fileEditorManager.getSelectedFiles()[0];
         List<Pair<EditorComposite, EditorWindow>> filesToClose = new ArrayList<>();
         for (EditorWindow editorWindow : fileEditorManager.getWindows()) {
