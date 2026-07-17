@@ -3,14 +3,15 @@ package com.intellij.agent.workbench.sessions.toolwindow.tree
 // @spec community/plugins/agent-workbench/spec/sessions/agent-sessions.spec.md
 // @spec community/plugins/agent-workbench/spec/sessions/agent-sessions-thread-visibility.spec.md
 
+import com.intellij.agent.workbench.chat.AgentChatOpenTabsPresentationState
 import com.intellij.agent.workbench.chat.AgentChatTabSelection
-import com.intellij.agent.workbench.common.normalizeAgentWorkbenchPath
-import com.intellij.agent.workbench.common.parseAgentThreadIdentity
-import com.intellij.agent.workbench.common.session.AgentSessionProvider
-import com.intellij.agent.workbench.common.session.AgentSessionThread
-import com.intellij.agent.workbench.common.session.AgentSubAgent
+import com.intellij.platform.ai.agent.core.normalizeAgentWorkbenchPath
+import com.intellij.platform.ai.agent.core.parseAgentThreadIdentity
+import com.intellij.platform.ai.agent.core.session.AgentSessionProvider
+import com.intellij.platform.ai.agent.core.session.AgentSessionThread
+import com.intellij.platform.ai.agent.core.session.AgentSubAgent
 import com.intellij.agent.workbench.sessions.AgentSessionsBundle
-import com.intellij.agent.workbench.sessions.core.formatAgentSessionRelativeTimeShort
+import com.intellij.platform.ai.agent.sessions.core.formatAgentSessionRelativeTimeShort
 import com.intellij.agent.workbench.sessions.model.AgentProjectSessions
 import com.intellij.agent.workbench.sessions.model.AgentSessionProviderWarning
 import com.intellij.agent.workbench.sessions.model.AgentWorktree
@@ -19,6 +20,9 @@ import com.intellij.agent.workbench.sessions.model.hasAnyProviderSnapshot
 import com.intellij.agent.workbench.sessions.state.DEFAULT_VISIBLE_THREAD_COUNT
 import com.intellij.agent.workbench.sessions.state.SessionTreeUiState
 import com.intellij.agent.workbench.sessions.util.isAgentSessionNewSessionId
+import com.intellij.platform.ai.agent.sessions.core.folders.AgentTaskFolder
+import com.intellij.platform.ai.agent.sessions.core.folders.AgentTaskFolderSnapshot
+import com.intellij.platform.ai.agent.sessions.core.folders.AgentTaskFolderStatus
 import com.intellij.openapi.util.NlsSafe
 
 internal data class SessionTreeModel(
@@ -58,11 +62,17 @@ internal fun buildSessionTreeModel(
   visibleClosedProjectCount: Int,
   visibleThreadCounts: Map<String, Int>,
   treeUiState: SessionTreeUiState,
+  currentProjectScopeActive: Boolean = false,
+  openTabsPresentationState: AgentChatOpenTabsPresentationState = AgentChatOpenTabsPresentationState.EMPTY,
+  taskFolderSnapshot: AgentTaskFolderSnapshot = AgentTaskFolderSnapshot(),
 ): SessionTreeModel {
   val visibleProjectsResult = computeVisibleProjects(projects, visibleClosedProjectCount)
   val projectPathQualifiers = computeProjectPathQualifiers(visibleProjectsResult.visibleProjects)
-  val modelBuilder = SessionTreeModelBuilder(visibleThreadCounts, projectPathQualifiers)
-  val baseModel = modelBuilder.build(visibleProjectsResult)
+  val modelBuilder = SessionTreeModelBuilder(visibleThreadCounts, projectPathQualifiers, openTabsPresentationState, taskFolderSnapshot)
+  val model = modelBuilder.build(visibleProjectsResult)
+  if (currentProjectScopeActive) {
+    return flattenCurrentProjectModel(model = model, visibleProjectsResult = visibleProjectsResult)
+  }
   val autoOpenProjects = visibleProjectsResult.visibleProjects
     .filter {
       it.isOpen ||
@@ -70,9 +80,56 @@ internal fun buildSessionTreeModel(
       it.providerWarnings.isNotEmpty() ||
       it.worktrees.any { wt -> wt.isOpen }
     }
-    .filterNot { treeUiState.isProjectCollapsed(it.path) }
+    .filter { !treeUiState.isProjectCollapsed(it.path) }
     .map { SessionTreeId.Project(it.path) }
-  return baseModel.copy(autoOpenProjects = autoOpenProjects)
+  return model.copy(autoOpenProjects = autoOpenProjects.filter { it in model.entriesById })
+}
+
+private fun flattenCurrentProjectModel(
+  model: SessionTreeModel,
+  visibleProjectsResult: VisibleProjectsResult,
+): SessionTreeModel {
+  if (visibleProjectsResult.visibleProjects.size != 1 || visibleProjectsResult.hiddenClosedProjectCount != 0) {
+    return model.copy(autoOpenProjects = emptyList())
+  }
+
+  val projectId = SessionTreeId.Project(visibleProjectsResult.visibleProjects.single().path)
+  val projectEntry = model.entriesById[projectId] ?: return model.copy(autoOpenProjects = emptyList())
+  val entriesById = LinkedHashMap(model.entriesById)
+  val rootIds = mutableListOf<SessionTreeId>()
+
+  entriesById[SessionTreeId.Pinned]?.let { pinnedEntry ->
+    rootIds += SessionTreeId.Pinned
+    pinnedEntry.childIds.forEach { childId ->
+      rootIds += childId
+      entriesById[childId]?.let { childEntry ->
+        entriesById[childId] = childEntry.copy(parentId = null)
+      }
+    }
+    entriesById[SessionTreeId.Pinned] = pinnedEntry.copy(childIds = emptyList())
+    if (projectEntry.childIds.isNotEmpty()) {
+      rootIds += SessionTreeId.PinnedSeparator
+      entriesById[SessionTreeId.PinnedSeparator] = SessionTreeModelEntry(
+        id = SessionTreeId.PinnedSeparator,
+        parentId = null,
+        node = SessionTreeNode.SectionSeparator,
+      )
+    }
+  }
+
+  projectEntry.childIds.forEach { childId ->
+    rootIds += childId
+    entriesById[childId]?.let { childEntry ->
+      entriesById[childId] = childEntry.copy(parentId = null)
+    }
+  }
+  entriesById.remove(projectId)
+
+  return SessionTreeModel(
+    rootIds = rootIds,
+    entriesById = entriesById,
+    autoOpenProjects = emptyList(),
+  )
 }
 
 internal fun diffSessionTreeModels(
@@ -123,6 +180,11 @@ private data class ThreadTreeRowPresentation(
   @JvmField val parentWorktreeBranch: String?,
 )
 
+private data class TaskFolderTreeRowPresentation(
+  @JvmField val folder: AgentTaskFolder,
+  @JvmField val assignedThreadCount: Int,
+)
+
 private data class MoreThreadsTreeRowPresentation(
   @JvmField val hiddenCount: Int?,
 )
@@ -154,6 +216,13 @@ internal fun sessionTreeNodePresentation(node: SessionTreeNode): Any {
       parentWorktreeBranch = node.parentWorktreeBranch,
     )
 
+    is SessionTreeNode.TaskFolder -> TaskFolderTreeRowPresentation(
+      folder = node.folder,
+      assignedThreadCount = node.assignedThreadCount,
+    )
+
+    is SessionTreeNode.PinnedSection -> Unit
+    is SessionTreeNode.SectionSeparator -> Unit
     is SessionTreeNode.SubAgent -> node.subAgent
     is SessionTreeNode.Warning -> node.message
     is SessionTreeNode.Error -> node.message
@@ -236,11 +305,16 @@ internal fun computeVisibleProjects(
 private class SessionTreeModelBuilder(
   private val visibleThreadCounts: Map<String, Int>,
   private val projectPathQualifiers: Map<String, @NlsSafe String>,
+  private val openTabsPresentationState: AgentChatOpenTabsPresentationState,
+  private val taskFolderSnapshot: AgentTaskFolderSnapshot,
 ) {
   private val entriesById = LinkedHashMap<SessionTreeId, SessionTreeModelEntry>()
 
   fun build(visibleProjectsResult: VisibleProjectsResult): SessionTreeModel {
     val rootIds = mutableListOf<SessionTreeId>()
+    buildPinnedSection(visibleProjectsResult.visibleProjects)?.let { pinnedSectionId ->
+      rootIds += pinnedSectionId
+    }
     visibleProjectsResult.visibleProjects.forEach { project ->
       rootIds += buildProjectEntry(project = project)
     }
@@ -258,11 +332,48 @@ private class SessionTreeModelBuilder(
     )
   }
 
+  private fun buildPinnedSection(projects: List<AgentProjectSessions>): SessionTreeId? {
+    val pinnedSectionId = SessionTreeId.Pinned
+    val childIds = mutableListOf<SessionTreeId>()
+    for (project in projects) {
+      childIds += buildPinnedThreadEntries(
+        parentId = pinnedSectionId,
+        project = project,
+        threads = project.threads,
+        parentWorktreeBranch = null,
+        worktreePath = null,
+      ) { provider, threadId ->
+        SessionTreeId.Thread(project.path, provider, threadId)
+      }
+      project.worktrees.forEach { worktree ->
+        childIds += buildPinnedThreadEntries(
+          parentId = pinnedSectionId,
+          project = project,
+          threads = worktree.threads,
+          parentWorktreeBranch = worktree.branch,
+          worktreePath = worktree.path,
+        ) { provider, threadId ->
+          SessionTreeId.WorktreeThread(project.path, worktree.path, provider, threadId)
+        }
+      }
+    }
+    if (childIds.isEmpty()) return null
+    return addEntry(
+      id = pinnedSectionId,
+      parentId = null,
+      node = SessionTreeNode.PinnedSection,
+      childIds = childIds,
+    )
+  }
+
   private fun buildProjectEntry(project: AgentProjectSessions): SessionTreeId.Project {
     val projectId = SessionTreeId.Project(project.path)
     val childIds = mutableListOf<SessionTreeId>()
-    val hasVisibleWorktrees = project.worktrees.any {
-      it.threads.isNotEmpty() || it.isLoading || it.errorMessage != null || it.providerWarnings.isNotEmpty()
+    val normalizedProjectPath = normalizeAgentWorkbenchPath(project.path)
+    val projectTaskFolders = taskFolderSnapshot.folders(normalizedProjectPath)
+    val projectThreads = ungroupedThreads(threads = project.threads, normalizedThreadPath = normalizedProjectPath)
+    val hasVisibleWorktrees = project.worktrees.any { worktree ->
+      worktreeHasNormalContent(worktree)
     }
     val errorMessage = project.errorMessage
     if (errorMessage != null) {
@@ -272,41 +383,45 @@ private class SessionTreeModelBuilder(
         node = SessionTreeNode.Error(project, errorMessage),
       )
     }
-    else if (project.hasAnyProviderSnapshot() && project.threads.isEmpty() && !hasVisibleWorktrees && project.providerWarnings.isEmpty()) {
-      childIds += addEntry(
-        id = SessionTreeId.Empty(project.path),
-        parentId = projectId,
-        node = SessionTreeNode.Empty(project, AgentSessionsBundle.message("toolwindow.empty.project")),
-      )
+    else if (project.hasAnyProviderSnapshot() && projectThreads.isEmpty() && !hasVisibleWorktrees && project.providerWarnings.isEmpty()) {
+      if (projectTaskFolders.isEmpty()) {
+        childIds += addEntry(
+          id = SessionTreeId.Empty(project.path),
+          parentId = projectId,
+          node = SessionTreeNode.Empty(project, AgentSessionsBundle.message("toolwindow.empty.project")),
+        )
+      }
+      else {
+        childIds += buildProjectTaskFolderEntries(parentId = projectId, project = project)
+      }
     }
     else {
       childIds += buildProviderWarningEntries(parentId = projectId, warnings = project.providerWarnings) { provider ->
         SessionTreeId.Warning(project.path, provider)
       }
-      val visibleWorktrees = project.worktrees.filter {
-        it.threads.isNotEmpty() || it.isLoading || it.errorMessage != null || it.providerWarnings.isNotEmpty()
-      }
+      val visibleWorktrees = project.worktrees.filter(::worktreeHasNormalContent)
       visibleWorktrees.forEach { worktree ->
         childIds += buildWorktreeEntry(parentId = projectId, project = project, worktree = worktree)
       }
+      childIds += buildProjectTaskFolderEntries(parentId = projectId, project = project)
       val visibleCount = visibleThreadCounts[project.path] ?: DEFAULT_VISIBLE_THREAD_COUNT
       childIds += buildThreadEntries(
         parentId = projectId,
         project = project,
-        threads = project.threads,
+        threads = projectThreads,
         maxVisible = visibleCount,
         parentWorktreeBranch = null,
         worktreePath = null,
       ) { provider, threadId ->
         SessionTreeId.Thread(project.path, provider, threadId)
       }
-      if (project.threads.size > visibleCount) {
+      if (projectThreads.size > visibleCount) {
         childIds += addEntry(
           id = SessionTreeId.MoreThreads(project.path),
           parentId = projectId,
           node = SessionTreeNode.MoreThreads(
             project = project,
-            hiddenCount = if (project.hasUnknownThreadCount) null else project.threads.size - visibleCount,
+            hiddenCount = if (project.hasUnknownThreadCount) null else projectThreads.size - visibleCount,
           ),
         )
       }
@@ -318,6 +433,23 @@ private class SessionTreeModelBuilder(
       childIds = childIds,
     )
     return projectId
+  }
+
+  private fun buildProjectTaskFolderEntries(
+    parentId: SessionTreeId,
+    project: AgentProjectSessions,
+  ): List<SessionTreeId> {
+    return buildTaskFolderEntries(
+      parentId = parentId,
+      project = project,
+      threadPath = project.path,
+      threads = project.threads,
+      parentWorktreeBranch = null,
+      worktreePath = null,
+      folderIdFactory = { folderId -> SessionTreeId.TaskFolder(project.path, project.path, folderId) },
+    ) { provider, threadId ->
+      SessionTreeId.Thread(project.path, provider, threadId)
+    }
   }
 
   private fun buildWorktreeEntry(
@@ -340,23 +472,36 @@ private class SessionTreeModelBuilder(
         SessionTreeId.WorktreeWarning(project.path, worktree.path, provider)
       }
       val visibleCount = visibleThreadCounts[worktree.path] ?: DEFAULT_VISIBLE_THREAD_COUNT
+      val normalizedWorktreePath = normalizeAgentWorkbenchPath(worktree.path)
+      val worktreeThreads = ungroupedThreads(threads = worktree.threads, normalizedThreadPath = normalizedWorktreePath)
+      childIds += buildTaskFolderEntries(
+        parentId = worktreeId,
+        project = project,
+        threadPath = worktree.path,
+        threads = worktree.threads,
+        parentWorktreeBranch = worktree.branch,
+        worktreePath = worktree.path,
+        folderIdFactory = { folderId -> SessionTreeId.TaskFolder(project.path, worktree.path, folderId) },
+      ) { provider, threadId ->
+        SessionTreeId.WorktreeThread(project.path, worktree.path, provider, threadId)
+      }
       childIds += buildThreadEntries(
         parentId = worktreeId,
         project = project,
-        threads = worktree.threads,
+        threads = worktreeThreads,
         maxVisible = visibleCount,
         parentWorktreeBranch = worktree.branch,
         worktreePath = worktree.path,
       ) { provider, threadId ->
         SessionTreeId.WorktreeThread(project.path, worktree.path, provider, threadId)
       }
-      if (worktree.threads.size > visibleCount) {
+      if (worktreeThreads.size > visibleCount) {
         childIds += addEntry(
           id = SessionTreeId.WorktreeMoreThreads(project.path, worktree.path),
           parentId = worktreeId,
           node = SessionTreeNode.MoreThreads(
             project = project,
-            hiddenCount = if (worktree.hasUnknownThreadCount) null else worktree.threads.size - visibleCount,
+            hiddenCount = if (worktree.hasUnknownThreadCount) null else worktreeThreads.size - visibleCount,
           ),
         )
       }
@@ -395,7 +540,11 @@ private class SessionTreeModelBuilder(
   ): List<SessionTreeId> {
     return threads.take(maxVisible).map { thread ->
       val id = threadIdFactory(thread.provider, thread.id)
-      val node = SessionTreeNode.Thread(project, thread, parentWorktreeBranch)
+      val node = SessionTreeNode.Thread(
+        project = project,
+        thread = thread,
+        parentWorktreeBranch = parentWorktreeBranch,
+      )
       if (thread.subAgents.isEmpty()) {
         addEntry(id = id, parentId = parentId, node = node)
       }
@@ -418,6 +567,104 @@ private class SessionTreeModelBuilder(
     }
   }
 
+  private fun buildTaskFolderEntries(
+    parentId: SessionTreeId,
+    project: AgentProjectSessions,
+    threadPath: String,
+    threads: List<AgentSessionThread>,
+    parentWorktreeBranch: String?,
+    worktreePath: String?,
+    folderIdFactory: (String) -> SessionTreeId.TaskFolder,
+    threadIdFactory: (AgentSessionProvider, String) -> SessionTreeId,
+  ): List<SessionTreeId> {
+    val normalizedThreadPath = normalizeAgentWorkbenchPath(threadPath)
+    val folders = taskFolderSnapshot.folders(normalizedThreadPath)
+    if (folders.isEmpty()) return emptyList()
+
+    val loadedThreadsByKey = threads.associateBy { thread -> threadKey(thread.provider, thread.id) }
+    return folders.map { folder ->
+      val folderId = folderIdFactory(folder.id)
+      val folderThreads = taskFolderSnapshot.assignments(normalizedThreadPath, folder.id)
+        .mapNotNull { assignment -> loadedThreadsByKey[threadKey(assignment.provider, assignment.threadId)] }
+      val childIds = buildThreadEntries(
+        parentId = folderId,
+        project = project,
+        threads = folderThreads,
+        maxVisible = Int.MAX_VALUE,
+        parentWorktreeBranch = parentWorktreeBranch,
+        worktreePath = worktreePath,
+        threadIdFactory = threadIdFactory,
+      )
+      addEntry(
+        id = folderId,
+        parentId = parentId,
+        node = SessionTreeNode.TaskFolder(project = project, folder = folder, assignedThreadCount = folderThreads.size),
+        childIds = childIds,
+      )
+    }
+  }
+
+  private fun buildPinnedThreadEntries(
+    parentId: SessionTreeId,
+    project: AgentProjectSessions,
+    threads: List<AgentSessionThread>,
+    parentWorktreeBranch: String?,
+    worktreePath: String?,
+    threadIdFactory: (AgentSessionProvider, String) -> SessionTreeId,
+  ): List<SessionTreeId> {
+    val normalizedThreadPath = normalizeAgentWorkbenchPath(worktreePath ?: project.path)
+    return buildThreadEntries(
+      parentId = parentId,
+      project = project,
+      threads = pinnedThreads(threads = threads, normalizedThreadPath = normalizedThreadPath),
+      maxVisible = Int.MAX_VALUE,
+      parentWorktreeBranch = parentWorktreeBranch,
+      worktreePath = worktreePath,
+      threadIdFactory = threadIdFactory,
+    )
+  }
+
+  private fun worktreeHasNormalContent(worktree: AgentWorktree): Boolean {
+    val normalizedWorktreePath = normalizeAgentWorkbenchPath(worktree.path)
+    return ungroupedThreads(threads = worktree.threads, normalizedThreadPath = normalizedWorktreePath).isNotEmpty() ||
+           taskFolderSnapshot.folders(normalizedWorktreePath).isNotEmpty() ||
+           worktree.isLoading ||
+           worktree.errorMessage != null ||
+           worktree.providerWarnings.isNotEmpty()
+  }
+
+  private fun ungroupedThreads(
+    threads: List<AgentSessionThread>,
+    normalizedThreadPath: String,
+  ): List<AgentSessionThread> {
+    return threads.filterNot { thread ->
+      isPinnedThread(normalizedThreadPath = normalizedThreadPath, thread = thread) ||
+      isAssignedToActiveTaskFolder(normalizedThreadPath = normalizedThreadPath, thread = thread)
+    }
+  }
+
+  private fun pinnedThreads(
+    threads: List<AgentSessionThread>,
+    normalizedThreadPath: String,
+  ): List<AgentSessionThread> {
+    return threads.filter { thread ->
+      isPinnedThread(normalizedThreadPath = normalizedThreadPath, thread = thread) &&
+      !isAssignedToActiveTaskFolder(normalizedThreadPath = normalizedThreadPath, thread = thread)
+    }
+  }
+
+  private fun isPinnedThread(normalizedThreadPath: String, thread: AgentSessionThread): Boolean {
+    return openTabsPresentationState.isPinnedTopLevelThread(
+      provider = thread.provider,
+      projectPath = normalizedThreadPath,
+      threadId = thread.id,
+    )
+  }
+
+  private fun isAssignedToActiveTaskFolder(normalizedThreadPath: String, thread: AgentSessionThread): Boolean {
+    return taskFolderSnapshot.folderForThread(normalizedThreadPath, thread.provider, thread.id)?.status == AgentTaskFolderStatus.IN_PROGRESS
+  }
+
   private fun addEntry(
     id: SessionTreeId,
     parentId: SessionTreeId?,
@@ -438,12 +685,27 @@ internal fun shouldHandleSingleClick(node: SessionTreeNode): Boolean {
   return node is SessionTreeNode.MoreProjects || node is SessionTreeNode.MoreThreads
 }
 
+internal fun isSelectableSessionTreeId(model: SessionTreeModel, id: SessionTreeId): Boolean {
+  val entry = model.entriesById[id] ?: return false
+  return when (id) {
+    SessionTreeId.Pinned -> entry.childIds.isNotEmpty()
+    SessionTreeId.PinnedSeparator -> false
+    else -> true
+  }
+}
+
 internal fun shouldOpenOnActivation(node: SessionTreeNode): Boolean {
   return when (node) {
+    is SessionTreeNode.PinnedSection,
+    is SessionTreeNode.SectionSeparator,
+      -> false
+
     is SessionTreeNode.Project,
     is SessionTreeNode.Worktree,
     is SessionTreeNode.SubAgent,
       -> true
+
+    is SessionTreeNode.TaskFolder -> false
 
     is SessionTreeNode.Thread -> !isAgentSessionNewSessionId(node.thread.id)
 
@@ -460,11 +722,14 @@ internal fun shouldExpandOnDoubleClick(node: SessionTreeNode): Boolean {
   return when (node) {
     is SessionTreeNode.Project,
     is SessionTreeNode.Worktree,
+    is SessionTreeNode.PinnedSection,
+    is SessionTreeNode.SectionSeparator,
     is SessionTreeNode.SubAgent,
       -> false
 
     is SessionTreeNode.Thread -> isAgentSessionNewSessionId(node.thread.id)
 
+    is SessionTreeNode.TaskFolder,
     is SessionTreeNode.Warning,
     is SessionTreeNode.Error,
     is SessionTreeNode.Empty,
@@ -486,6 +751,13 @@ internal fun pathForMoreThreadsNode(id: SessionTreeId): String? {
   }
 }
 
+internal fun pathForTaskFolderNode(id: SessionTreeId): String? {
+  return when (id) {
+    is SessionTreeId.TaskFolder -> id.path
+    else -> null
+  }
+}
+
 internal fun pathForThreadNode(id: SessionTreeId, fallbackProjectPath: String): String {
   return when (id) {
     is SessionTreeId.WorktreeThread -> id.worktreePath
@@ -498,6 +770,7 @@ internal fun copyPathForSessionTreeId(id: SessionTreeId): String? {
   return when (id) {
     is SessionTreeId.Project -> normalizeAgentWorkbenchPath(id.path)
     is SessionTreeId.Worktree -> normalizeAgentWorkbenchPath(id.worktreePath)
+    is SessionTreeId.TaskFolder -> normalizeAgentWorkbenchPath(id.path)
     else -> null
   }
 }
@@ -518,6 +791,9 @@ internal fun archiveTargetFromThreadNode(
 }
 
 internal sealed interface SessionTreeNode {
+  data object PinnedSection : SessionTreeNode
+  data object SectionSeparator : SessionTreeNode
+
   data class Project(
     @JvmField val project: AgentProjectSessions,
     @JvmField val pathQualifier: @NlsSafe String? = null,
@@ -527,6 +803,12 @@ internal sealed interface SessionTreeNode {
     @JvmField val project: AgentProjectSessions,
     @JvmField val thread: AgentSessionThread,
     @JvmField val parentWorktreeBranch: String? = null,
+  ) : SessionTreeNode
+
+  data class TaskFolder(
+    @JvmField val project: AgentProjectSessions,
+    @JvmField val folder: AgentTaskFolder,
+    @JvmField val assignedThreadCount: Int,
   ) : SessionTreeNode
 
   data class SubAgent(
@@ -544,7 +826,15 @@ internal sealed interface SessionTreeNode {
 }
 
 internal sealed interface SessionTreeId {
+  data object Pinned : SessionTreeId
+  data object PinnedSeparator : SessionTreeId
   data class Project(@JvmField val path: String) : SessionTreeId
+  data class TaskFolder(
+    @JvmField val projectPath: String,
+    @JvmField val path: String,
+    @JvmField val folderId: String,
+  ) : SessionTreeId
+
   data class Thread(@JvmField val projectPath: String, val provider: AgentSessionProvider, @JvmField val threadId: String) : SessionTreeId
   data class SubAgent(
     @JvmField val projectPath: String,
@@ -666,6 +956,10 @@ internal fun parentNodesForSelection(selectedTreeId: SessionTreeId): List<Sessio
     )
     else -> emptyList()
   }
+}
+
+private fun threadKey(provider: AgentSessionProvider, threadId: String): String {
+  return "${provider.value}:$threadId"
 }
 
 internal fun formatRelativeTimeShort(timestamp: Long, now: Long): String {

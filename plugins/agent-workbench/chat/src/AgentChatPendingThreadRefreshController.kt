@@ -1,7 +1,7 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.agent.workbench.chat
 
-import com.intellij.agent.workbench.sessions.core.AgentSessionThreadRebindPolicy
+import com.intellij.platform.ai.agent.sessions.core.AgentSessionThreadRebindPolicy
 import com.intellij.openapi.components.serviceOrNull
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
@@ -48,7 +48,7 @@ internal class AgentChatPendingThreadRefreshController(
           return@collectLatest
         }
         tabSnapshotWriter.upsert(file.toSnapshot())
-        serviceOrNull<AgentChatOpenPendingTabsStateService>()?.refreshOpenTabs()
+        serviceOrNull<AgentChatOpenTabsPresentationStateService>()?.refreshOpenTabs()
         notifyAgentChatScopedRefresh(provider = provider, projectPath = file.projectPath)
         ensurePendingScopedRefreshRetries(tab, emitImmediately = false)
       }

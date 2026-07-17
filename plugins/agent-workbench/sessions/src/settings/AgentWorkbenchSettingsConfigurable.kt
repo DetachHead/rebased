@@ -1,14 +1,19 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.agent.workbench.sessions.settings
 
+// @spec community/plugins/agent-workbench/spec/sessions/agent-sessions.spec.md
+
 import com.intellij.agent.workbench.sessions.AgentSessionsBundle
-import com.intellij.agent.workbench.sessions.core.providers.AgentSessionProviders
-import com.intellij.agent.workbench.sessions.core.settings.AGENT_WORKBENCH_CHAT_SETTINGS_COMPONENT_ID
-import com.intellij.agent.workbench.sessions.core.settings.AGENT_WORKBENCH_STATUS_BAR_WIDGETS_SETTINGS_COMPONENT_ID
-import com.intellij.agent.workbench.sessions.core.settings.AgentWorkbenchCheckboxSetting
-import com.intellij.agent.workbench.sessions.core.settings.AgentWorkbenchSettings
-import com.intellij.agent.workbench.sessions.core.settings.AgentWorkbenchSettingsComponent
-import com.intellij.agent.workbench.sessions.core.settings.AgentWorkbenchSettingsContributors
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionProviders
+import com.intellij.agent.workbench.settings.AGENT_WORKBENCH_CHAT_SETTINGS_COMPONENT_ID
+import com.intellij.agent.workbench.settings.AGENT_WORKBENCH_PROVIDERS_SETTINGS_CONFIGURABLE_ID
+import com.intellij.agent.workbench.settings.AGENT_WORKBENCH_SETTINGS_CONFIGURABLE_ID
+import com.intellij.agent.workbench.settings.AGENT_WORKBENCH_STATUS_BAR_WIDGETS_SETTINGS_COMPONENT_ID
+import com.intellij.agent.workbench.settings.AgentWorkbenchCheckboxSetting
+import com.intellij.agent.workbench.settings.AgentWorkbenchSettings
+import com.intellij.agent.workbench.settings.AgentWorkbenchSettingsComponent
+import com.intellij.agent.workbench.settings.AgentWorkbenchSettingsContributors
+import com.intellij.agent.workbench.settings.AgentSessionProviderSettingsService
 import com.intellij.agent.workbench.sessions.frame.AgentChatOpenModeSettings
 import com.intellij.agent.workbench.sessions.sleep.AgentSleepPreventionSettings
 import com.intellij.ide.ActivityTracker
@@ -21,9 +26,6 @@ import com.intellij.ui.dsl.builder.bindSelected
 import com.intellij.ui.dsl.builder.panel
 import com.intellij.ui.dsl.builder.selected
 import javax.swing.AbstractButton
-
-const val AGENT_WORKBENCH_SETTINGS_CONFIGURABLE_ID: String = "com.intellij.agent.workbench.settings"
-const val AGENT_WORKBENCH_PROVIDERS_SETTINGS_CONFIGURABLE_ID: String = "com.intellij.agent.workbench.settings.providers"
 
 internal class AgentWorkbenchSettingsConfigurable : BoundSearchableConfigurable(
   displayName = AgentSessionsBundle.message("settings.agent.workbench.name"),
@@ -38,6 +40,7 @@ internal class AgentWorkbenchSettingsConfigurable : BoundSearchableConfigurable(
       }
 
       group(AgentSessionsBundle.message("settings.agent.workbench.general.group")) {
+        renderCheckboxSetting(agentThreadsCurrentProjectOnlySetting())
         renderCheckboxSetting(mainToolbarActivitySetting())
         renderCheckboxSetting(sleepPreventionSetting())
         renderCheckboxSettings(AgentWorkbenchSettingsContributors.checkboxSettings())
@@ -71,7 +74,8 @@ internal class AgentWorkbenchProvidersSettingsConfigurable : BoundSearchableConf
               { enabled -> providerSettings.setProviderEnabled(provider.provider, enabled) },
             )
         }
-        renderProviderCheckboxSettings(provider.providerSettings, providerEnabledCheckbox)
+        renderProviderCheckboxSettings(AgentWorkbenchSettingsContributors.providerCheckboxSettings(provider.provider),
+                                       providerEnabledCheckbox)
       }
     }
   }
@@ -109,8 +113,8 @@ private fun chatSettingsComponent(): AgentWorkbenchSettingsComponent {
     displayName = AgentSessionsBundle.message("settings.agent.workbench.chat.group"),
     checkboxSettings = listOf(
       AgentWorkbenchCheckboxSetting(
-        text = AgentSessionsBundle.message("advanced.setting.agent.workbench.chat.open.in.dedicated.frame"),
-        description = AgentSessionsBundle.message("advanced.setting.agent.workbench.chat.open.in.dedicated.frame.description"),
+        text = AgentSessionsBundle.message("settings.agent.workbench.chat.open.in.dedicated.frame"),
+        description = AgentSessionsBundle.message("settings.agent.workbench.chat.open.in.dedicated.frame.description"),
         isSelected = AgentChatOpenModeSettings::openInDedicatedFrame,
         setSelected = AgentChatOpenModeSettings::setOpenInDedicatedFrame,
       )
@@ -127,6 +131,15 @@ private fun mainToolbarActivitySetting(): AgentWorkbenchCheckboxSetting {
       AgentWorkbenchSettings.getInstance().setShowAgentActivityInMainToolbar(enabled)
       ActivityTracker.getInstance().inc()
     },
+  )
+}
+
+private fun agentThreadsCurrentProjectOnlySetting(): AgentWorkbenchCheckboxSetting {
+  return AgentWorkbenchCheckboxSetting(
+    text = AgentSessionsBundle.message("settings.agent.workbench.agent.threads.current.project.only"),
+    description = AgentSessionsBundle.message("settings.agent.workbench.agent.threads.current.project.only.description"),
+    isSelected = AgentThreadsProjectScopeSettings::isCurrentProjectOnly,
+    setSelected = AgentThreadsProjectScopeSettings::setCurrentProjectOnly,
   )
 }
 

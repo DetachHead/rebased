@@ -1,17 +1,20 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.agent.workbench.sessions.service
 
-import com.intellij.agent.workbench.common.normalizeAgentWorkbenchPath
-import com.intellij.agent.workbench.common.session.AgentSessionProvider
-import com.intellij.agent.workbench.sessions.core.providers.AgentSessionSource
-import com.intellij.agent.workbench.sessions.core.providers.AgentSessionSourceUpdate
-import com.intellij.agent.workbench.sessions.core.providers.AgentSessionSourceUpdateEvent
-import com.intellij.agent.workbench.sessions.core.providers.AgentSessionThreadActivityUpdate
-import com.intellij.agent.workbench.sessions.core.providers.AgentSessionThreadPresentationUpdate
-import com.intellij.agent.workbench.sessions.core.providers.describeScope
-import com.intellij.agent.workbench.sessions.core.providers.isUnscoped
-import com.intellij.agent.workbench.sessions.core.providers.mergeAgentSessionThreadPresentationUpdates
-import com.intellij.agent.workbench.sessions.core.providers.toPresentationUpdate
+import com.intellij.platform.ai.agent.core.normalizeAgentWorkbenchPath
+import com.intellij.platform.ai.agent.core.session.AgentSessionProvider
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionSource
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionSourceUpdate
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionSourceUpdateEvent
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionThreadActivityUpdate
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionThreadPresentationUpdate
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionUpdateSource
+import com.intellij.platform.ai.agent.sessions.core.providers.describeScope
+import com.intellij.platform.ai.agent.sessions.core.providers.isUnscoped
+import com.intellij.platform.ai.agent.sessions.core.providers.mergeAgentSessionActivityEvidence
+import com.intellij.platform.ai.agent.sessions.core.providers.mergeAgentThreadActivityReport
+import com.intellij.platform.ai.agent.sessions.core.providers.mergeAgentSessionThreadPresentationUpdates
+import com.intellij.platform.ai.agent.sessions.core.providers.toPresentationUpdate
 import com.intellij.openapi.diagnostic.debug
 import com.intellij.openapi.diagnostic.logger
 import kotlinx.coroutines.CancellationException
@@ -71,8 +74,7 @@ internal class AgentSessionRefreshScheduler(
   fun refreshProviderScope(provider: AgentSessionProvider, scopedPaths: Set<String>) {
     enqueueSourceRefresh(
       provider = provider,
-      updateEvent = AgentSessionSourceUpdateEvent(
-        type = AgentSessionSourceUpdate.THREADS_CHANGED,
+      updateEvent = AgentSessionSourceUpdateEvent.threadsChanged(
         scopedPaths = scopedPaths,
       ),
     )
@@ -188,9 +190,10 @@ internal class AgentSessionRefreshScheduler(
   }
 
   private fun ensureSourceUpdateObservers() {
-    val availableSources = LinkedHashMap<AgentSessionProvider, AgentSessionSource>()
+    val availableSources = LinkedHashMap<AgentSessionProvider, AgentSessionUpdateSource>()
     for (source in sessionSourcesProvider()) {
-      if (availableSources.putIfAbsent(source.provider, source) != null) {
+      val updateSource = source as? AgentSessionUpdateSource ?: continue
+      if (availableSources.putIfAbsent(updateSource.provider, updateSource) != null) {
         LOG.warn("Duplicate session source for provider ${source.provider.value}; ignoring ${source::class.java.name}")
       }
     }
@@ -200,14 +203,13 @@ internal class AgentSessionRefreshScheduler(
       while (jobIterator.hasNext()) {
         val (provider, job) = jobIterator.next()
         val source = availableSources[provider]
-        if (source != null && source.supportsUpdates) continue
+        if (source != null) continue
         LOG.debug { "Stopping source updates observer for ${provider.value}" }
         job.cancel()
         jobIterator.remove()
       }
 
       for ((provider, source) in availableSources) {
-        if (!source.supportsUpdates) continue
         if (sourceObserverJobs.containsKey(provider)) continue
 
         LOG.debug { "Starting source updates observer for ${provider.value}" }
@@ -352,7 +354,7 @@ internal class AgentSessionRefreshScheduler(
 
   private fun normalizeUpdateEvent(updateEvent: AgentSessionSourceUpdateEvent): AgentSessionSourceUpdateEvent {
     val activityUpdatesByThreadId = normalizeActivityUpdates(updateEvent.activityUpdatesByThreadId)
-    return AgentSessionSourceUpdateEvent(
+    return createSourceUpdateEvent(
       type = updateEvent.type,
       scopedPaths = normalizePaths(updateEvent.scopedPaths),
       threadIds = normalizeThreadIds(updateEvent.threadIds),
@@ -436,7 +438,7 @@ internal class AgentSessionRefreshScheduler(
     )
     val mergedChangedProjectFilePaths = mergeChangedProjectFilePaths(existing, incoming)
     if (existing.isUnscoped() || incoming.isUnscoped()) {
-      return AgentSessionSourceUpdateEvent(
+      return createSourceUpdateEvent(
         type = mergedType,
         activityUpdatesByThreadId = mergedActivityUpdatesByThreadId,
         presentationUpdatesByThreadId = mergedPresentationUpdatesByThreadId,
@@ -445,7 +447,7 @@ internal class AgentSessionRefreshScheduler(
       )
     }
 
-    return AgentSessionSourceUpdateEvent(
+    return createSourceUpdateEvent(
       type = mergedType,
       scopedPaths = mergeScopeSets(existing.scopedPaths, incoming.scopedPaths),
       threadIds = mergeScopeSets(existing.threadIds, incoming.threadIds),
@@ -503,11 +505,15 @@ internal class AgentSessionRefreshScheduler(
     }
     val updatesChromeActivity = incoming.updatesChromeActivity || existing.updatesChromeActivity
     return AgentSessionThreadActivityUpdate(
-      activityReport = incoming.activityReport.copy(
-        chromeActivity = if (incoming.updatesChromeActivity) incoming.activityReport.chromeActivity else existing.activityReport.chromeActivity,
+      activityReport = mergeAgentThreadActivityReport(
+        existing = existing.activityReport,
+        incoming = incoming.activityReport,
+        incomingUpdatesChromeActivity = incoming.updatesChromeActivity,
+        incomingEvidence = incoming.evidence,
       ),
       updatesChromeActivity = updatesChromeActivity,
       updatedAt = updatedAt,
+      evidence = mergeAgentSessionActivityEvidence(existing = existing.evidence, incoming = incoming.evidence),
     )
   }
 
@@ -521,7 +527,8 @@ internal class AgentSessionRefreshScheduler(
     merged.putAll(existing)
     for ((threadId, incomingUpdate) in incoming) {
       val existingUpdate = merged[threadId]
-      merged[threadId] = if (existingUpdate == null) incomingUpdate else mergeAgentSessionThreadPresentationUpdates(existingUpdate, incomingUpdate)
+      merged[threadId] =
+        if (existingUpdate == null) incomingUpdate else mergeAgentSessionThreadPresentationUpdates(existingUpdate, incomingUpdate)
     }
     return merged
   }
@@ -619,6 +626,35 @@ internal class AgentSessionRefreshScheduler(
   private enum class RefreshRequestType {
     CATALOG_SYNC,
     FULL_REFRESH,
+  }
+}
+
+private fun createSourceUpdateEvent(
+  type: AgentSessionSourceUpdate,
+  scopedPaths: Set<String>? = null,
+  threadIds: Set<String>? = null,
+  activityUpdatesByThreadId: Map<String, AgentSessionThreadActivityUpdate> = emptyMap(),
+  presentationUpdatesByThreadId: Map<String, AgentSessionThreadPresentationUpdate> = emptyMap(),
+  mayHaveChangedProjectFiles: Boolean = false,
+  changedProjectFilePaths: Set<String>? = null,
+): AgentSessionSourceUpdateEvent {
+  return when (type) {
+    AgentSessionSourceUpdate.THREADS_CHANGED -> AgentSessionSourceUpdateEvent.threadsChanged(
+      scopedPaths = scopedPaths,
+      threadIds = threadIds,
+      activityUpdatesByThreadId = activityUpdatesByThreadId,
+      presentationUpdatesByThreadId = presentationUpdatesByThreadId,
+      mayHaveChangedProjectFiles = mayHaveChangedProjectFiles,
+      changedProjectFilePaths = changedProjectFilePaths,
+    )
+    AgentSessionSourceUpdate.HINTS_CHANGED -> AgentSessionSourceUpdateEvent.hintsChanged(
+      scopedPaths = scopedPaths,
+      threadIds = threadIds,
+      activityUpdatesByThreadId = activityUpdatesByThreadId,
+      presentationUpdatesByThreadId = presentationUpdatesByThreadId,
+      mayHaveChangedProjectFiles = mayHaveChangedProjectFiles,
+      changedProjectFilePaths = changedProjectFilePaths,
+    )
   }
 }
 

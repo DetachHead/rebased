@@ -6,14 +6,14 @@ import com.intellij.agent.workbench.chat.AgentChatPendingTabRebindReport
 import com.intellij.agent.workbench.chat.AgentChatPendingTabRebindRequest
 import com.intellij.agent.workbench.chat.AgentChatPendingTabSnapshot
 import com.intellij.agent.workbench.chat.AgentChatTabRebindTarget
-import com.intellij.agent.workbench.common.AgentThreadActivity
-import com.intellij.agent.workbench.common.normalizeAgentWorkbenchPath
-import com.intellij.agent.workbench.common.session.AgentSessionProvider
-import com.intellij.agent.workbench.sessions.core.AgentSessionThreadRebindPolicy.isConcreteCodexNewThreadRebindAnchorActive
-import com.intellij.agent.workbench.sessions.core.AgentSessionThreadRebindPolicy.PENDING_THREAD_MATCH_POST_WINDOW_MS
-import com.intellij.agent.workbench.sessions.core.AgentSessionThreadRebindPolicy.PENDING_THREAD_MATCH_PRE_WINDOW_MS
-import com.intellij.agent.workbench.sessions.core.AgentSessionThreadRebindPolicy.PENDING_THREAD_NO_BASELINE_AUTO_BIND_MAX_AGE_MS
-import com.intellij.agent.workbench.sessions.core.providers.AgentSessionRefreshHints
+import com.intellij.platform.ai.agent.core.AgentThreadActivity
+import com.intellij.platform.ai.agent.core.normalizeAgentWorkbenchPath
+import com.intellij.platform.ai.agent.core.session.AgentSessionProvider
+import com.intellij.platform.ai.agent.sessions.core.AgentSessionThreadRebindPolicy.isConcreteNewThreadRebindAnchorActive
+import com.intellij.platform.ai.agent.sessions.core.AgentSessionThreadRebindPolicy.PENDING_THREAD_MATCH_POST_WINDOW_MS
+import com.intellij.platform.ai.agent.sessions.core.AgentSessionThreadRebindPolicy.PENDING_THREAD_MATCH_PRE_WINDOW_MS
+import com.intellij.platform.ai.agent.sessions.core.AgentSessionThreadRebindPolicy.PENDING_THREAD_NO_BASELINE_AUTO_BIND_MAX_AGE_MS
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionRefreshHints
 import com.intellij.agent.workbench.sessions.util.buildAgentSessionIdentity
 import com.intellij.agent.workbench.sessions.util.isAgentSessionNewSessionId
 import com.intellij.agent.workbench.sessions.util.parseAgentSessionIdentity
@@ -162,6 +162,7 @@ internal class AgentSessionThreadRebindSupport(
     allowedThreadIdsByPath: Map<String, Set<String>>? = null,
     refreshHintsByPath: Map<String, AgentSessionRefreshHints> = emptyMap(),
     pendingTabsByPath: Map<String, List<AgentChatPendingTabSnapshot>> = emptyMap(),
+    projectDirectoriesByPath: Map<String, String> = emptyMap(),
   ) {
     if (!canBindPendingOpenChatTabs || pendingTabsByPath.isEmpty()) {
       clearPendingThreadAmbiguityState()
@@ -191,6 +192,7 @@ internal class AgentSessionThreadRebindSupport(
         candidatesByPath.getOrPut(path) { ArrayList() }.add(
           buildAgentSessionChatRebindTarget(
             path = path,
+            projectDirectory = projectDirectoriesByPath[path],
             provider = provider,
             threadId = thread.id,
             title = thread.title,
@@ -215,6 +217,7 @@ internal class AgentSessionThreadRebindSupport(
         pathCandidates.add(
           buildAgentSessionChatRebindTarget(
             path = path,
+            projectDirectory = projectDirectoriesByPath[path],
             provider = provider,
             threadId = threadId,
             title = title,
@@ -284,7 +287,7 @@ internal class AgentSessionThreadRebindSupport(
         continue
       }
       val staleTabs = tabs.filterNot { tab ->
-        isConcreteCodexNewThreadRebindAnchorActive(
+        isConcreteNewThreadRebindAnchorActive(
           rebindRequestedAtMs = tab.newThreadRebindRequestedAtMs,
           currentTimeMs = nowMs,
         )
@@ -418,6 +421,7 @@ private fun AgentChatPendingTabSnapshot.isEligibleForNoBaselineAutoBind(nowMs: L
 
 internal fun buildAgentSessionChatRebindTarget(
   path: String,
+  projectDirectory: String? = null,
   provider: AgentSessionProvider,
   threadId: String,
   title: String,
@@ -426,6 +430,7 @@ internal fun buildAgentSessionChatRebindTarget(
 ): AgentChatTabRebindTarget {
   return AgentChatTabRebindTarget(
     projectPath = normalizeAgentWorkbenchPath(path),
+    projectDirectory = projectDirectory?.takeIf { it.isNotBlank() }?.let(::normalizeAgentWorkbenchPath),
     provider = provider,
     threadIdentity = buildAgentSessionIdentity(provider, threadId),
     threadId = threadId,

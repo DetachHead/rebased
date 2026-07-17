@@ -66,6 +66,7 @@ import static com.jetbrains.python.documentation.PyDocSignaturesHighlighterKt.hi
 import static com.jetbrains.python.documentation.PyDocSignaturesHighlighterKt.styledSpan;
 import static com.jetbrains.python.psi.types.PyInferredVarianceJudgment.isEffectivelyInvariant;
 import static com.jetbrains.python.psi.types.PyNoneTypeKt.isNoneType;
+import static com.jetbrains.python.psi.types.PyTypeUtilKt.isUnknown;
 
 // TODO visitPyConcatenateType
 public abstract class PyTypeRenderer extends PyTypeVisitorExt<@NotNull HtmlChunk> {
@@ -115,6 +116,10 @@ public abstract class PyTypeRenderer extends PyTypeVisitorExt<@NotNull HtmlChunk
       myAnchor = anchor;
     }
 
+    protected final @NotNull PsiElement getAnchor() {
+      return myAnchor;
+    }
+
     @Override
     protected @NotNull HtmlChunk styled(@Nls String text, @NotNull TextAttributesKey style) {
       return styledSpan(text, style);
@@ -144,6 +149,23 @@ public abstract class PyTypeRenderer extends PyTypeVisitorExt<@NotNull HtmlChunk
   static final class RichDocumentation extends HtmlRenderer {
     RichDocumentation(@NotNull TypeEvalContext typeEvalContext, @NotNull PsiElement anchor) {
       super(typeEvalContext, anchor, EnumSet.noneOf(Feature.class));
+    }
+  }
+
+  /**
+   * Renders types as HTML the same way as {@link RichDocumentation}, but emits class links in the
+   * {@code #element/<fqn>} format navigable from editor tooltips (see
+   * {@code com.intellij.codeInsight.hint.ElementLinkHandler}) instead of the {@code psi_element://}
+   * protocol used by Quick Documentation. Intended for rich inspection tooltips.
+   */
+  static final class TooltipDocumentation extends HtmlRenderer {
+    TooltipDocumentation(@NotNull TypeEvalContext typeEvalContext, @NotNull PsiElement anchor, @NotNull EnumSet<Feature> features) {
+      super(typeEvalContext, anchor, features);
+    }
+
+    @Override
+    protected @NotNull HtmlChunk className(@Nls String name) {
+      return PyDocumentationLink.toPossibleClassTooltipLink(name, getAnchor(), myTypeEvalContext);
     }
   }
 
@@ -333,7 +355,7 @@ public abstract class PyTypeRenderer extends PyTypeVisitorExt<@NotNull HtmlChunk
 
   protected @NotNull HtmlChunk wrapInTypingType(@NotNull HtmlChunk instanceTypeRender) {
     return new HtmlBuilder()
-      .append(isGenericBuiltinsAvailable() ? styled("type", PyHighlighter.PY_BUILTIN_NAME) : //NON-NLS
+      .append(isGenericBuiltinsAvailable() ? styled(isRenderingFqn() ? PyNames.FQN.TYPE : PyNames.TYPE, PyHighlighter.PY_BUILTIN_NAME) : //NON-NLS
               escaped(isRenderingFqn() ? "typing.Type" : "Type")) //NON-NLS
       .append(styled("[", PyHighlighter.PY_BRACKETS))
       .append(instanceTypeRender)
@@ -386,9 +408,9 @@ public abstract class PyTypeRenderer extends PyTypeVisitorExt<@NotNull HtmlChunk
     if (ContainerUtil.all(unionType.getMembers(), t -> t instanceof PyClassType ct && ct.isDefinition())) {
       return wrapInTypingType(render(unionType.map(type -> type != null ? ((PyClassType)type).toInstance() : null)));
     }
-    if (unionType.getMembers().contains(null)) {
-      // Always put Any at the end of the union
-      return renderUnion(List.of(render(PyUnionType.union(ContainerUtil.skipNulls(unionType.getMembers()))), visitUnknownType()));
+    if (unionType.getMembers().stream().anyMatch(it -> isUnknown(it))) {
+      // Always put Unknown at the end of the union
+      return renderUnion(List.of(render(PyUnionType.union(ContainerUtil.filter(unionType.getMembers(), it -> !isUnknown(it)))), visitUnknownType()));
     }
     return renderUnion(ContainerUtil.map(unionType.getMembers(), this::renderUnionMember));
   }
@@ -500,7 +522,7 @@ public abstract class PyTypeRenderer extends PyTypeVisitorExt<@NotNull HtmlChunk
   public HtmlChunk visitPyTupleType(@NotNull PyTupleType tupleType) {
     HtmlBuilder result = new HtmlBuilder();
     if (isGenericBuiltinsAvailable()) {
-      result.append(styled("tuple", PyHighlighter.PY_BUILTIN_NAME)); //NON-NLS
+      result.append(styled(isRenderingFqn() ? PyNames.FQN.TUPLE : PyNames.TUPLE, PyHighlighter.PY_BUILTIN_NAME)); //NON-NLS
     }
     else {
       result.append(escaped(isRenderingFqn() ? "typing.Tuple" : "Tuple")); //NON-NLS
@@ -765,7 +787,7 @@ public abstract class PyTypeRenderer extends PyTypeVisitorExt<@NotNull HtmlChunk
     result.append(escaped(getTypeName(typeParameterType)));
     if (isRenderingTypeVarBounds()) {
       var effectiveBound = typeParameterType.getEffectiveBound();
-      if (effectiveBound != null) {
+      if (!isUnknown(effectiveBound)) {
         result.append(escaped(" ≤: "));
         result.append(render(effectiveBound));
       }

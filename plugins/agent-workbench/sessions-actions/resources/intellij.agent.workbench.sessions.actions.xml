@@ -5,10 +5,14 @@
   <dependencies>
     <plugin id="org.jetbrains.plugins.terminal"/>
     <module name="intellij.agent.workbench.chat"/>
-    <module name="intellij.agent.workbench.common"/>
     <module name="intellij.agent.workbench.prompt.core"/>
+    <module name="intellij.agent.workbench.prompt.ui"/>
     <module name="intellij.agent.workbench.sessions"/>
-    <module name="intellij.agent.workbench.sessions.core"/>
+    <module name="intellij.agent.workbench.settings"/>
+    <module name="intellij.agent.workbench.ui"/>
+    <module name="intellij.platform.ai.agent.common"/>
+    <module name="intellij.platform.ai.agent.core"/>
+    <module name="intellij.platform.ai.agent.sessions.core"/>
     <module name="intellij.terminal.frontend"/>
   </dependencies>
   <!-- endregion -->
@@ -35,15 +39,19 @@
       <action id="AgentWorkbenchSessions.ShowArchivedThreads"
               class="com.intellij.agent.workbench.sessions.actions.AgentSessionsShowArchivedThreadsAction"/>
       <action id="AgentWorkbenchSessions.Refresh" class="com.intellij.agent.workbench.sessions.actions.AgentSessionsRefreshAction"/>
-      <action id="AgentWorkbenchSessions.ConfigureProviders"
-              class="com.intellij.agent.workbench.sessions.actions.AgentSessionsConfigureProvidersAction"/>
+      <separator/>
+      <action id="AgentWorkbenchSessions.ToggleDedicatedFrame"
+              class="com.intellij.agent.workbench.sessions.actions.AgentSessionsDedicatedFrameToggleAction"/>
+      <action id="AgentWorkbenchSessions.ToggleCurrentProjectOnly"
+              class="com.intellij.agent.workbench.sessions.actions.AgentSessionsCurrentProjectOnlyToggleAction"/>
       <separator/>
       <action id="AgentWorkbenchSessions.ToggleSessionCost"
               class="com.intellij.agent.workbench.sessions.AgentSessionsToggleSessionCostAction"/>
-      <action id="AgentWorkbenchSessions.ToggleDedicatedFrame"
-              class="com.intellij.agent.workbench.sessions.actions.AgentSessionsDedicatedFrameToggleAction"/>
       <action id="AgentWorkbenchSessions.TogglePreventSleepWhileWorking"
               class="com.intellij.agent.workbench.sessions.actions.AgentSessionsPreventSleepWhileWorkingToggleAction"/>
+      <separator/>
+      <action id="AgentWorkbenchSessions.MoreSettings"
+              class="com.intellij.agent.workbench.sessions.actions.AgentSessionsMoreSettingsAction"/>
     </group>
     <action
       id="AgentWorkbenchSessions.GoToSourceProjectFromToolbar"
@@ -56,12 +64,6 @@
       icon="AllIcons.General.Add"
       class="com.intellij.agent.workbench.sessions.actions.AgentSessionsMainToolbarNewThreadAction">
       <add-to-group group-id="MainToolbarRight" anchor="after" relative-to-action="NewUiRunWidget"/>
-    </action>
-    <action
-      id="AgentWorkbenchSessions.EditorTab.NewThread"
-      icon="AllIcons.General.Add"
-      class="com.intellij.agent.workbench.sessions.actions.AgentSessionsEditorTabNewThreadAction">
-      <add-to-group group-id="EditorTabsToolbarActions" anchor="first"/>
     </action>
     <action
       id="AgentWorkbenchSessions.RenameThreadFromEditorTab"

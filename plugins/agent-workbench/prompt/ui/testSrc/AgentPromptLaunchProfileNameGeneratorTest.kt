@@ -1,8 +1,8 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.agent.workbench.prompt.ui
 
-import com.intellij.agent.workbench.common.session.AgentSessionLaunchMode
-import com.intellij.agent.workbench.common.session.AgentSessionProvider
+import com.intellij.platform.ai.agent.core.session.AgentSessionLaunchMode
+import com.intellij.platform.ai.agent.core.session.AgentSessionProvider
 import com.intellij.agent.workbench.prompt.core.AgentPromptGenerationModel
 import com.intellij.agent.workbench.prompt.core.AgentPromptGenerationSettings
 import com.intellij.agent.workbench.prompt.core.AgentPromptLaunchProfile
@@ -86,7 +86,7 @@ internal class AgentPromptLaunchProfileNameGeneratorTest {
     return AgentPromptLaunchProfile(
       id = "",
       name = name,
-      providerId = AgentSessionProvider.CODEX.value,
+      providerId = AgentSessionProvider.from("codex").value,
       launchMode = launchMode,
       generationSettings = settings,
     )

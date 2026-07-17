@@ -1,8 +1,8 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.agent.workbench.sessions.toolwindow.ui
 
-import com.intellij.agent.workbench.common.AgentWorkbenchActionIds
-import com.intellij.agent.workbench.sessions.core.statistics.AgentWorkbenchEntryPoint
+import com.intellij.agent.workbench.ui.AgentWorkbenchActionIds
+import com.intellij.agent.workbench.sessions.statistics.AgentWorkbenchEntryPoint
 import com.intellij.agent.workbench.sessions.model.ArchiveThreadTarget
 import com.intellij.agent.workbench.sessions.model.hasAnyProviderSnapshot
 import com.intellij.agent.workbench.sessions.service.AgentSessionLaunchService
@@ -17,18 +17,24 @@ import com.intellij.agent.workbench.sessions.toolwindow.tree.pathForThreadNode
 import com.intellij.agent.workbench.sessions.toolwindow.tree.shouldHandleSingleClick
 import com.intellij.agent.workbench.sessions.toolwindow.tree.shouldRetargetSelectionForContextMenu
 import com.intellij.agent.workbench.sessions.util.isAgentSessionNewSessionId
+import com.intellij.openapi.Disposable
 import com.intellij.openapi.actionSystem.ActionGroup
 import com.intellij.openapi.actionSystem.ActionManager
 import com.intellij.openapi.actionSystem.ActionPlaces
 import com.intellij.openapi.components.service
 import com.intellij.openapi.project.Project
+import com.intellij.platform.ai.agent.sessions.core.SessionActionTarget
+import com.intellij.platform.ai.agent.sessions.core.folders.AgentTaskFolder
+import com.intellij.ui.hover.HoverListener
 import com.intellij.ui.hover.TreeHoverListener
 import com.intellij.ui.treeStructure.Tree
 import com.intellij.util.EditSourceOnDoubleClickHandler
 import com.intellij.util.ui.tree.TreeUtil
+import java.awt.Component
 import java.awt.event.KeyEvent
 import java.awt.event.MouseAdapter
 import java.awt.event.MouseEvent
+import javax.swing.JTree
 import javax.swing.KeyStroke
 import javax.swing.SwingUtilities
 import javax.swing.event.TreeExpansionEvent
@@ -37,24 +43,67 @@ import javax.swing.tree.TreePath
 
 internal class AgentSessionsTreeInteractionController(
   private val project: Project,
+  private val parentDisposable: Disposable,
   private val tree: Tree,
   private val rowActionsOverlayProvider: () -> AgentSessionsTreeRowActionsOverlay,
   private val nodeResolver: (SessionTreeId) -> SessionTreeNode?,
+  private val isHoverableTreeId: (SessionTreeId) -> Boolean,
   private val selectedArchiveTargets: () -> List<ArchiveThreadTarget>,
   private val selectedUnarchiveTargets: () -> List<ArchiveThreadTarget>,
+  private val selectedThreadTargets: () -> List<SessionActionTarget.Thread>,
+  private val taskFolderArchiveTargets: (SessionTreeId.TaskFolder) -> List<ArchiveThreadTarget>,
+  private val assignThreadToTaskFolder: (SessionActionTarget.Thread, AgentTaskFolder) -> Unit,
   private val showMoreProjects: () -> Unit,
   private val showMoreThreads: (String) -> Unit,
+  private val isNewThreadPopupAvailable: () -> Boolean = { true },
 ) {
   var popupActionContext: AgentSessionsTreePopupActionContext? = null
     private set
 
   fun install() {
     TreeUtil.installActions(tree)
-    TreeHoverListener.DEFAULT.addTo(tree)
+    installHoverListener()
     EditSourceOnDoubleClickHandler.install(tree) { activateSelectedNode() }
     installEnterKeyActivation()
+    installTaskFolderDnD()
     installMouseListeners()
     installTreeExpansionListener()
+  }
+
+  private fun installTaskFolderDnD() {
+    AgentSessionsTreeTaskFolderDnDSupport(
+      tree = tree,
+      nodeResolver = nodeResolver,
+      selectedThreadTargets = selectedThreadTargets,
+      assignThread = assignThreadToTaskFolder,
+    ).install(parentDisposable)
+  }
+
+  private fun installHoverListener() {
+    object : HoverListener() {
+      override fun mouseEntered(component: Component, x: Int, y: Int) {
+        updateHover(component, x, y)
+      }
+
+      override fun mouseMoved(component: Component, x: Int, y: Int) {
+        updateHover(component, x, y)
+      }
+
+      override fun mouseExited(component: Component) {
+        TreeHoverListener.DEFAULT.mouseExited(component)
+      }
+
+      private fun updateHover(component: Component, x: Int, y: Int) {
+        if (component !is JTree) return
+        val hoverRow = sessionTreeHoverRow(tree = component, x = x, y = y, isHoverableTreeId = isHoverableTreeId)
+        if (hoverRow < 0) {
+          TreeHoverListener.DEFAULT.mouseExited(component)
+        }
+        else {
+          TreeHoverListener.DEFAULT.mouseMoved(component, x, y)
+        }
+      }
+    }.addTo(tree)
   }
 
   private fun installEnterKeyActivation() {
@@ -133,7 +182,7 @@ internal class AgentSessionsTreeInteractionController(
 
   private fun maybeShowPopup(event: MouseEvent) {
     if (!event.isPopupTrigger) return
-    val path = tree.getPathForLocation(event.x, event.y) ?: return
+    val path = pathForSessionTreeContextMenuRow(tree, event.y) ?: return
     if (shouldRetargetSelectionForContextMenu(tree.selectionModel.isPathSelected(path))) {
       tree.selectionPath = path
     }
@@ -147,6 +196,9 @@ internal class AgentSessionsTreeInteractionController(
       node = treeNode,
       archiveTargets = selectedArchiveTargets(),
       unarchiveTargets = selectedUnarchiveTargets(),
+      selectedThreadTargets = selectedThreadTargets(),
+      taskFolderArchiveTargets = (id as? SessionTreeId.TaskFolder)?.let(taskFolderArchiveTargets).orEmpty(),
+      newThreadActionAvailable = isNewThreadPopupAvailable(),
     ) ?: return
     val popupMenu = ActionManager.getInstance().createActionPopupMenu(ActionPlaces.TOOLWINDOW_POPUP, actionGroup)
     popupMenu.setTargetComponent(tree)
@@ -186,6 +238,11 @@ internal class AgentSessionsTreeInteractionController(
         showMoreThreads(path)
         true
       }
+
+      is SessionTreeNode.PinnedSection,
+      is SessionTreeNode.SectionSeparator,
+      is SessionTreeNode.TaskFolder,
+        -> false
 
       is SessionTreeNode.Thread -> {
         if (!includeOpenActions) return false
@@ -241,4 +298,35 @@ internal class AgentSessionsTreeInteractionController(
   private fun idFromPath(path: TreePath?): SessionTreeId? {
     return path?.lastPathComponent?.let(::extractSessionTreeId)
   }
+}
+
+internal fun pathForSessionTreeContextMenuRow(tree: JTree, y: Int): TreePath? {
+  if (y < 0) return null
+  for (row in 0 until tree.rowCount) {
+    val bounds = tree.getRowBounds(row) ?: continue
+    if (y < bounds.y) return null
+    if (y < bounds.y + bounds.height) return tree.getPathForRow(row)
+  }
+  return null
+}
+
+internal fun sessionTreeHoverRow(
+  tree: JTree,
+  x: Int,
+  y: Int,
+  isHoverableTreeId: (SessionTreeId) -> Boolean,
+): Int {
+  val row = TreeUtil.getRowForLocation(tree, x, y)
+  return sessionTreeHoverRowForRow(tree = tree, row = row, isHoverableTreeId = isHoverableTreeId)
+}
+
+private fun sessionTreeHoverRowForRow(
+  tree: JTree,
+  row: Int,
+  isHoverableTreeId: (SessionTreeId) -> Boolean,
+): Int {
+  if (row < 0) return -1
+  val path = tree.getPathForRow(row) ?: return -1
+  val id = path.lastPathComponent?.let(::extractSessionTreeId) ?: return row
+  return row.takeIf { isHoverableTreeId(id) } ?: -1
 }

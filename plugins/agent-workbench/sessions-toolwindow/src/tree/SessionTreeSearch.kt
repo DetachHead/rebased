@@ -6,6 +6,9 @@ import com.intellij.agent.workbench.sessions.tree.threadDisplayTitle
 
 internal fun sessionTreeNodeSearchText(node: SessionTreeNode): String {
   return when (node) {
+    is SessionTreeNode.PinnedSection -> AgentSessionsBundle.message("toolwindow.section.pinned")
+    is SessionTreeNode.SectionSeparator -> ""
+
     is SessionTreeNode.Project -> searchText(
       node.project.name,
       visibleProjectBranch(node.project),
@@ -22,6 +25,7 @@ internal fun sessionTreeNodeSearchText(node: SessionTreeNode): String {
       branchMismatchText(node),
     )
 
+    is SessionTreeNode.TaskFolder -> node.folder.name
     is SessionTreeNode.SubAgent -> node.subAgent.name.ifBlank { node.subAgent.id }
     is SessionTreeNode.Warning -> node.message
     is SessionTreeNode.Error -> node.message
@@ -30,6 +34,12 @@ internal fun sessionTreeNodeSearchText(node: SessionTreeNode): String {
     is SessionTreeNode.MoreThreads -> node.hiddenCount?.let { AgentSessionsBundle.message("toolwindow.action.more.count", it) }
                                       ?: AgentSessionsBundle.message("toolwindow.action.more")
   }
+}
+
+internal fun sessionTreeNodeSearchText(model: SessionTreeModel, id: SessionTreeId): String {
+  if (!isSelectableSessionTreeId(model, id)) return ""
+  val node = model.entriesById[id]?.node ?: return ""
+  return sessionTreeNodeSearchText(node)
 }
 
 private fun branchMismatchText(node: SessionTreeNode.Thread): String? {

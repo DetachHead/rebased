@@ -2,7 +2,7 @@
 package com.intellij.agent.workbench.sessions.toolwindow.ui
 
 import com.intellij.agent.workbench.sessions.actions.AgentSessionsDirectPathNewThreadAction
-import com.intellij.agent.workbench.sessions.core.statistics.AgentWorkbenchEntryPoint
+import com.intellij.agent.workbench.sessions.statistics.AgentWorkbenchEntryPoint
 import com.intellij.agent.workbench.sessions.toolwindow.tree.SessionTreeId
 import com.intellij.agent.workbench.sessions.toolwindow.tree.SessionTreeNode
 import com.intellij.openapi.actionSystem.ActionManager
@@ -46,6 +46,7 @@ internal class AgentSessionsTreeRowActionsOverlay(
   private val project: Project,
   private val tree: Tree,
   private val nodeResolver: (SessionTreeId) -> SessionTreeNode?,
+  private val isNewThreadActionAvailable: () -> Boolean = { true },
 ) {
   private var hoveredRow: Int? = null
   private val rowActionComponents = LinkedHashMap<SessionTreeId, RowActionComponent>()
@@ -57,7 +58,7 @@ internal class AgentSessionsTreeRowActionsOverlay(
   ): SessionTreeRowActionPresentation? {
     val showLoadingAction = isLoadingNode(treeNode)
     val showInteractiveAction = selected || TreeHoverListener.getHoveredRow(tree) == row || hoveredRow == row
-    val showNewThreadAction = showInteractiveAction && newThreadPath(treeNode) != null
+    val showNewThreadAction = isNewThreadActionAvailable() && showInteractiveAction && newThreadPath(treeNode) != null
     if (!showLoadingAction && !showNewThreadAction) return null
     return SessionTreeRowActionPresentation(
       showLoadingAction = showLoadingAction,
@@ -264,6 +265,9 @@ private fun newThreadPath(node: SessionTreeNode): String? {
   return when (node) {
     is SessionTreeNode.Project -> node.project.path
     is SessionTreeNode.Worktree -> node.worktree.path
+    is SessionTreeNode.PinnedSection,
+    is SessionTreeNode.SectionSeparator,
+    is SessionTreeNode.TaskFolder,
     is SessionTreeNode.Thread,
     is SessionTreeNode.SubAgent,
     is SessionTreeNode.Warning,

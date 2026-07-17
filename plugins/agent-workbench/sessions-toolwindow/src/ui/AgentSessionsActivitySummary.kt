@@ -3,20 +3,20 @@ package com.intellij.agent.workbench.sessions.toolwindow.ui
 
 // @spec community/plugins/agent-workbench/spec/sessions/agent-sessions-tree.spec.md
 
-import com.intellij.agent.workbench.common.AgentThreadActivity
-import com.intellij.agent.workbench.common.AgentThreadActivityBucket
-import com.intellij.agent.workbench.common.chromeBucket
-import com.intellij.agent.workbench.common.session.AgentSessionThread
-import com.intellij.agent.workbench.common.statusColor
-import com.intellij.agent.workbench.sessions.core.AgentSessionThreadPresentation
-import com.intellij.agent.workbench.sessions.core.AgentSessionThreadPresentationKey
+import com.intellij.platform.ai.agent.core.AgentThreadActivity
+import com.intellij.platform.ai.agent.core.AgentThreadActivityBucket
+import com.intellij.platform.ai.agent.core.chromeBucket
+import com.intellij.platform.ai.agent.core.session.AgentSessionThread
+import com.intellij.platform.ai.agent.common.statusColor
+import com.intellij.platform.ai.agent.common.withAgentThreadActivityBadge
+import com.intellij.platform.ai.agent.sessions.core.AgentSessionThreadPresentation
+import com.intellij.platform.ai.agent.sessions.core.AgentSessionThreadPresentationKey
 import com.intellij.agent.workbench.sessions.model.AgentProjectSessions
 import com.intellij.agent.workbench.sessions.model.AgentSessionsState
 import com.intellij.agent.workbench.sessions.model.AgentWorktree
 import com.intellij.agent.workbench.sessions.toolwindow.icons.AgentWorkbenchSessionsToolwindowIcons
 import com.intellij.agent.workbench.sessions.util.isAgentSessionNewSessionId
 import com.intellij.openapi.util.NlsSafe
-import com.intellij.ui.IconManager
 import java.awt.Color
 import javax.swing.Icon
 
@@ -39,9 +39,10 @@ internal enum class AgentSessionsActivityBucket {
 }
 
 internal enum class AgentSessionsStripeBadge(
-  private val activity: AgentThreadActivity,
+  @JvmField val activity: AgentThreadActivity,
 ) {
   ATTENTION(AgentThreadActivity.NEEDS_INPUT),
+  RUNNING(AgentThreadActivity.PROCESSING),
   DONE(AgentThreadActivity.UNREAD),
   ;
 
@@ -66,6 +67,7 @@ internal data class AgentSessionsActivitySummary(
   fun stripeBadge(): AgentSessionsStripeBadge? {
     return when {
       attentionRows.isNotEmpty() -> AgentSessionsStripeBadge.ATTENTION
+      runningRows.isNotEmpty() -> AgentSessionsStripeBadge.RUNNING
       doneRows.isNotEmpty() -> AgentSessionsStripeBadge.DONE
       else -> null
     }
@@ -86,11 +88,7 @@ internal fun agentSessionsActivityIcon(summary: AgentSessionsActivitySummary): I
 
 internal fun agentSessionsActivityIcon(badge: AgentSessionsStripeBadge?): Icon {
   val emptyIcon = AgentWorkbenchSessionsToolwindowIcons.Alien
-  return when (badge) {
-    AgentSessionsStripeBadge.ATTENTION -> IconManager.getInstance().withIconBadge(emptyIcon, AgentSessionsStripeBadge.ATTENTION.color())
-    AgentSessionsStripeBadge.DONE -> IconManager.getInstance().withIconBadge(emptyIcon, AgentSessionsStripeBadge.DONE.color())
-    null -> emptyIcon
-  }
+  return badge?.let { withAgentThreadActivityBadge(emptyIcon, it.activity) } ?: emptyIcon
 }
 
 internal fun buildAgentSessionsActivitySummary(
@@ -174,10 +172,9 @@ private fun AgentSessionThread.overlayPresentation(
 ): AgentSessionThread {
   val key = AgentSessionThreadPresentationKey.create(projectPath = path, provider = provider, threadId = id) ?: return this
   val presentation = presentationsByKey[key] ?: return this
+  // Activity summary buckets use the persisted thread activity; shared presentation only refreshes row titles here.
   return copy(
     title = presentation.title.takeIf { it.isNotBlank() } ?: title,
-    updatedAt = presentation.updatedAt ?: updatedAt,
-    activityReport = presentation.activityReport,
   )
 }
 

@@ -3,11 +3,11 @@
 // @spec community/plugins/agent-workbench/spec/chat/agent-chat-editor.spec.md
 package com.intellij.agent.workbench.chat
 
-import com.intellij.agent.workbench.common.AgentThreadActivity
-import com.intellij.agent.workbench.common.session.AgentSessionProvider
-import com.intellij.agent.workbench.sessions.core.AgentSessionThreadPresentation
-import com.intellij.agent.workbench.sessions.core.AgentSessionThreadPresentationKey
-import com.intellij.agent.workbench.sessions.core.AgentSessionThreadPresentationModel
+import com.intellij.platform.ai.agent.core.AgentThreadActivityReport
+import com.intellij.platform.ai.agent.core.session.AgentSessionProvider
+import com.intellij.platform.ai.agent.sessions.core.AgentSessionThreadPresentation
+import com.intellij.platform.ai.agent.sessions.core.AgentSessionThreadPresentationKey
+import com.intellij.platform.ai.agent.sessions.core.AgentSessionThreadPresentationModel
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.components.service
 
@@ -23,7 +23,7 @@ internal fun AgentChatVirtualFile.presentationKeyOrNull(): AgentSessionThreadPre
 internal fun resolveAgentChatThreadPresentation(file: AgentChatVirtualFile): AgentSessionThreadPresentation {
   val bootstrapPresentation = AgentSessionThreadPresentation(
     title = file.bootstrapThreadTitle,
-    activity = file.bootstrapThreadActivity,
+    activityReport = file.bootstrapThreadActivityReport,
   )
   if (file.isPendingThread) {
     return bootstrapPresentation
@@ -44,7 +44,8 @@ internal fun resolveAgentChatThreadPresentation(file: AgentChatVirtualFile): Age
   }
   return AgentSessionThreadPresentation(
     title = resolvedTitle,
-    activity = sharedPresentation.activity,
+    activityReport = sharedPresentation.activityReport,
+    updatedAt = sharedPresentation.updatedAt,
   )
 }
 
@@ -53,9 +54,9 @@ internal fun resolveAgentChatConcreteThreadPresentation(
   provider: AgentSessionProvider,
   threadId: String,
   fallbackTitle: String,
-  fallbackActivity: AgentThreadActivity,
+  fallbackActivityReport: AgentThreadActivityReport,
 ): AgentSessionThreadPresentation {
-  val fallbackPresentation = AgentSessionThreadPresentation(title = fallbackTitle, activity = fallbackActivity)
+  val fallbackPresentation = AgentSessionThreadPresentation(title = fallbackTitle, activityReport = fallbackActivityReport)
   val key = AgentSessionThreadPresentationKey.create(
     projectPath = projectPath,
     provider = provider,

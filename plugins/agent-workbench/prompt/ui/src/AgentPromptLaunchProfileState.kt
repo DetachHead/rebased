@@ -4,9 +4,9 @@ package com.intellij.agent.workbench.prompt.ui
 import com.intellij.agent.workbench.prompt.core.AgentPromptLaunchProfile
 import com.intellij.agent.workbench.prompt.core.AgentPromptLaunchProfileKind
 import com.intellij.agent.workbench.prompt.core.AgentPromptLauncherBridge
-import com.intellij.agent.workbench.sessions.core.providers.effectiveLaunchProfiles
-import com.intellij.agent.workbench.sessions.core.providers.launchProfileMatchesBuiltIn
-import com.intellij.agent.workbench.sessions.core.providers.normalizedUserLaunchProfile
+import com.intellij.platform.ai.agent.sessions.core.providers.effectiveLaunchProfiles
+import com.intellij.platform.ai.agent.sessions.core.providers.launchProfileMatchesBuiltIn
+import com.intellij.platform.ai.agent.sessions.core.providers.normalizedUserLaunchProfile
 
 internal class AgentPromptLaunchProfileState(
   private val builtInProfiles: () -> List<AgentPromptLaunchProfile>,
@@ -31,7 +31,7 @@ internal class AgentPromptLaunchProfileState(
   ) {
     userProfilesById.clear()
     preferences.launchProfiles.forEach { profile -> userProfilesById[profile.id] = profile }
-    explicitDefaultProfileId = preferences.activeLaunchProfileId
+    explicitDefaultProfileId = preferences.defaultLaunchProfileId
     this.implicitDefaultProfileId = implicitDefaultProfileId
     selectedProfileId = effectiveDefaultProfileId
   }
@@ -87,6 +87,16 @@ internal class AgentPromptLaunchProfileState(
     val matchingProfile = matchingLaunchableProfile(draft)
     if (matchingProfile != null) {
       return if (matchingProfile.id == effectiveDefaultProfileId) null else AgentPromptDefaultProfileAction.MakeDefault(matchingProfile)
+    }
+    val selectedProfile = selectedProfile()
+    if (selectedProfile?.kind == AgentPromptLaunchProfileKind.USER && selectedProfile.id in userProfilesById) {
+      return AgentPromptDefaultProfileAction.UpdateProfile(
+        draft.copy(
+          id = selectedProfile.id,
+          name = selectedProfile.name,
+          kind = selectedProfile.kind,
+        )
+      )
     }
     return AgentPromptDefaultProfileAction.SaveAsDefault
   }
@@ -152,6 +162,7 @@ internal class AgentPromptLaunchProfileState(
 
 internal sealed interface AgentPromptDefaultProfileAction {
   data class MakeDefault(val profile: AgentPromptLaunchProfile) : AgentPromptDefaultProfileAction
+  data class UpdateProfile(val profile: AgentPromptLaunchProfile) : AgentPromptDefaultProfileAction
   data object SaveAsDefault : AgentPromptDefaultProfileAction
 }
 

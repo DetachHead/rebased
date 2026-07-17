@@ -1,7 +1,7 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.agent.workbench.prompt.ui
 
-import com.intellij.agent.workbench.common.session.AgentSessionProvider
+import com.intellij.platform.ai.agent.core.session.AgentSessionProvider
 import com.intellij.agent.workbench.prompt.core.AgentPromptReusableSourceEntry
 import com.intellij.agent.workbench.prompt.core.AgentPromptReusableSourceKind
 import com.intellij.codeInsight.completion.CodeCompletionHandlerBase
@@ -9,12 +9,15 @@ import com.intellij.codeInsight.completion.CompletionType
 import com.intellij.codeInsight.lookup.CharFilter
 import com.intellij.codeInsight.lookup.LookupElementPresentation
 import com.intellij.codeInsight.lookup.LookupManager
+import com.intellij.openapi.application.UI
 import com.intellij.openapi.fileTypes.FileTypes
 import com.intellij.openapi.project.ProjectManager
 import com.intellij.psi.PsiDocumentManager
 import com.intellij.testFramework.junit5.TestApplication
 import com.intellij.testFramework.runInEdtAndWait
 import com.intellij.util.textCompletion.TextCompletionUtil
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.runBlocking
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.Timeout
@@ -30,7 +33,7 @@ private const val CODEX_SKILL_PREFIX = '$'
 class AgentPromptClaudeSlashCompletionProviderTest {
   @Test
   fun slashCompletionIsDisabledForNonClaudeProviders() {
-    val provider = createProvider(selectedProvider = { AgentSessionProvider.CODEX })
+    val provider = createProvider(selectedProvider = { AgentSessionProvider.from("codex") })
 
     assertThat(provider.getPrefix("/review", "/review".length)).isNull()
     assertThat(createProvider(selectedProvider = { null }).getPrefix("/review", "/review".length)).isNull()
@@ -38,20 +41,20 @@ class AgentPromptClaudeSlashCompletionProviderTest {
 
   @Test
   fun codexCompletionOnlyUsesDollarPrefixedWhitespaceDelimitedTokens() {
-    val provider = createProvider(selectedProvider = { AgentSessionProvider.CODEX })
+    val provider = createProvider(selectedProvider = { AgentSessionProvider.from("codex") })
     val teamcitySkill = codexSkillLookup("teamcity-cli")
     val promptedTeamcitySkill = "please $teamcitySkill"
 
     assertThat(provider.getPrefix(teamcitySkill, teamcitySkill.length)).isEqualTo(teamcitySkill)
     assertThat(provider.getPrefix(promptedTeamcitySkill, promptedTeamcitySkill.length)).isEqualTo(teamcitySkill)
     assertThat(provider.getPrefix("plain text", "plain text".length)).isNull()
-    val claudeProvider = createProvider(selectedProvider = { AgentSessionProvider.CLAUDE })
+    val claudeProvider = createProvider(selectedProvider = { AgentSessionProvider.from("claude") })
     assertThat(claudeProvider.getPrefix(teamcitySkill, teamcitySkill.length)).isNull()
   }
 
   @Test
   fun completionOnlyUsesSlashPrefixedWhitespaceDelimitedTokens() {
-    val provider = createProvider(selectedProvider = { AgentSessionProvider.CLAUDE })
+    val provider = createProvider(selectedProvider = { AgentSessionProvider.from("claude") })
 
     assertThat(provider.getPrefix("please /safe-push", "please /safe-push".length)).isEqualTo("/safe-push")
     assertThat(provider.getPrefix("path/to/file", "path/to/file".length)).isNull()
@@ -60,7 +63,7 @@ class AgentPromptClaudeSlashCompletionProviderTest {
 
   @Test
   fun completionAutopopupAcceptsSlashCommandCharacters() {
-    val provider = createProvider(selectedProvider = { AgentSessionProvider.CLAUDE })
+    val provider = createProvider(selectedProvider = { AgentSessionProvider.from("claude") })
 
     assertThat(provider.acceptChar('/')).isEqualTo(CharFilter.Result.ADD_TO_PREFIX)
     assertThat(provider.acceptChar('$')).isEqualTo(CharFilter.Result.ADD_TO_PREFIX)
@@ -78,7 +81,7 @@ class AgentPromptClaudeSlashCompletionProviderTest {
 
     assertThat(
       shouldAutoPopupCodexSkillCompletion(
-        selectedProvider = AgentSessionProvider.CODEX,
+        selectedProvider = AgentSessionProvider.from("codex"),
         text = CODEX_SKILL_PREFIX.toString(),
         offsetAfterChange = 1,
         insertedFragment = CODEX_SKILL_PREFIX.toString(),
@@ -87,7 +90,7 @@ class AgentPromptClaudeSlashCompletionProviderTest {
 
     assertThat(
       shouldAutoPopupCodexSkillCompletion(
-        selectedProvider = AgentSessionProvider.CODEX,
+        selectedProvider = AgentSessionProvider.from("codex"),
         text = promptedDollar,
         offsetAfterChange = promptedDollar.length,
         insertedFragment = CODEX_SKILL_PREFIX.toString(),
@@ -96,7 +99,7 @@ class AgentPromptClaudeSlashCompletionProviderTest {
 
     assertThat(
       shouldAutoPopupCodexSkillCompletion(
-        selectedProvider = AgentSessionProvider.CODEX,
+        selectedProvider = AgentSessionProvider.from("codex"),
         text = teamcitySkill,
         offsetAfterChange = teamcitySkill.length,
         insertedFragment = "teamcity-cli",
@@ -105,7 +108,7 @@ class AgentPromptClaudeSlashCompletionProviderTest {
 
     assertThat(
       shouldAutoPopupCodexSkillCompletion(
-        selectedProvider = AgentSessionProvider.CLAUDE,
+        selectedProvider = AgentSessionProvider.from("claude"),
         text = CODEX_SKILL_PREFIX.toString(),
         offsetAfterChange = 1,
         insertedFragment = CODEX_SKILL_PREFIX.toString(),
@@ -121,7 +124,7 @@ class AgentPromptClaudeSlashCompletionProviderTest {
 
     assertThat(
       shouldAutoPopupClaudeSlashCompletion(
-        selectedProvider = AgentSessionProvider.CLAUDE,
+        selectedProvider = AgentSessionProvider.from("claude"),
         workingProjectPaths = listOf(projectPath.toString()),
         text = "/",
         offsetAfterChange = 1,
@@ -131,7 +134,7 @@ class AgentPromptClaudeSlashCompletionProviderTest {
 
     assertThat(
       shouldAutoPopupClaudeSlashCompletion(
-        selectedProvider = AgentSessionProvider.CLAUDE,
+        selectedProvider = AgentSessionProvider.from("claude"),
         workingProjectPaths = listOf(projectPath.toString()),
         text = "open /",
         offsetAfterChange = "open /".length,
@@ -141,7 +144,7 @@ class AgentPromptClaudeSlashCompletionProviderTest {
 
     assertThat(
       shouldAutoPopupClaudeSlashCompletion(
-        selectedProvider = AgentSessionProvider.CLAUDE,
+        selectedProvider = AgentSessionProvider.from("claude"),
         workingProjectPaths = listOf(projectPath.toString()),
         text = "/review",
         offsetAfterChange = "/review".length,
@@ -151,7 +154,7 @@ class AgentPromptClaudeSlashCompletionProviderTest {
 
     assertThat(
       shouldAutoPopupClaudeSlashCompletion(
-        selectedProvider = AgentSessionProvider.CODEX,
+        selectedProvider = AgentSessionProvider.from("codex"),
         workingProjectPaths = listOf(projectPath.toString()),
         text = "/",
         offsetAfterChange = 1,
@@ -209,7 +212,7 @@ class AgentPromptClaudeSlashCompletionProviderTest {
     runInEdtAndWait {
       val project = ProjectManager.getInstance().defaultProject
       val completionProvider = createProvider(
-        selectedProvider = { AgentSessionProvider.CLAUDE },
+        selectedProvider = { AgentSessionProvider.from("claude") },
         workingProjectPaths = { listOf(projectPath.toString()) },
       )
       val textField = AgentPromptTextField(project, completionProvider)
@@ -246,7 +249,7 @@ class AgentPromptClaudeSlashCompletionProviderTest {
     runInEdtAndWait {
       val project = ProjectManager.getInstance().defaultProject
       val completionProvider = createProvider(
-        selectedProvider = { AgentSessionProvider.CODEX },
+        selectedProvider = { AgentSessionProvider.from("codex") },
         codexSkillEntries = {
           listOf(
             codexSkillEntry("teamcity-cli", "Inspect TeamCity builds"),
@@ -363,17 +366,17 @@ class AgentPromptClaudeSlashCompletionProviderTest {
 
   @Test
   fun textFieldUsesTextDocumentAndKeepsCompletionProviderInstalled() {
-    runInEdtAndWait {
-      val project = ProjectManager.getInstance().defaultProject
-      val completionProvider = createProvider(selectedProvider = { AgentSessionProvider.CLAUDE })
-      val textField = AgentPromptTextField(project, completionProvider)
-
-      val psiFile = PsiDocumentManager.getInstance(project).getPsiFile(textField.document)
-
-      assertThat(psiFile).isNotNull
-      assertThat(psiFile!!.fileType).isEqualTo(FileTypes.PLAIN_TEXT)
-      assertThat(TextCompletionUtil.getProvider(psiFile)).isSameAs(completionProvider)
+    val project = ProjectManager.getInstance().defaultProject
+    val completionProvider = createProvider(selectedProvider = { AgentSessionProvider.from("claude") })
+    val document = runBlocking(Dispatchers.UI) {
+      AgentPromptTextField(project, completionProvider).document
     }
+
+    val psiFile = PsiDocumentManager.getInstance(project).getPsiFile(document)
+
+    assertThat(psiFile).isNotNull
+    assertThat(psiFile!!.fileType).isEqualTo(FileTypes.PLAIN_TEXT)
+    assertThat(TextCompletionUtil.getProvider(psiFile)).isSameAs(completionProvider)
   }
 
   private fun createProvider(
@@ -390,7 +393,7 @@ class AgentPromptClaudeSlashCompletionProviderTest {
       label = name,
       insertText = codexSkillLookup(name) + " ",
       kind = AgentPromptReusableSourceKind.SKILL,
-      provider = AgentSessionProvider.CODEX,
+      provider = AgentSessionProvider.from("codex"),
       description = description,
     )
   }

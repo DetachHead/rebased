@@ -5,22 +5,22 @@ targets:
   - ../../sessions-launch-config/backend/src/*.kt
   - ../../sessions-launch-config/backend/resources/*.xml
   - ../../sessions-launch-config/backend/testSrc/*.kt
-  - ../../sessions-core/src/config/*.kt
-  - ../../sessions-core/src/launch/*.kt
-  - ../../sessions-core/resources/intellij.agent.workbench.sessions.core.xml
+  - ../../lib-agent/sessions-core/src/config/*.kt
+  - ../../lib-agent/sessions-core/src/launch/*.kt
+  - ../../lib-agent/sessions-core/resources/intellij.platform.ai.agent.sessions.core.xml
   - ../../sessions/src/service/AgentSessionRefreshCoordinator.kt
   - ../../sessions/src/service/AgentSessionLaunchService.kt
-  - ../../sessions/src/service/AgentSessionChatOpenPayload.kt
+  - ../../lib-agent/sessions-core/src/launch/AgentSessionChatOpenPlan.kt
   - ../../chat/src/AgentChatEditorService.kt
   - ../../sessions/testSrc/AgentSessionPromptLauncherBridgeTest.kt
-  - ../../sessions/testSrc/AgentSessionChatOpenPayloadTest.kt
+  - ../../sessions/testSrc/AgentSessionChatOpenPlanTest.kt
   - ../../chat/testSrc/AgentChatEditorServiceTest.kt
 ---
 
 # Agent Workbench Project Launch Config
 
 Status: Draft
-Date: 2026-03-13
+Date: 2026-06-28
 
 ## Summary
 Define the project-local launch augmentation contract for Agent Workbench sessions. This spec owns how `.agent-workbench.yaml` contributes `PATH` entries and command shims for all providers, with optional provider-specific overrides, without changing canonical provider command mapping.
@@ -38,8 +38,9 @@ Shared provider command mapping remains owned by `../core/agent-core-contracts.s
 - Providing live UI editing or validation for project launch config.
 
 ## Requirements
-- Project launch config file location is the normalized project root file `.agent-workbench.yaml`.
+- Project launch config file location is the resolved project directory file `.agent-workbench.yaml`. The Agent Workbench identity path remains the stable UI/session key; when the identity is a project file such as `.bazelproject`, `.blazeproject`, `.ipr`, `.iws`, or an `.idea` path, launch-spec resolution also carries the normalized project directory used as provider cwd and config root. Bazel project-view identities resolve to their containing workspace/Git root.
   [@test] ../../sessions-launch-config/backend/testSrc/AgentWorkbenchProjectLaunchConfigTest.kt
+  [@test] ../../sessions/testSrc/AgentSessionPromptLauncherBridgeTest.kt
 
 - Config schema supports shared top-level launch augmentation keys plus optional provider override blocks under `providers.<providerId>`.
   Supported launch augmentation keys at both levels are:
@@ -74,12 +75,12 @@ Shared provider command mapping remains owned by `../core/agent-core-contracts.s
   - prompt startup launch-spec overrides built from augmented base launch specs,
   - chat-tab rebind flows that resolve resume specs.
   [@test] ../../sessions/testSrc/AgentSessionPromptLauncherBridgeTest.kt
-  [@test] ../../sessions/testSrc/AgentSessionChatOpenPayloadTest.kt
+  [@test] ../../sessions/testSrc/AgentSessionChatOpenPlanTest.kt
   [@test] ../../chat/testSrc/AgentChatEditorServiceTest.kt
 
 - Canonical provider command mapping is provider-owned (`../core/agent-core-contracts.spec.md`). Project launch config must augment `PATH` lookup and shim lookup only; it must not redefine canonical provider commands. Provider bridges may pre-resolve the provider executable token to an absolute path via the shared `TerminalAgentResolver`; project launch config must not perform its own pre-resolution and must not depend on the resolved value being a bare command name.
   [@test] ../../sessions/testSrc/AgentSessionPromptLauncherBridgeTest.kt
-  [@test] ../../sessions/testSrc/AgentSessionChatOpenPayloadTest.kt
+  [@test] ../../sessions/testSrc/AgentSessionChatOpenPlanTest.kt
 
 - `PATH` merge order is:
   - generated shim directory first when effective shims exist,
@@ -116,7 +117,7 @@ Shared provider command mapping remains owned by `../core/agent-core-contracts.s
 ## Data & Backend
 - Provider ids used in `providers.<providerId>` must match stable Agent Workbench provider ids.
 - Shared root launch augmentation is provider-agnostic and applies before provider-specific overrides are considered.
-- Relative configured paths resolve against the normalized project root.
+- Relative configured paths resolve against the normalized project directory, not necessarily the identity path.
 - Absolute configured paths are allowed and normalize before use.
 - Shared launch-spec resolution remains the single composition point between provider bridges and project-local augmentation.
 
@@ -128,7 +129,7 @@ Shared provider command mapping remains owned by `../core/agent-core-contracts.s
 ## Testing / Local Run
 - `./tests.cmd --module intellij.agent.workbench.sessions.launch.config.backend.tests --test com.intellij.agent.workbench.sessions.launch.config.backend.AgentWorkbenchProjectLaunchConfigTest`
 - `./tests.cmd --module intellij.agent.workbench.sessions.tests --test com.intellij.agent.workbench.sessions.AgentSessionPromptLauncherBridgeTest`
-- `./tests.cmd --module intellij.agent.workbench.sessions.tests --test com.intellij.agent.workbench.sessions.AgentSessionChatOpenPayloadTest`
+- `./tests.cmd --module intellij.agent.workbench.sessions.tests --test com.intellij.agent.workbench.sessions.AgentSessionChatOpenPlanTest`
 
 ## Open Questions / Risks
 - Current implementation caches parsed project launch config for the service lifetime and does not specify live reload semantics for `.agent-workbench.yaml` edits during the same IDE session.

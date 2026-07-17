@@ -1,9 +1,9 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.agent.workbench.sessions
 
-import com.intellij.agent.workbench.common.session.AgentSessionProvider
-import com.intellij.agent.workbench.sessions.core.isAgentSessionPendingThreadId
-import com.intellij.agent.workbench.sessions.core.normalizeConcreteAgentSessionThreadId
+import com.intellij.platform.ai.agent.core.session.AgentSessionProvider
+import com.intellij.platform.ai.agent.sessions.core.isAgentSessionPendingThreadId
+import com.intellij.platform.ai.agent.sessions.core.normalizeConcreteAgentSessionThreadId
 import com.intellij.agent.workbench.sessions.util.buildAgentSessionIdentity
 import com.intellij.agent.workbench.sessions.util.buildAgentSessionNewIdentity
 import com.intellij.agent.workbench.sessions.util.isAgentSessionNewIdentity
@@ -22,7 +22,7 @@ class AgentSessionCliTest {
   fun parseIdentityParsesProviderAndSessionId() {
     val parsed = parseAgentSessionIdentity("codex:thread-1")
 
-    assertThat(parsed?.provider).isEqualTo(AgentSessionProvider.CODEX)
+    assertThat(parsed?.provider).isEqualTo(AgentSessionProvider.from("codex"))
     assertThat(parsed?.sessionId).isEqualTo("thread-1")
   }
 
@@ -62,18 +62,18 @@ class AgentSessionCliTest {
 
   @Test
   fun buildNewIdentityIsUniqueAndIncludesProvider() {
-    val claudeA = buildAgentSessionNewIdentity(AgentSessionProvider.CLAUDE)
-    val claudeB = buildAgentSessionNewIdentity(AgentSessionProvider.CLAUDE)
+    val claudeA = buildAgentSessionNewIdentity(AgentSessionProvider.from("claude"))
+    val claudeB = buildAgentSessionNewIdentity(AgentSessionProvider.from("claude"))
 
     assertThat(claudeA).isNotEqualTo(claudeB)
     assertThat(claudeA.startsWith("claude:")).isTrue()
-    assertThat(buildAgentSessionNewIdentity(AgentSessionProvider.CODEX).startsWith("codex:")).isTrue()
+    assertThat(buildAgentSessionNewIdentity(AgentSessionProvider.from("codex")).startsWith("codex:")).isTrue()
   }
 
   @Test
   fun buildExistingIdentityFormat() {
-    assertThat(buildAgentSessionIdentity(AgentSessionProvider.CLAUDE, "abc")).isEqualTo("claude:abc")
-    assertThat(buildAgentSessionIdentity(AgentSessionProvider.CODEX, "xyz")).isEqualTo("codex:xyz")
+    assertThat(buildAgentSessionIdentity(AgentSessionProvider.from("claude"), "abc")).isEqualTo("claude:abc")
+    assertThat(buildAgentSessionIdentity(AgentSessionProvider.from("codex"), "xyz")).isEqualTo("codex:xyz")
   }
 
 }

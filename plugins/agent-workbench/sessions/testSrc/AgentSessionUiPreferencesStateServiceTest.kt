@@ -1,7 +1,6 @@
 package com.intellij.agent.workbench.sessions
 
-import com.intellij.agent.workbench.common.session.AgentSessionLaunchMode
-import com.intellij.agent.workbench.common.session.AgentSessionProvider
+import com.intellij.platform.ai.agent.core.session.AgentSessionProvider
 import com.intellij.agent.workbench.prompt.core.AgentPromptGenerationSettings
 import com.intellij.agent.workbench.prompt.core.AgentPromptInitialMessageRequest
 import com.intellij.agent.workbench.prompt.core.AgentPromptLaunchProfile
@@ -17,128 +16,49 @@ import java.util.concurrent.TimeUnit
 @Timeout(value = 2, unit = TimeUnit.MINUTES)
 class AgentSessionUiPreferencesStateServiceTest {
   @Test
-  fun lastUsedProviderDefaultsToNull() {
-    val preferences = uiPreferencesService()
-    assertThat(preferences.getLastUsedProvider()).isNull()
-    assertThat(preferences.lastUsedProviderFlow.value).isNull()
-  }
-
-  @Test
-  fun setAndGetLastUsedProvider() {
-    val preferences = uiPreferencesService()
-
-    preferences.setLastUsedProvider(AgentSessionProvider.CLAUDE)
-    assertThat(preferences.getLastUsedProvider()).isEqualTo(AgentSessionProvider.CLAUDE)
-    assertThat(preferences.lastUsedProviderFlow.value).isEqualTo(AgentSessionProvider.CLAUDE)
-
-    preferences.setLastUsedProvider(AgentSessionProvider.CODEX)
-    assertThat(preferences.getLastUsedProvider()).isEqualTo(AgentSessionProvider.CODEX)
-    assertThat(preferences.lastUsedProviderFlow.value).isEqualTo(AgentSessionProvider.CODEX)
-  }
-
-  @Test
   fun getAndSetProviderPreferencesRoundTrip() {
     val service = uiPreferencesService()
 
     val prefs = AgentPromptLauncherBridge.ProviderPreferences(
-      providerId = AgentSessionProvider.CLAUDE.value,
-      launchMode = AgentSessionLaunchMode.STANDARD,
       providerOptionsByProviderId = mapOf("claude" to setOf("plan_mode")),
-      launchProfiles = listOf(launchProfile("user:careful", "Careful", AgentSessionProvider.CLAUDE.value)),
-      activeLaunchProfileId = "user:careful",
+      containerModeEnabled = true,
+      launchProfiles = listOf(launchProfile("user:careful", "Careful", AgentSessionProvider.from("claude").value)),
+      defaultLaunchProfileId = "user:careful",
     )
     service.setProviderPreferences(prefs)
 
     val loaded = service.getProviderPreferences()
-    assertThat(loaded.providerId).isEqualTo(AgentSessionProvider.CLAUDE.value)
-    assertThat(loaded.launchMode).isEqualTo(AgentSessionLaunchMode.STANDARD)
     assertThat(loaded.providerOptionsByProviderId).isEqualTo(mapOf("claude" to setOf("plan_mode")))
+    assertThat(loaded.containerModeEnabled).isTrue()
     assertThat(loaded.launchProfiles.map(AgentPromptLaunchProfile::id)).containsExactly("user:careful")
-    assertThat(loaded.activeLaunchProfileId).isEqualTo("user:careful")
+    assertThat(loaded.defaultLaunchProfileId).isEqualTo("user:careful")
   }
 
   @Test
-  fun setProviderPreferencesUpdatesLastUsedProviderFlow() {
-    val service = uiPreferencesService()
-
-    service.setProviderPreferences(
-      AgentPromptLauncherBridge.ProviderPreferences(
-        providerId = AgentSessionProvider.CODEX.value,
-        launchMode = AgentSessionLaunchMode.STANDARD,
-      )
-    )
-
-    assertThat(service.lastUsedProviderFlow.value).isEqualTo(AgentSessionProvider.CODEX)
-    assertThat(service.getLastUsedProvider()).isEqualTo(AgentSessionProvider.CODEX)
-  }
-
-  @Test
-  fun lastUsedLaunchModeDefaultsToNull() {
-    val service = uiPreferencesService()
-    assertThat(service.getLastUsedLaunchMode()).isNull()
-  }
-
-  @Test
-  fun getLastUsedLaunchModeReturnsYoloAfterSettingYoloPreference() {
-    val service = uiPreferencesService()
-    service.setProviderPreferences(
-      AgentPromptLauncherBridge.ProviderPreferences(
-        providerId = AgentSessionProvider.CODEX.value,
-        launchMode = AgentSessionLaunchMode.YOLO,
-      )
-    )
-    assertThat(service.getLastUsedLaunchMode()).isEqualTo(AgentSessionLaunchMode.YOLO)
-  }
-
-  @Test
-  fun getLastUsedLaunchModeReturnsNullForUnknownModeName() {
-    val service = uiPreferencesService()
-    // Default state has no launch mode
-    service.loadState(AgentSessionUiPreferencesStateService.UiPreferencesState())
-    assertThat(service.getLastUsedLaunchMode()).isNull()
-  }
-
-  @Test
-  fun lastUsedVcsMergePreferencesDefaultToNull() {
-    val service = uiPreferencesService()
-
-    assertThat(service.getLastUsedVcsMergeProvider()).isNull()
-    assertThat(service.getLastUsedVcsMergeLaunchMode()).isNull()
-  }
-
-  @Test
-  fun updateProviderPreferencesOnLaunchPersistsAllFields() {
+  fun updateProviderOptionsOnLaunchPersistsProviderOptions() {
     val service = uiPreferencesService()
     val request = AgentPromptInitialMessageRequest(
       prompt = "fix bug",
       providerOptionIds = setOf("plan_mode"),
     )
 
-    service.updateProviderPreferencesOnLaunch(AgentSessionProvider.CODEX, AgentSessionLaunchMode.YOLO, request)
+    service.updateProviderOptionsOnLaunch(AgentSessionProvider.from("codex").value, request)
 
     val loaded = service.getProviderPreferences()
-    assertThat(loaded.providerId).isEqualTo(AgentSessionProvider.CODEX.value)
-    assertThat(loaded.launchMode).isEqualTo(AgentSessionLaunchMode.YOLO)
     assertThat(loaded.providerOptionsByProviderId).isEqualTo(mapOf("codex" to setOf("plan_mode")))
-    assertThat(service.lastUsedProviderFlow.value).isEqualTo(AgentSessionProvider.CODEX)
   }
 
   @Test
-  fun updateProviderPreferencesOnLaunchMergesProviderOptions() {
+  fun updateProviderOptionsOnLaunchMergesProviderOptions() {
     val service = uiPreferencesService()
-    // Pre-populate options for claude
     service.setProviderPreferences(AgentPromptLauncherBridge.ProviderPreferences(
-      providerId = AgentSessionProvider.CLAUDE.value,
-      launchMode = AgentSessionLaunchMode.STANDARD,
       providerOptionsByProviderId = mapOf("claude" to setOf("plan_mode")),
-      launchProfiles = listOf(launchProfile("user:claude", "Claude Custom", AgentSessionProvider.CLAUDE.value)),
-      activeLaunchProfileId = "user:claude",
+      launchProfiles = listOf(launchProfile("user:claude", "Claude Custom", AgentSessionProvider.from("claude").value)),
+      defaultLaunchProfileId = "user:claude",
     ))
 
-    // Launch with codex — should merge, not replace
-    service.updateProviderPreferencesOnLaunch(
-      AgentSessionProvider.CODEX,
-      AgentSessionLaunchMode.YOLO,
+    service.updateProviderOptionsOnLaunch(
+      AgentSessionProvider.from("codex").value,
       AgentPromptInitialMessageRequest(prompt = "test", providerOptionIds = setOf("fast")),
     )
 
@@ -146,7 +66,7 @@ class AgentSessionUiPreferencesStateServiceTest {
     assertThat(loaded.providerOptionsByProviderId).containsEntry("claude", setOf("plan_mode"))
     assertThat(loaded.providerOptionsByProviderId).containsEntry("codex", setOf("fast"))
     assertThat(loaded.launchProfiles.map(AgentPromptLaunchProfile::id)).containsExactly("user:claude")
-    assertThat(loaded.activeLaunchProfileId).isEqualTo("user:claude")
+    assertThat(loaded.defaultLaunchProfileId).isEqualTo("user:claude")
   }
 
   @Test
@@ -154,57 +74,46 @@ class AgentSessionUiPreferencesStateServiceTest {
     val service = uiPreferencesService()
 
     service.loadState(AgentSessionUiPreferencesStateService.UiPreferencesState(
-      lastUsedProvider = AgentSessionProvider.CODEX.value,
-      launchMode = AgentSessionLaunchMode.STANDARD,
       providerOptionsByProviderId = mapOf(
-        AgentSessionProvider.CODEX.value to emptySet(),
-        AgentSessionProvider.CLAUDE.value to setOf("plan_mode"),
+        AgentSessionProvider.from("codex").value to emptySet(),
+        AgentSessionProvider.from("claude").value to setOf("plan_mode"),
       ),
     ))
 
     val loaded = service.getProviderPreferences()
     assertThat(loaded.providerOptionsByProviderId).isEqualTo(mapOf(
-      AgentSessionProvider.CODEX.value to emptySet(),
-      AgentSessionProvider.CLAUDE.value to setOf("plan_mode"),
+      AgentSessionProvider.from("codex").value to emptySet(),
+      AgentSessionProvider.from("claude").value to setOf("plan_mode"),
     ))
     assertThat(loaded.launchProfiles).isEmpty()
-    assertThat(loaded.activeLaunchProfileId).isNull()
+    assertThat(loaded.defaultLaunchProfileId).isNull()
   }
 
   @Test
-  fun updateProviderPreferencesOnLaunchWithNullRequestPreservesExistingOptions() {
+  fun updateProviderOptionsOnLaunchWithNullRequestPreservesExistingOptions() {
     val service = uiPreferencesService()
     service.setProviderPreferences(AgentPromptLauncherBridge.ProviderPreferences(
       providerOptionsByProviderId = mapOf("claude" to setOf("plan_mode")),
     ))
 
-    service.updateProviderPreferencesOnLaunch(AgentSessionProvider.CODEX, AgentSessionLaunchMode.STANDARD, null)
+    service.updateProviderOptionsOnLaunch(AgentSessionProvider.from("codex").value, null)
 
     val loaded = service.getProviderPreferences()
-    assertThat(loaded.providerId).isEqualTo(AgentSessionProvider.CODEX.value)
-    assertThat(loaded.launchMode).isEqualTo(AgentSessionLaunchMode.STANDARD)
     assertThat(loaded.providerOptionsByProviderId).isEqualTo(mapOf("claude" to setOf("plan_mode")))
   }
 
   @Test
-  fun updateVcsMergeProviderPreferencesOnLaunchDoesNotOverwriteGeneralDefaults() {
-    val service = uiPreferencesService()
-    service.setProviderPreferences(
-      AgentPromptLauncherBridge.ProviderPreferences(
-        providerId = AgentSessionProvider.CLAUDE.value,
-        launchMode = AgentSessionLaunchMode.YOLO,
-        providerOptionsByProviderId = mapOf("claude" to setOf("plan_mode")),
-      )
+  fun launchProfileStateServiceStoresSeparateVcsMergeActiveProfile() {
+    val service = AgentSessionLaunchProfileStateService()
+
+    service.setLaunchProfiles(
+      profiles = listOf(launchProfile("user:general", "General", AgentSessionProvider.from("claude").value)),
+      defaultProfileId = "user:general",
     )
+    service.setActiveVcsMergeLaunchProfileId("builtin:codex:standard")
 
-    service.updateVcsMergeProviderPreferencesOnLaunch(AgentSessionProvider.CODEX, AgentSessionLaunchMode.STANDARD)
-
-    val generalPreferences = service.getProviderPreferences()
-    assertThat(generalPreferences.providerId).isEqualTo(AgentSessionProvider.CLAUDE.value)
-    assertThat(generalPreferences.launchMode).isEqualTo(AgentSessionLaunchMode.YOLO)
-    assertThat(generalPreferences.providerOptionsByProviderId).isEqualTo(mapOf("claude" to setOf("plan_mode")))
-    assertThat(service.getLastUsedVcsMergeProvider()).isEqualTo(AgentSessionProvider.CODEX)
-    assertThat(service.getLastUsedVcsMergeLaunchMode()).isEqualTo(AgentSessionLaunchMode.STANDARD)
+    assertThat(service.getDefaultLaunchProfileId()).isEqualTo("user:general")
+    assertThat(service.getActiveVcsMergeLaunchProfileId()).isEqualTo("builtin:codex:standard")
   }
 
   @Test
@@ -213,8 +122,8 @@ class AgentSessionUiPreferencesStateServiceTest {
     val uiPreferencesService = AgentSessionUiPreferencesStateService(launchProfileStateService)
 
     uiPreferencesService.setProviderPreferences(AgentPromptLauncherBridge.ProviderPreferences(
-      launchProfiles = listOf(launchProfile("user:fast", "Fast", AgentSessionProvider.CODEX.value)),
-      activeLaunchProfileId = "user:fast",
+      launchProfiles = listOf(launchProfile("user:fast", "Fast", AgentSessionProvider.from("codex").value)),
+      defaultLaunchProfileId = "user:fast",
     ))
 
     assertThat(uiPreferencesService.state).isEqualTo(AgentSessionUiPreferencesStateService.UiPreferencesState())
@@ -228,27 +137,27 @@ class AgentSessionUiPreferencesStateServiceTest {
     val service = AgentSessionLaunchProfileStateService()
 
     service.setLaunchProfiles(
-      profiles = listOf(launchProfile("user:careful", "Careful", AgentSessionProvider.CLAUDE.value)),
-      activeProfileId = "user:careful",
+      profiles = listOf(launchProfile("user:careful", "Careful", AgentSessionProvider.from("claude").value)),
+      defaultProfileId = "user:careful",
     )
 
     assertThat(service.getUserLaunchProfiles().map(AgentPromptLaunchProfile::id))
       .containsExactly("user:careful")
-    assertThat(service.getActiveLaunchProfileId()).isEqualTo("user:careful")
+    assertThat(service.getDefaultLaunchProfileId()).isEqualTo("user:careful")
   }
 
   @Test
   fun launchProfileStateServiceStoresBuiltInOverrides() {
     val service = AgentSessionLaunchProfileStateService()
-    val profile = launchProfile("builtin:codex:standard", "Careful Codex", AgentSessionProvider.CODEX.value)
+    val profile = launchProfile("builtin:codex:standard", "Careful Codex", AgentSessionProvider.from("codex").value)
 
     service.setLaunchProfiles(
       profiles = listOf(profile),
-      activeProfileId = profile.id,
+      defaultProfileId = profile.id,
     )
 
     assertThat(service.getUserLaunchProfiles()).containsExactly(profile)
-    assertThat(service.getActiveLaunchProfileId()).isEqualTo(profile.id)
+    assertThat(service.getDefaultLaunchProfileId()).isEqualTo(profile.id)
   }
 
   private fun uiPreferencesService(): AgentSessionUiPreferencesStateService {

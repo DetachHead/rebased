@@ -1,8 +1,8 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.agent.workbench.sessions
 
-import com.intellij.agent.workbench.common.AgentWorkbenchActionIds
-import com.intellij.agent.workbench.sessions.core.settings.AgentWorkbenchSettingsContributors
+import com.intellij.agent.workbench.ui.AgentWorkbenchActionIds
+import com.intellij.agent.workbench.settings.AgentWorkbenchSettingsContributors
 import com.intellij.openapi.actionSystem.ActionManager
 import com.intellij.openapi.fileEditor.impl.EditorTabColorProvider
 import com.intellij.openapi.vfs.VirtualFileManager
@@ -29,10 +29,6 @@ class AgentWorkbenchPluginLoadingTest {
       .contains("com.intellij.agent.workbench.chat.AgentChatSettingsContributor")
 
     assertThat(ActionManager.getInstance().getAction(AgentWorkbenchActionIds.Sessions.OPEN_DEDICATED_FRAME))
-      .isNotNull
-    assertThat(ActionManager.getInstance().getAction(AgentWorkbenchActionIds.Sessions.EditorTab.PREVIOUS_PROPOSED_PLAN))
-      .isNotNull
-    assertThat(ActionManager.getInstance().getAction(AgentWorkbenchActionIds.Sessions.EditorTab.NEXT_PROPOSED_PLAN))
       .isNotNull
   }
 }

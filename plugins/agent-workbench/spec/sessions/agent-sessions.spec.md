@@ -2,11 +2,14 @@
 name: Agent Threads Tool Window
 description: Requirements for the Agent Threads project browser, row model, actions, and owned session UI surface.
 targets:
-  - ../../claude/sessions/src/**/*.kt
-  - ../../codex/sessions/src/**/*.kt
-  - ../../junie/sessions/src/**/*.kt
-  - ../../pi/sessions/src/**/*.kt
-  - ../../terminal/sessions/src/**/*.kt
+  - ../../lib-agent/providers/claude/sessions/src/**/*.kt
+  - ../../lib-agent/providers/claude/sessions/testSrc/*.kt
+  - ../../claude/awb/src/**/*.kt
+  - ../../claude/awb/testSrc/*.kt
+  - ../../lib-agent/providers/codex/sessions/src/**/*.kt
+  - ../../lib-agent/providers/junie/sessions/src/**/*.kt
+  - ../../lib-agent/providers/pi/sessions/src/**/*.kt
+  - ../../lib-agent/providers/terminal/sessions/src/**/*.kt
   - ../../sessions/src/**/*.kt
   - ../../sessions-toolwindow/src/**/*.kt
   - ../../sessions-actions/src/**/*.kt
@@ -14,14 +17,14 @@ targets:
   - ../../sessions-toolwindow/testSrc/*.kt
   - ../../sessions/testSrc/*.kt
   - ../../sessions-actions/testSrc/*.kt
-  - ../../pi/sessions/testSrc/*.kt
-  - ../../terminal/sessions/testSrc/*.kt
+  - ../../lib-agent/providers/pi/sessions/testSrc/*.kt
+  - ../../lib-agent/providers/terminal/sessions/testSrc/*.kt
 ---
 
 # Agent Threads Tool Window
 
 Status: Draft
-Date: 2026-06-15
+Date: 2026-06-28
 
 ## Summary
 
@@ -35,7 +38,7 @@ behavior; refresh mechanics and detailed tree rendering/interaction contracts li
   [@test] ../../sessions-toolwindow/testSrc/AgentSessionsToolWindowFactorySwingTest.kt
 
 - Project catalog rows must merge open projects and recent projects, exclude the dedicated Agent frame project, and group Git worktrees
-  under their parent project when detected.
+  under their parent project when detected. Rows are keyed by the normalized identity path, but may carry a separate project directory used for source loading and worktree grouping. Recent closed projects must preserve remembered identity-to-directory mappings so reopened Bazel project-view identities still load from the workspace root.
   [@test] ../../sessions/testSrc/AgentSessionProjectCatalogTest.kt
   [@test] ../../sessions/testSrc/GitWorktreeDiscoveryTest.kt
 
@@ -60,6 +63,11 @@ behavior; refresh mechanics and detailed tree rendering/interaction contracts li
   [@test] ../../sessions-toolwindow/testSrc/AgentSessionsTreePopupActionsTest.kt
   [@test] ../../sessions-actions/testSrc/AgentSessionsMainToolbarNewThreadActionsTest.kt
 
+- Task-folder grouping, lifecycle actions, explicit metadata, and folder tree placement must follow `agent-task-folders.spec.md`.
+  [@test] ../../sessions/testSrc/AgentTaskFolderServiceTest.kt
+  [@test] ../../sessions-toolwindow/testSrc/AgentSessionsTreeSnapshotTest.kt
+  [@test] ../../sessions-toolwindow/testSrc/AgentSessionsTreePopupActionsTest.kt
+
 - Archive, unarchive, and rename actions must update the session view through provider-backed refresh paths; unsupported provider
   capabilities must hide or disable the corresponding action without blocking supported targets.
   [@test] ../../sessions/testSrc/AgentSessionArchiveServiceIntegrationTest.kt
@@ -78,13 +86,32 @@ behavior; refresh mechanics and detailed tree rendering/interaction contracts li
   active view, and archived filtering is limited to runtime `All`, `Today`, `Last 7 days`, and `Last 30 days` presets.
   [@test] ../../sessions-toolwindow/testSrc/AgentSessionsSwingTreeRenderingTest.kt
   [@test] ../../sessions-toolwindow/testSrc/AgentSessionsTreePopupActionsTest.kt
-  [@test] ../../codex/sessions/testSrc/CodexSessionSourceTest.kt
-  [@test] ../../claude/sessions/testSrc/ClaudeSessionSourceTest.kt
-  [@test] ../../junie/sessions/testSrc/JunieSessionSourceTest.kt
+  [@test] ../../lib-agent/providers/codex/sessions/testSrc/CodexSessionSourceTest.kt
+  [@test] ../../lib-agent/providers/claude/sessions/testSrc/ClaudeSessionSourceTest.kt
+  [@test] ../../lib-agent/providers/junie/sessions/testSrc/JunieSessionSourceTest.kt
+
+- Agent Threads must support a current-project-only scope for both active and archived views. The automatic default is current project
+  because chat opens in the source project frame by default, and switches to all projects when chats open in the dedicated frame; an explicit user override must persist
+  until the user returns to the current automatic default. Worktree projects keep the parent project row only as a container for the
+  matching worktree.
+  [@test] ../../sessions/testSrc/settings/AgentWorkbenchSettingsTest.kt
+  [@test] ../../sessions-toolwindow/testSrc/AgentSessionsTreeStateControllerTest.kt
+  [@test] ../../sessions-toolwindow/testSrc/AgentSessionsToolWindowFactorySwingTest.kt
+
+- In source-project frames, Agent Threads defaults to the left secondary tool-window stripe beside Thread Outline and above Structure;
+  the dedicated frame keeps Agent Threads as the primary left tool window and Thread Outline as the secondary left tool window.
+  [@test] ../../sessions-toolwindow/testSrc/AgentWorkbenchToolWindowPlacementTest.kt
+  [@test] ../../sessions/testSrc/AgentWorkbenchProjectFrameCapabilitiesProviderTest.kt
+
+- Agent Workbench settings must register under Tools, keep provider settings nested under the Agent Workbench root configurable, and render
+  registered settings contributors in their declared groups.
+  [@test] ../../sessions/testSrc/settings/AgentWorkbenchSettingsConfigurableTest.kt
 
 - Claude quota hint visibility and acknowledgement must be gated by eligibility, acknowledgement state, and widget availability.
-  [@test] ../../claude/sessions/testSrc/AgentSessionsSwingQuotaHintTest.kt
-  [@test] ../../claude/sessions/testSrc/AgentSessionsClaudeQuotaWidgetActionRegistrationTest.kt
+  [@test] ../../claude/awb/testSrc/AgentSessionsSwingQuotaHintTest.kt
+  [@test] ../../claude/awb/testSrc/AgentSessionsClaudeQuotaWidgetActionRegistrationTest.kt
+  [@test] ../../claude/awb/testSrc/ClaudeQuotaHintStateServiceTest.kt
+  [@test] ../../claude/awb/testSrc/ClaudeQuotaStatusBarWidgetTest.kt
 
 ## User Experience
 
@@ -93,17 +120,25 @@ behavior; refresh mechanics and detailed tree rendering/interaction contracts li
 - Single-click selects normal rows. Opening/focusing happens through Enter, double-click, or explicit actions.
 - Active view keeps the title header focused on thread activity counters. Archived view replaces those counters with a direct
   return-to-active icon, an archived context label, and a separate range selector.
+- The title header exposes the current-project-only scope toggle as a direct toolbar action so users can narrow a crowded dock without
+  opening settings.
+- In effective current-project-only scope, the tree filters to the current project or worktree and keeps ordinary project rows flat;
+  pinned editor-tab threads appear above normal rows under a non-expandable `Pinned` separator, with a separator line before the normal rows.
 
 ## Testing / Local Run
 
 - `./tests.cmd --module intellij.agent.workbench.sessions.toolwindow.tests --test "com.intellij.agent.workbench.sessions.toolwindow.AgentSessions*Test"`
 - `./tests.cmd --module intellij.agent.workbench.sessions.tests --test "com.intellij.agent.workbench.sessions.AgentSession*IntegrationTest"`
 - `./tests.cmd --module intellij.agent.workbench.sessions.actions.tests --test "com.intellij.agent.workbench.sessions.AgentSessions*Test"`
+- `./tests.cmd --module intellij.agent.workbench.sessions.tests --test com.intellij.agent.workbench.sessions.settings.AgentWorkbenchSettingsConfigurableTest`
+- `./tests.cmd --module intellij.agent.workbench.claude.awb.tests --test "com.intellij.platform.ai.agent.claude.sessions.AgentSessionsSwingQuotaHintTest;com.intellij.platform.ai.agent.claude.sessions.AgentSessionsClaudeQuotaWidgetActionRegistrationTest"`
+- `./tests.cmd --module intellij.agent.workbench.claude.awb.tests --test "com.intellij.platform.ai.agent.claude.sessions.ClaudeQuotaHintStateServiceTest;com.intellij.platform.ai.agent.claude.sessions.ClaudeQuotaStatusBarWidgetTest"`
 
 ## References
 
 - `agent-sessions-tree.spec.md`
 - `agent-sessions-refresh.spec.md`
+- `agent-task-folders.spec.md`
 - `../core/agent-core-contracts.spec.md`
 - `../chat/agent-chat-editor.spec.md`
 - `../actions/new-thread.spec.md`

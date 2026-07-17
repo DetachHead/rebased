@@ -1,8 +1,8 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.agent.workbench.sessions.service
 
-import com.intellij.agent.workbench.common.session.AgentSessionProvider
-import com.intellij.agent.workbench.common.session.AgentSessionThread
+import com.intellij.platform.ai.agent.core.session.AgentSessionProvider
+import com.intellij.platform.ai.agent.core.session.AgentSessionThread
 import com.intellij.agent.workbench.sessions.model.AgentProjectSessions
 import com.intellij.agent.workbench.sessions.model.AgentSessionProviderLoadState
 import com.intellij.agent.workbench.sessions.model.AgentSessionsState
@@ -11,6 +11,7 @@ import com.intellij.agent.workbench.sessions.model.isTerminal
 
 internal data class AgentSessionPathContent(
   @JvmField val path: String,
+  @JvmField val projectDirectory: String?,
   @JvmField val isOpen: Boolean,
   @JvmField val threads: List<AgentSessionThread>,
   @JvmField val providerLoadStates: Map<AgentSessionProvider, AgentSessionProviderLoadState>,
@@ -35,6 +36,7 @@ internal inline fun AgentSessionsState.forEachPathContent(action: (AgentSessionP
 private fun AgentProjectSessions.toPathContent(): AgentSessionPathContent {
   return AgentSessionPathContent(
     path = path,
+    projectDirectory = projectDirectory,
     isOpen = isOpen,
     threads = threads,
     providerLoadStates = providerLoadStates,
@@ -44,6 +46,7 @@ private fun AgentProjectSessions.toPathContent(): AgentSessionPathContent {
 private fun AgentWorktree.toPathContent(): AgentSessionPathContent {
   return AgentSessionPathContent(
     path = path,
+    projectDirectory = projectDirectory,
     isOpen = isOpen,
     threads = threads,
     providerLoadStates = providerLoadStates,

@@ -1,14 +1,15 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.agent.workbench.sessions.service
 
-import com.intellij.agent.workbench.common.AgentThreadActivity
-import com.intellij.agent.workbench.common.AgentThreadActivityReport
-import com.intellij.agent.workbench.common.session.AgentSessionProvider
-import com.intellij.agent.workbench.common.session.AgentSessionThread
-import com.intellij.agent.workbench.sessions.core.providers.AgentSessionSourceUpdate
-import com.intellij.agent.workbench.sessions.core.providers.AgentSessionSourceUpdateEvent
-import com.intellij.agent.workbench.sessions.core.providers.AgentSessionThreadActivityUpdate
-import com.intellij.agent.workbench.sessions.core.providers.AgentSessionThreadPresentationUpdate
+import com.intellij.platform.ai.agent.core.AgentThreadActivity
+import com.intellij.platform.ai.agent.core.AgentThreadActivityReport
+import com.intellij.platform.ai.agent.core.session.AgentSessionProvider
+import com.intellij.platform.ai.agent.core.session.AgentSessionThread
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionActivityEvidence
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionSourceUpdate
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionSourceUpdateEvent
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionThreadActivityUpdate
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionThreadPresentationUpdate
 import com.intellij.agent.workbench.sessions.waitForCondition
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -40,7 +41,7 @@ class AgentSessionRefreshSchedulerTest {
         rowActivity = AgentThreadActivity.PROCESSING,
         chromeActivity = AgentThreadActivity.REVIEWING,
       ),
-      provider = AgentSessionProvider.CODEX,
+      provider = AgentSessionProvider.from("codex"),
     )
 
     val resolved = resolveAgentThreadActivityReportUpdate(
@@ -66,7 +67,7 @@ class AgentSessionRefreshSchedulerTest {
         rowActivity = AgentThreadActivity.READY,
         chromeActivity = AgentThreadActivity.REVIEWING,
       ),
-      provider = AgentSessionProvider.CODEX,
+      provider = AgentSessionProvider.from("codex"),
     )
 
     val resolved = resolveAgentThreadActivityReportUpdate(
@@ -82,6 +83,76 @@ class AgentSessionRefreshSchedulerTest {
       AgentThreadActivityReport(
         rowActivity = AgentThreadActivity.PROCESSING,
         chromeActivity = AgentThreadActivity.REVIEWING,
+      )
+    )
+    assertThat(resolved.updatedAt).isEqualTo(300L)
+  }
+
+  @Test
+  fun provisionalActivityUpdatePreservesAttentionChromeActivity() {
+    val thread = AgentSessionThread(
+      id = "thread-a",
+      title = "Thread A",
+      updatedAt = 200L,
+      archived = false,
+      activityReport = AgentThreadActivityReport(
+        rowActivity = AgentThreadActivity.NEEDS_INPUT,
+        chromeActivity = AgentThreadActivity.NEEDS_INPUT,
+      ),
+      provider = AgentSessionProvider.from("codex"),
+    )
+
+    val resolved = resolveAgentThreadActivityReportUpdate(
+      thread = thread,
+      activityUpdate = AgentSessionThreadActivityUpdate(
+        activityReport = AgentThreadActivityReport(
+          rowActivity = AgentThreadActivity.PROCESSING,
+          chromeActivity = AgentThreadActivity.PROCESSING,
+        ),
+        updatedAt = 300L,
+        evidence = AgentSessionActivityEvidence.PROVISIONAL,
+      ),
+    )
+
+    assertThat(resolved.activityReport).isEqualTo(
+      AgentThreadActivityReport(
+        rowActivity = AgentThreadActivity.PROCESSING,
+        chromeActivity = AgentThreadActivity.NEEDS_INPUT,
+      )
+    )
+    assertThat(resolved.updatedAt).isEqualTo(300L)
+  }
+
+  @Test
+  fun snapshotActivityUpdateCanClearAttentionChromeActivity() {
+    val thread = AgentSessionThread(
+      id = "thread-a",
+      title = "Thread A",
+      updatedAt = 200L,
+      archived = false,
+      activityReport = AgentThreadActivityReport(
+        rowActivity = AgentThreadActivity.NEEDS_INPUT,
+        chromeActivity = AgentThreadActivity.NEEDS_INPUT,
+      ),
+      provider = AgentSessionProvider.from("codex"),
+    )
+
+    val resolved = resolveAgentThreadActivityReportUpdate(
+      thread = thread,
+      activityUpdate = AgentSessionThreadActivityUpdate(
+        activityReport = AgentThreadActivityReport(
+          rowActivity = AgentThreadActivity.READY,
+          chromeActivity = AgentThreadActivity.READY,
+        ),
+        updatedAt = 300L,
+        evidence = AgentSessionActivityEvidence.SNAPSHOT,
+      ),
+    )
+
+    assertThat(resolved.activityReport).isEqualTo(
+      AgentThreadActivityReport(
+        rowActivity = AgentThreadActivity.READY,
+        chromeActivity = AgentThreadActivity.READY,
       )
     )
     assertThat(resolved.updatedAt).isEqualTo(300L)
@@ -199,6 +270,48 @@ class AgentSessionRefreshSchedulerTest {
       assertThat(update.updatesChromeActivity).isTrue()
       assertThat(providerHintRefreshes.single().changedProjectFilePaths).containsExactly(firstChangedFile, secondChangedFile)
       assertThat(vfsRefreshes.single().changedProjectFilePaths).containsExactly(firstChangedFile, secondChangedFile)
+    }
+  }
+
+  @Test
+  fun scopedRefreshSignalsMergeProvisionalActivityWithoutClearingAttentionChromeActivity() = runBlocking(Dispatchers.Default) {
+    val projectPath = "/work/project"
+    val scopedEvents = flow {
+      emit(
+        scopedEvent(
+          path = projectPath,
+          threadId = "thread-a",
+          activityUpdatesByThreadId = mapOf("thread-a" to activityUpdate(
+            activity = AgentThreadActivity.NEEDS_INPUT,
+            evidence = AgentSessionActivityEvidence.SNAPSHOT,
+          )),
+        )
+      )
+      delay(100.milliseconds)
+      emit(
+        scopedEvent(
+          path = projectPath,
+          threadId = "thread-a",
+          activityUpdatesByThreadId = mapOf("thread-a" to activityUpdate(
+            activity = AgentThreadActivity.PROCESSING,
+            evidence = AgentSessionActivityEvidence.PROVISIONAL,
+          )),
+        )
+      )
+    }
+
+    withScheduler(scopedEvents) {
+      waitForCondition { providerHintRefreshes.size == 1 }
+      delay(500.milliseconds)
+
+      val update = providerHintRefreshes.single().activityUpdatesByThreadId.getValue("thread-a")
+      assertThat(update.activityReport).isEqualTo(
+        AgentThreadActivityReport(
+          rowActivity = AgentThreadActivity.PROCESSING,
+          chromeActivity = AgentThreadActivity.NEEDS_INPUT,
+        )
+      )
+      assertThat(update.evidence).isEqualTo(AgentSessionActivityEvidence.SNAPSHOT)
     }
   }
 
@@ -327,8 +440,8 @@ class AgentSessionRefreshSchedulerTest {
     val scheduler = AgentSessionRefreshScheduler(
       serviceScope = serviceScope,
       sessionSourcesProvider = { emptyList() },
-      scopedRefreshProvidersProvider = { listOf(AgentSessionProvider.CODEX) },
-      scopedRefreshSignalsProvider = { provider -> if (provider == AgentSessionProvider.CODEX) scopedEvents else emptyFlow() },
+      scopedRefreshProvidersProvider = { listOf(AgentSessionProvider.from("codex")) },
+      scopedRefreshSignalsProvider = { provider -> if (provider == AgentSessionProvider.from("codex")) scopedEvents else emptyFlow() },
       isRefreshGateActive = { true },
       executeFullRefresh = {},
       executeProviderRefresh = { _, _, updateEvent -> providerRefreshes.add(updateEvent) },
@@ -360,7 +473,7 @@ private fun scopedEvent(
   mayHaveChangedProjectFiles: Boolean = false,
   changedProjectFilePaths: Set<String>? = null,
 ): AgentSessionSourceUpdateEvent {
-  return AgentSessionSourceUpdateEvent(
+  return createSourceUpdateEvent(
     type = type,
     scopedPaths = setOf(path),
     threadIds = setOf(threadId),
@@ -373,8 +486,7 @@ private fun scopedEvent(
 private fun activityOnlyEvent(
   activityUpdate: AgentSessionThreadActivityUpdate,
 ): AgentSessionSourceUpdateEvent {
-  return AgentSessionSourceUpdateEvent(
-    type = AgentSessionSourceUpdate.HINTS_CHANGED,
+  return AgentSessionSourceUpdateEvent.activityChanged(
     scopedPaths = setOf("/work/project"),
     activityUpdatesByThreadId = mapOf("thread-a" to activityUpdate),
   )
@@ -383,11 +495,36 @@ private fun activityOnlyEvent(
 private fun titleOnlyEvent(
   presentationUpdate: AgentSessionThreadPresentationUpdate,
 ): AgentSessionSourceUpdateEvent {
-  return AgentSessionSourceUpdateEvent(
-    type = AgentSessionSourceUpdate.HINTS_CHANGED,
+  return AgentSessionSourceUpdateEvent.presentationChanged(
     scopedPaths = setOf("/work/project"),
     presentationUpdatesByThreadId = mapOf("thread-a" to presentationUpdate),
   )
+}
+
+private fun createSourceUpdateEvent(
+  type: AgentSessionSourceUpdate,
+  scopedPaths: Set<String>? = null,
+  threadIds: Set<String>? = null,
+  activityUpdatesByThreadId: Map<String, AgentSessionThreadActivityUpdate> = emptyMap(),
+  mayHaveChangedProjectFiles: Boolean = false,
+  changedProjectFilePaths: Set<String>? = null,
+): AgentSessionSourceUpdateEvent {
+  return when (type) {
+    AgentSessionSourceUpdate.THREADS_CHANGED -> AgentSessionSourceUpdateEvent.threadsChanged(
+      scopedPaths = scopedPaths,
+      threadIds = threadIds,
+      activityUpdatesByThreadId = activityUpdatesByThreadId,
+      mayHaveChangedProjectFiles = mayHaveChangedProjectFiles,
+      changedProjectFilePaths = changedProjectFilePaths,
+    )
+    AgentSessionSourceUpdate.HINTS_CHANGED -> AgentSessionSourceUpdateEvent.hintsChanged(
+      scopedPaths = scopedPaths,
+      threadIds = threadIds,
+      activityUpdatesByThreadId = activityUpdatesByThreadId,
+      mayHaveChangedProjectFiles = mayHaveChangedProjectFiles,
+      changedProjectFilePaths = changedProjectFilePaths,
+    )
+  }
 }
 
 private fun assertMergedScopedRefresh(
@@ -411,11 +548,13 @@ private fun activityUpdate(
   chromeActivity: AgentThreadActivity? = activity,
   updatesChromeActivity: Boolean = true,
   updatedAt: Long? = null,
+  evidence: AgentSessionActivityEvidence = AgentSessionActivityEvidence.DERIVED,
 ): AgentSessionThreadActivityUpdate {
   return AgentSessionThreadActivityUpdate(
     activityReport = AgentThreadActivityReport(rowActivity = activity, chromeActivity = chromeActivity),
     updatesChromeActivity = updatesChromeActivity,
     updatedAt = updatedAt,
+    evidence = evidence,
   )
 }
 

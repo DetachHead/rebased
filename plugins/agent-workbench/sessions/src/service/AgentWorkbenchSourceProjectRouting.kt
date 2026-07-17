@@ -2,8 +2,8 @@
 package com.intellij.agent.workbench.sessions.service
 
 import com.intellij.agent.workbench.chat.AgentChatTabSelectionService
-import com.intellij.agent.workbench.common.normalizeAgentWorkbenchPath
-import com.intellij.agent.workbench.common.parseAgentWorkbenchPathOrNull
+import com.intellij.platform.ai.agent.core.normalizeAgentWorkbenchPath
+import com.intellij.platform.ai.agent.core.parseAgentWorkbenchPathOrNull
 import com.intellij.agent.workbench.sessions.frame.AgentWorkbenchDedicatedFrameProjectManager
 import com.intellij.ide.RecentProjectsManagerBase
 import com.intellij.ide.impl.OpenProjectTask
@@ -99,6 +99,12 @@ fun selectedChatSourceProjectPath(project: Project): String? {
     return runCatching {
         project.service<AgentChatTabSelectionService>().selectedChatTab.value?.projectPath
     }.getOrNull()
+}
+
+@ApiStatus.Internal
+fun openableSourceProjectPath(project: Project): String? {
+    val managerPath = RecentProjectsManagerBase.getInstanceEx().getProjectPath(project)?.invariantSeparatorsPathString
+    return normalizeOpenableSourceProjectPath(managerPath ?: project.basePath)
 }
 
 @ApiStatus.Internal

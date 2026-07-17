@@ -31,7 +31,7 @@ The Agent Threads tree follows IntelliJ tree conventions while adding provider-s
   the title bar carries one counter action per active bucket (`Needs attention` covers `NEEDS_INPUT`/`REVIEWING`,
   `Running` covers `PROCESSING`, `Done` covers `UNREAD`). `READY` threads are not surfaced in title chrome.
   Thread rows render their actual activity badge, but title counters, stripe badges, and OS notifications use summary activity;
-  sub-agent-only activity does not contribute to those global signals. Title counters and stripe badges ignore activity rows
+  shared presentation may update row titles but must not override activity for those counters. Sub-agent-only activity does not contribute to those global signals. Title counters and stripe badges ignore activity rows
   whose thread `updatedAt` is older than 3 days; the tree and OS notification transition tracking still use the full active
   thread state.
   All three counters are always visible so that bucket positions remain stable for muscle memory.
@@ -39,15 +39,22 @@ The Agent Threads tree follows IntelliJ tree conventions while adding provider-s
   `Needs attention` uses the strongest treatment with a bold count; `Running` and `Done` use normal foreground counts;
   zero-count buckets render disabled rather than disappearing.
   Clicking a counter opens a popup listing only that bucket's threads.
+  In current-project-only scope, title counters and their popups include only rows whose source path matches the current project or
+  current worktree.
   The stripe button icon uses collapsed notification precedence: it carries a `Needs attention` badge whenever any
-  thread is in `NEEDS_INPUT` or `REVIEWING`, otherwise a `Done` badge whenever any thread is `UNREAD`, otherwise no badge.
-  Stripe badges use the Agent Workbench activity colors: `Needs attention` uses the `NEEDS_INPUT` color and `Done` uses the
-  `UNREAD` color. `PROCESSING` threads never badge the collapsed stripe button.
+  thread is in `NEEDS_INPUT` or `REVIEWING`, otherwise a `Running` badge whenever any thread is `PROCESSING`, otherwise a
+  `Done` badge whenever any thread is `UNREAD`, otherwise no badge. Stripe badges use platform `IconBadge` activity colors
+  and the standard dot marker.
+  Thread rows keep relative update time visible as plain last-known activity time. Thread rows render their activity on the
+  provider icon; `PROCESSING` rows do not add an extra glyph to the time column. Actionable rows show their localized status
+  text in trailing metadata, combined with cost when available. `Done` is not shown as inline row text; status remains
+  available through tooltip and accessibility text.
   When the IDE is not active, a thread's first transition into `Needs attention` or `Done` after the initial loaded
   baseline emits a per-thread OS system notification through platform system notifications. On platform implementations
   that support exact native activation callbacks, clicking the OS notification opens/focuses the matching chat tab by
   stable path/provider/thread id. Initial loaded rows and `Running` transitions do not notify.
   [@test] ../../sessions-toolwindow/testSrc/AgentSessionsActivitySummaryTest.kt
+  [@test] ../../sessions-toolwindow/testSrc/AgentSessionsTreeStateControllerTest.kt
 
 - Source-frame main-toolbar Agent activity reuses these counter visuals and popup primitives, but its global scope and placement are owned by `../frame/agent-main-toolbar-activity.spec.md`.
 

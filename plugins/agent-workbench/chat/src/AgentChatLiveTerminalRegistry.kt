@@ -3,9 +3,8 @@
 
 package com.intellij.agent.workbench.chat
 
-import com.intellij.agent.workbench.common.session.AgentSessionProvider
-import com.intellij.agent.workbench.sessions.core.providers.AgentSessionProviders
-import com.intellij.agent.workbench.sessions.core.providers.AgentSessionTerminalLaunchSpec
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionProviders
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionTerminalLaunchSpec
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.EDT
 import com.intellij.openapi.components.Service
@@ -44,6 +43,15 @@ internal interface AgentChatLiveTerminalRegistry {
    * Returns the existing live terminal for [file], or creates it on first attachment.
    */
   fun acquireOrCreate(
+    file: AgentChatVirtualFile,
+    terminalTabs: AgentChatTerminalTabs,
+    startupLaunchSpec: AgentSessionTerminalLaunchSpec,
+  ): AgentChatTerminalTab
+
+  /**
+   * Replaces the retained terminal for [file]'s logical tab with a newly launched session.
+   */
+  fun replace(
     file: AgentChatVirtualFile,
     terminalTabs: AgentChatTerminalTabs,
     startupLaunchSpec: AgentSessionTerminalLaunchSpec,
@@ -107,7 +115,25 @@ internal class AgentChatLiveTerminalRegistryService(
     return store.acquireOrCreate(project = project, file = file, terminalTabs = terminalTabs, startupLaunchSpec = startupLaunchSpec)
   }
 
+  override fun replace(
+    file: AgentChatVirtualFile,
+    terminalTabs: AgentChatTerminalTabs,
+    startupLaunchSpec: AgentSessionTerminalLaunchSpec,
+  ): AgentChatTerminalTab {
+    cancelPendingCloseJob(file.tabKey)
+    return store.replace(project = project, file = file, terminalTabs = terminalTabs, startupLaunchSpec = startupLaunchSpec)
+  }
+
   override fun dispose() {
+    disposeLiveTerminals()
+  }
+
+  @TestOnly
+  fun disposeLiveTerminalsForTest() {
+    disposeLiveTerminals()
+  }
+
+  private fun disposeLiveTerminals() {
     pendingCloseJobs.values.forEach(Job::cancel)
     pendingCloseJobs.clear()
     store.disposeProject(project)
@@ -157,8 +183,9 @@ internal class AgentChatLiveTerminalRegistryService(
       return
     }
     serviceScope.launch {
-      val descriptor = AgentSessionProviders.find(AgentSessionProvider.TERMINAL)
-      if (descriptor == null || !descriptor.supportsArchiveThread) {
+      val provider = file.provider ?: return@launch
+      val descriptor = AgentSessionProviders.find(provider)
+      if (descriptor == null || !descriptor.supportsArchiveThread || !descriptor.archiveOnLastEditorClose) {
         return@launch
       }
       try {
@@ -175,7 +202,10 @@ internal class AgentChatLiveTerminalRegistryService(
 }
 
 internal fun shouldArchiveTerminalSessionOnLastEditorClose(file: AgentChatVirtualFile): Boolean {
-  return file.provider == AgentSessionProvider.TERMINAL &&
+  val provider = file.provider ?: return false
+  val descriptor = AgentSessionProviders.find(provider) ?: return false
+  return descriptor.archiveOnLastEditorClose &&
+         descriptor.supportsArchiveThread &&
          !file.isPendingThread &&
          file.subAgentId == null &&
          file.projectPath.isNotBlank() &&
@@ -244,6 +274,20 @@ internal class AgentChatLiveTerminalStore(
     return createdTab
   }
 
+  @Synchronized
+  fun replace(
+    project: Project,
+    file: AgentChatVirtualFile,
+    terminalTabs: AgentChatTerminalTabs,
+    startupLaunchSpec: AgentSessionTerminalLaunchSpec = AgentSessionTerminalLaunchSpec(command = emptyList()),
+  ): AgentChatTerminalTab {
+    pendingCloseTabKeys.remove(file.tabKey)
+    closeAndRemove(tabKey = file.tabKey, recordClosed = false)
+    val createdTab = terminalTabs.createTab(project, file, startupLaunchSpec)
+    entries.put(file.tabKey, LiveTerminalEntry(project = project, file = file, tab = createdTab, terminalTabs = terminalTabs))
+    return createdTab
+  }
+
   /**
    * Closes the retained terminal only after the IDE reports that no copy of [file] remains open.
    */
@@ -269,7 +313,7 @@ internal class AgentChatLiveTerminalStore(
     }
 
     pendingCloseTabKeys.remove(file.tabKey)
-    return closeAndRemove(tabKey = file.tabKey)
+    return closeAndRemove(tabKey = file.tabKey, recordClosed = true)
   }
 
   @Synchronized
@@ -295,7 +339,7 @@ internal class AgentChatLiveTerminalStore(
       retainOpenEntry(tabKey = file.tabKey, project = openProject)
       return AgentChatLiveTerminalCloseResult.KEPT_OPEN
     }
-    return closeAndRemove(tabKey = file.tabKey)
+    return closeAndRemove(tabKey = file.tabKey, recordClosed = true)
   }
 
   /**
@@ -349,10 +393,12 @@ internal class AgentChatLiveTerminalStore(
     return pendingCloseTabKeys.contains(tabKey)
   }
 
-  private fun closeAndRemove(tabKey: String): AgentChatLiveTerminalCloseResult {
+  private fun closeAndRemove(tabKey: String, recordClosed: Boolean): AgentChatLiveTerminalCloseResult {
     val entry = entries.remove(tabKey) ?: return AgentChatLiveTerminalCloseResult.KEPT_OPEN
     entry.terminalTabs.closeTab(entry.project, entry.tab)
-    recordTerminalSessionClosed(entry.file)
+    if (recordClosed) {
+      recordTerminalSessionClosed(entry.file)
+    }
     return AgentChatLiveTerminalCloseResult.CLOSED
   }
 

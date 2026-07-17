@@ -1,19 +1,19 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.agent.workbench.chat
 
-import com.intellij.agent.workbench.common.normalizeAgentWorkbenchPath
-import com.intellij.agent.workbench.common.session.AgentSessionProvider
-import com.intellij.agent.workbench.sessions.core.providers.AgentInitialMessageDispatchPlan
-import com.intellij.agent.workbench.sessions.core.providers.AgentOpenTopLevelThreadDispatchService
-import com.intellij.agent.workbench.sessions.core.providers.AgentSessionTerminalLaunchSpec
+import com.intellij.platform.ai.agent.core.normalizeAgentWorkbenchPath
+import com.intellij.platform.ai.agent.core.session.AgentSessionProvider
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentInitialPromptDeliveryPlan
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentOpenTopLevelThreadDispatchService
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionTerminalLaunchSpec
 
 internal class AgentChatOpenTopLevelThreadDispatchService : AgentOpenTopLevelThreadDispatchService {
   override suspend fun dispatchIfPresent(
-    projectPath: String,
-    provider: AgentSessionProvider,
-    threadId: String,
-    launchSpec: AgentSessionTerminalLaunchSpec,
-    initialMessageDispatchPlan: AgentInitialMessageDispatchPlan,
+      projectPath: String,
+      provider: AgentSessionProvider,
+      threadId: String,
+      launchSpec: AgentSessionTerminalLaunchSpec,
+      initialMessageDispatchPlan: AgentInitialPromptDeliveryPlan,
   ): Boolean {
     val normalizedProjectPath = normalizeAgentWorkbenchPath(projectPath)
     val openEntry = collectOpenAgentChatTabsSnapshotOnUi().findOpenTopLevelConcreteEntry(
@@ -25,6 +25,7 @@ internal class AgentChatOpenTopLevelThreadDispatchService : AgentOpenTopLevelThr
     openChat(
       project = openEntry.manager.project,
       projectPath = normalizedProjectPath,
+      projectDirectory = openEntry.file.projectDirectory,
       threadIdentity = openEntry.file.threadIdentity,
       shellCommand = launchSpec.command,
       shellEnvVariables = launchSpec.envVariables,

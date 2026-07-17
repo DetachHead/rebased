@@ -1,29 +1,29 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.agent.workbench.prompt.ui
 
-import com.intellij.agent.workbench.common.session.AgentSessionLaunchMode
-import com.intellij.agent.workbench.common.session.AgentSessionProvider
+import com.intellij.platform.ai.agent.core.session.AgentSessionLaunchMode
+import com.intellij.platform.ai.agent.core.session.AgentSessionProvider
 import com.intellij.agent.workbench.prompt.core.AgentPromptGenerationSettings
 import com.intellij.agent.workbench.prompt.core.AgentPromptLaunchProfile
 import com.intellij.agent.workbench.prompt.core.AgentPromptLaunchProfileKind
 import com.intellij.agent.workbench.prompt.core.AgentPromptLauncherBridge
 import com.intellij.agent.workbench.prompt.core.AgentPromptReasoningEffort
-import com.intellij.agent.workbench.sessions.core.providers.builtInLaunchProfileId
+import com.intellij.platform.ai.agent.sessions.core.providers.builtInLaunchProfileId
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
 
 internal class AgentPromptLaunchProfileStateTest {
   private val standardBuiltInProfile = AgentPromptLaunchProfile(
-    id = builtInLaunchProfileId(AgentSessionProvider.CODEX, AgentSessionLaunchMode.STANDARD),
+    id = builtInLaunchProfileId(AgentSessionProvider.from("codex"), AgentSessionLaunchMode.STANDARD),
     name = "Codex",
     kind = AgentPromptLaunchProfileKind.BUILT_IN,
-    providerId = AgentSessionProvider.CODEX.value,
+    providerId = AgentSessionProvider.from("codex").value,
   )
   private val yoloBuiltInProfile = AgentPromptLaunchProfile(
-    id = builtInLaunchProfileId(AgentSessionProvider.CODEX, AgentSessionLaunchMode.YOLO),
+    id = builtInLaunchProfileId(AgentSessionProvider.from("codex"), AgentSessionLaunchMode.YOLO),
     name = "Codex Full Auto",
     kind = AgentPromptLaunchProfileKind.BUILT_IN,
-    providerId = AgentSessionProvider.CODEX.value,
+    providerId = AgentSessionProvider.from("codex").value,
     launchMode = AgentSessionLaunchMode.YOLO,
   )
 
@@ -52,7 +52,7 @@ internal class AgentPromptLaunchProfileStateTest {
     val carefulProfile = AgentPromptLaunchProfile(
       id = "user:careful",
       name = "Careful",
-      providerId = AgentSessionProvider.CODEX.value,
+      providerId = AgentSessionProvider.from("codex").value,
       generationSettings = AgentPromptGenerationSettings(reasoningEffort = AgentPromptReasoningEffort.HIGH),
     )
     val state = createState()
@@ -80,24 +80,80 @@ internal class AgentPromptLaunchProfileStateTest {
   }
 
   @Test
-  fun matchingProfileDraftIsUsedForPresentationWhenSelectedProfileDiffers() {
+  fun modifiedSelectedUserProfileProducesUpdateProfileAction() {
     val carefulProfile = AgentPromptLaunchProfile(
       id = "user:careful",
       name = "Careful",
-      providerId = AgentSessionProvider.CODEX.value,
+      providerId = AgentSessionProvider.from("codex").value,
+    )
+    val state = createState()
+    state.restore(
+      preferences = AgentPromptLauncherBridge.ProviderPreferences(
+        launchProfiles = listOf(carefulProfile),
+        defaultLaunchProfileId = carefulProfile.id,
+      ),
+      implicitDefaultProfileId = standardBuiltInProfile.id,
+    )
+    val draft = carefulProfile.asDraft().copy(
+      generationSettings = AgentPromptGenerationSettings(reasoningEffort = AgentPromptReasoningEffort.HIGH),
+    )
+
+    val action = state.defaultAction(draft)
+
+    assertThat(action).isEqualTo(
+      AgentPromptDefaultProfileAction.UpdateProfile(
+        carefulProfile.copy(generationSettings = AgentPromptGenerationSettings(reasoningEffort = AgentPromptReasoningEffort.HIGH))
+      )
+    )
+  }
+
+  @Test
+  fun modifiedSelectedUserProfileMatchingAnotherProfileProducesMakeDefaultAction() {
+    val carefulProfile = AgentPromptLaunchProfile(
+      id = "user:careful",
+      name = "Careful",
+      providerId = AgentSessionProvider.from("codex").value,
       generationSettings = AgentPromptGenerationSettings(reasoningEffort = AgentPromptReasoningEffort.HIGH),
     )
     val fastProfile = AgentPromptLaunchProfile(
       id = "user:fast",
       name = "Fast",
-      providerId = AgentSessionProvider.CODEX.value,
+      providerId = AgentSessionProvider.from("codex").value,
       generationSettings = AgentPromptGenerationSettings(reasoningEffort = AgentPromptReasoningEffort.LOW),
     )
     val state = createState()
     state.restore(
       preferences = AgentPromptLauncherBridge.ProviderPreferences(
         launchProfiles = listOf(carefulProfile, fastProfile),
-        activeLaunchProfileId = carefulProfile.id,
+        defaultLaunchProfileId = carefulProfile.id,
+      ),
+      implicitDefaultProfileId = standardBuiltInProfile.id,
+    )
+
+    val action = state.defaultAction(fastProfile.asDraft())
+
+    assertThat(action).isEqualTo(AgentPromptDefaultProfileAction.MakeDefault(fastProfile))
+  }
+
+  @Test
+  fun matchingProfileDraftIsUsedForPresentationWhenSelectedProfileDiffers() {
+    val carefulProfile = AgentPromptLaunchProfile(
+      id = "user:careful",
+      name = "Careful",
+      providerId = AgentSessionProvider.from("codex").value,
+      generationSettings = AgentPromptGenerationSettings(reasoningEffort = AgentPromptReasoningEffort.HIGH),
+    )
+    val fastProfile = AgentPromptLaunchProfile(
+      id = "user:fast",
+      name = "Fast",
+      providerId = AgentSessionProvider.from("codex").value,
+      generationSettings = AgentPromptGenerationSettings(reasoningEffort = AgentPromptReasoningEffort.LOW),
+    )
+    val state = createState()
+    state.restore(
+      preferences = AgentPromptLauncherBridge.ProviderPreferences(
+        launchProfiles = listOf(carefulProfile, fastProfile),
+        defaultLaunchProfileId = carefulProfile.id,
       ),
       implicitDefaultProfileId = standardBuiltInProfile.id,
     )

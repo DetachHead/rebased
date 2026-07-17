@@ -1,17 +1,17 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.agent.workbench.sessions
 
-import com.intellij.agent.workbench.common.AgentWorkbenchActionIds
+import com.intellij.agent.workbench.ui.AgentWorkbenchActionIds
 import com.intellij.agent.workbench.sessions.actions.AgentSessionsActivateWithProjectShortcutAction
-import com.intellij.agent.workbench.sessions.actions.AgentSessionsConfigureProvidersAction
 import com.intellij.agent.workbench.sessions.actions.AgentSessionsCopyThreadIdFromEditorTabAction
+import com.intellij.agent.workbench.sessions.actions.AgentSessionsCurrentProjectOnlyToggleAction
 import com.intellij.agent.workbench.sessions.actions.AgentSessionsDedicatedFrameToggleAction
 import com.intellij.agent.workbench.sessions.actions.AgentSessionsEditorTabArchiveThreadAction
-import com.intellij.agent.workbench.sessions.actions.AgentSessionsEditorTabNewThreadAction
 import com.intellij.agent.workbench.sessions.actions.AgentSessionsEditorTabRenameThreadAction
 import com.intellij.agent.workbench.sessions.actions.AgentSessionsGoToSourceProjectFromEditorTabAction
 import com.intellij.agent.workbench.sessions.actions.AgentSessionsGoToSourceProjectFromToolbarAction
 import com.intellij.agent.workbench.sessions.actions.AgentSessionsMainToolbarNewThreadAction
+import com.intellij.agent.workbench.sessions.actions.AgentSessionsMoreSettingsAction
 import com.intellij.agent.workbench.sessions.actions.AgentSessionsOpenDedicatedFrameAction
 import com.intellij.agent.workbench.sessions.actions.AgentSessionsPreventSleepWhileWorkingToggleAction
 import com.intellij.agent.workbench.sessions.actions.AgentSessionsRefreshAction
@@ -19,16 +19,19 @@ import com.intellij.agent.workbench.sessions.actions.AgentSessionsSelectThreadIn
 import com.intellij.agent.workbench.sessions.actions.AgentSessionsShowArchivedThreadsAction
 import com.intellij.agent.workbench.sessions.actions.AgentSessionsSwitchSourceAndChatAction
 import com.intellij.agent.workbench.sessions.actions.DumbAwareDefaultActionGroup
-import com.intellij.agent.workbench.sessions.core.settings.AgentWorkbenchSettings
+import com.intellij.agent.workbench.settings.AgentWorkbenchSettings
 import com.intellij.agent.workbench.sessions.frame.AgentChatOpenModeSettings
 import com.intellij.agent.workbench.sessions.model.AgentSessionThreadViewMode
 import com.intellij.icons.AllIcons
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.actionSystem.ActionManager
 import com.intellij.openapi.actionSystem.ActionUpdateThread
+import com.intellij.openapi.actionSystem.CommonDataKeys
+import com.intellij.openapi.actionSystem.impl.SimpleDataContext
 import com.intellij.openapi.options.advanced.AdvancedSettings
 import com.intellij.openapi.options.advanced.AdvancedSettingsImpl
 import com.intellij.openapi.project.DumbService
+import com.intellij.openapi.project.ProjectManager
 import com.intellij.testFramework.TestActionEvent
 import com.intellij.testFramework.junit5.TestApplication
 import com.intellij.testFramework.junit5.TestDisposable
@@ -54,23 +57,82 @@ class AgentSessionsGearActionsTest {
   }
 
   @Test
-  fun gearActionsContainOpenFileToggleAndRefresh() {
+  fun gearActionsAreGroupedByThreadViewScopePresentationAndSettings() {
     val actionManager = ActionManager.getInstance()
     val entries = actionManager.childActionEntries("AgentWorkbenchSessions.ToolWindow.GearActions")
 
-    assertThat(entries).containsSubsequence(
+    assertThat(entries).containsExactly(
       "OpenFile",
       "AgentWorkbenchSessions.ShowArchivedThreads",
       "AgentWorkbenchSessions.Refresh",
-      "AgentWorkbenchSessions.ConfigureProviders",
       ACTION_SEPARATOR_MARKER,
       "AgentWorkbenchSessions.ToggleDedicatedFrame",
+      "AgentWorkbenchSessions.ToggleCurrentProjectOnly",
+      ACTION_SEPARATOR_MARKER,
+      "AgentWorkbenchSessions.ToggleSessionCost",
       "AgentWorkbenchSessions.TogglePreventSleepWhileWorking",
+      ACTION_SEPARATOR_MARKER,
+      "AgentWorkbenchSessions.MoreSettings",
     )
-    assertThat(entries).doesNotContain("AgentWorkbenchSessions.OpenDedicatedFrame")
-    assertThat(actionManager.getAction("AgentWorkbenchSessions.ConfigureProviders"))
+    assertThat(entries)
+      .doesNotContain("AgentWorkbenchSessions.OpenDedicatedFrame")
+      .doesNotContain("AgentWorkbenchSessions.ToggleJbCentralQuotaWidget")
+      .doesNotContain("AgentWorkbenchSessions.ToggleClaudeQuotaWidget")
+    assertThat(actionManager.getAction("AgentWorkbenchSessions.MoreSettings"))
       .isNotNull
-      .isInstanceOf(AgentSessionsConfigureProvidersAction::class.java)
+      .isInstanceOf(AgentSessionsMoreSettingsAction::class.java)
+  }
+
+  @Test
+  fun currentProjectOnlyToggleRegistersInGearMenuAndUpdatesScopeSetting() {
+    val actionManager = ActionManager.getInstance()
+    var currentProjectOnly = false
+    val action = AgentSessionsCurrentProjectOnlyToggleAction(
+      currentProjectPath = { "/tmp/project" },
+      isCurrentProjectOnly = { currentProjectOnly },
+      setCurrentProjectOnly = { currentProjectOnly = it },
+    )
+    val event = testEventWithProject(action)
+
+    assertThat(actionManager.getAction(AgentWorkbenchActionIds.Sessions.TOGGLE_CURRENT_PROJECT_ONLY))
+      .isNotNull
+      .isInstanceOf(AgentSessionsCurrentProjectOnlyToggleAction::class.java)
+    assertThat(actionManager.getAction(AgentWorkbenchActionIds.Sessions.TOGGLE_CURRENT_PROJECT_ONLY)?.templatePresentation?.icon)
+      .isNull()
+    assertThat(AgentSessionsBundle.message("action.AgentWorkbenchSessions.ToggleCurrentProjectOnly.text"))
+      .isEqualTo("Current Project Only")
+    assertThat(AgentSessionsBundle.message("action.AgentWorkbenchSessions.ToggleCurrentProjectOnly.description"))
+      .isEqualTo("Show only threads from the current project in Agent Threads")
+
+    action.update(event)
+    assertThat(event.presentation.isEnabled).isTrue()
+    assertThat(action.isSelected(event)).isFalse()
+
+    runInEdtAndWait {
+      action.setSelected(event, true)
+    }
+
+    assertThat(currentProjectOnly).isTrue()
+  }
+
+  @Test
+  fun currentProjectOnlyToggleIsDisabledWithoutOpenableProjectPath() {
+    var setSelectedInvocations = 0
+    val action = AgentSessionsCurrentProjectOnlyToggleAction(
+      currentProjectPath = { null },
+      isCurrentProjectOnly = { true },
+      setCurrentProjectOnly = { setSelectedInvocations++ },
+    )
+    val event = testEventWithProject(action)
+
+    action.update(event)
+    assertThat(event.presentation.isEnabled).isFalse()
+
+    runInEdtAndWait {
+      action.setSelected(event, false)
+    }
+
+    assertThat(setSelectedInvocations).isZero()
   }
 
   @Test
@@ -108,24 +170,20 @@ class AgentSessionsGearActionsTest {
   }
 
   @Test
-  fun toggleActionUpdatesAgentWorkbenchSetting(@TestDisposable disposable: Disposable) {
+  fun toggleActionUpdatesAgentWorkbenchSetting() {
     val actionManager = ActionManager.getInstance()
     val action = AgentSessionsDedicatedFrameToggleAction()
-    val advancedSettings = AdvancedSettings.getInstance() as AdvancedSettingsImpl
 
     assertThat(sessionsDescriptor())
       .contains("<advancedSetting")
-      .contains("id=\"agent.workbench.chat.open.in.dedicated.frame\"")
-      .contains("visible=\"false\"")
+      .doesNotContain("id=\"agent.workbench.chat.open.in.dedicated.frame\"")
     assertThat(actionManager.getAction("AgentWorkbenchSessions.ToggleDedicatedFrame"))
       .isNotNull
       .isInstanceOf(AgentSessionsDedicatedFrameToggleAction::class.java)
 
-    advancedSettings.setSetting(OPEN_CHAT_IN_DEDICATED_FRAME_SETTING_ID, false, disposable)
     AgentChatOpenModeSettings.setOpenInDedicatedFrame(true)
     val event = TestActionEvent.createTestEvent(action)
     assertThat(action.isSelected(event)).isTrue()
-    assertThat(AdvancedSettings.getBoolean(OPEN_CHAT_IN_DEDICATED_FRAME_SETTING_ID)).isTrue()
 
     runInEdtAndWait {
       action.setSelected(event, false)
@@ -133,8 +191,7 @@ class AgentSessionsGearActionsTest {
 
     assertThat(AgentChatOpenModeSettings.openInDedicatedFrame()).isFalse()
     assertThat(AgentWorkbenchSettings.getInstance().openInDedicatedFrame).isFalse()
-    assertThat(AgentWorkbenchSettings.getInstance().openInDedicatedFrameOverride).isFalse()
-    assertThat(AdvancedSettings.getBoolean(OPEN_CHAT_IN_DEDICATED_FRAME_SETTING_ID)).isTrue()
+    assertThat(AgentWorkbenchSettings.getInstance().openInDedicatedFrameOverride).isNull()
 
     runInEdtAndWait {
       action.setSelected(event, true)
@@ -142,7 +199,7 @@ class AgentSessionsGearActionsTest {
 
     assertThat(AgentChatOpenModeSettings.openInDedicatedFrame()).isTrue()
     assertThat(AgentWorkbenchSettings.getInstance().openInDedicatedFrame).isTrue()
-    assertThat(AgentWorkbenchSettings.getInstance().openInDedicatedFrameOverride).isNull()
+    assertThat(AgentWorkbenchSettings.getInstance().openInDedicatedFrameOverride).isTrue()
   }
 
   @Test
@@ -328,28 +385,6 @@ class AgentSessionsGearActionsTest {
   }
 
   @Test
-  fun editorTabNewThreadActionIsRegisteredInActionSystem() {
-    val actionManager = ActionManager.getInstance()
-    val actionId = AgentWorkbenchActionIds.Sessions.EditorTab.NEW_THREAD
-
-    assertThat(actionManager.getAction(actionId))
-      .isNotNull
-      .isInstanceOf(AgentSessionsEditorTabNewThreadAction::class.java)
-    assertThat(actionManager.getAction(actionId)?.templatePresentation?.icon)
-      .isEqualTo(AllIcons.General.Add)
-    assertThat(actionManager.getAction(actionId)?.actionUpdateThread)
-      .isEqualTo(ActionUpdateThread.BGT)
-    assertThat(actionManager.getAction("EditorTabsToolbarActions"))
-      .isNotNull
-    assertThat(actionManager.childActionIds("EditorTabsToolbarActions"))
-      .contains(actionId)
-    assertThat(actionManager.childActionIds("EditorTabsToolbarActions").count { it == actionId })
-      .isEqualTo(1)
-    assertThat(actionManager.childActionIds("EditorTabActionGroup"))
-      .doesNotContain(actionId)
-  }
-
-  @Test
   fun aggregateAgentWorkbenchGroupsAreDumbAware() {
     val actionManager = ActionManager.getInstance()
 
@@ -398,7 +433,11 @@ class AgentSessionsGearActionsTest {
     }.readText()
   }
 
-  companion object {
-    private const val OPEN_CHAT_IN_DEDICATED_FRAME_SETTING_ID = "agent.workbench.chat.open.in.dedicated.frame"
-  }
+  private fun testEventWithProject(action: AgentSessionsCurrentProjectOnlyToggleAction) =
+    TestActionEvent.createTestEvent(
+      action,
+      SimpleDataContext.builder()
+        .add(CommonDataKeys.PROJECT, ProjectManager.getInstance().defaultProject)
+        .build(),
+    )
 }

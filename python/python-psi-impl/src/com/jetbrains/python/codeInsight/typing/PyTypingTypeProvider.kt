@@ -1542,7 +1542,7 @@ class PyTypingTypeProvider : PyTypeProviderWithCustomContext<Context?>() {
       if (resolved is PyListLiteralExpression) {
         val argumentTypes =
           resolved.elements.map {
-            Ref.deref(getType(it!!, context))
+            getType(it!!, context).derefOrUnknown()
           }
         return PyCallableParameterListTypeImpl(
           argumentTypes.map { PyCallableParameterImpl.nonPsi(it) }
@@ -1616,7 +1616,7 @@ class PyTypingTypeProvider : PyTypeProviderWithCustomContext<Context?>() {
     private fun getClassObjectType(resolved: PsiElement, context: Context): Ref<PyType?>? {
       if (resolved is PySubscriptionExpression) {
         val operand = resolved.operand
-        if (operand.resolvesToQualifiedNames(context, TYPE, PyNames.TYPE)
+        if (operand.resolvesToQualifiedNames(context, TYPE, PyNames.FQN.TYPE)
             || (operand is PyReferenceExpression
                 && operand.asQualifiedName() == QualifiedName.fromDottedString("builtins.type"))
         ) {
@@ -2139,7 +2139,7 @@ class PyTypingTypeProvider : PyTypeProviderWithCustomContext<Context?>() {
         val rightTypeRef = getType(right, context)
         if (leftTypeRef == null && rightTypeRef == null) return null
 
-        val union = PyUnionType.union(leftTypeRef?.get(), rightTypeRef?.get())
+        val union = PyUnionType.union(leftTypeRef.derefOrUnknown(), rightTypeRef.derefOrUnknown())
         return if (union != null) Ref(union) else null
       }
       return null
@@ -2190,7 +2190,7 @@ class PyTypingTypeProvider : PyTypeProviderWithCustomContext<Context?>() {
           val constraints = arguments
             .drop(1)
             .takeWhile { it !is PyKeywordArgument }
-            .map { Ref.deref(getType(it, context)) }
+            .map { getType(it, context).derefOrUnknown() }
           val assignStmt = element.getParent() as? PyAssignmentStatement
           val mappingPair = assignStmt?.targetsToValuesMapping?.firstOrNull { pair -> pair.second == element }
           val declarationElement = mappingPair?.first as? PyQualifiedNameOwner
@@ -2540,8 +2540,8 @@ class PyTypingTypeProvider : PyTypeProviderWithCustomContext<Context?>() {
       val classType = type as? PyClassType ?: return null
       if (classType is PyTypedDictType) return null
 
-      if (type.classQName == PyNames.TUPLE && type !is PyTupleType) {
-        return PyTupleType.createHomogeneous(type.pyClass, null)
+      if (type.classQName == PyNames.FQN.TUPLE && type !is PyTupleType) {
+        return PyTupleType.createHomogeneous(type.pyClass, PyAnyType.unknown)
       }
 
       val collected = type.collectGenerics(context)
@@ -2644,7 +2644,7 @@ class PyTypingTypeProvider : PyTypeProviderWithCustomContext<Context?>() {
           val indexTypes: MutableList<PyType?> = getIndexTypes(element, context)
           if (operandType != null) {
             if (operandType is PyClassType) {
-              if (operandType !is PyTupleType && PyNames.TUPLE == operandType.pyClass.qualifiedName) {
+              if (operandType !is PyTupleType && PyNames.FQN.TUPLE == operandType.pyClass.qualifiedName) {
                 if (indexExpr is PyTupleExpression) {
                   val arguments = indexExpr.elements.map { PyPsiUtils.flattenParens(it) }
 
@@ -2826,7 +2826,13 @@ class PyTypingTypeProvider : PyTypeProviderWithCustomContext<Context?>() {
     }
 
     fun resolveToQualifiedNames(expression: PyExpression, context: TypeEvalContext): Collection<String> =
-      tryResolving(expression, context).mapNotNullTo(mutableSetOf()) { it.getQualifiedName() }
+      tryResolving(expression, context).flatMapTo(mutableSetOf()) { element ->
+        val qName = element.getQualifiedName() ?: return@flatMapTo emptyList()
+        // For builtins, QualifiedNameFinder now yields "builtins.<name>". Expose the short form too so callers
+        // matching against bare builtin names (e.g. PyNames.TYPE) keep working.
+        val shortName = PyNames.FQN.unqualifyBuiltinName(qName)
+        if (shortName != null && shortName != qName) listOf(qName, shortName) else listOf(qName)
+      }
 
     private fun PsiElement.getQualifiedName(): String? = when (this) {
       is PyQualifiedNameOwner -> this.qualifiedName
@@ -2872,7 +2878,7 @@ class PyTypingTypeProvider : PyTypeProviderWithCustomContext<Context?>() {
       return PyCollectionTypeImpl(
         targetClass,
         false,
-        listOf(null, null, this)
+        listOf(PyAnyType.unknown, PyAnyType.unknown, this)
       )
     }
 

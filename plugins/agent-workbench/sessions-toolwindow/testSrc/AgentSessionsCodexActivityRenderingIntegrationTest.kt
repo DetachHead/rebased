@@ -1,10 +1,10 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.agent.workbench.sessions.toolwindow
 
-import com.intellij.agent.workbench.common.AgentThreadActivity
-import com.intellij.agent.workbench.common.AgentThreadActivityReport
-import com.intellij.agent.workbench.common.session.AgentSessionProvider
-import com.intellij.agent.workbench.common.session.AgentSessionThread
+import com.intellij.platform.ai.agent.core.AgentThreadActivity
+import com.intellij.platform.ai.agent.core.AgentThreadActivityReport
+import com.intellij.platform.ai.agent.core.session.AgentSessionProvider
+import com.intellij.platform.ai.agent.core.session.AgentSessionThread
 import com.intellij.agent.workbench.sessions.AgentSessionsBundle
 import com.intellij.agent.workbench.sessions.ScriptedSessionSource
 import com.intellij.agent.workbench.sessions.openTestProjectEntry
@@ -49,7 +49,7 @@ class AgentSessionsCodexActivityRenderingIntegrationTest {
   @Test
   fun codexUnreadAssistantSnapshotRendersProcessingThreadBadge() = runBlocking(Dispatchers.Default) {
     val source = ScriptedSessionSource(
-      provider = AgentSessionProvider.CODEX,
+      provider = AgentSessionProvider.from("codex"),
       listFromOpenProject = { path, _ ->
         processingThreadsForPath(path)
       },
@@ -70,7 +70,7 @@ class AgentSessionsCodexActivityRenderingIntegrationTest {
           ?.id == "thread-1"
       }
 
-      service.refreshProviderForPath(PROJECT_PATH, AgentSessionProvider.CODEX)
+      service.refreshProviderForPath(PROJECT_PATH, AgentSessionProvider.from("codex"))
 
       waitForCondition {
         service.state.value.projects.firstOrNull { it.path == PROJECT_PATH }
@@ -90,7 +90,7 @@ class AgentSessionsCodexActivityRenderingIntegrationTest {
         visibleThreadCounts = state.visibleThreadCounts,
         treeUiState = InMemorySessionTreeUiState(),
       )
-      val threadId = SessionTreeId.Thread(project.path, AgentSessionProvider.CODEX, thread.id)
+      val threadId = SessionTreeId.Thread(project.path, AgentSessionProvider.from("codex"), thread.id)
       val processingNode = model.entriesById.getValue(threadId).node as SessionTreeNode.Thread
       assertThat(processingNode.thread.activity).isEqualTo(AgentThreadActivity.PROCESSING)
 
@@ -102,6 +102,7 @@ class AgentSessionsCodexActivityRenderingIntegrationTest {
       assertThat(processingRenderer.getCharSequence(true).toString())
         .doesNotContain(AgentSessionsBundle.message("toolwindow.thread.status.in.progress"))
         .doesNotContain("ACTIVE")
+      assertThat(processingRenderer.trailingThreadPaintForTest?.timeLabel).isEqualTo("now")
 
       val readyRenderer = createRenderer { id ->
         when (id) {
@@ -124,14 +125,14 @@ class AgentSessionsCodexActivityRenderingIntegrationTest {
       updatedAt = 1_000L,
       archived = false,
       activity = AgentThreadActivity.UNREAD,
-      provider = AgentSessionProvider.CODEX,
+      provider = AgentSessionProvider.from("codex"),
       summaryActivity = null,
     )
     val project = AgentProjectSessions(
       path = PROJECT_PATH,
       name = "Project A",
       isOpen = true,
-      providerLoadStates = loadedProviderStates(AgentSessionProvider.CODEX),
+      providerLoadStates = loadedProviderStates(AgentSessionProvider.from("codex")),
       threads = listOf(thread),
     )
     val model = buildSessionTreeModel(
@@ -140,7 +141,7 @@ class AgentSessionsCodexActivityRenderingIntegrationTest {
       visibleThreadCounts = emptyMap(),
       treeUiState = InMemorySessionTreeUiState(),
     )
-    val threadId = SessionTreeId.Thread(project.path, AgentSessionProvider.CODEX, thread.id)
+    val threadId = SessionTreeId.Thread(project.path, AgentSessionProvider.from("codex"), thread.id)
     val unreadNode = model.entriesById.getValue(threadId).node as SessionTreeNode.Thread
     assertThat(unreadNode.thread.activity).isEqualTo(AgentThreadActivity.UNREAD)
     assertThat(unreadNode.thread.summaryActivity).isNull()
@@ -179,7 +180,7 @@ class AgentSessionsCodexActivityRenderingIntegrationTest {
         id = "thread-1",
         title = "Thread 1",
         updatedAt = 1_000L,
-        provider = AgentSessionProvider.CODEX,
+        provider = AgentSessionProvider.from("codex"),
         activity = AgentThreadActivity.PROCESSING,
         summaryActivity = null,
       )

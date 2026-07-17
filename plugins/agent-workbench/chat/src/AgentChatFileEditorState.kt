@@ -1,13 +1,8 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.agent.workbench.chat
 
-import com.intellij.agent.workbench.common.AgentThreadActivity
-import com.intellij.agent.workbench.common.session.AgentSessionLaunchMode
-import com.intellij.agent.workbench.common.session.AgentSessionProvider
-import com.intellij.agent.workbench.sessions.core.providers.AgentInitialMessageDispatchAction
-import com.intellij.agent.workbench.sessions.core.providers.AgentInitialMessageDispatchCompletionPolicy
-import com.intellij.agent.workbench.sessions.core.providers.AgentInitialMessageDispatchStep
-import com.intellij.agent.workbench.sessions.core.providers.AgentInitialMessageTimeoutPolicy
+import com.intellij.platform.ai.agent.core.AgentThreadActivity
+import com.intellij.platform.ai.agent.core.session.AgentSessionProvider
 import com.intellij.openapi.fileEditor.FileEditorState
 import com.intellij.openapi.fileEditor.FileEditorStateLevel
 import com.intellij.openapi.vfs.VirtualFile
@@ -25,6 +20,7 @@ internal fun readAgentChatFileEditorState(sourceElement: Element, file: VirtualF
   val identity = AgentChatTabIdentity(
     projectHash = sourceElement.getAttributeValue(ATTR_PROJECT_HASH).orEmpty(),
     projectPath = sourceElement.getAttributeValue(ATTR_PROJECT_PATH).orEmpty(),
+    projectDirectory = sourceElement.getAttributeValue(ATTR_PROJECT_DIRECTORY),
     threadIdentity = sourceElement.getAttributeValue(ATTR_THREAD_IDENTITY).orEmpty(),
     subAgentId = sourceElement.getAttributeValue(ATTR_SUB_AGENT_ID),
   )
@@ -32,7 +28,6 @@ internal fun readAgentChatFileEditorState(sourceElement: Element, file: VirtualF
     return AgentChatFileEditorState(null)
   }
 
-  val steps = readInitialMessageDispatchSteps(sourceElement)
   val snapshot = AgentChatTabSnapshot(
     tabKey = tabKey,
     identity = identity,
@@ -44,15 +39,19 @@ internal fun readAgentChatFileEditorState(sourceElement: Element, file: VirtualF
       pendingFirstInputAtMs = sourceElement.getAttributeLongValueOrNull(ATTR_PENDING_FIRST_INPUT_AT_MS),
       pendingLaunchMode = sourceElement.getAttributeValue(ATTR_PENDING_LAUNCH_MODE),
       launchMode = normalizeAgentChatLaunchMode(sourceElement.getAttributeValue(ATTR_LAUNCH_MODE)),
+      launchProfileId = sourceElement.getAttributeValue(ATTR_LAUNCH_PROFILE_ID),
       newThreadRebindRequestedAtMs = sourceElement.getAttributeLongValueOrNull(ATTR_NEW_THREAD_REBIND_REQUESTED_AT_MS),
-      initialMessageDispatchSteps = steps,
-      initialMessageDispatchStepIndex = sourceElement.getAttributeIntValueOrNull(ATTR_INITIAL_MESSAGE_DISPATCH_STEP_INDEX)
-                                          ?.coerceIn(0, steps.size) ?: 0,
-      initialMessageToken = sourceElement.getAttributeValue(ATTR_INITIAL_MESSAGE_TOKEN),
-      initialMessageSent = sourceElement.getAttributeValue(ATTR_INITIAL_MESSAGE_SENT)?.toBooleanStrictOrNull() ?: false,
+      // Prompt text, tokens, delivery state, and dispatch queues are live-session metadata. Do not restore them from editor state:
+      // persisted prompt data is a privacy risk, and restoring queued terminal input can duplicate prompts.
+      initialPromptRecord = null,
+      terminalPromptDispatch = null,
     ),
   )
-  val startupIntent = readStartupIntent(sourceElement, identity.threadIdentity)
+  val startupIntent = readStartupIntent(
+    sourceElement = sourceElement,
+    threadIdentity = identity.threadIdentity,
+    pendingLaunchMode = snapshot.runtime.pendingLaunchMode,
+  )
   if (file is AgentChatVirtualFile) {
     file.updateRestoreOnRestart(true)
     file.updateFromResolution(AgentChatTabResolution.Resolved(snapshot))
@@ -71,6 +70,7 @@ internal fun writeAgentChatFileEditorState(state: AgentChatFileEditorState, targ
   targetElement.setAttribute(ATTR_VERSION, STATE_VERSION.toString())
   targetElement.setAttribute(ATTR_PROJECT_HASH, identity.projectHash)
   targetElement.setAttribute(ATTR_PROJECT_PATH, identity.projectPath)
+  targetElement.setNullableAttribute(ATTR_PROJECT_DIRECTORY, identity.projectDirectory)
   targetElement.setAttribute(ATTR_THREAD_IDENTITY, identity.threadIdentity)
   targetElement.setNullableAttribute(ATTR_SUB_AGENT_ID, identity.subAgentId)
   targetElement.setAttribute(ATTR_THREAD_ID, runtime.threadId)
@@ -80,26 +80,17 @@ internal fun writeAgentChatFileEditorState(state: AgentChatFileEditorState, targ
   targetElement.setNullableAttribute(ATTR_PENDING_FIRST_INPUT_AT_MS, runtime.pendingFirstInputAtMs?.toString())
   targetElement.setNullableAttribute(ATTR_PENDING_LAUNCH_MODE, runtime.pendingLaunchMode)
   targetElement.setNullableAttribute(ATTR_LAUNCH_MODE, runtime.launchMode)
+  targetElement.setNullableAttribute(ATTR_LAUNCH_PROFILE_ID, runtime.launchProfileId)
   targetElement.setNullableAttribute(ATTR_NEW_THREAD_REBIND_REQUESTED_AT_MS, runtime.newThreadRebindRequestedAtMs?.toString())
-  targetElement.setAttribute(ATTR_INITIAL_MESSAGE_DISPATCH_STEP_INDEX, runtime.initialMessageDispatchStepIndex.toString())
-  targetElement.setNullableAttribute(ATTR_INITIAL_MESSAGE_TOKEN, runtime.initialMessageToken)
-  targetElement.setAttribute(ATTR_INITIAL_MESSAGE_SENT, runtime.initialMessageSent.toString())
+  // Prompt text, tokens, delivery state, and terminal dispatch metadata are live-session-only and must not be persisted.
   writeStartupIntent(state.startupIntent, targetElement)
-  if (runtime.initialMessageDispatchSteps.isNotEmpty()) {
-    targetElement.addContent(Element(ELEMENT_INITIAL_MESSAGE_DISPATCH_STEPS).also { stepsElement ->
-      for ((text, timeoutPolicy, completionPolicy, action) in runtime.initialMessageDispatchSteps) {
-        stepsElement.addContent(Element(ELEMENT_INITIAL_MESSAGE_DISPATCH_STEP).also { stepElement ->
-          stepElement.setAttribute(ATTR_TIMEOUT_POLICY, timeoutPolicy.name)
-          stepElement.setAttribute(ATTR_COMPLETION_POLICY, completionPolicy.name)
-          stepElement.setAttribute(ATTR_ACTION, action.name)
-          stepElement.setText(text)
-        })
-      }
-    })
-  }
 }
 
-private fun readStartupIntent(sourceElement: Element, threadIdentity: String): AgentChatStartupIntent? {
+private fun readStartupIntent(
+  sourceElement: Element,
+  threadIdentity: String,
+  pendingLaunchMode: String?,
+): AgentChatStartupIntent? {
   val kind = sourceElement.getAttributeValue(ATTR_STARTUP_KIND) ?: return null
   if (kind != STARTUP_KIND_NEW_SESSION) {
     return null
@@ -110,7 +101,8 @@ private fun readStartupIntent(sourceElement: Element, threadIdentity: String): A
                  ?: return null
   return AgentChatStartupIntent.NewSession(
     provider = provider,
-    launchMode = parseEnum(sourceElement.getAttributeValue(ATTR_STARTUP_LAUNCH_MODE), AgentSessionLaunchMode.STANDARD),
+    launchMode = parseEnum(sourceElement.getAttributeValue(ATTR_STARTUP_LAUNCH_MODE), parseAgentChatLaunchMode(pendingLaunchMode)),
+    launchProfileId = sourceElement.getAttributeValue(ATTR_STARTUP_LAUNCH_PROFILE_ID),
   )
 }
 
@@ -120,30 +112,10 @@ private fun writeStartupIntent(startupIntent: AgentChatStartupIntent?, targetEle
       targetElement.setAttribute(ATTR_STARTUP_KIND, STARTUP_KIND_NEW_SESSION)
       targetElement.setAttribute(ATTR_STARTUP_PROVIDER, startupIntent.provider.value)
       targetElement.setAttribute(ATTR_STARTUP_LAUNCH_MODE, startupIntent.launchMode.name)
+      targetElement.setNullableAttribute(ATTR_STARTUP_LAUNCH_PROFILE_ID, startupIntent.launchProfileId)
     }
     null -> Unit
   }
-}
-
-private fun readInitialMessageDispatchSteps(sourceElement: Element): List<AgentInitialMessageDispatchStep> {
-  return sourceElement.getChild(ELEMENT_INITIAL_MESSAGE_DISPATCH_STEPS)
-    ?.getChildren(ELEMENT_INITIAL_MESSAGE_DISPATCH_STEP)
-    ?.mapNotNull { stepElement ->
-      val action = parseEnum(stepElement.getAttributeValue(ATTR_ACTION), AgentInitialMessageDispatchAction.SEND_TEXT)
-      val text = stepElement.textTrim
-      if (action == AgentInitialMessageDispatchAction.SEND_TEXT && text.isEmpty()) {
-        return@mapNotNull null
-      }
-      AgentInitialMessageDispatchStep(
-        text = text,
-        timeoutPolicy = parseEnum(stepElement.getAttributeValue(ATTR_TIMEOUT_POLICY),
-                                  AgentInitialMessageTimeoutPolicy.ALLOW_TIMEOUT_FALLBACK),
-        completionPolicy = parseEnum(stepElement.getAttributeValue(ATTR_COMPLETION_POLICY),
-                                      AgentInitialMessageDispatchCompletionPolicy.IMMEDIATE),
-        action = action,
-      )
-    }
-    .orEmpty()
 }
 
 private inline fun <reified T : Enum<T>> parseEnum(value: String?, defaultValue: T): T {
@@ -152,18 +124,17 @@ private inline fun <reified T : Enum<T>> parseEnum(value: String?, defaultValue:
 
 private fun Element.getAttributeLongValueOrNull(name: String): Long? = getAttributeValue(name)?.toLongOrNull()
 
-private fun Element.getAttributeIntValueOrNull(name: String): Int? = getAttributeValue(name)?.toIntOrNull()
-
 private fun Element.setNullableAttribute(name: String, value: String?) {
   if (value != null) {
     setAttribute(name, value)
   }
 }
 
-private const val STATE_VERSION = 3
+private const val STATE_VERSION = 5
 private const val ATTR_VERSION = "version"
 private const val ATTR_PROJECT_HASH = "projectHash"
 private const val ATTR_PROJECT_PATH = "projectPath"
+private const val ATTR_PROJECT_DIRECTORY = "projectDirectory"
 private const val ATTR_THREAD_IDENTITY = "threadIdentity"
 private const val ATTR_SUB_AGENT_ID = "subAgentId"
 private const val ATTR_THREAD_ID = "threadId"
@@ -173,16 +144,10 @@ private const val ATTR_PENDING_CREATED_AT_MS = "pendingCreatedAtMs"
 private const val ATTR_PENDING_FIRST_INPUT_AT_MS = "pendingFirstInputAtMs"
 private const val ATTR_PENDING_LAUNCH_MODE = "pendingLaunchMode"
 private const val ATTR_LAUNCH_MODE = "launchMode"
+private const val ATTR_LAUNCH_PROFILE_ID = "launchProfileId"
 private const val ATTR_NEW_THREAD_REBIND_REQUESTED_AT_MS = "newThreadRebindRequestedAtMs"
-private const val ATTR_INITIAL_MESSAGE_DISPATCH_STEP_INDEX = "initialMessageDispatchStepIndex"
-private const val ATTR_INITIAL_MESSAGE_TOKEN = "initialMessageToken"
-private const val ATTR_INITIAL_MESSAGE_SENT = "initialMessageSent"
 private const val ATTR_STARTUP_KIND = "startupKind"
 private const val ATTR_STARTUP_PROVIDER = "startupProvider"
 private const val ATTR_STARTUP_LAUNCH_MODE = "startupLaunchMode"
-private const val ATTR_TIMEOUT_POLICY = "timeoutPolicy"
-private const val ATTR_COMPLETION_POLICY = "completionPolicy"
-private const val ATTR_ACTION = "action"
-private const val ELEMENT_INITIAL_MESSAGE_DISPATCH_STEPS = "initialMessageDispatchSteps"
-private const val ELEMENT_INITIAL_MESSAGE_DISPATCH_STEP = "step"
+private const val ATTR_STARTUP_LAUNCH_PROFILE_ID = "startupLaunchProfileId"
 private const val STARTUP_KIND_NEW_SESSION = "newSession"

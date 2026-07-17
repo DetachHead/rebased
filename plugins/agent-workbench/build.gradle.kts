@@ -25,6 +25,7 @@ subprojects {
 val localProperties = Properties().also { props ->
   File(rootDir, "local.properties").takeIf { it.exists() }?.inputStream()?.use(props::load)
 }
+
 fun localProperty(name: String): String? = localProperties.getProperty(name)
 
 val platformLocalPath: String? = localProperty("platformLocalPath")
@@ -37,8 +38,8 @@ extra["platformVersion"] = platformVersion
 // Space plugin is required by ai-review-space at runtime. It's not in the Gradle-transformed IDE,
 // so resolve it manually and add via localPlugin() to include it in the sandbox.
 val spacePluginDir: File? = localProperty("spacePluginPath")?.let { file(it) }
-  ?: platformLocalPath?.let { file(it).resolve("plugins/space") }?.takeIf { it.isDirectory }
-  ?: file("../../../out/deploy/dist/plugins/space").takeIf { it.isDirectory }
+                            ?: platformLocalPath?.let { file(it).resolve("plugins/space") }?.takeIf { it.isDirectory }
+                            ?: file("../../../out/deploy/dist/plugins/space").takeIf { it.isDirectory }
 
 extra["spacePluginDir"] = spacePluginDir
 
@@ -80,7 +81,8 @@ dependencies {
   intellijPlatform {
     if (platformLocalPath != null) {
       local(platformLocalPath)
-    } else {
+    }
+    else {
       intellijIdeaUltimate(platformVersion) { useInstaller = false }
       bundledPlugins(
         "org.jetbrains.plugins.terminal",
@@ -95,6 +97,7 @@ dependencies {
       localPlugin(spacePluginDir)
     }
 
+    pluginModule(implementation(project(":core")))
     pluginModule(implementation(project(":common")))
     pluginModule(implementation(project(":json")))
     pluginModule(implementation(project(":filewatch")))
@@ -107,16 +110,21 @@ dependencies {
     pluginModule(implementation(project(":prompt-testrunner")))
     pluginModule(implementation(project(":sessions")))
     pluginModule(implementation(project(":sessions-jbcentral")))
+    pluginModule(implementation(project(":settings")))
     pluginModule(implementation(project(":sessions-core")))
+    pluginModule(implementation(project(":ui")))
     pluginModule(implementation(project(":sessions-actions")))
     pluginModule(implementation(project(":sessions-toolwindow")))
     pluginModule(implementation(project(":sessions-launch-config-backend")))
     pluginModule(implementation(project(":claude-common")))
     pluginModule(implementation(project(":claude-sessions")))
     pluginModule(implementation(project(":codex-common")))
+    pluginModule(implementation(project(":codex-chat")))
     pluginModule(implementation(project(":codex-ide")))
+    pluginModule(implementation(project(":codex-prompt-suggestions")))
     pluginModule(implementation(project(":codex-sessions")))
     pluginModule(implementation(project(":junie-sessions")))
+    pluginModule(implementation(project(":opencode-sessions")))
     pluginModule(implementation(project(":terminal-sessions")))
     pluginModule(implementation(project(":ai-review")))
     pluginModule(implementation(project(":ai-review-agents")))

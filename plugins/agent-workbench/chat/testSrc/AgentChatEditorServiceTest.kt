@@ -1,14 +1,20 @@
 package com.intellij.agent.workbench.chat
 
-import com.intellij.agent.workbench.common.AgentThreadActivity
-import com.intellij.agent.workbench.common.session.AgentSessionLaunchMode
-import com.intellij.agent.workbench.common.session.AgentSessionProvider
-import com.intellij.agent.workbench.sessions.core.AgentSessionThreadPresentationModel
-import com.intellij.agent.workbench.sessions.core.providers.AgentInitialMessageDispatchCompletionPolicy
-import com.intellij.agent.workbench.sessions.core.providers.AgentInitialMessageDispatchPlan
-import com.intellij.agent.workbench.sessions.core.providers.AgentInitialMessageDispatchStep
-import com.intellij.agent.workbench.sessions.core.providers.AgentInitialMessageTimeoutPolicy
-import com.intellij.agent.workbench.sessions.core.providers.AgentSessionTerminalLaunchSpec
+import com.intellij.platform.ai.agent.core.AgentThreadActivity
+import com.intellij.platform.ai.agent.core.AgentThreadActivityReport
+import com.intellij.platform.ai.agent.core.session.AgentSessionLaunchMode
+import com.intellij.platform.ai.agent.core.session.AgentSessionProvider
+import com.intellij.platform.ai.agent.sessions.core.AgentSessionThreadPresentationModel
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentInitialMessageDispatchAction
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentInitialMessageDispatchStep
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentInitialMessageMode
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentInitialMessageTimeoutPolicy
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentInitialPromptDeliveryChannel
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentInitialPromptDeliveryPlan
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentInitialPromptDeliveryStatus
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentInitialPromptRecord
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionTerminalLaunchSpec
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentTerminalPromptDispatch
 import com.intellij.openapi.application.UiWithModelAccess
 import com.intellij.openapi.components.service
 import com.intellij.openapi.extensions.LoadingOrder
@@ -16,6 +22,7 @@ import com.intellij.openapi.fileEditor.FileEditor
 import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.fileEditor.FileEditorPolicy
 import com.intellij.openapi.fileEditor.FileEditorProvider
+import com.intellij.openapi.fileEditor.ex.FileEditorManagerEx
 import com.intellij.openapi.fileEditor.impl.EditorTabPresentationUtil
 import com.intellij.openapi.project.DumbAware
 import com.intellij.openapi.project.Project
@@ -123,29 +130,30 @@ class AgentChatEditorServiceTest {
   }
 
   @Test
-  fun testNewTabPersistsMultiStepInitialMessageMetadata(): Unit = timeoutRunBlocking {
-    val steps = codexPlanDispatchSteps("Refactor selected code")
+  fun testNewTabPersistsProviderInitialMessageMetadata(): Unit = timeoutRunBlocking {
+    val deliveryPlan = codexPlanDeliveryPlan(prompt = "Refactor selected code", token = "provider-new-token")
+    val steps = deliveryPlan.postStartDispatchSteps
     openChatInModal(
-      threadIdentity = "CODEX:thread-multi-step-new",
+      threadIdentity = "CODEX:thread-provider-new",
       shellCommand = codexCommand,
-      threadId = "thread-multi-step-new",
-      threadTitle = "Multi-step new thread",
+      threadId = "thread-provider-new",
+      threadTitle = "Provider new thread",
       subAgentId = null,
-      postStartDispatchSteps = steps,
-      initialMessageToken = "multi-step-new-token",
+      initialPromptDeliveryPlan = deliveryPlan,
     )
 
     val file = openedChatFiles().single()
     assertThat(file.initialMessageDispatchSteps).containsExactlyElementsOf(steps)
     assertThat(file.initialMessageDispatchStepIndex).isZero()
-    assertThat(file.initialComposedMessage).isEqualTo("/plan")
-    assertThat(file.initialMessageToken).isEqualTo("multi-step-new-token")
+    assertThat(file.initialComposedMessage).isEqualTo("Refactor selected code")
+    assertThat(file.initialMessageToken).isEqualTo("provider-new-token")
     assertThat(file.initialMessageSent).isFalse()
 
     val snapshot = file.toSnapshot()
     assertThat(snapshot.runtime.initialMessageDispatchSteps).containsExactlyElementsOf(steps)
     assertThat(snapshot.runtime.initialMessageDispatchStepIndex).isZero()
-    assertThat(snapshot.runtime.initialMessageToken).isEqualTo("multi-step-new-token")
+    assertThat(snapshot.runtime.initialPromptRecord?.message).isEqualTo("Refactor selected code")
+    assertThat(snapshot.runtime.initialMessageToken).isEqualTo("provider-new-token")
     assertThat(snapshot.runtime.initialMessageSent).isFalse()
   }
 
@@ -166,7 +174,11 @@ class AgentChatEditorServiceTest {
     val file = openedChatFiles().single()
     assertThat(file.initialComposedMessage).isEqualTo("-draft prompt\nsecond line")
     assertThat(file.initialMessageToken).isEqualTo("startup-token-1")
-    assertThat(file.initialMessageSent).isFalse()
+    assertThat(file.initialMessageSent).isTrue()
+    val runtime = file.toSnapshot().runtime
+    assertThat(runtime.terminalPromptDispatch).isNull()
+    assertThat(runtime.initialPromptRecord?.deliveryStatus).isEqualTo(AgentInitialPromptDeliveryStatus.DELIVERED)
+    assertThat(runtime.initialPromptRecord?.deliveryChannel).isEqualTo(AgentInitialPromptDeliveryChannel.STARTUP_COMMAND)
   }
 
   @Test
@@ -210,7 +222,7 @@ class AgentChatEditorServiceTest {
       threadId = preallocatedSessionId,
       threadTitle = "Terminal",
       subAgentId = null,
-      newSessionProvider = AgentSessionProvider.TERMINAL,
+      newSessionProvider = AgentSessionProvider.from("terminal"),
       newSessionLaunchMode = AgentSessionLaunchMode.STANDARD,
       startupLaunchSpec = terminalLaunchSpec,
     )
@@ -257,6 +269,7 @@ class AgentChatEditorServiceTest {
     )
 
     val file = openedChatFiles().single()
+    assertThat(file.initialMessageDispatchSteps.single().text).isEqualTo("Send through open-tab flow")
     assertThat(file.initialComposedMessage).isEqualTo("Send through open-tab flow")
     assertThat(file.initialMessageToken).isEqualTo("startup-token-2")
     assertThat(file.initialMessageSent).isFalse()
@@ -264,37 +277,79 @@ class AgentChatEditorServiceTest {
   }
 
   @Test
-  fun testExistingTabReusePersistsMultiStepInitialMessageMetadata(): Unit = timeoutRunBlocking {
+  fun testExistingClaudeTabUsesProviderFallbackWhenStartupCommandOverrideIsIgnored(): Unit = timeoutRunBlocking {
+    val threadId = "thread-existing-claude-plan"
     openChatInModal(
-      threadIdentity = "CODEX:thread-existing-multi-step",
+      threadIdentity = "CLAUDE:$threadId",
+      shellCommand = listOf("claude", "--resume", threadId),
+      threadId = threadId,
+      threadTitle = "Existing Claude thread",
+      subAgentId = null,
+    )
+    openedChatFiles().single().consumeStartupLaunchSpecOverride()
+
+    val fallbackSteps = listOf(
+      AgentInitialMessageDispatchStep(
+        text = "Plan through open Claude tab",
+        timeoutPolicy = AgentInitialMessageTimeoutPolicy.REQUIRE_EXPLICIT_READINESS,
+      )
+    )
+    openChatInModal(
+      threadIdentity = "CLAUDE:$threadId",
+      shellCommand = listOf("claude", "--resume", threadId),
+      startupShellCommandOverride = listOf(
+        "claude", "--resume", threadId, "--permission-mode", "plan", "--", "Plan through open Claude tab"
+      ),
+      threadId = threadId,
+      threadTitle = "Existing Claude thread",
+      subAgentId = null,
+      postStartDispatchSteps = fallbackSteps,
+      initialMessageToken = "claude-plan-token",
+    )
+
+    val file = openedChatFiles().single()
+    val dispatchStep = file.initialMessageDispatchSteps.single()
+    assertThat(dispatchStep.action).isEqualTo(AgentInitialMessageDispatchAction.SEND_TEXT)
+    assertThat(dispatchStep.text).isEqualTo("Plan through open Claude tab")
+    assertThat(file.initialComposedMessage).isEqualTo("Plan through open Claude tab")
+    assertThat(file.initialMessageToken).isEqualTo("claude-plan-token")
+    assertThat(file.initialMessageSent).isFalse()
+    assertThat(file.consumeStartupLaunchSpecOverride()).isNull()
+  }
+
+  @Test
+  fun testExistingTabReusePersistsProviderInitialMessageMetadata(): Unit = timeoutRunBlocking {
+    openChatInModal(
+      threadIdentity = "CODEX:thread-existing-provider",
       shellCommand = codexCommand,
-      threadId = "thread-existing-multi-step",
-      threadTitle = "Existing multi-step thread",
+      threadId = "thread-existing-provider",
+      threadTitle = "Existing provider thread",
       subAgentId = null,
     )
 
-    val steps = codexPlanDispatchSteps("Follow-up prompt")
+    val deliveryPlan = codexPlanDeliveryPlan(prompt = "Follow-up prompt", token = "existing-provider-token")
+    val steps = deliveryPlan.postStartDispatchSteps
     openChatInModal(
-      threadIdentity = "CODEX:thread-existing-multi-step",
+      threadIdentity = "CODEX:thread-existing-provider",
       shellCommand = codexCommand,
-      threadId = "thread-existing-multi-step",
-      threadTitle = "Existing multi-step thread",
+      threadId = "thread-existing-provider",
+      threadTitle = "Existing provider thread",
       subAgentId = null,
-      postStartDispatchSteps = steps,
-      initialMessageToken = "existing-multi-step-token",
+      initialPromptDeliveryPlan = deliveryPlan,
     )
 
     val file = openedChatFiles().single()
     assertThat(file.initialMessageDispatchSteps).containsExactlyElementsOf(steps)
     assertThat(file.initialMessageDispatchStepIndex).isZero()
-    assertThat(file.initialComposedMessage).isEqualTo("/plan")
-    assertThat(file.initialMessageToken).isEqualTo("existing-multi-step-token")
+    assertThat(file.initialComposedMessage).isEqualTo("Follow-up prompt")
+    assertThat(file.initialMessageToken).isEqualTo("existing-provider-token")
     assertThat(file.initialMessageSent).isFalse()
 
     val snapshot = file.toSnapshot()
     assertThat(snapshot.runtime.initialMessageDispatchSteps).containsExactlyElementsOf(steps)
     assertThat(snapshot.runtime.initialMessageDispatchStepIndex).isZero()
-    assertThat(snapshot.runtime.initialMessageToken).isEqualTo("existing-multi-step-token")
+    assertThat(snapshot.runtime.initialPromptRecord?.message).isEqualTo("Follow-up prompt")
+    assertThat(snapshot.runtime.initialMessageToken).isEqualTo("existing-provider-token")
     assertThat(snapshot.runtime.initialMessageSent).isFalse()
   }
 
@@ -380,6 +435,39 @@ class AgentChatEditorServiceTest {
   }
 
   @Test
+  fun openChatInstallsDeferredStartContentBeforeOpeningEditor(): Unit = timeoutRunBlocking {
+    val customContent = JPanel()
+    val focusComponent = JButton("Prompt")
+    openChat(
+      project = project,
+      projectPath = projectPath,
+      threadIdentity = "CODEX:new-inline-prompt",
+      shellCommand = codexCommand,
+      threadId = "",
+      threadTitle = "New Codex thread",
+      subAgentId = null,
+      persistSnapshot = false,
+      deferredStartState = AgentChatDeferredStartState(
+        phase = AgentChatDeferredStartPhase.WAITING,
+        title = "Preparing Codex",
+      ),
+      deferredStartContent = AgentChatDeferredStartContent(
+        component = customContent,
+        preferredFocusedComponent = focusComponent,
+      ),
+    )
+
+    val file = openedChatFiles().single { file -> file.threadIdentity == "CODEX:new-inline-prompt" }
+    val editor = runInUi {
+      FileEditorManager.getInstance(project).getAllEditors(file).filterIsInstance<AgentChatFileEditor>().single().also { editor ->
+        editor.selectNotify()
+      }
+    }
+    assertThat(editor.component.components).containsExactly(customContent)
+    assertThat(editor.preferredFocusedComponent).isSameAs(focusComponent)
+  }
+
+  @Test
   fun deferredWaitingTabKeepsReadyActivityUntilStartDecision(): Unit = timeoutRunBlocking {
     openChatInModal(
       threadIdentity = "CODEX:new-deferred-ready",
@@ -408,14 +496,14 @@ class AgentChatEditorServiceTest {
       threadId = "a174b4df-e942-49fe-bb30-8b5f8e7f4857",
       threadTitle = "New Claude thread",
       subAgentId = null,
-      newSessionProvider = AgentSessionProvider.CLAUDE,
+      newSessionProvider = AgentSessionProvider.from("claude"),
       newSessionLaunchMode = AgentSessionLaunchMode.YOLO,
     )
 
     val file = openedChatFiles().single()
     assertThat(file.startupIntent()).isEqualTo(
       AgentChatStartupIntent.NewSession(
-        provider = AgentSessionProvider.CLAUDE,
+        provider = AgentSessionProvider.from("claude"),
         launchMode = AgentSessionLaunchMode.YOLO,
       )
     )
@@ -443,14 +531,14 @@ class AgentChatEditorServiceTest {
       project = project,
       file = file,
       deferredStartState = AgentChatDeferredStartState(AgentChatDeferredStartPhase.READY_TO_START, title = ""),
-      newSessionProvider = AgentSessionProvider.CLAUDE,
+      newSessionProvider = AgentSessionProvider.from("claude"),
       newSessionLaunchMode = AgentSessionLaunchMode.YOLO,
       persistSnapshot = true,
     )
 
     assertThat(file.startupIntent()).isEqualTo(
       AgentChatStartupIntent.NewSession(
-        provider = AgentSessionProvider.CLAUDE,
+        provider = AgentSessionProvider.from("claude"),
         launchMode = AgentSessionLaunchMode.YOLO,
       )
     )
@@ -518,6 +606,77 @@ class AgentChatEditorServiceTest {
 
     assertThat(collectOpenPendingCodexTabsByPath()).isEmpty()
     assertThat(collectOpenPendingAgentChatProjectPaths()).isEmpty()
+  }
+
+  @Test
+  fun pinnedPendingTabIsCollectedWithPinnedMetadata(): Unit = timeoutRunBlocking {
+    openChatInModal(
+      threadIdentity = "CODEX:new-pinned-pending",
+      shellCommand = codexCommand,
+      threadId = "",
+      threadTitle = "Pinned pending thread",
+      subAgentId = null,
+    )
+
+    val file = openedChatFiles().single()
+    setEditorTabPinned(file, true)
+
+    val pendingTabs = collectOpenPendingCodexTabsByPath()[projectPath].orEmpty()
+    assertThat(pendingTabs).hasSize(1)
+    assertThat(pendingTabs.single().pendingTabKey).isEqualTo(file.tabKey)
+    assertThat(pendingTabs.single().pinnedEditorTab).isTrue()
+  }
+
+  @Test
+  fun pinnedConcreteTopLevelTabIsCollectedByProviderAndPath(): Unit = timeoutRunBlocking {
+    openChatInModal(
+      threadIdentity = "CODEX:pinned-concrete",
+      shellCommand = listOf("codex", "resume", "pinned-concrete"),
+      threadId = "pinned-concrete",
+      threadTitle = "Pinned concrete thread",
+      subAgentId = null,
+    )
+
+    val file = openedChatFiles().single()
+    setEditorTabPinned(file, true)
+
+    val pinnedThreadIds = collectOpenAgentChatTabsSnapshotOnUi()
+      .pinnedTopLevelConcreteThreadIdentitiesByPath(AgentSessionProvider.from("codex"))[projectPath]
+      .orEmpty()
+    assertThat(pinnedThreadIds).containsExactly("pinned-concrete")
+  }
+
+  @Test
+  fun concreteTopLevelTabCanBePinnedAndUnpinnedByThreadIdentity(): Unit = timeoutRunBlocking {
+    val provider = AgentSessionProvider.from("codex")
+    openChatInModal(
+      threadIdentity = "CODEX:toggle-pinned-concrete",
+      shellCommand = listOf("codex", "resume", "toggle-pinned-concrete"),
+      threadId = "toggle-pinned-concrete",
+      threadTitle = "Toggle pinned concrete thread",
+      subAgentId = null,
+    )
+
+    val file = openedChatFiles().single()
+    assertThat(isEditorTabPinned(file)).isFalse()
+
+    setAgentChatEditorTabPinned(project, file, true)
+
+    assertThat(isEditorTabPinned(file)).isTrue()
+    assertThat(collectOpenAgentChatTabsPresentationState().isPinnedTopLevelThread(provider, projectPath, "toggle-pinned-concrete"))
+      .isTrue()
+
+    val unpinnedCount = setOpenTopLevelAgentChatThreadTabsPinned(
+      provider = provider,
+      projectPath = projectPath,
+      threadId = "toggle-pinned-concrete",
+      pinned = false,
+    )
+
+    assertThat(unpinnedCount).isEqualTo(1)
+    assertThat(isEditorTabPinned(file)).isFalse()
+    assertThat(collectOpenAgentChatTabsPresentationState().isPinnedTopLevelThread(provider, projectPath, "toggle-pinned-concrete"))
+      .isFalse()
   }
 
   @Test
@@ -638,6 +797,65 @@ class AgentChatEditorServiceTest {
       activity = AgentThreadActivity.UNREAD,
     )
     assertThat(unchangedTabs).isEqualTo(0)
+  }
+
+  @Test
+  fun testTabIconUsesChromeActivityWithoutChangingThreadActivity(): Unit = timeoutRunBlocking {
+    openChatInModal(
+      threadIdentity = "CODEX:thread-1",
+      shellCommand = codexCommand,
+      threadId = "thread-1",
+      threadTitle = "Initial title",
+      subAgentId = null,
+    )
+
+    val file = openedChatFiles().single()
+    val updatedTabs = publishThreadPresentation(
+      file = file,
+      title = "Initial title",
+      activityReport = AgentThreadActivityReport(
+        rowActivity = AgentThreadActivity.READY,
+        chromeActivity = AgentThreadActivity.NEEDS_INPUT,
+      ),
+    )
+    assertThat(updatedTabs).isEqualTo(1)
+
+    assertThat(file.threadActivity).isEqualTo(AgentThreadActivity.READY)
+    assertThat(resolveAgentChatTabIconActivity(file)).isEqualTo(AgentThreadActivity.NEEDS_INPUT)
+  }
+
+  @Test
+  fun testTabIconChromeActivityClearRepaintsWithoutChangingThreadActivity(): Unit = timeoutRunBlocking {
+    openChatInModal(
+      threadIdentity = "CODEX:thread-1",
+      shellCommand = codexCommand,
+      threadId = "thread-1",
+      threadTitle = "Initial title",
+      subAgentId = null,
+    )
+
+    val file = openedChatFiles().single()
+    assertThat(publishThreadPresentation(
+      file = file,
+      title = "Initial title",
+      activityReport = AgentThreadActivityReport(
+        rowActivity = AgentThreadActivity.READY,
+        chromeActivity = AgentThreadActivity.NEEDS_INPUT,
+      ),
+    )).isEqualTo(1)
+
+    val clearedTabs = publishThreadPresentation(
+      file = file,
+      title = "Initial title",
+      activityReport = AgentThreadActivityReport(
+        rowActivity = AgentThreadActivity.READY,
+        chromeActivity = null,
+      ),
+    )
+
+    assertThat(clearedTabs).isEqualTo(1)
+    assertThat(file.threadActivity).isEqualTo(AgentThreadActivity.READY)
+    assertThat(resolveAgentChatTabIconActivity(file)).isEqualTo(AgentThreadActivity.READY)
   }
 
   @Test
@@ -878,7 +1096,7 @@ class AgentChatEditorServiceTest {
     val file = openedChatFiles().single()
     assertThat(publishThreadPresentation(
       path = projectPath,
-      provider = AgentSessionProvider.CODEX,
+      provider = AgentSessionProvider.from("codex"),
       threadId = targetThreadId,
       title = sharedTitle,
       activity = AgentThreadActivity.PROCESSING,
@@ -1053,7 +1271,7 @@ class AgentChatEditorServiceTest {
     )
 
     val pendingFile = openedChatFiles().single()
-    val pendingTabsByPath = collectOpenPendingAgentChatTabsByPath(AgentSessionProvider.CLAUDE)
+    val pendingTabsByPath = collectOpenPendingAgentChatTabsByPath(AgentSessionProvider.from("claude"))
     val pendingSnapshot = pendingTabsByPath[projectPath].orEmpty().single()
     assertThat(pendingSnapshot.projectPath).isEqualTo(projectPath)
     assertThat(pendingSnapshot.pendingTabKey).isEqualTo(pendingFile.tabKey)
@@ -1075,7 +1293,7 @@ class AgentChatEditorServiceTest {
 
     val file = openedChatFiles().single()
     val rebindReport = rebindOpenPendingAgentChatTabs(
-      provider = AgentSessionProvider.CLAUDE,
+      provider = AgentSessionProvider.from("claude"),
       requestsByProjectPath = mapOf(
         projectPath to listOf(
           AgentChatPendingTabRebindRequest(
@@ -1086,7 +1304,7 @@ class AgentChatEditorServiceTest {
               threadId = "thread-3",
               threadTitle = "Recovered Claude thread",
               threadActivity = AgentThreadActivity.UNREAD,
-              provider = AgentSessionProvider.CLAUDE,
+              provider = AgentSessionProvider.from("claude"),
             ),
           )
         )
@@ -1126,7 +1344,7 @@ class AgentChatEditorServiceTest {
 
     val file = openedChatFiles().single()
     val rebindReport = rebindOpenPendingAgentChatTabs(
-      provider = AgentSessionProvider.CLAUDE,
+      provider = AgentSessionProvider.from("claude"),
       requestsByProjectPath = mapOf(
         projectPath to listOf(
           AgentChatPendingTabRebindRequest(
@@ -1137,7 +1355,7 @@ class AgentChatEditorServiceTest {
               threadId = "new-2",
               threadTitle = "New thread",
               threadActivity = AgentThreadActivity.READY,
-              provider = AgentSessionProvider.CLAUDE,
+              provider = AgentSessionProvider.from("claude"),
             ),
           )
         )
@@ -1258,7 +1476,7 @@ class AgentChatEditorServiceTest {
     service<AgentChatTabsService>().upsert(file.toSnapshot())
     assertThat(publishThreadPresentation(
       path = projectPath,
-      provider = AgentSessionProvider.CODEX,
+      provider = AgentSessionProvider.from("codex"),
       threadId = targetThreadId,
       title = sharedTitle,
       activity = AgentThreadActivity.PROCESSING,
@@ -1493,14 +1711,14 @@ class AgentChatEditorServiceTest {
 
     val pendingTab = openedChatFiles().first { it.threadIdentity == "CLAUDE:new-1" }
     val rebindReport = rebindOpenPendingAgentChatTabs(
-      provider = AgentSessionProvider.CLAUDE,
+      provider = AgentSessionProvider.from("claude"),
       requestsByProjectPath = mapOf(
         projectPath to listOf(
           AgentChatPendingTabRebindRequest(
             pendingTabKey = pendingTab.tabKey,
             pendingThreadIdentity = "CLAUDE:new-1",
             target = rebindTarget(
-              provider = AgentSessionProvider.CLAUDE,
+              provider = AgentSessionProvider.from("claude"),
               threadIdentity = "CLAUDE:thread-2",
               threadId = "thread-2",
               threadTitle = "Recovered Claude thread",
@@ -1525,12 +1743,12 @@ class AgentChatEditorServiceTest {
 
   @Test
   fun testRebindOpenPendingCodexTabsClosesConcreteTabInAnotherOpenProject(): Unit = timeoutRunBlocking {
-    assertRebindOpenPendingTabsClosesConcreteTabInAnotherOpenProject(AgentSessionProvider.CODEX)
+    assertRebindOpenPendingTabsClosesConcreteTabInAnotherOpenProject(AgentSessionProvider.from("codex"))
   }
 
   @Test
   fun testRebindOpenPendingClaudeTabsClosesConcreteTabInAnotherOpenProject(): Unit = timeoutRunBlocking {
-    assertRebindOpenPendingTabsClosesConcreteTabInAnotherOpenProject(AgentSessionProvider.CLAUDE)
+    assertRebindOpenPendingTabsClosesConcreteTabInAnotherOpenProject(AgentSessionProvider.from("claude"))
   }
 
   @Test
@@ -1629,7 +1847,7 @@ class AgentChatEditorServiceTest {
         subAgentId = null,
       )
     )
-    assertThat(collectSelectedChatThreadIdentity()).isEqualTo(AgentSessionProvider.CODEX to "thread-1")
+    assertThat(collectSelectedChatThreadIdentity()).isEqualTo(AgentSessionProvider.from("codex") to "thread-1")
   }
 
   @Test
@@ -1662,7 +1880,7 @@ class AgentChatEditorServiceTest {
       }
     }
 
-    notifyCodexScopedRefresh(projectPath)
+    notifyAgentChatScopedRefresh(provider = AgentSessionProvider.from("codex"), projectPath = projectPath)
 
     val signal = signalWaiter.await()
     assertThat(signal.scopedPaths).containsExactly("/work/project-scoped-refresh-delayed")
@@ -1678,7 +1896,7 @@ class AgentChatEditorServiceTest {
     }
 
     notifyAgentChatScopedRefresh(
-      provider = AgentSessionProvider.CODEX,
+      provider = AgentSessionProvider.from("codex"),
       projectPath = "/work/project-scoped-refresh-thread/",
       threadId = "codex-thread-1",
     )
@@ -1743,7 +1961,7 @@ class AgentChatEditorServiceTest {
       checkNotNull(beforeCleanup.first { it.subAgentId == null && it.threadIdentity == "CODEX:thread-1" }.presentationKeyOrNull())
     presentationModel.updateThread(
       path = projectPath,
-      provider = AgentSessionProvider.CODEX,
+      provider = AgentSessionProvider.from("codex"),
       threadId = "thread-1",
       title = "Main thread",
       activity = AgentThreadActivity.READY,
@@ -1803,7 +2021,7 @@ class AgentChatEditorServiceTest {
     val basePresentationKey = checkNotNull(beforeCleanup.first { it.subAgentId == null }.presentationKeyOrNull())
     presentationModel.updateThread(
       path = projectPath,
-      provider = AgentSessionProvider.CODEX,
+      provider = AgentSessionProvider.from("codex"),
       threadId = "thread-1",
       title = "Main thread",
       activity = AgentThreadActivity.READY,
@@ -1877,7 +2095,7 @@ class AgentChatEditorServiceTest {
   }
 
   @Test
-  fun testResolveFromPathRestoresMultiStepInitialMessageProgress(): Unit = timeoutRunBlocking {
+  fun testResolveFromPathDoesNotRestoreInitialMessagePromptData(): Unit = timeoutRunBlocking {
     val tabsService = service<AgentChatTabsService>()
     val steps = listOf(
       AgentInitialMessageDispatchStep(text = "step one"),
@@ -1898,19 +2116,25 @@ class AgentChatEditorServiceTest {
     tabsService.upsert(snapshot)
     try {
       val restored = tabsService.resolveFromPath(snapshot.tabKey.toPath()) as AgentChatTabResolution.Resolved
-      assertThat(restored.snapshot.runtime.initialMessageDispatchSteps).containsExactlyElementsOf(steps)
-      assertThat(restored.snapshot.runtime.initialMessageDispatchStepIndex).isEqualTo(1)
-      assertThat(restored.snapshot.runtime.initialMessageToken).isEqualTo("token-multi-step-restore")
+      assertThat(restored.snapshot.identity).isEqualTo(snapshot.identity)
+      assertThat(restored.snapshot.runtime.threadId).isEqualTo("multi-step-restore")
+      assertThat(restored.snapshot.runtime.threadTitle).isEqualTo("Multi-step restore")
+      assertThat(restored.snapshot.runtime.initialMessageDispatchSteps).isEmpty()
+      assertThat(restored.snapshot.runtime.initialMessageDispatchStepIndex).isZero()
+      assertThat(restored.snapshot.runtime.initialComposedMessage).isNull()
+      assertThat(restored.snapshot.runtime.initialMessageToken).isNull()
       assertThat(restored.snapshot.runtime.initialMessageSent).isFalse()
+      assertThat(restored.snapshot.runtime.initialPromptRecord).isNull()
+      assertThat(restored.snapshot.runtime.terminalPromptDispatch).isNull()
 
       val fileSystem = agentChatVirtualFileSystem()
       val file = checkNotNull(runInUi {
         fileSystem.findFileByPath(snapshot.tabKey.toPath())
       }) as AgentChatVirtualFile
-      assertThat(file.initialMessageDispatchSteps).containsExactlyElementsOf(steps)
-      assertThat(file.initialMessageDispatchStepIndex).isEqualTo(1)
-      assertThat(file.initialComposedMessage).isEqualTo("step two")
-      assertThat(file.initialMessageToken).isEqualTo("token-multi-step-restore")
+      assertThat(file.initialMessageDispatchSteps).isEmpty()
+      assertThat(file.initialMessageDispatchStepIndex).isZero()
+      assertThat(file.initialComposedMessage).isNull()
+      assertThat(file.initialMessageToken).isNull()
       assertThat(file.initialMessageSent).isFalse()
     }
     finally {
@@ -2071,6 +2295,7 @@ class AgentChatEditorServiceTest {
     initialComposedMessage: String? = null,
     postStartDispatchSteps: List<AgentInitialMessageDispatchStep> = emptyList(),
     initialMessageToken: String? = null,
+    initialPromptDeliveryPlan: AgentInitialPromptDeliveryPlan? = null,
     persistSnapshot: Boolean = true,
     deferredStartState: AgentChatDeferredStartState? = null,
     targetProject: Project = project,
@@ -2083,13 +2308,13 @@ class AgentChatEditorServiceTest {
         ?.let { message -> listOf(AgentInitialMessageDispatchStep(text = message)) }
         .orEmpty()
     }
-    val initialMessageDispatchPlan = AgentInitialMessageDispatchPlan(
-      startupLaunchSpecOverride = startupShellCommandOverride?.let { command ->
-        AgentSessionTerminalLaunchSpec(command = command, envVariables = startupShellEnvOverride.orEmpty())
-      },
-      postStartDispatchSteps = effectivePostStartDispatchSteps,
-      initialMessageToken = initialMessageToken,
-    )
+      val initialMessageDispatchPlan = initialPromptDeliveryPlan ?: AgentInitialPromptDeliveryPlan(
+          startupLaunchSpecOverride = startupShellCommandOverride?.let { command ->
+              AgentSessionTerminalLaunchSpec(command = command, envVariables = startupShellEnvOverride.orEmpty())
+          },
+          postStartDispatchSteps = effectivePostStartDispatchSteps,
+          initialMessageToken = initialMessageToken,
+      )
     openChat(
       project = targetProject,
       projectPath = sourceProjectPath,
@@ -2121,24 +2346,24 @@ class AgentChatEditorServiceTest {
 
   private fun providerIdentityPrefix(provider: AgentSessionProvider): String {
     return when (provider) {
-      AgentSessionProvider.CODEX -> "CODEX"
-      AgentSessionProvider.CLAUDE -> "CLAUDE"
+      AgentSessionProvider.from("codex") -> "CODEX"
+      AgentSessionProvider.from("claude") -> "CLAUDE"
       else -> error("Unsupported test provider: $provider")
     }
   }
 
   private fun newThreadCommand(provider: AgentSessionProvider): List<String> {
     return when (provider) {
-      AgentSessionProvider.CODEX -> listOf("codex")
-      AgentSessionProvider.CLAUDE -> listOf("claude")
+      AgentSessionProvider.from("codex") -> listOf("codex")
+      AgentSessionProvider.from("claude") -> listOf("claude")
       else -> error("Unsupported test provider: $provider")
     }
   }
 
   private fun resumeThreadCommand(provider: AgentSessionProvider, threadId: String): List<String> {
     return when (provider) {
-      AgentSessionProvider.CODEX -> listOf("codex", "resume", threadId)
-      AgentSessionProvider.CLAUDE -> listOf("claude", "--resume", threadId)
+      AgentSessionProvider.from("codex") -> listOf("codex", "resume", threadId)
+      AgentSessionProvider.from("claude") -> listOf("claude", "--resume", threadId)
       else -> error("Unsupported test provider: $provider")
     }
   }
@@ -2146,13 +2371,24 @@ class AgentChatEditorServiceTest {
   private fun codexPlanDispatchSteps(prompt: String): List<AgentInitialMessageDispatchStep> {
     return listOf(
       AgentInitialMessageDispatchStep(
-        text = "/plan",
-        timeoutPolicy = AgentInitialMessageTimeoutPolicy.REQUIRE_EXPLICIT_READINESS,
-        completionPolicy = AgentInitialMessageDispatchCompletionPolicy.RETRY_ON_CODEX_PLAN_BUSY,
-      ),
-      AgentInitialMessageDispatchStep(
         text = prompt,
         timeoutPolicy = AgentInitialMessageTimeoutPolicy.REQUIRE_EXPLICIT_READINESS,
+        action = AgentInitialMessageDispatchAction.PROVIDER,
+      ),
+    )
+  }
+
+  private fun codexPlanDeliveryPlan(prompt: String, token: String): AgentInitialPromptDeliveryPlan {
+    return AgentInitialPromptDeliveryPlan(
+      promptRecord = AgentInitialPromptRecord(
+        message = prompt,
+        mode = AgentInitialMessageMode.PLAN,
+        token = token,
+        deliveryStatus = AgentInitialPromptDeliveryStatus.PENDING,
+        deliveryChannel = AgentInitialPromptDeliveryChannel.APP_SERVER,
+      ),
+      terminalDispatch = AgentTerminalPromptDispatch(
+        steps = codexPlanDispatchSteps(prompt),
       ),
     )
   }
@@ -2169,12 +2405,28 @@ class AgentChatEditorServiceTest {
     }
   }
 
+  private suspend fun isEditorTabPinned(file: AgentChatVirtualFile): Boolean {
+    return runInUi {
+      FileEditorManager.getInstance(project).hasPinnedEditorTab(file)
+    }
+  }
+
+  private suspend fun setEditorTabPinned(file: AgentChatVirtualFile, pinned: Boolean) {
+    runInUi {
+      val editorManager = FileEditorManagerEx.getInstanceEx(project)
+      val editorWindow = editorManager.windows.firstOrNull { window -> window.isFileOpen(file) }
+      assertThat(editorWindow).isNotNull()
+      editorWindow?.setFilePinned(file, pinned)
+    }
+  }
+
   private fun rebindTarget(
     threadIdentity: String,
     threadId: String,
     threadTitle: String,
     threadActivity: AgentThreadActivity,
-    provider: AgentSessionProvider = AgentSessionProvider.CODEX,
+    threadActivityReport: AgentThreadActivityReport = AgentThreadActivityReport(threadActivity),
+    provider: AgentSessionProvider = AgentSessionProvider.from("codex"),
     projectPath: String = this.projectPath,
   ): AgentChatTabRebindTarget {
     return AgentChatTabRebindTarget(
@@ -2184,6 +2436,8 @@ class AgentChatEditorServiceTest {
       threadId = threadId,
       threadTitle = threadTitle,
       threadActivity = threadActivity,
+      threadActivityReport = threadActivityReport,
+      launchSpec = AgentSessionTerminalLaunchSpec(command = listOf(provider.value, "resume", threadId)),
     )
   }
 
@@ -2303,6 +2557,22 @@ private suspend fun publishThreadPresentation(
 }
 
 private suspend fun publishThreadPresentation(
+  file: AgentChatVirtualFile,
+  path: String = file.projectPath,
+  title: String,
+  activityReport: AgentThreadActivityReport,
+): Int {
+  val provider = checkNotNull(file.provider)
+  return publishThreadPresentation(
+    path = path,
+    provider = provider,
+    threadId = file.sessionId,
+    title = title,
+    activityReport = activityReport,
+  )
+}
+
+private suspend fun publishThreadPresentation(
   path: String,
   provider: AgentSessionProvider,
   threadId: String,
@@ -2315,6 +2585,24 @@ private suspend fun publishThreadPresentation(
     threadId = threadId,
     title = title,
     activity = activity,
+  )
+  return AgentChatOpenTabPresentationInvalidator.invalidate(changeSet)
+}
+
+private suspend fun publishThreadPresentation(
+  path: String,
+  provider: AgentSessionProvider,
+  threadId: String,
+  title: String,
+  activityReport: AgentThreadActivityReport,
+): Int {
+  val changeSet = service<AgentSessionThreadPresentationModel>().updateThread(
+    path = path,
+    provider = provider,
+    threadId = threadId,
+    title = title,
+    activity = null,
+    activityReport = activityReport,
   )
   return AgentChatOpenTabPresentationInvalidator.invalidate(changeSet)
 }
@@ -2334,4 +2622,32 @@ private suspend fun waitForCondition(timeoutMs: Long = 5_000, condition: suspend
     delay(20.milliseconds)
   }
   throw AssertionError("Condition was not satisfied within ${timeoutMs}ms")
+}
+
+private fun codexScopedRefreshSignals() = agentChatScopedRefreshSignals(AgentSessionProvider.from("codex"))
+
+private suspend fun collectOpenPendingCodexTabsByPath(): Map<String, List<AgentChatPendingTabSnapshot>> {
+  return collectOpenPendingAgentChatTabsByPath(AgentSessionProvider.from("codex"))
+}
+
+private suspend fun collectOpenConcreteCodexTabsAwaitingNewThreadRebindByPath(): Map<String, List<AgentChatConcreteTabSnapshot>> {
+  return collectOpenConcreteAgentChatTabsAwaitingNewThreadRebindByPath(AgentSessionProvider.from("codex"))
+}
+
+private suspend fun rebindOpenPendingCodexTabs(
+  requestsByProjectPath: Map<String, List<AgentChatPendingTabRebindRequest>>,
+): AgentChatPendingTabRebindReport {
+  return rebindOpenPendingAgentChatTabs(
+    provider = AgentSessionProvider.from("codex"),
+    requestsByProjectPath = requestsByProjectPath,
+  )
+}
+
+private suspend fun rebindOpenConcreteCodexTabs(
+  requestsByProjectPath: Map<String, List<AgentChatConcreteTabRebindRequest>>,
+): AgentChatConcreteTabRebindReport {
+  return rebindOpenConcreteAgentChatTabs(
+    provider = AgentSessionProvider.from("codex"),
+    requestsByProjectPath = requestsByProjectPath,
+  )
 }

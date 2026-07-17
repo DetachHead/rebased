@@ -79,7 +79,7 @@ open class RebasedProperties(private val communityHomeDir: Path) : JetBrainsProd
     //productLayout.pluginLayouts = CommunityRepositoryModules.COMMUNITY_REPOSITORY_PLUGINS + persistentListOf(
     //  JavaPluginLayout.javaPlugin(),
     //  CommunityRepositoryModules.groovyPlugin(),
-    //  *CommunityRepositoryModules.androidPlugin(),
+    //  CommunityRepositoryModules.androidPlugin(allPlatforms = true),
     //)
 
     productLayout.skipUnresolvedContentModules = true

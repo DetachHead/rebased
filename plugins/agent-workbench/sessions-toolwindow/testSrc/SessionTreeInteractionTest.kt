@@ -1,7 +1,7 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.agent.workbench.sessions.toolwindow
 
-import com.intellij.agent.workbench.common.session.AgentSessionProvider
+import com.intellij.platform.ai.agent.core.session.AgentSessionProvider
 import com.intellij.agent.workbench.sessions.toolwindow.tree.SessionTreeId
 import com.intellij.agent.workbench.sessions.toolwindow.tree.SessionTreeNode
 import com.intellij.agent.workbench.sessions.toolwindow.tree.copyPathForSessionTreeId
@@ -50,7 +50,7 @@ class SessionTreeInteractionTest {
     ).isEqualTo("/work/project-feature")
     assertThat(
       copyPathForSessionTreeId(
-        SessionTreeId.Thread(projectPath = "/work/project-a", provider = AgentSessionProvider.CODEX, threadId = "thread-1")
+        SessionTreeId.Thread(projectPath = "/work/project-a", provider = AgentSessionProvider.from("codex"), threadId = "thread-1")
       )
     ).isNull()
     assertThat(copyPathForSessionTreeId(SessionTreeId.MoreProjects)).isNull()

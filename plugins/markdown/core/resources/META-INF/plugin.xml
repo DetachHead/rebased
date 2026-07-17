@@ -8,14 +8,13 @@
   <dependencies>
     <plugin id="com.intellij.modules.lang"/>
     <!-- region Generated dependencies - run `Generate Product Layouts` to regenerate -->
-    <module name="intellij.libraries.jcef"/>
     <module name="intellij.platform.structureView"/>
-    <module name="intellij.platform.ui.jcef"/>
     <!-- endregion -->
   </dependencies>
 
   <content namespace="jetbrains">
     <module name="intellij.markdown" loading="embedded"/>
+    <module name="intellij.markdown.jcef" loading="optional"/>
     <module name="intellij.markdown.fenceInjection"/>
     <module name="intellij.markdown.frontmatter"/>
     <module name="intellij.markdown.frontmatter.yaml"/>
@@ -83,6 +82,9 @@
                     dynamic="true"/>
     <extensionPoint qualifiedName="org.intellij.markdown.actionPromoterExtension"
                     interface="org.intellij.plugins.markdown.ui.actions.MarkdownActionPromoterExtension"
+                    dynamic="true"/>
+    <extensionPoint qualifiedName="org.intellij.markdown.markdownElementFactory"
+                    interface="org.intellij.plugins.markdown.lang.psi.MarkdownPsiElementProvider"
                     dynamic="true"/>
   </extensionPoints>
 
@@ -230,8 +232,6 @@
     <codeFoldingOptionsProvider instance="org.intellij.plugins.markdown.settings.MarkdownCodeFoldingOptionsProvider" id="Markdown" order="after Android,after C++,after General,after Go,after Handlebars,after JAVA,after JavaScript,after JPAQL,after JSON,after Kubernetes,after LinkerScript,after ObjectiveC"/>
 
     <applicationService serviceImplementation="org.intellij.plugins.markdown.ui.preview.html.MarkdownCodeFenceHtmlCache"/>
-    <applicationService serviceImplementation="org.intellij.plugins.markdown.fileActions.export.MarkdownHtmlExportSettings"/>
-
     <applicationService serviceImplementation="org.intellij.plugins.markdown.settings.MarkdownCodeFoldingSettings" />
     <applicationService serviceImplementation="org.intellij.plugins.markdown.settings.MarkdownCodeInsightSettings" />
     <applicationService serviceImplementation="org.intellij.plugins.markdown.settings.MarkdownExtensionsSettings" />
@@ -414,7 +414,6 @@
 
     <statistics.counterUsagesCollector implementationClass="org.intellij.plugins.markdown.MarkdownUsageCollector"/>
     <applicationSettings service="org.intellij.plugins.markdown.settings.MarkdownCodeFoldingSettings"/>
-    <applicationSettings service="org.intellij.plugins.markdown.fileActions.export.MarkdownHtmlExportSettings"/>
     <projectSettings service="org.intellij.plugins.markdown.settings.DocumentLinksSafeState"/>
     <projectSettings service="org.intellij.plugins.markdown.settings.pandoc.PandocSettings"/>
   </extensions>
@@ -432,8 +431,6 @@
   </projectListeners>
 
   <extensions defaultExtensionNs="org.intellij.markdown">
-    <html.panel.provider implementation="org.intellij.plugins.markdown.ui.preview.jcef.JCEFHtmlPanelProvider"/>
-
     <fenceLanguageProvider implementation="org.intellij.plugins.markdown.extensions.common.plantuml.PlantUMLCodeFenceLanguageProvider"/>
     <!--suppress PluginXmlValidity -->
     <fenceGeneratingProvider implementation="org.intellij.plugins.markdown.extensions.common.plantuml.PlantUMLCodeGeneratingProvider"/>
@@ -443,8 +440,8 @@
                              implementation="org.intellij.plugins.markdown.extensions.common.highlighter.MarkdownCodeFencePreviewHighlighter"/>
     <browserPreviewExtensionProvider implementation="org.intellij.plugins.markdown.extensions.common.BaseStylesExtension$Provider"/>
     <browserPreviewExtensionProvider implementation="org.intellij.plugins.markdown.extensions.common.InlineStylesExtension$Provider"/>
+    <browserPreviewExtensionProvider implementation="org.intellij.plugins.markdown.extensions.common.MarkdownAlertIconsExtension$Provider"/>
 
-    <browserPreviewExtensionProvider implementation="org.intellij.plugins.markdown.extensions.jcef.ProcessLinksExtension$Provider"/>
     <browserPreviewExtensionProvider implementation="org.intellij.plugins.markdown.extensions.jcef.commandRunner.CommandRunnerExtension$Provider"/>
 
     <fenceLanguageProvider id="DefaultMermaidCodeFenceLanguageProvider"
@@ -455,8 +452,6 @@
     <browserPreviewExtensionProvider implementation="org.intellij.plugins.markdown.extensions.common.MathExtension$Provider"/>
 
     <markdownExportProvider implementation="org.intellij.plugins.markdown.fileActions.export.MarkdownDocxExportProvider"/>
-    <markdownExportProvider implementation="org.intellij.plugins.markdown.fileActions.export.MarkdownPdfExportProvider"/>
-    <markdownExportProvider implementation="org.intellij.plugins.markdown.fileActions.export.MarkdownHtmlExportProvider"/>
     <markdownCompatibilityChecker implementation="org.intellij.plugins.markdown.lang.DefaultMarkdownCompatibilityChecker"/>
   </extensions>
 

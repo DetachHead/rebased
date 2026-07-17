@@ -3,11 +3,11 @@ package com.intellij.agent.workbench.chat
 
 // @spec community/plugins/agent-workbench/spec/sessions/agent-terminal-sessions.spec.md
 
-import com.intellij.agent.workbench.common.AgentThreadActivity
-import com.intellij.agent.workbench.common.AgentThreadActivityReport
-import com.intellij.agent.workbench.common.session.AgentSessionProvider
-import com.intellij.agent.workbench.sessions.core.providers.AgentSessionProviders
-import com.intellij.agent.workbench.sessions.core.providers.AgentSessionTerminalLaunchSpec
+import com.intellij.platform.ai.agent.core.AgentThreadActivity
+import com.intellij.platform.ai.agent.core.AgentThreadActivityReport
+import com.intellij.platform.ai.agent.core.session.AgentSessionProvider
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionProviders
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionTerminalLaunchSpec
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.UI
 import com.intellij.openapi.project.Project
@@ -43,7 +43,7 @@ import java.awt.event.KeyEvent
 import javax.swing.JComponent
 import kotlin.time.Duration.Companion.milliseconds
 
-internal interface AgentChatTerminalTab {
+internal interface AgentChatTerminalTab : AgentChatBehaviorTerminalTab {
   val component: JComponent
   val preferredFocusableComponent: JComponent
   val coroutineScope: CoroutineScope
@@ -66,11 +66,25 @@ internal interface AgentChatTerminalTab {
     checkpoint: AgentChatTerminalOutputCheckpoint? = null,
   ): AgentChatTerminalInputReadiness
 
-  suspend fun readRecentOutputTail(): String
+  suspend fun awaitTerminalTitleThreadId(
+    provider: AgentSessionProvider?,
+    expectedThreadId: String,
+    timeoutMs: Long,
+  ): AgentChatTerminalInputReadiness {
+    return awaitAgentChatTerminalTitleThreadId(provider, expectedThreadId, timeoutMs)
+  }
+
+  override suspend fun readRecentOutputTail(): String
 
   fun sendText(text: String, shouldExecute: Boolean, useBracketedPasteMode: Boolean = true)
 
-  fun sendBackTab(): Boolean = false
+  suspend fun sendInitialMessageText(
+    text: String,
+    shouldExecute: Boolean,
+    useBracketedPasteMode: Boolean = true,
+  ) {
+    sendText(text, shouldExecute, useBracketedPasteMode)
+  }
 
   fun sendPendingContextAndExecute(text: String): AgentChatPendingContextSubmissionResult {
     if (text.isEmpty() || sessionState.value != TerminalViewSessionState.Running) {
@@ -266,6 +280,18 @@ private class ToolWindowAgentChatTerminalTab(
     sendNormalizedText(normalizedText, shouldExecute, useBracketedPasteMode)
   }
 
+  override suspend fun sendInitialMessageText(
+    text: String,
+    shouldExecute: Boolean,
+    useBracketedPasteMode: Boolean,
+  ) {
+    val normalizedText = text.trim()
+    if (normalizedText.isEmpty()) {
+      return
+    }
+    sendNormalizedText(normalizedText, shouldExecute, useBracketedPasteMode)
+  }
+
   private fun sendNormalizedText(text: String, shouldExecute: Boolean, useBracketedPasteMode: Boolean) {
     val sendTextBuilder = terminalView.createSendTextBuilder()
     if (useBracketedPasteMode) {
@@ -277,10 +303,6 @@ private class ToolWindowAgentChatTerminalTab(
     sendTextBuilder.send(text)
   }
 
-  override fun sendBackTab(): Boolean {
-    terminalView.createSendTextBuilder().send(TERMINAL_BACK_TAB_SEQUENCE)
-    return true
-  }
 }
 
 internal class AgentChatTerminalCommandTracker {
@@ -535,4 +557,3 @@ internal const val INITIAL_MESSAGE_POST_SEND_OUTPUT_IDLE_MS: Long = 150
 private const val POST_SEND_SCAN_LIMIT_CHARS: Long = 8_192
 private const val READINESS_SCAN_LIMIT_CHARS: Long = 8_192
 private const val TERMINAL_TAIL_SCAN_LIMIT_CHARS: Long = 4_096
-private const val TERMINAL_BACK_TAB_SEQUENCE: String = "\u001B[Z"

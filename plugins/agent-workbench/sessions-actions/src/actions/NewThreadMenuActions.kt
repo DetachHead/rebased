@@ -2,39 +2,44 @@
 package com.intellij.agent.workbench.sessions.actions
 
 // @spec community/plugins/agent-workbench/spec/sessions/agent-terminal-sessions.spec.md
+// @spec community/plugins/agent-workbench/spec/actions/new-thread.spec.md
 
-import com.intellij.agent.workbench.common.session.AgentSessionLaunchMode
-import com.intellij.agent.workbench.common.session.AgentSessionProvider
+import com.intellij.agent.workbench.chat.AgentChatDeferredStartContent
+import com.intellij.agent.workbench.prompt.core.AgentPromptInvocationData
 import com.intellij.agent.workbench.prompt.core.AgentPromptLaunchProfile
+import com.intellij.agent.workbench.prompt.core.AgentPromptLaunchRequest
+import com.intellij.agent.workbench.prompt.core.AgentPromptLaunchResult
+import com.intellij.agent.workbench.prompt.core.AgentPromptLauncherBridge
+import com.intellij.agent.workbench.prompt.core.AgentPromptLaunchers
+import com.intellij.agent.workbench.prompt.core.AgentPromptProjectPathCandidate
+import com.intellij.agent.workbench.prompt.core.AgentPromptReusableSourceEntry
+import com.intellij.agent.workbench.prompt.ui.emptyState.createAgentWorkbenchInlinePromptEditorHost
+import com.intellij.agent.workbench.prompt.ui.emptyState.createAgentWorkbenchInlineNewThreadPromptComponent
 import com.intellij.agent.workbench.sessions.AgentSessionsBundle
-import com.intellij.agent.workbench.sessions.buildAgentSessionProviderMenuActions
-import com.intellij.agent.workbench.sessions.core.providers.AgentSessionProviderActionModel
-import com.intellij.agent.workbench.sessions.core.providers.AgentSessionProviderDescriptor
-import com.intellij.agent.workbench.sessions.core.providers.AgentSessionProviderMenuItem
-import com.intellij.agent.workbench.sessions.core.providers.AgentSessionProviderMenuModel
-import com.intellij.agent.workbench.sessions.core.providers.buildAgentSessionProviderActionModel
-import com.intellij.agent.workbench.sessions.core.providers.buildAgentSessionProviderMenuModel
-import com.intellij.agent.workbench.sessions.core.providers.generationSettingsForPlanMode
-import com.intellij.agent.workbench.sessions.core.providers.hasEntries
-import com.intellij.agent.workbench.sessions.core.providers.initialMessageRequestForLaunchProfile
-import com.intellij.agent.workbench.sessions.core.statistics.AgentWorkbenchEntryPoint
+import com.intellij.agent.workbench.sessions.projectLabelForPath
+import com.intellij.platform.ai.agent.sessions.core.providers.initialMessageRequestForLaunchProfile
+import com.intellij.agent.workbench.sessions.statistics.AgentWorkbenchEntryPoint
+import com.intellij.agent.workbench.sessions.service.AgentDeferredNewSessionHandle
 import com.intellij.agent.workbench.sessions.service.AgentSessionLaunchService
-import com.intellij.agent.workbench.sessions.service.AgentSessionProviderAvailabilityService
-import com.intellij.agent.workbench.sessions.settings.AgentSessionProviderSettingsService
-import com.intellij.openapi.actionSystem.AnAction
+import com.intellij.agent.workbench.ui.AgentWorkbenchActionIds
+import com.intellij.platform.ai.agent.core.normalizeAgentWorkbenchPath
+import com.intellij.platform.ai.agent.core.session.AgentSessionProvider
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionProviderDescriptor
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionProviders
+import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
+import com.intellij.openapi.components.serviceAsync
+import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.project.Project
-import org.jetbrains.annotations.Nls
+import com.intellij.openapi.util.Disposer
+import com.intellij.openapi.util.registry.RegistryManager
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineName
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.launch
 
-fun createNewThreadViaService(
-  path: String,
-  provider: AgentSessionProvider,
-  mode: AgentSessionLaunchMode,
-  currentProject: Project,
-  entryPoint: AgentWorkbenchEntryPoint,
-) {
-  service<AgentSessionLaunchService>().createNewSession(path, provider, mode, entryPoint, currentProject)
-}
+internal const val AGENT_WORKBENCH_NEW_THREAD_INLINE_PROMPT_REGISTRY_KEY: String = "agent.workbench.new.thread.inline.prompt"
 
 fun createNewThreadViaService(
   path: String,
@@ -42,96 +47,183 @@ fun createNewThreadViaService(
   currentProject: Project,
   entryPoint: AgentWorkbenchEntryPoint,
 ) {
-  val provider = AgentSessionProvider.fromOrNull(profile.providerId) ?: return
+  val provider = AgentSessionProvider.from(profile.providerId)
+  val descriptor = AgentSessionProviders.find(provider)
+  if (!shouldOpenInlineNewThreadPrompt(descriptor)) {
+    createNewThreadDirectly(path = path, profile = profile, currentProject = currentProject, entryPoint = entryPoint)
+    return
+  }
+  service<AgentSessionsInlineNewThreadPromptService>().openInlinePrompt(
+    path = path,
+    profile = profile,
+    currentProject = currentProject,
+    entryPoint = entryPoint,
+  )
+}
+
+private fun shouldOpenInlineNewThreadPrompt(descriptor: AgentSessionProviderDescriptor?): Boolean {
+  return shouldOpenInlineNewThreadPrompt(
+    registryEnabled = RegistryManager.getInstance().get(AGENT_WORKBENCH_NEW_THREAD_INLINE_PROMPT_REGISTRY_KEY).asBoolean(),
+    descriptor = descriptor,
+  )
+}
+
+internal fun shouldOpenInlineNewThreadPrompt(
+  registryEnabled: Boolean,
+  descriptor: AgentSessionProviderDescriptor?,
+): Boolean = registryEnabled && descriptor?.supportsPromptLaunch == true
+
+private fun createNewThreadDirectly(
+  path: String,
+  profile: AgentPromptLaunchProfile,
+  currentProject: Project,
+  entryPoint: AgentWorkbenchEntryPoint,
+) {
   service<AgentSessionLaunchService>().createNewSession(
     path = path,
-    provider = provider,
-    mode = profile.launchMode,
+    launchProfileId = profile.id,
     entryPoint = entryPoint,
     currentProject = currentProject,
     initialMessageRequest = initialMessageRequestForLaunchProfile(profile),
-    generationSettings = generationSettingsForPlanMode(
-      generationSettings = profile.generationSettings,
-      startInPlanMode = false,
-    ),
   )
 }
 
-fun buildNewThreadMenuModel(
-  bridges: List<AgentSessionProviderDescriptor>,
-  project: Project,
-): AgentSessionProviderMenuModel {
-  val enabledBridges = service<AgentSessionProviderSettingsService>().enabledProviders(bridges)
-  return buildAgentSessionProviderMenuModel(enabledBridges, providerAvailabilitySnapshot(enabledBridges, project))
-}
-
-fun buildNewThreadActionModel(
-  bridges: List<AgentSessionProviderDescriptor>,
-  lastUsedProvider: AgentSessionProvider?,
-  lastUsedLaunchMode: AgentSessionLaunchMode? = null,
-  project: Project,
-): AgentSessionProviderActionModel {
-  val enabledBridges = service<AgentSessionProviderSettingsService>().enabledProviders(bridges)
-  return buildAgentSessionProviderActionModel(
-    bridges = enabledBridges,
-    lastUsedProvider = lastUsedProvider,
-    lastUsedLaunchMode = lastUsedLaunchMode,
-    availabilityByProvider = providerAvailabilitySnapshot(enabledBridges, project),
-  )
-}
-
-/**
- * Synchronous action updates and tree renderers cannot call [AgentSessionProviderDescriptor.isCliAvailable]
- * directly. They read the project-level availability cache instead and request a background refresh when
- * the cache has not been populated yet. Prominent providers are treated as enabled so first paint does not
- * disable every provider while startup prewarm is still running; discoverable providers stay hidden until
- * a background probe resolves them as available.
- */
-fun providerAvailabilitySnapshot(
-  bridges: List<AgentSessionProviderDescriptor>,
-  project: Project,
-): Map<AgentSessionProvider, Boolean> {
-  val availabilityService = project.service<AgentSessionProviderAvailabilityService>()
-  availabilityService.requestRefresh(bridges)
-  return availabilityService.availabilitySnapshot(bridges)
-}
-
-internal fun quickStartActionText(item: AgentSessionProviderMenuItem): @Nls String {
-  return AgentSessionsBundle.message(item.bridge.quickStartActionTextKey, quickStartLabel(item))
-}
-
-internal fun quickStartActionDescription(item: AgentSessionProviderMenuItem): @Nls String {
-  return AgentSessionsBundle.message(item.bridge.quickStartActionDescriptionKey, quickStartLabel(item))
-}
-
-internal fun quickStartLabel(item: AgentSessionProviderMenuItem): @Nls String {
-  val labelKey = if (item.mode == AgentSessionLaunchMode.STANDARD) item.bridge.quickStartLabelKey else item.labelKey
-  return AgentSessionsBundle.message(labelKey)
-}
-
-fun launchQuickStartThread(
-  path: String,
-  project: Project,
-  quickStartItem: AgentSessionProviderMenuItem?,
-  entryPoint: AgentWorkbenchEntryPoint,
-  createNewSession: (String, AgentSessionProvider, AgentSessionLaunchMode, Project, AgentWorkbenchEntryPoint) -> Unit,
+@Service(Service.Level.APP)
+internal class AgentSessionsInlineNewThreadPromptService internal constructor(
+  private val coroutineScope: CoroutineScope,
 ) {
-  val item = quickStartItem ?: return
-  createNewSession(path, item.bridge.provider, item.mode, project, entryPoint)
-}
-
-fun buildNewThreadMenuActions(
-  path: String,
-  project: Project,
-  menuModel: AgentSessionProviderMenuModel,
-  entryPoint: AgentWorkbenchEntryPoint,
-  createNewSession: (String, AgentSessionProvider, AgentSessionLaunchMode, Project, AgentWorkbenchEntryPoint) -> Unit,
-): Array<AnAction> {
-  if (!menuModel.hasEntries()) {
-    return emptyArray()
+  fun openInlinePrompt(
+    path: String,
+    profile: AgentPromptLaunchProfile,
+    currentProject: Project,
+    entryPoint: AgentWorkbenchEntryPoint,
+  ) {
+    coroutineScope.launch(CoroutineName("Agent Workbench inline New Thread prompt")) {
+      openInlinePromptSuspending(
+        path = path,
+        profile = profile,
+        currentProject = currentProject,
+        entryPoint = entryPoint,
+      )
+    }
   }
 
-  return buildAgentSessionProviderMenuActions(menuModel) { item ->
-    createNewSession(path, item.bridge.provider, item.mode, project, entryPoint)
+  private suspend fun openInlinePromptSuspending(
+    path: String,
+    profile: AgentPromptLaunchProfile,
+    currentProject: Project,
+    entryPoint: AgentWorkbenchEntryPoint,
+  ) {
+    val normalizedPath = normalizeAgentWorkbenchPath(path)
+    val provider = AgentSessionProvider.from(profile.providerId)
+    val handleDeferred = CompletableDeferred<AgentDeferredNewSessionHandle>()
+    val handle = try {
+      serviceAsync<AgentSessionLaunchService>().createDeferredNewSession(
+        path = normalizedPath,
+        provider = provider,
+        mode = profile.launchMode,
+        entryPoint = entryPoint,
+        launchProfileId = profile.id,
+        generationSettings = profile.generationSettings,
+        waitingTitle = AgentSessionsBundle.message("toolwindow.thread.preparing.title"),
+        deferredStartContentProvider = { project ->
+          createInlinePromptContent(
+            project = project,
+            path = normalizedPath,
+            profile = profile,
+            entryPoint = entryPoint,
+            handleDeferred = handleDeferred,
+          )
+        },
+      ).handle
+    }
+    catch (e: CancellationException) {
+      handleDeferred.cancel()
+      throw e
+    }
+    catch (e: Throwable) {
+      handleDeferred.cancel()
+      LOG.warn("Failed to open inline New Thread prompt for ${profile.providerId}:$normalizedPath", e)
+      createNewThreadDirectly(path = normalizedPath, profile = profile, currentProject = currentProject, entryPoint = entryPoint)
+      return
+    }
+
+    if (handle == null) {
+      handleDeferred.cancel()
+      createNewThreadDirectly(path = normalizedPath, profile = profile, currentProject = currentProject, entryPoint = entryPoint)
+      return
+    }
+    handleDeferred.complete(handle)
+  }
+
+  private fun createInlinePromptContent(
+    project: Project,
+    path: String,
+    profile: AgentPromptLaunchProfile,
+    entryPoint: AgentWorkbenchEntryPoint,
+    handleDeferred: CompletableDeferred<AgentDeferredNewSessionHandle>,
+  ): AgentChatDeferredStartContent {
+    val launcher = InlineNewThreadPromptLauncherBridge(projectPath = path, handleProvider = { handleDeferred.await() })
+    val component = createAgentWorkbenchInlineNewThreadPromptComponent(
+      project = project,
+      invocationData = AgentPromptInvocationData(
+        project = project,
+        actionId = AgentWorkbenchActionIds.Sessions.MainToolbar.NEW_THREAD,
+        actionText = AgentSessionsBundle.message("action.AgentWorkbenchSessions.MainToolbar.NewThread.text"),
+        actionPlace = entryPoint.name,
+        invokedAtMs = System.currentTimeMillis(),
+      ),
+      launcherProvider = { launcher },
+      initialLaunchProfileId = profile.id,
+    )
+    return AgentChatDeferredStartContent(
+      component = createAgentWorkbenchInlinePromptEditorHost(component),
+      preferredFocusedComponent = component.preferredFocusedComponent,
+      disposeContent = { Disposer.dispose(component) },
+    )
   }
 }
+
+private class InlineNewThreadPromptLauncherBridge(
+  private val projectPath: String,
+  private val handleProvider: suspend () -> AgentDeferredNewSessionHandle,
+  private val delegateProvider: () -> AgentPromptLauncherBridge? = AgentPromptLaunchers::find,
+) : AgentPromptLauncherBridge {
+  override suspend fun launch(request: AgentPromptLaunchRequest): AgentPromptLaunchResult {
+    return handleProvider().launch(request)
+  }
+
+  override fun loadProviderPreferences(): AgentPromptLauncherBridge.ProviderPreferences {
+    return delegateProvider()?.loadProviderPreferences() ?: AgentPromptLauncherBridge.ProviderPreferences()
+  }
+
+  override fun saveProviderPreferences(preferences: AgentPromptLauncherBridge.ProviderPreferences) {
+    delegateProvider()?.saveProviderPreferences(preferences)
+  }
+
+  override fun resolveWorkingProjectPath(invocationData: AgentPromptInvocationData): String {
+    return projectPath
+  }
+
+  override fun resolveSourceProject(invocationData: AgentPromptInvocationData): Project {
+    return delegateProvider()?.resolveSourceProject(invocationData) ?: invocationData.project
+  }
+
+  override fun listWorkingProjectPathCandidates(invocationData: AgentPromptInvocationData): List<AgentPromptProjectPathCandidate> {
+    return listOf(
+      AgentPromptProjectPathCandidate(
+        path = projectPath,
+        displayName = projectLabelForPath(projectPath),
+      )
+    )
+  }
+
+  override suspend fun listReusablePromptSourceEntries(
+    projectPath: String,
+    provider: AgentSessionProvider,
+  ): List<AgentPromptReusableSourceEntry> {
+    return delegateProvider()?.listReusablePromptSourceEntries(projectPath, provider).orEmpty()
+  }
+}
+
+private val LOG = logger<AgentSessionsInlineNewThreadPromptService>()

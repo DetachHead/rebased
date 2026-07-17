@@ -3,9 +3,8 @@ package com.intellij.agent.workbench.sessions.service
 
 import com.intellij.agent.workbench.chat.addContextToOpenTopLevelAgentChat
 import com.intellij.agent.workbench.chat.collectOpenAgentChatAddContextTargetCandidates
-import com.intellij.agent.workbench.common.normalizeAgentWorkbenchPath
-import com.intellij.agent.workbench.common.session.AgentSessionProvider
-import com.intellij.agent.workbench.prompt.core.AGENT_PROMPT_INVOCATION_DATA_CONTEXT_KEY
+import com.intellij.platform.ai.agent.core.normalizeAgentWorkbenchPath
+import com.intellij.platform.ai.agent.core.session.AgentSessionProvider
 import com.intellij.agent.workbench.prompt.core.AgentPromptAddContextTargetCandidate
 import com.intellij.agent.workbench.prompt.core.AgentPromptAddContextToTargetRequest
 import com.intellij.agent.workbench.prompt.core.AgentPromptAddContextToTargetResult
@@ -18,17 +17,18 @@ import com.intellij.agent.workbench.prompt.core.AgentPromptLaunchResult
 import com.intellij.agent.workbench.prompt.core.AgentPromptLauncherBridge
 import com.intellij.agent.workbench.prompt.core.AgentPromptProjectPathCandidate
 import com.intellij.agent.workbench.prompt.core.AgentPromptReusableSourceEntry
+import com.intellij.agent.workbench.prompt.core.dataContextOrNull
 import com.intellij.agent.workbench.prompt.core.getAgentPromptProjectPathContext
+import com.intellij.platform.ai.agent.sessions.core.paths.resolveAgentWorkbenchProjectDirectory
 import com.intellij.agent.workbench.sessions.frame.AgentWorkbenchDedicatedFrameProjectManager
 import com.intellij.agent.workbench.sessions.model.AgentSessionsState
 import com.intellij.agent.workbench.sessions.model.sortAgentSessionThreadsForDisplay
-import com.intellij.agent.workbench.sessions.core.providers.AgentSessionProviders
-import com.intellij.agent.workbench.sessions.core.statistics.AgentWorkbenchTelemetry
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionProviders
+import com.intellij.agent.workbench.sessions.statistics.AgentWorkbenchTelemetry
 import com.intellij.agent.workbench.sessions.state.AgentSessionUiPreferencesStateService
 import com.intellij.agent.workbench.sessions.util.isAgentSessionNewSessionId
 import com.intellij.ide.RecentProjectsManager
 import com.intellij.ide.RecentProjectsManagerBase
-import com.intellij.openapi.actionSystem.DataContext
 import com.intellij.openapi.components.service
 import com.intellij.openapi.project.Project
 import kotlinx.coroutines.flow.Flow
@@ -36,21 +36,24 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 
-internal class AgentSessionPromptLauncherBridge : AgentPromptLauncherBridge {
-  private val launchPromptRequest: (AgentPromptLaunchRequest) -> AgentPromptLaunchResult
-  private val stateFlowProvider: () -> StateFlow<AgentSessionsState>
-  private val pathStateResolver: (AgentSessionsState, String) -> AgentSessionPathState?
-  private val refreshCatalogAndLoadNewlyOpened: () -> Unit
-  private val refreshProviderForPath: (String, AgentSessionProvider) -> Unit
-  private val preferredProviderProvider: () -> AgentSessionProvider?
-  private val sourceProjectResolver: (String) -> Project?
-  private val providerPreferencesLoader: () -> AgentPromptLauncherBridge.ProviderPreferences
-  private val providerPreferencesSaver: (AgentPromptLauncherBridge.ProviderPreferences) -> Unit
-  private val addContextToOpenChatTargetHandler: suspend (AgentPromptAddContextToTargetRequest) -> AgentPromptAddContextToTargetResult
+internal class AgentSessionPromptLauncherBridge internal constructor(
+  private val launchPromptRequest: (AgentPromptLaunchRequest, Project?) -> AgentPromptLaunchResult,
+  private val stateFlowProvider: () -> StateFlow<AgentSessionsState>,
+  private val pathStateResolver: (AgentSessionsState, String) -> AgentSessionPathState?,
+  private val refreshCatalogAndLoadNewlyOpened: () -> Unit,
+  private val refreshProviderForPath: (String, AgentSessionProvider) -> Unit,
+  private val sourceProjectResolver: (String) -> Project? = ::findOpenSourceProjectByPath,
+  private val openProjectPathResolver: (Project) -> String? = ::resolveOpenProjectIdentityPath,
+  private val providerPreferencesLoader: () -> AgentPromptLauncherBridge.ProviderPreferences = { AgentPromptLauncherBridge.ProviderPreferences() },
+  private val providerPreferencesSaver: (AgentPromptLauncherBridge.ProviderPreferences) -> Unit = {},
+  private val addContextToOpenChatTargetHandler: suspend (AgentPromptAddContextToTargetRequest) -> AgentPromptAddContextToTargetResult = ::addContextItemsToOpenChatTarget,
+) : AgentPromptLauncherBridge {
 
   @Suppress("unused")
   constructor() : this(
-    launchPromptRequest = { request -> service<AgentSessionLaunchService>().launchPromptRequest(request) },
+    launchPromptRequest = { request, _ ->
+      service<AgentSessionLaunchService>().launchPromptRequest(request)
+    },
     stateFlowProvider = { service<AgentSessionReadService>().stateFlow() },
     pathStateResolver = ::resolveAgentSessionPathState,
     refreshCatalogAndLoadNewlyOpened = { service<AgentSessionRefreshService>().refreshCatalogAndLoadNewlyOpened() },
@@ -58,28 +61,28 @@ internal class AgentSessionPromptLauncherBridge : AgentPromptLauncherBridge {
       service<AgentSessionRefreshService>().refreshProviderForPath(path = path,
                                                                    provider = provider)
     },
-    preferredProviderProvider = { service<AgentSessionUiPreferencesStateService>().getLastUsedProvider() },
     providerPreferencesLoader = { service<AgentSessionUiPreferencesStateService>().getProviderPreferences() },
     providerPreferencesSaver = { prefs -> service<AgentSessionUiPreferencesStateService>().setProviderPreferences(prefs) },
     sourceProjectResolver = ::findOpenSourceProjectByPath,
-    addContextToOpenChatTarget = ::addContextItemsToOpenChatTarget,
+    openProjectPathResolver = ::resolveOpenProjectIdentityPath,
+    addContextToOpenChatTargetHandler = ::addContextItemsToOpenChatTarget,
   )
 
   internal constructor(
     launchPromptRequest: (AgentPromptLaunchRequest) -> AgentPromptLaunchResult,
   ) : this(
-    launchPromptRequest = launchPromptRequest,
+    launchPromptRequest = { request, _ -> launchPromptRequest(request) },
     stateFlowProvider = {
       error("stateFlowProvider is unavailable in this test setup")
     },
     pathStateResolver = ::resolveAgentSessionPathState,
     refreshCatalogAndLoadNewlyOpened = {},
     refreshProviderForPath = { _, _ -> },
-    preferredProviderProvider = { null },
     sourceProjectResolver = ::findOpenSourceProjectByPath,
+    openProjectPathResolver = ::resolveOpenProjectIdentityPath,
     providerPreferencesLoader = { AgentPromptLauncherBridge.ProviderPreferences() },
     providerPreferencesSaver = {},
-    addContextToOpenChatTarget = ::addContextItemsToOpenChatTarget,
+    addContextToOpenChatTargetHandler = ::addContextItemsToOpenChatTarget,
   )
 
   internal constructor(
@@ -88,25 +91,25 @@ internal class AgentSessionPromptLauncherBridge : AgentPromptLauncherBridge {
     pathStateResolver: (AgentSessionsState, String) -> AgentSessionPathState?,
     refreshCatalogAndLoadNewlyOpened: () -> Unit,
     refreshProviderForPath: (String, AgentSessionProvider) -> Unit,
-    preferredProviderProvider: () -> AgentSessionProvider?,
     sourceProjectResolver: (String) -> Project? = ::findOpenSourceProjectByPath,
+    openProjectPathResolver: (Project) -> String? = ::resolveOpenProjectIdentityPath,
     providerPreferencesLoader: () -> AgentPromptLauncherBridge.ProviderPreferences = { AgentPromptLauncherBridge.ProviderPreferences() },
     providerPreferencesSaver: (AgentPromptLauncherBridge.ProviderPreferences) -> Unit = {},
     addContextToOpenChatTarget: suspend (AgentPromptAddContextToTargetRequest) -> AgentPromptAddContextToTargetResult = ::addContextItemsToOpenChatTarget,
-  ) {
-    this.launchPromptRequest = launchPromptRequest
-    this.stateFlowProvider = stateFlowProvider
-    this.pathStateResolver = pathStateResolver
-    this.refreshCatalogAndLoadNewlyOpened = refreshCatalogAndLoadNewlyOpened
-    this.refreshProviderForPath = refreshProviderForPath
-    this.preferredProviderProvider = preferredProviderProvider
-    this.sourceProjectResolver = sourceProjectResolver
-    this.providerPreferencesLoader = providerPreferencesLoader
-    this.providerPreferencesSaver = providerPreferencesSaver
-    this.addContextToOpenChatTargetHandler = addContextToOpenChatTarget
-  }
+  ) : this(
+    launchPromptRequest = { request, _ -> launchPromptRequest(request) },
+    stateFlowProvider = stateFlowProvider,
+    pathStateResolver = pathStateResolver,
+    refreshCatalogAndLoadNewlyOpened = refreshCatalogAndLoadNewlyOpened,
+    refreshProviderForPath = refreshProviderForPath,
+    sourceProjectResolver = sourceProjectResolver,
+    openProjectPathResolver = openProjectPathResolver,
+    providerPreferencesLoader = providerPreferencesLoader,
+    providerPreferencesSaver = providerPreferencesSaver,
+    addContextToOpenChatTargetHandler = addContextToOpenChatTarget,
+  )
 
-  override fun launch(request: AgentPromptLaunchRequest): AgentPromptLaunchResult {
+  override suspend fun launch(request: AgentPromptLaunchRequest): AgentPromptLaunchResult {
     fun reportPromptLaunchResolved(result: AgentPromptLaunchResult): AgentPromptLaunchResult {
       AgentWorkbenchTelemetry.logPromptLaunchResolved(request, result)
       return result
@@ -130,11 +133,7 @@ internal class AgentSessionPromptLauncherBridge : AgentPromptLauncherBridge {
       containerLauncher.launch(project, request)
       return AgentPromptLaunchResult.SUCCESS
     }
-    return launchPromptRequest(request)
-  }
-
-  override fun preferredProvider(): AgentSessionProvider? {
-    return preferredProviderProvider()
+    return launchPromptRequest(request, sourceProjectResolver(request.projectPath))
   }
 
   override fun loadProviderPreferences(): AgentPromptLauncherBridge.ProviderPreferences {
@@ -160,7 +159,7 @@ internal class AgentSessionPromptLauncherBridge : AgentPromptLauncherBridge {
   }
 
   override fun listWorkingProjectPathCandidates(invocationData: AgentPromptInvocationData): List<AgentPromptProjectPathCandidate> {
-    return buildWorkingProjectPathCandidates(invocationData)
+    return buildWorkingProjectPathCandidates(invocationData, openProjectPathResolver)
   }
 
   override suspend fun listAddContextTargetCandidates(projectPath: String): List<AgentPromptAddContextTargetCandidate> {
@@ -175,7 +174,8 @@ internal class AgentSessionPromptLauncherBridge : AgentPromptLauncherBridge {
     projectPath: String,
     provider: AgentSessionProvider,
   ): List<AgentPromptReusableSourceEntry> {
-    return AgentSessionProviders.find(provider)?.listReusablePromptSourceEntries(projectPath) ?: emptyList()
+    val reusableSourceCwd = resolveReusablePromptSourceCwd(projectPath) ?: return emptyList()
+    return AgentSessionProviders.find(provider)?.listReusablePromptSourceEntries(reusableSourceCwd) ?: emptyList()
   }
 
   override fun observeExistingThreads(
@@ -206,9 +206,20 @@ internal class AgentSessionPromptLauncherBridge : AgentPromptLauncherBridge {
       }
     }
   }
+
+  private fun resolveReusablePromptSourceCwd(projectPath: String): String? {
+    val normalizedPath = normalizeOpenableSourceProjectPath(projectPath) ?: return null
+    val projectBasePath = sourceProjectResolver(normalizedPath)
+      ?.takeIf { project -> !AgentWorkbenchDedicatedFrameProjectManager.isDedicatedProject(project) }
+      ?.basePath
+    return resolveAgentWorkbenchProjectDirectory(identityPath = normalizedPath, projectBasePath = projectBasePath)
+  }
 }
 
-private fun buildWorkingProjectPathCandidates(invocationData: AgentPromptInvocationData): List<AgentPromptProjectPathCandidate> {
+private fun buildWorkingProjectPathCandidates(
+  invocationData: AgentPromptInvocationData,
+  openProjectPathResolver: (Project) -> String?,
+): List<AgentPromptProjectPathCandidate> {
   val project = invocationData.project
   val candidatesByPath = LinkedHashMap<String, AgentPromptProjectPathCandidate>()
 
@@ -225,9 +236,7 @@ private fun buildWorkingProjectPathCandidates(invocationData: AgentPromptInvocat
     )
   }
 
-  val currentProjectPath = project.basePath
-    ?.takeIf { it.isNotBlank() }
-    ?.let(::normalizeAgentWorkbenchPath)
+  val currentProjectPath = openProjectPathResolver(project)
   if (!AgentWorkbenchDedicatedFrameProjectManager.isDedicatedProject(project)) {
     addCandidate(path = currentProjectPath, displayName = project.name)
     return candidatesByPath.values.toList()
@@ -263,10 +272,6 @@ private suspend fun addContextItemsToOpenChatTarget(
     threadId = target.threadId,
     contextItems = request.contextItems,
   )
-}
-
-private fun AgentPromptInvocationData.dataContextOrNull(): DataContext? {
-  return attributes[AGENT_PROMPT_INVOCATION_DATA_CONTEXT_KEY] as? DataContext
 }
 
 private fun buildSnapshot(pathState: AgentSessionPathState?, provider: AgentSessionProvider): AgentPromptExistingThreadsSnapshot {

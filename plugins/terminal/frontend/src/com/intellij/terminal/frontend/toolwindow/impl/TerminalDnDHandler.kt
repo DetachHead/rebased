@@ -3,12 +3,14 @@ package com.intellij.terminal.frontend.toolwindow.impl
 import com.intellij.ide.DataManager
 import com.intellij.ide.dnd.DnDDropHandler
 import com.intellij.ide.dnd.DnDEvent
+import com.intellij.ide.dnd.DnDNativeTarget
 import com.intellij.ide.dnd.DnDSupport
 import com.intellij.ide.dnd.FileCopyPasteUtil.getFileListFromAttachedObject
 import com.intellij.ide.dnd.TransferableWrapper
 import com.intellij.openapi.actionSystem.DataContext
 import com.intellij.openapi.actionSystem.PlatformDataKeys
 import com.intellij.openapi.application.EDT
+import com.intellij.openapi.project.Project
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.openapi.vfs.toNioPathOrNull
 import com.intellij.openapi.wm.ex.ToolWindowEx
@@ -23,8 +25,12 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import org.jetbrains.plugins.terminal.fus.TerminalOpeningWay
+import org.jetbrains.plugins.terminal.fus.ReworkedTerminalUsageCollector
+import org.jetbrains.plugins.terminal.fus.TerminalCommandUsageStatistics
+import org.jetbrains.plugins.terminal.fus.TerminalInsertedContentSource
+import org.jetbrains.plugins.terminal.fus.TerminalInsertedContentType
 import org.jetbrains.plugins.terminal.fus.TerminalStartupFusInfo
+import org.jetbrains.plugins.terminal.fus.TerminalTabOpeningWay
 import java.nio.file.Path
 import kotlin.io.path.isDirectory
 
@@ -52,23 +58,46 @@ internal object TerminalDnDHandler {
     val dataContext = getDataContext(event) ?: return@DnDDropHandler
     val terminalView = dataContext.getData(TerminalView.DATA_KEY)
     if (terminalView != null) {
-      handleDropOnTerminalView(event, terminalView)
+      handleDropOnTerminalView(window.project, event, terminalView)
     }
     else {
       handleDropOnTab(window, coroutineScope, event, dataContext)
     }
   }
 
-  private fun handleDropOnTerminalView(event: DnDEvent, terminalView: TerminalView) {
+  private fun handleDropOnTerminalView(project: Project, event: DnDEvent, terminalView: TerminalView) {
     val data = TerminalDropData(event)
     val context = getTerminalContext(terminalView) ?: return
+    val fileSource = if (event.attachedObject is DnDNativeTarget.EventInfo) {
+      TerminalInsertedContentSource.EXTERNAL_APP
+    }
+    else TerminalInsertedContentSource.IDE
 
     terminalView.coroutineScope.launch {
-      val text = data.virtualFiles?.let { handleVirtualFiles(it, context) } ?: getPathAsText(data.paths, context)
+      val text = when {
+        data.virtualFiles.isNotEmpty() -> handleVirtualFiles(data.virtualFiles, context)
+        data.paths.isNotEmpty() -> getPathAsText(data.paths, context)
+        else -> null
+      }
+
+      if (text.isNullOrBlank()) {
+        return@launch
+      }
 
       terminalView.createSendTextBuilder()
         .useBracketedPasteMode()
         .send(text)
+
+      val commandLine = terminalView.getRunningProcessCommandLine()
+      val processExecutable = commandLine?.let {
+        TerminalCommandUsageStatistics.getLoggableCommandData(commandLine, expandAbsoluteOrRelativePath = true).command
+      }
+      ReworkedTerminalUsageCollector.logContentInserted(
+        project = project,
+        contentType = getDroppedContentType(data),
+        fileSource = fileSource,
+        processExecutable = processExecutable,
+      )
     }
   }
 
@@ -76,14 +105,24 @@ internal object TerminalDnDHandler {
     val contentManager = dataContext.getData(PlatformDataKeys.TOOL_WINDOW_CONTENT_MANAGER) ?: return
     val data = TerminalDropData(event)
 
+    val openingWay = if (event.attachedObject is DnDNativeTarget.EventInfo) {
+      TerminalTabOpeningWay.DND_FILE_TO_TOOLWINDOW_FROM_EXTERNAL_APP
+    }
+    else TerminalTabOpeningWay.DND_FILE_TO_TOOLWINDOW_FROM_IDE
+    val fusInfo = TerminalStartupFusInfo(openingWay)
+
     coroutineScope.launch {
-      val droppedFiles = data.virtualFiles?.mapNotNull { it.toNioPathOrNull() } ?: data.paths
-      val filePath = droppedFiles.firstOrNull()
-      if (!TerminalFilePathHandler.isSameEnvironment(filePath, window.project.getEelDescriptor()))
+      val droppedFiles = if (data.virtualFiles.isNotEmpty()) {
+        data.virtualFiles.mapNotNull { it.toNioPathOrNull() }
+      }
+      else data.paths
+
+      val filePath = droppedFiles.firstOrNull() ?: return@launch
+      if (!TerminalFilePathHandler.isSameEnvironment(filePath, window.project.getEelDescriptor())) {
         return@launch
+      }
 
       val dir = getDirectory(filePath) ?: return@launch
-      val fusInfo = TerminalStartupFusInfo(TerminalOpeningWay.DND_FILE_TO_TOOLWINDOW)
       withContext(Dispatchers.EDT) {
         createTerminalTab(
           window.project,
@@ -124,16 +163,38 @@ internal object TerminalDnDHandler {
     if (filePath == null) return null
     return if (filePath.isDirectory()) filePath else filePath.parent
   }
+
+  /**
+   * It is expected that passed [TerminalDropData] contains it least one file.
+   */
+  private fun getDroppedContentType(data: TerminalDropData): TerminalInsertedContentType {
+    return if (data.virtualFiles.isNotEmpty()) {
+      when {
+        data.virtualFiles.size > 1 -> TerminalInsertedContentType.MULTIPLE_ITEMS
+        data.virtualFiles.single().isDirectory -> TerminalInsertedContentType.DIRECTORY
+        else -> TerminalInsertedContentType.FILE
+      }
+    }
+    else if (data.paths.isNotEmpty()) {
+      when {
+        data.paths.size > 1 -> TerminalInsertedContentType.MULTIPLE_ITEMS
+        data.paths.single().isDirectory() -> TerminalInsertedContentType.DIRECTORY
+        else -> TerminalInsertedContentType.FILE
+      }
+    }
+    else error("It is expected that passed TerminalDropData contains it least one file")
+  }
 }
 
 internal class TerminalDropData(event: DnDEvent) {
-  val virtualFiles: List<VirtualFile>? = (event.attachedObject as? TransferableWrapper)
+  val virtualFiles: List<VirtualFile> = (event.attachedObject as? TransferableWrapper)
     ?.getPsiElements()
     ?.filterIsInstance<PsiFileSystemItem>()
     ?.map { it.virtualFile }
-    ?.takeIf { it.isNotEmpty() }
+    ?: emptyList()
 
-  val paths: List<Path> = if (virtualFiles == null)
+  val paths: List<Path> = if (virtualFiles.isEmpty()) {
     getFileListFromAttachedObject(event.attachedObject).map { it.toPath() }
+  }
   else emptyList()
 }

@@ -1,7 +1,7 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.agent.workbench.sessions
 
-import com.intellij.agent.workbench.common.session.AgentSessionProvider
+import com.intellij.platform.ai.agent.core.session.AgentSessionProvider
 import com.intellij.agent.workbench.sessions.model.AgentSessionProviderLoadState
 import com.intellij.testFramework.junit5.TestApplication
 import kotlinx.coroutines.CompletableDeferred
@@ -27,7 +27,7 @@ class AgentSessionRefreshConcurrencyIntegrationTest {
       sessionSourcesProvider = {
         listOf(
           ScriptedSessionSource(
-            provider = AgentSessionProvider.CLAUDE,
+            provider = AgentSessionProvider.from("claude"),
             listFromOpenProject = { path, _ ->
               if (path != PROJECT_PATH) {
                 emptyList()
@@ -42,7 +42,7 @@ class AgentSessionRefreshConcurrencyIntegrationTest {
                     secondRefreshObserved.complete(Unit)
                   }
                 }
-                listOf(thread(id = "claude-1", updatedAt = 200, provider = AgentSessionProvider.CLAUDE))
+                listOf(thread(id = "claude-1", updatedAt = 200, provider = AgentSessionProvider.from("claude")))
               }
             },
           ),
@@ -63,7 +63,7 @@ class AgentSessionRefreshConcurrencyIntegrationTest {
 
       waitForCondition {
         val project = service.state.value.projects.firstOrNull { it.path == PROJECT_PATH } ?: return@waitForCondition false
-        project.providerLoadStates[AgentSessionProvider.CLAUDE] == AgentSessionProviderLoadState.LOADED &&
+        project.providerLoadStates[AgentSessionProvider.from("claude")] == AgentSessionProviderLoadState.LOADED &&
         openInvocationCount.get() == 2
       }
 

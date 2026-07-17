@@ -1,14 +1,15 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.agent.workbench.sessions.service
 
-import com.intellij.agent.workbench.common.AgentThreadActivity
-import com.intellij.agent.workbench.common.isWorking
-import com.intellij.agent.workbench.common.session.AgentSessionCost
-import com.intellij.agent.workbench.common.session.AgentSessionProvider
-import com.intellij.agent.workbench.common.session.AgentSessionThread
+import com.intellij.platform.ai.agent.core.AgentThreadActivity
+import com.intellij.platform.ai.agent.core.isWorking
+import com.intellij.platform.ai.agent.core.session.AgentSessionCost
+import com.intellij.platform.ai.agent.core.session.AgentSessionProvider
+import com.intellij.platform.ai.agent.core.session.AgentSessionThread
 import com.intellij.agent.workbench.sessions.AgentSessionCostPresentationSettings
-import com.intellij.agent.workbench.sessions.core.providers.AgentSessionSource
-import com.intellij.agent.workbench.sessions.core.normalizeConcreteAgentSessionThreadId
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionSource
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionCostSource
+import com.intellij.platform.ai.agent.sessions.core.normalizeConcreteAgentSessionThreadId
 import com.intellij.agent.workbench.sessions.model.AgentSessionsState
 import com.intellij.agent.workbench.sessions.state.AgentSessionsStateStore
 import com.intellij.agent.workbench.sessions.state.DEFAULT_VISIBLE_THREAD_COUNT
@@ -26,6 +27,7 @@ import kotlin.time.Duration.Companion.milliseconds
 
 private val LOG = logger<AgentSessionVisibleCostHydrationSupport>()
 private val VISIBLE_COST_HYDRATION_DELAY = 750.milliseconds
+private const val WORKING_THREAD_COST_CACHE_TTL_MS = 60_000L
 
 internal class AgentSessionVisibleCostHydrationSupport(
   private val serviceScope: CoroutineScope,
@@ -63,15 +65,15 @@ internal class AgentSessionVisibleCostHydrationSupport(
     }
 
     val now = currentTimeMillis()
-    val sourcesByProvider = sessionSourcesProvider().associateBy { source -> source.provider }
+    val sourcesByProvider = sessionSourcesProvider()
+      .asSequence()
+      .mapNotNull { source -> source as? AgentSessionCostSource }
+      .associateBy { source -> source.provider }
     val cachedUpdatesByPath = LinkedHashMap<String, MutableMap<AgentSessionProvider, MutableMap<String, ThreadCostUpdate>>>()
-    val loadRequests = LinkedHashMap<Pair<AgentSessionSource, String>, MutableList<VisibleThreadSnapshot>>()
+    val loadRequests = LinkedHashMap<Pair<AgentSessionCostSource, String>, MutableList<VisibleThreadSnapshot>>()
 
     for (visibleThread in visibleThreads) {
       if (normalizeConcreteAgentSessionThreadId(visibleThread.threadId) == null) {
-        continue
-      }
-      if (visibleThread.activity.isWorking) {
         continue
       }
 
@@ -87,7 +89,7 @@ internal class AgentSessionVisibleCostHydrationSupport(
       }
 
       val effectiveCacheEntry = costCache[cacheKey]
-      if (effectiveCacheEntry != null && effectiveCacheEntry.updatedAt == visibleThread.updatedAt) {
+      if (effectiveCacheEntry != null && shouldReuseCachedCost(visibleThread, effectiveCacheEntry, now)) {
         if (visibleThread.cost != effectiveCacheEntry.cost) {
           cachedUpdatesByPath
             .getOrPut(visibleThread.path) { LinkedHashMap() }
@@ -204,6 +206,20 @@ internal class AgentSessionVisibleCostHydrationSupport(
         )
       }
   }
+}
+
+private fun shouldReuseCachedCost(
+  visibleThread: VisibleThreadSnapshot,
+  cacheEntry: ThreadCostCacheEntry,
+  nowMs: Long,
+): Boolean {
+  if (cacheEntry.updatedAt != visibleThread.updatedAt) {
+    return false
+  }
+  if (!visibleThread.activity.isWorking) {
+    return true
+  }
+  return nowMs - cacheEntry.refreshedAtMs < WORKING_THREAD_COST_CACHE_TTL_MS
 }
 
 internal data class ThreadCostUpdate(

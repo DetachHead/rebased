@@ -1,7 +1,7 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.agent.workbench.sessions.toolwindow.ui
 
-import com.intellij.agent.workbench.common.session.AgentSessionProvider
+import com.intellij.platform.ai.agent.core.session.AgentSessionProvider
 import com.intellij.agent.workbench.sessions.model.AgentProjectSessions
 import com.intellij.agent.workbench.sessions.model.AgentSessionsState
 import com.intellij.agent.workbench.sessions.state.AgentSessionTreeUiStateService
@@ -131,6 +131,7 @@ private fun ensureVisible(
   when (id) {
     is SessionTreeId.Project -> ensureProjectVisible(id.path)
     is SessionTreeId.Worktree -> ensureProjectVisible(id.projectPath)
+    is SessionTreeId.TaskFolder -> ensureProjectVisible(id.projectPath)
     is SessionTreeId.Thread -> {
       ensureProjectVisible(id.projectPath)
       ensureThreadVisible(id.projectPath, id.provider, id.threadId)
@@ -150,6 +151,8 @@ private fun ensureVisible(
     is SessionTreeId.Warning,
     is SessionTreeId.Error,
     is SessionTreeId.Empty,
+    is SessionTreeId.Pinned,
+    is SessionTreeId.PinnedSeparator,
     is SessionTreeId.MoreProjects,
     is SessionTreeId.MoreThreads,
     is SessionTreeId.WorktreeWarning,

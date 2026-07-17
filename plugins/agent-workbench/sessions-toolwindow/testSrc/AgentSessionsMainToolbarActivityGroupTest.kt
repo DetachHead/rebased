@@ -1,10 +1,10 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.agent.workbench.sessions.toolwindow
 
-import com.intellij.agent.workbench.common.AgentThreadActivity
-import com.intellij.agent.workbench.common.AgentWorkbenchActionIds
-import com.intellij.agent.workbench.common.session.AgentSessionProvider
-import com.intellij.agent.workbench.common.session.AgentSessionThread
+import com.intellij.platform.ai.agent.core.AgentThreadActivity
+import com.intellij.agent.workbench.ui.AgentWorkbenchActionIds
+import com.intellij.platform.ai.agent.core.session.AgentSessionProvider
+import com.intellij.platform.ai.agent.core.session.AgentSessionThread
 import com.intellij.agent.workbench.sessions.AgentSessionsBundle
 import com.intellij.agent.workbench.sessions.model.AgentSessionsState
 import com.intellij.agent.workbench.sessions.toolwindow.ui.AGENT_SESSIONS_CHROME_ACTIVITY_FRESHNESS_MILLIS
@@ -286,7 +286,7 @@ class AgentSessionsMainToolbarActivityGroupTest {
             path = "/work/project-a",
             name = "Project A",
             isOpen = true,
-            providerLoadStates = loadedProviderStates(AgentSessionProvider.CODEX),
+            providerLoadStates = loadedProviderStates(AgentSessionProvider.from("codex")),
             threads = listOf(
               thread("attention", AgentThreadActivity.NEEDS_INPUT, updatedAt),
               thread("done", AgentThreadActivity.UNREAD, updatedAt),
@@ -296,7 +296,7 @@ class AgentSessionsMainToolbarActivityGroupTest {
             path = "/work/project-b",
             name = "Project B",
             isOpen = true,
-            providerLoadStates = loadedProviderStates(AgentSessionProvider.CODEX),
+            providerLoadStates = loadedProviderStates(AgentSessionProvider.from("codex")),
             threads = listOf(thread("running", AgentThreadActivity.PROCESSING, updatedAt)),
           ),
         ),
@@ -312,7 +312,7 @@ class AgentSessionsMainToolbarActivityGroupTest {
             path = "/work/project-a",
             name = "Project A",
             isOpen = true,
-            providerLoadStates = loadedProviderStates(AgentSessionProvider.CODEX),
+            providerLoadStates = loadedProviderStates(AgentSessionProvider.from("codex")),
             threads = listOf(thread("attention", AgentThreadActivity.NEEDS_INPUT, 1_000)),
           )
         ),
@@ -327,7 +327,7 @@ class AgentSessionsMainToolbarActivityGroupTest {
       updatedAt = updatedAt,
       archived = false,
       activity = activity,
-      provider = AgentSessionProvider.CODEX,
+      provider = AgentSessionProvider.from("codex"),
       summaryActivity = activity,
     )
   }

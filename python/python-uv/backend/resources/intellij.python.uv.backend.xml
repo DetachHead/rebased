@@ -4,7 +4,7 @@
     <module name="intellij.toml.core"/>
     <module name="intellij.platform.backend"/>
     <!-- region Generated dependencies - run `Generate Product Layouts` to regenerate -->
-    <module name="intellij.python.common"/>
+    <module name="intellij.python.community.common"/>
     <module name="intellij.python.community"/>
     <module name="intellij.python.community.execService"/>
     <module name="intellij.python.pyproject"/>
@@ -13,6 +13,6 @@
     <!-- endregion -->
   </dependencies>
   <extensions defaultExtensionNs="com.intellij.python.pyproject.model">
-    <tool implementation="com.intellij.python.uv.backend.UvTool"/>
+    <pyprojectmanager implementation="com.intellij.python.uv.backend.UvPyProjectManager"/>
   </extensions>
 </idea-plugin>

@@ -4,8 +4,9 @@
   <!-- region Generated dependencies - run `Generate Product Layouts` to regenerate -->
   <dependencies>
     <module name="intellij.agent.workbench.sessions"/>
-    <module name="intellij.agent.workbench.sessions.actions"/>
-    <module name="intellij.agent.workbench.sessions.core"/>
+    <module name="intellij.agent.workbench.settings"/>
+    <module name="intellij.agent.workbench.ui"/>
+    <module name="intellij.platform.ai.agent.sessions.core"/>
   </dependencies>
   <!-- endregion -->
 
@@ -20,12 +21,4 @@
   <extensions defaultExtensionNs="com.intellij.agent.workbench">
     <settingsContributor implementation="com.intellij.agent.workbench.sessions.jbcentral.JbCentralQuotaSettingsContributor"/>
   </extensions>
-
-  <actions resource-bundle="messages.AgentSessionsBundle">
-    <action
-      id="AgentWorkbenchSessions.ToggleJbCentralQuotaWidget"
-      class="com.intellij.agent.workbench.sessions.jbcentral.AgentSessionsToggleJbCentralQuotaWidgetAction">
-      <add-to-group group-id="AgentWorkbenchSessions.ToolWindow.GearActions" anchor="after" relative-to-action="AgentWorkbenchSessions.ToggleSessionCost"/>
-    </action>
-  </actions>
 </idea-plugin>

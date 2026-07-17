@@ -29,7 +29,7 @@
       <sourceFolder url="file://$MODULE_DIR$/testData" type="java-test-resource" />
     </content>
     <content url="file://$MODULE_DIR$/testSrc">
-      <sourceFolder url="file://$MODULE_DIR$/testSrc" isTestSource="true" packagePrefix="com.intellij.agent.workbench.sessions.jbcentral" />
+      <sourceFolder url="file://$MODULE_DIR$/testSrc" isTestSource="true" packagePrefix="com.intellij.agent.workbench.sessions" />
     </content>
     <orderEntry type="inheritedJdk" />
     <orderEntry type="sourceFolder" forTests="false" />
@@ -48,7 +48,9 @@
     <orderEntry type="module" module-name="intellij.platform.ide.core" scope="TEST" />
     <orderEntry type="module" module-name="intellij.agent.workbench.sessions" scope="TEST" />
     <orderEntry type="module" module-name="intellij.agent.workbench.sessions.actions" scope="RUNTIME" />
-    <orderEntry type="module" module-name="intellij.agent.workbench.sessions.core" scope="TEST" />
+    <orderEntry type="module" module-name="intellij.agent.workbench.settings" scope="TEST" />
+    <orderEntry type="module" module-name="intellij.platform.ai.agent.sessions.core" scope="TEST" />
+    <orderEntry type="module" module-name="intellij.agent.workbench.ui" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.projectModel" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.util" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.util.ui" scope="TEST" />

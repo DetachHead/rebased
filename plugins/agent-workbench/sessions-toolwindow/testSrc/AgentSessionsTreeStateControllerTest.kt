@@ -1,13 +1,13 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.agent.workbench.sessions.toolwindow
 
-import com.intellij.agent.workbench.chat.AgentChatOpenPendingTabsState
+import com.intellij.agent.workbench.chat.AgentChatOpenTabsPresentationState
 import com.intellij.agent.workbench.chat.AgentChatPendingTabSnapshot
 import com.intellij.agent.workbench.chat.AgentChatTabSelection
-import com.intellij.agent.workbench.common.AgentThreadActivity
-import com.intellij.agent.workbench.common.buildAgentThreadIdentity
-import com.intellij.agent.workbench.common.session.AgentSessionProvider
-import com.intellij.agent.workbench.common.session.AgentSessionThread
+import com.intellij.platform.ai.agent.core.AgentThreadActivity
+import com.intellij.platform.ai.agent.core.buildAgentThreadIdentity
+import com.intellij.platform.ai.agent.core.session.AgentSessionProvider
+import com.intellij.platform.ai.agent.core.session.AgentSessionThread
 import com.intellij.agent.workbench.sessions.model.AgentArchivedSessionsState
 import com.intellij.agent.workbench.sessions.model.AgentSessionArchivedRangePreset
 import com.intellij.agent.workbench.sessions.model.AgentSessionThreadViewMode
@@ -57,7 +57,7 @@ class AgentSessionsTreeStateControllerTest {
 
       waitForCondition {
         harness.invalidatedDiffs.size == 1 &&
-        harness.model.entriesById.containsKey(SessionTreeId.Thread(PROJECT_PATH, AgentSessionProvider.CODEX, "thread-2"))
+        harness.model.entriesById.containsKey(SessionTreeId.Thread(PROJECT_PATH, AgentSessionProvider.from("codex"), "thread-2"))
       }
     }
     finally {
@@ -73,7 +73,7 @@ class AgentSessionsTreeStateControllerTest {
       harness.sessionsState.value = stateWithThread("thread-1")
 
       waitForCondition {
-        harness.model.entriesById.containsKey(SessionTreeId.Thread(PROJECT_PATH, AgentSessionProvider.CODEX, "thread-1")) &&
+        harness.model.entriesById.containsKey(SessionTreeId.Thread(PROJECT_PATH, AgentSessionProvider.from("codex"), "thread-1")) &&
         harness.selectedIds.isNotEmpty()
       }
       harness.selectedIds.clear()
@@ -95,80 +95,13 @@ class AgentSessionsTreeStateControllerTest {
 
       waitForCondition {
         harness.selectedIds.any { ids ->
-          ids == listOf(SessionTreeId.Thread(PROJECT_PATH, AgentSessionProvider.CODEX, "thread-1"))
+          ids == listOf(SessionTreeId.Thread(PROJECT_PATH, AgentSessionProvider.from("codex"), "thread-1"))
         }
       }
       assertThat(harness.invalidatedDiffs).isEmpty()
     }
     finally {
       runInEdtAndWait { harness.controller.dispose() }
-    }
-  }
-
-  @Test
-  fun selectedThreadDoneIsMarkedReadWhenSelectionLeavesIt() {
-    runBlocking {
-      val harness = createHarness()
-      try {
-        runInEdtAndWait { harness.controller.start() }
-        harness.sessionsState.value = stateWithThread("thread-1", activity = AgentThreadActivity.READY, updatedAt = 100)
-
-        waitForCondition {
-          harness.model.entriesById.containsKey(SessionTreeId.Thread(PROJECT_PATH, AgentSessionProvider.CODEX, "thread-1"))
-        }
-        harness.selectedChatTab.value = thread1ChatSelection()
-        waitForCondition {
-          harness.selectedIds.any { ids ->
-            ids == listOf(SessionTreeId.Thread(PROJECT_PATH, AgentSessionProvider.CODEX, "thread-1"))
-          }
-        }
-        harness.readMarks.clear()
-        harness.invalidatedDiffs.clear()
-
-        harness.sessionsState.value = stateWithThread("thread-1", activity = AgentThreadActivity.UNREAD, updatedAt = 200)
-
-        waitForCondition {
-          harness.controller.displayedStateSnapshot().projects.firstOrNull()
-            ?.threads
-            ?.singleOrNull()
-            ?.activity == AgentThreadActivity.UNREAD && harness.invalidatedDiffs.isNotEmpty()
-        }
-        assertThat(harness.readMarks).isEmpty()
-
-        harness.selectedChatTab.value = null
-
-        val expectedReadMark = ReadMark(PROJECT_PATH, AgentSessionProvider.CODEX, "thread-1", 200)
-        waitForCondition { harness.readMarks.contains(expectedReadMark) }
-        assertThat(harness.readMarks).containsExactly(expectedReadMark)
-      }
-      finally {
-        runInEdtAndWait { harness.controller.dispose() }
-      }
-    }
-  }
-
-  @Test
-  fun selectingDoneThreadMarksItReadImmediately() {
-    runBlocking {
-      val harness = createHarness()
-      try {
-        runInEdtAndWait { harness.controller.start() }
-        harness.sessionsState.value = stateWithThread("thread-1", activity = AgentThreadActivity.UNREAD, updatedAt = 300)
-
-        waitForCondition {
-          harness.model.entriesById.containsKey(SessionTreeId.Thread(PROJECT_PATH, AgentSessionProvider.CODEX, "thread-1"))
-        }
-        harness.readMarks.clear()
-
-        harness.selectedChatTab.value = thread1ChatSelection()
-
-        val expectedReadMark = ReadMark(PROJECT_PATH, AgentSessionProvider.CODEX, "thread-1", 300)
-        waitForCondition { harness.readMarks.contains(expectedReadMark) }
-        assertThat(harness.readMarks).containsExactly(expectedReadMark)
-      }
-      finally {
-        runInEdtAndWait { harness.controller.dispose() }
-      }
     }
   }
 
@@ -181,21 +114,21 @@ class AgentSessionsTreeStateControllerTest {
 
       waitForCondition {
         harness.model.entriesById.containsKey(SessionTreeId.Project(PROJECT_PATH)) &&
-        !harness.model.entriesById.containsKey(SessionTreeId.Thread(PROJECT_PATH, AgentSessionProvider.CODEX, "new-pending"))
+        !harness.model.entriesById.containsKey(SessionTreeId.Thread(PROJECT_PATH, AgentSessionProvider.from("codex"), "new-pending"))
       }
 
-      harness.pendingChatTabsState.value = pendingState()
+      harness.openChatTabsPresentationState.value = pendingState()
 
       waitForCondition {
-        harness.model.entriesById.containsKey(SessionTreeId.Thread(PROJECT_PATH, AgentSessionProvider.CODEX, "new-pending"))
+        harness.model.entriesById.containsKey(SessionTreeId.Thread(PROJECT_PATH, AgentSessionProvider.from("codex"), "new-pending"))
       }
       assertThat(harness.controller.displayedStateSnapshot().projects.single().threads.single().id).isEqualTo("new-pending")
       assertThat(harness.sessionsState.value.projects.single().threads).isEmpty()
 
-      harness.pendingChatTabsState.value = AgentChatOpenPendingTabsState.EMPTY
+      harness.openChatTabsPresentationState.value = AgentChatOpenTabsPresentationState.EMPTY
 
       waitForCondition {
-        !harness.model.entriesById.containsKey(SessionTreeId.Thread(PROJECT_PATH, AgentSessionProvider.CODEX, "new-pending"))
+        !harness.model.entriesById.containsKey(SessionTreeId.Thread(PROJECT_PATH, AgentSessionProvider.from("codex"), "new-pending"))
       }
       assertThat(harness.sessionsState.value.projects.single().threads).isEmpty()
     }
@@ -210,10 +143,10 @@ class AgentSessionsTreeStateControllerTest {
     try {
       runInEdtAndWait { harness.controller.start() }
       harness.sessionsState.value = openProjectStateWithoutThreads()
-      harness.pendingChatTabsState.value = pendingState()
+      harness.openChatTabsPresentationState.value = pendingState()
 
       waitForCondition {
-        harness.model.entriesById.containsKey(SessionTreeId.Thread(PROJECT_PATH, AgentSessionProvider.CODEX, "new-pending"))
+        harness.model.entriesById.containsKey(SessionTreeId.Thread(PROJECT_PATH, AgentSessionProvider.from("codex"), "new-pending"))
       }
 
       harness.threadViewState.value = AgentSessionThreadViewState(
@@ -222,7 +155,7 @@ class AgentSessionsTreeStateControllerTest {
       )
 
       waitForCondition {
-        !harness.model.entriesById.containsKey(SessionTreeId.Thread(PROJECT_PATH, AgentSessionProvider.CODEX, "new-pending")) &&
+        !harness.model.entriesById.containsKey(SessionTreeId.Thread(PROJECT_PATH, AgentSessionProvider.from("codex"), "new-pending")) &&
         harness.controller.displayedStateSnapshot().projects.isEmpty()
       }
     }
@@ -232,8 +165,168 @@ class AgentSessionsTreeStateControllerTest {
   }
 
   @Test
+  fun currentProjectScopeFiltersActiveTreeToCurrentProject() {
+    runBlocking {
+      val harness = createHarness()
+      try {
+        harness.currentProjectOnly = true
+        harness.currentProjectPath = PROJECT_PATH
+        runInEdtAndWait { harness.controller.start() }
+
+        harness.sessionsState.value = AgentSessionsState(
+          projects = listOf(
+            projectWithThread(PROJECT_PATH, "Project A", "current-thread"),
+            projectWithThread(OTHER_PROJECT_PATH, "Project B", "other-thread"),
+          ),
+          lastUpdatedAt = 1,
+        )
+
+        waitForCondition {
+          harness.model.entriesById.containsKey(SessionTreeId.Thread(PROJECT_PATH, AgentSessionProvider.from("codex"), "current-thread")) &&
+          !harness.model.entriesById.containsKey(SessionTreeId.Thread(OTHER_PROJECT_PATH, AgentSessionProvider.from("codex"), "other-thread"))
+        }
+        assertThat(harness.controller.displayedStateSnapshot().projects.map { it.path }).containsExactly(PROJECT_PATH)
+        val projectTreeId = SessionTreeId.Project(PROJECT_PATH)
+        val threadTreeId = SessionTreeId.Thread(PROJECT_PATH, AgentSessionProvider.from("codex"), "current-thread")
+        assertThat(harness.model.rootIds)
+          .containsExactly(threadTreeId)
+        assertThat(harness.model.entriesById).doesNotContainKey(projectTreeId)
+        assertThat(harness.model.entriesById.getValue(threadTreeId).parentId).isNull()
+      }
+      finally {
+        runInEdtAndWait { harness.controller.dispose() }
+      }
+    }
+  }
+
+  @Test
+  fun currentProjectScopeChangeRebuildsTree() = runBlocking {
+    val harness = createHarness()
+    try {
+      harness.currentProjectPath = PROJECT_PATH
+      runInEdtAndWait { harness.controller.start() }
+      harness.sessionsState.value = AgentSessionsState(
+        projects = listOf(
+          projectWithThread(PROJECT_PATH, "Project A", "current-thread"),
+          projectWithThread(OTHER_PROJECT_PATH, "Project B", "other-thread"),
+        ),
+        lastUpdatedAt = 1,
+      )
+
+      waitForCondition {
+        harness.model.entriesById.containsKey(SessionTreeId.Thread(OTHER_PROJECT_PATH, AgentSessionProvider.from("codex"), "other-thread"))
+      }
+
+      harness.currentProjectOnly = true
+      runInEdtAndWait { harness.controller.projectScopeChanged() }
+
+      waitForCondition {
+        !harness.model.entriesById.containsKey(SessionTreeId.Thread(OTHER_PROJECT_PATH, AgentSessionProvider.from("codex"), "other-thread")) &&
+        harness.model.entriesById.containsKey(SessionTreeId.Thread(PROJECT_PATH, AgentSessionProvider.from("codex"), "current-thread"))
+      }
+    }
+    finally {
+      runInEdtAndWait { harness.controller.dispose() }
+    }
+  }
+
+  @Test
+  fun currentProjectScopePromotesMatchingWorktreeWithoutParentProjectContainer() {
+    runBlocking {
+      val harness = createHarness()
+      try {
+        harness.currentProjectOnly = true
+        harness.currentProjectPath = WORKTREE_PATH
+        runInEdtAndWait { harness.controller.start() }
+        harness.sessionsState.value = AgentSessionsState(
+          projects = listOf(
+            AgentProjectSessions(
+              path = PROJECT_PATH,
+              name = "Project A",
+              isOpen = true,
+              providerLoadStates = loadedProviderStates(AgentSessionProvider.from("codex")),
+              threads = listOf(thread("parent-thread")),
+              worktrees = listOf(
+                AgentWorktree(
+                  path = WORKTREE_PATH,
+                  name = "feature",
+                  branch = "feature",
+                  isOpen = true,
+                  threads = listOf(thread("worktree-thread")),
+                ),
+                AgentWorktree(
+                  path = OTHER_WORKTREE_PATH,
+                  name = "other",
+                  branch = "other",
+                  isOpen = false,
+                  threads = listOf(thread("other-worktree-thread")),
+                ),
+              ),
+            ),
+          ),
+          lastUpdatedAt = 1,
+        )
+
+        waitForCondition {
+          harness.model.entriesById.containsKey(SessionTreeId.WorktreeThread(PROJECT_PATH,
+                                                                             WORKTREE_PATH,
+                                                                             AgentSessionProvider.from("codex"),
+                                                                             "worktree-thread"))
+        }
+        val projectTreeId = SessionTreeId.Project(PROJECT_PATH)
+        val worktreeTreeId = SessionTreeId.Worktree(PROJECT_PATH, WORKTREE_PATH)
+        assertThat(harness.model.rootIds).containsExactly(worktreeTreeId)
+        assertThat(harness.model.entriesById).doesNotContainKey(projectTreeId)
+        assertThat(harness.model.entriesById.getValue(worktreeTreeId).parentId).isNull()
+        assertThat(harness.model.entriesById)
+          .doesNotContainKey(SessionTreeId.Thread(PROJECT_PATH,
+                                                  AgentSessionProvider.from("codex"),
+                                                  "parent-thread"))
+        assertThat(harness.model.entriesById)
+          .doesNotContainKey(SessionTreeId.WorktreeThread(PROJECT_PATH,
+                                                          OTHER_WORKTREE_PATH,
+                                                          AgentSessionProvider.from("codex"),
+                                                          "other-worktree-thread"))
+        assertThat(harness.controller.displayedStateSnapshot().projects.single().worktrees.map { it.path }).containsExactly(WORKTREE_PATH)
+      }
+      finally {
+        runInEdtAndWait { harness.controller.dispose() }
+      }
+    }
+  }
+
+  @Test
+  fun currentProjectScopeFiltersArchivedTreeToCurrentProject() = runBlocking {
+    val harness = createHarness()
+    try {
+      harness.currentProjectOnly = true
+      harness.currentProjectPath = PROJECT_PATH
+      runInEdtAndWait { harness.controller.start() }
+      harness.archivedSessionsState.value = AgentArchivedSessionsState(
+        projects = listOf(
+          projectWithThread(PROJECT_PATH, "Project A", "current-archived"),
+          projectWithThread(OTHER_PROJECT_PATH, "Project B", "other-archived"),
+        ),
+        lastUpdatedAt = 1,
+      )
+      harness.threadViewState.value = AgentSessionThreadViewState(
+        mode = AgentSessionThreadViewMode.ARCHIVED,
+        archivedRangePreset = AgentSessionArchivedRangePreset.ALL,
+      )
+
+      waitForCondition {
+        harness.model.entriesById.containsKey(SessionTreeId.Thread(PROJECT_PATH, AgentSessionProvider.from("codex"), "current-archived")) &&
+        !harness.model.entriesById.containsKey(SessionTreeId.Thread(OTHER_PROJECT_PATH, AgentSessionProvider.from("codex"), "other-archived"))
+      }
+    }
+    finally {
+      runInEdtAndWait { harness.controller.dispose() }
+    }
+  }
+
+  @Test
   fun contentOnlyDiffWithUnchangedSelectionDoesNotNeedSelectionApply() {
-    val selected = listOf(SessionTreeId.Thread(PROJECT_PATH, AgentSessionProvider.CODEX, "thread-1"))
+    val selected = listOf(SessionTreeId.Thread(PROJECT_PATH, AgentSessionProvider.from("codex"), "thread-1"))
     val diff = SessionTreeModelDiff(
       rootChanged = false,
       structureChangedIds = emptySet(),
@@ -251,6 +344,117 @@ class AgentSessionsTreeStateControllerTest {
     ).isFalse()
   }
 
+  @Test
+  fun pinnedOpenChatPresentationAddsPinnedSectionAboveProjectRows() = runBlocking {
+    val harness = createHarness()
+    try {
+      runInEdtAndWait { harness.controller.start() }
+      harness.sessionsState.value = AgentSessionsState(
+        projects = listOf(
+          AgentProjectSessions(
+            path = PROJECT_PATH,
+            name = "Project A",
+            isOpen = true,
+            providerLoadStates = loadedProviderStates(AgentSessionProvider.from("codex")),
+            threads = listOf(
+              thread("recent", updatedAt = 300),
+              thread("pinned", updatedAt = 100),
+            ),
+          )
+        ),
+        lastUpdatedAt = 1,
+      )
+
+      waitForCondition {
+        val projectEntry = harness.model.entriesById[SessionTreeId.Project(PROJECT_PATH)]
+        projectEntry?.childIds?.firstOrNull() == SessionTreeId.Thread(PROJECT_PATH, AgentSessionProvider.from("codex"), "recent")
+      }
+
+      harness.openChatTabsPresentationState.value = AgentChatOpenTabsPresentationState(
+        pinnedTopLevelThreadIdsByProvider = mapOf(
+          AgentSessionProvider.from("codex") to mapOf(PROJECT_PATH to setOf("pinned"))
+        )
+      )
+
+      waitForCondition {
+        val pinnedThreadId = SessionTreeId.Thread(PROJECT_PATH, AgentSessionProvider.from("codex"), "pinned")
+        val pinnedEntry = harness.model.entriesById[SessionTreeId.Pinned]
+        val projectEntry = harness.model.entriesById[SessionTreeId.Project(PROJECT_PATH)]
+        harness.model.rootIds.firstOrNull() == SessionTreeId.Pinned &&
+        pinnedEntry?.childIds == listOf(pinnedThreadId) &&
+        harness.model.entriesById[pinnedThreadId]?.parentId == SessionTreeId.Pinned &&
+        projectEntry?.childIds?.firstOrNull() == SessionTreeId.Thread(PROJECT_PATH, AgentSessionProvider.from("codex"), "recent") &&
+        projectEntry.childIds.none { it == pinnedThreadId }
+      }
+    }
+    finally {
+      runInEdtAndWait { harness.controller.dispose() }
+    }
+  }
+
+  @Test
+  fun currentProjectScopeKeepsFlatRowsWhenLastPinnedThreadIsUnpinned() = runBlocking {
+    val harness = createHarness()
+    try {
+      harness.currentProjectOnly = true
+      harness.currentProjectPath = PROJECT_PATH
+      runInEdtAndWait { harness.controller.start() }
+      harness.sessionsState.value = AgentSessionsState(
+        projects = listOf(
+          AgentProjectSessions(
+            path = PROJECT_PATH,
+            name = "Project A",
+            isOpen = true,
+            providerLoadStates = loadedProviderStates(AgentSessionProvider.from("codex")),
+            threads = listOf(
+              thread("recent", updatedAt = 300),
+              thread("pinned", updatedAt = 100),
+            ),
+          ),
+          projectWithThread(OTHER_PROJECT_PATH, "Project B", "other-thread"),
+        ),
+        lastUpdatedAt = 1,
+      )
+
+      val projectTreeId = SessionTreeId.Project(PROJECT_PATH)
+      val recentThreadId = SessionTreeId.Thread(PROJECT_PATH, AgentSessionProvider.from("codex"), "recent")
+      val pinnedThreadId = SessionTreeId.Thread(PROJECT_PATH, AgentSessionProvider.from("codex"), "pinned")
+      waitForCondition {
+        harness.model.rootIds == listOf(recentThreadId, pinnedThreadId) &&
+        !harness.model.entriesById.containsKey(projectTreeId) &&
+        !harness.model.entriesById.containsKey(SessionTreeId.Project(OTHER_PROJECT_PATH))
+      }
+
+      harness.openChatTabsPresentationState.value = AgentChatOpenTabsPresentationState(
+        pinnedTopLevelThreadIdsByProvider = mapOf(
+          AgentSessionProvider.from("codex") to mapOf(PROJECT_PATH to setOf("pinned"))
+        )
+      )
+
+      waitForCondition {
+        val pinnedEntry = harness.model.entriesById[SessionTreeId.Pinned]
+        harness.model.rootIds == listOf(SessionTreeId.Pinned, pinnedThreadId, SessionTreeId.PinnedSeparator, recentThreadId) &&
+        pinnedEntry?.childIds?.isEmpty() == true &&
+        harness.model.entriesById[pinnedThreadId]?.parentId == null &&
+        harness.model.entriesById[recentThreadId]?.parentId == null &&
+        !harness.model.entriesById.containsKey(projectTreeId)
+      }
+
+      harness.openChatTabsPresentationState.value = AgentChatOpenTabsPresentationState.EMPTY
+
+      waitForCondition {
+        harness.model.rootIds == listOf(recentThreadId, pinnedThreadId) &&
+        !harness.model.entriesById.containsKey(SessionTreeId.Pinned) &&
+        harness.model.entriesById[recentThreadId]?.parentId == null &&
+        harness.model.entriesById[pinnedThreadId]?.parentId == null &&
+        !harness.model.entriesById.containsKey(projectTreeId)
+      }
+    }
+    finally {
+      runInEdtAndWait { harness.controller.dispose() }
+    }
+  }
+
   private fun createHarness(): ControllerHarness {
     var harness: ControllerHarness? = null
     runInEdtAndWait { harness = ControllerHarness() }
@@ -259,34 +463,41 @@ class AgentSessionsTreeStateControllerTest {
 }
 
 private const val PROJECT_PATH = "/work/project-a"
+private const val OTHER_PROJECT_PATH = "/work/project-b"
+private const val WORKTREE_PATH = "/work/project-a-feature"
+private const val OTHER_WORKTREE_PATH = "/work/project-a-other"
 
 private class ControllerHarness {
   val sessionsState = MutableStateFlow(AgentSessionsState())
   val archivedSessionsState = MutableStateFlow(AgentArchivedSessionsState())
   val threadViewState = MutableStateFlow(AgentSessionThreadViewState())
   val selectedChatTab = MutableStateFlow<AgentChatTabSelection?>(null)
-  val pendingChatTabsState = MutableStateFlow(AgentChatOpenPendingTabsState.EMPTY)
+  val openChatTabsPresentationState = MutableStateFlow(AgentChatOpenTabsPresentationState.EMPTY)
   val invalidatedDiffs: MutableList<SessionTreeModelDiff> = Collections.synchronizedList(mutableListOf<SessionTreeModelDiff>())
   val selectedIds: MutableList<List<SessionTreeId>> = Collections.synchronizedList(mutableListOf<List<SessionTreeId>>())
-  val readMarks: MutableList<ReadMark> = Collections.synchronizedList(mutableListOf<ReadMark>())
 
   @Volatile
   var model: SessionTreeModel = SessionTreeModel.EMPTY
+
+  @Volatile
+  var currentProjectOnly: Boolean = false
+
+  @Volatile
+  var currentProjectPath: String? = PROJECT_PATH
 
   val controller = AgentSessionsTreeStateController(
     sessionsStateFlow = sessionsState,
     archivedSessionsStateFlow = archivedSessionsState,
     threadViewStateFlow = threadViewState,
     selectedChatTabFlow = selectedChatTab,
-    pendingChatTabsStateFlow = pendingChatTabsState,
-    markThreadAsRead = { path, provider, threadId, updatedAt ->
-      readMarks += ReadMark(path, provider, threadId, updatedAt)
-    },
+    openChatTabsPresentationStateFlow = openChatTabsPresentationState,
     ensureArchivedSessionsLoaded = {},
     tree = Tree(),
     getSessionTreeModel = { model },
     setSessionTreeModel = { model = it },
-    onLastUsedProviderChanged = {},
+    onNewThreadProfileMenuChanged = {},
+    isCurrentProjectScopeEnabled = { currentProjectOnly },
+    currentProjectPathProvider = { currentProjectPath },
     onBeforeModelSwap = {},
     invalidateTreeModel = { diff ->
       invalidatedDiffs += diff
@@ -302,13 +513,6 @@ private class ControllerHarness {
   )
 }
 
-private data class ReadMark(
-  val path: String,
-  val provider: AgentSessionProvider,
-  val threadId: String,
-  val updatedAt: Long,
-)
-
 private fun stateWithThread(
   threadId: String,
   activity: AgentThreadActivity = AgentThreadActivity.READY,
@@ -320,14 +524,14 @@ private fun stateWithThread(
         path = PROJECT_PATH,
         name = "Project A",
         isOpen = true,
-        providerLoadStates = loadedProviderStates(AgentSessionProvider.CODEX),
+        providerLoadStates = loadedProviderStates(AgentSessionProvider.from("codex")),
         threads = listOf(
           AgentSessionThread(
             id = threadId,
             title = threadId,
             updatedAt = updatedAt,
             archived = false,
-            provider = AgentSessionProvider.CODEX,
+            provider = AgentSessionProvider.from("codex"),
             activity = activity,
           )
         ),
@@ -350,16 +554,41 @@ private fun openProjectStateWithoutThreads(): AgentSessionsState {
   )
 }
 
-private fun pendingState(): AgentChatOpenPendingTabsState {
+private fun projectWithThread(path: String, name: String, threadId: String): AgentProjectSessions {
+  return AgentProjectSessions(
+    path = path,
+    name = name,
+    isOpen = true,
+    providerLoadStates = loadedProviderStates(AgentSessionProvider.from("codex")),
+    threads = listOf(thread(threadId)),
+  )
+}
+
+private fun thread(
+  threadId: String,
+  activity: AgentThreadActivity = AgentThreadActivity.READY,
+  updatedAt: Long = 100,
+): AgentSessionThread {
+  return AgentSessionThread(
+    id = threadId,
+    title = threadId,
+    updatedAt = updatedAt,
+    archived = false,
+    provider = AgentSessionProvider.from("codex"),
+    activity = activity,
+  )
+}
+
+private fun pendingState(): AgentChatOpenTabsPresentationState {
   val threadId = "new-pending"
-  return AgentChatOpenPendingTabsState(
-    mapOf(
-      AgentSessionProvider.CODEX to mapOf(
+  return AgentChatOpenTabsPresentationState(
+    pendingTabsByProvider = mapOf(
+      AgentSessionProvider.from("codex") to mapOf(
         PROJECT_PATH to listOf(
           AgentChatPendingTabSnapshot(
             projectPath = PROJECT_PATH,
             pendingTabKey = "pending-$threadId",
-            pendingThreadIdentity = buildAgentThreadIdentity(AgentSessionProvider.CODEX.value, threadId),
+            pendingThreadIdentity = buildAgentThreadIdentity(AgentSessionProvider.from("codex").value, threadId),
             pendingCreatedAtMs = 700L,
             pendingFirstInputAtMs = null,
             pendingLaunchMode = "standard",
@@ -367,15 +596,6 @@ private fun pendingState(): AgentChatOpenPendingTabsState {
         )
       )
     )
-  )
-}
-
-private fun thread1ChatSelection(): AgentChatTabSelection {
-  return AgentChatTabSelection(
-    projectPath = PROJECT_PATH,
-    threadIdentity = "codex:thread-1",
-    threadId = "thread-1",
-    subAgentId = null,
   )
 }
 

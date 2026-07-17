@@ -1,8 +1,9 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.agent.workbench.sessions.service
 
-import com.intellij.agent.workbench.common.normalizeAgentWorkbenchPath
-import com.intellij.agent.workbench.sessions.core.providers.AgentSessionSource
+import com.intellij.platform.ai.agent.core.normalizeAgentWorkbenchPath
+import com.intellij.platform.ai.agent.sessions.core.paths.resolveAgentWorkbenchProjectDirectory
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionSource
 import com.intellij.agent.workbench.sessions.model.hasAnyProviderSnapshot
 import com.intellij.agent.workbench.sessions.state.AgentSessionsStateStore
 import kotlinx.coroutines.CoroutineScope
@@ -16,26 +17,30 @@ internal class AgentSessionOnDemandLoadSupport(
   private val stateStore: AgentSessionsStateStore,
   private val threadLoadSupport: AgentSessionThreadLoadSupport,
   private val sessionSourcesProvider: () -> List<AgentSessionSource>,
+  loadingDelayMs: Long = DEFAULT_AGENT_SESSION_LOADING_DELAY_MS,
 ) {
   private val onDemandMutex = Mutex()
   private val onDemandLoading = LinkedHashSet<String>()
   private val onDemandWorktreeLoading = LinkedHashSet<String>()
+  private val pathLoadController = AgentSessionPathLoadController(loadingDelayMs)
 
   fun loadProjectThreadsOnDemand(path: String) {
     serviceScope.launch(Dispatchers.IO) {
       val normalized = normalizeAgentWorkbenchPath(path)
       if (!markOnDemandLoading(normalized)) return@launch
       try {
-        stateStore.updateProject(normalized) { project ->
-          val loadingProviderLoadStates = buildLoadingProviderLoadStates(sessionSourcesProvider().map { source -> source.provider })
-          project.copy(
-            errorMessage = null,
-            providerWarnings = emptyList(),
-            providerLoadStates = mergeProviderLoadStates(project.providerLoadStates, loadingProviderLoadStates),
-            providersWithUnknownThreadCount = project.providersWithUnknownThreadCount - loadingProviderLoadStates.keys,
+        val loadingProviderLoadStates = buildLoadingProviderLoadStates(sessionSourcesProvider().map { source -> source.provider })
+        val result = pathLoadController.runWithDelayedLoading(
+          providerLoadStates = { loadingProviderLoadStates },
+          publishLoading = { providerLoadStates ->
+            stateStore.updateProject(normalized) { project -> project.withLoadingProviderLoadStates(providerLoadStates) }
+          },
+        ) {
+          threadLoadSupport.loadThreadsFromClosedProject(
+            path = normalized,
+            projectDirectory = resolveClosedProjectDirectory(path = normalized),
           )
         }
-        val result = threadLoadSupport.loadThreadsFromClosedProject(path = normalized)
         stateStore.updateProject(normalized) { project ->
           project.copy(
             threads = result.threads,
@@ -58,16 +63,20 @@ internal class AgentSessionOnDemandLoadSupport(
       val normalizedWorktree = normalizeAgentWorkbenchPath(worktreePath)
       if (!markWorktreeOnDemandLoading(normalizedProject, normalizedWorktree)) return@launch
       try {
-        stateStore.updateWorktree(normalizedProject, normalizedWorktree) { worktree ->
-          val loadingProviderLoadStates = buildLoadingProviderLoadStates(sessionSourcesProvider().map { source -> source.provider })
-          worktree.copy(
-            errorMessage = null,
-            providerWarnings = emptyList(),
-            providerLoadStates = mergeProviderLoadStates(worktree.providerLoadStates, loadingProviderLoadStates),
-            providersWithUnknownThreadCount = worktree.providersWithUnknownThreadCount - loadingProviderLoadStates.keys,
+        val loadingProviderLoadStates = buildLoadingProviderLoadStates(sessionSourcesProvider().map { source -> source.provider })
+        val result = pathLoadController.runWithDelayedLoading(
+          providerLoadStates = { loadingProviderLoadStates },
+          publishLoading = { providerLoadStates ->
+            stateStore.updateWorktree(normalizedProject, normalizedWorktree) { worktree ->
+              worktree.withLoadingProviderLoadStates(providerLoadStates)
+            }
+          },
+        ) {
+          threadLoadSupport.loadThreadsFromClosedProject(
+            path = normalizedWorktree,
+            projectDirectory = resolveClosedProjectDirectory(path = normalizedWorktree),
           )
         }
-        val result = threadLoadSupport.loadThreadsFromClosedProject(path = normalizedWorktree)
         stateStore.updateWorktree(normalizedProject, normalizedWorktree) { worktree ->
           worktree.copy(
             threads = result.threads,
@@ -113,5 +122,10 @@ internal class AgentSessionOnDemandLoadSupport(
     onDemandMutex.withLock {
       onDemandWorktreeLoading.remove(worktreePath)
     }
+  }
+
+  private fun resolveClosedProjectDirectory(path: String): String? {
+    return stateStore.findProjectDirectory(path)
+           ?: resolveAgentWorkbenchProjectDirectory(identityPath = path)
   }
 }

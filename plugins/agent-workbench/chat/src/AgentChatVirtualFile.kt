@@ -1,14 +1,19 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.agent.workbench.chat
 
-import com.intellij.agent.workbench.common.AgentThreadActivity
-import com.intellij.agent.workbench.common.session.AgentSessionProvider
+import com.intellij.platform.ai.agent.core.AgentThreadActivity
+import com.intellij.platform.ai.agent.core.AgentThreadActivityReport
+import com.intellij.platform.ai.agent.core.session.AgentSessionProvider
 import com.intellij.agent.workbench.prompt.core.AgentPromptGenerationSettings
-import com.intellij.agent.workbench.sessions.core.providers.AgentInitialMessageDispatchAction
-import com.intellij.agent.workbench.sessions.core.providers.AgentInitialMessageDispatchCompletionPolicy
-import com.intellij.agent.workbench.sessions.core.providers.AgentInitialMessageDispatchStep
-import com.intellij.agent.workbench.sessions.core.providers.AgentInitialMessageTimeoutPolicy
-import com.intellij.agent.workbench.sessions.core.providers.AgentSessionTerminalLaunchSpec
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentInitialPromptDeliveryChannel
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentInitialPromptDeliveryStatus
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentInitialPromptRecord
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentInitialMessageDispatchAction
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentInitialMessageDispatchStep
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentInitialMessageMode
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentInitialMessageTimeoutPolicy
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionTerminalLaunchSpec
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentTerminalPromptDispatch
 import com.intellij.openapi.diagnostic.debug
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.fileEditor.FileEditorManagerKeys
@@ -39,7 +44,7 @@ data class AgentChatDeferredStartState(
 internal class AgentChatVirtualFile internal constructor(
   private val fileSystem: AgentChatVirtualFileSystem,
   resolution: AgentChatTabResolution,
-) : LightVirtualFile(resolveFileName(resolution.tabKey.value)), EditorHistoryManager.IncludeInEditorHistoryFile {
+) : LightVirtualFile(resolveFileName(resolution.tabKey.value)), EditorHistoryManager.IncludeInEditorHistoryFile, AgentChatBehaviorFile {
   private val key: AgentChatTabKey = resolution.tabKey
 
   val tabKey: String
@@ -51,19 +56,22 @@ internal class AgentChatVirtualFile internal constructor(
   var projectPath: String = ""
     private set
 
+  var projectDirectory: String? = null
+    private set
+
   var threadIdentity: String = ""
     private set
 
-  var provider: AgentSessionProvider? = null
+  override var provider: AgentSessionProvider? = null
     private set
 
   var sessionId: String = ""
     private set
 
-  var isPendingThread: Boolean = false
+  override var isPendingThread: Boolean = false
     private set
 
-  var subAgentId: String? = null
+  override var subAgentId: String? = null
     private set
 
   @Volatile
@@ -84,20 +92,23 @@ internal class AgentChatVirtualFile internal constructor(
   var bootstrapThreadTitle: String = resolveThreadTitle("")
     private set
 
-  var bootstrapThreadActivity: AgentThreadActivity = AgentThreadActivity.READY
+  var bootstrapThreadActivityReport: AgentThreadActivityReport = AgentThreadActivityReport.READY
     private set
+
+  val bootstrapThreadActivity: AgentThreadActivity
+    get() = bootstrapThreadActivityReport.rowActivity
 
   @get:NlsSafe
   val threadTitle: String
     get() = resolveAgentChatThreadPresentation(this).title
 
-  val threadActivity: AgentThreadActivity
+  override val threadActivity: AgentThreadActivity
     get() = resolveAgentChatThreadPresentation(this).activity
 
   var pendingCreatedAtMs: Long? = null
     private set
 
-  var pendingFirstInputAtMs: Long? = null
+  override var pendingFirstInputAtMs: Long? = null
     private set
 
   var pendingLaunchMode: String? = null
@@ -106,30 +117,36 @@ internal class AgentChatVirtualFile internal constructor(
   var launchMode: String? = null
     private set
 
+  var launchProfileId: String? = null
+    private set
+
   var generationSettings: AgentPromptGenerationSettings = AgentPromptGenerationSettings.AUTO
     private set
 
   var newThreadRebindRequestedAtMs: Long? = null
     private set
 
-  var initialMessageDispatchSteps: List<AgentInitialMessageDispatchStep> = emptyList()
-    private set
+  private var initialPromptRecord: AgentInitialPromptRecord? = null
 
-  var initialMessageDispatchStepIndex: Int = 0
-    private set
+  private var terminalPromptDispatch: AgentTerminalPromptDispatch? = null
+
+  val initialMessageDispatchSteps: List<AgentInitialMessageDispatchStep>
+    get() = terminalPromptDispatch?.steps.orEmpty()
+
+  val initialMessageDispatchStepIndex: Int
+    get() = terminalPromptDispatch?.stepIndex ?: 0
 
   val initialComposedMessage: String?
-    get() = initialMessageDispatchSteps
-      .asSequence()
-      .drop(initialMessageDispatchStepIndex)
-      .firstOrNull { step -> step.action == AgentInitialMessageDispatchAction.SEND_TEXT && step.text.isNotBlank() }
-      ?.text
+    get() = initialPromptRecord?.message
 
-  var initialMessageToken: String? = null
-    private set
+  val initialMessageToken: String?
+    get() = initialPromptRecord?.token
 
-  var initialMessageSent: Boolean = false
-    private set
+  override val initialMessageMode: AgentInitialMessageMode?
+    get() = initialPromptRecord?.mode
+
+  val initialMessageSent: Boolean
+    get() = initialPromptRecord?.deliveryStatus == AgentInitialPromptDeliveryStatus.DELIVERED
 
   private var initialMessageDispatchInFlight: AgentChatInitialMessageDispatch? = null
 
@@ -201,17 +218,21 @@ internal class AgentChatVirtualFile internal constructor(
   }
 
   fun updateBootstrapThreadActivity(threadActivity: AgentThreadActivity): Boolean {
-    if (bootstrapThreadActivity == threadActivity) {
+    return updateBootstrapThreadActivityReport(AgentThreadActivityReport(threadActivity))
+  }
+
+  fun updateBootstrapThreadActivityReport(activityReport: AgentThreadActivityReport): Boolean {
+    if (bootstrapThreadActivityReport == activityReport) {
       LOG.debug {
-        "Skipped chat bootstrap activity update(identity=$threadIdentity, subAgentId=$subAgentId): unchanged activity=$threadActivity"
+        "Skipped chat bootstrap activity update(identity=$threadIdentity, subAgentId=$subAgentId): unchanged activity=$activityReport"
       }
       return false
     }
 
-    val oldActivity = bootstrapThreadActivity
-    bootstrapThreadActivity = threadActivity
+    val oldActivity = bootstrapThreadActivityReport
+    bootstrapThreadActivityReport = activityReport
     LOG.debug {
-      "Updated chat bootstrap activity(identity=$threadIdentity, subAgentId=$subAgentId): oldActivity=$oldActivity newActivity=$threadActivity"
+      "Updated chat bootstrap activity(identity=$threadIdentity, subAgentId=$subAgentId): oldActivity=$oldActivity newActivity=$activityReport"
     }
     return true
   }
@@ -313,6 +334,15 @@ internal class AgentChatVirtualFile internal constructor(
     return true
   }
 
+  fun updateLaunchProfileId(launchProfileId: String?): Boolean {
+    val normalized = launchProfileId?.trim()?.takeIf(String::isNotEmpty)
+    if (this.launchProfileId == normalized) {
+      return false
+    }
+    this.launchProfileId = normalized
+    return true
+  }
+
   fun updateGenerationSettings(generationSettings: AgentPromptGenerationSettings): Boolean {
     if (this.generationSettings == generationSettings) {
       return false
@@ -330,38 +360,46 @@ internal class AgentChatVirtualFile internal constructor(
   }
 
   @Synchronized
+  fun updateInitialPromptDelivery(
+    promptRecord: AgentInitialPromptRecord?,
+    terminalDispatch: AgentTerminalPromptDispatch?,
+  ): Boolean {
+    val normalizedTerminalDispatch = terminalDispatch
+      ?.normalized()
+      ?.takeIf { promptRecord?.deliveryStatus != AgentInitialPromptDeliveryStatus.DELIVERED }
+    if (this.initialPromptRecord == promptRecord && this.terminalPromptDispatch == normalizedTerminalDispatch) {
+      return false
+    }
+    this.initialPromptRecord = promptRecord
+    this.terminalPromptDispatch = normalizedTerminalDispatch
+    initialMessageDispatchInFlight = null
+    return true
+  }
+
+  @Synchronized
   fun updateInitialMessageMetadata(
     initialMessageDispatchSteps: List<AgentInitialMessageDispatchStep>,
     initialMessageDispatchStepIndex: Int,
     initialMessageToken: String?,
     initialMessageSent: Boolean,
   ): Boolean {
-    val normalizedSteps = initialMessageDispatchSteps.filter(AgentInitialMessageDispatchStep::isDispatchable)
-    val normalizedStepIndex = initialMessageDispatchStepIndex.coerceIn(0, normalizedSteps.size)
-    if (
-      this.initialMessageDispatchSteps == normalizedSteps &&
-      this.initialMessageDispatchStepIndex == normalizedStepIndex &&
-      this.initialMessageToken == initialMessageToken &&
-      this.initialMessageSent == initialMessageSent
-    ) {
-      return false
-    }
-    this.initialMessageDispatchSteps = normalizedSteps
-    this.initialMessageDispatchStepIndex = normalizedStepIndex
-    this.initialMessageToken = initialMessageToken
-    this.initialMessageSent = initialMessageSent
-    initialMessageDispatchInFlight = null
-    return true
+    val terminalDispatch = AgentTerminalPromptDispatch(
+      steps = initialMessageDispatchSteps,
+      stepIndex = initialMessageDispatchStepIndex,
+    ).normalized()
+    return updateInitialPromptDelivery(
+      promptRecord = buildInitialPromptRecord(
+        steps = terminalDispatch?.steps.orEmpty(),
+        token = initialMessageToken,
+        sent = initialMessageSent,
+      ),
+      terminalDispatch = terminalDispatch.takeUnless { initialMessageSent },
+    )
   }
 
   @Synchronized
   fun clearInitialMessageDispatchMetadata(): Boolean {
-    return updateInitialMessageMetadata(
-      initialMessageDispatchSteps = emptyList(),
-      initialMessageDispatchStepIndex = 0,
-      initialMessageToken = null,
-      initialMessageSent = false,
-    )
+    return updateInitialPromptDelivery(promptRecord = null, terminalDispatch = null)
   }
 
   @Synchronized
@@ -376,12 +414,23 @@ internal class AgentChatVirtualFile internal constructor(
       ?.takeIf { it.isNotEmpty() }
       ?.let { message -> listOf(AgentInitialMessageDispatchStep(text = message, timeoutPolicy = initialMessageTimeoutPolicy)) }
       .orEmpty()
-    val stepIndex = if (steps.isEmpty() || !initialMessageSent) 0 else steps.size
     return updateInitialMessageMetadata(
       initialMessageDispatchSteps = steps,
-      initialMessageDispatchStepIndex = stepIndex,
+      initialMessageDispatchStepIndex = 0,
       initialMessageToken = initialMessageToken,
       initialMessageSent = initialMessageSent,
+    )
+  }
+
+  @Synchronized
+  fun markInitialPromptDelivered(deliveryChannel: AgentInitialPromptDeliveryChannel): Boolean {
+    val promptRecord = initialPromptRecord ?: return false
+    return updateInitialPromptDelivery(
+      promptRecord = promptRecord.copy(
+        deliveryStatus = AgentInitialPromptDeliveryStatus.DELIVERED,
+        deliveryChannel = deliveryChannel,
+      ),
+      terminalDispatch = null,
     )
   }
 
@@ -397,7 +446,8 @@ internal class AgentChatVirtualFile internal constructor(
 
   @Synchronized
   fun acquireInitialMessageDispatch(): AgentChatInitialMessageDispatch? {
-    val stepIndex = initialMessageDispatchStepIndex
+    val terminalDispatch = terminalPromptDispatch ?: return null
+    val stepIndex = terminalDispatch.stepIndex
     val currentStep = currentPendingInitialMessageStep() ?: return null
     val message = currentStep.text.trim()
     if (currentStep.action == AgentInitialMessageDispatchAction.SEND_TEXT && message.isEmpty()) {
@@ -419,7 +469,6 @@ internal class AgentChatVirtualFile internal constructor(
       message = message,
       token = token,
       stepIndex = stepIndex,
-      completionPolicy = currentStep.completionPolicy,
     ).also {
       initialMessageDispatchInFlight = it
     }
@@ -430,21 +479,32 @@ internal class AgentChatVirtualFile internal constructor(
     if (initialMessageDispatchInFlight !== dispatch) {
       return false
     }
+    val terminalDispatch = terminalPromptDispatch
     val currentStep = currentPendingInitialMessageStep()
     val currentMessage = currentStep?.text?.trim().orEmpty()
     if (
+      terminalDispatch == null ||
       currentStep == null ||
       initialMessageSent ||
       currentStep.action != dispatch.action ||
       initialMessageToken != dispatch.token ||
       currentMessage != dispatch.message ||
-      initialMessageDispatchStepIndex != dispatch.stepIndex
+      terminalDispatch.stepIndex != dispatch.stepIndex
     ) {
       initialMessageDispatchInFlight = null
       return false
     }
-    initialMessageDispatchStepIndex += 1
-    initialMessageSent = initialMessageDispatchStepIndex >= initialMessageDispatchSteps.size
+    val nextStepIndex = terminalDispatch.stepIndex + 1
+    if (nextStepIndex >= terminalDispatch.steps.size) {
+      initialPromptRecord = initialPromptRecord?.copy(
+        deliveryStatus = AgentInitialPromptDeliveryStatus.DELIVERED,
+        deliveryChannel = dispatch.deliveryChannel(),
+      )
+      terminalPromptDispatch = null
+    }
+    else {
+      terminalPromptDispatch = terminalDispatch.copy(stepIndex = nextStepIndex)
+    }
     initialMessageDispatchInFlight = null
     return true
   }
@@ -457,11 +517,26 @@ internal class AgentChatVirtualFile internal constructor(
   }
 
   @Synchronized
+  fun rewindInitialMessageDispatch(dispatch: AgentChatInitialMessageDispatch): Boolean {
+    if (initialMessageDispatchInFlight !== dispatch) {
+      return false
+    }
+    val terminalDispatch = terminalPromptDispatch ?: run {
+      initialMessageDispatchInFlight = null
+      return false
+    }
+    terminalPromptDispatch = terminalDispatch.copy(stepIndex = 0)
+    initialMessageDispatchInFlight = null
+    return true
+  }
+
+  @Synchronized
   private fun currentPendingInitialMessageStep(): AgentInitialMessageDispatchStep? {
     if (initialMessageSent) {
       return null
     }
-    return initialMessageDispatchSteps.getOrNull(initialMessageDispatchStepIndex)
+    val terminalDispatch = terminalPromptDispatch ?: return null
+    return terminalDispatch.steps.getOrNull(terminalDispatch.stepIndex)
   }
 
   fun markPendingFirstInputAtMsIfAbsent(timestampMs: Long): Boolean {
@@ -481,11 +556,25 @@ internal class AgentChatVirtualFile internal constructor(
     threadTitle: String,
     threadActivity: AgentThreadActivity,
   ): Boolean {
+    return rebindPendingThread(
+      threadIdentity = threadIdentity,
+      threadId = threadId,
+      threadTitle = threadTitle,
+      threadActivityReport = AgentThreadActivityReport(threadActivity),
+    )
+  }
+
+  fun rebindPendingThread(
+    threadIdentity: String,
+    threadId: String,
+    threadTitle: String,
+    threadActivityReport: AgentThreadActivityReport,
+  ): Boolean {
     return rebindThread(
       threadIdentity = threadIdentity,
       threadId = threadId,
       threadTitle = threadTitle,
-      threadActivity = threadActivity,
+      threadActivityReport = threadActivityReport,
       clearPendingMetadata = true,
     )
   }
@@ -496,11 +585,25 @@ internal class AgentChatVirtualFile internal constructor(
     threadTitle: String,
     threadActivity: AgentThreadActivity,
   ): Boolean {
+    return rebindConcreteThread(
+      threadIdentity = threadIdentity,
+      threadId = threadId,
+      threadTitle = threadTitle,
+      threadActivityReport = AgentThreadActivityReport(threadActivity),
+    )
+  }
+
+  fun rebindConcreteThread(
+    threadIdentity: String,
+    threadId: String,
+    threadTitle: String,
+    threadActivityReport: AgentThreadActivityReport,
+  ): Boolean {
     return !isPendingThread && newThreadRebindRequestedAtMs != null && rebindThread(
       threadIdentity = threadIdentity,
       threadId = threadId,
       threadTitle = threadTitle,
-      threadActivity = threadActivity,
+      threadActivityReport = threadActivityReport,
       clearPendingMetadata = false,
     )
   }
@@ -509,7 +612,7 @@ internal class AgentChatVirtualFile internal constructor(
     threadIdentity: String,
     threadId: String,
     threadTitle: String,
-    threadActivity: AgentThreadActivity,
+    threadActivityReport: AgentThreadActivityReport,
     clearPendingMetadata: Boolean,
   ): Boolean {
     var changed = false
@@ -525,7 +628,7 @@ internal class AgentChatVirtualFile internal constructor(
     if (updateBootstrapThreadTitle(threadTitle)) {
       changed = true
     }
-    if (updateBootstrapThreadActivity(threadActivity)) {
+    if (updateBootstrapThreadActivityReport(threadActivityReport)) {
       changed = true
     }
     if (
@@ -536,16 +639,6 @@ internal class AgentChatVirtualFile internal constructor(
     }
     if (updateNewThreadRebindRequestedAtMs(newThreadRebindRequestedAtMs = null)) {
       changed = true
-    }
-    if (currentPendingInitialMessageStep() == null) {
-      if (updateInitialMessageMetadata(
-          initialMessageDispatchSteps = emptyList(),
-          initialMessageDispatchStepIndex = 0,
-          initialMessageToken = null,
-          initialMessageSent = false,
-        )) {
-        changed = true
-      }
     }
     if (updateStartupIntent(null)) {
       changed = true
@@ -573,6 +666,7 @@ internal class AgentChatVirtualFile internal constructor(
     if (snapshot.identity.threadIdentity.isNotBlank() || snapshot.identity.projectPath.isNotBlank()) {
       projectHash = snapshot.identity.projectHash
       projectPath = snapshot.identity.projectPath
+      projectDirectory = snapshot.identity.projectDirectory
       threadIdentity = snapshot.identity.threadIdentity
       subAgentId = snapshot.identity.subAgentId
       updateThreadCoordinates()
@@ -590,13 +684,12 @@ internal class AgentChatVirtualFile internal constructor(
       pendingLaunchMode = snapshot.runtime.pendingLaunchMode,
     )
     updateLaunchMode(snapshot.runtime.launchMode)
+    updateLaunchProfileId(snapshot.runtime.launchProfileId)
     updateGenerationSettings(snapshot.runtime.generationSettings)
     updateNewThreadRebindRequestedAtMs(snapshot.runtime.newThreadRebindRequestedAtMs)
-    updateInitialMessageMetadata(
-      initialMessageDispatchSteps = snapshot.runtime.initialMessageDispatchSteps,
-      initialMessageDispatchStepIndex = snapshot.runtime.initialMessageDispatchStepIndex,
-      initialMessageToken = snapshot.runtime.initialMessageToken,
-      initialMessageSent = snapshot.runtime.initialMessageSent,
+    updateInitialPromptDelivery(
+      promptRecord = snapshot.runtime.initialPromptRecord,
+      terminalDispatch = snapshot.runtime.terminalPromptDispatch,
     )
   }
 
@@ -613,6 +706,7 @@ internal class AgentChatVirtualFile internal constructor(
       identity = AgentChatTabIdentity(
         projectHash = projectHash,
         projectPath = projectPath,
+        projectDirectory = projectDirectory,
         threadIdentity = threadIdentity,
         subAgentId = subAgentId,
       ),
@@ -624,24 +718,47 @@ internal class AgentChatVirtualFile internal constructor(
         pendingFirstInputAtMs = pendingFirstInputAtMs,
         pendingLaunchMode = pendingLaunchMode,
         launchMode = launchMode,
+        launchProfileId = launchProfileId,
         generationSettings = generationSettings,
         newThreadRebindRequestedAtMs = newThreadRebindRequestedAtMs,
-        initialMessageDispatchSteps = initialMessageDispatchSteps,
-        initialMessageDispatchStepIndex = initialMessageDispatchStepIndex,
-        initialMessageToken = initialMessageToken,
-        initialMessageSent = initialMessageSent,
+        initialPromptRecord = initialPromptRecord,
+        terminalPromptDispatch = terminalPromptDispatch,
       ),
     )
   }
 }
 
+private fun buildInitialPromptRecord(
+  steps: List<AgentInitialMessageDispatchStep>,
+  token: String?,
+  sent: Boolean,
+): AgentInitialPromptRecord? {
+  val message = steps.lastOrNull { step ->
+    step.recordsPrompt &&
+    step.action == AgentInitialMessageDispatchAction.SEND_TEXT &&
+    step.text.isNotBlank()
+  }?.text ?: return null
+  return AgentInitialPromptRecord(
+    message = message,
+    token = token,
+    deliveryStatus = if (sent) AgentInitialPromptDeliveryStatus.DELIVERED else AgentInitialPromptDeliveryStatus.PENDING,
+    deliveryChannel = AgentInitialPromptDeliveryChannel.TERMINAL,
+  )
+}
+
 internal class AgentChatInitialMessageDispatch internal constructor(
-  val action: AgentInitialMessageDispatchAction,
-  val message: String,
+  override val action: AgentInitialMessageDispatchAction,
+  override val message: String,
   val token: String?,
-  val stepIndex: Int,
-  val completionPolicy: AgentInitialMessageDispatchCompletionPolicy,
-)
+  override val stepIndex: Int,
+) : AgentChatInitialMessageDispatchContext
+
+private fun AgentChatInitialMessageDispatch.deliveryChannel(): AgentInitialPromptDeliveryChannel {
+  return when (action) {
+    AgentInitialMessageDispatchAction.SEND_TEXT -> AgentInitialPromptDeliveryChannel.TERMINAL
+    AgentInitialMessageDispatchAction.PROVIDER -> AgentInitialPromptDeliveryChannel.APP_SERVER
+  }
+}
 
 private fun resolveFileName(tabKey: String): String {
   return "chat-$tabKey"

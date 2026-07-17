@@ -1,12 +1,12 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.agent.workbench.sessions.toolwindow
 
-import com.intellij.agent.workbench.chat.AgentChatOpenPendingTabsState
+import com.intellij.agent.workbench.chat.AgentChatOpenTabsPresentationState
 import com.intellij.agent.workbench.chat.AgentChatPendingTabSnapshot
-import com.intellij.agent.workbench.common.AgentThreadActivity
-import com.intellij.agent.workbench.common.buildAgentThreadIdentity
-import com.intellij.agent.workbench.common.session.AgentSessionProvider
-import com.intellij.agent.workbench.common.session.AgentSessionThread
+import com.intellij.platform.ai.agent.core.AgentThreadActivity
+import com.intellij.platform.ai.agent.core.buildAgentThreadIdentity
+import com.intellij.platform.ai.agent.core.session.AgentSessionProvider
+import com.intellij.platform.ai.agent.core.session.AgentSessionThread
 import com.intellij.agent.workbench.sessions.AgentSessionsBundle
 import com.intellij.agent.workbench.sessions.model.AgentSessionsState
 import com.intellij.agent.workbench.sessions.state.InMemorySessionTreeUiState
@@ -17,6 +17,10 @@ import com.intellij.agent.workbench.sessions.toolwindow.tree.buildSessionTreeMod
 import com.intellij.agent.workbench.sessions.toolwindow.tree.overlayPendingAgentChatTabs
 import com.intellij.agent.workbench.sessions.toolwindow.tree.sessionTreeNodeSearchText
 import com.intellij.agent.workbench.sessions.toolwindow.ui.SessionTreeStrictSubstringComparator
+import com.intellij.platform.ai.agent.sessions.core.folders.AgentTaskFolder
+import com.intellij.platform.ai.agent.sessions.core.folders.AgentTaskFolderSnapshot
+import com.intellij.platform.ai.agent.sessions.core.folders.AgentTaskFolderStatus
+import com.intellij.platform.ai.agent.sessions.core.folders.AgentTaskFolderThreadAssignment
 import com.intellij.testFramework.junit5.TestApplication
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
@@ -34,20 +38,20 @@ class AgentSessionsTreeSnapshotTest {
         path = projectPath,
         name = "Project A",
         isOpen = false,
-        providerLoadStates = loadedProviderStates(AgentSessionProvider.CODEX),
+        providerLoadStates = loadedProviderStates(AgentSessionProvider.from("codex")),
         threads = listOf(
-          AgentSessionThread(id = "thread-1", title = "Thread 1", updatedAt = 100, archived = false, provider = AgentSessionProvider.CODEX),
-          AgentSessionThread(id = "thread-2", title = "Thread 2", updatedAt = 90, archived = false, provider = AgentSessionProvider.CODEX),
+          AgentSessionThread(id = "thread-1", title = "Thread 1", updatedAt = 100, archived = false, provider = AgentSessionProvider.from("codex")),
+          AgentSessionThread(id = "thread-2", title = "Thread 2", updatedAt = 90, archived = false, provider = AgentSessionProvider.from("codex")),
         ),
       ),
       AgentProjectSessions(path = "/work/project-b",
                            name = "Project B",
                            isOpen = false,
-                           providerLoadStates = loadedProviderStates(AgentSessionProvider.CODEX)),
+                           providerLoadStates = loadedProviderStates(AgentSessionProvider.from("codex"))),
       AgentProjectSessions(path = "/work/project-open",
                            name = "Project Open",
                            isOpen = true,
-                           providerLoadStates = loadedProviderStates(AgentSessionProvider.CODEX)),
+                           providerLoadStates = loadedProviderStates(AgentSessionProvider.from("codex"))),
     )
 
     val model = buildSessionTreeModel(
@@ -71,6 +75,244 @@ class AgentSessionsTreeSnapshotTest {
   }
 
   @Test
+  fun currentProjectScopedModelFlattensProjectContainer() {
+    val projectPath = "/work/project-a"
+    val threadId = "thread-1"
+    val model = buildSessionTreeModel(
+      projects = listOf(
+        AgentProjectSessions(
+          path = projectPath,
+          name = "Project A",
+          isOpen = true,
+          providerLoadStates = loadedProviderStates(AgentSessionProvider.from("codex")),
+          threads = listOf(
+            AgentSessionThread(
+              id = threadId,
+              title = "Thread 1",
+              updatedAt = 100,
+              archived = false,
+              provider = AgentSessionProvider.from("codex"),
+            )
+          ),
+        )
+      ),
+      visibleClosedProjectCount = Int.MAX_VALUE,
+      visibleThreadCounts = emptyMap(),
+      treeUiState = InMemorySessionTreeUiState(),
+      currentProjectScopeActive = true,
+    )
+
+    val projectTreeId = SessionTreeId.Project(projectPath)
+    val threadTreeId = SessionTreeId.Thread(projectPath, AgentSessionProvider.from("codex"), threadId)
+    assertThat(model.rootIds).containsExactly(threadTreeId)
+    assertThat(model.entriesById).doesNotContainKey(projectTreeId)
+    assertThat(model.entriesById.getValue(threadTreeId).parentId).isNull()
+    assertThat(model.autoOpenProjects).isEmpty()
+  }
+
+  @Test
+  fun pinnedEditorTabThreadsAreMovedToPinnedSectionAboveProjects() {
+    val provider = AgentSessionProvider.from("codex")
+    val projectPath = "/work/project-a"
+    val model = buildSessionTreeModel(
+      projects = listOf(
+        AgentProjectSessions(
+          path = projectPath,
+          name = "Project A",
+          isOpen = true,
+          providerLoadStates = loadedProviderStates(provider),
+          threads = listOf(
+            AgentSessionThread(id = "recent", title = "Recent", updatedAt = 300, archived = false, provider = provider),
+            AgentSessionThread(id = "middle", title = "Middle", updatedAt = 200, archived = false, provider = provider),
+            AgentSessionThread(id = "pinned", title = "Pinned", updatedAt = 100, archived = false, provider = provider),
+          ),
+        )
+      ),
+      visibleClosedProjectCount = Int.MAX_VALUE,
+      visibleThreadCounts = mapOf(projectPath to 1),
+      treeUiState = InMemorySessionTreeUiState(),
+      openTabsPresentationState = AgentChatOpenTabsPresentationState(
+        pinnedTopLevelThreadIdsByProvider = mapOf(provider to mapOf(projectPath to setOf("pinned"))),
+      ),
+    )
+
+    assertThat(model.rootIds).containsExactly(SessionTreeId.Pinned, SessionTreeId.Project(projectPath))
+    val pinnedEntry = model.entriesById.getValue(SessionTreeId.Pinned)
+    assertThat(pinnedEntry.node).isEqualTo(SessionTreeNode.PinnedSection)
+    assertThat(pinnedEntry.childIds).containsExactly(SessionTreeId.Thread(projectPath, provider, "pinned"))
+
+    val projectEntry = model.entriesById.getValue(SessionTreeId.Project(projectPath))
+    val pinnedThreadId = SessionTreeId.Thread(projectPath, provider, "pinned")
+    assertThat(model.entriesById.getValue(pinnedThreadId).parentId).isEqualTo(SessionTreeId.Pinned)
+    assertThat(projectEntry.childIds).doesNotContain(pinnedThreadId)
+    assertThat(projectEntry.childIds.first()).isEqualTo(SessionTreeId.Thread(projectPath, provider, "recent"))
+    assertThat(projectEntry.childIds).contains(SessionTreeId.MoreThreads(projectPath))
+    assertThat((model.entriesById.getValue(SessionTreeId.MoreThreads(projectPath)).node as SessionTreeNode.MoreThreads).hiddenCount).isEqualTo(1)
+  }
+
+  @Test
+  fun currentProjectScopedModelKeepsPinnedThreadsAboveFlatProjectRows() {
+    val provider = AgentSessionProvider.from("codex")
+    val projectPath = "/work/project-a"
+    val model = buildSessionTreeModel(
+      projects = listOf(
+        AgentProjectSessions(
+          path = projectPath,
+          name = "Project A",
+          isOpen = true,
+          providerLoadStates = loadedProviderStates(provider),
+          threads = listOf(
+            AgentSessionThread(id = "recent", title = "Recent", updatedAt = 300, archived = false, provider = provider),
+            AgentSessionThread(id = "pinned", title = "Pinned", updatedAt = 100, archived = false, provider = provider),
+          ),
+        )
+      ),
+      visibleClosedProjectCount = Int.MAX_VALUE,
+      visibleThreadCounts = emptyMap(),
+      treeUiState = InMemorySessionTreeUiState(),
+      currentProjectScopeActive = true,
+      openTabsPresentationState = AgentChatOpenTabsPresentationState(
+        pinnedTopLevelThreadIdsByProvider = mapOf(provider to mapOf(projectPath to setOf("pinned"))),
+      ),
+    )
+
+    val projectTreeId = SessionTreeId.Project(projectPath)
+    val recentThreadId = SessionTreeId.Thread(projectPath, provider, "recent")
+    val pinnedThreadId = SessionTreeId.Thread(projectPath, provider, "pinned")
+    assertThat(model.rootIds).containsExactly(SessionTreeId.Pinned, pinnedThreadId, SessionTreeId.PinnedSeparator, recentThreadId)
+    assertThat(model.entriesById.getValue(SessionTreeId.Pinned).childIds).isEmpty()
+    assertThat(model.entriesById).doesNotContainKey(projectTreeId)
+    assertThat(model.entriesById.getValue(recentThreadId).parentId).isNull()
+    assertThat(model.entriesById.getValue(pinnedThreadId).parentId).isNull()
+  }
+
+  @Test
+  fun taskFoldersGroupAssignedProjectThreadsAndRemoveThemFromUngroupedRows() {
+    val provider = AgentSessionProvider.from("codex")
+    val projectPath = "/work/project-a"
+    val folderId = "folderauth"
+    val model = buildSessionTreeModel(
+      projects = listOf(
+        AgentProjectSessions(
+          path = projectPath,
+          name = "Project A",
+          isOpen = true,
+          providerLoadStates = loadedProviderStates(provider),
+          threads = listOf(
+            AgentSessionThread(id = "assigned-a", title = "Assigned A", updatedAt = 300, archived = false, provider = provider),
+            AgentSessionThread(id = "ungrouped", title = "Ungrouped", updatedAt = 200, archived = false, provider = provider),
+            AgentSessionThread(id = "assigned-b", title = "Assigned B", updatedAt = 100, archived = false, provider = provider),
+          ),
+        )
+      ),
+      visibleClosedProjectCount = Int.MAX_VALUE,
+      visibleThreadCounts = mapOf(projectPath to 1),
+      treeUiState = InMemorySessionTreeUiState(),
+      taskFolderSnapshot = taskFolderSnapshot(
+        path = projectPath,
+        folderId = folderId,
+        folderName = "Authentication rewrite",
+        assignments = listOf("assigned-a", "assigned-b"),
+        provider = provider,
+      ),
+    )
+
+    val taskFolderId = SessionTreeId.TaskFolder(projectPath = projectPath, path = projectPath, folderId = folderId)
+    val assignedA = SessionTreeId.Thread(projectPath, provider, "assigned-a")
+    val assignedB = SessionTreeId.Thread(projectPath, provider, "assigned-b")
+    val ungrouped = SessionTreeId.Thread(projectPath, provider, "ungrouped")
+    val projectEntry = model.entriesById.getValue(SessionTreeId.Project(projectPath))
+
+    assertThat(projectEntry.childIds).containsExactly(taskFolderId, ungrouped)
+    assertThat(model.entriesById.getValue(taskFolderId).childIds).containsExactly(assignedA, assignedB)
+    assertThat(model.entriesById.getValue(taskFolderId).node)
+      .isEqualTo(SessionTreeNode.TaskFolder(
+        project = projectEntry.node.let { (it as SessionTreeNode.Project).project },
+        folder = AgentTaskFolder(
+          path = projectPath,
+          id = folderId,
+          name = "Authentication rewrite",
+          status = AgentTaskFolderStatus.IN_PROGRESS,
+          createdAt = 1,
+          updatedAt = 1,
+        ),
+        assignedThreadCount = 2,
+      ))
+    assertThat(model.entriesById.getValue(assignedA).parentId).isEqualTo(taskFolderId)
+    assertThat(model.entriesById.getValue(assignedB).parentId).isEqualTo(taskFolderId)
+    assertThat(model.entriesById).doesNotContainKey(SessionTreeId.MoreThreads(projectPath))
+  }
+
+  @Test
+  fun currentProjectScopedModelFlattensTaskFoldersWithProjectRows() {
+    val provider = AgentSessionProvider.from("codex")
+    val projectPath = "/work/project-a"
+    val folderId = "folderauth"
+    val model = buildSessionTreeModel(
+      projects = listOf(
+        AgentProjectSessions(
+          path = projectPath,
+          name = "Project A",
+          isOpen = true,
+          providerLoadStates = loadedProviderStates(provider),
+          threads = listOf(AgentSessionThread(id = "assigned", title = "Assigned", updatedAt = 100, archived = false, provider = provider)),
+        )
+      ),
+      visibleClosedProjectCount = Int.MAX_VALUE,
+      visibleThreadCounts = emptyMap(),
+      treeUiState = InMemorySessionTreeUiState(),
+      currentProjectScopeActive = true,
+      taskFolderSnapshot = taskFolderSnapshot(
+        path = projectPath,
+        folderId = folderId,
+        folderName = "Authentication rewrite",
+        assignments = listOf("assigned"),
+        provider = provider,
+      ),
+    )
+
+    val taskFolderId = SessionTreeId.TaskFolder(projectPath = projectPath, path = projectPath, folderId = folderId)
+    val assigned = SessionTreeId.Thread(projectPath, provider, "assigned")
+    assertThat(model.rootIds).containsExactly(taskFolderId)
+    assertThat(model.entriesById.getValue(taskFolderId).parentId).isNull()
+    assertThat(model.entriesById.getValue(taskFolderId).childIds).containsExactly(assigned)
+    assertThat(model.entriesById.getValue(assigned).parentId).isEqualTo(taskFolderId)
+    assertThat(model.entriesById).doesNotContainKey(SessionTreeId.Project(projectPath))
+  }
+
+  @Test
+  fun doneTaskFoldersAreHiddenFromActiveTreeModel() {
+    val provider = AgentSessionProvider.from("codex")
+    val projectPath = "/work/project-a"
+    val model = buildSessionTreeModel(
+      projects = listOf(
+        AgentProjectSessions(
+          path = projectPath,
+          name = "Project A",
+          isOpen = true,
+          providerLoadStates = loadedProviderStates(provider),
+          threads = listOf(AgentSessionThread(id = "done-thread", title = "Done", updatedAt = 100, archived = false, provider = provider)),
+        )
+      ),
+      visibleClosedProjectCount = Int.MAX_VALUE,
+      visibleThreadCounts = emptyMap(),
+      treeUiState = InMemorySessionTreeUiState(),
+      taskFolderSnapshot = taskFolderSnapshot(
+        path = projectPath,
+        folderId = "done-folder",
+        folderName = "Done work",
+        assignments = listOf("done-thread"),
+        provider = provider,
+        status = AgentTaskFolderStatus.DONE,
+      ),
+    )
+
+    val projectEntry = model.entriesById.getValue(SessionTreeId.Project(projectPath))
+    assertThat(projectEntry.childIds).containsExactly(SessionTreeId.Thread(projectPath, provider, "done-thread"))
+    assertThat(model.entriesById).doesNotContainKey(SessionTreeId.TaskFolder(projectPath, projectPath, "done-folder"))
+  }
+
+  @Test
   fun autoOpenProjectsSkipCollapsedProjects() {
     val uiState = InMemorySessionTreeUiState()
     uiState.setProjectCollapsed("/work/project-open", collapsed = true)
@@ -81,18 +323,18 @@ class AgentSessionsTreeSnapshotTest {
           path = "/work/project-open",
           name = "Project Open",
           isOpen = true,
-          providerLoadStates = loadedProviderStates(AgentSessionProvider.CODEX),
+          providerLoadStates = loadedProviderStates(AgentSessionProvider.from("codex")),
           threads = listOf(AgentSessionThread(id = "thread-1",
                                               title = "Thread 1",
                                               updatedAt = 100,
                                               archived = false,
-                                              provider = AgentSessionProvider.CODEX)),
+                                              provider = AgentSessionProvider.from("codex"))),
         ),
         AgentProjectSessions(
           path = "/work/project-error",
           name = "Project Error",
           isOpen = false,
-          providerLoadStates = loadedProviderStates(AgentSessionProvider.CODEX),
+          providerLoadStates = loadedProviderStates(AgentSessionProvider.from("codex")),
           errorMessage = "Failed",
         ),
       ),
@@ -114,7 +356,7 @@ class AgentSessionsTreeSnapshotTest {
         title = "Thread 1",
         updatedAt = 10,
         archived = false,
-        provider = AgentSessionProvider.CLAUDE,
+        provider = AgentSessionProvider.from("claude"),
       ),
     )
 
@@ -122,14 +364,14 @@ class AgentSessionsTreeSnapshotTest {
       id = SessionTreeId.WorktreeThread(
         projectPath = "/work/project-a",
         worktreePath = "/work/project-a-feature",
-        provider = AgentSessionProvider.CLAUDE,
+        provider = AgentSessionProvider.from("claude"),
         threadId = "thread-1",
       ),
       threadNode = thread,
     )
 
     assertThat(target.path).isEqualTo("/work/project-a-feature")
-    assertThat(target.provider).isEqualTo(AgentSessionProvider.CLAUDE)
+    assertThat(target.provider).isEqualTo(AgentSessionProvider.from("claude"))
     assertThat(target.threadId).isEqualTo("thread-1")
   }
 
@@ -141,7 +383,7 @@ class AgentSessionsTreeSnapshotTest {
       title = "Recheck and fix BazelTargetsOnly.kt",
       updatedAt = 100,
       archived = false,
-      provider = AgentSessionProvider.CODEX,
+      provider = AgentSessionProvider.from("codex"),
     )
 
     val searchText = sessionTreeNodeSearchText(SessionTreeNode.Thread(project, thread))
@@ -158,7 +400,7 @@ class AgentSessionsTreeSnapshotTest {
       title = "developers",
       updatedAt = 100,
       archived = false,
-      provider = AgentSessionProvider.CODEX,
+      provider = AgentSessionProvider.from("codex"),
     )
 
     val searchText = sessionTreeNodeSearchText(SessionTreeNode.Thread(project, thread))
@@ -228,9 +470,9 @@ class AgentSessionsTreeSnapshotTest {
 
     val overlaidState = overlayPendingAgentChatTabs(
       state = state,
-      pendingTabsState = pendingTabsState(
+      openTabsPresentationState = pendingTabsState(
         path = "/work/project-a",
-        provider = AgentSessionProvider.CODEX,
+        provider = AgentSessionProvider.from("codex"),
         threadId = "new-pending",
         pendingCreatedAtMs = 700L,
       ),
@@ -242,7 +484,7 @@ class AgentSessionsTreeSnapshotTest {
     assertThat(pendingThread.title).isEqualTo(AgentSessionsBundle.message("toolwindow.action.new.thread"))
     assertThat(pendingThread.updatedAt).isEqualTo(700L)
     assertThat(pendingThread.activity).isEqualTo(AgentThreadActivity.READY)
-    assertThat(pendingThread.provider).isEqualTo(AgentSessionProvider.CODEX)
+    assertThat(pendingThread.provider).isEqualTo(AgentSessionProvider.from("codex"))
   }
 
   @Test
@@ -262,9 +504,9 @@ class AgentSessionsTreeSnapshotTest {
 
     val overlaidState = overlayPendingAgentChatTabs(
       state = state,
-      pendingTabsState = pendingTabsState(
+      openTabsPresentationState = pendingTabsState(
         path = "/work/project-a-feature",
-        provider = AgentSessionProvider.CODEX,
+        provider = AgentSessionProvider.from("codex"),
         threadId = "new-pending",
         pendingCreatedAtMs = 700L,
       ),
@@ -282,18 +524,18 @@ class AgentSessionsTreeSnapshotTest {
         AgentProjectSessions(path = "/work/project-a", name = "Project A", isOpen = true)
       )
     )
-    val pendingTabsState = AgentChatOpenPendingTabsState(
+    val pendingTabsState = AgentChatOpenTabsPresentationState(
       mapOf(
-        AgentSessionProvider.CODEX to mapOf(
-          "/work/unknown" to listOf(pendingTab(path = "/work/unknown", provider = AgentSessionProvider.CODEX, threadId = "new-pending")),
+        AgentSessionProvider.from("codex") to mapOf(
+          "/work/unknown" to listOf(pendingTab(path = "/work/unknown", provider = AgentSessionProvider.from("codex"), threadId = "new-pending")),
           "/work/project-a" to listOf(
-            pendingTab(path = "/work/project-a", provider = AgentSessionProvider.CODEX, pendingThreadIdentity = "not-a-thread")
+            pendingTab(path = "/work/project-a", provider = AgentSessionProvider.from("codex"), pendingThreadIdentity = "not-a-thread")
           ),
         )
       )
     )
 
-    val overlaidState = overlayPendingAgentChatTabs(state = state, pendingTabsState = pendingTabsState)
+    val overlaidState = overlayPendingAgentChatTabs(state = state, openTabsPresentationState = pendingTabsState)
 
     assertThat(overlaidState).isSameAs(state)
     assertThat(overlaidState.projects.single().threads).isEmpty()
@@ -306,16 +548,16 @@ class AgentSessionsTreeSnapshotTest {
         AgentProjectSessions(path = "/work/project-a", name = "Project A", isOpen = true)
       )
     )
-    val pendingTabsState = AgentChatOpenPendingTabsState(
+    val pendingTabsState = AgentChatOpenTabsPresentationState(
       mapOf(
-        AgentSessionProvider.CODEX to mapOf(
+        AgentSessionProvider.from("codex") to mapOf(
           "/work/project-a" to listOf(
             pendingTab(path = "/work/project-a",
-                       provider = AgentSessionProvider.CODEX,
+                       provider = AgentSessionProvider.from("codex"),
                        threadId = "new-pending",
                        pendingCreatedAtMs = 100L),
             pendingTab(path = "/work/project-a",
-                       provider = AgentSessionProvider.CODEX,
+                       provider = AgentSessionProvider.from("codex"),
                        threadId = "new-pending",
                        pendingCreatedAtMs = 200L),
           )
@@ -323,7 +565,7 @@ class AgentSessionsTreeSnapshotTest {
       )
     )
 
-    val pendingThreads = overlayPendingAgentChatTabs(state = state, pendingTabsState = pendingTabsState)
+    val pendingThreads = overlayPendingAgentChatTabs(state = state, openTabsPresentationState = pendingTabsState)
       .projects
       .single()
       .threads
@@ -338,15 +580,55 @@ private fun pendingTabsState(
   provider: AgentSessionProvider,
   threadId: String,
   pendingCreatedAtMs: Long,
-): AgentChatOpenPendingTabsState {
-  return AgentChatOpenPendingTabsState(
-    mapOf(
+  pinnedEditorTab: Boolean = false,
+): AgentChatOpenTabsPresentationState {
+  return AgentChatOpenTabsPresentationState(
+    pendingTabsByProvider = mapOf(
       provider to mapOf(
         path to listOf(
-          pendingTab(path = path, provider = provider, threadId = threadId, pendingCreatedAtMs = pendingCreatedAtMs)
+          pendingTab(
+            path = path,
+            provider = provider,
+            threadId = threadId,
+            pendingCreatedAtMs = pendingCreatedAtMs,
+            pinnedEditorTab = pinnedEditorTab,
+          )
         )
       )
-    )
+    ),
+    pinnedTopLevelThreadIdsByProvider = if (pinnedEditorTab) mapOf(provider to mapOf(path to setOf(threadId))) else emptyMap(),
+  )
+}
+
+private fun taskFolderSnapshot(
+  path: String,
+  folderId: String,
+  folderName: String,
+  assignments: List<String>,
+  provider: AgentSessionProvider,
+  status: AgentTaskFolderStatus = AgentTaskFolderStatus.IN_PROGRESS,
+): AgentTaskFolderSnapshot {
+  val folder = AgentTaskFolder(
+    path = path,
+    id = folderId,
+    name = folderName,
+    status = status,
+    createdAt = 1,
+    updatedAt = 1,
+  )
+  return AgentTaskFolderSnapshot(
+    foldersByPath = mapOf(path to listOf(folder)),
+    assignmentsByPath = mapOf(
+      path to assignments.mapIndexed { index, threadId ->
+        AgentTaskFolderThreadAssignment(
+          path = path,
+          provider = provider,
+          threadId = threadId,
+          folderId = folderId,
+          assignedAt = index.toLong(),
+        )
+      }
+    ),
   )
 }
 
@@ -356,6 +638,7 @@ private fun pendingTab(
   threadId: String = "new-pending",
   pendingThreadIdentity: String = buildAgentThreadIdentity(provider.value, threadId),
   pendingCreatedAtMs: Long? = null,
+  pinnedEditorTab: Boolean = false,
 ): AgentChatPendingTabSnapshot {
   return AgentChatPendingTabSnapshot(
     projectPath = path,
@@ -364,5 +647,6 @@ private fun pendingTab(
     pendingCreatedAtMs = pendingCreatedAtMs,
     pendingFirstInputAtMs = null,
     pendingLaunchMode = "standard",
+    pinnedEditorTab = pinnedEditorTab,
   )
 }

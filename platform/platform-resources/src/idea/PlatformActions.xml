@@ -217,6 +217,8 @@
       <action id="EditorCut" class="com.intellij.openapi.editor.actions.CutAction" use-shortcut-of="$Cut" icon="AllIcons.Actions.MenuCut"/>
       <action id="EditorPaste" class="com.intellij.openapi.editor.actions.PasteAction" use-shortcut-of="$Paste"
               icon="AllIcons.Actions.MenuPaste"/>
+      <action id="Settings.Paste" class="com.intellij.openapi.options.newEditor.SettingsPasteAction" use-shortcut-of="$Paste"
+              icon="AllIcons.Actions.MenuPaste"/>
       <action id="EditorPasteSimple" class="com.intellij.openapi.editor.actions.SimplePasteAction"/>
       <action id="EditorPasteFromX11" class="com.intellij.openapi.editor.actions.PasteFromX11Action"/>
       <action id="EditorHungryBackSpace" class="com.intellij.openapi.editor.actions.HungryBackspaceAction"/>
@@ -470,6 +472,7 @@
     <action id="PreviousTab" class="com.intellij.ide.actions.PreviousTabAction"/>
     <action id="PinActiveTab" class="com.intellij.ide.actions.PinActiveTabAction"/>
     <action id="PinActiveTabToggle" class="com.intellij.ide.actions.PinActiveTabAction$Toggle"/>
+    <action id="NonModalWindow.PinUnpin" class="com.intellij.openapi.actionSystem.EmptyAction"/>
 
     <action id="IconsLoadTime" internal="true" class="com.intellij.internal.IconsLoadTime"/>
 

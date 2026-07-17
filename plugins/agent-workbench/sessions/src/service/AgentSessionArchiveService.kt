@@ -4,14 +4,14 @@ package com.intellij.agent.workbench.sessions.service
 // @spec community/plugins/agent-workbench/spec/core/agent-workbench-telemetry.spec.md
 
 import com.intellij.agent.workbench.chat.closeAndForgetAgentChatsForThread
-import com.intellij.agent.workbench.common.normalizeAgentWorkbenchPath
-import com.intellij.agent.workbench.common.session.AgentSessionProvider
-import com.intellij.agent.workbench.common.session.AgentSessionThread
+import com.intellij.platform.ai.agent.core.normalizeAgentWorkbenchPath
+import com.intellij.platform.ai.agent.core.session.AgentSessionProvider
+import com.intellij.platform.ai.agent.core.session.AgentSessionThread
 import com.intellij.agent.workbench.sessions.AgentSessionsBundle
-import com.intellij.agent.workbench.sessions.core.providers.AgentSessionProviderDescriptor
-import com.intellij.agent.workbench.sessions.core.providers.AgentSessionProviders
-import com.intellij.agent.workbench.sessions.core.statistics.AgentWorkbenchEntryPoint
-import com.intellij.agent.workbench.sessions.core.statistics.AgentWorkbenchTelemetry
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionProviderDescriptor
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionProviders
+import com.intellij.agent.workbench.sessions.statistics.AgentWorkbenchEntryPoint
+import com.intellij.agent.workbench.sessions.statistics.AgentWorkbenchTelemetry
 import com.intellij.agent.workbench.sessions.frame.AgentWorkbenchDedicatedFrameProjectManager
 import com.intellij.agent.workbench.sessions.model.ArchiveThreadTarget
 import com.intellij.agent.workbench.sessions.model.archiveThreadTargetKey
@@ -40,6 +40,7 @@ import com.intellij.platform.util.progress.reportSequentialProgress
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
+import org.jetbrains.annotations.ApiStatus
 import kotlin.time.Duration.Companion.milliseconds
 
 private val LOG = logger<AgentSessionArchiveService>()
@@ -55,6 +56,7 @@ class AgentSessionArchiveService internal constructor(
   private val contentRepository: AgentSessionContentRepository,
   private val archiveChatCleanup: suspend (projectPath: String, threadIdentity: String, subAgentId: String?) -> Unit,
   private val backgroundTaskRunner: AgentSessionArchiveBackgroundTaskRunner,
+  private val archiveTransitionSuppressions: AgentSessionArchiveTransitionSuppressions = AgentSessionArchiveTransitionSuppressions(),
   private val archivedSessionsRefreshIfLoaded: () -> Unit = {},
 ) {
   @Suppress("unused")
@@ -69,6 +71,7 @@ class AgentSessionArchiveService internal constructor(
       closeAndForgetAgentChatsForThread(projectPath = projectPath, threadIdentity = threadIdentity, subAgentId = subAgentId)
     },
     backgroundTaskRunner = IdeAgentSessionArchiveBackgroundTaskRunner,
+    archiveTransitionSuppressions = service<AgentSessionArchiveTransitionSuppressions>(),
     archivedSessionsRefreshIfLoaded = { service<AgentArchivedSessionsService>().refreshIfLoaded() },
   )
 
@@ -88,6 +91,7 @@ class AgentSessionArchiveService internal constructor(
     targets: List<ArchiveThreadTarget>,
     entryPoint: AgentWorkbenchEntryPoint,
     preferredSingleArchivedLabel: @NlsSafe String? = null,
+    onComplete: ((AgentSessionArchiveRequestResult) -> Unit)? = null,
   ) {
     val normalizedTargets = normalizeArchiveTargets(targets)
     if (normalizedTargets.isEmpty()) {
@@ -101,12 +105,15 @@ class AgentSessionArchiveService internal constructor(
       val preparedBatch = prepareArchiveTargets(normalizedTargets, preferredSingleArchivedLabel)
       if (preparedBatch.providerTargets.isEmpty()) {
         finishArchiveBatch(preparedBatch.localOutcome)
+        onComplete?.invoke(preparedBatch.localOutcome.toRequestResult())
         return@launchDropAction
       }
       val progressProject = resolveArchiveProgressProject(normalizedTargets)
       backgroundTaskRunner.run(progressProject, buildArchiveProgressTitle(preparedBatch.providerTargets.size)) {
         val providerOutcome = archivePreparedTargets(preparedBatch.providerTargets)
-        finishArchiveBatch(preparedBatch.localOutcome + providerOutcome)
+        val outcome = preparedBatch.localOutcome + providerOutcome
+        finishArchiveBatch(outcome)
+        onComplete?.invoke(outcome.toRequestResult())
       }
     }
   }
@@ -149,7 +156,8 @@ class AgentSessionArchiveService internal constructor(
 
         anyUnarchived = true
         if (descriptor.suppressArchivedThreadsDuringRefresh) {
-          syncService.unsuppressArchivedTarget(target)
+          archiveTransitionSuppressions.unsuppressActive(target)
+          archiveTransitionSuppressions.suppressArchived(target)
         }
         refreshDelayMs = maxOf(refreshDelayMs, descriptor.archiveRefreshDelayMs)
       }
@@ -206,7 +214,7 @@ class AgentSessionArchiveService internal constructor(
       val suppressed = descriptor.suppressArchivedThreadsDuringRefresh
       val rollbackThread = contentRepository.findArchivedTargetThread(target)
       if (suppressed) {
-        syncService.suppressArchivedTarget(target)
+        archiveTransitionSuppressions.suppressActive(target)
       }
       contentRepository.removeArchivedTarget(target)
       providerTargets.add(
@@ -296,7 +304,7 @@ class AgentSessionArchiveService internal constructor(
 
   private fun handleArchiveFailure(preparedTarget: PreparedArchiveTarget) {
     if (preparedTarget.suppressed) {
-      syncService.unsuppressArchivedTarget(preparedTarget.target)
+      archiveTransitionSuppressions.unsuppressActive(preparedTarget.target)
     }
     preparedTarget.rollbackThread?.let { thread ->
       contentRepository.restoreArchivedThread(preparedTarget.target.path, thread)
@@ -484,6 +492,22 @@ internal data class ArchiveNotificationPresentation(
   @JvmField val body: @NlsContexts.NotificationContent String,
   @JvmField val showUndoAction: Boolean,
 )
+
+@ApiStatus.Internal
+data class AgentSessionArchiveRequestResult(
+  @JvmField val requestedCount: Int,
+  @JvmField val archivedCount: Int,
+) {
+  val allRequestedArchived: Boolean
+    get() = requestedCount > 0 && requestedCount == archivedCount
+}
+
+private fun ArchiveBatchOutcome.toRequestResult(): AgentSessionArchiveRequestResult {
+  return AgentSessionArchiveRequestResult(
+    requestedCount = requestedCount,
+    archivedCount = archivedTargets.size,
+  )
+}
 
 private data class ArchivedChatCleanupTarget(
   @JvmField val threadIdentity: String,

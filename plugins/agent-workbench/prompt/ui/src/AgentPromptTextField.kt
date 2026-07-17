@@ -1,6 +1,8 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.agent.workbench.prompt.ui
 
+// @spec community/plugins/agent-workbench/spec/actions/global-prompt-composer.spec.md
+
 import com.intellij.openapi.editor.ex.EditorEx
 import com.intellij.openapi.editor.highlighter.EditorHighlighterFactory
 import com.intellij.openapi.fileTypes.FileTypes
@@ -53,6 +55,6 @@ internal class AgentPromptTextField(
   }
 
   private fun setupPromptBorder(editor: EditorEx) {
-    editor.setBorder(JBUI.Borders.empty(4, 6, 0, 6))
+    editor.setBorder(JBUI.Borders.emptyTop(4))
   }
 }

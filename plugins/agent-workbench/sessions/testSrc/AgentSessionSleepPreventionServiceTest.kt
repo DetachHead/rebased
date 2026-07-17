@@ -1,9 +1,9 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.agent.workbench.sessions
 
-import com.intellij.agent.workbench.common.AgentThreadActivity
-import com.intellij.agent.workbench.common.session.AgentSessionProvider
-import com.intellij.agent.workbench.common.session.AgentSessionThread
+import com.intellij.platform.ai.agent.core.AgentThreadActivity
+import com.intellij.platform.ai.agent.core.session.AgentSessionProvider
+import com.intellij.platform.ai.agent.core.session.AgentSessionThread
 import com.intellij.agent.workbench.sessions.model.AgentProjectSessions
 import com.intellij.agent.workbench.sessions.model.AgentSessionsState
 import com.intellij.agent.workbench.sessions.model.AgentWorktree
@@ -322,7 +322,7 @@ private fun sessionsState(
         path = PROJECT_PATH,
         name = "Project A",
         isOpen = true,
-        providerLoadStates = loadedProviderStates(AgentSessionProvider.CODEX),
+        providerLoadStates = loadedProviderStates(AgentSessionProvider.from("codex")),
         threads = projectThreads,
         worktrees = listOf(
           AgentWorktree(
@@ -330,7 +330,7 @@ private fun sessionsState(
             name = "feature/worktree",
             branch = "feature/worktree",
             isOpen = true,
-            providerLoadStates = loadedProviderStates(AgentSessionProvider.CODEX),
+            providerLoadStates = loadedProviderStates(AgentSessionProvider.from("codex")),
             threads = worktreeThreads,
           ),
         ),
@@ -342,7 +342,7 @@ private fun sessionsState(
 private fun activeThread(activity: AgentThreadActivity, id: String = "thread-1") = thread(
   id = id,
   updatedAt = 1,
-  provider = AgentSessionProvider.CODEX,
+  provider = AgentSessionProvider.from("codex"),
   activity = activity,
 )
 

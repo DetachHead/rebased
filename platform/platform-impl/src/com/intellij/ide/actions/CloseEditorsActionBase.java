@@ -18,7 +18,6 @@ import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.NlsContexts;
 import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.vcs.FileStatusManager;
-import com.intellij.openapi.vfs.VirtualFile;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.ArrayList;
@@ -28,7 +27,10 @@ public abstract class CloseEditorsActionBase extends AnAction implements DumbAwa
   protected List<Pair<EditorComposite, EditorWindow>> getFilesToClose(@NotNull AnActionEvent event) {
     List<Pair<EditorComposite, EditorWindow>> result = new ArrayList<>();
     DataContext dataContext = event.getDataContext();
-    Project project = event.getRequiredData(CommonDataKeys.PROJECT);
+    Project project = event.getData(CommonDataKeys.PROJECT);
+    if (project == null) {
+      return result;
+    }
     FileEditorManagerEx fileEditorManager = FileEditorManagerEx.getInstanceEx(project);
     EditorWindow editorWindow = EditorWindow.DATA_KEY.getData(dataContext);
     EditorWindow[] windows = editorWindow == null ? fileEditorManager.getWindows() : new EditorWindow[]{editorWindow};
@@ -57,22 +59,14 @@ public abstract class CloseEditorsActionBase extends AnAction implements DumbAwa
   @Override
   public void actionPerformed(@NotNull AnActionEvent e) {
     Project project = e.getData(CommonDataKeys.PROJECT);
+    if (project == null) {
+      return;
+    }
     CommandProcessor commandProcessor = CommandProcessor.getInstance();
     commandProcessor.executeCommand(
       project, () -> {
         List<Pair<EditorComposite, EditorWindow>> filesToClose = getFilesToClose(e);
-        FileEditorManagerEx fileEditorManager = project == null ? null : FileEditorManagerEx.getInstanceEx(project);
-        for (int i = 0; i != filesToClose.size(); ++i) {
-          final Pair<EditorComposite, EditorWindow> we = filesToClose.get(i);
-          final VirtualFile file = we.getFirst().getFile();
-          final EditorWindow window = we.getSecond();
-          // idk if this can actually be null but fall back to the old behavior just in case
-          if (fileEditorManager == null) {
-            window.closeFile(file);
-          } else {
-            fileEditorManager.closeFileWithChecks(file,window);
-          }
-        }
+        FileEditorManagerEx.getInstanceEx(project).closeFilesWithChecks(filesToClose);
       }, IdeBundle.message("command.close.all.unmodified.editors"), null
     );
   }

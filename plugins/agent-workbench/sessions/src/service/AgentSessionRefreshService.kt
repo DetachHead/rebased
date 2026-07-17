@@ -10,22 +10,24 @@ import com.intellij.agent.workbench.chat.agentChatScopedRefreshSignals
 import com.intellij.agent.workbench.chat.clearOpenConcreteAgentChatNewThreadRebindAnchors
 import com.intellij.agent.workbench.chat.collectOpenAgentChatRefreshSnapshot
 import com.intellij.agent.workbench.chat.rebindOpenPendingAgentChatTabs
-import com.intellij.agent.workbench.common.normalizeAgentWorkbenchPath
-import com.intellij.agent.workbench.common.parseAgentWorkbenchPathOrNull
-import com.intellij.agent.workbench.common.session.AgentSessionProvider
-import com.intellij.agent.workbench.sessions.core.AgentSessionThreadPresentationModel
-import com.intellij.agent.workbench.sessions.core.config.AgentWorkbenchProjectRuntimeConfigs
-import com.intellij.agent.workbench.sessions.core.providers.AgentSessionProviderDescriptor
-import com.intellij.agent.workbench.sessions.core.providers.AgentSessionProviders
-import com.intellij.agent.workbench.sessions.core.providers.AgentSessionSource
-import com.intellij.agent.workbench.sessions.core.providers.AgentSessionSourceUpdateEvent
+import com.intellij.platform.ai.agent.core.AgentThreadActivityReport
+import com.intellij.platform.ai.agent.core.normalizeAgentWorkbenchPath
+import com.intellij.platform.ai.agent.core.parseAgentWorkbenchPathOrNull
+import com.intellij.platform.ai.agent.core.session.AgentSessionProvider
+import com.intellij.platform.ai.agent.sessions.core.AgentSessionThreadActivityPresentationUpdate
+import com.intellij.platform.ai.agent.sessions.core.AgentSessionThreadPresentationModel
+import com.intellij.platform.ai.agent.sessions.core.config.AgentWorkbenchProjectRuntimeConfigs
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionProviderDescriptor
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionProviders
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionReadStateSource
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionSource
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionSourceUpdateEvent
 import com.intellij.agent.workbench.sessions.frame.AGENT_SESSIONS_TOOL_WINDOW_ID
 import com.intellij.agent.workbench.sessions.frame.AgentWorkbenchDedicatedFrameProjectManager
-import com.intellij.agent.workbench.sessions.model.ArchiveThreadTarget
 import com.intellij.agent.workbench.sessions.model.ProjectEntry
 import com.intellij.agent.workbench.sessions.model.hasAnyProviderSnapshot
-import com.intellij.agent.workbench.sessions.settings.AgentSessionProviderSettingsListener
-import com.intellij.agent.workbench.sessions.settings.AgentSessionProviderSettingsService
+import com.intellij.agent.workbench.settings.AgentSessionProviderSettingsListener
+import com.intellij.agent.workbench.settings.AgentSessionProviderSettingsService
 import com.intellij.agent.workbench.sessions.state.AgentSessionWarmStateService
 import com.intellij.agent.workbench.sessions.state.AgentSessionsStateStore
 import com.intellij.agent.workbench.sessions.state.SessionWarmState
@@ -79,17 +81,21 @@ class AgentSessionRefreshService internal constructor(
   private val providerDescriptorProvider: (AgentSessionProvider) -> AgentSessionProviderDescriptor? = AgentSessionProviders::find,
   private val toolWindowVisibleFlow: StateFlow<Boolean> = MutableStateFlow(true),
   private val currentTimeMillis: () -> Long = System::currentTimeMillis,
+  private val archiveTransitionSuppressions: AgentSessionArchiveTransitionSuppressions = AgentSessionArchiveTransitionSuppressions(),
+  private val loadingDelayMs: Long = DEFAULT_AGENT_SESSION_LOADING_DELAY_MS,
 ) {
   @Suppress("unused")
   constructor(serviceScope: CoroutineScope) : this(
     serviceScope = serviceScope,
     sessionSourcesProvider = {
-      service<AgentSessionProviderSettingsService>().enabledSessionSources(AgentSessionProviders.sessionSources())
+      val providerSettings = service<AgentSessionProviderSettingsService>()
+      AgentSessionProviders.sessionSources().filter { source -> providerSettings.isProviderEnabled(source.provider) }
     },
     projectEntriesProvider = AgentSessionProjectCatalog()::collectProjects,
     stateStore = service<AgentSessionsStateStore>(),
     warmState = service<AgentSessionWarmStateService>(),
     toolWindowVisibleFlow = service<AgentSessionsToolWindowVisibilityService>().visibleFlow,
+    archiveTransitionSuppressions = service<AgentSessionArchiveTransitionSuppressions>(),
     subscribeToProjectLifecycle = true,
   )
 
@@ -113,6 +119,8 @@ class AgentSessionRefreshService internal constructor(
     openAgentChatPendingTabsBinder = openAgentChatPendingTabsBinder,
     clearOpenConcreteNewThreadRebindAnchors = clearOpenConcreteNewThreadRebindAnchors,
     providerDescriptorProvider = providerDescriptorProvider,
+    archiveTransitionSuppressions = archiveTransitionSuppressions,
+    loadingDelayMs = loadingDelayMs,
   )
 
   private val visibleCostHydrationSupport = AgentSessionVisibleCostHydrationSupport(
@@ -136,8 +144,7 @@ class AgentSessionRefreshService internal constructor(
         }
       })
       connection.subscribe(ProjectManager.TOPIC, object : ProjectManagerListener {
-        @Deprecated("Deprecated in Java")
-        @Suppress("removal")
+        @Suppress("removal", "OVERRIDE_DEPRECATION")
         override fun projectOpened(project: Project) {
           refreshCatalogAndLoadNewlyOpened()
         }
@@ -227,28 +234,44 @@ class AgentSessionRefreshService internal constructor(
   }
 
   internal fun prepareThreadForOpen(path: String, provider: AgentSessionProvider, threadId: String, updatedAt: Long) {
-    contentRepository.markThreadAsRead(path = path, provider = provider, threadId = threadId, updatedAt = updatedAt)
+    if (contentRepository.markThreadAsRead(path = path, provider = provider, threadId = threadId, updatedAt = updatedAt)) {
+      markThreadPresentationAsRead(path = path, provider = provider, threadId = threadId, updatedAt = updatedAt)
+    }
     val source = sessionSourcesProvider().firstOrNull { it.provider == provider } ?: return
-    source.setActiveThreadId(threadId)
-    source.markThreadAsRead(threadId, updatedAt)
+    (source as? AgentSessionReadStateSource)?.setActiveThreadId(threadId)
+    (source as? AgentSessionReadStateSource)?.markThreadAsRead(threadId, updatedAt)
   }
 
   fun markThreadAsRead(path: String, provider: AgentSessionProvider, threadId: String, updatedAt: Long) {
-    contentRepository.markThreadAsRead(path = path, provider = provider, threadId = threadId, updatedAt = updatedAt)
+    if (contentRepository.markThreadAsRead(path = path, provider = provider, threadId = threadId, updatedAt = updatedAt)) {
+      markThreadPresentationAsRead(path = path, provider = provider, threadId = threadId, updatedAt = updatedAt)
+    }
     val source = sessionSourcesProvider().firstOrNull { it.provider == provider } ?: return
-    source.markThreadAsRead(threadId, updatedAt)
+    (source as? AgentSessionReadStateSource)?.markThreadAsRead(threadId, updatedAt)
+  }
+
+  private fun markThreadPresentationAsRead(path: String, provider: AgentSessionProvider, threadId: String, updatedAt: Long) {
+    val normalizedPath = normalizeAgentWorkbenchPath(path)
+    val activityReport = resolveAgentSessionPathState(stateStore.snapshot(), normalizedPath)
+                           ?.threads
+                           ?.firstOrNull { thread -> thread.provider == provider && thread.id == threadId }
+                           ?.activityReport
+                         ?: AgentThreadActivityReport.READY
+    presentationModel.updateActivityHints(
+      provider = provider,
+      updates = listOf(
+        AgentSessionThreadActivityPresentationUpdate(
+          path = normalizedPath,
+          threadId = threadId,
+          activityReport = activityReport,
+          updatedAt = updatedAt,
+        )
+      ),
+    )
   }
 
   fun appendProviderUnavailableWarning(path: String, provider: AgentSessionProvider) {
     loadingCoordinator.appendProviderUnavailableWarning(path = path, provider = provider)
-  }
-
-  fun suppressArchivedTarget(target: ArchiveThreadTarget) {
-    loadingCoordinator.suppressArchivedTarget(target)
-  }
-
-  fun unsuppressArchivedTarget(target: ArchiveThreadTarget) {
-    loadingCoordinator.unsuppressArchivedTarget(target)
   }
 
   fun loadProjectThreadsOnDemand(path: String) {

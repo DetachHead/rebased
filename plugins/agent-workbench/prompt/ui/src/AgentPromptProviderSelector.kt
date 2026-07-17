@@ -1,21 +1,22 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.agent.workbench.prompt.ui
 
-import com.intellij.agent.workbench.common.session.AgentSessionLaunchMode
-import com.intellij.agent.workbench.common.session.AgentSessionProvider
+import com.intellij.agent.workbench.prompt.ui.icons.AgentWorkbenchPromptUIIcons
+import com.intellij.platform.ai.agent.core.session.AgentSessionLaunchMode
+import com.intellij.platform.ai.agent.core.session.AgentSessionProvider
 import com.intellij.agent.workbench.prompt.core.AgentPromptLaunchProfile
 import com.intellij.agent.workbench.prompt.core.AgentPromptInvocationData
-import com.intellij.agent.workbench.sessions.core.providers.AGENT_PROMPT_PROVIDER_OPTION_PLAN_MODE
-import com.intellij.agent.workbench.sessions.core.providers.AgentPromptProviderOption
-import com.intellij.agent.workbench.sessions.core.providers.AgentSessionProviderDescriptor
-import com.intellij.agent.workbench.sessions.core.providers.AgentSessionProviderMenuItem
-import com.intellij.agent.workbench.sessions.core.providers.AgentSessionProviderMenuModel
-import com.intellij.agent.workbench.sessions.core.providers.buildAgentSessionProviderMenuModel
-import com.intellij.agent.workbench.sessions.core.providers.buildBuiltInLaunchProfiles
-import com.intellij.agent.workbench.sessions.core.providers.hasEntries
+import com.intellij.platform.ai.agent.sessions.core.providers.AGENT_PROMPT_PROVIDER_OPTION_PLAN_MODE
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentPromptProviderOption
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionProviderDescriptor
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionProviderMenuItem
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionProviderMenuModel
+import com.intellij.platform.ai.agent.sessions.core.providers.buildAgentSessionProviderMenuModel
+import com.intellij.platform.ai.agent.sessions.core.providers.buildBuiltInLaunchProfiles
+import com.intellij.platform.ai.agent.sessions.core.providers.hasEntries
 import com.intellij.agent.workbench.sessions.providerItemIconWithMode
 import com.intellij.agent.workbench.sessions.service.AgentSessionProviderAvailabilityService
-import com.intellij.agent.workbench.sessions.settings.AgentSessionProviderSettingsService
+import com.intellij.agent.workbench.settings.AgentSessionProviderSettingsService
 import com.intellij.openapi.actionSystem.ActionGroup
 import com.intellij.openapi.actionSystem.ActionUpdateThread
 import com.intellij.openapi.actionSystem.AnAction
@@ -26,6 +27,7 @@ import com.intellij.openapi.application.EDT
 import com.intellij.openapi.components.service
 import com.intellij.openapi.project.DumbAware
 import com.intellij.openapi.project.DumbAwareAction
+import com.intellij.util.ui.UIUtil.removeMnemonic
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -66,7 +68,9 @@ internal class AgentPromptProviderSelector(
   }
 
   fun refresh() {
-    val bridges = providerSettingsService.enabledProviders(providersProvider().filter { provider -> provider.supportsPromptLaunch })
+    val bridges = providersProvider().filter { provider ->
+      provider.supportsPromptLaunch && providerSettingsService.isProviderEnabled(provider.provider)
+    }
     val (resolvedMenuModel, resolvedEntries) = resolveProviderState(bridges, providerAvailabilityService.availabilitySnapshot(bridges))
     applyResolvedState(resolvedMenuModel, resolvedEntries)
     asyncRefreshScope?.launch { refreshProviderAvailability(bridges) }
@@ -333,10 +337,11 @@ internal class AgentPromptProviderSelector(
     bridge: AgentSessionProviderDescriptor,
     option: AgentPromptProviderOption,
     selectedOptionIds: LinkedHashSet<String>,
-  ): AgentPromptHeaderCheckBoxAction {
+  ): AnAction {
     val label = sessionsMessageResolver.resolve(option.labelKey, bridge) ?: option.labelFallback
-    return AgentPromptHeaderCheckBoxAction(label, option.id in selectedOptionIds) { selected ->
-      val changed = if (selected) {
+    val selected = option.id in selectedOptionIds
+    val onSelectionChanged: (Boolean) -> Unit = { state ->
+      val changed = if (state) {
         selectedOptionIds.add(option.id)
       }
       else {
@@ -346,6 +351,10 @@ internal class AgentPromptProviderSelector(
         onProviderOptionsChanged()
       }
     }
+    if (option.id == AGENT_PROMPT_PROVIDER_OPTION_PLAN_MODE) {
+      return AgentPromptHeaderIconToggleAction(removeMnemonic(label), AgentWorkbenchPromptUIIcons.PlanMode, selected, onSelectionChanged)
+    }
+    return AgentPromptHeaderCheckBoxAction(label, selected, onSelectionChanged)
   }
 
   private fun optionSelectionState(bridge: AgentSessionProviderDescriptor): LinkedHashSet<String> {

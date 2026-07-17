@@ -1,10 +1,9 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.agent.workbench.prompt.core
 
-import com.intellij.agent.workbench.common.extensions.OverridableValue
-import com.intellij.agent.workbench.common.extensions.SingleExtensionPointResolver
-import com.intellij.agent.workbench.common.session.AgentSessionLaunchMode
-import com.intellij.agent.workbench.common.session.AgentSessionProvider
+import com.intellij.platform.ai.agent.core.extensions.OverridableValue
+import com.intellij.platform.ai.agent.core.extensions.SingleExtensionPointResolver
+import com.intellij.platform.ai.agent.core.session.AgentSessionProvider
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.extensions.ExtensionPointName
 import com.intellij.openapi.project.Project
@@ -12,11 +11,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
 
 interface AgentPromptLauncherBridge {
-  fun launch(request: AgentPromptLaunchRequest): AgentPromptLaunchResult
-
-  fun preferredProvider(): AgentSessionProvider? {
-    return null
-  }
+  suspend fun launch(request: AgentPromptLaunchRequest): AgentPromptLaunchResult
 
   fun loadProviderPreferences(): ProviderPreferences {
     return ProviderPreferences()
@@ -71,12 +66,10 @@ interface AgentPromptLauncherBridge {
   }
 
   data class ProviderPreferences(
-    @JvmField val providerId: String? = null,
-    @JvmField val launchMode: AgentSessionLaunchMode? = null,
     @JvmField val providerOptionsByProviderId: Map<String, Set<String>> = emptyMap(),
     @JvmField val containerModeEnabled: Boolean = false,
     @JvmField val launchProfiles: List<AgentPromptLaunchProfile> = emptyList(),
-    @JvmField val activeLaunchProfileId: String? = null,
+    @JvmField val defaultLaunchProfileId: String? = null,
   )
 }
 
@@ -96,7 +89,7 @@ private val REGISTERED_PROMPT_LAUNCHER = SingleExtensionPointResolver(
 )
 
 object AgentPromptLaunchers {
-  private val launcherOverride = OverridableValue<AgentPromptLauncherBridge?> { REGISTERED_PROMPT_LAUNCHER.findFirstOrNull() }
+  private val launcherOverride = OverridableValue { REGISTERED_PROMPT_LAUNCHER.findFirstOrNull() }
 
   fun find(): AgentPromptLauncherBridge? {
     return launcherOverride.value()

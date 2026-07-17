@@ -12,7 +12,7 @@
     <module name="intellij.platform.structureView"/>
     <module name="intellij.platform.testRunner"/>
     <module name="intellij.platform.ui.jcef"/>
-    <module name="intellij.python.common"/>
+    <module name="intellij.python.community.common"/>
     <module name="intellij.python.community"/>
     <module name="intellij.python.community.core.impl"/>
     <module name="intellij.python.community.execService"/>
@@ -104,6 +104,12 @@
       <option bundle="messages.PyPsiBundle" descriptionKey="INLAY.parameter.type.annotations" enabledByDefault="true"
               nameKey="INLAY.parameter.type.annotations"
               optionId="python.type.inlays.parameter.annotation"/>
+      <option bundle="messages.PyPsiBundle" descriptionKey="INLAY.solved.type.parameters.class.description" enabledByDefault="true"
+              nameKey="INLAY.solved.type.parameters.class"
+              optionId="python.type.inlays.solved.type.parameters.class"/>
+      <option bundle="messages.PyPsiBundle" descriptionKey="INLAY.solved.type.parameters.function.description" enabledByDefault="false"
+              nameKey="INLAY.solved.type.parameters.function"
+              optionId="python.type.inlays.solved.type.parameters.function"/>
     </codeInsight.declarativeInlayProvider>
 
     <codeInsight.declarativeInlayProvider group="TYPES_GROUP"
@@ -811,6 +817,8 @@
                     interface="com.jetbrains.python.run.PythonCommandLineEnvironmentProvider" dynamic="true"/>
     <extensionPoint qualifiedName="Pythonid.pythonCommandLineTargetEnvironmentProvider"
                     interface="com.jetbrains.python.run.target.PythonCommandLineTargetEnvironmentProvider" dynamic="true"/>
+    <extensionPoint qualifiedName="Pythonid.pyLaunchPreparer"
+                    interface="com.jetbrains.python.run.PyLaunchPreparer" dynamic="true"/>
     <extensionPoint qualifiedName="Pythonid.magicLiteral"
                     interface="com.jetbrains.python.magicLiteral.PyMagicLiteralExtensionPoint"
                     dynamic="true"/>

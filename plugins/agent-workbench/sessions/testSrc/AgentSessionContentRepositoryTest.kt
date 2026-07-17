@@ -1,9 +1,9 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.agent.workbench.sessions
 
-import com.intellij.agent.workbench.common.session.AgentSessionProvider
-import com.intellij.agent.workbench.common.session.AgentSessionThread
-import com.intellij.agent.workbench.common.session.AgentSubAgent
+import com.intellij.platform.ai.agent.core.session.AgentSessionProvider
+import com.intellij.platform.ai.agent.core.session.AgentSessionThread
+import com.intellij.platform.ai.agent.core.session.AgentSubAgent
 import com.intellij.agent.workbench.sessions.model.AgentProjectSessions
 import com.intellij.agent.workbench.sessions.model.ArchiveThreadTarget
 import com.intellij.agent.workbench.sessions.service.AgentSessionContentRepository
@@ -44,7 +44,7 @@ class AgentSessionContentRepositoryTest {
     )
 
     val label = repository.findArchiveNotificationLabel(
-      ArchiveThreadTarget.Thread(path = TEST_PROJECT_PATH, provider = AgentSessionProvider.CODEX, threadId = "thread-1")
+      ArchiveThreadTarget.Thread(path = TEST_PROJECT_PATH, provider = AgentSessionProvider.from("codex"), threadId = "thread-1")
     )
 
     assertThat(label).isEqualTo("Runtime title")
@@ -74,7 +74,7 @@ class AgentSessionContentRepositoryTest {
     val label = repository.findArchiveNotificationLabel(
       ArchiveThreadTarget.SubAgent(
         path = TEST_PROJECT_PATH,
-        provider = AgentSessionProvider.CODEX,
+        provider = AgentSessionProvider.from("codex"),
         parentThreadId = "thread-1",
         subAgentId = "sub-agent-1",
       )
@@ -96,7 +96,7 @@ private fun thread(
     title = title,
     updatedAt = 100L,
     archived = false,
-    provider = AgentSessionProvider.CODEX,
+    provider = AgentSessionProvider.from("codex"),
     subAgents = subAgents,
   )
 }

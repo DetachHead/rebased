@@ -1,24 +1,25 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.agent.workbench.sessions.toolwindow.actions
 
-import com.intellij.agent.workbench.common.session.AgentSessionLaunchMode
-import com.intellij.agent.workbench.common.session.AgentSessionProvider
-import com.intellij.agent.workbench.common.session.AgentSessionThread
-import com.intellij.agent.workbench.common.session.AgentSubAgent
+import com.intellij.platform.ai.agent.core.session.AgentSessionThread
+import com.intellij.platform.ai.agent.core.session.AgentSubAgent
+import com.intellij.agent.workbench.prompt.core.AgentPromptLaunchProfile
+import com.intellij.agent.workbench.sessions.AgentSessionLaunchProfileSelection
 import com.intellij.agent.workbench.sessions.AgentSessionsBundle
-import com.intellij.agent.workbench.sessions.actions.buildNewThreadActionModel
-import com.intellij.agent.workbench.sessions.actions.buildNewThreadMenuActions
+import com.intellij.agent.workbench.sessions.buildAgentSessionLaunchProfileMenuActions
+import com.intellij.agent.workbench.sessions.buildAgentSessionLaunchProfileMenuModel
+import com.intellij.agent.workbench.sessions.launchQuickStartProfile
 import com.intellij.agent.workbench.sessions.actions.createNewThreadViaService
-import com.intellij.agent.workbench.sessions.actions.launchQuickStartThread
-import com.intellij.agent.workbench.sessions.core.SessionActionTarget
-import com.intellij.agent.workbench.sessions.core.providers.AgentSessionProviderDescriptor
-import com.intellij.agent.workbench.sessions.core.providers.AgentSessionProviders
-import com.intellij.agent.workbench.sessions.core.providers.hasEntries
-import com.intellij.agent.workbench.sessions.core.statistics.AgentWorkbenchEntryPoint
+import com.intellij.platform.ai.agent.sessions.core.SessionActionTarget
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionProviderDescriptor
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionProviders
+import com.intellij.platform.ai.agent.sessions.core.providers.hasEntries
+import com.intellij.agent.workbench.sessions.statistics.AgentWorkbenchEntryPoint
 import com.intellij.agent.workbench.sessions.frame.AgentWorkbenchDedicatedFrameProjectManager
 import com.intellij.agent.workbench.sessions.model.ArchiveThreadTarget
 import com.intellij.agent.workbench.sessions.model.AgentSessionThreadViewMode
 import com.intellij.agent.workbench.sessions.providerItemIconWithMode
+import com.intellij.agent.workbench.sessions.resolveAgentSessionLaunchProfileSelection
 import com.intellij.agent.workbench.sessions.service.AgentArchivedSessionsService
 import com.intellij.agent.workbench.sessions.service.AgentSessionLaunchService
 import com.intellij.agent.workbench.sessions.state.AgentSessionThreadViewStateService
@@ -46,6 +47,9 @@ internal data class AgentSessionsTreePopupActionContext(
   val target: SessionActionTarget,
   @JvmField val archiveTargets: List<ArchiveThreadTarget>,
   @JvmField val unarchiveTargets: List<ArchiveThreadTarget> = emptyList(),
+  @JvmField val selectedThreadTargets: List<SessionActionTarget.Thread> = emptyList(),
+  @JvmField val taskFolderArchiveTargets: List<ArchiveThreadTarget> = emptyList(),
+  @JvmField val newThreadActionAvailable: Boolean = true,
 )
 
 internal fun resolveAgentSessionsTreePopupActionContext(event: AnActionEvent): AgentSessionsTreePopupActionContext? {
@@ -186,51 +190,69 @@ internal class AgentSessionsTreePopupNewThreadGroup @JvmOverloads constructor(
   private val resolveContext: (AnActionEvent) -> AgentSessionsTreePopupActionContext? =
     ::resolveAgentSessionsTreePopupActionContext,
   private val allBridges: () -> List<AgentSessionProviderDescriptor> = AgentSessionProviders::allProviders,
-  private val createNewSession: (String, AgentSessionProvider, AgentSessionLaunchMode, Project, AgentWorkbenchEntryPoint) -> Unit = ::createNewThreadViaService,
-  private val lastUsedProvider: () -> AgentSessionProvider? = { service<AgentSessionUiPreferencesStateService>().getLastUsedProvider() },
-  private val lastUsedLaunchMode: () -> AgentSessionLaunchMode? = { service<AgentSessionUiPreferencesStateService>().getLastUsedLaunchMode() },
+  private val createNewSession: (String, AgentPromptLaunchProfile, Project, AgentWorkbenchEntryPoint) -> Unit = ::createNewThreadViaService,
+  private val userLaunchProfiles: () -> List<AgentPromptLaunchProfile> = { service<AgentSessionUiPreferencesStateService>().getUserLaunchProfiles() },
+  private val defaultLaunchProfileId: () -> String? = { service<AgentSessionUiPreferencesStateService>().getDefaultLaunchProfileId() },
 ) : ActionGroup(), DumbAware {
 
   override fun update(e: AnActionEvent) {
-    val context = resolveContext(e)
-    if (context == null) {
+    val menu = resolveNewThreadMenu(e)
+    if (menu == null) {
       e.presentation.isEnabledAndVisible = false
       return
     }
-    val path = newThreadPathFromTarget(context.target)
-    val actionModel = buildNewThreadActionModel(allBridges(), lastUsedProvider(), lastUsedLaunchMode(), context.project)
-    if (path == null || !actionModel.menuModel.hasEntries()) {
+    val quickStartItem = menu.selection.quickStartItem
+    if (quickStartItem == null) {
       e.presentation.isEnabledAndVisible = false
       return
     }
 
     e.presentation.isEnabledAndVisible = true
     e.presentation.isPopupGroup = true
-    e.presentation.isPerformGroup = actionModel.quickStartItem != null
-    e.presentation.icon = actionModel.quickStartItem?.let(::providerItemIconWithMode) ?: templatePresentation.icon
+    e.presentation.isPerformGroup = quickStartItem.menuItem.isEnabled
+    e.presentation.icon = providerItemIconWithMode(quickStartItem.menuItem)
   }
 
   override fun actionPerformed(e: AnActionEvent) {
-    val context = resolveContext(e) ?: return
-    val path = newThreadPathFromTarget(context.target) ?: return
-    val actionModel = buildNewThreadActionModel(allBridges(), lastUsedProvider(), lastUsedLaunchMode(), context.project)
-    launchQuickStartThread(path, context.project, actionModel.quickStartItem, AgentWorkbenchEntryPoint.TREE_POPUP, createNewSession)
+    val menu = resolveNewThreadMenu(e) ?: return
+    launchQuickStartProfile(
+      path = menu.path,
+      project = menu.context.project,
+      quickStartItem = menu.selection.quickStartItem,
+      entryPoint = AgentWorkbenchEntryPoint.TREE_POPUP,
+      createNewSession = createNewSession,
+    )
   }
 
   override fun getChildren(e: AnActionEvent?): Array<AnAction> {
-    val context = e?.let(resolveContext) ?: return emptyArray()
-    val path = newThreadPathFromTarget(context.target) ?: return emptyArray()
-    val actionModel = buildNewThreadActionModel(allBridges(), lastUsedProvider(), lastUsedLaunchMode(), context.project)
-    return buildNewThreadMenuActions(
-      path = path,
-      project = context.project,
-      menuModel = actionModel.menuModel,
+    val menu = e?.let(::resolveNewThreadMenu) ?: return emptyArray()
+    return buildAgentSessionLaunchProfileMenuActions(
+      path = menu.path,
+      project = menu.context.project,
+      selection = menu.selection,
       entryPoint = AgentWorkbenchEntryPoint.TREE_POPUP,
       createNewSession = createNewSession,
     )
   }
 
   override fun getActionUpdateThread(): ActionUpdateThread = ActionUpdateThread.BGT
+
+  private fun resolveNewThreadMenu(e: AnActionEvent): NewThreadMenu? {
+    val context = resolveContext(e) ?: return null
+    if (!context.newThreadActionAvailable) return null
+    val path = newThreadPathFromTarget(context.target) ?: return null
+    val menuModel = buildAgentSessionLaunchProfileMenuModel(allBridges(), context.project)
+    if (!menuModel.hasEntries()) return null
+    val selection = resolveAgentSessionLaunchProfileSelection(menuModel, userLaunchProfiles(), defaultLaunchProfileId())
+    if (selection.profiles.isEmpty()) return null
+    return NewThreadMenu(context, path, selection)
+  }
+
+  private data class NewThreadMenu(
+    val context: AgentSessionsTreePopupActionContext,
+    val path: String,
+    val selection: AgentSessionLaunchProfileSelection,
+  )
 }
 
 private fun newThreadPathFromTarget(target: SessionActionTarget): String? {

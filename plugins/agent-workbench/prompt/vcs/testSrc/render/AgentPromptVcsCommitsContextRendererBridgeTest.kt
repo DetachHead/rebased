@@ -61,7 +61,7 @@ class AgentPromptVcsCommitsContextRendererBridgeTest {
 
     val chip = renderer.renderChip(AgentPromptChipRenderInput(item = item, projectBasePath = null))
 
-    assertThat(chip.text).isEqualTo("Commits: abc12345")
+    assertThat(chip.text).isEqualTo("abc12345")
   }
 
   @Test
@@ -88,7 +88,7 @@ class AgentPromptVcsCommitsContextRendererBridgeTest {
 
     val chip = renderer.renderChip(AgentPromptChipRenderInput(item = item, projectBasePath = null))
 
-    assertThat(chip.text).isEqualTo("Commits: Fix TEST-101 regression +1")
+    assertThat(chip.text).isEqualTo("Fix TEST-101 regression +1")
     assertThat(chip.tooltipText).contains("abc12345  Fix TEST-101 regression")
     assertThat(chip.tooltipText).contains("Test User")
     assertThat(chip.tooltipText).contains("repo")
@@ -111,12 +111,12 @@ class AgentPromptVcsCommitsContextRendererBridgeTest {
 
     val chip = renderer.renderChip(AgentPromptChipRenderInput(item = item, projectBasePath = null))
 
-    assertThat(chip.text).isEqualTo("Commits: ${subject.take(40)}\u2026")
+    assertThat(chip.text).isEqualTo("${subject.take(40)}\u2026")
     assertThat(chip.tooltipText).contains("abc12345  $subject")
   }
 
   @Test
-  fun renderEnvelopeKeepsHashOnlyOutputWhenPayloadHasMetadata() {
+  fun renderEnvelopeUsesSubjectWhenPayloadHasMetadata() {
     val item = contextItem(
       body = "",
       payload = AgentPromptPayload.obj(
@@ -131,7 +131,26 @@ class AgentPromptVcsCommitsContextRendererBridgeTest {
 
     val rendered = renderer.renderEnvelope(AgentPromptEnvelopeRenderInput(item = item, projectPath = null))
 
-    assertThat(rendered).isEqualTo("commits:\nabc12345abcdef")
+    assertThat(rendered).isEqualTo("commits:\nabc12345abcdef | Fix TEST-101 regression")
+  }
+
+  @Test
+  fun renderEnvelopePrefersBodyOverPayloadMetadata() {
+    val item = contextItem(
+      body = "abc12345abcdef | Body subject",
+      payload = AgentPromptPayload.obj(
+        "entries" to AgentPromptPayload.arr(
+          AgentPromptPayload.obj(
+            "hash" to AgentPromptPayload.str("abc12345abcdef"),
+            "subject" to AgentPromptPayload.str("Payload subject"),
+          ),
+        )
+      )
+    )
+
+    val rendered = renderer.renderEnvelope(AgentPromptEnvelopeRenderInput(item = item, projectPath = null))
+
+    assertThat(rendered).isEqualTo("commits:\nabc12345abcdef | Body subject")
   }
 
   private fun contextItem(

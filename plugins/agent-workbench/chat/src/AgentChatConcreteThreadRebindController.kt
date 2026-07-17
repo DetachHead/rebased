@@ -1,9 +1,9 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.agent.workbench.chat
 
-import com.intellij.agent.workbench.common.session.AgentSessionProvider
-import com.intellij.agent.workbench.sessions.core.AgentSessionThreadRebindPolicy
-import com.intellij.agent.workbench.sessions.core.providers.AgentSessionProviderDescriptor
+import com.intellij.platform.ai.agent.core.session.AgentSessionProvider
+import com.intellij.platform.ai.agent.sessions.core.AgentSessionThreadRebindPolicy
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionProviderDescriptor
 import com.intellij.terminal.frontend.view.TerminalViewSessionState
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
@@ -18,7 +18,7 @@ internal class AgentChatConcreteThreadRebindController(
   private val behavior: AgentChatProviderBehavior,
   private val tabSnapshotWriter: AgentChatTabSnapshotWriter,
   private val currentTimeProvider: () -> Long = System::currentTimeMillis,
-  private val retryIntervalMs: Long = AgentSessionThreadRebindPolicy.CONCRETE_CODEX_NEW_THREAD_REFRESH_RETRY_INTERVAL_MS,
+  private val retryIntervalMs: Long = AgentSessionThreadRebindPolicy.CONCRETE_NEW_THREAD_REFRESH_RETRY_INTERVAL_MS,
   private val notifyRefresh: (AgentSessionProvider, String) -> Unit = { provider, projectPath ->
     notifyAgentChatScopedRefresh(provider = provider, projectPath = projectPath)
   },
@@ -113,11 +113,11 @@ internal class AgentChatConcreteThreadRebindController(
     }
     val rebindRequestedAtMs = file.newThreadRebindRequestedAtMs ?: return null
     val currentTimeMs = currentTimeProvider()
-    if (!AgentSessionThreadRebindPolicy.isConcreteCodexNewThreadRebindAnchorActive(rebindRequestedAtMs, currentTimeMs)) {
+    if (!AgentSessionThreadRebindPolicy.isConcreteNewThreadRebindAnchorActive(rebindRequestedAtMs, currentTimeMs)) {
       clearConcreteScopedRefreshAnchor()
       return null
     }
-    return AgentSessionThreadRebindPolicy.concreteCodexNewThreadRefreshRetryDelayMs(
+    return AgentSessionThreadRebindPolicy.concreteNewThreadRefreshRetryDelayMs(
       rebindRequestedAtMs = rebindRequestedAtMs,
       currentTimeMs = currentTimeMs,
       retryIntervalMs = retryIntervalMs,

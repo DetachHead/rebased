@@ -16,12 +16,12 @@ class AgentPromptUiSessionStateServiceTest {
     val original = AgentPromptUiSessionStateService()
     val draft = AgentPromptUiDraft(
       promptText = "fix",
-      providerId = "codex",
       targetMode = PromptTargetMode.EXISTING_TASK,
       existingTaskSearch = "query",
       selectedExistingTaskId = "task-1",
       taskDrafts = mapOf(PromptTargetMode.NEW_TASK.name to "fix"),
       providerOptionsByProviderId = mapOf("codex" to emptySet()),
+      selectedLaunchProfileId = "user:careful",
     )
     val snapshot = AgentPromptUiContextRestoreSnapshot(
       contextFingerprint = Hashing.xxh3_128().hashCharsTo128Bits("context"),
@@ -59,7 +59,6 @@ class AgentPromptUiSessionStateServiceTest {
     service.saveDraft(
       AgentPromptUiDraft(
         promptText = "fix",
-        providerId = "codex",
         targetMode = PromptTargetMode.EXISTING_TASK,
         existingTaskSearch = "query",
         selectedExistingTaskId = "task-1",
@@ -94,7 +93,6 @@ class AgentPromptUiSessionStateServiceTest {
     service.saveDraft(
       AgentPromptUiDraft(
         promptText = "prompt",
-        providerId = "codex",
         targetMode = PromptTargetMode.NEW_TASK,
         existingTaskSearch = "",
         selectedExistingTaskId = null,
@@ -181,7 +179,7 @@ class AgentPromptUiSessionStateServiceTest {
   private fun manualContextItem(): AgentPromptContextItem {
     return AgentPromptContextItem(
       rendererId = AgentPromptContextRendererIds.VCS_COMMITS,
-      title = "Picked Commits",
+      title = "Commits",
       body = "abc12345",
       itemId = "manual.vcs.commits",
       source = "manualVcs",

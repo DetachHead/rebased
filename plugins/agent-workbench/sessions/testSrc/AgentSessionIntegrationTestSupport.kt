@@ -8,44 +8,50 @@ import com.intellij.agent.workbench.chat.AgentChatPendingTabRebindRequest
 import com.intellij.agent.workbench.chat.AgentChatPendingTabSnapshot
 import com.intellij.agent.workbench.chat.collectOpenConcreteAgentChatThreadIdentitiesByPath
 import com.intellij.agent.workbench.chat.collectOpenPendingAgentChatTabsByPath
-import com.intellij.agent.workbench.chat.collectOpenPendingCodexTabsByPath
-import com.intellij.agent.workbench.chat.rebindOpenPendingCodexTabs
-import com.intellij.agent.workbench.common.AgentThreadActivity
-import com.intellij.agent.workbench.common.AgentThreadActivityReport
-import com.intellij.agent.workbench.common.session.AgentSessionCost
-import com.intellij.agent.workbench.common.normalizeAgentWorkbenchPath
-import com.intellij.agent.workbench.common.session.AgentSessionProvider
-import com.intellij.agent.workbench.common.session.AgentSessionThread
-import com.intellij.agent.workbench.common.session.AgentSubAgent
-import com.intellij.agent.workbench.sessions.core.providers.AgentSessionRefreshHints
-import com.intellij.agent.workbench.sessions.core.providers.AgentSessionRefreshThreadSeed
-import com.intellij.agent.workbench.sessions.core.providers.AgentSessionSource
-import com.intellij.agent.workbench.sessions.core.providers.AgentSessionSourceRefreshRequest
-import com.intellij.agent.workbench.sessions.core.providers.AgentSessionSourceRefreshResult
-import com.intellij.agent.workbench.sessions.core.providers.AgentSessionSourceUpdate
-import com.intellij.agent.workbench.sessions.core.providers.AgentSessionSourceUpdateEvent
-import com.intellij.agent.workbench.sessions.core.providers.AgentSessionThreadActivityUpdate
+import com.intellij.agent.workbench.chat.rebindOpenPendingAgentChatTabs
+import com.intellij.platform.ai.agent.core.AgentThreadActivity
+import com.intellij.platform.ai.agent.core.AgentThreadActivityReport
+import com.intellij.platform.ai.agent.core.session.AgentSessionCost
+import com.intellij.platform.ai.agent.core.normalizeAgentWorkbenchPath
+import com.intellij.platform.ai.agent.core.session.AgentSessionProvider
+import com.intellij.platform.ai.agent.core.session.AgentSessionThread
+import com.intellij.platform.ai.agent.core.session.AgentSubAgent
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionArchivedSource
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionCostSource
+import com.intellij.platform.ai.agent.sessions.core.providers.BaseAgentSessionSource
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionPrefetchSource
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionRefreshHints
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionRefreshHintsSource
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionRefreshThreadSeed
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionRefreshSource
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionSource
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionSourceRefreshRequest
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionSourceRefreshResult
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionSourceUpdateEvent
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionThreadActivityUpdate
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionUpdateSource
 import com.intellij.agent.workbench.sessions.frame.AgentChatOpenModeSettings
-import com.intellij.agent.workbench.sessions.frame.OPEN_CHAT_IN_DEDICATED_FRAME_SETTING_ID
 import com.intellij.agent.workbench.sessions.model.AgentSessionsState
 import com.intellij.agent.workbench.sessions.model.ProjectEntry
 import com.intellij.agent.workbench.sessions.model.WorktreeEntry
 import com.intellij.agent.workbench.sessions.service.AgentSessionArchiveBackgroundTaskRunner
 import com.intellij.agent.workbench.sessions.service.AgentSessionArchiveService
+import com.intellij.agent.workbench.sessions.service.AgentSessionArchiveTransitionSuppressions
 import com.intellij.agent.workbench.sessions.service.AgentSessionChatOpenExecutor
 import com.intellij.agent.workbench.sessions.service.AgentSessionContentRepository
+import com.intellij.agent.workbench.sessions.service.AgentSessionLaunchProfileResolverImpl
 import com.intellij.agent.workbench.sessions.service.AgentSessionLaunchService
 import com.intellij.agent.workbench.sessions.service.AgentSessionRefreshService
 import com.intellij.agent.workbench.sessions.state.AgentSessionUiPreferencesStateService
 import com.intellij.agent.workbench.sessions.state.AgentSessionsStateStore
 import com.intellij.agent.workbench.sessions.state.InMemorySessionWarmState
 import com.intellij.agent.workbench.sessions.state.SessionWarmState
-import com.intellij.openapi.options.advanced.AdvancedSettingBean
 import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.components.ComponentManagerEx
 import com.intellij.openapi.project.Project
-import com.intellij.openapi.util.Disposer
 import com.intellij.testFramework.replaceService
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancelAndJoin
@@ -116,25 +122,13 @@ private fun <T> normalizeSnapshotTabsByPath(
   return normalized
 }
 
-internal fun registerDedicatedFrameSettingForTest(disposable: com.intellij.openapi.Disposable) {
-  if (AdvancedSettingBean.EP_NAME.extensionList.none { it.id == OPEN_CHAT_IN_DEDICATED_FRAME_SETTING_ID }) {
-    AdvancedSettingBean.EP_NAME.point.registerExtension(
-      AdvancedSettingBean().apply {
-        id = OPEN_CHAT_IN_DEDICATED_FRAME_SETTING_ID
-        defaultValue = "true"
-        groupKey = "agent.workbench.tests"
-      },
-      disposable,
-    )
-  }
-}
-
 data class TestProjectCatalogEntry(
   @JvmField val path: String,
   @JvmField val name: String,
   @JvmField val worktrees: List<TestWorktreeCatalogEntry> = emptyList(),
   @JvmField val branch: String? = null,
   @JvmField val isOpen: Boolean = true,
+  @JvmField val projectDirectory: String? = null,
 )
 
 data class TestWorktreeCatalogEntry(
@@ -142,6 +136,7 @@ data class TestWorktreeCatalogEntry(
   @JvmField val name: String,
   @JvmField val branch: String?,
   @JvmField val isOpen: Boolean = false,
+  @JvmField val projectDirectory: String? = null,
 )
 
 class AgentSessionStateSyncTestFacade(
@@ -198,9 +193,9 @@ class AgentSessionStateSyncTestFacade(
 class ScriptedSessionSource(
   override val provider: AgentSessionProvider,
   override val canReportExactThreadCount: Boolean = true,
-  override val supportsArchivedThreads: Boolean = false,
-  override val supportsUpdates: Boolean = false,
-  override val updateEvents: Flow<AgentSessionSourceUpdateEvent> = emptyFlow(),
+  private val supportsArchivedThreads: Boolean = false,
+  supportsUpdates: Boolean = false,
+  updateEvents: Flow<AgentSessionSourceUpdateEvent> = emptyFlow(),
   private val listFromOpenProject: suspend (path: String, project: Project) -> List<AgentSessionThread> = { _, _ -> emptyList() },
   private val listFromClosedProject: suspend (path: String) -> List<AgentSessionThread> = { _ -> emptyList() },
   private val listArchivedFromOpenProject: suspend (path: String, project: Project) -> List<AgentSessionThread> = { _, _ -> emptyList() },
@@ -223,21 +218,24 @@ class ScriptedSessionSource(
       }
     )
   },
-) : AgentSessionSource {
-  override suspend fun listThreadsFromOpenProject(path: String, project: Project): List<AgentSessionThread> {
-    return listFromOpenProject(path, project)
+) : AgentSessionSource,
+    AgentSessionArchivedSource,
+    AgentSessionUpdateSource,
+    AgentSessionPrefetchSource,
+    AgentSessionRefreshSource,
+    AgentSessionRefreshHintsSource,
+    AgentSessionCostSource {
+  override val updateEvents: Flow<AgentSessionSourceUpdateEvent> = if (supportsUpdates) updateEvents else emptyFlow()
+
+  override suspend fun listThreads(path: String, openProject: Project?): List<AgentSessionThread> {
+    return if (openProject == null) listFromClosedProject(path) else listFromOpenProject(path, openProject)
   }
 
-  override suspend fun listThreadsFromClosedProject(path: String): List<AgentSessionThread> {
-    return listFromClosedProject(path)
-  }
-
-  override suspend fun listArchivedThreadsFromOpenProject(path: String, project: Project): List<AgentSessionThread> {
-    return listArchivedFromOpenProject(path, project)
-  }
-
-  override suspend fun listArchivedThreadsFromClosedProject(path: String): List<AgentSessionThread> {
-    return listArchivedFromClosedProject(path)
+  override suspend fun listArchivedThreads(path: String, openProject: Project?): List<AgentSessionThread> {
+    if (!supportsArchivedThreads) {
+      return emptyList()
+    }
+    return if (openProject == null) listArchivedFromClosedProject(path) else listArchivedFromOpenProject(path, openProject)
   }
 
   override suspend fun prefetchThreads(paths: List<String>): Map<String, List<AgentSessionThread>> {
@@ -245,7 +243,32 @@ class ScriptedSessionSource(
   }
 
   override suspend fun refreshThreads(request: AgentSessionSourceRefreshRequest): AgentSessionSourceRefreshResult {
-    return refreshThreadsProvider?.invoke(request) ?: super.refreshThreads(request)
+    val refreshResult = refreshThreadsProvider?.invoke(request)
+    if (refreshResult != null) {
+      return refreshResult
+    }
+    val prefetchedThreadsByPath = prefetch(request.sourcePaths())
+    val completeThreadsByPath = LinkedHashMap<String, List<AgentSessionThread>>(request.paths.size)
+    val failuresByPath = LinkedHashMap<String, Throwable>()
+    for (path in request.paths) {
+      val sourcePath = request.sourcePathFor(path)
+      val prefetchedThreads = prefetchedThreadsByPath[sourcePath]
+      if (prefetchedThreads != null) {
+        completeThreadsByPath[path] = prefetchedThreads
+        continue
+      }
+      try {
+        completeThreadsByPath[path] = listFromClosedProject(sourcePath)
+      }
+      catch (e: Throwable) {
+        if (e is CancellationException) throw e
+        failuresByPath[path] = e
+      }
+    }
+    return AgentSessionSourceRefreshResult(
+      completeThreadsByPath = completeThreadsByPath,
+      failuresByPath = failuresByPath,
+    )
   }
 
   override suspend fun loadThreadCosts(path: String, threads: List<AgentSessionThread>): Map<String, AgentSessionCost?> {
@@ -260,6 +283,29 @@ class ScriptedSessionSource(
   }
 }
 
+class CwdBackedScriptedSessionSource(
+  provider: AgentSessionProvider,
+  canReportExactThreadCount: Boolean = true,
+  private val list: suspend (path: String, openProject: Project?) -> List<AgentSessionThread> = { _, _ -> emptyList() },
+  private val listArchived: suspend (path: String, openProject: Project?) -> List<AgentSessionThread> = { _, _ -> emptyList() },
+  private val prefetch: suspend (paths: List<String>) -> Map<String, List<AgentSessionThread>> = { emptyMap() },
+) : BaseAgentSessionSource(
+  provider = provider,
+  canReportExactThreadCount = canReportExactThreadCount,
+), AgentSessionArchivedSource, AgentSessionPrefetchSource {
+  override suspend fun loadThreads(path: String, openProject: Project?): List<AgentSessionThread> {
+    return list(path, openProject)
+  }
+
+  override suspend fun listArchivedThreads(path: String, openProject: Project?): List<AgentSessionThread> {
+    return listArchived(path, openProject)
+  }
+
+  override suspend fun prefetchThreads(paths: List<String>): Map<String, List<AgentSessionThread>> {
+    return prefetch(paths)
+  }
+}
+
 fun threadsChangedEvent(
   scopedPaths: Set<String>? = null,
   threadIds: Set<String>? = null,
@@ -267,8 +313,7 @@ fun threadsChangedEvent(
   mayHaveChangedProjectFiles: Boolean = false,
   changedProjectFilePaths: Set<String>? = null,
 ): AgentSessionSourceUpdateEvent {
-  return AgentSessionSourceUpdateEvent(
-    type = AgentSessionSourceUpdate.THREADS_CHANGED,
+  return AgentSessionSourceUpdateEvent.threadsChanged(
     scopedPaths = scopedPaths,
     threadIds = threadIds,
     activityUpdatesByThreadId = activityUpdatesByThreadId,
@@ -284,8 +329,7 @@ fun hintsChangedEvent(
   mayHaveChangedProjectFiles: Boolean = false,
   changedProjectFilePaths: Set<String>? = null,
 ): AgentSessionSourceUpdateEvent {
-  return AgentSessionSourceUpdateEvent(
-    type = AgentSessionSourceUpdate.HINTS_CHANGED,
+  return AgentSessionSourceUpdateEvent.hintsChanged(
     scopedPaths = scopedPaths,
     threadIds = threadIds,
     activityUpdatesByThreadId = activityUpdatesByThreadId,
@@ -353,6 +397,7 @@ suspend fun withRegisteredTestService(
     openAgentChatSnapshotProvider = { buildOpenChatRefreshSnapshot() },
     providerDescriptorProvider = { provider -> testIntegrationProviderDescriptor(provider) },
     toolWindowVisibleFlow = toolWindowVisibleFlow,
+    loadingDelayMs = 0L,
     subscribeToProjectLifecycle = false,
   )
   val app = ApplicationManager.getApplication()
@@ -397,7 +442,7 @@ internal suspend fun withTestServiceAndLaunch(
     Map<String, List<AgentChatPendingTabRebindRequest>>,
   ) -> AgentChatPendingTabRebindReport = ::rebindOpenPendingCodexTabs,
   openPendingAgentChatTabsProvider: suspend (AgentSessionProvider) -> Map<String, List<AgentChatPendingTabSnapshot>> = { provider ->
-    if (provider == AgentSessionProvider.CODEX) openPendingCodexTabsProvider() else collectOpenPendingAgentChatTabsByPath(provider)
+    if (provider == AgentSessionProvider.from("codex")) openPendingCodexTabsProvider() else collectOpenPendingAgentChatTabsByPath(provider)
   },
   openAgentChatPendingTabsBinderWithProvider: suspend (
     AgentSessionProvider,
@@ -406,6 +451,7 @@ internal suspend fun withTestServiceAndLaunch(
   archivedSessionsRefreshIfLoaded: () -> Unit = {},
   toolWindowVisibleFlow: StateFlow<Boolean> = MutableStateFlow(true),
   currentTimeMillis: () -> Long = System::currentTimeMillis,
+  loadingDelayMs: Long = 0L,
   branchMismatchConfirmation: suspend (Project?, String, String) -> Boolean = { _, _, _ ->
     error("Unexpected branch mismatch confirmation")
   },
@@ -425,6 +471,7 @@ internal suspend fun withTestServiceAndLaunch(
     archivedSessionsRefreshIfLoaded = archivedSessionsRefreshIfLoaded,
     toolWindowVisibleFlow = toolWindowVisibleFlow,
     currentTimeMillis = currentTimeMillis,
+    loadingDelayMs = loadingDelayMs,
     branchMismatchConfirmation = branchMismatchConfirmation,
     action = action,
   )
@@ -444,7 +491,7 @@ internal suspend fun withService(
     Map<String, List<AgentChatPendingTabRebindRequest>>,
   ) -> AgentChatPendingTabRebindReport = ::rebindOpenPendingCodexTabs,
   openPendingAgentChatTabsProvider: suspend (AgentSessionProvider) -> Map<String, List<AgentChatPendingTabSnapshot>> = { provider ->
-    if (provider == AgentSessionProvider.CODEX) openPendingCodexTabsProvider() else collectOpenPendingAgentChatTabsByPath(provider)
+    if (provider == AgentSessionProvider.from("codex")) openPendingCodexTabsProvider() else collectOpenPendingAgentChatTabsByPath(provider)
   },
   openAgentChatPendingTabsBinderWithProvider: suspend (
     AgentSessionProvider,
@@ -453,6 +500,7 @@ internal suspend fun withService(
   archivedSessionsRefreshIfLoaded: () -> Unit = {},
   toolWindowVisibleFlow: StateFlow<Boolean> = MutableStateFlow(true),
   currentTimeMillis: () -> Long = System::currentTimeMillis,
+  loadingDelayMs: Long = 0L,
   action: suspend (AgentSessionStateSyncTestFacade) -> Unit,
 ) {
   withServiceAndLaunch(
@@ -469,6 +517,7 @@ internal suspend fun withService(
     archivedSessionsRefreshIfLoaded = archivedSessionsRefreshIfLoaded,
     toolWindowVisibleFlow = toolWindowVisibleFlow,
     currentTimeMillis = currentTimeMillis,
+    loadingDelayMs = loadingDelayMs,
   ) { service, _ ->
     action(service)
   }
@@ -488,7 +537,7 @@ internal suspend fun withServiceAndLaunch(
     Map<String, List<AgentChatPendingTabRebindRequest>>,
   ) -> AgentChatPendingTabRebindReport = ::rebindOpenPendingCodexTabs,
   openPendingAgentChatTabsProvider: suspend (AgentSessionProvider) -> Map<String, List<AgentChatPendingTabSnapshot>> = { provider ->
-    if (provider == AgentSessionProvider.CODEX) openPendingCodexTabsProvider() else collectOpenPendingAgentChatTabsByPath(provider)
+    if (provider == AgentSessionProvider.from("codex")) openPendingCodexTabsProvider() else collectOpenPendingAgentChatTabsByPath(provider)
   },
   openAgentChatPendingTabsBinderWithProvider: suspend (
     AgentSessionProvider,
@@ -497,6 +546,7 @@ internal suspend fun withServiceAndLaunch(
   archivedSessionsRefreshIfLoaded: () -> Unit = {},
   toolWindowVisibleFlow: StateFlow<Boolean> = MutableStateFlow(true),
   currentTimeMillis: () -> Long = System::currentTimeMillis,
+  loadingDelayMs: Long = 0L,
   branchMismatchConfirmation: suspend (Project?, String, String) -> Boolean = { _, _, _ ->
     error("Unexpected branch mismatch confirmation")
   },
@@ -517,6 +567,7 @@ internal suspend fun withServiceAndLaunch(
     archivedSessionsRefreshIfLoaded = archivedSessionsRefreshIfLoaded,
     toolWindowVisibleFlow = toolWindowVisibleFlow,
     currentTimeMillis = currentTimeMillis,
+    loadingDelayMs = loadingDelayMs,
     branchMismatchConfirmation = branchMismatchConfirmation,
   ) { service, _, launchService ->
     action(service, launchService)
@@ -539,7 +590,7 @@ internal suspend fun withServiceAndArchive(
     Map<String, List<AgentChatPendingTabRebindRequest>>,
   ) -> AgentChatPendingTabRebindReport = ::rebindOpenPendingCodexTabs,
   openPendingAgentChatTabsProvider: suspend (AgentSessionProvider) -> Map<String, List<AgentChatPendingTabSnapshot>> = { provider ->
-    if (provider == AgentSessionProvider.CODEX) openPendingCodexTabsProvider() else collectOpenPendingAgentChatTabsByPath(provider)
+    if (provider == AgentSessionProvider.from("codex")) openPendingCodexTabsProvider() else collectOpenPendingAgentChatTabsByPath(provider)
   },
   openAgentChatPendingTabsBinderWithProvider: suspend (
     AgentSessionProvider,
@@ -548,6 +599,7 @@ internal suspend fun withServiceAndArchive(
   archivedSessionsRefreshIfLoaded: () -> Unit = {},
   toolWindowVisibleFlow: StateFlow<Boolean> = MutableStateFlow(true),
   currentTimeMillis: () -> Long = System::currentTimeMillis,
+  loadingDelayMs: Long = 0L,
   action: suspend (AgentSessionStateSyncTestFacade, AgentSessionArchiveService) -> Unit,
 ) {
   withServiceAndArchiveAndLaunch(
@@ -566,6 +618,7 @@ internal suspend fun withServiceAndArchive(
     archivedSessionsRefreshIfLoaded = archivedSessionsRefreshIfLoaded,
     toolWindowVisibleFlow = toolWindowVisibleFlow,
     currentTimeMillis = currentTimeMillis,
+    loadingDelayMs = loadingDelayMs,
   ) { service, archiveService, _ ->
     action(service, archiveService)
   }
@@ -587,7 +640,7 @@ internal suspend fun withServiceAndArchiveAndLaunch(
     Map<String, List<AgentChatPendingTabRebindRequest>>,
   ) -> AgentChatPendingTabRebindReport = ::rebindOpenPendingCodexTabs,
   openPendingAgentChatTabsProvider: suspend (AgentSessionProvider) -> Map<String, List<AgentChatPendingTabSnapshot>> = { provider ->
-    if (provider == AgentSessionProvider.CODEX) openPendingCodexTabsProvider() else collectOpenPendingAgentChatTabsByPath(provider)
+    if (provider == AgentSessionProvider.from("codex")) openPendingCodexTabsProvider() else collectOpenPendingAgentChatTabsByPath(provider)
   },
   openAgentChatPendingTabsBinderWithProvider: suspend (
     AgentSessionProvider,
@@ -596,6 +649,7 @@ internal suspend fun withServiceAndArchiveAndLaunch(
   archivedSessionsRefreshIfLoaded: () -> Unit = {},
   toolWindowVisibleFlow: StateFlow<Boolean> = MutableStateFlow(true),
   currentTimeMillis: () -> Long = System::currentTimeMillis,
+  loadingDelayMs: Long = 0L,
   branchMismatchConfirmation: suspend (Project?, String, String) -> Boolean = { _, _, _ ->
     error("Unexpected branch mismatch confirmation")
   },
@@ -605,13 +659,12 @@ internal suspend fun withServiceAndArchiveAndLaunch(
 
   @Suppress("RAW_SCOPE_CREATION")
   val scope = CoroutineScope(job + Dispatchers.Default)
-  val settingDisposable = Disposer.newDisposable()
   var previousOpenInDedicatedFrame: Boolean? = null
   try {
-    registerDedicatedFrameSettingForTest(settingDisposable)
     previousOpenInDedicatedFrame = AgentChatOpenModeSettings.openInDedicatedFrame()
     AgentChatOpenModeSettings.setOpenInDedicatedFrame(true)
     val stateStore = AgentSessionsStateStore()
+    val archiveTransitionSuppressions = AgentSessionArchiveTransitionSuppressions()
     val contentRepository = AgentSessionContentRepository(
       stateStore = stateStore,
       warmState = warmState,
@@ -626,8 +679,8 @@ internal suspend fun withServiceAndArchiveAndLaunch(
       openAgentChatSnapshotProvider = {
         buildOpenChatRefreshSnapshot(
           pendingTabsByProvider = mapOf(
-            AgentSessionProvider.CODEX to openPendingAgentChatTabsProvider(AgentSessionProvider.CODEX),
-            AgentSessionProvider.CLAUDE to openPendingAgentChatTabsProvider(AgentSessionProvider.CLAUDE),
+            AgentSessionProvider.from("codex") to openPendingAgentChatTabsProvider(AgentSessionProvider.from("codex")),
+            AgentSessionProvider.from("claude") to openPendingAgentChatTabsProvider(AgentSessionProvider.from("claude")),
           ),
           concreteThreadIdentitiesByPath = openConcreteChatThreadIdentitiesByPathProvider(),
         )
@@ -636,18 +689,23 @@ internal suspend fun withServiceAndArchiveAndLaunch(
       providerDescriptorProvider = { provider -> testIntegrationProviderDescriptor(provider) },
       toolWindowVisibleFlow = toolWindowVisibleFlow,
       currentTimeMillis = currentTimeMillis,
+      archiveTransitionSuppressions = archiveTransitionSuppressions,
+      loadingDelayMs = loadingDelayMs,
       subscribeToProjectLifecycle = false,
     )
     val service = AgentSessionStateSyncTestFacade(
       stateStore = stateStore,
       syncService = syncService,
     )
+    val launchProfileResolver = AgentSessionLaunchProfileResolverImpl(uiPreferencesState)
     val launchService = if (chatOpenExecutor == null) {
       AgentSessionLaunchService(
         serviceScope = scope,
         stateStore = stateStore,
         syncService = syncService,
         uiPreferencesState = uiPreferencesState,
+        launchProfileResolver = launchProfileResolver,
+        archiveTransitionSuppressions = archiveTransitionSuppressions,
         openPendingAgentChatTabsProvider = openPendingAgentChatTabsProvider,
         openAgentChatPendingTabsBinder = openAgentChatPendingTabsBinderWithProvider,
         archivedSessionsRefreshIfLoaded = archivedSessionsRefreshIfLoaded,
@@ -660,7 +718,9 @@ internal suspend fun withServiceAndArchiveAndLaunch(
         stateStore = stateStore,
         syncService = syncService,
         uiPreferencesState = uiPreferencesState,
+        launchProfileResolver = launchProfileResolver,
         chatOpenExecutor = chatOpenExecutor,
+        archiveTransitionSuppressions = archiveTransitionSuppressions,
         openPendingAgentChatTabsProvider = openPendingAgentChatTabsProvider,
         openAgentChatPendingTabsBinder = openAgentChatPendingTabsBinderWithProvider,
         archivedSessionsRefreshIfLoaded = archivedSessionsRefreshIfLoaded,
@@ -673,12 +733,12 @@ internal suspend fun withServiceAndArchiveAndLaunch(
       contentRepository = contentRepository,
       archiveChatCleanup = archiveChatCleanup,
       backgroundTaskRunner = archiveBackgroundTaskRunner,
+      archiveTransitionSuppressions = archiveTransitionSuppressions,
     )
     action(service, archiveService, launchService)
   }
   finally {
     previousOpenInDedicatedFrame?.let { AgentChatOpenModeSettings.setOpenInDedicatedFrame(it) }
-    Disposer.dispose(settingDisposable)
     job.cancelAndJoin()
   }
 }
@@ -688,6 +748,7 @@ fun openTestProjectEntry(
   name: String,
   worktrees: List<TestWorktreeCatalogEntry> = emptyList(),
   branch: String? = null,
+  projectDirectory: String? = null,
 ): TestProjectCatalogEntry {
   return TestProjectCatalogEntry(
     path = path,
@@ -695,6 +756,7 @@ fun openTestProjectEntry(
     branch = branch,
     worktrees = worktrees,
     isOpen = true,
+    projectDirectory = projectDirectory,
   )
 }
 
@@ -703,11 +765,14 @@ internal fun openProjectEntry(
   name: String,
   worktrees: List<WorktreeEntry> = emptyList(),
   branch: String? = null,
+  projectDirectory: String? = null,
 ): ProjectEntry {
+  val resolvedProjectDirectory = projectDirectory ?: path
   return ProjectEntry(
     path = path,
+    projectDirectory = resolvedProjectDirectory,
     name = name,
-    project = openProjectProxy(name),
+    project = openProjectProxy(name = name, basePath = resolvedProjectDirectory),
     branch = branch,
     worktreeEntries = worktrees,
   )
@@ -718,9 +783,11 @@ internal fun closedProjectEntry(
   name: String,
   worktrees: List<WorktreeEntry> = emptyList(),
   branch: String? = null,
+  projectDirectory: String? = null,
 ): ProjectEntry {
   return ProjectEntry(
     path = path,
+    projectDirectory = projectDirectory ?: path,
     name = name,
     project = null,
     branch = branch,
@@ -728,10 +795,16 @@ internal fun closedProjectEntry(
   )
 }
 
-private fun openProjectProxy(name: String): Project {
+internal fun openProjectProxy(
+  name: String,
+  basePath: String? = null,
+  services: Map<Class<*>, Any> = emptyMap(),
+): Project {
   val handler = InvocationHandler { proxy, method, args ->
     when (method.name) {
       "getName" -> name
+      "getBasePath" -> basePath
+      "getService", "getServiceAsync" -> services[args?.firstOrNull() as? Class<*>]
       "isOpen" -> true
       "isDisposed" -> false
       "toString" -> "MockProject($name)"
@@ -742,7 +815,7 @@ private fun openProjectProxy(name: String): Project {
   }
   return Proxy.newProxyInstance(
     Project::class.java.classLoader,
-    arrayOf(Project::class.java),
+    arrayOf(Project::class.java, ComponentManagerEx::class.java),
     handler,
   ) as Project
 }
@@ -762,6 +835,19 @@ private fun defaultValue(returnType: Class<*>): Any? {
   }
 }
 
+private suspend fun collectOpenPendingCodexTabsByPath(): Map<String, List<AgentChatPendingTabSnapshot>> {
+  return collectOpenPendingAgentChatTabsByPath(AgentSessionProvider.from("codex"))
+}
+
+private suspend fun rebindOpenPendingCodexTabs(
+  requestsByProjectPath: Map<String, List<AgentChatPendingTabRebindRequest>>,
+): AgentChatPendingTabRebindReport {
+  return rebindOpenPendingAgentChatTabs(
+    provider = AgentSessionProvider.from("codex"),
+    requestsByProjectPath = requestsByProjectPath,
+  )
+}
+
 suspend fun waitForCondition(timeoutMs: Long = 5_000, condition: () -> Boolean) {
   val deadline = System.currentTimeMillis() + timeoutMs
   while (System.currentTimeMillis() < deadline) {
@@ -775,7 +861,7 @@ suspend fun waitForCondition(timeoutMs: Long = 5_000, condition: () -> Boolean) 
 
 private val TEST_INTEGRATION_PROVIDER_DESCRIPTORS: Map<AgentSessionProvider, TestAgentSessionProviderDescriptor> = listOf(
   TestAgentSessionProviderDescriptor(
-    provider = AgentSessionProvider.CODEX,
+    provider = AgentSessionProvider.from("codex"),
     supportedModes = emptySet(),
     cliAvailable = true,
     supportsPendingEditorTabRebind = true,
@@ -784,7 +870,7 @@ private val TEST_INTEGRATION_PROVIDER_DESCRIPTORS: Map<AgentSessionProvider, Tes
     refreshPathAfterCreateNewSession = true,
   ),
   TestAgentSessionProviderDescriptor(
-    provider = AgentSessionProvider.CLAUDE,
+    provider = AgentSessionProvider.from("claude"),
     supportedModes = emptySet(),
     cliAvailable = true,
     supportsPendingEditorTabRebind = true,
@@ -798,20 +884,24 @@ private fun testIntegrationProviderDescriptor(provider: AgentSessionProvider): T
 }
 
 private fun TestProjectCatalogEntry.toProjectEntry(): ProjectEntry {
+  val resolvedProjectDirectory = projectDirectory ?: path
   return ProjectEntry(
     path = path,
+    projectDirectory = resolvedProjectDirectory,
     name = name,
-    project = if (isOpen) openProjectProxy(name) else null,
+    project = if (isOpen) openProjectProxy(name = name, basePath = resolvedProjectDirectory) else null,
     branch = branch,
     worktreeEntries = worktrees.map { it.toWorktreeEntry() },
   )
 }
 
 private fun TestWorktreeCatalogEntry.toWorktreeEntry(): WorktreeEntry {
+  val resolvedProjectDirectory = projectDirectory ?: path
   return WorktreeEntry(
     path = path,
+    projectDirectory = resolvedProjectDirectory,
     name = name,
     branch = branch,
-    project = if (isOpen) openProjectProxy(name) else null,
+    project = if (isOpen) openProjectProxy(name = name, basePath = resolvedProjectDirectory) else null,
   )
 }

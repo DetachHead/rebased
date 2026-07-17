@@ -1,19 +1,31 @@
 <idea-plugin>
   <resource-bundle>messages.AgentSessionsBundle</resource-bundle>
 
+  <applicationListeners>
+    <listener class="com.intellij.agent.workbench.sessions.frame.AgentChatThreadOutlineAvailabilitySettingsListener"
+              topic="com.intellij.agent.workbench.settings.AgentWorkbenchSettingsListener"/>
+  </applicationListeners>
+
   <!-- region Generated dependencies - run `Generate Product Layouts` to regenerate -->
   <dependencies>
     <module name="intellij.agent.workbench.chat"/>
-    <module name="intellij.agent.workbench.common"/>
+    <module name="intellij.platform.ai.agent.common"/>
+    <module name="intellij.platform.ai.agent.core"/>
     <module name="intellij.agent.workbench.prompt.core"/>
-    <module name="intellij.agent.workbench.sessions.core"/>
+    <module name="intellij.platform.ai.agent.sessions.core"/>
+    <module name="intellij.agent.workbench.settings"/>
+    <module name="intellij.agent.workbench.ui"/>
   </dependencies>
   <!-- endregion -->
 
   <extensions defaultExtensionNs="com.intellij">
     <agent.workbench.promptLauncher implementation="com.intellij.agent.workbench.sessions.service.AgentSessionPromptLauncherBridge"/>
-    <postStartupActivity implementation="com.intellij.agent.workbench.sessions.service.OpenRouterPriceCatalogStartupActivity"/>
+    <statistics.counterUsagesCollector
+      implementationClass="com.intellij.agent.workbench.sessions.statistics.AgentWorkbenchFusCollector"/>
+    <statistics.validation.customValidationRule
+      implementation="com.intellij.agent.workbench.sessions.statistics.AgentWorkbenchProviderValidationRule"/>
     <postStartupActivity implementation="com.intellij.agent.workbench.sessions.sleep.AgentSessionSleepPreventionStartupActivity"/>
+    <postStartupActivity implementation="com.intellij.agent.workbench.sessions.service.AgentChatUnreadAcknowledgementStartupActivity"/>
     <notificationGroup id="Agent Workbench Sessions" displayType="BALLOON" bundle="messages.AgentSessionsBundle"
                        key="notification.group.agent.workbench.sessions"/>
     <applicationConfigurable
@@ -31,12 +43,6 @@
       dynamic="true"
       parentId="com.intellij.agent.workbench.settings"/>
     <advancedSetting
-      id="agent.workbench.chat.open.in.dedicated.frame"
-      default="true"
-      bundle="messages.AgentSessionsBundle"
-      groupKey="advanced.settings.agent.workbench"
-      visible="false"/>
-    <advancedSetting
       id="agent.workbench.prevent.system.sleep.while.working"
       default="true"
       bundle="messages.AgentSessionsBundle"
@@ -48,10 +54,18 @@
       groupKey="advanced.settings.agent.workbench"
       visible="false"/>
     <projectFrameCapabilitiesProvider implementation="com.intellij.agent.workbench.sessions.frame.AgentWorkbenchProjectFrameCapabilitiesProvider"/>
-    <projectFrameToolWindowLayout id="agent.workbench.dedicated" frameType="AGENT_DEDICATED" applyMode="forceOnce" migrationVersion="3">
+    <toolWindow
+      id="agent.workbench.chat.thread.outline"
+      anchor="left"
+      icon="com.intellij.agent.workbench.sessions.icons.AgentWorkbenchSessionsIcons.ThreadOutline"
+      secondary="true"
+      canCloseContents="false"
+      factoryClass="com.intellij.agent.workbench.sessions.frame.AgentChatThreadOutlineToolWindowFactory"/>
+    <projectFrameToolWindowLayout id="agent.workbench.dedicated" frameType="AGENT_DEDICATED" applyMode="forceOnce" migrationVersion="5">
       <toolWindow id="Project" register="false"/>
       <toolWindow id="Structure" register="false"/>
-      <toolWindow id="agent.workbench.sessions" anchor="left" visible="true" showStripeButton="true" weight="0.25"/>
+      <toolWindow id="agent.workbench.sessions" anchor="left" visible="true" showStripeButton="true" weight="0.25" split="false"/>
+      <toolWindow id="agent.workbench.chat.thread.outline" anchor="left" visible="true" showStripeButton="true" weight="0.25" split="true"/>
       <toolWindow id="Terminal" anchor="bottom" visible="false" showStripeButton="true"/>
     </projectFrameToolWindowLayout>
     <projectFrameActionExclusion frameType="AGENT_DEDICATED" place="MainToolbar" id="MainToolbarVCSGroup"/>
@@ -63,9 +77,10 @@
     <applicationSettings service="com.intellij.agent.workbench.sessions.state.AgentSessionTreeUiStateService"/>
     <applicationSettings service="com.intellij.agent.workbench.sessions.state.AgentSessionLaunchProfileStateService"/>
     <applicationSettings service="com.intellij.agent.workbench.sessions.state.AgentSessionUiPreferencesStateService"/>
-    <applicationSettings service="com.intellij.agent.workbench.sessions.settings.AgentSessionProviderSettingsService"/>
     <applicationSettings service="com.intellij.agent.workbench.sessions.state.AgentSessionWarmStateService"/>
     <applicationSettings service="com.intellij.agent.workbench.sessions.AgentSessionCostHintStateService"/>
+    <applicationService serviceInterface="com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionLaunchProfileResolver"
+                        serviceImplementation="com.intellij.agent.workbench.sessions.service.AgentSessionLaunchProfileResolverImpl"/>
   </extensions>
 
   <extensions defaultExtensionNs="com.intellij.agent.workbench">

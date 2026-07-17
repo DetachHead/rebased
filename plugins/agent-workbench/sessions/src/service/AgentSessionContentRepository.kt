@@ -1,14 +1,14 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.agent.workbench.sessions.service
 
-import com.intellij.agent.workbench.common.AgentThreadActivity
-import com.intellij.agent.workbench.common.AgentThreadActivityReport
-import com.intellij.agent.workbench.common.normalizeAgentWorkbenchPath
-import com.intellij.agent.workbench.common.session.AgentSessionProvider
-import com.intellij.agent.workbench.common.session.AgentSessionThread
+import com.intellij.platform.ai.agent.core.AgentThreadActivity
+import com.intellij.platform.ai.agent.core.AgentThreadActivityReport
+import com.intellij.platform.ai.agent.core.normalizeAgentWorkbenchPath
+import com.intellij.platform.ai.agent.core.session.AgentSessionProvider
+import com.intellij.platform.ai.agent.core.session.AgentSessionThread
 import com.intellij.agent.workbench.sessions.AgentSessionsBundle
-import com.intellij.agent.workbench.sessions.core.formatCompactAgentSessionThreadTitle
-import com.intellij.agent.workbench.sessions.core.formatCompactAgentSessionTitle
+import com.intellij.platform.ai.agent.sessions.core.formatCompactAgentSessionThreadTitle
+import com.intellij.platform.ai.agent.sessions.core.formatCompactAgentSessionTitle
 import com.intellij.agent.workbench.sessions.model.AgentProjectSessions
 import com.intellij.agent.workbench.sessions.model.AgentSessionProviderLoadState
 import com.intellij.agent.workbench.sessions.model.AgentSessionsState
@@ -442,11 +442,14 @@ private fun markThreadAsRead(
 ): List<AgentSessionThread> {
   var changed = false
   val nextThreads = threads.map { thread ->
-    if (thread.provider == provider && thread.id == threadId && thread.activity == AgentThreadActivity.UNREAD && thread.updatedAt <= updatedAt) {
+    if (thread.provider == provider &&
+        thread.id == threadId &&
+        thread.updatedAt <= updatedAt &&
+        thread.hasUnreadActivitySignal()) {
       changed = true
       thread.copy(
         activityReport = AgentThreadActivityReport(
-          rowActivity = AgentThreadActivity.READY,
+          rowActivity = thread.activity.takeUnless { it == AgentThreadActivity.UNREAD } ?: AgentThreadActivity.READY,
           chromeActivity = thread.summaryActivity?.takeUnless { it == AgentThreadActivity.UNREAD } ?: AgentThreadActivity.READY,
         ),
       )

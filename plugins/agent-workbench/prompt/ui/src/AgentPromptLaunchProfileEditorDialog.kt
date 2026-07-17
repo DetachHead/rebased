@@ -1,15 +1,15 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.agent.workbench.prompt.ui
 
-import com.intellij.agent.workbench.common.session.AgentSessionLaunchMode
-import com.intellij.agent.workbench.common.session.AgentSessionProvider
+import com.intellij.platform.ai.agent.core.session.AgentSessionLaunchMode
+import com.intellij.platform.ai.agent.core.session.AgentSessionProvider
 import com.intellij.agent.workbench.prompt.core.AgentPromptGenerationModel
 import com.intellij.agent.workbench.prompt.core.AgentPromptGenerationModelGroup
 import com.intellij.agent.workbench.prompt.core.AgentPromptGenerationSettings
 import com.intellij.agent.workbench.prompt.core.AgentPromptLaunchProfile
 import com.intellij.agent.workbench.prompt.core.AgentPromptLaunchProfileKind
 import com.intellij.agent.workbench.prompt.core.AgentPromptReasoningEffort
-import com.intellij.agent.workbench.sessions.core.providers.launchProfileMatchesBuiltIn
+import com.intellij.platform.ai.agent.sessions.core.providers.launchProfileMatchesBuiltIn
 import com.intellij.icons.AllIcons
 import com.intellij.openapi.actionSystem.ActionUpdateThread
 import com.intellij.openapi.actionSystem.AnAction
@@ -59,6 +59,7 @@ import javax.swing.KeyStroke
 import javax.swing.ListSelectionModel
 import javax.swing.event.DocumentEvent
 import javax.swing.event.PopupMenuEvent
+import javax.swing.text.JTextComponent
 
 internal class AgentPromptLaunchProfileEditorDialog(
   project: Project,
@@ -149,8 +150,12 @@ internal class AgentPromptLaunchProfileEditorDialog(
           }
           selectedOption?.selectable == true -> {
             selectedModelIdForEditor = selectedOption.modelId
-            refreshEffortOptions()
-            refreshPlanEffortOptions()
+            refreshModelDependentOptions()
+            handleEditorChanged()
+          }
+          selectedOption == null -> {
+            selectedModelIdForEditor = currentModelIdFromModelCombo()
+            refreshModelDependentOptions()
             handleEditorChanged()
           }
           else -> {
@@ -166,6 +171,11 @@ internal class AgentPromptLaunchProfileEditorDialog(
       }
     }
     yoloModeButton.addActionListener {
+      if (!isUpdatingEditor) {
+        handleEditorChanged()
+      }
+    }
+    effortCombo.addActionListener {
       if (!isUpdatingEditor) {
         handleEditorChanged()
       }
@@ -286,7 +296,15 @@ internal class AgentPromptLaunchProfileEditorDialog(
   }
 
   fun selectedProfileModelIdForTest(): String? {
-    return selectedModelOption()?.modelId
+    return currentModelIdFromModelCombo()
+  }
+
+  fun setSelectedProfileModelIdForTest(modelId: String) {
+    modelComboEditorTextComponent()?.text = modelId
+  }
+
+  fun isModelComboEditableForTest(): Boolean {
+    return modelCombo.isEditable
   }
 
   fun isPlanEffortVisibleForTest(): Boolean {
@@ -295,6 +313,13 @@ internal class AgentPromptLaunchProfileEditorDialog(
 
   fun planEffortOptionTextsForTest(): List<String> {
     return (0 until planEffortCombo.model.size).map { index -> planEffortCombo.model.getElementAt(index).displayName }
+  }
+
+  fun selectReasoningEffortForTest(reasoningEffort: AgentPromptReasoningEffort) {
+    effortCombo.selectedItem = (0 until effortCombo.model.size)
+      .asSequence()
+      .map { index -> effortCombo.model.getElementAt(index) }
+      .first { option -> option.effort == reasoningEffort }
   }
 
   fun selectPlanEffortForTest(planReasoningEffort: AgentPromptReasoningEffort?) {
@@ -456,8 +481,10 @@ internal class AgentPromptLaunchProfileEditorDialog(
     reloadList()
     providerCombo.renderer = ProviderOptionRenderer()
     modelCombo.isSwingPopup = false
+    modelCombo.isEditable = true
     @Suppress("UnstableApiUsage")
     modelCombo.putClientProperty(DarculaJBPopupComboPopup.USE_LIVE_UPDATE_MODEL, true)
+    installModelComboEditorListener()
     modelCombo.addPopupMenuListener(object : PopupMenuListenerAdapter() {
       override fun popupMenuWillBecomeVisible(e: PopupMenuEvent) {
         requestSelectedProviderModelRefresh()
@@ -466,6 +493,20 @@ internal class AgentPromptLaunchProfileEditorDialog(
     modelCombo.renderer = ModelOptionRenderer(modelCombo)
     effortCombo.renderer = ReasoningEffortOptionRenderer()
     planEffortCombo.renderer = PlanEffortOptionRenderer()
+  }
+
+  private fun installModelComboEditorListener() {
+    val editorComponent = modelComboEditorTextComponent() ?: return
+    editorComponent.document.addDocumentListener(object : DocumentAdapter() {
+      override fun textChanged(e: DocumentEvent) {
+        if (isUpdatingEditor) {
+          return
+        }
+        selectedModelIdForEditor = currentModelIdFromModelCombo()
+        refreshModelDependentOptions()
+        handleEditorChanged()
+      }
+    })
   }
 
   private fun reloadList() {
@@ -581,7 +622,7 @@ internal class AgentPromptLaunchProfileEditorDialog(
 
   private fun refreshModelOptions(profile: AgentPromptLaunchProfile? = selectedProfile()) {
     val providerId = selectedProviderOption()?.providerId ?: profile?.providerId
-    val selectedModelId = profile?.generationSettings?.modelId ?: selectedModelIdForEditor
+    val selectedModelId = normalizeModelId(profile?.generationSettings?.modelId ?: selectedModelIdForEditor)
     selectedModelIdForEditor = selectedModelId
     val options = providerId
                     ?.let { id -> buildModelOptions(id, modelCatalogStateProvider(id), selectedModelId) }
@@ -599,10 +640,22 @@ internal class AgentPromptLaunchProfileEditorDialog(
   }
 
   private fun refreshModelOptions(selectedModelId: String?) {
-    selectedModelIdForEditor = selectedModelId
+    selectedModelIdForEditor = normalizeModelId(selectedModelId)
     refreshModelOptions(profile = null)
     refreshEffortOptions()
     refreshPlanEffortOptions()
+  }
+
+  private fun refreshModelDependentOptions() {
+    val wasUpdatingEditor = isUpdatingEditor
+    isUpdatingEditor = true
+    try {
+      refreshEffortOptions()
+      refreshPlanEffortOptions()
+    }
+    finally {
+      isUpdatingEditor = wasUpdatingEditor
+    }
   }
 
   private fun requestSelectedProviderModelRefresh() {
@@ -722,7 +775,7 @@ internal class AgentPromptLaunchProfileEditorDialog(
     return nameField.text.trim() != profile.name ||
            selectedProviderOption()?.providerId != profile.providerId ||
            selectedLaunchMode() != profile.launchMode ||
-           selectedModelIdForEditor != profile.generationSettings.modelId ||
+           currentModelIdFromModelCombo() != profile.generationSettings.modelId ||
            selectedReasoningEffortOption()?.effort != profile.generationSettings.reasoningEffort ||
            selectedPlanReasoningEffort() != profile.generationSettings.planReasoningEffort
   }
@@ -829,7 +882,7 @@ internal class AgentPromptLaunchProfileEditorDialog(
     val name = nameField.text.trim().takeIf { it.isNotEmpty() } ?: return null
     val provider = selectedProviderOption()?.takeIf { option -> option.isAvailable } ?: return null
     val launchMode = selectedLaunchMode() ?: return null
-    val modelId = selectedModelIdForEditor
+    val modelId = currentModelIdFromModelCombo()
     val reasoningEffort = selectedReasoningEffortOption()?.effort ?: AgentPromptReasoningEffort.AUTO
     val planReasoningEffort = selectedPlanReasoningEffort()
     return AgentPromptLaunchProfile(
@@ -947,6 +1000,32 @@ internal class AgentPromptLaunchProfileEditorDialog(
   }
 
   private fun selectedModelOption(): ModelOption? = modelCombo.selectedItem as? ModelOption
+
+  private fun currentModelIdFromModelCombo(): String? {
+    val editorText = modelComboEditorText()
+    val selectedOption = selectedModelOption()
+    if (selectedOption != null) {
+      if (!selectedOption.selectable) {
+        return selectedModelIdForEditor
+      }
+      if (editorText == null || editorText == selectedOption.displayName) {
+        return selectedOption.modelId
+      }
+    }
+    return normalizeModelId(editorText)
+  }
+
+  private fun modelComboEditorText(): String? {
+    return modelComboEditorTextComponent()?.text
+  }
+
+  private fun modelComboEditorTextComponent(): JTextComponent? {
+    return modelCombo.editor.editorComponent as? JTextComponent
+  }
+
+  private fun normalizeModelId(modelId: String?): String? {
+    return modelId?.trim()?.takeIf { it.isNotEmpty() }
+  }
 
   private fun selectedReasoningEffortOption(): ReasoningEffortOption? = effortCombo.selectedItem as? ReasoningEffortOption
 

@@ -1,9 +1,9 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.agent.workbench.sessions
 
-import com.intellij.agent.workbench.sessions.core.launch.AgentSessionLaunchSpecAugmenter
-import com.intellij.agent.workbench.sessions.core.launch.AgentSessionLaunchSpecAugmenters
-import com.intellij.agent.workbench.sessions.core.providers.AgentSessionTerminalLaunchSpec
+import com.intellij.platform.ai.agent.sessions.core.launch.AgentSessionLaunchSpecAugmenter
+import com.intellij.platform.ai.agent.sessions.core.launch.AgentSessionLaunchSpecAugmenters
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionTerminalLaunchSpec
 import java.io.File
 import java.nio.file.Path
 
@@ -13,7 +13,7 @@ internal val AGENT_WORKBENCH_TEST_PATH_PREPEND: String = Path.of("custom", "bin"
 
 internal suspend fun <T> withTestLaunchSpecAugmenter(action: suspend () -> T): T {
   return AgentSessionLaunchSpecAugmenters.withAugmenterForTest(
-    AgentSessionLaunchSpecAugmenter { _, _, launchSpec ->
+    AgentSessionLaunchSpecAugmenter { _, _, _, launchSpec ->
       buildAugmentedLaunchSpec(launchSpec)
     },
     action,

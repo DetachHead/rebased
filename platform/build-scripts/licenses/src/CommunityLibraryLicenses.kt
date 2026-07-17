@@ -325,7 +325,7 @@ object CommunityLibraryLicenses {
       .suppliedByOrganizations("SmartBear Software"),
 
     LibraryLicense("dbus-java", libraryName = "dbus-java", url = "https://github.com/hypfvieh/dbus-java")
-      .lgpl2("https://github.com/hypfvieh/dbus-java/blob/dbus-java-3.0/LICENSE")
+      .mit("https://github.com/hypfvieh/dbus-java/blob/dbus-java-parent-4.2.1/LICENSE")
       .suppliedByPersons("David M. <hypfvieh@googlemail.com>"),
 
     LibraryLicense("debugpy", version = LibraryLicense.CUSTOM_REVISION, attachedTo="intellij.python", url = "https://github.com/microsoft/debugpy")
@@ -1139,6 +1139,20 @@ object CommunityLibraryLicenses {
 
     LibraryLicense(libraryName = "opentest4j", url = "https://github.com/ota4j-team/opentest4j")
       .apache("https://github.com/ota4j-team/opentest4j/blob/master/LICENSE"),
+
+    LibraryLicense("org.eclipse.lsp4j.jsonrpc:0.14.0", libraryName = "eclipse.lsp4j.jsonrpc", url = "https://github.com/eclipse/lsp4j")
+      .eplV2("https://github.com/eclipse-lsp4j/lsp4j/blob/main/LICENSE")
+      .suppliedByPersons(
+        "Sven Efftinge", "Christian Dietrich", "Dennis Hübner", "Anton Kosyakov", "Miro Spönemann", "Jonah Graham",
+        "Akos Kitta", "Yaohai Zheng"
+      ),
+
+    LibraryLicense("org.eclipse.lsp4j:0.14.0", libraryName = "eclipse.lsp4j", url = "https://github.com/eclipse/lsp4j")
+      .eplV2("https://github.com/eclipse-lsp4j/lsp4j/blob/main/LICENSE")
+      .suppliedByPersons(
+        "Sven Efftinge", "Christian Dietrich", "Dennis Hübner", "Anton Kosyakov", "Miro Spönemann", "Jonah Graham",
+        "Akos Kitta", "Yaohai Zheng"
+      ),
 
     LibraryLicense("org.eclipse.xtext.xbase", libraryName = "xtext-xbase", url = "https://github.com/eclipse/xtext-lib")
       .eplV2("https://github.com/eclipse/xtext-lib/blob/master/LICENSE")

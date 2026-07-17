@@ -3,14 +3,17 @@ package com.intellij.agent.workbench.sessions.toolwindow.ui
 
 // @spec community/plugins/agent-workbench/spec/sessions/agent-sessions-tree.spec.md
 
-import com.intellij.agent.workbench.common.AgentThreadActivity
-import com.intellij.agent.workbench.common.statusColor
+import com.intellij.platform.ai.agent.core.AgentThreadActivity
+import com.intellij.platform.ai.agent.common.statusColor
+import com.intellij.platform.ai.agent.common.statusMessageKey
 import com.intellij.agent.workbench.sessions.AgentSessionsBundle
-import com.intellij.agent.workbench.sessions.core.providers.agentSessionThreadStatusIcon
-import com.intellij.agent.workbench.sessions.core.statistics.AgentWorkbenchEntryPoint
+import com.intellij.agent.workbench.ui.agentSessionThreadStatusIcon
+import com.intellij.agent.workbench.sessions.statistics.AgentWorkbenchEntryPoint
 import com.intellij.agent.workbench.sessions.model.AgentSessionArchivedRangePreset
 import com.intellij.agent.workbench.sessions.model.AgentSessionThreadViewMode
 import com.intellij.agent.workbench.sessions.service.AgentSessionLaunchService
+import com.intellij.agent.workbench.sessions.service.openableSourceProjectPath
+import com.intellij.agent.workbench.sessions.settings.AgentThreadsProjectScopeSettings
 import com.intellij.agent.workbench.sessions.state.AgentSessionThreadViewStateService
 import com.intellij.agent.workbench.sessions.toolwindow.tree.formatRelativeTimeShort
 import com.intellij.agent.workbench.sessions.tree.threadDisplayTitle
@@ -256,8 +259,10 @@ internal class AgentSessionsActivityCounterAction(
 }
 
 private fun defaultActivityRowsFor(project: Project?, bucket: AgentSessionsActivityBucket): List<AgentSessionsActivityThreadRow> {
-  val service = project?.service<AgentSessionsActivityService>() ?: return emptyList()
-  return service.latestChromeSummary().rowsFor(bucket)
+  project ?: return emptyList()
+  val rows = project.service<AgentSessionsActivityService>().latestChromeSummary().rowsFor(bucket)
+  if (!AgentThreadsProjectScopeSettings.isCurrentProjectOnly()) return rows
+  return rows.filterToCurrentProjectActivityRows(openableSourceProjectPath(project))
 }
 
 private fun isActiveThreadViewMode(): Boolean {
@@ -299,7 +304,8 @@ internal fun agentSessionsActivityPopupRowText(
   val timeLabel = row.thread.updatedAt.takeIf { it > 0 }?.let { timestamp ->
     formatRelativeTimeShort(timestamp, now)
   } ?: AgentSessionsBundle.message("toolwindow.time.unknown")
-  return AgentSessionsBundle.message("toolwindow.activity.popup.row", title, row.locationLabel, timeLabel)
+  val statusLabel = AgentSessionsBundle.message(row.thread.activity.statusMessageKey())
+  return AgentSessionsBundle.message("toolwindow.activity.popup.row", title, statusLabel, row.locationLabel, timeLabel)
 }
 
 private val AgentSessionsActivityBucket.tooltipKey: String

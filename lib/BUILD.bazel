@@ -2308,17 +2308,17 @@ jvm_import(
 )
 
 copy_file(
-    name = "org.jetbrains.intellij.deps/gradle-api-9.6.0-rc-1.jar_copy",
-    src = "@org_jetbrains_intellij_deps-gradle-api-9_6_0-rc-1_http//file",
-    out = "org.jetbrains.intellij.deps/gradle-api-9.6.0-rc-1.jar",
+    name = "org.jetbrains.intellij.deps/gradle-api-9.6.0.jar_copy",
+    src = "@org_jetbrains_intellij_deps-gradle-api-9_6_0_http//file",
+    out = "org.jetbrains.intellij.deps/gradle-api-9.6.0.jar",
     allow_symlink = True,
     visibility = ["//visibility:public"],
 )
 
 jvm_import(
     name = "gradle",
-    jar = "@org_jetbrains_intellij_deps-gradle-api-9_6_0-rc-1_http//file",
-    source_jar = "@org_jetbrains_intellij_deps-gradle-api-9_6_0-rc-1-sources_http//file",
+    jar = "@org_jetbrains_intellij_deps-gradle-api-9_6_0_http//file",
+    source_jar = "@org_jetbrains_intellij_deps-gradle-api-9_6_0-sources_http//file",
     visibility = ["//visibility:public"],
 )
 
@@ -5397,17 +5397,17 @@ jvm_import(
 )
 
 copy_file(
-    name = "org.jetbrains.intellij.plugins/structure-intellij-3.329.jar_copy",
-    src = "@org_jetbrains_intellij_plugins-structure-intellij-3_329_http//file",
-    out = "org.jetbrains.intellij.plugins/structure-intellij-3.329.jar",
+    name = "org.jetbrains.intellij.plugins/structure-intellij-3.330.jar_copy",
+    src = "@org_jetbrains_intellij_plugins-structure-intellij-3_330_http//file",
+    out = "org.jetbrains.intellij.plugins/structure-intellij-3.330.jar",
     allow_symlink = True,
     visibility = ["//visibility:public"],
 )
 
 copy_file(
-    name = "org.jetbrains.intellij.plugins/structure-base-3.329.jar_copy",
-    src = "@org_jetbrains_intellij_plugins-structure-base-3_329_http//file",
-    out = "org.jetbrains.intellij.plugins/structure-base-3.329.jar",
+    name = "org.jetbrains.intellij.plugins/structure-base-3.330.jar_copy",
+    src = "@org_jetbrains_intellij_plugins-structure-base-3_330_http//file",
+    out = "org.jetbrains.intellij.plugins/structure-base-3.330.jar",
     allow_symlink = True,
     visibility = ["//visibility:public"],
 )
@@ -5465,8 +5465,8 @@ java_library(
     visibility = ["//visibility:public"],
     exports = [
         # do not sort,
-        ":org_jetbrains_intellij_plugins-structure-intellij-3_329_http_import",
-        ":org_jetbrains_intellij_plugins-structure-base-3_329_http_import",
+        ":org_jetbrains_intellij_plugins-structure-intellij-3_330_http_import",
+        ":org_jetbrains_intellij_plugins-structure-base-3_330_http_import",
         ":org_jetbrains_intellij_deps-trove4j-1_0_20200330_http_import",
         ":org_atteo-evo-inflector-1_3_http_import",
         ":org_jdom-jdom2-2_0_6_1_http_import",
@@ -5478,15 +5478,15 @@ java_library(
 )
 
 jvm_import(
-    name = "org_jetbrains_intellij_plugins-structure-intellij-3_329_http_import",
-    jar = "@org_jetbrains_intellij_plugins-structure-intellij-3_329_http//file",
-    source_jar = "@org_jetbrains_intellij_plugins-structure-intellij-3_329-sources_http//file",
+    name = "org_jetbrains_intellij_plugins-structure-intellij-3_330_http_import",
+    jar = "@org_jetbrains_intellij_plugins-structure-intellij-3_330_http//file",
+    source_jar = "@org_jetbrains_intellij_plugins-structure-intellij-3_330-sources_http//file",
 )
 
 jvm_import(
-    name = "org_jetbrains_intellij_plugins-structure-base-3_329_http_import",
-    jar = "@org_jetbrains_intellij_plugins-structure-base-3_329_http//file",
-    source_jar = "@org_jetbrains_intellij_plugins-structure-base-3_329-sources_http//file",
+    name = "org_jetbrains_intellij_plugins-structure-base-3_330_http_import",
+    jar = "@org_jetbrains_intellij_plugins-structure-base-3_330_http//file",
+    source_jar = "@org_jetbrains_intellij_plugins-structure-base-3_330-sources_http//file",
 )
 
 jvm_import(
@@ -5934,17 +5934,17 @@ java_library(
 )
 
 copy_file(
-    name = "org.jetbrains.intellij.deps/debugger-agent-1.187.jar_copy",
-    src = "@org_jetbrains_intellij_deps-debugger-agent-1_187_http//file",
-    out = "org.jetbrains.intellij.deps/debugger-agent-1.187.jar",
+    name = "org.jetbrains.intellij.deps/debugger-agent-1.191.jar_copy",
+    src = "@org_jetbrains_intellij_deps-debugger-agent-1_191_http//file",
+    out = "org.jetbrains.intellij.deps/debugger-agent-1.191.jar",
     allow_symlink = True,
     visibility = ["//visibility:public"],
 )
 
 jvm_import(
     name = "java-debugger-agent-holder-debugger-agent",
-    jar = "@org_jetbrains_intellij_deps-debugger-agent-1_187_http//file",
-    source_jar = "@org_jetbrains_intellij_deps-debugger-agent-1_187-sources_http//file",
+    jar = "@org_jetbrains_intellij_deps-debugger-agent-1_191_http//file",
+    source_jar = "@org_jetbrains_intellij_deps-debugger-agent-1_191-sources_http//file",
     visibility = ["//visibility:public"],
 )
 
@@ -6307,17 +6307,17 @@ jvm_import(
 )
 
 copy_file(
-    name = "org.jetbrains.intellij.deps/intellij-deps-java-atk-wrapper-262.31.jar_copy",
-    src = "@org_jetbrains_intellij_deps-intellij-deps-java-atk-wrapper-262_31_http//file",
-    out = "org.jetbrains.intellij.deps/intellij-deps-java-atk-wrapper-262.31.jar",
+    name = "org.jetbrains.intellij.deps/intellij-deps-java-atk-wrapper-263.33.jar_copy",
+    src = "@org_jetbrains_intellij_deps-intellij-deps-java-atk-wrapper-263_33_http//file",
+    out = "org.jetbrains.intellij.deps/intellij-deps-java-atk-wrapper-263.33.jar",
     allow_symlink = True,
     visibility = ["//visibility:public"],
 )
 
 jvm_import(
     name = "jetbrains-intellij-deps-java-atk-wrapper-linux",
-    jar = "@org_jetbrains_intellij_deps-intellij-deps-java-atk-wrapper-262_31_http//file",
-    source_jar = "@org_jetbrains_intellij_deps-intellij-deps-java-atk-wrapper-262_31-sources_http//file",
+    jar = "@org_jetbrains_intellij_deps-intellij-deps-java-atk-wrapper-263_33_http//file",
+    source_jar = "@org_jetbrains_intellij_deps-intellij-deps-java-atk-wrapper-263_33-sources_http//file",
     visibility = ["//visibility:public"],
 )
 
@@ -12722,62 +12722,62 @@ jvm_import(
 )
 
 copy_file(
-    name = "com.jetbrains.rd/rd-core-2026.2.4.jar_copy",
-    src = "@com_jetbrains_rd-rd-core-2026_2_4_http//file",
-    out = "com.jetbrains.rd/rd-core-2026.2.4.jar",
+    name = "com.jetbrains.rd/rd-core-2026.2.5.jar_copy",
+    src = "@com_jetbrains_rd-rd-core-2026_2_5_http//file",
+    out = "com.jetbrains.rd/rd-core-2026.2.5.jar",
     allow_symlink = True,
     visibility = ["//visibility:public"],
 )
 
 jvm_import(
     name = "libraries-rd-core-rd-core",
-    jar = "@com_jetbrains_rd-rd-core-2026_2_4_http//file",
-    source_jar = "@com_jetbrains_rd-rd-core-2026_2_4-sources_http//file",
+    jar = "@com_jetbrains_rd-rd-core-2026_2_5_http//file",
+    source_jar = "@com_jetbrains_rd-rd-core-2026_2_5-sources_http//file",
     visibility = ["//visibility:public"],
 )
 
 copy_file(
-    name = "com.jetbrains.rd/rd-framework-2026.2.4.jar_copy",
-    src = "@com_jetbrains_rd-rd-framework-2026_2_4_http//file",
-    out = "com.jetbrains.rd/rd-framework-2026.2.4.jar",
+    name = "com.jetbrains.rd/rd-framework-2026.2.5.jar_copy",
+    src = "@com_jetbrains_rd-rd-framework-2026_2_5_http//file",
+    out = "com.jetbrains.rd/rd-framework-2026.2.5.jar",
     allow_symlink = True,
     visibility = ["//visibility:public"],
 )
 
 jvm_import(
     name = "libraries-rd-framework-rd-framework",
-    jar = "@com_jetbrains_rd-rd-framework-2026_2_4_http//file",
-    source_jar = "@com_jetbrains_rd-rd-framework-2026_2_4-sources_http//file",
+    jar = "@com_jetbrains_rd-rd-framework-2026_2_5_http//file",
+    source_jar = "@com_jetbrains_rd-rd-framework-2026_2_5-sources_http//file",
     visibility = ["//visibility:public"],
 )
 
 copy_file(
-    name = "com.jetbrains.rd/rd-swing-2026.2.4.jar_copy",
-    src = "@com_jetbrains_rd-rd-swing-2026_2_4_http//file",
-    out = "com.jetbrains.rd/rd-swing-2026.2.4.jar",
+    name = "com.jetbrains.rd/rd-swing-2026.2.5.jar_copy",
+    src = "@com_jetbrains_rd-rd-swing-2026_2_5_http//file",
+    out = "com.jetbrains.rd/rd-swing-2026.2.5.jar",
     allow_symlink = True,
     visibility = ["//visibility:public"],
 )
 
 jvm_import(
     name = "libraries-rd-swing-rd-swing",
-    jar = "@com_jetbrains_rd-rd-swing-2026_2_4_http//file",
-    source_jar = "@com_jetbrains_rd-rd-swing-2026_2_4-sources_http//file",
+    jar = "@com_jetbrains_rd-rd-swing-2026_2_5_http//file",
+    source_jar = "@com_jetbrains_rd-rd-swing-2026_2_5-sources_http//file",
     visibility = ["//visibility:public"],
 )
 
 copy_file(
-    name = "com.jetbrains.rd/rd-text-2026.2.4.jar_copy",
-    src = "@com_jetbrains_rd-rd-text-2026_2_4_http//file",
-    out = "com.jetbrains.rd/rd-text-2026.2.4.jar",
+    name = "com.jetbrains.rd/rd-text-2026.2.5.jar_copy",
+    src = "@com_jetbrains_rd-rd-text-2026_2_5_http//file",
+    out = "com.jetbrains.rd/rd-text-2026.2.5.jar",
     allow_symlink = True,
     visibility = ["//visibility:public"],
 )
 
 jvm_import(
     name = "libraries-rd-text-rd-text",
-    jar = "@com_jetbrains_rd-rd-text-2026_2_4_http//file",
-    source_jar = "@com_jetbrains_rd-rd-text-2026_2_4-sources_http//file",
+    jar = "@com_jetbrains_rd-rd-text-2026_2_5_http//file",
+    source_jar = "@com_jetbrains_rd-rd-text-2026_2_5-sources_http//file",
     visibility = ["//visibility:public"],
 )
 
@@ -17679,6 +17679,16 @@ jvm_import(
     visibility = ["//visibility:public"],
 )
 
+java_library(
+    name = "platform-ai-agent-codex-sessions-night-config-toml",
+    visibility = ["//visibility:public"],
+    exports = [
+        # do not sort,
+        ":com_electronwill_night-config-toml-3_8_4_http_import",
+        ":com_electronwill_night-config-core-3_8_4_http_import",
+    ],
+)
+
 copy_file(
     name = "com.guardsquare/proguard-base-7.8.2.jar_copy",
     src = "@com_guardsquare-proguard-base-7_8_2_http//file",
@@ -18830,17 +18840,17 @@ jvm_import(
 )
 
 copy_file(
-    name = "com.jetbrains.rd/rd-gen-2026.2.4.jar_copy",
-    src = "@com_jetbrains_rd-rd-gen-2026_2_4_http//file",
-    out = "com.jetbrains.rd/rd-gen-2026.2.4.jar",
+    name = "com.jetbrains.rd/rd-gen-2026.2.5.jar_copy",
+    src = "@com_jetbrains_rd-rd-gen-2026_2_5_http//file",
+    out = "com.jetbrains.rd/rd-gen-2026.2.5.jar",
     allow_symlink = True,
     visibility = ["//visibility:public"],
 )
 
 jvm_import(
     name = "rd-gen",
-    jar = "@com_jetbrains_rd-rd-gen-2026_2_4_http//file",
-    source_jar = "@com_jetbrains_rd-rd-gen-2026_2_4-sources_http//file",
+    jar = "@com_jetbrains_rd-rd-gen-2026_2_5_http//file",
+    source_jar = "@com_jetbrains_rd-rd-gen-2026_2_5-sources_http//file",
     visibility = ["//visibility:public"],
 )
 
@@ -19237,17 +19247,17 @@ jvm_import(
 )
 
 copy_file(
-    name = "org.jetbrains.intellij.deps/studio-platform-2025.3.1-367.jar_copy",
-    src = "@org_jetbrains_intellij_deps-studio-platform-2025_3_1-367_http//file",
-    out = "org.jetbrains.intellij.deps/studio-platform-2025.3.1-367.jar",
+    name = "org.jetbrains.intellij.deps/studio-platform-2025.3.2-368.jar_copy",
+    src = "@org_jetbrains_intellij_deps-studio-platform-2025_3_2-368_http//file",
+    out = "org.jetbrains.intellij.deps/studio-platform-2025.3.2-368.jar",
     allow_symlink = True,
     visibility = ["//visibility:public"],
 )
 
 jvm_import(
     name = "studio-platform",
-    jar = "@org_jetbrains_intellij_deps-studio-platform-2025_3_1-367_http//file",
-    source_jar = "@org_jetbrains_intellij_deps-studio-platform-2025_3_1-367-sources_http//file",
+    jar = "@org_jetbrains_intellij_deps-studio-platform-2025_3_2-368_http//file",
+    source_jar = "@org_jetbrains_intellij_deps-studio-platform-2025_3_2-368-sources_http//file",
     visibility = ["//visibility:public"],
 )
 

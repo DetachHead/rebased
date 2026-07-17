@@ -6,9 +6,9 @@ import com.intellij.agent.workbench.prompt.core.AgentPromptInvocationData
 import com.intellij.agent.workbench.prompt.core.AgentPromptLaunchRequest
 import com.intellij.agent.workbench.prompt.core.AgentPromptLaunchResult
 import com.intellij.agent.workbench.prompt.core.AgentPromptLauncherBridge
-import com.intellij.agent.workbench.sessions.core.providers.AgentSessionProviderDescriptor
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionProviderDescriptor
 import com.intellij.agent.workbench.sessions.service.AgentSessionProviderAvailabilityService
-import com.intellij.agent.workbench.sessions.settings.AgentSessionProviderSettingsService
+import com.intellij.agent.workbench.settings.AgentSessionProviderSettingsService
 import com.intellij.openapi.components.service
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.ProjectManager
@@ -49,7 +49,7 @@ fun captureNewTaskPromptLaunchRequest(
     val existingTaskController = AgentPromptExistingTaskController(
       existingTaskListModel = javax.swing.DefaultListModel(),
       existingTaskList = com.intellij.ui.components.JBList(),
-      popupScope = testScope(),
+      sessionScope = testScope(),
       sessionsMessageResolver = AgentPromptSessionsMessageResolver(classLoader),
       onStateChanged = {},
     )
@@ -62,9 +62,10 @@ fun captureNewTaskPromptLaunchRequest(
       promptArea = promptArea,
       providerSelector = providerSelector,
       existingTaskController = existingTaskController,
+      sessionScope = testScope(),
       launcherProvider = {
         object : AgentPromptLauncherBridge {
-          override fun launch(request: AgentPromptLaunchRequest): AgentPromptLaunchResult {
+          override suspend fun launch(request: AgentPromptLaunchRequest): AgentPromptLaunchResult {
             capturedRequest = request
             return AgentPromptLaunchResult.SUCCESS
           }

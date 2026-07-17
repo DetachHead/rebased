@@ -1,9 +1,9 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.agent.workbench.sessions.state
 
-import com.intellij.agent.workbench.common.normalizeAgentWorkbenchPath
-import com.intellij.agent.workbench.common.session.AgentSessionProvider
-import com.intellij.agent.workbench.common.session.AgentSessionThread
+import com.intellij.platform.ai.agent.core.normalizeAgentWorkbenchPath
+import com.intellij.platform.ai.agent.core.session.AgentSessionProvider
+import com.intellij.platform.ai.agent.core.session.AgentSessionThread
 import com.intellij.agent.workbench.sessions.model.AgentProjectSessions
 import com.intellij.agent.workbench.sessions.model.AgentSessionsState
 import com.intellij.agent.workbench.sessions.model.AgentWorktree
@@ -150,6 +150,21 @@ class AgentSessionsStateStore {
       val nextProjects = state.projects.map(transform)
       if (nextProjects == state.projects) state else state.copy(projects = nextProjects, lastUpdatedAt = System.currentTimeMillis())
     }
+  }
+
+  fun findProjectDirectory(path: String): String? {
+    val normalizedPath = normalizeAgentWorkbenchPath(path)
+    for (project in mutableState.value.projects) {
+      if (normalizeAgentWorkbenchPath(project.path) == normalizedPath) {
+        return project.projectDirectory?.takeIf { it.isNotBlank() }?.let(::normalizeAgentWorkbenchPath)
+      }
+      for (worktree in project.worktrees) {
+        if (normalizeAgentWorkbenchPath(worktree.path) == normalizedPath) {
+          return worktree.projectDirectory?.takeIf { it.isNotBlank() }?.let(::normalizeAgentWorkbenchPath)
+        }
+      }
+    }
+    return null
   }
 
   private fun buildInitialVisibleThreadCounts(

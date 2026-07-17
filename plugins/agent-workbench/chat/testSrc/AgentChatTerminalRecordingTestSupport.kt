@@ -1,7 +1,7 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.agent.workbench.chat
 
-import com.intellij.agent.workbench.sessions.core.providers.AgentSessionTerminalLaunchSpec
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionTerminalLaunchSpec
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.UiWithModelAccess
 import com.intellij.openapi.components.service
@@ -22,10 +22,10 @@ import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicInteger
-import java.util.concurrent.atomic.AtomicLong
 import javax.swing.JButton
 import javax.swing.JComponent
 import javax.swing.JPanel
@@ -41,9 +41,6 @@ class RecordingAgentChatTerminalHarness {
 
   val sentTexts: List<RecordingTerminalSentText>
     get() = terminalTabs.tab.sentTexts.toList()
-
-  val backTabCalls: Int
-    get() = terminalTabs.tab.backTabCalls.get()
 
   fun registerEditorFactory(parentDisposable: Disposable) {
     registerAgentChatFileEditorFactoryOverrideForTests(
@@ -73,16 +70,14 @@ class RecordingAgentChatTerminalHarness {
     }
   }
 
-  suspend fun awaitBackTabCalls(expected: Int, timeoutMs: Long = TERMINAL_HARNESS_WAIT_TIMEOUT_MS) {
-    withTimeout(timeoutMs.milliseconds) {
-      terminalTabs.tab.backTabCallsFlow.first { calls -> calls >= expected }
+  suspend fun awaitSentTextsStayAt(
+    expectedSize: Int,
+    timeoutMs: Long = TERMINAL_HARNESS_NEGATIVE_WAIT_TIMEOUT_MS,
+  ): List<RecordingTerminalSentText> {
+    val unexpectedTexts = withTimeoutOrNull(timeoutMs.milliseconds) {
+      terminalTabs.tab.sentTextsFlow.first { texts -> texts.size > expectedSize }
     }
-  }
-
-  suspend fun awaitSentTexts(expectedSize: Int, timeoutMs: Long = TERMINAL_HARNESS_WAIT_TIMEOUT_MS): List<RecordingTerminalSentText> {
-    return withTimeout(timeoutMs.milliseconds) {
-      terminalTabs.tab.sentTextsFlow.first { texts -> texts.size >= expectedSize }
-    }
+    return unexpectedTexts ?: terminalTabs.tab.sentTexts.toList()
   }
 
   suspend fun awaitInitialMessageSent(timeoutMs: Long = TERMINAL_HARNESS_WAIT_TIMEOUT_MS): RecordingAgentChatOpenedFileSnapshot {
@@ -118,6 +113,12 @@ class RecordingAgentChatTerminalHarness {
   }
 }
 
+suspend fun disposeAgentChatLiveTerminalsForTest(project: Project) {
+  withContext(Dispatchers.UiWithModelAccess) {
+    project.service<AgentChatLiveTerminalRegistryService>().disposeLiveTerminalsForTest()
+  }
+}
+
 data class RecordingTerminalSentText(
   @JvmField val text: String,
   @JvmField val shouldExecute: Boolean,
@@ -130,6 +131,7 @@ data class RecordingAgentChatOpenedFileSnapshot(
   @JvmField val threadId: String,
   @JvmField val threadTitle: String,
   @JvmField val initialMessageDispatchStepIndex: Int,
+  @JvmField val initialMessageDispatchStepCount: Int,
   @JvmField val initialMessageSent: Boolean,
 )
 
@@ -186,22 +188,13 @@ private class RecordingAgentChatTerminalTab : AgentChatTerminalTab {
 
   val sentTexts: CopyOnWriteArrayList<RecordingTerminalSentText> = CopyOnWriteArrayList()
   val sentTextsFlow: MutableStateFlow<List<RecordingTerminalSentText>> = MutableStateFlow(emptyList())
-  val backTabCalls: AtomicInteger = AtomicInteger()
-  val backTabCallsFlow: MutableStateFlow<Int> = MutableStateFlow(0)
-
-  @Volatile
-  private var recentOutputTail: String = ""
-
-  private val outputVersion: AtomicLong = AtomicLong()
-  private val outputChunks: CopyOnWriteArrayList<RecordingTerminalOutputChunk> = CopyOnWriteArrayList()
 
   fun setSessionState(state: TerminalViewSessionState) {
     mutableSessionState.value = state
   }
 
   override suspend fun captureOutputCheckpoint(): AgentChatTerminalOutputCheckpoint {
-    val version = outputVersion.get()
-    return AgentChatTerminalOutputCheckpoint(regularEndOffset = version, alternativeEndOffset = version)
+    return AgentChatTerminalOutputCheckpoint(regularEndOffset = 0, alternativeEndOffset = 0)
   }
 
   override suspend fun awaitOutputObservation(
@@ -215,20 +208,13 @@ private class RecordingAgentChatTerminalTab : AgentChatTerminalTab {
       if (sessionState.value == TerminalViewSessionState.Terminated) {
         return AgentChatTerminalOutputObservation(
           readiness = AgentChatTerminalInputReadiness.TERMINATED,
-          text = readOutputSince(checkpoint),
-        )
-      }
-      val text = readOutputSince(checkpoint)
-      if (text.isNotEmpty()) {
-        return AgentChatTerminalOutputObservation(
-          readiness = AgentChatTerminalInputReadiness.READY,
-          text = text,
+          text = "",
         )
       }
       if (System.currentTimeMillis() >= deadline) {
         return AgentChatTerminalOutputObservation(
           readiness = AgentChatTerminalInputReadiness.TIMEOUT,
-          text = text,
+          text = "",
         )
       }
       delay(pollIntervalMs.milliseconds)
@@ -248,38 +234,37 @@ private class RecordingAgentChatTerminalTab : AgentChatTerminalTab {
     }
   }
 
-  override suspend fun readRecentOutputTail(): String = recentOutputTail
+  override suspend fun readRecentOutputTail(): String = ""
 
   override fun sendText(text: String, shouldExecute: Boolean, useBracketedPasteMode: Boolean) {
-    sentTexts += RecordingTerminalSentText(text, shouldExecute, useBracketedPasteMode)
+    recordSentText(
+      RecordingTerminalSentText(
+        text = text,
+        shouldExecute = shouldExecute,
+        useBracketedPasteMode = useBracketedPasteMode,
+      )
+    )
+  }
+
+  override suspend fun sendInitialMessageText(
+    text: String,
+    shouldExecute: Boolean,
+    useBracketedPasteMode: Boolean,
+  ) {
+    recordSentText(
+      RecordingTerminalSentText(
+        text = text,
+        shouldExecute = shouldExecute,
+        useBracketedPasteMode = useBracketedPasteMode,
+      )
+    )
+  }
+
+  private fun recordSentText(sentText: RecordingTerminalSentText) {
+    sentTexts += sentText
     sentTextsFlow.value = sentTexts.toList()
   }
-
-  override fun sendBackTab(): Boolean {
-    backTabCallsFlow.value = backTabCalls.incrementAndGet()
-    emitPlanModeOutput()
-    return true
-  }
-
-  private fun emitPlanModeOutput() {
-    recentOutputTail = "Plan mode"
-    val nextVersion = outputVersion.incrementAndGet()
-    outputChunks += RecordingTerminalOutputChunk(version = nextVersion, text = recentOutputTail)
-  }
-
-  private fun readOutputSince(checkpoint: AgentChatTerminalOutputCheckpoint): String {
-    val checkpointVersion = maxOf(checkpoint.regularEndOffset, checkpoint.alternativeEndOffset)
-    return outputChunks
-      .asSequence()
-      .filter { chunk -> chunk.version > checkpointVersion }
-      .joinToString(separator = "\n") { chunk -> chunk.text }
-  }
 }
-
-private data class RecordingTerminalOutputChunk(
-  @JvmField val version: Long,
-  @JvmField val text: String,
-)
 
 private fun recordingSnapshot(snapshot: AgentChatTabSnapshot): RecordingAgentChatOpenedFileSnapshot {
   return RecordingAgentChatOpenedFileSnapshot(
@@ -288,8 +273,10 @@ private fun recordingSnapshot(snapshot: AgentChatTabSnapshot): RecordingAgentCha
     threadId = snapshot.runtime.threadId,
     threadTitle = snapshot.runtime.threadTitle,
     initialMessageDispatchStepIndex = snapshot.runtime.initialMessageDispatchStepIndex,
+    initialMessageDispatchStepCount = snapshot.runtime.initialMessageDispatchSteps.size,
     initialMessageSent = snapshot.runtime.initialMessageSent,
   )
 }
 
 private const val TERMINAL_HARNESS_WAIT_TIMEOUT_MS: Long = 30_000
+private const val TERMINAL_HARNESS_NEGATIVE_WAIT_TIMEOUT_MS: Long = 500

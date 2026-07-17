@@ -3,10 +3,10 @@ package com.intellij.agent.workbench.sessions.launch.config.backend
 
 // @spec community/plugins/agent-workbench/spec/launch/agent-project-launch-config.spec.md
 
-import com.intellij.agent.workbench.common.parseAgentWorkbenchPathOrNull
-import com.intellij.agent.workbench.common.session.AgentSessionProvider
-import com.intellij.agent.workbench.sessions.core.launch.AgentSessionLaunchSpecAugmenter
-import com.intellij.agent.workbench.sessions.core.providers.AgentSessionTerminalLaunchSpec
+import com.intellij.platform.ai.agent.core.parseAgentWorkbenchPathOrNull
+import com.intellij.platform.ai.agent.core.session.AgentSessionProvider
+import com.intellij.platform.ai.agent.sessions.core.launch.AgentSessionLaunchSpecAugmenter
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionTerminalLaunchSpec
 import com.intellij.openapi.application.PathManager
 import com.intellij.openapi.diagnostic.debug
 import com.intellij.openapi.diagnostic.logger
@@ -29,14 +29,17 @@ internal class AgentWorkbenchProjectLaunchConfigAugmenter(
 ) : AgentSessionLaunchSpecAugmenter {
   override suspend fun augment(
     projectPath: String,
+    projectDirectory: String?,
     provider: AgentSessionProvider,
     launchSpec: AgentSessionTerminalLaunchSpec,
   ): AgentSessionTerminalLaunchSpec {
     return try {
-      val context = executionContextResolver.resolve(projectPath)
+      val executionProjectPath = projectDirectory ?: projectPath
+      val context = executionContextResolver.resolve(executionProjectPath)
       if (context == null) {
         AGENT_WORKBENCH_PROJECT_LAUNCH_CONFIG_LOG.debug {
-          "Skipped Agent Workbench launch augmentation for provider=${provider.value}: execution context unavailable for projectPath=$projectPath"
+          "Skipped Agent Workbench launch augmentation for provider=${provider.value}: " +
+          "execution context unavailable for projectPath=$projectPath, projectDirectory=$projectDirectory"
         }
         return launchSpec
       }
@@ -63,7 +66,10 @@ internal class AgentWorkbenchProjectLaunchConfigAugmenter(
       if (!envChanged) launchSpec else launchSpec.copy(envVariables = envVariables)
     }
     catch (t: Throwable) {
-      AGENT_WORKBENCH_PROJECT_LAUNCH_CONFIG_LOG.warn("Failed to resolve Agent Workbench launch config for $provider:$projectPath", t)
+      AGENT_WORKBENCH_PROJECT_LAUNCH_CONFIG_LOG.warn(
+        "Failed to resolve Agent Workbench launch config for $provider:$projectPath (projectDirectory=$projectDirectory)",
+        t,
+      )
       launchSpec
     }
   }

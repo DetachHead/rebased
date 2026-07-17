@@ -6,31 +6,39 @@ package com.intellij.agent.workbench.sessions.toolwindow.ui
 // @spec community/plugins/agent-workbench/spec/core/agent-workbench-telemetry.spec.md
 
 import com.intellij.agent.workbench.chat.AgentChatTabSelectionService
-import com.intellij.agent.workbench.chat.AgentChatOpenPendingTabsStateService
+import com.intellij.agent.workbench.chat.AgentChatOpenTabsPresentationStateService
 import com.intellij.agent.workbench.chat.AgentChatPendingEditorLifecycleService
-import com.intellij.agent.workbench.common.session.AgentSessionProvider
+import com.intellij.platform.ai.agent.core.session.AgentSessionProvider
 import com.intellij.agent.workbench.sessions.AgentSessionCostHintBanner
 import com.intellij.agent.workbench.sessions.AgentSessionCostHintStateService
 import com.intellij.agent.workbench.sessions.AgentSessionsBundle
 import com.intellij.agent.workbench.sessions.jbcentral.JbCentralQuotaCliSupport
 import com.intellij.agent.workbench.sessions.jbcentral.JbCentralQuotaHintBanner
 import com.intellij.agent.workbench.sessions.jbcentral.JbCentralQuotaHintStateService
-import com.intellij.agent.workbench.sessions.core.providers.AgentSessionProviders
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionProviders
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionProviderUiContributors
+import com.intellij.agent.workbench.sessions.model.ArchiveThreadTarget
 import com.intellij.agent.workbench.sessions.model.AgentSessionThreadViewMode
+import com.intellij.agent.workbench.sessions.model.archiveThreadTargetKey
 import com.intellij.agent.workbench.sessions.service.AgentArchivedSessionsService
 import com.intellij.agent.workbench.sessions.service.AgentSessionProviderAvailabilityListener
 import com.intellij.agent.workbench.sessions.service.AgentSessionProviderAvailabilityService
 import com.intellij.agent.workbench.sessions.service.AgentSessionReadService
 import com.intellij.agent.workbench.sessions.service.AgentSessionRefreshService
 import com.intellij.agent.workbench.sessions.service.AgentSessionsToolWindowVisibilityService
-import com.intellij.agent.workbench.sessions.settings.AgentSessionProviderSettingsListener
+import com.intellij.agent.workbench.sessions.service.openableSourceProjectPath
+import com.intellij.agent.workbench.sessions.settings.AgentThreadsProjectScopeSettings
+import com.intellij.agent.workbench.settings.AgentSessionProviderSettingsListener
+import com.intellij.agent.workbench.settings.AgentWorkbenchSettingsListener
 import com.intellij.agent.workbench.sessions.state.AgentSessionThreadViewStateService
 import com.intellij.agent.workbench.sessions.state.AgentSessionsStateStore
 import com.intellij.agent.workbench.sessions.toolwindow.tree.SessionTreeId
 import com.intellij.agent.workbench.sessions.toolwindow.tree.SessionTreeModel
 import com.intellij.agent.workbench.sessions.toolwindow.tree.SessionTreeModelDiff
 import com.intellij.agent.workbench.sessions.toolwindow.tree.SessionTreeNode
+import com.intellij.agent.workbench.sessions.toolwindow.tree.isSelectableSessionTreeId
 import com.intellij.agent.workbench.sessions.util.isAgentSessionNewSessionId
+import com.intellij.ide.ActivityTracker
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.actionSystem.DataSink
 import com.intellij.openapi.actionSystem.UiDataProvider
@@ -47,6 +55,8 @@ import com.intellij.ui.tree.StructureTreeModel
 import com.intellij.ui.treeStructure.Tree
 import com.intellij.util.ui.EdtInvocationManager
 import com.intellij.util.ui.tree.TreeUtil
+import com.intellij.platform.ai.agent.sessions.core.folders.AgentTaskFolderService
+import com.intellij.platform.ai.agent.sessions.core.folders.AgentTaskFolderThreadAssignment
 import java.awt.BorderLayout
 import java.awt.Graphics
 import java.util.Collections
@@ -66,8 +76,14 @@ internal fun createAgentSessionsNorthComponents(
   parentDisposable: Disposable,
   refreshSessions: () -> Unit,
 ): List<JComponent> {
-  val providerContributions = AgentSessionProviders.allProvidersById()
-    .mapNotNull { provider -> provider.createToolWindowNorthComponent(project) }
+  val providerContributions = AgentSessionProviders.allProvidersById().flatMap { provider ->
+    buildList {
+      provider.createToolWindowNorthComponent(project)?.let(::add)
+      AgentSessionProviderUiContributors.forProvider(provider.provider).mapNotNullTo(this) { contributor ->
+        contributor.createToolWindowNorthComponent(project)
+      }
+    }
+  }
   service<JbCentralQuotaHintStateService>().setEligible(JbCentralQuotaCliSupport.isAvailable())
   return buildList {
     add(AgentProviderCliStatusBanner(project, parentDisposable, refreshSessions = refreshSessions))
@@ -169,10 +185,7 @@ internal class AgentSessionsToolWindowPanel(
     archivedSessionsStateFlow = service<AgentArchivedSessionsService>().stateFlow(),
     threadViewStateFlow = service<AgentSessionThreadViewStateService>().state,
     selectedChatTabFlow = project.service<AgentChatTabSelectionService>().selectedChatTab,
-    pendingChatTabsStateFlow = service<AgentChatOpenPendingTabsStateService>().state,
-    markThreadAsRead = { path, provider, threadId, updatedAt ->
-      service<AgentSessionRefreshService>().markThreadAsRead(path, provider, threadId, updatedAt)
-    },
+    openChatTabsPresentationStateFlow = service<AgentChatOpenTabsPresentationStateService>().state,
     ensureArchivedSessionsLoaded = { service<AgentArchivedSessionsService>().ensureLoaded() },
     tree = tree,
     getSessionTreeModel = { sessionTreeModel },
@@ -182,11 +195,13 @@ internal class AgentSessionsToolWindowPanel(
         service<AgentSessionCostHintStateService>().markEligible()
       }
     },
-    onLastUsedProviderChanged = {
+    onNewThreadProfileMenuChanged = {
       if (isModelUpdateVisible()) {
         tree.repaint()
       }
     },
+    isCurrentProjectScopeEnabled = AgentThreadsProjectScopeSettings::isCurrentProjectOnly,
+    currentProjectPathProvider = { openableSourceProjectPath(project) },
     onBeforeModelSwap = {
       rowActionsOverlay.clearTransientState()
     },
@@ -199,7 +214,7 @@ internal class AgentSessionsToolWindowPanel(
 
   init {
     project.service<AgentChatPendingEditorLifecycleService>()
-    service<AgentChatOpenPendingTabsStateService>().refreshOpenTabs()
+    service<AgentChatOpenTabsPresentationStateService>().refreshOpenTabs()
     dataContextProvider = AgentSessionsTreeDataContextProvider(
       project = project,
       tree = tree,
@@ -209,22 +224,32 @@ internal class AgentSessionsToolWindowPanel(
 
     interactionController = AgentSessionsTreeInteractionController(
       project = project,
+      parentDisposable = this,
       tree = tree,
       rowActionsOverlayProvider = { rowActionsOverlay },
       nodeResolver = ::sessionTreeNode,
+      isHoverableTreeId = { id -> isSelectableSessionTreeId(sessionTreeModel, id) },
       selectedArchiveTargets = { dataContextProvider.selectedArchiveTargets() },
       selectedUnarchiveTargets = { dataContextProvider.selectedUnarchiveTargets() },
+      selectedThreadTargets = { dataContextProvider.selectedThreadTargets() },
+      taskFolderArchiveTargets = ::taskFolderArchiveTargets,
+      assignThreadToTaskFolder = { target, folder ->
+        service<AgentTaskFolderService>().assignThread(target.path, target.provider, target.threadId, folder.id)
+      },
       showMoreProjects = ::showMoreProjectsForCurrentView,
       showMoreThreads = ::showMoreThreadsForCurrentView,
+      isNewThreadPopupAvailable = { !stateController.isCurrentProjectScopeActive() },
     )
 
     rowActionsOverlay = AgentSessionsTreeRowActionsOverlay(
       project = project,
       tree = tree,
       nodeResolver = ::sessionTreeNode,
+      isNewThreadActionAvailable = { !stateController.isCurrentProjectScopeActive() },
     )
 
     installProviderAvailabilityRefresh()
+    installProjectScopeRefresh()
     configureTree()
     add(northPanel, BorderLayout.NORTH)
     add(createSessionTreeScrollPane(tree), BorderLayout.CENTER)
@@ -251,6 +276,24 @@ internal class AgentSessionsToolWindowPanel(
           tree.repaint()
         }
       })
+  }
+
+  private fun installProjectScopeRefresh() {
+    ApplicationManager.getApplication().messageBus.connect(this)
+      .subscribe(AgentWorkbenchSettingsListener.TOPIC, object : AgentWorkbenchSettingsListener {
+        override fun openInDedicatedFrameChanged() {
+          refreshProjectScope()
+        }
+
+        override fun agentThreadsCurrentProjectOnlyChanged() {
+          refreshProjectScope()
+        }
+      })
+  }
+
+  private fun refreshProjectScope() {
+    stateController.projectScopeChanged()
+    ActivityTracker.getInstance().inc()
   }
 
   private fun installToolWindowVisibilityTracker() {
@@ -322,10 +365,15 @@ internal class AgentSessionsToolWindowPanel(
     tree.showsRootHandles = true
     tree.emptyText.text = AgentSessionsBundle.message("toolwindow.loading")
     tree.selectionModel.selectionMode = javax.swing.tree.TreeSelectionModel.DISCONTIGUOUS_TREE_SELECTION
-    tree.cellRenderer = SessionTreeCellRenderer(
-      nowProvider = { System.currentTimeMillis() },
-      rowActionsProvider = { row, treeNode, selected -> rowActionsOverlay.rowActionPresentation(row, treeNode, selected) },
-      nodeResolver = { treeId -> sessionTreeModel.entriesById[treeId]?.node },
+    installSessionTreeStructuralSelectionFilter(tree = tree, modelProvider = { sessionTreeModel })
+    val nodeResolver = { treeId: SessionTreeId -> sessionTreeModel.entriesById[treeId]?.node }
+    tree.cellRenderer = SessionTreeCellRendererWithSeparators(
+      delegate = SessionTreeCellRenderer(
+        nowProvider = { System.currentTimeMillis() },
+        rowActionsProvider = { row, treeNode, selected -> rowActionsOverlay.rowActionPresentation(row, treeNode, selected) },
+        nodeResolver = nodeResolver,
+      ),
+      nodeResolver = nodeResolver,
     )
     configureSessionTreeRenderingProperties(tree)
     TreeUIHelper.getInstance().installTreeSpeedSearch(tree)
@@ -466,6 +514,11 @@ internal class AgentSessionsToolWindowPanel(
     }
   }
 
+  private fun taskFolderArchiveTargets(folderId: SessionTreeId.TaskFolder): List<ArchiveThreadTarget> {
+    val assignments = service<AgentTaskFolderService>().listFolderThreadAssignments(folderId.folderId)
+    return archiveTargetsForTaskFolderAssignments(assignments)
+  }
+
   @TestOnly
   internal fun containsSessionTreeIdForTest(id: SessionTreeId): Boolean {
     return id in sessionTreeModel.entriesById
@@ -475,6 +528,19 @@ internal class AgentSessionsToolWindowPanel(
     service<AgentSessionsToolWindowVisibilityService>().release(costHydrationVisibilityToken)
     stateController.dispose()
   }
+}
+
+internal fun archiveTargetsForTaskFolderAssignments(assignments: List<AgentTaskFolderThreadAssignment>): List<ArchiveThreadTarget> {
+  val targetsByKey = LinkedHashMap<String, ArchiveThreadTarget>()
+  assignments.forEach { assignment ->
+    val target = ArchiveThreadTarget.Thread(
+      path = assignment.path,
+      provider = assignment.provider,
+      threadId = assignment.threadId,
+    )
+    targetsByKey.putIfAbsent(archiveThreadTargetKey(target), target)
+  }
+  return targetsByKey.values.toList()
 }
 
 internal fun sessionTreeModelShouldMarkCostHintEligible(model: SessionTreeModel): Boolean {

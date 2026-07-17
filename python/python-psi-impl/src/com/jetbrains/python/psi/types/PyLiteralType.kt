@@ -4,6 +4,7 @@
 package com.jetbrains.python.psi.types
 
 import com.intellij.openapi.util.Ref
+import com.intellij.openapi.util.registry.Registry
 import com.intellij.psi.PsiElement
 import com.intellij.psi.impl.source.resolve.FileContextUtil
 import com.jetbrains.python.PyNames
@@ -31,6 +32,7 @@ import com.jetbrains.python.psi.PyPrefixExpression
 import com.jetbrains.python.psi.PyReferenceExpression
 import com.jetbrains.python.psi.PySetCompExpression
 import com.jetbrains.python.psi.PySetLiteralExpression
+import com.jetbrains.python.psi.PyStarExpression
 import com.jetbrains.python.psi.PyStringLiteralExpression
 import com.jetbrains.python.psi.PySubscriptionExpression
 import com.jetbrains.python.psi.PyTupleExpression
@@ -40,6 +42,8 @@ import com.jetbrains.python.psi.impl.PyEvaluator
 import com.jetbrains.python.psi.impl.PyPsiFacadeImpl
 import com.jetbrains.python.psi.resolve.PyResolveContext
 import com.jetbrains.python.psi.resolve.PyResolveUtil
+import com.jetbrains.python.psi.stubs.PyLiteralKind
+import com.jetbrains.python.psi.types.PyLiteralType.Companion.upcastLiteralToClass
 import com.jetbrains.python.psi.types.PyTypeUtil.toStream
 import org.jetbrains.annotations.ApiStatus
 import java.math.BigInteger
@@ -132,6 +136,15 @@ class PyLiteralType private constructor(
 
   companion object {
     /**
+     * Whether literal expressions (integer, boolean and string literals) infer their own literal type
+     * (e.g. `Literal[42]` for `42`) instead of the corresponding wide type (`int`).
+     *
+     * Controlled by the `python.typing.literal.types.for.literals` registry flag, enabled by default.
+     */
+    @JvmStatic
+    fun inferLiteralTypeForLiteralExpressions(): Boolean = Registry.`is`("python.typing.literal.types.for.literals", true)
+
+    /**
      * Tries to construct literal type for index passed to `typing.Literal[...]`
      */
     fun fromLiteralParameter(expression: PyExpression, context: TypeEvalContext, typeRepresentation: Boolean = false): PyType? =
@@ -191,6 +204,21 @@ class PyLiteralType private constructor(
       else -> null
     }
 
+    /**
+     * Build a [PyLiteralType] from a [PyLiteralKind] and the literal's textual value, as stored in the target
+     * expression stub or produced by `PyTargetExpressionImpl.getAssignedLiteralValueText`. Returns `null` for kinds
+     * that don't carry a literal type (`FLOAT`/`NONE`) or when the backing class cannot be resolved. Keeps stub-based
+     * and AST-based literal inference in sync.
+     */
+    @ApiStatus.Internal
+    @JvmStatic
+    fun fromLiteralKind(anchor: PsiElement, kind: PyLiteralKind, valueText: String): PyLiteralType? = when (kind) {
+      PyLiteralKind.INT -> intLiteral(anchor, BigInteger(valueText))
+      PyLiteralKind.STRING -> stringLiteral(anchor, valueText)
+      PyLiteralKind.BOOL -> boolLiteral(anchor, valueText.toBoolean())
+      PyLiteralKind.FLOAT, PyLiteralKind.NONE -> null
+    }
+
     @ApiStatus.Internal
     @JvmStatic
     fun upcastLiteralToClass(type: PyType?): PyType? {
@@ -200,6 +228,20 @@ class PyLiteralType private constructor(
         is PyLiteralType -> PyClassTypeImpl(type.pyClass, false)
         else -> type
       }
+    }
+
+    /**
+     * Like [upcastLiteralToClass], but also widens literal types nested inside generic types, callables and tuples
+     * (e.g. `Callable[..., Literal[42]]` -> `Callable[..., int]`, `Generator[Literal["s"], Any, Literal[1]]` ->
+     * `Generator[str, Any, int]`). Use when generating a declaration-friendly type annotation for an inferred type.
+     */
+    @ApiStatus.Internal
+    @JvmStatic
+    fun upcastLiteralToClassDeep(type: PyType?, context: TypeEvalContext): PyType? {
+      return PyCloningTypeVisitor.clone(type, object : PyCloningTypeVisitor(context) {
+        override fun visitPyLiteralType(literalType: PyLiteralType): PyType = PyClassTypeImpl(literalType.pyClass, false)
+        override fun visitPyLiteralStringType(literalStringType: PyLiteralStringType): PyType = PyClassTypeImpl(literalStringType.cls, false)
+      })
     }
 
     private class TypePromoter(private val context: TypeEvalContext, private val inferLiteralTypes: Boolean) {
@@ -250,7 +292,7 @@ class PyLiteralType private constructor(
         anchor: PyElement,
         elements: Collection<PyKeyValueExpression>,
       ): PyType? {
-        val (expectedKeyType, expectedValueType) = if (expectedType is PyCollectionType && expectedType.classQName == PyNames.DICT) {
+        val (expectedKeyType, expectedValueType) = if (expectedType is PyCollectionType && PyNames.FQN.unqualifyBuiltinName(expectedType.classQName) == PyNames.DICT) {
           expectedType.elementTypes[0] to expectedType.elementTypes[1]
         }
         else {
@@ -263,7 +305,12 @@ class PyLiteralType private constructor(
         return PyCollectionTypeImpl.createTypeByQName(anchor, PyNames.DICT, false, listOf(keyType, valueType))
       }
 
-      private fun promoteTuple(tupleExpression: PyTupleExpression): PyTupleType? {
+      private fun promoteTuple(tupleExpression: PyTupleExpression): PyType? {
+        // Per-element promotion would collapse a starred element to a single `Any` slot, so defer to regular
+        // inference, which expands the star while still inferring literals for the fixed elements.
+        if (tupleExpression.elements.any { it is PyStarExpression }) {
+          return context.getType(tupleExpression)
+        }
         val elementTypes = tupleExpression.elements.map { promoteToType(/*TODO*/null, it) }
         return PyTupleType.create(tupleExpression, elementTypes)
       }
@@ -274,7 +321,7 @@ class PyLiteralType private constructor(
         elements: Collection<PyExpression>,
         className: String,
       ): PyType? {
-        val expectedElementType = if (expectedType is PyCollectionType && expectedType.classQName == className) {
+        val expectedElementType = if (expectedType is PyCollectionType && PyNames.FQN.unqualifyBuiltinName(expectedType.classQName) == className) {
           expectedType.elementTypes.firstOrNull()
         }
         else {
@@ -305,7 +352,7 @@ class PyLiteralType private constructor(
     ): PyType? {
       val substitution = if (substitutions != null) PyTypeChecker.substitute(expected, substitutions, context) else expected
       val substitutionOrBound = if (substitution is PyTypeVarType) substitution.effectiveBound else substitution
-      if (substitutionOrBound == null) return PyAnyType.unknown
+      if (substitutionOrBound.isUnknown) return PyAnyType.unknown
       return TypePromoter(context, containsLiteral(substitutionOrBound)).promoteToType(substitutionOrBound, expression)
     }
 
@@ -341,7 +388,7 @@ class PyLiteralType private constructor(
       if (expression is PyConditionalExpression) {
         return PyUnionType.union(
           listOf(expression.truePart, expression.falsePart).map {
-            it?.let { getLiteralType(it, context) }
+            it?.let { getLiteralType(it, context) } ?: PyAnyType.unknown
           }
         )
       }

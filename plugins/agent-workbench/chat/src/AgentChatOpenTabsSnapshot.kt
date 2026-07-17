@@ -1,22 +1,25 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.agent.workbench.chat
 
-import com.intellij.agent.workbench.common.normalizeAgentWorkbenchPath
-import com.intellij.agent.workbench.common.session.AgentSessionProvider
+import com.intellij.platform.ai.agent.core.normalizeAgentWorkbenchPath
+import com.intellij.platform.ai.agent.core.session.AgentSessionProvider
 import com.intellij.agent.workbench.prompt.core.AgentPromptAddContextTargetCandidate
-import com.intellij.agent.workbench.sessions.core.isAgentSessionPendingThreadId
+import com.intellij.platform.ai.agent.sessions.core.isAgentSessionPendingThreadId
 import com.intellij.openapi.application.UI
 import com.intellij.openapi.components.serviceIfCreated
 import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.fileEditor.ex.FileEditorManagerEx
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.ProjectManager
+import com.intellij.openapi.vfs.VirtualFile
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import org.jetbrains.annotations.ApiStatus
 import java.util.Locale
 
 data class AgentChatOpenTabsRefreshSnapshot(
   @JvmField val openProjectPaths: Set<String>,
+  @JvmField val projectPathAliasesByPath: Map<String, Set<String>> = emptyMap(),
   val selectedChatThreadIdentity: Pair<AgentSessionProvider, String>?,
   private val pendingTabsByProvider: Map<AgentSessionProvider, Map<String, List<AgentChatPendingTabSnapshot>>>,
   private val concreteTabsAwaitingNewThreadRebindByProvider: Map<AgentSessionProvider, Map<String, List<AgentChatConcreteTabSnapshot>>>,
@@ -44,6 +47,26 @@ suspend fun collectOpenAgentChatAddContextTargetCandidates(projectPath: String):
     collectOpenAgentChatTabsSnapshot().addContextTargetCandidates(normalizeAgentWorkbenchPath(projectPath))
   }
 
+@ApiStatus.Internal
+suspend fun setAgentChatEditorTabPinned(project: Project, file: VirtualFile, pinned: Boolean): Unit = withContext(Dispatchers.UI) {
+  FileEditorManager.getInstance(project).setPinnedEditorTab(file, pinned)
+}
+
+@ApiStatus.Internal
+suspend fun setOpenTopLevelAgentChatThreadTabsPinned(
+  provider: AgentSessionProvider,
+  projectPath: String,
+  threadId: String,
+  pinned: Boolean,
+): Int = withContext(Dispatchers.UI) {
+  collectOpenAgentChatTabsSnapshot().setTopLevelConcreteThreadTabsPinned(
+    provider = provider,
+    normalizedProjectPath = normalizeAgentWorkbenchPath(projectPath),
+    threadId = threadId,
+    pinned = pinned,
+  )
+}
+
 internal fun collectOpenAgentChatTabsSnapshot(
   projects: Array<Project> = ProjectManager.getInstance().openProjects,
 ): AgentChatOpenTabsSnapshot {
@@ -51,8 +74,12 @@ internal fun collectOpenAgentChatTabsSnapshot(
   val filesByTabKey = LinkedHashMap<String, AgentChatVirtualFile>()
   val managerByFile = LinkedHashMap<AgentChatVirtualFile, LinkedHashSet<FileEditorManagerEx>>()
   val concreteThreadIdentitiesByPath = LinkedHashMap<String, LinkedHashSet<String>>()
+  val pinnedTopLevelConcreteThreadIdentitiesByProviderAndPath =
+    LinkedHashMap<AgentSessionProvider, LinkedHashMap<String, LinkedHashSet<String>>>()
+  val pinnedTabKeys = LinkedHashSet<String>()
   val concreteThreadIdentitiesByPathAndManager = ConcreteThreadIdentitiesByManager()
   val topLevelConcreteThreadIdentitiesByPathAndManager = ConcreteThreadIdentitiesByManager()
+  val projectPathAliasesByPath = LinkedHashMap<String, LinkedHashSet<String>>()
   val pendingFilesByProviderAndPathAndTabKey =
     LinkedHashMap<AgentSessionProvider, LinkedHashMap<String, LinkedHashMap<String, AgentChatVirtualFile>>>()
   val concreteFilesByProviderAndPathAndTabKey =
@@ -91,6 +118,11 @@ internal fun collectOpenAgentChatTabsSnapshot(
         continue
       }
       val normalizedProjectPath = normalizeAgentWorkbenchPath(chatFile.projectPath)
+      recordProjectPathAlias(
+        projectPathAliasesByPath = projectPathAliasesByPath,
+        normalizedProjectPath = normalizedProjectPath,
+        projectDirectory = chatFile.projectDirectory,
+      )
       val hasPendingThreadIdentity = chatFile.isPendingThread
       val participatesInPendingThreadLifecycle = chatFile.participatesInPendingThreadLifecycle()
       val pendingProvider =
@@ -103,6 +135,10 @@ internal fun collectOpenAgentChatTabsSnapshot(
         )
       )
       filesByTabKey.putIfAbsent(chatFile.tabKey, chatFile)
+      val pinnedEditorTab = manager.hasPinnedEditorTab(chatFile)
+      if (pinnedEditorTab) {
+        pinnedTabKeys.add(chatFile.tabKey)
+      }
       openProjectPaths.add(normalizedProjectPath)
       if (participatesInPendingThreadLifecycle) {
         pendingProjectPaths.add(normalizedProjectPath)
@@ -131,6 +167,12 @@ internal fun collectOpenAgentChatTabsSnapshot(
 
       val provider = chatFile.provider
       if (provider != null && !hasPendingThreadIdentity && chatFile.subAgentId == null) {
+        if (pinnedEditorTab) {
+          pinnedTopLevelConcreteThreadIdentitiesByProviderAndPath
+            .computeIfAbsent(provider) { LinkedHashMap() }
+            .computeIfAbsent(normalizedProjectPath) { LinkedHashSet() }
+            .add(chatFile.threadId)
+        }
         concreteFilesByProviderAndPathAndTabKey
           .computeIfAbsent(provider) { LinkedHashMap() }
           .computeIfAbsent(normalizedProjectPath) { LinkedHashMap() }
@@ -152,8 +194,11 @@ internal fun collectOpenAgentChatTabsSnapshot(
     concreteThreadIdentitiesByPath = concreteThreadIdentitiesByPath,
     concreteThreadIdentitiesByPathAndManager = concreteThreadIdentitiesByPathAndManager,
     topLevelConcreteThreadIdentitiesByPathAndManager = topLevelConcreteThreadIdentitiesByPathAndManager,
+    pinnedTopLevelConcreteThreadIdentitiesByProviderAndPath = pinnedTopLevelConcreteThreadIdentitiesByProviderAndPath,
+    pinnedTabKeys = pinnedTabKeys,
     pendingFilesByProviderAndPathAndTabKey = pendingFilesByProviderAndPathAndTabKey,
     concreteFilesByProviderAndPathAndTabKey = concreteFilesByProviderAndPathAndTabKey,
+    projectPathAliasesByPath = projectPathAliasesByPath,
     openProjectPaths = openProjectPaths,
     pendingProjectPaths = pendingProjectPaths,
     selectedChatThreadIdentity = selectedChatThreadIdentity,
@@ -182,10 +227,14 @@ internal class AgentChatOpenTabsSnapshot(
   private val concreteThreadIdentitiesByPath: LinkedHashMap<String, LinkedHashSet<String>>,
   private val concreteThreadIdentitiesByPathAndManager: ConcreteThreadIdentitiesByManager,
   private val topLevelConcreteThreadIdentitiesByPathAndManager: ConcreteThreadIdentitiesByManager,
+  private val pinnedTopLevelConcreteThreadIdentitiesByProviderAndPath:
+  LinkedHashMap<AgentSessionProvider, LinkedHashMap<String, LinkedHashSet<String>>>,
+  private val pinnedTabKeys: LinkedHashSet<String>,
   private val pendingFilesByProviderAndPathAndTabKey:
   LinkedHashMap<AgentSessionProvider, LinkedHashMap<String, LinkedHashMap<String, AgentChatVirtualFile>>>,
   private val concreteFilesByProviderAndPathAndTabKey:
   LinkedHashMap<AgentSessionProvider, LinkedHashMap<String, LinkedHashMap<String, AgentChatVirtualFile>>>,
+  private val projectPathAliasesByPath: LinkedHashMap<String, LinkedHashSet<String>>,
   private val openProjectPaths: LinkedHashSet<String>,
   private val pendingProjectPaths: LinkedHashSet<String>,
   val selectedChatThreadIdentity: Pair<AgentSessionProvider, String>?,
@@ -199,6 +248,33 @@ internal class AgentChatOpenTabsSnapshot(
 
   fun files(): Collection<AgentChatVirtualFile> {
     return filesByTabKey.values
+  }
+
+  fun setTopLevelConcreteThreadTabsPinned(
+    provider: AgentSessionProvider,
+    normalizedProjectPath: String,
+    threadId: String,
+    pinned: Boolean,
+  ): Int {
+    val processedEntries = LinkedHashSet<Pair<FileEditorManager, AgentChatVirtualFile>>()
+    var updatedCount = 0
+    for ((manager, entryProjectPath, chatFile) in entries) {
+      if (entryProjectPath != normalizedProjectPath ||
+          chatFile.provider != provider ||
+          chatFile.sessionId != threadId ||
+          chatFile.isPendingThread ||
+          chatFile.subAgentId != null) {
+        continue
+      }
+      if (!processedEntries.add(manager to chatFile) || !manager.isFileOpen(chatFile)) {
+        continue
+      }
+      if (manager.hasPinnedEditorTab(chatFile) != pinned) {
+        manager.setPinnedEditorTab(chatFile, pinned)
+        updatedCount++
+      }
+    }
+    return updatedCount
   }
 
   fun projectPaths(includePendingOnly: Boolean): Set<String> {
@@ -219,6 +295,7 @@ internal class AgentChatOpenTabsSnapshot(
             pendingCreatedAtMs = chatFile.pendingCreatedAtMs,
             pendingFirstInputAtMs = chatFile.pendingFirstInputAtMs,
             pendingLaunchMode = chatFile.pendingLaunchMode,
+            pinnedEditorTab = chatFile.tabKey in pinnedTabKeys,
           )
         )
       }
@@ -256,6 +333,15 @@ internal class AgentChatOpenTabsSnapshot(
     val result = LinkedHashMap<String, Set<String>>(concreteThreadIdentitiesByPath.size)
     for ((normalizedPath, identities) in concreteThreadIdentitiesByPath) {
       result[normalizedPath] = LinkedHashSet(identities)
+    }
+    return result
+  }
+
+  fun pinnedTopLevelConcreteThreadIdentitiesByPath(provider: AgentSessionProvider): Map<String, Set<String>> {
+    val pinnedByPath = pinnedTopLevelConcreteThreadIdentitiesByProviderAndPath[provider].orEmpty()
+    val result = LinkedHashMap<String, Set<String>>(pinnedByPath.size)
+    for ((normalizedPath, threadIds) in pinnedByPath) {
+      result[normalizedPath] = LinkedHashSet(threadIds)
     }
     return result
   }
@@ -436,12 +522,34 @@ internal class AgentChatOpenTabsSnapshot(
 
     return AgentChatOpenTabsRefreshSnapshot(
       openProjectPaths = LinkedHashSet(openProjectPaths),
+      projectPathAliasesByPath = projectPathAliasesSnapshot(),
       selectedChatThreadIdentity = selectedChatThreadIdentity,
       pendingTabsByProvider = pendingTabsByProvider,
       concreteTabsAwaitingNewThreadRebindByProvider = concreteTabsByProvider,
       concreteThreadIdentitiesByPath = concreteThreadIdentitiesByPath(),
     )
   }
+
+  private fun projectPathAliasesSnapshot(): Map<String, Set<String>> {
+    val result = LinkedHashMap<String, Set<String>>(projectPathAliasesByPath.size)
+    for ((normalizedPath, aliases) in projectPathAliasesByPath) {
+      result[normalizedPath] = LinkedHashSet(aliases)
+    }
+    return result
+  }
+}
+
+private fun recordProjectPathAlias(
+  projectPathAliasesByPath: LinkedHashMap<String, LinkedHashSet<String>>,
+  normalizedProjectPath: String,
+  projectDirectory: String?,
+) {
+  val aliases = projectPathAliasesByPath.computeIfAbsent(normalizedProjectPath) { LinkedHashSet() }
+  aliases.add(normalizedProjectPath)
+  projectDirectory
+    ?.let(::normalizeAgentWorkbenchPath)
+    ?.takeIf { it.isNotBlank() }
+    ?.let(aliases::add)
 }
 
 private fun recordConcreteThreadIdentity(

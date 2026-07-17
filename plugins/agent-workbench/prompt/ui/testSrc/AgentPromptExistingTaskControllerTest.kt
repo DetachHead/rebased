@@ -1,9 +1,9 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.agent.workbench.prompt.ui
 
-import com.intellij.agent.workbench.common.AgentThreadActivity
-import com.intellij.agent.workbench.common.session.AgentSessionProvider
-import com.intellij.agent.workbench.common.session.AgentSessionThread
+import com.intellij.platform.ai.agent.core.AgentThreadActivity
+import com.intellij.platform.ai.agent.core.session.AgentSessionProvider
+import com.intellij.platform.ai.agent.core.session.AgentSessionThread
 import com.intellij.agent.workbench.prompt.core.AgentPromptExistingThreadsSnapshot
 import com.intellij.testFramework.junit5.TestApplication
 import com.intellij.testFramework.runInEdtAndWait
@@ -293,7 +293,7 @@ class AgentPromptExistingTaskControllerTest {
     val controller = AgentPromptExistingTaskController(
       existingTaskListModel = listModel,
       existingTaskList = list,
-      popupScope = scope,
+      sessionScope = scope,
       sessionsMessageResolver = AgentPromptSessionsMessageResolver(AgentPromptExistingTaskControllerTest::class.java.classLoader),
       onStateChanged = {},
     )
@@ -312,7 +312,7 @@ class AgentPromptExistingTaskControllerTest {
       updatedAt = updatedAt,
       archived = false,
       activity = activity,
-      provider = AgentSessionProvider.CODEX,
+      provider = AgentSessionProvider.from("codex"),
     )
   }
 

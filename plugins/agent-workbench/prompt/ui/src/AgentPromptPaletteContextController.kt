@@ -26,7 +26,6 @@ import com.intellij.agent.workbench.prompt.ui.context.AgentPromptImagePasteHandl
 import com.intellij.agent.workbench.prompt.ui.context.IMAGE_PASTE_SOURCE_ID
 import com.intellij.agent.workbench.prompt.ui.context.installAgentPromptDialogImageDropSupport
 import com.intellij.agent.workbench.prompt.ui.context.installAgentPromptEditorImageDropSupport
-import com.intellij.openapi.Disposable
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.Messages
 import com.intellij.openapi.ui.popup.JBPopupFactory
@@ -34,6 +33,7 @@ import com.intellij.openapi.wm.IdeFocusManager
 import com.intellij.ui.ColoredListCellRenderer
 import com.intellij.ui.EditorTextField
 import com.intellij.ui.SimpleTextAttributes
+import kotlinx.coroutines.CoroutineScope
 import org.jetbrains.annotations.Nls
 import javax.swing.JComponent
 import javax.swing.JList
@@ -46,7 +46,7 @@ internal class AgentPromptPaletteContextController(
     private val invocationData: AgentPromptInvocationData,
     private val promptArea: EditorTextField,
     private val view: AgentPromptPaletteView,
-    private val parentDisposable: Disposable,
+    private val imageDropSupportScope: CoroutineScope,
     private val contextResolverService: AgentPromptContextResolverService,
     private val contextChips: AgentPromptContextChipsComponent,
     private val launcherProvider: () -> AgentPromptLauncherBridge?,
@@ -168,8 +168,8 @@ internal class AgentPromptPaletteContextController(
 
     fun installImagePasteHandler() {
         promptArea.addSettingsProvider { editor ->
-            editor.putUserData(AGENT_PROMPT_IMAGE_PASTE_HANDLER_KEY, AgentPromptImagePasteHandler { item ->
-                appendManualContextItems(sourceId = IMAGE_PASTE_SOURCE_ID, items = listOf(item))
+            editor.putUserData(AGENT_PROMPT_IMAGE_PASTE_HANDLER_KEY, AgentPromptImagePasteHandler { items ->
+                appendManualContextItems(sourceId = IMAGE_PASTE_SOURCE_ID, items = items)
             })
         }
     }
@@ -183,7 +183,7 @@ internal class AgentPromptPaletteContextController(
         installAgentPromptDialogImageDropSupport(
             rootComponent = view.rootPanel,
             dropHandler = imageDropHandler,
-            parentDisposable = parentDisposable,
+            coroutineScope = imageDropSupportScope,
         )
         promptArea.addSettingsProvider { editor ->
             installAgentPromptEditorImageDropSupport(editor, imageDropHandler)
@@ -198,7 +198,7 @@ internal class AgentPromptPaletteContextController(
         state.manualContextItemsBySourceId[sourceId] = existing + items
         refreshContextEntries()
         resolveExtensionTabs()
-        onContextChanged(AgentPromptBundle.message("popup.status.context.added"))
+        onContextChanged(AgentPromptBundle.message("popup.status.context.added.to.prompt"))
     }
 
     fun resolveContextSelection(items: List<AgentPromptContextItem>, projectPath: String?): AgentPromptPaletteContextSelection? {
@@ -324,7 +324,7 @@ internal class AgentPromptPaletteContextController(
         state.manualContextItemsBySourceId[source.sourceId] = updatedItems
         refreshContextEntries()
         resolveExtensionTabs()
-        onContextChanged(AgentPromptBundle.message("popup.status.context.added"))
+        onContextChanged(AgentPromptBundle.message("popup.status.context.added.to.prompt"))
     }
 
     private fun addExtensionTab(extension: AgentPromptPaletteExtension) {

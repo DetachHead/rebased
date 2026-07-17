@@ -1,11 +1,14 @@
 <idea-plugin>
   <!-- region Generated dependencies - run `Generate Product Layouts` to regenerate -->
   <dependencies>
-    <module name="intellij.agent.workbench.common"/>
+    <module name="intellij.platform.ai.agent.common"/>
+    <module name="intellij.platform.ai.agent.core"/>
     <module name="intellij.agent.workbench.prompt.context"/>
     <module name="intellij.agent.workbench.prompt.core"/>
     <module name="intellij.agent.workbench.sessions"/>
-    <module name="intellij.agent.workbench.sessions.core"/>
+    <module name="intellij.platform.ai.agent.sessions.core"/>
+    <module name="intellij.agent.workbench.settings"/>
+    <module name="intellij.agent.workbench.ui"/>
     <module name="intellij.markdown"/>
   </dependencies>
   <!-- endregion -->
@@ -18,9 +21,13 @@
     <agent.workbench.promptManualContextSource implementation="com.intellij.agent.workbench.prompt.ui.context.screenCapture.AgentPromptScreenCaptureManualContextSource"/>
     <customPasteProvider implementation="com.intellij.agent.workbench.prompt.ui.context.AgentPromptImagePasteProvider"/>
     <actionPromoter implementation="com.intellij.agent.workbench.prompt.ui.actions.AgentWorkbenchPromptShortcutActionPromoter" order="last"/>
-    <editorEmptyTextPromotedActionProvider
-      implementation="com.intellij.agent.workbench.prompt.ui.actions.AgentWorkbenchGlobalPromptEmptyTextPromotedActionProvider"
+    <editorFloatingToolbarProvider
+      implementation="com.intellij.agent.workbench.prompt.ui.actions.AgentWorkbenchScratchPromptFloatingToolbarProvider"
+      id="AgentWorkbenchScratchPromptFloatingToolbarProvider"/>
+    <editorEmptyTextProvider
+      implementation="com.intellij.agent.workbench.prompt.ui.actions.AgentWorkbenchGlobalPromptEmptyTextProvider"
       order="first"/>
+    <editorEmptyStateComponentProvider implementation="com.intellij.agent.workbench.prompt.ui.emptyState.AgentWorkbenchInlinePromptEmptyStateProvider"/>
     <projectSettings service="com.intellij.agent.workbench.prompt.ui.AgentPromptUiSessionStateService"/>
     <intentionAction>
       <className>com.intellij.agent.workbench.prompt.ui.actions.AgentWorkbenchAddToAgentContextIntention</className>
@@ -39,6 +46,17 @@
       <add-to-group group-id="EditorTabPopupMenu" anchor="after" relative-to-action="CopyPaths"/>
       <add-to-group group-id="ConsoleEditorPopupMenu" anchor="after" relative-to-action="$SearchWeb"/>
     </action>
+
+    <action
+      id="AgentWorkbenchPrompt.OpenScratchAsPrompt"
+      class="com.intellij.agent.workbench.prompt.ui.actions.AgentWorkbenchOpenScratchAsPromptAction"
+      icon="AllIcons.Actions.InlayGear">
+      <add-to-group group-id="EditorPopupMenu" anchor="after" relative-to-action="AgentWorkbenchPrompt.AddToAgentContext"/>
+    </action>
+
+    <group id="AgentWorkbenchPrompt.ScratchPromptEditorContextBarGroup">
+      <reference ref="AgentWorkbenchPrompt.OpenScratchAsPrompt"/>
+    </group>
 
     <action
       id="AgentWorkbenchPrompt.ManageLaunchProfiles"

@@ -1,11 +1,11 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.agent.workbench.chat
 
-import com.intellij.agent.workbench.common.AgentThreadActivity
-import com.intellij.agent.workbench.common.buildAgentThreadIdentity
-import com.intellij.agent.workbench.common.session.AgentSessionProvider
-import com.intellij.agent.workbench.sessions.core.AgentSessionThreadRebindPolicy
-import com.intellij.agent.workbench.sessions.core.providers.AgentSessionProviderDescriptor
+import com.intellij.platform.ai.agent.core.AgentThreadActivity
+import com.intellij.platform.ai.agent.core.buildAgentThreadIdentity
+import com.intellij.platform.ai.agent.core.session.AgentSessionProvider
+import com.intellij.platform.ai.agent.sessions.core.AgentSessionThreadRebindPolicy
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionProviderDescriptor
 import com.intellij.terminal.frontend.view.TerminalKeyEvent
 import com.intellij.terminal.frontend.view.TerminalViewSessionState
 import kotlinx.coroutines.CoroutineScope
@@ -34,6 +34,15 @@ import kotlin.time.Duration.Companion.milliseconds
 class AgentChatConcreteThreadRebindControllerTest {
   @Test
   fun slashNewPersistsAnchorAndRetriesScopedRefresh(): Unit = runBlocking {
+    assertConcreteThreadRebindCommandPersistsAnchorAndRetriesScopedRefresh("/new")
+  }
+
+  @Test
+  fun slashForkPersistsAnchorAndRetriesScopedRefresh(): Unit = runBlocking {
+    assertConcreteThreadRebindCommandPersistsAnchorAndRetriesScopedRefresh("/fork")
+  }
+
+  private fun assertConcreteThreadRebindCommandPersistsAnchorAndRetriesScopedRefresh(command: String) {
     val file = concreteCodexFile()
     val tab = ConcreteRebindTestTerminalTab()
     val snapshots = ConcreteRebindRecordingSnapshotWriter()
@@ -50,7 +59,7 @@ class AgentChatConcreteThreadRebindControllerTest {
     try {
       tab.setSessionState(TerminalViewSessionState.Running)
       controller.attach(tab = tab, descriptor = null)
-      tab.emitCommand("/new")
+      tab.emitCommand(command)
 
       waitForCondition {
         file.newThreadRebindRequestedAtMs == 1_000L &&
@@ -59,7 +68,7 @@ class AgentChatConcreteThreadRebindControllerTest {
       }
 
       assertThat(signals).allSatisfy { signal ->
-        assertThat(signal.provider).isEqualTo(AgentSessionProvider.CODEX)
+        assertThat(signal.provider).isEqualTo(AgentSessionProvider.from("codex"))
         assertThat(signal.projectPath).isEqualTo(PROJECT_PATH)
       }
     }
@@ -91,7 +100,7 @@ class AgentChatConcreteThreadRebindControllerTest {
 
       assertThat(file.newThreadRebindRequestedAtMs).isEqualTo(1_000L)
       assertThat(signals).allSatisfy { signal ->
-        assertThat(signal.provider).isEqualTo(AgentSessionProvider.CODEX)
+        assertThat(signal.provider).isEqualTo(AgentSessionProvider.from("codex"))
         assertThat(signal.projectPath).isEqualTo(PROJECT_PATH)
       }
     }
@@ -111,7 +120,7 @@ class AgentChatConcreteThreadRebindControllerTest {
       file = file,
       behavior = TestConcreteThreadRebindBehavior,
       tabSnapshotWriter = snapshots,
-      currentTimeProvider = { 1_000L + AgentSessionThreadRebindPolicy.CONCRETE_CODEX_NEW_THREAD_REBIND_MAX_AGE_MS },
+      currentTimeProvider = { 1_000L + AgentSessionThreadRebindPolicy.CONCRETE_NEW_THREAD_REBIND_MAX_AGE_MS },
       retryIntervalMs = 25L,
       notifyRefresh = { provider, projectPath -> signals += ConcreteRebindRefreshSignal(provider, projectPath) },
     )
@@ -155,7 +164,7 @@ class AgentChatConcreteThreadRebindControllerTest {
       waitForCondition { signals.isNotEmpty() && file.newThreadRebindRequestedAtMs == 1_000L }
 
       assertThat(file.rebindConcreteThread(
-        threadIdentity = buildAgentThreadIdentity(AgentSessionProvider.CODEX.value, "thread-2"),
+        threadIdentity = buildAgentThreadIdentity(AgentSessionProvider.from("codex").value, "thread-2"),
         threadId = "thread-2",
         threadTitle = "New thread",
         threadActivity = AgentThreadActivity.READY,
@@ -204,13 +213,13 @@ class AgentChatConcreteThreadRebindControllerTest {
 
 private object TestConcreteThreadRebindBehavior : AgentChatProviderBehavior {
   override fun supportsConcreteNewThreadRebind(
-    file: AgentChatVirtualFile,
+    file: AgentChatBehaviorFile,
     descriptor: AgentSessionProviderDescriptor?,
   ): Boolean {
-    return file.provider == AgentSessionProvider.CODEX && !file.isPendingThread && file.subAgentId == null
+    return file.provider == AgentSessionProvider.from("codex") && !file.isPendingThread && file.subAgentId == null
   }
 
-  override fun isConcreteNewThreadRebindCommand(command: String): Boolean = command == "/new"
+  override fun isConcreteNewThreadRebindCommand(command: String): Boolean = command == "/new" || command == "/fork"
 }
 
 private class ConcreteRebindTestTerminalTab : AgentChatTerminalTab {
@@ -276,7 +285,7 @@ private data class ConcreteRebindRefreshSignal(
 private fun concreteCodexFile(): AgentChatVirtualFile {
   return AgentChatVirtualFile(
     projectPath = PROJECT_PATH,
-    threadIdentity = buildAgentThreadIdentity(AgentSessionProvider.CODEX.value, "thread-1"),
+    threadIdentity = buildAgentThreadIdentity(AgentSessionProvider.from("codex").value, "thread-1"),
     shellCommand = listOf("codex", "resume", "thread-1"),
     threadId = "thread-1",
     threadTitle = "Original thread",

@@ -1,20 +1,17 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.agent.workbench.sessions
 
-import com.intellij.agent.workbench.common.AgentThreadActivity
-import com.intellij.agent.workbench.common.icons.AgentWorkbenchCommonIcons
-import com.intellij.agent.workbench.common.session.AgentSessionLaunchMode
-import com.intellij.agent.workbench.common.session.AgentSessionProvider
-import com.intellij.agent.workbench.sessions.core.providers.AgentSessionProviderCliVisibilityPolicy
-import com.intellij.agent.workbench.sessions.core.providers.AgentSessionProviderDescriptor
-import com.intellij.agent.workbench.sessions.core.providers.AgentSessionProviderMenuItem
-import com.intellij.agent.workbench.sessions.core.providers.AgentSessionProviders
-import com.intellij.agent.workbench.sessions.core.providers.InMemoryAgentSessionProviderRegistry
-import com.intellij.agent.workbench.sessions.core.providers.agentSessionThreadStatusIcon
-import com.intellij.agent.workbench.sessions.core.providers.buildAgentSessionProviderMenuModel
-import com.intellij.agent.workbench.sessions.core.providers.clearAgentSessionThreadStatusIconCacheForTests
-import com.intellij.openapi.extensions.ExtensionPointName
-import com.intellij.openapi.extensions.LoadingOrder
+import com.intellij.platform.ai.agent.core.AgentThreadActivity
+import com.intellij.platform.ai.agent.common.icons.AgentWorkbenchCommonIcons
+import com.intellij.platform.ai.agent.core.session.AgentSessionLaunchMode
+import com.intellij.platform.ai.agent.core.session.AgentSessionProvider
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionProviderCliVisibilityPolicy
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionProviderMenuItem
+import com.intellij.platform.ai.agent.sessions.core.providers.AgentSessionProviders
+import com.intellij.platform.ai.agent.sessions.core.providers.InMemoryAgentSessionProviderRegistry
+import com.intellij.platform.ai.agent.sessions.core.providers.buildAgentSessionProviderMenuModel
+import com.intellij.agent.workbench.ui.agentSessionThreadStatusIcon
+import com.intellij.agent.workbench.ui.clearAgentSessionThreadStatusIconCacheForTests
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.util.registry.Registry
 import com.intellij.openapi.util.use
@@ -29,37 +26,27 @@ import javax.swing.Icon
 @TestApplication
 @Timeout(value = 2, unit = TimeUnit.MINUTES)
 class AgentSessionProvidersTest {
-  private val extensionPoint =
-    ExtensionPointName<AgentSessionProviderDescriptor>("com.intellij.agent.workbench.sessionProvider")
-
   @Test
   fun registeringAndDisposingProviderUpdatesFacadeView() {
-    val provider = AgentSessionProvider.CODEX
+    val provider = AgentSessionProvider.from("dynamic-provider")
     val initialDescriptor = AgentSessionProviders.find(provider)
     val initialSources = AgentSessionProviders.sessionSources()
 
-    val disposable = Disposer.newDisposable()
-    disposable.use {
-      val descriptor = TestAgentSessionProviderDescriptor(
-        provider = provider,
-        sourceId = "dynamic",
-        supportedModes = emptySet(),
-        cliAvailable = true,
-      )
-      extensionPoint.point.registerExtension(descriptor, disposable)
+    val descriptor = TestAgentSessionProviderDescriptor(
+      provider = provider,
+      sourceId = "dynamic",
+      supportedModes = emptySet(),
+      cliAvailable = true,
+    )
+    val registry = InMemoryAgentSessionProviderRegistry(listOf(descriptor))
+    AgentSessionProviders.withRegistryForTest(registry) {
+      assertThat(initialDescriptor).isNull()
 
       val descriptorAfterRegister = AgentSessionProviders.find(provider)
-      val expectedDescriptor = initialDescriptor ?: descriptor
-      assertThat(descriptorAfterRegister).isSameAs(expectedDescriptor)
+      assertThat(descriptorAfterRegister).isSameAs(descriptor)
 
       val sourcesAfterRegister = AgentSessionProviders.sessionSources()
-      if (initialDescriptor == null) {
-        assertThat(sourcesAfterRegister).hasSize(initialSources.size + 1)
-        assertThat(sourcesAfterRegister).contains(descriptor.sessionSource)
-      }
-      else {
-        assertThat(sourcesAfterRegister).containsExactlyElementsOf(initialSources)
-      }
+      assertThat(sourcesAfterRegister).containsExactly(descriptor.sessionSource)
     }
 
     assertThat(AgentSessionProviders.find(provider)).isSameAs(initialDescriptor)
@@ -68,20 +55,15 @@ class AgentSessionProvidersTest {
 
   @Test
   fun duplicateProvidersKeepFirstDescriptor() {
-    val provider = AgentSessionProvider.CODEX
-    val initialDescriptor = AgentSessionProviders.find(provider)
+    val provider = AgentSessionProvider.from("duplicate-provider")
 
-    val disposable = Disposer.newDisposable()
-    disposable.use {
-      val firstDescriptor =
-        TestAgentSessionProviderDescriptor(provider = provider, sourceId = "first", supportedModes = emptySet(), cliAvailable = true)
-      val secondDescriptor =
-        TestAgentSessionProviderDescriptor(provider = provider, sourceId = "second", supportedModes = emptySet(), cliAvailable = true)
-      extensionPoint.point.registerExtension(firstDescriptor, disposable)
-      extensionPoint.point.registerExtension(secondDescriptor, disposable)
-
-      val expectedDescriptor = initialDescriptor ?: firstDescriptor
-      assertThat(AgentSessionProviders.find(provider)).isSameAs(expectedDescriptor)
+    val firstDescriptor =
+      TestAgentSessionProviderDescriptor(provider = provider, sourceId = "first", supportedModes = emptySet(), cliAvailable = true)
+    val secondDescriptor =
+      TestAgentSessionProviderDescriptor(provider = provider, sourceId = "second", supportedModes = emptySet(), cliAvailable = true)
+    val registry = InMemoryAgentSessionProviderRegistry(listOf(firstDescriptor, secondDescriptor))
+    AgentSessionProviders.withRegistryForTest(registry) {
+      assertThat(AgentSessionProviders.find(provider)).isSameAs(firstDescriptor)
       assertThat(AgentSessionProviders.find(provider)).isNotSameAs(secondDescriptor)
     }
   }
@@ -118,65 +100,66 @@ class AgentSessionProvidersTest {
         supportedModes = emptySet(),
         cliAvailable = true,
       )
-      extensionPoint.point.registerExtension(lowPriorityDescriptor, LoadingOrder.FIRST, disposable)
-      extensionPoint.point.registerExtension(alphaDescriptor, LoadingOrder.LAST, disposable)
-      extensionPoint.point.registerExtension(betaDescriptor, LoadingOrder.FIRST, disposable)
-      extensionPoint.point.registerExtension(highPriorityDescriptor, LoadingOrder.LAST, disposable)
+      val registry = InMemoryAgentSessionProviderRegistry(
+        listOf(lowPriorityDescriptor, alphaDescriptor, betaDescriptor, highPriorityDescriptor),
+      )
 
-      assertThat(AgentSessionProviders.allProviders().map { it.provider.value })
-        .containsSubsequence(
-          highPriorityDescriptor.provider.value,
-          alphaDescriptor.provider.value,
-          betaDescriptor.provider.value,
-          lowPriorityDescriptor.provider.value,
-        )
-      assertThat(AgentSessionProviders.allProvidersById().map { it.provider.value })
-        .containsSubsequence(
-          alphaDescriptor.provider.value,
-          betaDescriptor.provider.value,
-          highPriorityDescriptor.provider.value,
-          lowPriorityDescriptor.provider.value,
-        )
+      AgentSessionProviders.withRegistryForTest(registry) {
+        assertThat(AgentSessionProviders.allProviders().map { it.provider.value })
+          .containsExactly(
+            highPriorityDescriptor.provider.value,
+            alphaDescriptor.provider.value,
+            betaDescriptor.provider.value,
+            lowPriorityDescriptor.provider.value,
+          )
+        assertThat(AgentSessionProviders.allProvidersById().map { it.provider.value })
+          .containsExactly(
+            alphaDescriptor.provider.value,
+            betaDescriptor.provider.value,
+            highPriorityDescriptor.provider.value,
+            lowPriorityDescriptor.provider.value,
+          )
+      }
     }
   }
 
   @Test
   fun registryCanBeOverriddenForIsolatedTests() {
     val codexDescriptor = TestAgentSessionProviderDescriptor(
-      provider = AgentSessionProvider.CODEX,
+      provider = AgentSessionProvider.from("codex"),
       sourceId = "override-codex",
       supportedModes = emptySet(),
       cliAvailable = true,
     )
     val claudeDescriptor = TestAgentSessionProviderDescriptor(
-      provider = AgentSessionProvider.CLAUDE,
+      provider = AgentSessionProvider.from("claude"),
       sourceId = "override-claude",
       supportedModes = emptySet(),
       cliAvailable = true,
     )
     val overrideRegistry = InMemoryAgentSessionProviderRegistry(listOf(claudeDescriptor, codexDescriptor))
-    val baselineClaude = AgentSessionProviders.find(AgentSessionProvider.CLAUDE)
+    val baselineClaude = AgentSessionProviders.find(AgentSessionProvider.from("claude"))
 
     AgentSessionProviders.withRegistryForTest(overrideRegistry) {
-      assertThat(AgentSessionProviders.find(AgentSessionProvider.CLAUDE)).isSameAs(claudeDescriptor)
+      assertThat(AgentSessionProviders.find(AgentSessionProvider.from("claude"))).isSameAs(claudeDescriptor)
       assertThat(AgentSessionProviders.allProviders()).containsExactly(claudeDescriptor, codexDescriptor)
       assertThat(AgentSessionProviders.allProvidersById()).containsExactly(claudeDescriptor, codexDescriptor)
       assertThat(AgentSessionProviders.sessionSources())
         .containsExactly(claudeDescriptor.sessionSource, codexDescriptor.sessionSource)
     }
 
-    assertThat(AgentSessionProviders.find(AgentSessionProvider.CLAUDE)).isSameAs(baselineClaude)
+    assertThat(AgentSessionProviders.find(AgentSessionProvider.from("claude"))).isSameAs(baselineClaude)
   }
 
   @Test
   fun menuModelOmitsUnavailableDiscoverableProviders() {
     val prominentProvider = TestAgentSessionProviderDescriptor(
-      provider = AgentSessionProvider.CODEX,
+      provider = AgentSessionProvider.from("codex"),
       supportedModes = setOf(AgentSessionLaunchMode.STANDARD),
       cliAvailable = false,
     )
     val discoverableProvider = TestAgentSessionProviderDescriptor(
-      provider = AgentSessionProvider.PI,
+      provider = AgentSessionProvider.from("pi"),
       supportedModes = setOf(AgentSessionLaunchMode.STANDARD),
       cliAvailable = false,
       cliVisibilityPolicy = AgentSessionProviderCliVisibilityPolicy.DISCOVER_WHEN_AVAILABLE,
@@ -185,12 +168,12 @@ class AgentSessionProvidersTest {
     val menuModel = buildAgentSessionProviderMenuModel(
       bridges = listOf(prominentProvider, discoverableProvider),
       availabilityByProvider = mapOf(
-        AgentSessionProvider.CODEX to false,
-        AgentSessionProvider.PI to false,
+        AgentSessionProvider.from("codex") to false,
+        AgentSessionProvider.from("pi") to false,
       ),
     )
 
-    assertThat(menuModel.standardItems.map { item -> item.bridge.provider }).containsExactly(AgentSessionProvider.CODEX)
+    assertThat(menuModel.standardItems.map { item -> item.bridge.provider }).containsExactly(AgentSessionProvider.from("codex"))
     assertThat(menuModel.standardItems.single().isEnabled).isFalse()
   }
 
@@ -207,7 +190,7 @@ class AgentSessionProvidersTest {
     val coloredIcon = AgentWorkbenchCommonIcons.Claude
     val monochromeIcon = AgentWorkbenchCommonIcons.Codex
     val descriptor = object : TestAgentSessionProviderDescriptor(
-      provider = AgentSessionProvider.CLAUDE,
+      provider = AgentSessionProvider.from("claude"),
       supportedModes = setOf(AgentSessionLaunchMode.STANDARD),
       cliAvailable = true,
       iconOverride = coloredIcon,
@@ -229,7 +212,7 @@ class AgentSessionProvidersTest {
     val coloredIcon = AgentWorkbenchCommonIcons.Claude
     val monochromeIcon = AgentWorkbenchCommonIcons.Codex
     val descriptor = object : TestAgentSessionProviderDescriptor(
-      provider = AgentSessionProvider.CLAUDE,
+      provider = AgentSessionProvider.from("claude"),
       supportedModes = setOf(AgentSessionLaunchMode.STANDARD),
       cliAvailable = true,
       iconOverride = coloredIcon,
@@ -256,7 +239,7 @@ class AgentSessionProvidersTest {
       val coloredIcon = AgentWorkbenchCommonIcons.Claude
       val monochromeIcon = AgentWorkbenchCommonIcons.Codex
       val descriptor = object : TestAgentSessionProviderDescriptor(
-        provider = AgentSessionProvider.CLAUDE,
+        provider = AgentSessionProvider.from("claude"),
         supportedModes = setOf(AgentSessionLaunchMode.STANDARD),
         cliAvailable = true,
         iconOverride = coloredIcon,
@@ -268,10 +251,10 @@ class AgentSessionProvidersTest {
       AgentSessionProviders.withRegistryForTest(overrideRegistry) {
         val registryValue = Registry.get("agent.workbench.use.monochrome.icons")
 
-        val monochromeStatusIcon = agentSessionThreadStatusIcon(AgentSessionProvider.CLAUDE, AgentThreadActivity.READY)
+        val monochromeStatusIcon = agentSessionThreadStatusIcon(AgentSessionProvider.from("claude"), AgentThreadActivity.READY)
 
         registryValue.setValue(false, disposable)
-        val coloredStatusIcon = agentSessionThreadStatusIcon(AgentSessionProvider.CLAUDE, AgentThreadActivity.READY)
+        val coloredStatusIcon = agentSessionThreadStatusIcon(AgentSessionProvider.from("claude"), AgentThreadActivity.READY)
 
         assertThat(coloredStatusIcon).isNotSameAs(monochromeStatusIcon)
         assertThat(monochromeStatusIcon).isSameAs(monochromeIcon)

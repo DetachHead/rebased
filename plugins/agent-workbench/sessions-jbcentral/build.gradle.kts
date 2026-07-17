@@ -44,7 +44,9 @@ dependencies {
   }
 
   implementation(project(":sessions"))
+  implementation(project(":settings"))
   implementation(project(":sessions-core"))
+  implementation(project(":ui"))
   runtimeOnly(project(":sessions-actions"))
 }
 

@@ -3,6 +3,7 @@ package com.intellij.agent.workbench.prompt.vcs.context
 
 import com.intellij.agent.workbench.prompt.core.AgentPromptContextRendererIds
 import com.intellij.agent.workbench.prompt.core.AgentPromptContextTruncationReason
+import com.intellij.agent.workbench.prompt.core.AGENT_PROMPT_INVOCATION_DATA_CONTEXT_KEY
 import com.intellij.agent.workbench.prompt.core.AgentPromptInvocationData
 import com.intellij.agent.workbench.prompt.core.array
 import com.intellij.agent.workbench.prompt.core.number
@@ -24,6 +25,8 @@ import com.intellij.vcs.log.VcsLogCommitSelection
 import com.intellij.vcs.log.VcsLogCommitStorageIndex
 import com.intellij.vcs.log.VcsLogDataKeys
 import com.intellij.vcs.log.impl.VcsCommitMetadataImpl
+import com.intellij.vcs.log.ui.render.GraphCommitCell
+import com.intellij.vcs.log.ui.render.RootCell
 import com.intellij.vcs.log.util.VcsUserUtil
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
@@ -53,7 +56,7 @@ class AgentPromptVcsLogSelectionContextContributorTest {
   }
 
   @Test
-  fun collectsSelectedCommitsAsHashOnlyContext() {
+  fun collectsSelectedCommitsAsHashContext() {
     val firstHash = "1111111111111111111111111111111111111111"
     val secondHash = "2222222222222222222222222222222222222222"
     val selection = TestVcsLogCommitSelection(
@@ -117,6 +120,27 @@ class AgentPromptVcsLogSelectionContextContributorTest {
     assertThat(entry?.string("author")).isEqualTo("Test User")
     assertThat(entry?.number("commitTimeMs")).isEqualTo("1710000000000")
     assertThat(entry?.string("rootName")).isEqualTo("root-a")
+    assertThat(result.single().body).isEqualTo("$hash | Fix TEST-101 regression")
+  }
+
+  @Test
+  fun extractsSubjectFromTypedGitLogCommitCellOnly() {
+    val hash = "1111111111111111111111111111111111111111"
+    val root = LightVirtualFile("root-a")
+
+    val commit = extractVcsLogTableCommit(
+      GraphCommitCell.RealCommit(
+        commitId = CommitId(testHash(hash), root),
+        text = "Fix TEST-101 regression",
+        refsToThisCommit = emptyList(),
+        bookmarksToThisCommit = emptyList(),
+        printElements = emptyList(),
+        isLoading = false,
+      )
+    )
+
+    assertThat(commit).isEqualTo(VcsLogTableCommitContext(hash, "Fix TEST-101 regression"))
+    assertThat(extractVcsLogTableCommit(RootCell.RealCommit(path = null))).isNull()
   }
 
   @Test
@@ -199,7 +223,7 @@ class AgentPromptVcsLogSelectionContextContributorTest {
       emptyMap()
     }
     else {
-      mapOf(AGENT_PROMPT_VCS_INVOCATION_DATA_CONTEXT_KEY to dataContext)
+      mapOf(AGENT_PROMPT_INVOCATION_DATA_CONTEXT_KEY to dataContext)
     }
     return AgentPromptInvocationData(
       project = project,

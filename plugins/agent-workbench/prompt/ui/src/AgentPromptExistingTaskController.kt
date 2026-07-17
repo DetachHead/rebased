@@ -1,11 +1,12 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.agent.workbench.prompt.ui
 
-import com.intellij.agent.workbench.common.session.AgentSessionThread
+import com.intellij.platform.ai.agent.core.session.AgentSessionProvider
+import com.intellij.platform.ai.agent.core.session.AgentSessionThread
 import com.intellij.agent.workbench.prompt.core.AgentPromptExistingThreadsSnapshot
 import com.intellij.agent.workbench.prompt.core.AgentPromptLauncherBridge
-import com.intellij.agent.workbench.sessions.core.formatAgentSessionRelativeTimeShort
-import com.intellij.agent.workbench.sessions.core.formatAgentSessionThreadTitle
+import com.intellij.platform.ai.agent.sessions.core.formatAgentSessionRelativeTimeShort
+import com.intellij.platform.ai.agent.sessions.core.formatAgentSessionThreadTitle
 import com.intellij.ui.components.JBList
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -22,13 +23,14 @@ private const val MAX_EXISTING_TASKS = 200
 internal class AgentPromptExistingTaskController(
   private val existingTaskListModel: DefaultListModel<ThreadEntry>,
   private val existingTaskList: JBList<ThreadEntry>,
-  private val popupScope: CoroutineScope,
+  private val sessionScope: CoroutineScope,
   private val sessionsMessageResolver: AgentPromptSessionsMessageResolver,
   private val onStateChanged: () -> Unit,
 ) {
   private val threadLoadVersion = AtomicInteger(0)
   private var existingTasksObservationJob: Job? = null
   private var allExistingTaskEntries: List<ThreadEntry> = emptyList()
+  private var observedProvider: AgentSessionProvider? = null
 
   var selectedExistingTaskId: String? = null
 
@@ -61,10 +63,17 @@ internal class AgentPromptExistingTaskController(
     selectedProviderEntry: ProviderEntry?,
     launcher: AgentPromptLauncherBridge?,
     projectPath: String?,
-    isPopupActive: () -> Boolean,
+    isHostActive: () -> Boolean,
   ) {
     existingTasksObservationJob?.cancel()
     existingTasksObservationJob = null
+    val requestedProvider = selectedProviderEntry?.bridge?.provider
+    if (requestedProvider != observedProvider) {
+      allExistingTaskEntries = emptyList()
+      selectedExistingTaskId = null
+      existingTaskListModel.clear()
+    }
+    observedProvider = requestedProvider
 
     if (selectedProviderEntry == null) {
       updateListState(AgentPromptBundle.message("popup.error.no.providers"))
@@ -101,13 +110,13 @@ internal class AgentPromptExistingTaskController(
     allExistingTaskEntries = emptyList()
 
     val requestVersion = threadLoadVersion.incrementAndGet()
-    existingTasksObservationJob = popupScope.launch {
+    existingTasksObservationJob = sessionScope.launch {
       launcher.observeExistingThreads(projectPath = projectPath, provider = selectedProviderEntry.bridge.provider)
         .onStart {
           launcher.refreshExistingThreads(projectPath = projectPath, provider = selectedProviderEntry.bridge.provider)
         }
         .catch {
-          if (!isPopupActive() || requestVersion != threadLoadVersion.get()) {
+          if (!isHostActive() || requestVersion != threadLoadVersion.get()) {
             return@catch
           }
           allExistingTaskEntries = emptyList()
@@ -117,7 +126,7 @@ internal class AgentPromptExistingTaskController(
           onStateChanged()
         }
         .collectLatest { snapshot ->
-          if (!isPopupActive() || requestVersion != threadLoadVersion.get()) {
+          if (!isHostActive() || requestVersion != threadLoadVersion.get()) {
             return@collectLatest
           }
           applySnapshot(snapshot)
@@ -142,7 +151,7 @@ internal class AgentPromptExistingTaskController(
       unknownLabel = sessionsMessageResolver.resolve("toolwindow.time.unknown") ?: AgentPromptBundle.message("popup.time.unknown"),
       fallbackTitle = { idPrefix ->
         sessionsMessageResolver.resolve("toolwindow.thread.fallback.title", null, idPrefix)
-          ?: AgentPromptBundle.message("popup.existing.fallback.title", idPrefix)
+        ?: AgentPromptBundle.message("popup.existing.fallback.title", idPrefix)
       },
     )
     allExistingTaskEntries = loaded

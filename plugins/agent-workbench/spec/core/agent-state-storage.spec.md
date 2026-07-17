@@ -4,11 +4,11 @@ description: Inventory of Agent Workbench persistent state components and storag
 targets:
   - ../../chat/src/AgentChatFileEditorState.kt
   - ../../chat/src/AgentChatTabsStateService.kt
-  - ../../terminal/sessions/src/TerminalSessionStateService.kt
+  - ../../lib-agent/providers/terminal/sessions/src/TerminalSessionStateService.kt
   - ../../sessions/src/state/*.kt
   - ../../prompt/ui/src/AgentPromptUiSessionStateService.kt
   - ../../chat/testSrc/AgentChatFileEditorProviderTest.kt
-  - ../../terminal/sessions/testSrc/TerminalSessionSourceTest.kt
+  - ../../lib-agent/providers/terminal/sessions/testSrc/TerminalSessionSourceTest.kt
   - ../../sessions/testSrc/AgentSession*StateServiceTest.kt
   - ../../prompt/ui/testSrc/AgentPromptUiSessionStateServiceTest.kt
 ---
@@ -31,7 +31,7 @@ machine-local preferences, and project workspace state stores the prompt draft o
   - `AgentChatTabsState`, app-level cache file, keyed by chat `tabKey`, retained for legacy restore migration and cleanup only.
   - `AgentSessionWarmState`, app-level cache file, for warm-start session rows for open paths.
   - `AgentSessionTreeUiState`, app-level cache file, for collapsed project paths.
-  - `AgentSessionLaunchProfileStateV2`, app-level roaming file, for user launch profiles and the explicit default profile id.
+  - `AgentSessionLaunchProfileStateV2`, app-level roaming file, for user launch profiles, the explicit default profile id, and the separate VCS merge default profile id.
   - `AgentSessionUiPreferencesState`, app-level non-roamable file, for machine-local provider/mode preferences and Claude quota hint state.
   - `AgentWorkbenchTerminalSessions`, app-level non-roamable file, for user-created terminal session rows and bounded terminal restore
     context.
@@ -57,7 +57,7 @@ machine-local preferences, and project workspace state stores the prompt draft o
 
 -
 `./tests.cmd --module intellij.agent.workbench.sessions.tests --test "com.intellij.agent.workbench.sessions.AgentSession*StateServiceTest"`
-- `./tests.cmd --module intellij.agent.workbench.terminal.sessions.tests --test "com.intellij.agent.workbench.terminal.sessions.*Test"`
+- `./tests.cmd --module intellij.platform.ai.agent.terminal.sessions.tests --test "com.intellij.platform.ai.agent.terminal.sessions.*Test"`
 -
 `./tests.cmd --module intellij.agent.workbench.prompt.ui.tests --test com.intellij.agent.workbench.prompt.ui.AgentPromptUiSessionStateServiceTest`
 - `./tests.cmd --module intellij.agent.workbench.chat.tests --test com.intellij.agent.workbench.chat.AgentChatFileEditorProviderTest`

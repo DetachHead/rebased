@@ -1,14 +1,15 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.agent.workbench.sessions.toolwindow
 
-import com.intellij.agent.workbench.common.AgentThreadActivity
-import com.intellij.agent.workbench.common.AgentThreadActivityReport
-import com.intellij.agent.workbench.common.session.AgentSessionProvider
-import com.intellij.agent.workbench.common.session.AgentSessionThread
-import com.intellij.agent.workbench.common.session.AgentSubAgent
-import com.intellij.agent.workbench.common.statusColor
-import com.intellij.agent.workbench.sessions.core.AgentSessionThreadPresentation
-import com.intellij.agent.workbench.sessions.core.AgentSessionThreadPresentationKey
+import com.intellij.platform.ai.agent.core.AgentThreadActivity
+import com.intellij.platform.ai.agent.core.AgentThreadActivityReport
+import com.intellij.platform.ai.agent.core.session.AgentSessionProvider
+import com.intellij.platform.ai.agent.core.session.AgentSessionThread
+import com.intellij.platform.ai.agent.core.session.AgentSubAgent
+import com.intellij.platform.ai.agent.common.statusColor
+import com.intellij.platform.ai.agent.sessions.core.AgentSessionThreadPresentation
+import com.intellij.platform.ai.agent.sessions.core.AgentSessionThreadPresentationKey
+import com.intellij.agent.workbench.sessions.AgentSessionsBundle
 import com.intellij.agent.workbench.sessions.model.AgentSessionsState
 import com.intellij.agent.workbench.sessions.toolwindow.ui.AGENT_SESSIONS_CHROME_ACTIVITY_FRESHNESS_MILLIS
 import com.intellij.agent.workbench.sessions.toolwindow.ui.AgentSessionsActivityBucket
@@ -21,6 +22,7 @@ import com.intellij.agent.workbench.sessions.toolwindow.ui.AgentSessionsSystemNo
 import com.intellij.agent.workbench.sessions.toolwindow.ui.AgentSessionsSystemNotificationTracker
 import com.intellij.agent.workbench.sessions.toolwindow.ui.agentSessionsActivityPopupRowText
 import com.intellij.agent.workbench.sessions.toolwindow.ui.buildAgentSessionsActivitySummary
+import com.intellij.agent.workbench.sessions.toolwindow.ui.filterToCurrentProjectActivityRows
 import com.intellij.agent.workbench.sessions.toolwindow.ui.freshAgentSessionsActivitySummary
 import com.intellij.agent.workbench.sessions.toolwindow.ui.hasLoadedActivityBaseline
 import com.intellij.agent.workbench.sessions.toolwindow.ui.resolveAgentSessionsSystemNotificationThread
@@ -49,7 +51,7 @@ class AgentSessionsActivitySummaryTest {
             path = "/work/project-a",
             name = "Project A",
             isOpen = true,
-            providerLoadStates = loadedProviderStates(AgentSessionProvider.CODEX),
+            providerLoadStates = loadedProviderStates(AgentSessionProvider.from("codex")),
             threads = listOf(
               thread("needs-input", AgentThreadActivity.NEEDS_INPUT, 500),
               thread("reviewing", AgentThreadActivity.REVIEWING, 400),
@@ -79,6 +81,34 @@ class AgentSessionsActivitySummaryTest {
   }
 
   @Test
+  fun filtersActivityRowsToCurrentProjectPath() {
+    val summary = buildAgentSessionsActivitySummary(
+      AgentSessionsState(
+        projects = listOf(
+          AgentProjectSessions(
+            path = "/work/project-a",
+            name = "Project A",
+            isOpen = true,
+            threads = listOf(thread("thread-a", AgentThreadActivity.NEEDS_INPUT, 100)),
+          ),
+          AgentProjectSessions(
+            path = "/work/project-b",
+            name = "Project B",
+            isOpen = true,
+            threads = listOf(thread("thread-b", AgentThreadActivity.NEEDS_INPUT, 200)),
+          ),
+        ),
+        lastUpdatedAt = 1,
+      )
+    )
+
+    val rows = summary.attentionRows.filterToCurrentProjectActivityRows("/work/project-b")
+
+    assertThat(rows.map { it.path }).containsExactly("/work/project-b")
+    assertThat(rows.map { it.thread.id }).containsExactly("thread-b")
+  }
+
+  @Test
   fun rowsForBucketReturnsMatchingList() {
     val summary = buildAgentSessionsActivitySummary(
       AgentSessionsState(
@@ -87,7 +117,7 @@ class AgentSessionsActivitySummaryTest {
             path = "/work/project-a",
             name = "Project A",
             isOpen = true,
-            providerLoadStates = loadedProviderStates(AgentSessionProvider.CODEX),
+            providerLoadStates = loadedProviderStates(AgentSessionProvider.from("codex")),
             threads = listOf(
               thread("done", AgentThreadActivity.UNREAD, 200),
               thread("idle", AgentThreadActivity.READY, 100),
@@ -111,14 +141,14 @@ class AgentSessionsActivitySummaryTest {
           path = "/work/project-a",
           name = "Project A",
           isOpen = true,
-          providerLoadStates = loadedProviderStates(AgentSessionProvider.CODEX),
+          providerLoadStates = loadedProviderStates(AgentSessionProvider.from("codex")),
           worktrees = listOf(
             AgentWorktree(
               path = "/work/project-a-feature",
               name = "feature",
               branch = "feature",
               isOpen = false,
-              providerLoadStates = loadingProviderStates(AgentSessionProvider.CODEX),
+              providerLoadStates = loadingProviderStates(AgentSessionProvider.from("codex")),
             )
           ),
         )
@@ -132,7 +162,7 @@ class AgentSessionsActivitySummaryTest {
           loadingState.projects.single().copy(
             worktrees = listOf(
               loadingState.projects.single().worktrees.single().copy(
-                providerLoadStates = loadedProviderStates(AgentSessionProvider.CODEX),
+                providerLoadStates = loadedProviderStates(AgentSessionProvider.from("codex")),
               )
             )
           )
@@ -142,23 +172,24 @@ class AgentSessionsActivitySummaryTest {
   }
 
   @Test
-  fun buildSummaryOverlaysSharedThreadPresentationActivity() {
-    val key = checkNotNull(AgentSessionThreadPresentationKey.create("/work/project-a", AgentSessionProvider.CODEX, "done"))
+  fun buildSummaryOverlaysSharedThreadPresentationTitleOnly() {
+    val key = checkNotNull(AgentSessionThreadPresentationKey.create("/work/project-a", AgentSessionProvider.from("codex"), "done"))
 
     val summary = buildAgentSessionsActivitySummary(
-      state(thread("done", AgentThreadActivity.READY, 100, title = "Old title")),
+      state(thread("done", AgentThreadActivity.UNREAD, 100, title = "Old title")),
       presentationsByKey = mapOf(
         key to AgentSessionThreadPresentation(
           title = "Live title",
-          activityReport = AgentThreadActivityReport(rowActivity = AgentThreadActivity.UNREAD, chromeActivity = AgentThreadActivity.UNREAD),
+          activityReport = AgentThreadActivityReport(rowActivity = AgentThreadActivity.PROCESSING, chromeActivity = AgentThreadActivity.PROCESSING),
           updatedAt = 500,
         )
       ),
     )
 
+    assertThat(summary.runningRows).isEmpty()
     assertThat(summary.doneRows.map { row -> row.thread.id }).containsExactly("done")
     assertThat(summary.doneRows.single().thread.title).isEqualTo("Live title")
-    assertThat(summary.doneRows.single().thread.updatedAt).isEqualTo(500)
+    assertThat(summary.doneRows.single().thread.updatedAt).isEqualTo(100)
   }
 
   @Test
@@ -171,7 +202,7 @@ class AgentSessionsActivitySummaryTest {
             path = "/work/project-a",
             name = "Project A",
             isOpen = true,
-            providerLoadStates = loadedProviderStates(AgentSessionProvider.CODEX),
+            providerLoadStates = loadedProviderStates(AgentSessionProvider.from("codex")),
             threads = listOf(
               thread("fresh-attention", AgentThreadActivity.NEEDS_INPUT, 10_000),
               thread("stale-running", AgentThreadActivity.PROCESSING, 9_999),
@@ -200,7 +231,7 @@ class AgentSessionsActivitySummaryTest {
             path = "/work/project-a",
             name = "Project A",
             isOpen = true,
-            providerLoadStates = loadedProviderStates(AgentSessionProvider.CODEX),
+            providerLoadStates = loadedProviderStates(AgentSessionProvider.from("codex")),
             threads = listOf(
               thread("stale-attention", AgentThreadActivity.NEEDS_INPUT, 9_999),
               thread("stale-done", AgentThreadActivity.UNREAD, 9_999),
@@ -261,7 +292,7 @@ class AgentSessionsActivitySummaryTest {
             path = "/work/project-a",
             name = "Project A",
             isOpen = true,
-            providerLoadStates = loadedProviderStates(AgentSessionProvider.CODEX),
+            providerLoadStates = loadedProviderStates(AgentSessionProvider.from("codex")),
             threads = listOf(
               thread("ready", AgentThreadActivity.READY, 100),
             ),
@@ -284,7 +315,7 @@ class AgentSessionsActivitySummaryTest {
             path = "/work/project-a",
             name = "Project A",
             isOpen = true,
-            providerLoadStates = loadedProviderStates(AgentSessionProvider.CODEX),
+            providerLoadStates = loadedProviderStates(AgentSessionProvider.from("codex")),
             threads = listOf(
               AgentSessionThread(
                 id = "parent-ready",
@@ -292,7 +323,7 @@ class AgentSessionsActivitySummaryTest {
                 updatedAt = 100,
                 archived = false,
                 activity = AgentThreadActivity.READY,
-                provider = AgentSessionProvider.CODEX,
+                provider = AgentSessionProvider.from("codex"),
                 subAgents = listOf(AgentSubAgent(id = "child-done", name = "Child done", activity = AgentThreadActivity.UNREAD)),
               ),
             ),
@@ -315,7 +346,7 @@ class AgentSessionsActivitySummaryTest {
             path = "/work/project-a",
             name = "Project A",
             isOpen = true,
-            providerLoadStates = loadedProviderStates(AgentSessionProvider.CODEX),
+            providerLoadStates = loadedProviderStates(AgentSessionProvider.from("codex")),
             threads = listOf(
               thread("sub-agent-done", AgentThreadActivity.UNREAD, 100, summaryActivity = null),
             ),
@@ -339,7 +370,7 @@ class AgentSessionsActivitySummaryTest {
             path = "/work/project-a",
             name = "Project A",
             isOpen = true,
-            providerLoadStates = loadedProviderStates(AgentSessionProvider.CODEX),
+            providerLoadStates = loadedProviderStates(AgentSessionProvider.from("codex")),
             threads = listOf(
               thread("needs-input", AgentThreadActivity.NEEDS_INPUT, 500),
               thread("done", AgentThreadActivity.UNREAD, 400),
@@ -354,7 +385,7 @@ class AgentSessionsActivitySummaryTest {
   }
 
   @Test
-  fun stripeBadgeShowsDoneWhenThereIsUnreadOutputAndNoAttention() {
+  fun stripeBadgeShowsRunningWhenThereIsProcessingAndNoAttention() {
     val summary = buildAgentSessionsActivitySummary(
       AgentSessionsState(
         projects = listOf(
@@ -362,10 +393,31 @@ class AgentSessionsActivitySummaryTest {
             path = "/work/project-a",
             name = "Project A",
             isOpen = true,
-            providerLoadStates = loadedProviderStates(AgentSessionProvider.CODEX),
+            providerLoadStates = loadedProviderStates(AgentSessionProvider.from("codex")),
             threads = listOf(
               thread("done", AgentThreadActivity.UNREAD, 400),
               thread("processing", AgentThreadActivity.PROCESSING, 300),
+            ),
+          )
+        ),
+      )
+    )
+
+    assertThat(summary.stripeBadge()).isEqualTo(AgentSessionsStripeBadge.RUNNING)
+  }
+
+  @Test
+  fun stripeBadgeShowsDoneWhenThereIsUnreadOutputAndNoAttentionOrRunning() {
+    val summary = buildAgentSessionsActivitySummary(
+      AgentSessionsState(
+        projects = listOf(
+          AgentProjectSessions(
+            path = "/work/project-a",
+            name = "Project A",
+            isOpen = true,
+            providerLoadStates = loadedProviderStates(AgentSessionProvider.from("codex")),
+            threads = listOf(
+              thread("done", AgentThreadActivity.UNREAD, 400),
             ),
           )
         ),
@@ -376,7 +428,7 @@ class AgentSessionsActivitySummaryTest {
   }
 
   @Test
-  fun stripeBadgeIgnoresRunningReadyAndNewSessionRows() {
+  fun stripeBadgeShowsRunningAndIgnoresReadyAndNewSessionRows() {
     val summary = buildAgentSessionsActivitySummary(
       AgentSessionsState(
         projects = listOf(
@@ -384,7 +436,7 @@ class AgentSessionsActivitySummaryTest {
             path = "/work/project-a",
             name = "Project A",
             isOpen = true,
-            providerLoadStates = loadedProviderStates(AgentSessionProvider.CODEX),
+            providerLoadStates = loadedProviderStates(AgentSessionProvider.from("codex")),
             threads = listOf(
               thread("processing", AgentThreadActivity.PROCESSING, 300),
               thread("ready", AgentThreadActivity.READY, 200),
@@ -395,17 +447,18 @@ class AgentSessionsActivitySummaryTest {
       )
     )
 
-    assertThat(summary.stripeBadge()).isNull()
+    assertThat(summary.stripeBadge()).isEqualTo(AgentSessionsStripeBadge.RUNNING)
   }
 
   @Test
   fun stripeBadgeUsesAgentWorkbenchActivityColors() {
     assertThat(AgentSessionsStripeBadge.ATTENTION.color().rgb).isEqualTo(AgentThreadActivity.NEEDS_INPUT.statusColor()?.rgb)
+    assertThat(AgentSessionsStripeBadge.RUNNING.color().rgb).isEqualTo(AgentThreadActivity.PROCESSING.statusColor()?.rgb)
     assertThat(AgentSessionsStripeBadge.DONE.color().rgb).isEqualTo(AgentThreadActivity.UNREAD.statusColor()?.rgb)
   }
 
   @Test
-  fun popupRowTextIncludesTitleLocationAndRelativeTime() {
+  fun popupRowTextIncludesTitleStatusLocationAndRelativeTime() {
     val summary = buildAgentSessionsActivitySummary(
       AgentSessionsState(
         projects = listOf(
@@ -413,7 +466,7 @@ class AgentSessionsActivitySummaryTest {
             path = "/work/project-a",
             name = "Project A",
             isOpen = true,
-            providerLoadStates = loadedProviderStates(AgentSessionProvider.CODEX),
+            providerLoadStates = loadedProviderStates(AgentSessionProvider.from("codex")),
             worktrees = listOf(
               AgentWorktree(
                 path = "/work/project-a-feature",
@@ -431,6 +484,7 @@ class AgentSessionsActivitySummaryTest {
     val text = agentSessionsActivityPopupRowText(summary.attentionRows.single(), now = 500)
 
     assertThat(text).contains("Confirm tool call")
+    assertThat(text).contains(AgentSessionsBundle.message("toolwindow.thread.status.needs.input"))
     assertThat(text).contains("Project A / feature")
     assertThat(text).contains("now")
   }
@@ -573,7 +627,7 @@ class AgentSessionsActivitySummaryTest {
     assertThat(notification.target).isEqualTo(
       AgentSessionsSystemNotificationTarget(
         path = "/work/project-a-feature",
-        provider = AgentSessionProvider.CODEX,
+        provider = AgentSessionProvider.from("codex"),
         threadId = "needs-input",
       )
     )
@@ -618,7 +672,7 @@ class AgentSessionsActivitySummaryTest {
           path = "/work/project-a",
           name = "Project A",
           isOpen = true,
-          providerLoadStates = loadedProviderStates(AgentSessionProvider.CODEX),
+          providerLoadStates = loadedProviderStates(AgentSessionProvider.from("codex")),
           threads = listOf(
             thread("first", AgentThreadActivity.UNREAD, 100, title = "Same title"),
             thread("target", AgentThreadActivity.UNREAD, 200, title = "Same title"),
@@ -629,7 +683,7 @@ class AgentSessionsActivitySummaryTest {
 
     val target = AgentSessionsSystemNotificationTarget(
       path = "/work/project-a",
-      provider = AgentSessionProvider.CODEX,
+      provider = AgentSessionProvider.from("codex"),
       threadId = "target",
     )
 
@@ -644,7 +698,7 @@ class AgentSessionsActivitySummaryTest {
           path = "/work/project-a",
           name = "Project A",
           isOpen = true,
-          providerLoadStates = loadedProviderStates(AgentSessionProvider.CODEX),
+          providerLoadStates = loadedProviderStates(AgentSessionProvider.from("codex")),
           threads = listOf(thread("existing", AgentThreadActivity.UNREAD, 100)),
         )
       ),
@@ -652,7 +706,7 @@ class AgentSessionsActivitySummaryTest {
 
     val target = AgentSessionsSystemNotificationTarget(
       path = "/work/project-a",
-      provider = AgentSessionProvider.CODEX,
+      provider = AgentSessionProvider.from("codex"),
       threadId = "missing",
     )
 
@@ -701,7 +755,7 @@ class AgentSessionsActivitySummaryTest {
           path = "/work/project-a",
           name = "Project A",
           isOpen = true,
-          providerLoadStates = loadedProviderStates(AgentSessionProvider.CODEX),
+          providerLoadStates = loadedProviderStates(AgentSessionProvider.from("codex")),
           threads = threads.toList(),
         )
       ),
@@ -716,7 +770,7 @@ class AgentSessionsActivitySummaryTest {
             path = "/work/project-a",
             name = "Project A",
             isOpen = true,
-            providerLoadStates = loadedProviderStates(AgentSessionProvider.CODEX),
+            providerLoadStates = loadedProviderStates(AgentSessionProvider.from("codex")),
             worktrees = listOf(
               AgentWorktree(
                 path = "/work/project-a-feature",
@@ -745,7 +799,7 @@ class AgentSessionsActivitySummaryTest {
       updatedAt = updatedAt,
       archived = false,
       activity = activity,
-      provider = AgentSessionProvider.CODEX,
+      provider = AgentSessionProvider.from("codex"),
       summaryActivity = summaryActivity,
     )
   }
