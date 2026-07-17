@@ -385,7 +385,8 @@ object CommunityModuleSets {
     module("intellij.libraries.microba")
     module("intellij.platform.diagnostic.freezeAnalyzer")
     module("intellij.platform.warmup")
-    module("intellij.platform.inspect")
+    // inspections, disabled in rebased
+    //module("intellij.platform.inspect")
     module("intellij.settingsSync.core")
     module("intellij.spellchecker")
     module("intellij.spellchecker.xml")
