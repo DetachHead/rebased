@@ -39,6 +39,13 @@ Alternatively you can install via winget:
 winget install detachhead.rebased --source winget
 ```
 
+<table>
+  <tr>
+    <td><a href="https://signpath.io/"><img src="https://signpath.org/assets/favicon-50x50.png" alt="SignPath" width="32" /></a></td>
+    <td>Free code signing on Windows provided by <a href="https://signpath.io/">SignPath.io</a>, certificate by <a href="https://signpath.org/">SignPath Foundation</a></td>
+  </tr>
+</table>
+
 ### macOS
 
 Install with [homebrew](https://brew.sh/):
