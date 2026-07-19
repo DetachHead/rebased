@@ -2,7 +2,8 @@
 <idea-plugin>
   <extensions defaultExtensionNs="com.intellij">
     <appStarter id="traverseUI" implementation="com.intellij.ide.ui.search.TraverseUIStarter" internal="true"/>
-    <appStarter id="format" implementation="com.intellij.formatting.commandLine.FormatterStarter" bundle="messages.CodeStyleBundle" key="formatter.help"/>
+    <!-- disabled in rebased -->
+    <!--<appStarter id="format" implementation="com.intellij.formatting.commandLine.FormatterStarter" bundle="messages.CodeStyleBundle" key="formatter.help"/>-->
     <appStarter id="ideScript" implementation="com.intellij.ide.script.IdeScriptStarter" internal="true"/>
 
     <applicationService serviceInterface="com.intellij.util.Queries"
