@@ -1,5 +1,13 @@
 # Contributing
 
+## AI Code Policy
+
+This project does not accept any AI generated code.
+
+Please also refrain from unnecessarily padding out your issues, comments or PR descriptions using LLMs. Though you may use AI to assist with translations if you aren't fluent in English.
+
+If you are interested in the motivation behind this decision, [see here](https://detachhead.codeberg.page/workproperly/blog/2026/07/21/i-dont-like-ai/).
+
 ## Getting the Source Code
 
 This section will guide you through getting the project sources and help avoid common issues in git config and other steps before opening it in the IDE.
