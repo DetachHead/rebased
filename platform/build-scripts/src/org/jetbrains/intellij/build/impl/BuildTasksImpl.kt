@@ -1172,7 +1172,8 @@ private suspend fun lookForJunkFiles(context: BuildContext, paths: List<Path>) {
 internal suspend fun buildAdditionalAuthoringArtifacts(productRunner: IntellijProductRunner, context: BuildContext) {
   context.executeStep(spanBuilder("build authoring assets"), BuildOptions.DOC_AUTHORING_ASSETS_STEP) {
     val commands = listOf(
-      Pair("inspectopedia-generator", "inspections-${context.applicationInfo.productCode.lowercase()}"),
+      // inspections are disabled in rebased
+      //Pair("inspectopedia-generator", "inspections-${context.applicationInfo.productCode.lowercase()}"),
       Pair("keymap", "keymap-${context.applicationInfo.productCode.lowercase()}")
     )
     val temporaryBuildDirectory = context.paths.tempDir
