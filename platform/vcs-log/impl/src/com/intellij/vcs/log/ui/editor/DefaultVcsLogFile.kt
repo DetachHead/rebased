@@ -36,6 +36,8 @@ import javax.swing.JComponent
 internal class DefaultVcsLogFile(
   private val pathId: VcsLogVirtualFileSystem.VcsLogComplexPath,
   private var filters: VcsLogFilterCollection? = null,
+  // the first log file always gets created with an empty log ID in IdeVcsLogManager.createUi, which should never be closable
+  var canClose: Boolean = pathId.logId != ""
 ) :
   VcsLogFile(VcsLogTabsUtil.getFullName(pathId.logId)), VirtualFilePathWrapper { //NON-NLS not displayed
 
@@ -96,9 +98,6 @@ internal class DefaultVcsLogFile(
   override fun hashCode(): Int {
     return tabId.hashCode()
   }
-
-  // the first log file always gets created with an empty log ID in IdeVcsLogManager.createUi
-  val isFirstLogFile by lazy { pathId.logId == "" }
 
   companion object {
     private val LOG = logger<DefaultVcsLogFile>()

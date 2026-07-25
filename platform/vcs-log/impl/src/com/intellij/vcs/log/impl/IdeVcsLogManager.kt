@@ -4,7 +4,6 @@ package com.intellij.vcs.log.impl
 import com.intellij.openapi.application.EdtImmediate
 import com.intellij.openapi.application.UiImmediate
 import com.intellij.openapi.components.service
-import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.vfs.VirtualFile
@@ -22,7 +21,6 @@ import com.intellij.vcs.log.impl.VcsLogNavigationUtil.showCommit
 import com.intellij.vcs.log.impl.VcsLogNavigationUtil.showCommitSync
 import com.intellij.vcs.log.ui.MainVcsLogUi
 import com.intellij.vcs.log.ui.VcsLogUiEx
-import com.intellij.vcs.log.ui.editor.VcsLogVirtualFileSystem
 import com.intellij.vcs.log.util.VcsLogUtil
 import com.intellij.vcs.log.visible.filters.VcsLogFilterObject
 import kotlinx.coroutines.CoroutineScope
@@ -62,9 +60,7 @@ internal class IdeVcsLogManager(
       mainUiHolderState.collect { holder ->
         val showLogInEditorWindow = service<VcsLogApplicationSettings>()[CommonUiProperties.SHOW_IN_EDITOR]
         val ui = if (showLogInEditorWindow) {
-          val file = VcsLogVirtualFileSystem.Holder.getInstance().
-          createVcsLogFile(project, "", null)
-          val editor = FileEditorManager.getInstance(project).openFile(file, false, true)
+          val editor = tabsManager.openEditorLogTab("", false, null)
           VcsLogEditorUtil.findVcsLogUi(editor,MainVcsLogUi::class.java)
         } else {
           createLogUi(getMainLogUiFactory(MAIN_LOG_ID, null))

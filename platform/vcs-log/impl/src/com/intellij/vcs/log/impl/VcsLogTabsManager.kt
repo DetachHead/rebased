@@ -135,8 +135,8 @@ internal class VcsLogTabsManager(
     throw UnsupportedOperationException("Only log in editor or tool window is supported")
   }
 
-  private fun openEditorLogTab(tabId: String, focus: Boolean, filters: VcsLogFilterCollection?): Array<FileEditor> {
-    val file = VcsLogVirtualFileSystem.Holder.getInstance().createVcsLogFile(project, tabId, filters)
+  fun openEditorLogTab(tabId: String, focus: Boolean, filters: VcsLogFilterCollection?): Array<FileEditor> {
+    val file = VcsLogVirtualFileSystem.Holder.getInstance().createVcsLogFile(project, tabId, filters, uiProperties.tabs.isNotEmpty())
     installFilesListener()
     uiProperties.addTab(tabId, VcsLogTabLocation.EDITOR)
     return FileEditorManager.getInstance(project).openFile(file, focus, true)
