@@ -24,9 +24,12 @@ object VcsLogEditorUtil {
     return FileEditorManager.getInstance(project).selectedEditors.flatMapTo(mutableSetOf(), ::getLogIds)
   }
 
+  fun <T : VcsLogUiEx> findVcsLogUis(editors: Array<FileEditor>, clazz: Class<T>): Sequence<T> =
+    editors.asSequence().flatMap { VcsLogUiHolder.getLogUis(it.component) }.filterIsInstance(clazz)
+
   @JvmStatic
   fun <T : VcsLogUiEx> findVcsLogUi(editors: Array<FileEditor>, clazz: Class<T>): T? {
-    return editors.asSequence().flatMap { VcsLogUiHolder.getLogUis(it.component) }.filterIsInstance(clazz).firstOrNull()
+    return findVcsLogUis(editors, clazz).firstOrNull()
   }
 
   internal fun selectLogUi(project: Project, ui: VcsLogUi): Boolean {
