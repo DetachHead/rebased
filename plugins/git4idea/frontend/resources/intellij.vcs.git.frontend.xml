@@ -10,7 +10,7 @@
 
   <actions resource-bundle="messages.GitFrontendBundle">
     <action id="main.toolbar.git.Branches" class="com.intellij.vcs.git.frontend.widget.GitToolbarWidgetAction">
-      <add-to-group group-id="MainToolbarVCSGroup" anchor="first"/>
+      <add-to-group group-id="MainToolbarVCSGroup" />
     </action>
 
     <group id="GitMainToolbarQuickActions" searchable="false" popup="false">
