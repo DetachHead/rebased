@@ -45,6 +45,7 @@ import com.intellij.openapi.ui.DialogWrapper
 import com.intellij.openapi.ui.LoadingDecorator
 import com.intellij.openapi.ui.MessageDialogBuilder
 import com.intellij.openapi.ui.OptionAction
+import com.intellij.openapi.ui.ValidationInfo
 import com.intellij.openapi.util.NlsContexts
 import com.intellij.openapi.util.NlsSafe
 import com.intellij.openapi.util.text.Strings
@@ -250,6 +251,13 @@ open class IdeErrorsDialog @ApiStatus.Internal @JvmOverloads constructor(
   private fun enableOkButtonIfReady() {
     val cluster = selectedCluster()
     isOKActionEnabled = cluster != null && cluster.canSubmit && !cluster.detailsText.isNullOrBlank() && myUpdateControlsJob.isCompleted
+  }
+
+  private fun validate(cluster: ErrorMessageCluster?): ValidationInfo? {
+    if (cluster?.first?.additionalInfo.isNullOrEmpty()) {
+      return ValidationInfo(DiagnosticBundle.message("error.dialog.comment.prompt"), myCommentArea)
+    }
+    return null
   }
 
   override fun createCenterPanel(): JComponent? {
@@ -601,6 +609,13 @@ open class IdeErrorsDialog @ApiStatus.Internal @JvmOverloads constructor(
 
   @RequiresEdt
   private fun reportMessage(cluster: ErrorMessageCluster, parentComponent: Component): Boolean {
+    val validation = validate(cluster)
+    if (validation == null) {
+      setErrorText(null)
+    } else {
+      setErrorText(validation.message, validation.component)
+      return false
+    }
     val submitter = cluster.submitter ?: return false
     val message = cluster.first
     message.isSubmitting = true
