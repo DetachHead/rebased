@@ -70,7 +70,7 @@
       <add-to-group group-id="VcsToolbarActions" anchor="after" relative-to-action="ChangesView.ToggleCommitUi"/>
       <add-to-group group-id="VcsNavBarToolbarActions" anchor="after" relative-to-action="ChangesView.ToggleCommitUi"/>
       <add-to-group group-id="SegmentedVcsActionsBarGroup" anchor="after" relative-to-action="ChangesView.ToggleCommitUi"/>
-      <add-to-group group-id="MainToolbarVCSGroup" anchor="after" relative-to-action="main.toolbar.git.MergeRebase"/>
+      <add-to-group group-id="MainToolbarVCSGroup" anchor="after" relative-to-action="Vcs.UpdateProject"/>
     </action>
 
     <group id="Vcs.Push.Actions">
