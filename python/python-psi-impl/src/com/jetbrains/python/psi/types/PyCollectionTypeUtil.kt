@@ -69,7 +69,7 @@ object PyCollectionTypeUtil {
       val elementType = context.getType(element)
       val (keyType, valueType) = getKeyValueType(elementType)
 
-      if (!(keyType is PyClassType && PyNames.TYPE_STR == keyType.classQName)) {
+      if (!(keyType is PyClassType && PyNames.FQN.STR == keyType.classQName)) {
         return null
       }
       val keyString: String? = if (keyType is PyLiteralType) {
@@ -103,8 +103,8 @@ object PyCollectionTypeUtil {
       }
 
     if (elements.size > MAX_ANALYZED_ELEMENTS_OF_LITERALS) {
-      keyTypes.add(null)
-      valueTypes.add(null)
+      keyTypes.add(PyAnyType.unknown)
+      valueTypes.add(PyAnyType.unknown)
     }
 
     return Pair(PyUnionType.union(keyTypes), PyUnionType.union(valueTypes))

@@ -138,6 +138,14 @@ jvm_library(
         "//plugins/repository-search:repository-search_test_lib",
         "//libraries/assertj-core",
         "//libraries/assertj-core:assertj-core_test_lib",
+        "//libraries/junit5",
+        "//libraries/junit5:junit5_test_lib",
+        "//platform/analysis-api:analysis",
+        "//platform/analysis-api:analysis_test_lib",
+        "//platform/lang-impl",
+        "//platform/lang-impl:lang-impl_test_lib",
+        "//platform/util/text-matching",
+        "//platform/util/text-matching:text-matching_test_lib",
     ],
 )
 ### auto-generated section `build intellij.repository.search.completion.tests` end

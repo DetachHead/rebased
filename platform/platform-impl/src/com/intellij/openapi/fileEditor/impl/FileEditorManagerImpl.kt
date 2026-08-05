@@ -723,6 +723,20 @@ open class FileEditorManagerImpl(
     queueUpdateFile(file)
   }
 
+  @RequiresEdt
+  override fun hasPinnedEditorTab(file: VirtualFile): Boolean {
+    return windows.any { window -> window.isFileOpen(file) && window.isFilePinned(file) }
+  }
+
+  @RequiresEdt
+  override fun setPinnedEditorTab(file: VirtualFile, pinned: Boolean) {
+    windows.forEach { window ->
+      if (window.isFileOpen(file)) {
+        window.setFilePinned(file, pinned)
+      }
+    }
+  }
+
   override fun updateFileName(file: VirtualFile) {
     if (!isFileOpen(file)) {
       return
@@ -877,9 +891,41 @@ open class FileEditorManagerImpl(
     return true
   }
 
+  private fun canCloseFiles(files: Collection<VirtualFile>): Boolean {
+    if (files.isEmpty()) {
+      return true
+    }
+    val checks = VirtualFilePreCloseCheck.EP_NAME.extensionsIfPointIsRegistered
+    return checks.all { it.canCloseFiles(files) }
+  }
+
   @RequiresEdt
   override fun closeFileWithChecks(file: VirtualFile, window: EditorWindow): Boolean {
     return closeFile(window = window, composite = window.getComposite(file) ?: return false, runChecks = true)
+  }
+
+  @RequiresEdt
+  override fun closeFilesWithChecks(filesWithWindows: List<Pair<EditorComposite, EditorWindow>>): Boolean {
+    val filesToClose = filesWithWindows.filter { it.second.getComposite(it.first.file) != null }
+    if (filesToClose.isEmpty()) {
+      return true
+    }
+    val filesToCheck = filesToClose.mapTo(LinkedHashSet()) { it.first.file }
+    if (!canCloseFiles(filesToCheck)) {
+      return false
+    }
+
+    openFileSetModificationCount.increment()
+    WriteIntentReadAction.run {
+      for (fileWithWindow in filesToClose) {
+        val window = fileWithWindow.second
+        val currentComposite = window.getComposite(fileWithWindow.first.file)
+        if (currentComposite != null) {
+          window.closeFile(file = currentComposite.file, composite = currentComposite)
+        }
+      }
+    }
+    return true
   }
 
   @RequiresEdt

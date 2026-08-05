@@ -120,11 +120,14 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.Future;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
@@ -483,7 +486,7 @@ public final class DaemonCodeAnalyzerImpl extends DaemonCodeAnalyzerEx
 
   @Override
   @RequiresBackgroundThread
-  public @NotNull List<HighlightInfo> runMainPasses(@NotNull PsiFile psiFile, @NotNull Document document, @NotNull ProgressIndicator progress) {
+  public @NotNull List<HighlightInfo> runMainPasses(@NotNull PsiFile psiFile, @NotNull Document document, @NotNull ProgressIndicator progress) throws CancellationException {
     ThreadingAssertions.assertBackgroundThread();
     assertFileFromMyProject(psiFile.getProject(), psiFile);
 
@@ -503,10 +506,10 @@ public final class DaemonCodeAnalyzerImpl extends DaemonCodeAnalyzerEx
             .instantiateMainPasses(psiFile, document, HighlightInfoProcessor.getEmpty());
 
           JobLauncher.getInstance()
-            .invokeConcurrentlyUnderProgress(mainPasses, progress, pass -> ReadAction.computeBlocking(() -> {
+            .invokeConcurrentlyUnderProgress(mainPasses, progress, true, true, pass -> {
               pass.doCollectInformation(progress);
               return true;
-            }));
+            });
 
           return mainPasses;
         });
@@ -533,7 +536,6 @@ public final class DaemonCodeAnalyzerImpl extends DaemonCodeAnalyzerEx
 
   @Override
   public void settingsChanged() {
-    //noinspection SpellCheckingInspection
     restart("DCAI.settingsChanged");
   }
 
@@ -638,7 +640,7 @@ public final class DaemonCodeAnalyzerImpl extends DaemonCodeAnalyzerEx
   }
 
   @Override
-  public void restart(@NotNull Object reason) {
+  public void restart(@NotNull @NonNls Object reason) {
     myFileStatusMap.markAllFilesDirty(reason);
     stopProcess(true, reason.toString());
   }
@@ -734,7 +736,6 @@ public final class DaemonCodeAnalyzerImpl extends DaemonCodeAnalyzerEx
   }
 
   @Override
-  @TestOnly
   @RequiresEdt
   public boolean isRunningOrPending() {
     ThreadingAssertions.assertEventDispatchThread();
@@ -1222,6 +1223,7 @@ public final class DaemonCodeAnalyzerImpl extends DaemonCodeAnalyzerEx
     List<ProgressIndicator> createdIndicators = new ArrayList<>();
     List<String> result = new SmartList<>();
     Map<Pair<Document, Class<? extends ProgressableTextEditorHighlightingPass>>, ProgressableTextEditorHighlightingPass> mainDocumentPasses = new ConcurrentHashMap<>();
+    //noinspection IncorrectCancellationExceptionHandling
     try {
       if (LOG.isDebugEnabled()) {
         LOG.debug("runUpdate activeEditors: ("+activeEditors.size()+"): "+ContainerUtil.map(activeEditors, e->e+"("+e.getClass()+") for file "+e.getFile()));
@@ -1726,5 +1728,12 @@ public final class DaemonCodeAnalyzerImpl extends DaemonCodeAnalyzerEx
                                                      boolean canChangeFileSilently,
                                                      @NotNull Consumer<? super @NotNull HighlightingSession> runnable) {
     HighlightingSessionImpl.runInsideAdditionalHighlightingSession(psiFile, editorColorsScheme, visibleRange, canChangeFileSilently, runnable);
+  }
+
+  @Override
+  @RequiresBackgroundThread
+  public void waitForExternalAnnotators(long timeout, @NotNull TimeUnit unit)
+      throws ExecutionException, InterruptedException, TimeoutException {
+    ExternalAnnotatorManager.getInstance().waitForAllExecuted(timeout, unit);
   }
 }

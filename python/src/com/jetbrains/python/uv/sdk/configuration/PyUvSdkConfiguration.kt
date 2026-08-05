@@ -2,7 +2,8 @@
 package com.jetbrains.python.uv.sdk.configuration
 
 import com.intellij.openapi.module.Module
-import com.intellij.python.common.tools.ToolId
+import com.intellij.python.community.common.tools.ToolId
+import com.intellij.python.pyproject.PY_PROJECT_TOML
 import com.intellij.python.uv.common.UV_TOOL_ID
 import com.jetbrains.python.PyBundle
 import com.jetbrains.python.PythonBinary
@@ -16,6 +17,7 @@ import java.nio.file.Path
 
 internal class PyUvSdkConfiguration : PyProjectTomlConfigurationExtension {
   override val toolId: ToolId = UV_TOOL_ID
+  override val potentialDependencyFiles: Set<String> = setOf(PY_PROJECT_TOML)
 
   override suspend fun checkEnvironmentAndPrepareSdkCreator(module: Module, venvsInModule: List<PythonBinary>): CreateSdkInfo? =
     prepareSdkCreator(
@@ -32,7 +34,7 @@ internal class PyUvSdkConfiguration : PyProjectTomlConfigurationExtension {
     venvsInModule: List<PythonBinary>,
     tomlCheckedByWorkspaceTools: Boolean
   ): EnvCheckerResult {
-    val baseCheckResult = checkManageableUvEnvBase(venvsInModule)
+    val baseCheckResult = checkManageableUvEnvBase(module, toolId, venvsInModule)
     return when (baseCheckResult) {
       is EnvCheckerResult.EnvFound, is EnvCheckerResult.SuggestToolInstallation -> baseCheckResult
       is EnvCheckerResult.EnvNotFound -> if (tomlCheckedByWorkspaceTools || findUvLock(module) != null) baseCheckResult else EnvCheckerResult.CannotConfigure
@@ -42,7 +44,7 @@ internal class PyUvSdkConfiguration : PyProjectTomlConfigurationExtension {
         EnvCheckerResult.SuggestToolInstallation(
           toolToInstall = toolName,
           pathPersister = pathPersister,
-          intentionName = PyBundle.message("sdk.create.custom.venv.install.fix.title.using.pip", toolName)
+          intentionName = PyBundle.message("sdk.create.custom.venv.install.fix.title", toolName)
         )
       } else baseCheckResult
     }

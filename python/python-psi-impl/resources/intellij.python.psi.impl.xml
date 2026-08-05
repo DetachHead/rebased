@@ -120,7 +120,7 @@
 
     <!-- PyDocstring -->
     <languageInjector implementation="com.jetbrains.python.documentation.doctest.PyDocstringLanguageInjector"/>
-    <lang.parserDefinition language="Doctest" implementationClass="com.jetbrains.python.documentation.doctest.PyDocstringParserDefinition"/>
+    <lang.parserDefinition language="Doctest" implementationClass="com.jetbrains.python.documentation.doctest.PyDoctestParserDefinition"/>
     <highlightErrorFilter implementation="com.jetbrains.python.documentation.doctest.PyDocstringErrorFilter"/>
     <lang.formatter language="Doctest" implementationClass="com.jetbrains.python.documentation.doctest.PyDocstringFormattingModelBuilder"/>
 
@@ -156,6 +156,8 @@
                             implementationClass="com.jetbrains.python.codeInsight.completion.PyStructuralTypeAttributesCompletionContributor"/>
     <completion.contributor language="Python"
                             implementationClass="com.jetbrains.python.codeInsight.completion.PyDataclassCompletionContributor"/>
+    <completion.contributor language="Python"
+                            implementationClass="com.jetbrains.python.codeInsight.completion.PyClassFormCompletionContributor"/>
 
     <completion.contributor language="Python"
                             implementationClass="com.jetbrains.python.codeInsight.completion.PyStringFormatCompletionContributor" />
@@ -196,7 +198,12 @@
 
     <statistics.applicationUsagesCollector implementation="com.jetbrains.python.psi.types.PyTypeEvaluationAggregatesCollector"/>
 
-    <localInspection language="Python" shortName="PyUnusedLocalInspection" suppressId="PyUnusedLocal" bundle="messages.PyPsiBundle" key="INSP.NAME.unused" groupKey="INSP.GROUP.python" enabledByDefault="true" level="WEAK WARNING" implementationClass="com.jetbrains.python.inspections.unusedLocal.PyUnusedLocalInspection"/>
+    <localInspection language="Python" shortName="PyUnusedLocalVariableInspection" suppressId="PyUnusedLocal" bundle="messages.PyPsiBundle" key="INSP.NAME.unused" groupKey="INSP.GROUP.python" enabledByDefault="true" level="WEAK WARNING" implementationClass="com.jetbrains.python.inspections.unusedLocal.PyUnusedLocalVariableInspection"/>
+    <localInspection language="Python" shortName="PyUnusedParameterInspection" suppressId="PyUnusedParameter" bundle="messages.PyPsiBundle" key="INSP.NAME.unused.parameter" groupKey="INSP.GROUP.python" enabledByDefault="true" level="WEAK WARNING" implementationClass="com.jetbrains.python.inspections.unusedLocal.PyUnusedParameterInspection"/>
+    <localInspection language="Python" shortName="PyUnusedFunctionInspection" suppressId="PyUnusedFunction" bundle="messages.PyPsiBundle" key="INSP.NAME.unused.function" groupKey="INSP.GROUP.python" enabledByDefault="true" level="WEAK WARNING" implementationClass="com.jetbrains.python.inspections.unusedLocal.PyUnusedFunctionInspection"/>
+    <inspectionElementsMerger implementation="com.jetbrains.python.inspections.unusedLocal.PyUnusedLocalVariableInspectionMerger"/>
+    <inspectionElementsMerger implementation="com.jetbrains.python.inspections.unusedLocal.PyUnusedParameterInspectionMerger"/>
+    <inspectionElementsMerger implementation="com.jetbrains.python.inspections.unusedLocal.PyUnusedFunctionInspectionMerger"/>
     <localInspection language="Python" shortName="PyRedundantParenthesesInspection" suppressId="PyRedundantParentheses" bundle="messages.PyPsiBundle" key="INSP.NAME.redundant.parentheses" groupKey="INSP.GROUP.python" enabledByDefault="true" level="WEAK WARNING" implementationClass="com.jetbrains.python.inspections.PyRedundantParenthesesInspection"/>
     <localInspection language="Python" shortName="PySimplifyBooleanCheckInspection" suppressId="PySimplifyBooleanCheck" bundle="messages.PyPsiBundle" key="INSP.NAME.check.can.be.simplified" groupKey="INSP.GROUP.python" enabledByDefault="true" level="WEAK WARNING" implementationClass="com.jetbrains.python.inspections.PySimplifyBooleanCheckInspection"/>
     <localInspection language="Python" shortName="PyDefaultArgumentInspection" suppressId="PyDefaultArgument" bundle="messages.PyPsiBundle" key="INSP.NAME.default.argument" groupKey="INSP.GROUP.python" enabledByDefault="true" level="WARNING" implementationClass="com.jetbrains.python.inspections.PyDefaultArgumentInspection"/>
@@ -600,6 +607,8 @@
                  description="Maximum statement list size as a percentage of the containing file for incremental reparse."/>
     <registryKey key="python.strict.type.narrow" defaultValue="false"
                  description="Allows narrowing types exhaustively to Never"/>
+    <registryKey key="python.typing.literal.types.for.literals" defaultValue="true"
+                 description="Infer literal types (e.g. Literal[42]) for integer, boolean and string literal expressions"/>
     <registryKey key="python.typing.soft.keys.type.eval.context" defaultValue="false"
                  description="Enable soft-key caching for TypeEvalContext"/>
     <registryKey key="python.typing.weak.keys.type.eval.context" defaultValue="true"
@@ -610,8 +619,12 @@
                  description="Enable Any and Unknown support"/>
     <registryKey key="python.use.csp.type.inference" defaultValue="true"
                  description="Enable CSP engine for type inference"/>
+    <registryKey key="python.subtypechecks.respect.variance" defaultValue="false"
+                 description="Enable variance in subtype checks"/>
     <registryKey key="python.skeleton.generator.use.process.pool" defaultValue="true"
                  description="Use a process worker pool for skeleton generation to avoid process creation overhead"/>
+    <registryKey key="python.type.checker.diff.tooltip" defaultValue="false"
+                 description="Show a structural side-by-side type diff in type-mismatch inspection tooltips (otherwise the plain message tooltip is shown)"/>
 
     <virtualFileCustomDataProvider implementation="com.jetbrains.python.formatter.PyCodeStyleSettingsProvider"/>
     <projectSettings service="com.jetbrains.python.findUsages.PyFindUsagesOptions"/>
@@ -642,6 +655,9 @@
                     dynamic="true"/>
     <extensionPoint qualifiedName="Pythonid.typeCheckerExtension"
                     interface="com.jetbrains.python.psi.types.PyTypeCheckerExtension"
+                    dynamic="true"/>
+    <extensionPoint qualifiedName="Pythonid.pyEnumMemberDeclarationProvider"
+                    interface="com.jetbrains.python.psi.types.PyEnumMemberDeclarationProvider"
                     dynamic="true"/>
     <extensionPoint qualifiedName="Pythonid.pyDataclassParametersProvider"
                     interface="com.jetbrains.python.codeInsight.PyDataclassParametersProvider"
@@ -693,7 +709,7 @@
 
     <!-- PyDocstring -->
     <typeProvider implementation="com.jetbrains.python.documentation.docstrings.PyDocStringTypeProvider" id="pythonDocstringTypeProvider"/>
-    <dialectsTokenSetContributor implementation="com.jetbrains.python.documentation.doctest.PyDocstringTokenSetContributor"/>
+    <dialectsTokenSetContributor implementation="com.jetbrains.python.documentation.doctest.PyDoctestTokenSetContributor"/>
 
     <!-- PyTypeRepresentation -->
     <dialectsTokenSetContributor implementation="com.jetbrains.python.codeInsight.typeRepresentation.PyTypeRepresentationTokenSetContributor"/>

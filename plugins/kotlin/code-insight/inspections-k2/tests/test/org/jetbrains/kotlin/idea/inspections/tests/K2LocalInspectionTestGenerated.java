@@ -26322,9 +26322,39 @@ public abstract class K2LocalInspectionTestGenerated extends AbstractK2LocalInsp
             runTest("../../../idea/tests/testData/inspectionsLocal/customComponentDestructuringMigration/listDestructuring.kt");
         }
 
+        @TestMetadata("mapEntryKeyOnly.kt")
+        public void testMapEntryKeyOnly() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/customComponentDestructuringMigration/mapEntryKeyOnly.kt");
+        }
+
+        @TestMetadata("mapEntryReversedNames.kt")
+        public void testMapEntryReversedNames() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/customComponentDestructuringMigration/mapEntryReversedNames.kt");
+        }
+
+        @TestMetadata("mapEntrySubtypeMatchingNames.kt")
+        public void testMapEntrySubtypeMatchingNames() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/customComponentDestructuringMigration/mapEntrySubtypeMatchingNames.kt");
+        }
+
+        @TestMetadata("mapEntryUnderscoreValue.kt")
+        public void testMapEntryUnderscoreValue() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/customComponentDestructuringMigration/mapEntryUnderscoreValue.kt");
+        }
+
         @TestMetadata("mapLoopDestructuring.kt")
         public void testMapLoopDestructuring() throws Exception {
             runTest("../../../idea/tests/testData/inspectionsLocal/customComponentDestructuringMigration/mapLoopDestructuring.kt");
+        }
+
+        @TestMetadata("mapMatchingNames.kt")
+        public void testMapMatchingNames() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/customComponentDestructuringMigration/mapMatchingNames.kt");
+        }
+
+        @TestMetadata("nonDataClassMatchingNames.kt")
+        public void testNonDataClassMatchingNames() throws Exception {
+            runTest("../../../idea/tests/testData/inspectionsLocal/customComponentDestructuringMigration/nonDataClassMatchingNames.kt");
         }
     }
 
@@ -29496,6 +29526,11 @@ public abstract class K2LocalInspectionTestGenerated extends AbstractK2LocalInsp
             runTest("../../../idea/tests/testData/intentions/removeExplicitTypeArguments/getterBody.kt");
         }
 
+        @TestMetadata("getterBodyInsideClass.kt")
+        public void testGetterBodyInsideClass() throws Exception {
+            runTest("../../../idea/tests/testData/intentions/removeExplicitTypeArguments/getterBodyInsideClass.kt");
+        }
+
         @TestMetadata("hasAnnotation.kt")
         public void testHasAnnotation() throws Exception {
             runTest("../../../idea/tests/testData/intentions/removeExplicitTypeArguments/hasAnnotation.kt");
@@ -29624,6 +29659,16 @@ public abstract class K2LocalInspectionTestGenerated extends AbstractK2LocalInsp
         @TestMetadata("script.kts")
         public void testScript() throws Exception {
             runTest("../../../idea/tests/testData/intentions/removeExplicitTypeArguments/script.kts");
+        }
+
+        @TestMetadata("setterBody.kt")
+        public void testSetterBody() throws Exception {
+            runTest("../../../idea/tests/testData/intentions/removeExplicitTypeArguments/setterBody.kt");
+        }
+
+        @TestMetadata("setterBodyInsideClass.kt")
+        public void testSetterBodyInsideClass() throws Exception {
+            runTest("../../../idea/tests/testData/intentions/removeExplicitTypeArguments/setterBodyInsideClass.kt");
         }
 
         @TestMetadata("twoArguments.kt")

@@ -12,6 +12,8 @@ import com.jetbrains.python.PyToolUIInfo
 import com.jetbrains.python.errorProcessing.PyResult
 import com.jetbrains.python.pathValidation.PlatformAndRoot
 import com.jetbrains.python.sdk.PythonSdkAdditionalData
+import com.jetbrains.python.sdk.ToolCommandSpec
+import com.jetbrains.python.sdk.ToolProbeResult
 import com.jetbrains.python.target.ui.TargetPanelExtension
 import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.annotations.Nls
@@ -24,6 +26,7 @@ interface FileSystem<P : PathHolder> {
   val isReadOnly: Boolean
   val isBrowsable: Boolean
   val isLocal: Boolean
+  val toolPathCanBePersisted: Boolean
   val userReadableName: @NonNls String
   val platformAndRoot: PlatformAndRoot
 
@@ -67,7 +70,7 @@ interface FileSystem<P : PathHolder> {
   suspend fun detectSelectableVenv(projectPathPrefix: Path): List<DetectedSelectableInterpreter<P>>
   fun preferredInterpreterBasePath(): P? = null
   fun resolvePythonBinary(pythonHome: P): P?
-  fun resolvePythonHome(pythonBinary: P): P
+  fun resolvePythonHome(pythonHomeOrBinary: P): P
   fun getVenvName(pythonHome: P): String?
 
   fun getBinaryToExec(path: P, workingDir: Path? = null): BinaryToExec
@@ -86,6 +89,8 @@ interface FileSystem<P : PathHolder> {
     additionalSearchPaths: List<P> = listOf(),
     filter: (P) -> Boolean = { true },
   ): P?
+
+  suspend fun probeTools(toolSpecs: List<ToolCommandSpec>): PyResult<Map<String, ToolProbeResult<P>>>
 
   /** Resolves [pathComponents] under the value of environment variable [prefixEnvVar]. Null if the variable is unset or unreadable. */
   suspend fun getFullPath(prefixEnvVar: String, pathComponents: List<String>): P?

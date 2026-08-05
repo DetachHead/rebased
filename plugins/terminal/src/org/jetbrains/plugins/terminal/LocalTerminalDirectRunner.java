@@ -5,7 +5,9 @@ import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
 import com.intellij.platform.eel.EelDescriptor;
 import com.intellij.platform.eel.path.EelPath;
+import com.intellij.platform.eel.provider.EelProviderUtil;
 import com.intellij.platform.eel.provider.LocalEelDescriptor;
+import com.intellij.platform.eel.provider.RemoteProjectPathProviderKt;
 import com.intellij.platform.ide.productMode.IdeProductMode;
 import com.intellij.terminal.pty.PtyProcessTtyConnector;
 import com.intellij.util.TimeoutUtil;
@@ -62,11 +64,24 @@ public class LocalTerminalDirectRunner extends AbstractTerminalRunner<PtyProcess
     ShellStartupOptions updatedOptions = LocalOptionsConfigurer.configureStartupOptions(baseOptions, myProject);
 
     if (IdeProductMode.isFrontend() && updatedOptions.getEelDescriptorNotNull() == LocalEelDescriptor.INSTANCE) {
+      TerminalProjectOptionsProvider optionsProvider = TerminalProjectOptionsProvider.getInstance(myProject);
       throw new IllegalStateException(("""
                                          It is prohibited to start a local process in RemDev mode. Something went wrong.
                                          Requested options: %s
                                          Configured options: %s
-                                         """).formatted(baseOptions, updatedOptions));
+                                         Project EelDescriptor: %s
+                                         Remote project path: %s
+                                         Starting directory: %s
+                                         Default starting directory: %s
+                                         Existent starting directory: %s
+                                         Existent default starting directory: %s
+                                         """).formatted(baseOptions, updatedOptions,
+                                                        EelProviderUtil.getEelDescriptor(myProject),
+                                                        RemoteProjectPathProviderKt.getRemoteProjectBaseNioPath(myProject),
+                                                        optionsProvider.getStartingDirectory(),
+                                                        optionsProvider.getDefaultStartingDirectory(),
+                                                        toExistentNioDirectory(optionsProvider.getStartingDirectory(), null),
+                                                        toExistentNioDirectory(optionsProvider.getDefaultStartingDirectory(), null)));
     }
 
     if (updatedOptions.getProcessType() == TerminalProcessType.SHELL && enableShellIntegration()) {
