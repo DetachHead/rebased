@@ -197,7 +197,7 @@ abstract class AbstractGotoSEContributor @ApiStatus.Internal protected construct
 
   @ApiStatus.Internal
   protected open fun findEverywhereScope(scopeDescriptors: List<ScopeDescriptor>): SearchScope {
-    return GlobalSearchScope.everythingScope(myProject)
+    return scopeDescriptors.find { it.scope?.isDefaultSelected ?: false }?.scope ?: GlobalSearchScope.everythingScope(myProject)
   }
 
   protected open fun createScopes(): List<ScopeDescriptor> {
