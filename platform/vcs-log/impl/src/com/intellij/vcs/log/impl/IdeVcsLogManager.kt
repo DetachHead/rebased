@@ -66,8 +66,10 @@ internal class IdeVcsLogManager(
           createVcsLogFile(project, "", null)
           val editors = FileEditorManager.getInstance(project).openFile(file, false, true)
           VcsLogEditorUtil.findVcsLogUi(editors, MainVcsLogUi::class.java)
-        } else {
+        } else if (holder != null) {
           createLogUi(getMainLogUiFactory(MAIN_LOG_ID, null))
+        } else {
+          null
         }
         if (holder != null) {
           if (ui != null)
