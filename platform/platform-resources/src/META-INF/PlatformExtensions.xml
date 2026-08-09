@@ -1976,8 +1976,9 @@ The refresh itself is toggled by (Preferences | Appearance &amp; Behavior | Syst
                  description="Import only projects that contain cargo.toml file"
     />
 
-    <toolbarQuickAction implementationClass="com.intellij.openapi.wm.impl.headertoolbar.BuildQuickAction"
-                        listGroupID="MainToolbarQuickActions.Run"/>
+    <!-- disabled in rebased -->
+    <!--<toolbarQuickAction implementationClass="com.intellij.openapi.wm.impl.headertoolbar.BuildQuickAction"-->
+    <!--                    listGroupID="MainToolbarQuickActions.Run"/>-->
 
     <applicationService serviceInterface="com.intellij.ui.ExperimentalUI"
                         serviceImplementation="com.intellij.ui.ExperimentalUIImpl"/>
