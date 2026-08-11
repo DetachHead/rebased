@@ -591,6 +591,10 @@ class KotlinK2QuickFixRegistrar : KotlinQuickFixRegistrar() {
         registerFactory(ChangeVisibilityFixFactories.explicitFieldVisibilityMustBeLessPermissive)
     }
 
+    private val destructuringDeclarations = KtQuickFixesListBuilder.registerPsiQuickFix  {
+        registerFactory(DestructuringFormFactory.convertToFullFormOnShortFormNameMismatch)
+    }
+
     private val other = KtQuickFixesListBuilder.registerPsiQuickFix {
         registerPsiQuickFixes(
             KaFirDiagnostic.InapplicableTargetOnPropertyWarning::class,
@@ -714,6 +718,8 @@ class KotlinK2QuickFixRegistrar : KotlinQuickFixRegistrar() {
     private val contextParameters = KtQuickFixesListBuilder.registerPsiQuickFix {
         registerFactory(NoContextParameterFixFactory.noContextArgument)
         registerFactory(SpecifyRemainingArgumentsByNameFixFactory.noContextArgument)
+        registerFactory(CreateContextParameterFromNamedArgumentFixFactory.namedParameterNotFound)
+        registerFactory(AddExplicitContextArgumentFixFactory.overloadResolutionAmbiguity)
     }
 
     override val list: KotlinQuickFixesList = KotlinQuickFixesList.createCombined(
@@ -740,6 +746,7 @@ class KotlinK2QuickFixRegistrar : KotlinQuickFixRegistrar() {
         surroundWithNullCheck,
         vararg,
         visibility,
+        destructuringDeclarations,
         other,
         optIn,
         multiplatform,

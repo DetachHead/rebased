@@ -30,8 +30,10 @@ import com.intellij.openapi.components.service
 import com.intellij.openapi.components.serviceAsync
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.diagnostic.trace
+import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.startup.ProjectActivity
+import com.intellij.util.asDisposable
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.call
 import io.ktor.server.cio.CIO
@@ -80,6 +82,19 @@ open class McpServerService(val cs: CoroutineScope) {
     val localAgentId: String? = null,
     val invocationMode: McpSessionInvocationMode? = null,
   ) {
+    var elicitationKind: McpElicitationKind? = null
+      private set
+
+    constructor(
+      commandExecutionMode: AskCommandExecutionMode,
+      toolFilter: McpToolFilter?,
+      localAgentId: String?,
+      invocationMode: McpSessionInvocationMode?,
+      elicitationKind: McpElicitationKind?,
+    ) : this(commandExecutionMode, toolFilter, localAgentId, invocationMode) {
+      this.elicitationKind = elicitationKind
+    }
+
     @Deprecated("ABI compat with 261.22158 that doesn't have `localAgentId`", level = DeprecationLevel.HIDDEN)
     constructor(
       commandExecutionMode: AskCommandExecutionMode,
@@ -346,7 +361,13 @@ open class McpServerService(val cs: CoroutineScope) {
         val useFiltersFromEP = allowedToolsFromHeader.isNullOrEmpty()
         // if no header provided, use the existing filter from sessionOptions
         val sessionOptions = if (headerFilter != null) {
-          McpSessionOptions(baseSessionOptions.commandExecutionMode, headerFilter, baseSessionOptions.localAgentId)
+          McpSessionOptions(
+            commandExecutionMode = baseSessionOptions.commandExecutionMode,
+            toolFilter = headerFilter,
+            localAgentId = baseSessionOptions.localAgentId,
+            invocationMode = baseSessionOptions.invocationMode,
+            elicitationKind = baseSessionOptions.elicitationKind,
+          )
         } else {
           baseSessionOptions
         }
@@ -381,11 +402,14 @@ open class McpServerService(val cs: CoroutineScope) {
           mcpServer = mcpServer,
           transportType = transportType,
           projectPathFromInitialRequest = projectPath,
-          elicitationKind = elicitationKind,
+          elicitationKind = sessionOptions.elicitationKind ?: elicitationKind,
           useFiltersFromEP = useFiltersFromEP,
         )
+        // Process initial tools immediately to fix race condition
+        sessionToolsManager.updateTools()
+        FileDocumentManager.getInstance().overrideConflictsSolverEnabled(false, sessionToolsManager.sessionScope.asDisposable())
 
-        val session = sessionToolsManager.createAndInitializeSession(transport, applicationCall)
+        val session = sessionToolsManager.createAndInitializeSession(transport)
 
         return@mcpPatched session to sessionToolsManager.sessionScope
       }
@@ -427,45 +451,33 @@ open class McpServerService(val cs: CoroutineScope) {
     invocationMode: McpToolInvocationMode = McpToolInvocationMode.DIRECT,
   ): List<McpTool> {
     val allTools = getAllMcpTools()
-    val filterAdjusted = when(invocationMode) {
-      McpToolInvocationMode.DIRECT -> filter ?: McpToolFilter.AllowAll
-      McpToolInvocationMode.VIA_ROUTER -> McpToolFilter.AllowAll
-      McpToolInvocationMode.DIRECT_WITH_ROUTER_ENABLED -> McpToolFilter.AlwaysIncluded
-    }
+    val filterAdjusted = filter ?: McpToolFilter.AllowAll
 
     val routerToolName = UniversalToolset::execute_tool.name
-    val shouldExposeRouterTool = invocationMode != McpToolInvocationMode.VIA_ROUTER
     if (!useFiltersFromEP) {
       return allTools.filter { tool ->
         val isRouterTool = tool.descriptor.name == routerToolName
 
-        when {
-          isRouterTool -> shouldExposeRouterTool
-          else -> filterAdjusted.shouldInclude(tool)
-        }
+        isRouterTool || filterAdjusted.shouldInclude(tool)
       }
     }
     val filterProviders = McpToolFilterProvider.EP.extensionList
       .filter { provider -> excludeProviders.none { it.isInstance(provider) } }
     val context = McpToolFilterProvider.McpToolFilterContext(allTools)
-    context.updateState(enabled = shouldExposeRouterTool) { it.descriptor.name == routerToolName }
+    context.updateState(enabled = true) { it.descriptor.name == routerToolName }
     
     // Apply filter providers
     for (filterProvider in filterProviders) {
       filterProvider.applyFilters(context, clientInfo, sessionOptions, invocationMode)
     }
-    
-    // Apply the filter parameter ONLY to router-only tools
-    // Tools that pass the filter are included, tools already in ON state are also included
-    val includedRouterOnlyTools = context.routerOnlyTools.filter { filterAdjusted.shouldInclude(it) }
-    
-    // Return tools that are enabled and pass the filter
+
     val filteredTools = linkedSetOf<McpTool>()
-    filteredTools += context.onTools
-    filteredTools += includedRouterOnlyTools
-    if (shouldExposeRouterTool) {
-      allTools.firstOrNull { it.descriptor.name == routerToolName }?.let { filteredTools += it }
-    }
+    filteredTools += when (invocationMode) {
+      McpToolInvocationMode.DIRECT -> context.onTools + context.routerOnlyTools
+      McpToolInvocationMode.DIRECT_WITH_ROUTER_ENABLED -> context.onTools
+      McpToolInvocationMode.VIA_ROUTER -> context.routerOnlyTools
+    }.filter { filterAdjusted.shouldInclude(it) }
+    allTools.firstOrNull { it.descriptor.name == routerToolName }?.let { filteredTools += it }
     return filteredTools.toList()
   }
 

@@ -15,6 +15,7 @@ import com.jetbrains.python.PyNames
 import com.jetbrains.python.PythonRuntimeService
 import com.jetbrains.python.ast.PyAstFunction
 import com.jetbrains.python.codeInsight.dataflow.scope.ScopeUtil
+import com.jetbrains.python.codeInsight.typing.PyTypedDictTypeProvider.Helper.isTypingTypedDictInheritor
 import com.jetbrains.python.codeInsight.typing.PyTypingTypeProvider
 import com.jetbrains.python.psi.AccessDirection
 import com.jetbrains.python.psi.PyArgumentList
@@ -48,8 +49,6 @@ import com.jetbrains.python.psi.PyTypedElement
 import com.jetbrains.python.psi.PyUtil
 import com.jetbrains.python.psi.impl.PyCallExpressionHelper.getCalleeType
 import com.jetbrains.python.psi.impl.PyCallExpressionHelper.mapArguments
-import com.jetbrains.python.psi.impl.PyCallExpressionHelper.getCalleeType
-import com.jetbrains.python.psi.impl.PyCallExpressionHelper.mapArguments
 import com.jetbrains.python.psi.resolve.PyResolveContext
 import com.jetbrains.python.psi.resolve.PyResolveUtil
 import com.jetbrains.python.psi.resolve.QualifiedRatedResolveResult
@@ -72,6 +71,7 @@ import com.jetbrains.python.psi.types.PyNeverType
 import com.jetbrains.python.psi.types.PyParamSpecType
 import com.jetbrains.python.psi.types.PySelfType
 import com.jetbrains.python.psi.types.PyStructuralType
+import com.jetbrains.python.psi.types.PyTupleType
 import com.jetbrains.python.psi.types.PyType
 import com.jetbrains.python.psi.types.PyTypeChecker
 import com.jetbrains.python.psi.types.PyTypeChecker.getSubstitutionsWithUnresolvedReturnGenerics
@@ -80,9 +80,11 @@ import com.jetbrains.python.psi.types.PyTypeMember
 import com.jetbrains.python.psi.types.PyTypeUtil.components
 import com.jetbrains.python.psi.types.PyTypeUtil.toStream
 import com.jetbrains.python.psi.types.PyUnionType
+import com.jetbrains.python.psi.types.PyUnpackedTupleType
 import com.jetbrains.python.psi.types.PyUnsafeUnionType
 import com.jetbrains.python.psi.types.TypeEvalContext
 import com.jetbrains.python.psi.types.isAny
+import com.jetbrains.python.psi.types.isAnyOrUnknown
 import com.jetbrains.python.psi.types.isNoneType
 import com.jetbrains.python.psi.types.isUnknown
 import com.jetbrains.python.pyi.PyiUtil
@@ -546,7 +548,7 @@ object PyCallExpressionHelper {
             }
           }
           else {
-            return null
+            return PyAnyType.unknown
           }
         }
       }
@@ -697,7 +699,7 @@ object PyCallExpressionHelper {
       return matchingOverloads[0].getCallType(context, callSite)
     }
     val someArgumentsHaveUnknownType = arguments.any {
-      context.getType(it).isUnknown
+      context.getType(it).isAnyOrUnknown
     }
     if (someArgumentsHaveUnknownType) {
       return matchingOverloads
@@ -929,6 +931,9 @@ object PyCallExpressionHelper {
       is PySubscriptionExpression -> {
         return multipleResolveCallee(expression as PyReferenceOwner, resolveContext)
       }
+      is PyClass -> {
+        return expression.resolveInitSubclassCallee(resolveContext)
+      }
       else -> {
         val results = mutableListOf<PyCallableType>()
 
@@ -946,6 +951,56 @@ object PyCallExpressionHelper {
         return results
       }
     }
+  }
+
+  /**
+   * Resolves the implicit `__init_subclass__` invoked when [this] is defined.
+   *
+   * Per PEP 487 the keyword arguments of a class definition (other than `metaclass`) are passed to the
+   * `__init_subclass__` of the *parent* classes, so the class's own definition (which targets *its* subclasses)
+   * is excluded and the lookup walks the ancestors' MRO, stopping at the first defining class.
+   * `object.__init_subclass__`, which accepts no arguments, is the implicit fallback.
+   *
+   * The check is skipped when a custom metaclass is involved, since its `__new__`/`__init__` may legitimately
+   * consume the keyword arguments before they reach `__init_subclass__`.
+   */
+  private fun PyClass.resolveInitSubclassCallee(resolveContext: PyResolveContext): List<PyCallableType> {
+    val context = resolveContext.typeEvalContext
+    if (this.hasCustomMetaClass(context)) return emptyList()
+    // TypedDict class-definition keyword arguments (total, closed, ...) are validated by PyTypedDictInspection.
+    if (isTypingTypedDictInheritor(context)) return emptyList()
+
+    for (ancestor in getAncestorTypes(context)) {
+      if (ancestor !is PyClassType) continue
+      val resolved = ancestor.resolveMember(PyNames.INIT_SUBCLASS, null, AccessDirection.READ, resolveContext, false)
+      if (resolved.isNullOrEmpty()) continue
+      return resolved
+        .mapNotNull { it.element as? PyTypedElement }
+        .mapNotNull { context.getType(it) as? PyCallableType }
+        .map { it.withImplicitClassParameter(context) }
+    }
+    return emptyList()
+  }
+
+  private fun PyClass.hasCustomMetaClass(context: TypeEvalContext): Boolean {
+    val classType = context.getType(this) as? PyClassType ?: return false
+    val metaClassType = classType.getMetaClassType(context, true) ?: return false
+    return metaClassType !== PyBuiltinCache.getInstance(this).typeType
+  }
+
+  /**
+   * `__init_subclass__` is an implicit classmethod, so its first parameter (`cls`) is bound to the new subclass
+   * and must not be matched against the class-definition keyword arguments.
+   */
+  private fun PyCallableType.withImplicitClassParameter(context: TypeEvalContext): PyCallableType {
+    val parameters = getParameters(context)
+    val firstParameter = parameters?.firstOrNull()
+    val implicitOffset = if (firstParameter != null && firstParameter.isSimple) 1 else 0
+    return PyCallableTypeImpl(parameters,
+                              getReturnType(context),
+                              callable,
+                              modifier,
+                              implicitOffset)
   }
 
   /**
@@ -1205,7 +1260,7 @@ object PyCallExpressionHelper {
     val parametersMappedToVariadicPositionalArguments = mutableListOf<PyCallableParameter?>()
     val tupleMappedParameters = mutableMapOf<PyExpression?, PyCallableParameter?>()
 
-    val positionalResults = filterPositionalAndVariadicArguments(arguments)
+    val positionalResults = filterPositionalAndVariadicArguments(arguments, context)
     val keywordArguments = arguments.filterIsInstanceTo(mutableListOf<PyKeywordArgument>())
     val variadicPositionalArguments = positionalResults.variadicPositionalArguments
     val positionalComponentsOfVariadicArguments = positionalResults.componentsOfVariadicPositionalArguments.toSet()
@@ -1278,9 +1333,15 @@ object PyCallExpressionHelper {
           // expansion. For those, consume from arguments reserved at the `*args` branch above;
           // otherwise (no preceding `*args`) consume from the regular positional pool.
           val source = if (keywordOnlyMode) reservedForPostArgs else allPositionalArguments
-          val positionalArgument = source.removeFirstOrNull()
-          if (positionalArgument != null) {
-            mappedParameters[positionalArgument] = parameter
+          if (source.isNotEmpty()) {
+            val positionalArgument = source.removeFirst()
+            if (positionalArgument != null) {
+              mappedParameters[positionalArgument] = parameter
+            }
+            else {
+              // null = placeholder for a value already supplied by a fixed-length `*tuple` spread; no argument to map here.
+              parametersMappedToVariadicPositionalArguments.add(parameter)
+            }
           }
           else if (!variadicPositionalArguments.isEmpty()) {
             parametersMappedToVariadicPositionalArguments.add(parameter)
@@ -1313,11 +1374,16 @@ object PyCallExpressionHelper {
           variadicKeywordArguments.clear()
         }
         else if (!allPositionalArguments.isEmpty()) {
-          val positionalArgument = allPositionalArguments.removeFirstOrNull()
-          require(positionalArgument != null)
-          mappedParameters[positionalArgument] = parameter
-          if (positionalComponentsOfVariadicArguments.contains(positionalArgument)) {
+          val positionalArgument = allPositionalArguments.removeFirst()
+          if (positionalArgument == null) {
+            // null = placeholder for a value already supplied by a fixed-length `*tuple` spread; no argument to map here.
             parametersMappedToVariadicPositionalArguments.add(parameter)
+          }
+          else {
+            mappedParameters[positionalArgument] = parameter
+            if (positionalComponentsOfVariadicArguments.contains(positionalArgument)) {
+              parametersMappedToVariadicPositionalArguments.add(parameter)
+            }
           }
         }
         else {
@@ -1340,13 +1406,19 @@ object PyCallExpressionHelper {
         }
       }
       else if (psi is PyTupleParameter) {
-        val positionalArgument = allPositionalArguments.removeFirstOrNull()
-        if (positionalArgument != null) {
-          tupleMappedParameters[positionalArgument] = parameter
-          val tupleMappingResults = mapComponentsOfTupleParameter(positionalArgument, psi)
-          mappedParameters.putAll(tupleMappingResults.parameters)
-          unmappedParameters.addAll(tupleMappingResults.unmappedParameters)
-          unmappedArguments.addAll(tupleMappingResults.unmappedArguments)
+        if (allPositionalArguments.isNotEmpty()) {
+          val positionalArgument = allPositionalArguments.removeFirst()
+          if (positionalArgument != null) {
+            tupleMappedParameters[positionalArgument] = parameter
+            val tupleMappingResults = mapComponentsOfTupleParameter(positionalArgument, psi)
+            mappedParameters.putAll(tupleMappingResults.parameters)
+            unmappedParameters.addAll(tupleMappingResults.unmappedParameters)
+            unmappedArguments.addAll(tupleMappingResults.unmappedArguments)
+          }
+          else {
+            // null = placeholder for a value already supplied by a fixed-length `*tuple` spread; no argument to map here.
+            mappedVariadicArgumentsToParameters = true
+          }
         }
         else if (variadicPositionalArguments.isEmpty()) {
           if (!parameter.hasDefaultValue()) {
@@ -1367,7 +1439,8 @@ object PyCallExpressionHelper {
       variadicKeywordArguments.clear()
     }
 
-    unmappedArguments.addAll(allPositionalArguments)
+    // Drop the `*tuple` placeholder slots: they stand for already-supplied values, not surplus arguments.
+    unmappedArguments.addAll(allPositionalArguments.filterNotNull())
     unmappedArguments.addAll(keywordArguments)
     unmappedArguments.addAll(variadicPositionalArguments)
     unmappedArguments.addAll(variadicKeywordArguments)
@@ -1525,20 +1598,19 @@ object PyCallExpressionHelper {
     return result
   }
 
-  private fun filterPositionalAndVariadicArguments(expressions: List<PyExpression>): PositionalArgumentsAnalysisResults {
+  private fun filterPositionalAndVariadicArguments(expressions: List<PyExpression>, context: TypeEvalContext): PositionalArgumentsAnalysisResults {
     val variadicArguments = ArrayList<PyExpression>()
     val allPositionalArguments = ArrayList<PyExpression?>()
     val componentsOfVariadicPositionalArguments = ArrayList<PyExpression?>()
     var seenVariadicPositionalArgument = false
     var seenVariadicKeywordArgument = false
     var seenKeywordArgument = false
-    for (argument in expressions) {
+    for ((index, argument) in expressions.withIndex()) {
       if (argument is PyStarArgument) {
         if (argument.isKeyword) {
           seenVariadicKeywordArgument = true
         }
         else {
-          seenVariadicPositionalArgument = true
           val expr: PsiElement? = PyPsiUtils.flattenParens(PsiTreeUtil.getChildOfType(argument, PyExpression::class.java))
           if (expr is PySequenceExpression) {
             val elements = expr.elements.toList()
@@ -1546,7 +1618,21 @@ object PyCallExpressionHelper {
             componentsOfVariadicPositionalArguments.addAll(elements)
           }
           else {
-            variadicArguments.add(argument)
+            // A fixed-length `*x` spread followed by positional arguments occupies known leading positions: reserve
+            // them with `null` placeholders so the following arguments still map to the correct parameters (PY-40735),
+            // e.g. `"2"` binding to `b` in `baz(*xe, "2")` where `xe: tuple[str]`.
+            val knownLength = (expr as? PyExpression)?.let { knownFixedTupleSpreadLength(it, context) } ?: -1
+            val followedByPositional = (index + 1..expressions.lastIndex).any {
+              val next = expressions[it]
+              next !is PyStarArgument && next !is PyKeywordArgument
+            }
+            if (knownLength >= 0 && followedByPositional) {
+              repeat(knownLength) { allPositionalArguments.add(null) }
+            }
+            else {
+              seenVariadicPositionalArgument = true
+              variadicArguments.add(argument)
+            }
           }
         }
       }
@@ -1561,6 +1647,14 @@ object PyCallExpressionHelper {
       }
     }
     return PositionalArgumentsAnalysisResults(allPositionalArguments, componentsOfVariadicPositionalArguments, variadicArguments)
+  }
+
+  /** Number of values a `*operand` spread contributes for a fixed-length tuple, or `-1` when the length is indeterminate. */
+  private fun knownFixedTupleSpreadLength(operand: PyExpression, context: TypeEvalContext): Int {
+    val type = context.getType(operand)
+    if (type !is PyTupleType || type.isHomogeneous) return -1
+    if (type.elementTypes.any { it is PyUnpackedTupleType }) return -1
+    return type.elementCount
   }
 
   private fun filterVariadicKeywordArguments(expressions: List<PyExpression?>): MutableList<PyExpression> {
@@ -1624,6 +1718,7 @@ object PyCallExpressionHelper {
    * or null if no overload matches or overloads are unavailable in the current context.
    */
   @ApiStatus.Internal
+  @JvmStatic
   fun selectMatchingOverload(
     function: PyFunction,
     callExpression: PyCallExpression,

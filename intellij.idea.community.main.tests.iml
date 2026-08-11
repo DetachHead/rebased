@@ -7,6 +7,7 @@
     <orderEntry type="module" module-name="intellij.idea.community.main" scope="TEST" />
     <orderEntry type="module" module-name="intellij.tasks.tests" scope="TEST" />
     <orderEntry type="module" module-name="intellij.xml.dom.tests" scope="TEST" />
+    <orderEntry type="module" module-name="intellij.platform.recentFiles.tests" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.jps.model.serialization.tests" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.tests" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.jps.model.tests" scope="TEST" />
@@ -106,5 +107,8 @@
     <orderEntry type="module" module-name="intellij.platform.vcs.tests.main" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.exploratory.tests.main" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.discoverability.tests" scope="TEST" />
+    <orderEntry type="module" module-name="intellij.mcpserver.tests" scope="TEST" />
+    <orderEntry type="module" module-name="intellij.mcpserver.terminal.tests" scope="TEST" />
+    <orderEntry type="module" module-name="intellij.mcpserver.terminal.frontend.tests" scope="TEST" />
   </component>
 </module>

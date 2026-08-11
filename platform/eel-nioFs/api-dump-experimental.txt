@@ -18,3 +18,28 @@ f:com.intellij.platform.eel.provider.EelPathDescriptorKt
 - *sf:getEelDescriptor(java.nio.file.Path):com.intellij.platform.eel.EelDescriptor
 - *sf:getOsFamily(java.nio.file.Path):com.intellij.platform.eel.EelOsFamily
 - *sf:ownsPath(com.intellij.platform.eel.EelMachine,java.nio.file.Path):Z
+*:com.intellij.platform.eel.provider.utils.EelFileTransferAttributesStrategy
+- *sf:Companion:com.intellij.platform.eel.provider.utils.EelFileTransferAttributesStrategy$Companion
+- *s:copyWithRequiredPosixPermissions(java.nio.file.attribute.PosixFilePermission[]):com.intellij.platform.eel.provider.utils.EelFileTransferAttributesStrategy$RequirePosixPermissions
+*f:com.intellij.platform.eel.provider.utils.EelFileTransferAttributesStrategy$Companion
+- f:copyWithRequiredPosixPermissions(java.nio.file.attribute.PosixFilePermission[]):com.intellij.platform.eel.provider.utils.EelFileTransferAttributesStrategy$RequirePosixPermissions
+*f:com.intellij.platform.eel.provider.utils.EelFileTransferAttributesStrategy$Copy
+- com.intellij.platform.eel.provider.utils.EelFileTransferAttributesStrategy$SourceAware
+- sf:INSTANCE:com.intellij.platform.eel.provider.utils.EelFileTransferAttributesStrategy$Copy
+- handleFileAttributes(java.nio.file.Path,java.nio.file.Path,java.nio.file.attribute.BasicFileAttributes):V
+*f:com.intellij.platform.eel.provider.utils.EelFileTransferAttributesStrategy$RequirePosixPermissions
+- com.intellij.platform.eel.provider.utils.EelFileTransferAttributesStrategy$SourceAware
+- <init>(java.util.Set):V
+- f:component1():java.util.Set
+- f:copy(java.util.Set):com.intellij.platform.eel.provider.utils.EelFileTransferAttributesStrategy$RequirePosixPermissions
+- bs:copy$default(com.intellij.platform.eel.provider.utils.EelFileTransferAttributesStrategy$RequirePosixPermissions,java.util.Set,I,java.lang.Object):com.intellij.platform.eel.provider.utils.EelFileTransferAttributesStrategy$RequirePosixPermissions
+- equals(java.lang.Object):Z
+- f:getRequiredPermissions():java.util.Set
+- handleFileAttributes(java.nio.file.Path,java.nio.file.Path,java.nio.file.attribute.BasicFileAttributes):V
+- hashCode():I
+*f:com.intellij.platform.eel.provider.utils.EelFileTransferAttributesStrategy$Skip
+- com.intellij.platform.eel.provider.utils.EelFileTransferAttributesStrategy
+- sf:INSTANCE:com.intellij.platform.eel.provider.utils.EelFileTransferAttributesStrategy$Skip
+*:com.intellij.platform.eel.provider.utils.EelFileTransferAttributesStrategy$SourceAware
+- com.intellij.platform.eel.provider.utils.EelFileTransferAttributesStrategy
+- a:handleFileAttributes(java.nio.file.Path,java.nio.file.Path,java.nio.file.attribute.BasicFileAttributes):V

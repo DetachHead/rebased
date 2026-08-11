@@ -6,7 +6,7 @@
     <module name="intellij.platform.ide.nonModalWelcomeScreen"/>
     <module name="intellij.platform.ide.nonModalWelcomeScreen.backend"/>
     <module name="intellij.platform.whatsNew"/>
-    <module name="intellij.python.common"/>
+    <module name="intellij.python.community.common"/>
     <module name="intellij.python.community.execService.python"/>
     <module name="intellij.python.community.impl.poetry.common"/>
     <module name="intellij.python.sdk.ui"/>
@@ -153,6 +153,8 @@
   <applicationListeners>
     <listener class="com.intellij.pycharm.community.ide.impl.welcomeScreen.PyWelcomeScreenFreeModeTracker"
               topic="com.intellij.ide.AppLifecycleListener"/>
+    <listener class="com.intellij.pycharm.community.ide.impl.welcomeScreen.PyWelcomeScreenFreeModeTracker"
+              topic="com.intellij.ui.LicensingFacade$LicenseStateListener"/>
     <listener class="com.intellij.pycharm.community.ide.impl.promo.CommunityToUnifiedListener"
               topic="com.intellij.ide.AppLifecycleListener"/>
   </applicationListeners>

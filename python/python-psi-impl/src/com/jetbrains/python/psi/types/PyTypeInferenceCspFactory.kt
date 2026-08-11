@@ -119,7 +119,7 @@ object PyTypeInferenceCspFactory {
     if (declaredReturn.hasGenerics(context)) {
       ensureInferenceVariables(builder, receiverType, declaredReturn, context)
       val expectedReturnType = getExpectedType(callSite, context)
-      if (!expectedReturnType.isUnknown) {
+      if (expectedReturnType != null) {
         val declaredReturn_selfBounded = substituteSelfTypes(declaredReturn, receiverType, context)
         // semantics: RT <: ExpectedReturnType
         builder.addConstraint(declaredReturn_selfBounded, expectedReturnType, Variance.COVARIANT, ConstraintPriority.LOW)
@@ -256,7 +256,7 @@ object PyTypeInferenceCspFactory {
 
 fun normalizeType(type: PyType?, context: TypeEvalContext): PyType? {
   var normalizedType = type
-  if (type is PyClassType && type !is PyCollectionType) {
+  if (type is PyClassType && !type.isParameterized) {
     // convert raw types to generic types
     // keep the type variables for the CSP to be computed
     normalizedType = PyTypeChecker.findGenericDefinitionType(type.pyClass, context) ?: type

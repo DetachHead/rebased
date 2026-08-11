@@ -29,6 +29,7 @@ import com.jetbrains.python.codeInsight.controlflow.PyTypeAssertionEvaluator;
 import com.jetbrains.python.codeInsight.controlflow.ReadWriteInstruction;
 import com.jetbrains.python.codeInsight.controlflow.ScopeOwner;
 import com.jetbrains.python.codeInsight.dataflow.scope.ScopeUtil;
+import com.jetbrains.python.codeInsight.typing.PyTypingTypeProvider;
 import com.jetbrains.python.psi.AccessDirection;
 import com.jetbrains.python.psi.Property;
 import com.jetbrains.python.psi.PyAnnotationOwner;
@@ -67,6 +68,7 @@ import com.jetbrains.python.psi.types.PyClassLikeType;
 import com.jetbrains.python.psi.types.PyClassType;
 import com.jetbrains.python.psi.types.PyDescriptorTypeUtil;
 import com.jetbrains.python.psi.types.PyImportedModuleType;
+import com.jetbrains.python.psi.types.PyLiteralType;
 import com.jetbrains.python.psi.types.PyModuleType;
 import com.jetbrains.python.psi.types.PyNarrowedType;
 import com.jetbrains.python.psi.types.PyOverloadType;
@@ -355,7 +357,7 @@ public class PyReferenceExpressionImpl extends PyElementImpl implements PyRefere
 
     final ControlFlowTypeResult controlFlowResult = getQualifiedReferenceTypeByControlFlow(context);
     final PyType typeByControlFlow = controlFlowResult.type();
-    if (typeByControlFlow != null) {
+    if (!isUnknown(typeByControlFlow)) {
       if (controlFlowResult.foundPrefixCall()) {
         // A call with prefix as receiver/argument may or may not mutate it, so return UnsafeUnion of narrowed and declared types (PY-88265)
         PyType declaredType = Ref.deref(getTypeFromTargets(context));
@@ -439,12 +441,24 @@ public class PyReferenceExpressionImpl extends PyElementImpl implements PyRefere
         return getTypeByControlFlow(qname.toString(), context, qualifier, scopeOwner);
       }
     }
-    return new ControlFlowTypeResult(null, false);
+    return new ControlFlowTypeResult(PyAnyType.getUnknown(), false);
   }
 
   private @Nullable Ref<PyType> getTypeOfProperty(@Nullable PyType qualifierType, @NotNull String name, @NotNull TypeEvalContext context) {
     if (qualifierType instanceof PyClassType classType) {
       final PyClass pyClass = classType.getPyClass();
+
+      // TODO PY-90645: This special-casing should be revisited and possibly removed once we handle data descriptors generically.
+      // on a class object, a property defined on the metaclass is a data descriptor and takes
+      // precedence over a member of the same name on the class itself. The class is an instance of its
+      // metaclass, so the metaclass property's getter is invoked with the class object as the receiver.
+      if (classType.isDefinition() && AccessDirection.of(this) == AccessDirection.READ) {
+        final Ref<PyType> metaClassProperty = getMetaclassPropertyTypeForClassAccess(this, classType, name, context);
+        if (metaClassProperty != null) {
+          return metaClassProperty;
+        }
+      }
+
       final Property property = pyClass.findProperty(name, true, context);
 
       if (property != null) {
@@ -484,6 +498,22 @@ public class PyReferenceExpressionImpl extends PyElementImpl implements PyRefere
     }
 
     return null;
+  }
+
+  private static @Nullable Ref<PyType> getMetaclassPropertyTypeForClassAccess(@NotNull PyReferenceExpression refExpr,
+                                                                              @NotNull PyClassType classType,
+                                                                              @NotNull String name,
+                                                                              @NotNull TypeEvalContext context) {
+    final PyClassLikeType metaClassType = classType.getMetaClassType(context, true);
+    if (!(metaClassType instanceof PyClassType metaPyClassType)) {
+      return null;
+    }
+    final Property metaProperty = metaPyClassType.getPyClass().findProperty(name, true, context);
+    if (metaProperty == null) {
+      return null;
+    }
+    final PyType type = metaProperty.getType(refExpr.getQualifier(), context);
+    return Ref.create(type);
   }
 
   private @Nullable PyType getTypeFromProviders(@NotNull TypeEvalContext context) {
@@ -584,7 +614,17 @@ public class PyReferenceExpressionImpl extends PyElementImpl implements PyRefere
       }
     }
     if (target instanceof PyTypedElement) {
-      return Ref.create(context.getType((PyTypedElement)target));
+      PyType type = context.getType((PyTypedElement)target);
+      // Widen literal types for non-Final instance attributes in cross-method access.
+      // Same-function flow-sensitive access takes an early return via getQualifiedReferenceTypeByControlFlow
+      // and never reaches this code, so widening here only applies to cross-scope resolution.
+      if (anchor.isQualified()
+          && target instanceof PyTargetExpression targetExpr
+          && targetExpr.isQualified()
+          && !PyTypingTypeProvider.isFinal(targetExpr, context)) {
+        type = PyLiteralType.upcastLiteralToClass(type);
+      }
+      return Ref.create(type);
     }
     if (target instanceof PsiDirectory dir) {
       final PsiFile file = dir.findFile(PyNames.INIT_DOT_PY);
@@ -632,7 +672,7 @@ public class PyReferenceExpressionImpl extends PyElementImpl implements PyRefere
 
     final Instruction[] flow = ControlFlowCache.getControlFlow(scopeOwner).getInstructions();
     final int thisInstructionIdx = ControlFlowUtil.findInstructionNumberByElement(flow, element);
-    if (thisInstructionIdx == -1) return new ControlFlowTypeResult(null, false);
+    if (thisInstructionIdx == -1) return new ControlFlowTypeResult(PyAnyType.getUnknown(), false);
     final Instruction thisInstruction = flow[thisInstructionIdx];
 
     final PyDefUseUtil.LatestDefsResult defsResult = PyDefUseUtil.getLatestDefs(scopeOwner, name, element, true, false, context);

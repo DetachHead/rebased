@@ -5,4 +5,6 @@ import org.jetbrains.annotations.ApiStatus
 import java.io.Serializable
 
 @ApiStatus.Internal
-class GradleModelFetchFailureState(val failures: List<GradleModelFetchFailure>) : Serializable
+class GradleModelFetchFailureState(
+  val failureResult: GradleModelFetchFailureResult,
+) : Serializable

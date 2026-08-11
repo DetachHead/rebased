@@ -10,18 +10,21 @@
 
   <dependencies>
     <plugin id="com.intellij.modules.lang"/>
-    <!-- rebased does not include jcef so we remove this plugin's dependency on it. also the script to generate this doesn't seem to be available in the community repo -->
     <!-- region Generated dependencies - run `Generate Product Layouts` to regenerate -->
-    <!--<plugin id="com.intellij.modules.jcef"/>-->
-    <!--<module name="intellij.libraries.jcef"/>-->
-    <!--<module name="intellij.platform.ui.jcef"/>-->
     <!-- endregion -->
   </dependencies>
 
   <content namespace="jetbrains">
+    <module name="intellij.platform.images.jcef" loading="optional"/>
     <module name="intellij.platform.images.copyright"/>
     <module name="intellij.platform.images.xdebugger"/>
   </content>
+
+  <extensionPoints>
+    <extensionPoint qualifiedName="org.intellij.images.svgImageViewerProvider"
+                    interface="org.intellij.images.editor.impl.SvgImageViewerProvider"
+                    dynamic="true"/>
+  </extensionPoints>
 
   <extensions defaultExtensionNs="com.intellij">
     <fileEditorProvider implementation="org.intellij.images.editor.impl.ImageFileEditorProvider"/>

@@ -7,6 +7,7 @@ import com.intellij.mcpserver.McpToolDescriptor
 import com.intellij.mcpserver.McpToolSideEffectEvent
 import com.intellij.mcpserver.ToolCallListener
 import com.intellij.mcpserver.services.McpServiceViewContributor
+import com.intellij.mcpserver.statistics.McpServerCounterUsagesCollector
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.EDT
 import com.intellij.openapi.components.Service
@@ -111,7 +112,14 @@ internal class McpDiagnosticService(private val cs: CoroutineScope) {
     }
   }
 
-  fun sessionStarted(sessionId: String, clientInfo: ClientInfo?, transportType: TransportType, startTimeMs: Long, localAgentId: String?) {
+  fun sessionStarted(
+    sessionId: String,
+    clientInfo: ClientInfo?,
+    transportType: TransportType,
+    startTimeMs: Long,
+    localAgentId: String?,
+    toolsCount: Int,
+  ) {
     val info = McpSessionInfo(
       sessionId = sessionId,
       clientInfo = clientInfo,
@@ -119,13 +127,38 @@ internal class McpDiagnosticService(private val cs: CoroutineScope) {
       startTimeMs = startTimeMs,
       localAgentId = localAgentId,
     )
-    _sessions.update { it + info }
+    val previousSession = _sessions.value.firstOrNull { it.sessionId == sessionId }
+    if (previousSession != null) {
+      disposeSessionInfo(previousSession)
+    }
+    _sessions.update { sessions ->
+      sessions.filter { it.sessionId != sessionId } + info
+    }
+    McpServerCounterUsagesCollector.logSessionStarted(
+      clientName = clientInfo?.name ?: "unknown",
+      clientVersion = clientInfo?.version ?: "unknown",
+      transport = transportType,
+      hasLocalAgent = localAgentId != null,
+      toolsCount = toolsCount,
+    )
     fireServiceViewReset()
   }
 
   fun sessionEnded(sessionId: String) {
+    val ended = _sessions.value.firstOrNull { it.sessionId == sessionId }
+    if (ended != null) {
+      val durationMs = System.currentTimeMillis() - ended.startTimeMs
+      McpServerCounterUsagesCollector.logSessionFinished(
+        clientName = ended.clientInfo?.name ?: "unknown",
+        transport = ended.transportType,
+        durationMs = durationMs,
+      )
+    }
     _sessions.update { list ->
       list.filter { it.sessionId != sessionId }
+    }
+    if (ended != null) {
+      disposeSessionInfo(ended)
     }
     fireServiceViewReset()
   }
@@ -134,9 +167,45 @@ internal class McpDiagnosticService(private val cs: CoroutineScope) {
     _toolCalls.update { emptyList() }
   }
 
+  private fun disposeSessionInfo(sessionInfo: McpSessionInfo) {
+    if (application.isDispatchThread) {
+      Disposer.dispose(sessionInfo)
+    }
+    else {
+      application.invokeLater {
+        Disposer.dispose(sessionInfo)
+      }
+    }
+  }
+
   private fun fireServiceViewReset() {
     application.messageBus
       .syncPublisher(ServiceEventListener.TOPIC)
       .handle(ServiceEventListener.ServiceEvent.createResetEvent(McpServiceViewContributor::class.java))
   }
+}
+
+internal class McpSessionInfo(
+  val sessionId: String,
+  val clientInfo: ClientInfo?,
+  val transportType: TransportType,
+  val startTimeMs: Long,
+  @Suppress("unused")
+  val localAgentId: String?,
+) : Disposable {
+  override fun dispose() = Unit
+
+  override fun equals(other: Any?): Boolean {
+    if (this === other) return true
+    if (other !is McpSessionInfo) return false
+    return sessionId == other.sessionId
+  }
+
+  override fun hashCode(): Int = sessionId.hashCode()
+}
+
+internal enum class TransportType {
+  SSE,
+  STREAMABLE_HTTP,
+  STDIO,
 }

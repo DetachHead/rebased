@@ -39,6 +39,7 @@ import java.nio.file.Path
 import java.util.Collections
 import java.util.LinkedList
 import java.util.concurrent.atomic.AtomicBoolean
+import kotlin.io.path.name
 
 private val FREEZE_NOTIFIER_EP: ExtensionPointName<FreezeNotifier> = ExtensionPointName("com.intellij.diagnostic.freezeNotifier")
 private val FREEZE_ANALYSIS_EP: ExtensionPointName<FreezeAnalysis> = ExtensionPointName("com.intellij.diagnostic.freezeAnalysis")
@@ -195,8 +196,10 @@ internal class IdeaFreezeReporter : PerformanceListener {
   }
 
   private suspend fun processDumps(dumps: ArrayList<ThreadDump>, reportDir: Path?, loggingEvent: LogMessage?, durationMs: Long) {
-    if (loggingEvent != null && (application.isEAP || application.isInternal)) {
-      if (ExceptionAutoReportUtil.isAutoReportEnabled() && ExceptionAutoReportUtil.isAutoReportableException(loggingEvent)) {
+    val autoReportEnabled = isAutoReportEnabledForFreezeReporter()
+
+    if (loggingEvent != null && (autoReportEnabled || application.isEAP || application.isInternal)) {
+      if (autoReportEnabled && ExceptionAutoReportUtil.isAutoReportableException(loggingEvent)) {
         MessagePool.getInstance().addErrorMessage(loggingEvent)
         return
       }
@@ -420,6 +423,8 @@ private suspend fun reportUnfinishedFreezes() {
 
     // report deadly freeze
     if (duration > FREEZE_THRESHOLD) {
+      logger<IdeaFreezeReporter>().info("Detected unfinished freeze ${dir.name} with duration ${duration}ms")
+
       try {
         LifecycleUsageTriggerCollector.onDeadlockDetected()
         if (isUnfinishedFreezeReportEnabled()) {
@@ -489,8 +494,13 @@ private suspend fun reportDeadlocks(files: List<Path>, duration: Int, dir: Path)
 private suspend fun isUnfinishedFreezeReportEnabled(): Boolean {
   val app = ApplicationManager.getApplication()
   return app.isEAP || app.isInternal
-         || ExceptionAutoReportUtil.isAutoReportEnabled()
+         || isAutoReportEnabledForFreezeReporter()
          || System.getProperty("idea.force.freeze.reports").toBoolean()
+}
+
+private suspend fun isAutoReportEnabledForFreezeReporter(): Boolean {
+  return ExceptionAutoReportUtil.isAutoReportEnabled()
+         || AppMode.isRemoteDevHost() && ExceptionAutoReportUtil.isAutoReportForced
 }
 
 private fun createReportAttachment(durationInSeconds: Long, text: String): Attachment =

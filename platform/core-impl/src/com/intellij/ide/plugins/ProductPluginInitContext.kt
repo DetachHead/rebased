@@ -300,9 +300,10 @@ class ProductPluginInitContext(
           if (doesDependOnPluginAlias(descriptor, RIDER_ALIAS_ID)) {
             yieldIfResolves(DependencyRef.of(RIDER_MODULE_ID))
           }
-          if (doesDependOnPluginAlias(descriptor, PluginId.getId("org.jetbrains.completion.full.line"))) {
-            fullLineApiContentModules.forEach { fullLineModule ->
-              yieldIfResolves(DependencyRef.of(fullLineModule))
+
+          if (PlatformUtils.isGateway() && doesDependOnPluginAlias(descriptor, PluginId.getId("com.jetbrains.gateway"))) {
+            contentModulesExtractedInCorePluginInGateway.forEach { module ->
+              yieldIfResolves(DependencyRef.of(module))
             }
           }
         }
@@ -430,16 +431,6 @@ private val vcsApiContentModules = arrayOf(
 private val COLLABORATION_TOOLS_MODULE_ID = PluginModuleId("intellij.platform.collaborationTools", PluginModuleId.JETBRAINS_NAMESPACE)
 
 /**
- * List of content modules from the core plugin which should be automatically added as dependencies to all plugins with dependency on `org.jetbrains.completion.full.line` plugin
- * alias for compatibility.
- */
-private val fullLineApiContentModules = arrayOf(
-  "intellij.fullLine.core",
-  "intellij.fullLine.local",
-  "intellij.fullLine.core.impl",
-).map { PluginModuleId(it, PluginModuleId.JETBRAINS_NAMESPACE) }
-
-/**
  * Specifies the list of content modules which was recently extracted from the main module of the core plugin and may have external usages.
  * Since such modules were loaded by the core classloader before, it wasn't necessary to specify any dependencies to use classes from them.
  * To avoid breaking compatibility, dependencies on these modules are automatically added to plugins which define dependency on the platform using
@@ -459,4 +450,18 @@ private val contentModulesExtractedInCorePluginWhichCanBeUsedFromExternalPlugins
   "intellij.spellchecker",
   "intellij.platform.structuralSearch",
   "intellij.xml.emmet",
+  "intellij.platform.ssh",
+  "intellij.platform.ssh.core",
+  "intellij.platform.ssh.core.ui",
+  "intellij.platform.ssh.attach",
+).map { PluginModuleId(it, PluginModuleId.JETBRAINS_NAMESPACE) }
+
+/**
+ * Specifies the list of content modules which was recently extracted from the Gateway main module of the core plugin.
+ * See [contentModulesExtractedInCorePluginWhichCanBeUsedFromExternalPlugins]
+ */
+private val contentModulesExtractedInCorePluginInGateway = arrayOf(
+  "intellij.gateway.core",
+  "intellij.gateway.ssh",
+  "intellij.gateway.standalone",
 ).map { PluginModuleId(it, PluginModuleId.JETBRAINS_NAMESPACE) }
