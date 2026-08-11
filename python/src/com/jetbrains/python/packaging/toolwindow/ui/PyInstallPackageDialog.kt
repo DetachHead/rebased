@@ -38,6 +38,7 @@ import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
 import com.jetbrains.python.PyBundle.message
 import com.jetbrains.python.packaging.management.PythonPackageManager
+import com.jetbrains.python.packaging.statistics.PythonPackagesToolwindowStatisticsCollector
 import com.jetbrains.python.packaging.toolwindow.PyPackagingToolWindowService
 import com.jetbrains.python.sdk.findFirstPythonSdk
 import com.jetbrains.python.sdk.findModuleForSdk
@@ -120,6 +121,14 @@ internal class PyInstallPackageDialog(private val project: Project) : BigPopupUI
   private var pendingAutoSelect: String? = null
   private var balloonFullSize: Dimension? = null
   private var collapsedSize: Dimension? = null
+
+  /**
+   * Popup size captured immediately before the doc pane is opened. On close, the popup is
+   * restored to this size so the user's original layout is not lost (PY-91263).
+   */
+  private var sizeBeforeDescription: Dimension? = null
+
+  private var isOpeningFileBrowser = false
 
   override fun createList(): JBList<Any> = resultsList.list
 
@@ -206,7 +215,8 @@ internal class PyInstallPackageDialog(private val project: Project) : BigPopupUI
       .createComponentPopupBuilder(this, mySearchField)
       .setProject(project)
       .setModalContext(false)
-      .setCancelOnWindowDeactivation(false)
+      .setCancelOnWindowDeactivation(true)
+      .setCancelCallback { !isOpeningFileBrowser }
       .setCancelOnClickOutside(true)
       .setRequestFocus(true)
       .setResizable(true)
@@ -365,6 +375,35 @@ internal class PyInstallPackageDialog(private val project: Project) : BigPopupUI
     listOrDescContainer.add(center, BorderLayout.CENTER)
     listOrDescContainer.revalidate()
     listOrDescContainer.repaint()
+    if (::popup.isInitialized && !popup.isDisposed) {
+      applyDescriptionModeSize(showDescription)
+    }
+  }
+
+  private fun applyDescriptionModeSize(showDescription: Boolean) {
+    if (showDescription) {
+      val current = popup.size
+      if (sizeBeforeDescription == null) sizeBeforeDescription = Dimension(current)
+      val topLeft = popup.locationOnScreen
+      val screen = ScreenUtil.getScreenRectangle(topLeft)
+      val insets = popup.content.insets
+      val availableHeight = (screen.maxY.toInt() - topLeft.y).coerceAtLeast(current.height)
+      if (availableHeight > current.height) {
+        popup.size = Dimension(current.width, availableHeight)
+      }
+      val innerHeight = availableHeight - insets.top - insets.bottom
+      if (innerHeight > (balloonFullSize?.height ?: 0)) {
+        balloonFullSize = Dimension(current.width - insets.left - insets.right, innerHeight)
+      }
+    }
+    else {
+      sizeBeforeDescription?.let {
+        popup.size = it
+        val insets = popup.content.insets
+        balloonFullSize = Dimension(it.width - insets.left - insets.right, it.height - insets.top - insets.bottom)
+      }
+      sizeBeforeDescription = null
+    }
   }
 
   private fun ensureSdkInitialized() {
@@ -421,8 +460,14 @@ internal class PyInstallPackageDialog(private val project: Project) : BigPopupUI
   }
 
   private fun openFileBrowser() {
-    val file = FileChooser.chooseFile(packageFileDescriptor, project, null)
-    if (file != null) mySearchField.text = file.path
+    isOpeningFileBrowser = true
+    try {
+      val file = FileChooser.chooseFile(packageFileDescriptor, project, null)
+      if (file != null) mySearchField.text = file.path
+    }
+    finally {
+      isOpeningFileBrowser = false
+    }
   }
 
   private fun setupSearchListener() {
@@ -509,6 +554,10 @@ internal class PyInstallPackageDialog(private val project: Project) : BigPopupUI
   }
 
   private fun performInstall() {
+    PythonPackagesToolwindowStatisticsCollector.installDialogInstallEvent.log(
+      currentMode.name,
+      versionPanel.editableCheckbox.isSelected,
+    )
     when (currentMode) {
       DialogMode.DIRECT_INSTALL -> performDirectInstall()
       DialogMode.COMMAND -> performCommandExecution(mySearchField.text.trim())
