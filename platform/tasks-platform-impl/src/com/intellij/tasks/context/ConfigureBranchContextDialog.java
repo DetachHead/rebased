@@ -63,7 +63,7 @@ public class ConfigureBranchContextDialog extends DialogWrapper {
 
     myShowNotification.setEnabled(myReloadContext.isSelected());
     myShowNotification.setSelected(
-      NotificationsConfiguration.getNotificationsConfiguration().getDisplayType(BranchContextTracker.NOTIFICATION.getDisplayId()) !=
+      NotificationsConfiguration.getNotificationsConfiguration().getDisplayType(BranchContextTracker.NOTIFICATION().getDisplayId()) !=
       NotificationDisplayType.NONE);
 
     init();
@@ -127,7 +127,7 @@ public class ConfigureBranchContextDialog extends DialogWrapper {
 
     NotificationDisplayType displayType = myShowNotification.isSelected() ? NotificationDisplayType.BALLOON : NotificationDisplayType.NONE;
     NotificationsConfiguration.getNotificationsConfiguration()
-      .changeSettings(BranchContextTracker.NOTIFICATION.getDisplayId(), displayType, true, false);
+      .changeSettings(BranchContextTracker.NOTIFICATION().getDisplayId(), displayType, true, false);
 
     super.doOKAction();
   }
