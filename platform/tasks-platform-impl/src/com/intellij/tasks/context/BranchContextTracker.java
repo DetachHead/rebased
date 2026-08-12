@@ -24,7 +24,18 @@ import java.util.List;
 @ApiStatus.Internal
 public class BranchContextTracker implements BranchChangeListener {
 
-  public static final NotificationGroup NOTIFICATION = NotificationGroupManager.getInstance().getNotificationGroup("Branch Context group");
+  // in rebased we want this to be lazily evaluated to prevent this crash https://github.com/DetachHead/rebased/issues/282.
+  // it appears to be an upstream bug, but only happens in rebased when checking out a branch is the first thing that triggers a
+  // notification. in upstream IDEs it seems to be triggered much earlier (on project open) by a plugin that isn't bundled in rebased,
+  // preventing the bug.
+  // ideally we'd turn this into a kotlin file and use `by lazy` but i want to minimize upstream conflicts
+  private static NotificationGroup notificationGroup;
+  public static NotificationGroup NOTIFICATION() {
+    if (notificationGroup == null) {
+      notificationGroup = NotificationGroupManager.getInstance().getNotificationGroup("Branch Context group");
+    }
+    return notificationGroup;
+  }
 
   private final Project myProject;
   private String myLastBranch;
@@ -69,7 +80,7 @@ public class BranchContextTracker implements BranchChangeListener {
     contextManager.loadContext(contextName);
 
     Notification notification =
-      NOTIFICATION.createNotification(TaskBundle.message("workspace.associated.with.branch.has.been.restored", branchName), NotificationType.INFORMATION);
+      NOTIFICATION().createNotification(TaskBundle.message("workspace.associated.with.branch.has.been.restored", branchName), NotificationType.INFORMATION);
     if (myLastBranch != null && contextManager.hasContext(getContextName(myLastBranch))) {
       notification.addAction(new NotificationAction(TaskBundle.messagePointer("action.Anonymous.text.rollback")) {
         @Override
