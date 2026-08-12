@@ -7,6 +7,7 @@
 .idea/mavenHomeManager.xml
 .idea/shelf
 .idea/workspace.xml
+.idea.bazel
 .jqwik-database
 /.diff
 # detekt can be configured by ./platform/jewel/detekt-rules/install-rules-to-idea.sh
