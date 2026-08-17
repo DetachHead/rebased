@@ -12,9 +12,11 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.SimpleToolWindowPanel
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.util.registry.Registry
+import com.intellij.openapi.vcs.VcsBundle
 import com.intellij.openapi.vcs.VcsConsoleLine
 import com.intellij.openapi.vcs.changes.ui.ChangesViewContentManager
 import com.intellij.ui.content.Content
+import com.intellij.ui.content.impl.ContentImpl
 import com.intellij.util.concurrency.annotations.RequiresEdt
 import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.annotations.CalledInAny
@@ -47,9 +49,6 @@ interface VcsConsoleTabService {
 
   @RequiresEdt
   fun showConsoleTabAndScrollToTheEnd()
-
-  @RequiresEdt
-  fun setupConsoleContentTab(contentTab: Content)
 }
 
 @ApiStatus.Internal
@@ -82,10 +81,6 @@ class MockVcsConsoleTabService : VcsConsoleTabService {
 
   @RequiresEdt
   override fun showConsoleTabAndScrollToTheEnd() {
-  }
-
-  @RequiresEdt
-  override fun setupConsoleContentTab(contentTab: Content) {
   }
 }
 
@@ -146,6 +141,11 @@ internal class VcsConsoleTabServiceImpl(val project: Project) : VcsConsoleTabSer
   override fun showConsoleTab(selectContent: Boolean, onShown: Runnable?) {
     if (project.isDisposed || project.isDefault) return
 
+    val contentTab = ChangesViewContentManager.getInstance(project).findContent(ChangesViewContentManager.CONSOLE)
+    if (contentTab == null) {
+      createConsoleContentTab()
+    }
+
     if (selectContent) {
       ChangesViewContentManager.getInstance(project).selectContent(ChangesViewContentManager.CONSOLE)
       ChangesViewContentManager.getToolWindowFor(project, ChangesViewContentManager.CONSOLE)?.activate(onShown)
@@ -159,7 +159,7 @@ internal class VcsConsoleTabServiceImpl(val project: Project) : VcsConsoleTabSer
     }
   }
 
-  override fun setupConsoleContentTab(contentTab: Content) {
+  private fun createConsoleContentTab(): Content {
     val panel = SimpleToolWindowPanel(false, true)
     panel.setContent(consoleView.component)
 
@@ -168,9 +168,13 @@ internal class VcsConsoleTabServiceImpl(val project: Project) : VcsConsoleTabSer
     toolbar.targetComponent = consoleView.component
     panel.toolbar = toolbar.component
 
-    contentTab.component = panel
+    val contentTab = ContentImpl(panel, VcsBundle.message("vcs.console.toolwindow.display.name"), true)
     contentTab.setPreferredFocusedComponent { consoleView.preferredFocusableComponent }
+    contentTab.tabName = ChangesViewContentManager.CONSOLE //NON-NLS
     contentTab.putUserData(ChangesViewContentManager.ORDER_WEIGHT_KEY,
                            ChangesViewContentManager.TabOrderWeight.CONSOLE.weight)
+
+    ChangesViewContentManager.getInstance(project).addContent(contentTab)
+    return contentTab
   }
 }

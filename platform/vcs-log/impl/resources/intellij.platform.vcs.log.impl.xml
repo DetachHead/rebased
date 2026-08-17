@@ -71,10 +71,6 @@
                         predicateClassName="com.intellij.vcs.log.impl.VcsLogContentProvider$VcsLogVisibilityPredicate"
                         displayNameSupplierClassName="com.intellij.vcs.log.impl.VcsLogContentProvider$DisplayNameSupplier"/>
 
-    <changesViewContent tabName="Console"
-                        className="com.intellij.vcs.log.impl.VcsConsoleContentProvider"
-                        displayNameSupplierClassName="com.intellij.vcs.log.impl.VcsConsoleContentProvider$DisplayNameSupplier"/>
-
     <applicationService serviceImplementation="com.intellij.vcs.log.impl.VcsLogApplicationSettings"/>
 
     <projectConfigurable id="vcs.log"
