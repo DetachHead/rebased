@@ -81,6 +81,9 @@ public class ToolWindowEP implements PluginAware {
   @Attribute
   public boolean canCloseContents;
 
+  @Attribute
+  public @Nullable Boolean showStripeButton;
+
   private volatile ToolWindowFactory factory;
 
   @Transient

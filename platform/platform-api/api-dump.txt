@@ -5232,6 +5232,7 @@ c:com.intellij.openapi.wm.ToolWindowEP
 - isDoNotActivateOnStart:Z
 - largeStripeAnchor:java.lang.String
 - secondary:Z
+- showStripeButton:java.lang.Boolean
 - side:Z
 - <init>():V
 - getCondition(com.intellij.openapi.extensions.PluginDescriptor):com.intellij.openapi.util.Condition

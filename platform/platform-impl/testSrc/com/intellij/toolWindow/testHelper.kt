@@ -62,6 +62,40 @@ private fun init(
 }
 
 object ToolWindowManagerTestHelper {
+  fun explicitStripeButtonOverridesStoredLayout(isNewUi: Boolean, project: Project) {
+    val manager = init(
+      project = project,
+      isNewUi = isNewUi,
+      taskProducer = {
+        listOf(RegisterToolWindowTaskData(
+          id = EXPLICIT_STRIPE_BUTTON_TOOL_WINDOW_ID,
+          anchor = ToolWindowAnchor.RIGHT,
+          component = JPanel(),
+          showStripeButton = true,
+        ))
+      },
+      layoutCustomizer = { layout ->
+        val storedInfo = WindowInfoImpl().apply {
+          id = EXPLICIT_STRIPE_BUTTON_TOOL_WINDOW_ID
+          anchor = ToolWindowAnchor.RIGHT
+          isShowStripeButton = false
+        }
+        layout.addInfo(EXPLICIT_STRIPE_BUTTON_TOOL_WINDOW_ID, storedInfo)
+      },
+    )
+    try {
+      val entry = manager.getEntry(EXPLICIT_STRIPE_BUTTON_TOOL_WINDOW_ID)!!
+      assertThat(entry.stripeButton).isNotNull()
+      assertThat(entry.readOnlyWindowInfo.isShowStripeButton).isTrue()
+      assertThat(entry.readOnlyWindowInfo.isVisible).isFalse()
+      entry.toolWindow.show(null)
+      assertThat(entry.readOnlyWindowInfo.isVisible).isTrue()
+    }
+    finally {
+      Disposer.dispose(manager)
+    }
+  }
+
   fun centralVcsLayoutIsLocked(isNewUi: Boolean, project: Project) {
     val manager = init(
       project = project,
@@ -158,6 +192,8 @@ object ToolWindowManagerTestHelper {
     }
   }
 }
+
+private const val EXPLICIT_STRIPE_BUTTON_TOOL_WINDOW_ID = "Explicit Stripe Button"
 
 suspend fun testDefaultLayout(isNewUi: Boolean, project: Project) {
   val paneId = WINDOW_INFO_DEFAULT_TOOL_WINDOW_PANE_ID

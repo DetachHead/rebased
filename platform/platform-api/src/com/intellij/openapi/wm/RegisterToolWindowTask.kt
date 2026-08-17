@@ -22,6 +22,7 @@ data class RegisterToolWindowTaskData(
   val stripeTitle: Supplier<@TabTitle String>? = null,
   val hideOnEmptyContent: Boolean = false,
   val pluginDescriptor: PluginDescriptor? = null,
+  val showStripeButton: Boolean? = null,
 )
 
 class RegisterToolWindowTask @Internal constructor(

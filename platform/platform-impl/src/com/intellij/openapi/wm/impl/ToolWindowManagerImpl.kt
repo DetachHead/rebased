@@ -1105,6 +1105,7 @@ open class ToolWindowManagerImpl @NonInjectable @TestOnly internal constructor(
         layout.addInfo(task.id, info)
       }
     }
+    task.showStripeButton?.let { info.isShowStripeButton = it }
 
     val disposable = Disposer.newDisposable(task.id)
     Disposer.register(this, disposable)
@@ -1212,7 +1213,7 @@ open class ToolWindowManagerImpl @NonInjectable @TestOnly internal constructor(
 
   internal fun isButtonNeeded(task: RegisterToolWindowTaskData, info: WindowInfoImpl?, stripeManager: ToolWindowStripeManager): Boolean {
     return (task.shouldBeAvailable
-            && (info?.isShowStripeButton ?: !(isNewUi && isToolwindowOfBundledPlugin(task)))
+            && (task.showStripeButton ?: info?.isShowStripeButton ?: !(isNewUi && isToolwindowOfBundledPlugin(task)))
             && stripeManager.allowToShowOnStripe(task.id, info == null, isNewUi))
   }
 

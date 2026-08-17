@@ -373,6 +373,7 @@ private fun beanToTask(
     contentFactory = factory,
     stripeTitle = getStripeTitleSupplier(id = bean.id, project = project, pluginDescriptor = plugin),
     pluginDescriptor = plugin,
+    showStripeButton = bean.showStripeButton,
   )
 }
 

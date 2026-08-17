@@ -8,6 +8,7 @@ import com.intellij.testFramework.junit5.TestApplication
 import com.intellij.testFramework.junit5.fixture.projectFixture
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
+import org.junit.jupiter.api.Test
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.ValueSource
 
@@ -25,6 +26,12 @@ class ToolWindowManagerTest {
   @ValueSource(strings = ["left", "bottom"])
   fun `button layout`(anchor: String) = runBlocking(Dispatchers.EDT) {
     testButtonLayout(isNewUi = true, anchor = ToolWindowAnchor.fromText(anchor))
+  }
+
+  @Test
+  fun `explicit stripe button overrides stored layout`() = runBlocking(Dispatchers.EDT) {
+    ToolWindowManagerTestHelper.explicitStripeButtonOverridesStoredLayout(isNewUi = true, project = project)
+    ToolWindowManagerTestHelper.explicitStripeButtonOverridesStoredLayout(isNewUi = false, project = project)
   }
 
   @ParameterizedTest
