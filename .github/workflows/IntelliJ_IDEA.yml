@@ -71,6 +71,7 @@ jobs:
             **/*.AppImage
             **/*.zsync
             **/*.exe
+            **/*.win.zip
             **/*.dmg
             **/*.spdx.json
             

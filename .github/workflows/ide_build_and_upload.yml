@@ -40,11 +40,17 @@ jobs:
           os: linux
           suffix: -aarch64.tar.gz
           artifacts_dir: ${{inputs.artifacts_dir}}
-      - name: upload-windows-x64
+      - name: upload-windows-installer-x64
         uses: ./.github/actions/upload_ide
         with:
           os: windows
           suffix: .exe
+          artifacts_dir: ${{inputs.artifacts_dir}}
+      - name: upload-windows-zip-x64
+        uses: ./.github/actions/upload_ide
+        with:
+          os: windows
+          suffix: .win.zip
           artifacts_dir: ${{inputs.artifacts_dir}}
       - name: upload-mac-aarch64
         uses: ./.github/actions/upload_ide
