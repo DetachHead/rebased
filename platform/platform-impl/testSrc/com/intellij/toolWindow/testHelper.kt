@@ -10,8 +10,11 @@ import com.intellij.openapi.wm.RegisterToolWindowTaskData
 import com.intellij.openapi.wm.ToolWindow
 import com.intellij.openapi.wm.ToolWindowAnchor
 import com.intellij.openapi.wm.ToolWindowFactory
+import com.intellij.openapi.wm.ToolWindowId
+import com.intellij.openapi.wm.ToolWindowType
 import com.intellij.openapi.wm.WINDOW_INFO_DEFAULT_TOOL_WINDOW_PANE_ID
 import com.intellij.openapi.wm.WindowInfo
+import com.intellij.openapi.wm.safeToolWindowPaneId
 import com.intellij.openapi.wm.impl.AbstractDroppableStripe
 import com.intellij.openapi.wm.impl.DesktopLayout
 import com.intellij.openapi.wm.impl.ToolWindowImpl
@@ -19,7 +22,9 @@ import com.intellij.openapi.wm.impl.ToolWindowManagerImpl
 import com.intellij.openapi.wm.impl.WindowInfoImpl
 import kotlinx.coroutines.runBlocking
 import org.assertj.core.api.Assertions.assertThat
+import java.awt.Rectangle
 import javax.swing.Icon
+import javax.swing.JPanel
 
 fun testStripeButton(id: String, manager: ToolWindowManagerImpl, shouldBeVisible: Boolean) {
   val button = manager.getEntry(id)?.stripeButton
@@ -57,6 +62,52 @@ private fun init(
 }
 
 object ToolWindowManagerTestHelper {
+  fun centralVcsLayoutIsLocked(isNewUi: Boolean, project: Project) {
+    val manager = init(
+      project = project,
+      isNewUi = isNewUi,
+      taskProducer = {
+        listOf(RegisterToolWindowTaskData(id = ToolWindowId.VCS, component = JPanel()))
+      },
+    )
+    try {
+      val entry = manager.getEntry(ToolWindowId.VCS)!!
+      val corruptedInfo = manager.getRegisteredMutableInfoOrLogError(ToolWindowId.VCS)
+      corruptedInfo.type = ToolWindowType.WINDOWED
+      corruptedInfo.internalType = ToolWindowType.SLIDING
+      corruptedInfo.anchor = ToolWindowAnchor.LEFT
+      corruptedInfo.isAutoHide = true
+      corruptedInfo.isSplit = true
+      corruptedInfo.toolWindowPaneId = "secondary"
+      corruptedInfo.floatingBounds = Rectangle(10, 20, 300, 200)
+      corruptedInfo.isMaximized = true
+      corruptedInfo.isShowStripeButton = false
+      entry.applyWindowInfo(corruptedInfo.copy())
+
+      manager.setToolWindowType(ToolWindowId.VCS, ToolWindowType.FLOATING)
+      manager.setToolWindowAutoHide(ToolWindowId.VCS, true)
+      manager.setSideTool(ToolWindowId.VCS, true)
+      manager.setToolWindowAnchor(ToolWindowId.VCS, ToolWindowAnchor.RIGHT)
+      manager.setVisibleOnLargeStripe(ToolWindowId.VCS, false)
+
+      assertThat(entry.readOnlyWindowInfo.type).isEqualTo(ToolWindowType.DOCKED)
+      assertThat(entry.readOnlyWindowInfo.internalType).isEqualTo(ToolWindowType.DOCKED)
+      assertThat(entry.readOnlyWindowInfo.anchor).isEqualTo(ToolWindowAnchor.BOTTOM)
+      assertThat(entry.readOnlyWindowInfo.isAutoHide).isFalse()
+      assertThat(entry.readOnlyWindowInfo.isSplit).isFalse()
+      assertThat(entry.readOnlyWindowInfo.safeToolWindowPaneId).isEqualTo(WINDOW_INFO_DEFAULT_TOOL_WINDOW_PANE_ID)
+      assertThat(entry.readOnlyWindowInfo.floatingBounds).isNull()
+      assertThat(entry.readOnlyWindowInfo.isMaximized).isFalse()
+      assertThat(entry.readOnlyWindowInfo.isShowStripeButton).isTrue()
+      assertThat(manager.getIdsOn(ToolWindowAnchor.BOTTOM)).doesNotContain(ToolWindowId.VCS)
+      assertThat(manager.getDockedInfoAt(WINDOW_INFO_DEFAULT_TOOL_WINDOW_PANE_ID, ToolWindowAnchor.BOTTOM, true)).isNull()
+      assertThat(manager.getDockedInfoAt(WINDOW_INFO_DEFAULT_TOOL_WINDOW_PANE_ID, ToolWindowAnchor.BOTTOM, false)).isNull()
+    }
+    finally {
+      Disposer.dispose(manager)
+    }
+  }
+
   fun available(isNewUi: Boolean, project: Project) {
     val manager = init(project, isNewUi)
     try {

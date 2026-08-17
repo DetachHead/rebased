@@ -21,6 +21,7 @@ import com.intellij.openapi.project.DumbAware
 import com.intellij.openapi.project.DumbAwareToggleAction
 import com.intellij.openapi.util.ScalableIcon
 import com.intellij.openapi.wm.ToolWindowAnchor
+import com.intellij.openapi.wm.ToolWindowId
 import com.intellij.openapi.wm.impl.SquareStripeButton.Companion.createMoveGroup
 import com.intellij.toolWindow.ResizeStripeManager
 import com.intellij.toolWindow.StripeButtonUi
@@ -101,7 +102,7 @@ internal class SquareStripeButton(action: SquareAnActionButton, val toolWindow: 
 
   init {
     doInit { createPopupGroup(toolWindow) }
-    MouseDragHelper.setComponentDraggable(this, true)
+    MouseDragHelper.setComponentDraggable(this, toolWindow.id != ToolWindowId.VCS)
     setLook(object : SquareStripeButtonLook(this@SquareStripeButton) {
       private var myPressedColor: Color? = null
       private var myPressedColorKey: String? = null
@@ -347,10 +348,12 @@ private fun scaleIcon(icon: ScalableIcon): Icon {
 
 private fun createPopupGroup(toolWindow: ToolWindowImpl): DefaultActionGroup {
   val group = DefaultActionGroup()
-  group.add(HideAction(toolWindow))
-  group.addSeparator()
-  group.add(createMoveGroup())
-  group.addSeparator()
+  if (toolWindow.id != ToolWindowId.VCS) {
+    group.add(HideAction(toolWindow))
+    group.addSeparator()
+    group.add(createMoveGroup())
+    group.addSeparator()
+  }
   if (ResizeStripeManager.enabled()) {
     group.add(ActionManager.getInstance().getAction("ToolWindowShowNamesAction")!!)
   }

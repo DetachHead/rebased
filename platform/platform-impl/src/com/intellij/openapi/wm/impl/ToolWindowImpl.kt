@@ -808,7 +808,7 @@ private val LOG = logger<ToolWindowManagerImpl>()
       override fun getChildren(e: AnActionEvent?): Array<AnAction> {
         val result = mutableListOf<AnAction>()
         result.addAll(super.getChildren(e))
-        if (!skipHideAction) {
+        if (!skipHideAction && id != ToolWindowId.VCS) {
           result.add(Separator.getInstance())
           result.add(HideAction())
         }
@@ -869,7 +869,9 @@ private val LOG = logger<ToolWindowManagerImpl>()
         }
         group.addSeparator()
       }
-      group.addAction(ActionManager.getInstance().getAction("MoveToolWindowTabToEditorAction"))
+      if (id != ToolWindowId.VCS) {
+        group.addAction(ActionManager.getInstance().getAction("MoveToolWindowTabToEditorAction"))
+      }
       group.add(ActionManager.getInstance().getAction(SpeedSearchAction.ID))
       group.addSeparator()
       contentManager.valueIfInitialized?.let {
@@ -881,16 +883,18 @@ private val LOG = logger<ToolWindowManagerImpl>()
       }
 
       group.addAction(toggleToolbarGroup).setAsSecondary(true)
-      group.add(ActionManager.getInstance().getAction("TW.ViewModeGroup"))
-      if (toolWindowManager.isNewUi) {
-        group.add(SquareStripeButton.createMoveGroup())
+      if (id != ToolWindowId.VCS) {
+        group.add(ActionManager.getInstance().getAction("TW.ViewModeGroup"))
+        if (toolWindowManager.isNewUi) {
+          group.add(SquareStripeButton.createMoveGroup())
+        }
+        else {
+          group.add(ToolWindowMoveAction.Group())
+        }
+        group.add(ResizeActionGroup())
+        group.addSeparator()
+        group.add(RemoveStripeButtonAction())
       }
-      else {
-        group.add(ToolWindowMoveAction.Group())
-      }
-      group.add(ResizeActionGroup())
-      group.addSeparator()
-      group.add(RemoveStripeButtonAction())
       return group.getChildren(e)
     }
   }

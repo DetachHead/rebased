@@ -29,6 +29,12 @@ class ToolWindowManagerTest {
 
   @ParameterizedTest
   @ValueSource(booleans = [true, false])
+  fun `central VCS layout is locked`(isNewUi: Boolean) = runBlocking(Dispatchers.EDT) {
+    ToolWindowManagerTestHelper.centralVcsLayoutIsLocked(isNewUi = isNewUi, project = project)
+  }
+
+  @ParameterizedTest
+  @ValueSource(booleans = [true, false])
   fun `remove button on setting an available property to false`(isNewUi: Boolean) = runBlocking(Dispatchers.EDT) {
     ToolWindowManagerTestHelper.available(isNewUi = isNewUi, project = project)
   }

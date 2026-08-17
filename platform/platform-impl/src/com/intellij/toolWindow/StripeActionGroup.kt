@@ -46,6 +46,7 @@ import com.intellij.openapi.project.DumbAware
 import com.intellij.openapi.project.DumbAwareAction
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.wm.ToolWindowAnchor
+import com.intellij.openapi.wm.ToolWindowId
 import com.intellij.openapi.wm.ToolWindowManager
 import com.intellij.openapi.wm.ex.ToolWindowManagerEx
 import com.intellij.openapi.wm.ex.ToolWindowManagerListener
@@ -125,6 +126,11 @@ class StripeActionGroup: ActionGroup(), DumbAware {
     private val toolWindowId get() = (delegate as ActivateToolWindowAction).toolWindowId
 
     override fun actionPerformed(e: AnActionEvent) {
+      if (toolWindowId == ToolWindowId.VCS) {
+        super.actionPerformed(e)
+        Toggleable.setSelected(e.presentation, true)
+        return
+      }
       val state = !isSelected(e)
       setSelected(e, state)
       Toggleable.setSelected(e.presentation, state)
@@ -166,14 +172,16 @@ class StripeActionGroup: ActionGroup(), DumbAware {
       return object : AbstractSquareStripeButton(this@MyButtonAction, presentation, { ActionToolbar.experimentalToolbarMinimumButtonSize() }), ToolWindowDragHelper.ToolWindowProvider {
         init {
           doInit { createPopupGroup() }
-          MouseDragHelper.setComponentDraggable(this, true)
+          MouseDragHelper.setComponentDraggable(this, toolWindowId != ToolWindowId.VCS)
         }
 
         private fun createPopupGroup(): DefaultActionGroup {
           val group = DefaultActionGroup()
-          group.add(TogglePinActionBase(toolWindowId))
-          group.addSeparator()
-          group.add(SquareStripeButton.createMoveGroup())
+          if (toolWindowId != ToolWindowId.VCS) {
+            group.add(TogglePinActionBase(toolWindowId))
+            group.addSeparator()
+            group.add(SquareStripeButton.createMoveGroup())
+          }
           return group
         }
 

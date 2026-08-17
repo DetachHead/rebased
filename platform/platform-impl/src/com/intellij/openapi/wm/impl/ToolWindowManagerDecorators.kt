@@ -9,6 +9,7 @@ import com.intellij.openapi.ui.Splitter
 import com.intellij.openapi.ui.ThreeComponentsSplitter
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.wm.ToolWindowAnchor
+import com.intellij.openapi.wm.ToolWindowId
 import com.intellij.openapi.wm.ToolWindowType
 import com.intellij.openapi.wm.WindowInfo
 import com.intellij.openapi.wm.safeToolWindowPaneId
@@ -203,6 +204,10 @@ private fun detachInternalDecorator(entry: ToolWindowEntry) {
 
 private fun removeInternalDecorator(entry: ToolWindowEntry, state: WindowInfoImpl, dirtyMode: Boolean, manager: ToolWindowManagerImpl) {
   entry.toolWindow.decoratorComponent?.let {
+    if (entry.id == ToolWindowId.VCS) {
+      manager.detachCentralVcs(it, dirtyMode)
+      return
+    }
     val toolWindowPane = manager.getToolWindowPane(state.safeToolWindowPaneId)
     toolWindowPane.removeDecorator(state, it, dirtyMode, manager)
     return

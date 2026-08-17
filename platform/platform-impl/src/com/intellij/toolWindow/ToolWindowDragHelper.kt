@@ -17,6 +17,7 @@ import com.intellij.openapi.wm.ToolWindowAnchor.BOTTOM
 import com.intellij.openapi.wm.ToolWindowAnchor.LEFT
 import com.intellij.openapi.wm.ToolWindowAnchor.RIGHT
 import com.intellij.openapi.wm.ToolWindowAnchor.TOP
+import com.intellij.openapi.wm.ToolWindowId
 import com.intellij.openapi.wm.ToolWindowType
 import com.intellij.openapi.wm.WINDOW_INFO_DEFAULT_TOOL_WINDOW_PANE_ID
 import com.intellij.openapi.wm.ex.ToolWindowManagerEx
@@ -138,7 +139,9 @@ internal class ToolWindowDragHelper(parent: Disposable, @JvmField val dragSource
 
   override fun canStartDragging(dragComponent: JComponent, dragComponentPoint: Point): Boolean {
     val point = RelativePoint(dragComponent, dragComponentPoint)
-    return getToolWindowAtPoint(point) != null || getComponentFromDragSourcePane(point) is MoreSquareStripeButton
+    val toolWindow = getToolWindowAtPoint(point)
+    return (toolWindow != null && toolWindow.id != ToolWindowId.VCS) ||
+           getComponentFromDragSourcePane(point) is MoreSquareStripeButton
   }
 
   override fun processMousePressed(event: MouseEvent) {
