@@ -29,6 +29,11 @@ class ToolWindowManagerTest {
   }
 
   @Test
+  fun `File Editor extension requests stripe button`() {
+    ToolWindowManagerTestHelper.fileEditorExtensionRequestsStripeButton(project)
+  }
+
+  @Test
   fun `explicit stripe button overrides stored layout`() = runBlocking(Dispatchers.EDT) {
     ToolWindowManagerTestHelper.explicitStripeButtonOverridesStoredLayout(isNewUi = true, project = project)
     ToolWindowManagerTestHelper.explicitStripeButtonOverridesStoredLayout(isNewUi = false, project = project)

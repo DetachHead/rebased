@@ -3,6 +3,7 @@
 
 package com.intellij.toolWindow
 
+import com.intellij.icons.AllIcons
 import com.intellij.openapi.components.ComponentManagerEx
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Disposer
@@ -62,6 +63,12 @@ private fun init(
 }
 
 object ToolWindowManagerTestHelper {
+  fun fileEditorExtensionRequestsStripeButton(project: Project) {
+    val task = runBlocking { computeToolWindowBeans(project) }.single { it.id == FILE_EDITOR_TOOL_WINDOW_ID }
+    assertThat(task.showStripeButton).isTrue()
+    assertThat(task.icon).isSameAs(AllIcons.FileTypes.Any_type)
+  }
+
   fun explicitStripeButtonOverridesStoredLayout(isNewUi: Boolean, project: Project) {
     val manager = init(
       project = project,
@@ -193,6 +200,7 @@ object ToolWindowManagerTestHelper {
   }
 }
 
+private const val FILE_EDITOR_TOOL_WINDOW_ID = "File Editor"
 private const val EXPLICIT_STRIPE_BUTTON_TOOL_WINDOW_ID = "Explicit Stripe Button"
 
 suspend fun testDefaultLayout(isNewUi: Boolean, project: Project) {
