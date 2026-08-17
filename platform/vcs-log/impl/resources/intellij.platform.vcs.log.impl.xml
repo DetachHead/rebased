@@ -143,10 +143,6 @@
 
     <customizableActionGroupProvider implementation="com.intellij.vcs.log.ui.actions.VcsLogCustomizableActionGroupProvider"/>
 
-    <virtualFileSystem key="vcs-log" implementationClass="com.intellij.vcs.log.ui.editor.VcsLogVirtualFileSystem"/>
-    <fileIconProvider implementation="com.intellij.vcs.log.ui.editor.VcsLogIconProvider"/>
-    <fileEditorProvider id="VcsLogEditor" implementation="com.intellij.vcs.log.ui.editor.VcsLogEditorProvider"/>
-    <editorTabTitleProvider implementation="com.intellij.vcs.log.ui.editor.DefaultVcsLogFileTabTitleProvider"/>
     <openTelemetryExporterProvider implementation="com.intellij.vcs.log.statistics.VcsLogTelemetryExporter"/>
 
     <registryKey key="vcs.log.table.show.centered"
@@ -155,13 +151,11 @@
     />
     <applicationSettings service="com.intellij.vcs.log.data.index.VcsLogBigRepositoriesList"/>
     <projectSettings service="com.intellij.vcs.log.impl.VcsLogSharedSettings"/>
-    <applicationSettings service="com.intellij.vcs.log.ui.editor.VcsLogEditorTabNameCache"/>
     <projectSettings service="com.intellij.vcs.log.impl.VcsLogProjectTabsProperties"/>
     <applicationSettings service="com.intellij.vcs.log.impl.VcsLogApplicationSettings"/>
     <projectSettings service="com.intellij.vcs.log.history.FileHistoryUiProperties"/>
     <projectSettings service="com.intellij.vcs.log.history.VcsDirectoryRenamesProvider"/>
     <projectSettings service="com.intellij.vcs.log.statistics.VcsLogIndexCollector"/>
-    <virtualFilePreCloseCheck implementation="com.intellij.vcs.log.ui.CanCloseVirtualLogFile"/>
   </extensions>
 
   <projectListeners>
@@ -202,12 +196,8 @@
       </action>
       <group class="com.intellij.vcs.log.ui.actions.ToggleLogColumnsActionGroup" id="Vcs.Log.ToggleColumns"/>
       <group class="com.intellij.vcs.log.ui.actions.HighlightersActionGroup" id="Vcs.Log.HighlightersActionGroup"/>
-      <!--<action class="com.intellij.vcs.log.ui.actions.OpenAnotherLogTabAction$InToolWindow" id="Vcs.Log.OpenAnotherTab"-->
-      <!--        icon="AllIcons.General.Add"/>-->
-      <action class="com.intellij.vcs.log.ui.actions.OpenAnotherLogTabAction$InEditor" id="Vcs.Log.OpenAnotherTabInEditor" icon="AllIcons.Actions.OpenNewTab">
-        <keyboard-shortcut first-keystroke="alt G" keymap="$default"/>
-        <add-to-group group-id="EditorTabsEntryPoint" anchor="before" relative-to-action="RecentFiles"/>
-      </action>
+      <action class="com.intellij.vcs.log.ui.actions.OpenAnotherLogTabAction$InToolWindow" id="Vcs.Log.OpenAnotherTab"
+              icon="AllIcons.General.Add"/>
       <action class="com.intellij.vcs.log.ui.actions.RefreshLogAction" id="Vcs.Log.Refresh" use-shortcut-of="Refresh" icon="AllIcons.Actions.Refresh"/>
       <action class="com.intellij.vcs.log.ui.actions.ShowCommitTooltipAction" id="Vcs.Log.ShowTooltip"
               use-shortcut-of="QuickJavaDoc"/>
@@ -266,7 +256,7 @@
       <reference ref="Vcs.Log.MatchCaseAction"/>
     </group>
     <group id="Vcs.Log.Toolbar.Internal">
-      <reference ref="Vcs.Log.OpenAnotherTabInEditor"/>
+      <reference ref="Vcs.Log.OpenAnotherTab"/>
     </group>
     <group id="Vcs.Log.ContextMenu">
       <reference ref="Vcs.CopyRevisionNumberAction"/>
@@ -317,7 +307,6 @@
       <!--<reference ref="Vcs.Log.OpenAnotherTab"/>-->
       <group id="Vcs.Log.ToolWindow.TabActions.DropDown" icon="AllIcons.Toolbar.Expand" popup="true"
              class="com.intellij.vcs.log.ui.actions.VcsLogToolWindowDropdownActionGroup">
-        <!--<reference ref="Vcs.Log.OpenAnotherTabInEditor"/>-->
         <reference ref="Vcs.ShowTabbedFileHistory"/>
         <reference ref="Vcs.ShowConsoleTab"/>
         <separator/>
@@ -389,8 +378,7 @@
       <reference ref="Vcs.Log.Diff.Preview.Location"/>
       <separator/>
       <reference ref="Vcs.Log.Refresh"/>
-      <!--<reference ref="Vcs.Log.OpenAnotherTab"/>-->
-      <reference ref="Vcs.Log.OpenAnotherTabInEditor"/>
+      <reference ref="Vcs.Log.OpenAnotherTab"/>
       <reference ref="Vcs.Log.ResumeIndexing"/>
 
       <reference ref="Log.Unsorted.KeymapGroup"/>

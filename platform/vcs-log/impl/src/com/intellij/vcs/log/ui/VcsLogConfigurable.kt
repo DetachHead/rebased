@@ -24,7 +24,6 @@ import com.intellij.ui.dsl.builder.bindText
 import com.intellij.ui.dsl.builder.panel
 import com.intellij.ui.dsl.builder.selected
 import com.intellij.ui.layout.ComponentPredicate
-import com.intellij.util.ui.RestartDialogImpl
 import com.intellij.vcs.log.VcsLogBundle
 import com.intellij.vcs.log.data.index.VcsLogPersistentIndex
 import com.intellij.vcs.log.history.FileHistoryUiProperties
@@ -59,10 +58,6 @@ internal class VcsLogConfigurable(
   override fun createPanel(): DialogPanel {
     val vcsNamesToShow = getVcsNames()
     return panel {
-      group("Location") {
-        booleanPropertyCheckboxRow("action.Vcs.Log.ShowInEditor.description", CommonUiProperties.SHOW_IN_EDITOR,
-                                   applicationSettings)
-      }
       group(VcsLogBundle.message("group.Vcs.Log.PresentationSettings.text")) {
         booleanPropertyCheckboxRow("action.Vcs.Log.CompactReferencesView.description", CommonUiProperties.COMPACT_REFERENCES_VIEW,
                                    applicationSettings)
@@ -190,14 +185,6 @@ internal class VcsLogConfigurable(
   }
 
   override fun getId(): String = "vcs.log"
-
-  override fun apply() {
-    val previousValue = applicationSettings[CommonUiProperties.SHOW_IN_EDITOR]
-    super.apply()
-    if (previousValue !=  applicationSettings[CommonUiProperties.SHOW_IN_EDITOR]) {
-      RestartDialogImpl.showRestartRequired()
-    }
-  }
 }
 
 private class VcsLogIndexAvailabilityPredicate(private val project: Project, private val disposable: Disposable) : ComponentPredicate() {

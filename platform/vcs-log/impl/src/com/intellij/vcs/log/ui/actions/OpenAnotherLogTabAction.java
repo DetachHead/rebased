@@ -1,7 +1,6 @@
 // Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.vcs.log.ui.actions;
 
-import com.intellij.openapi.actionSystem.ActionPlaces;
 import com.intellij.openapi.actionSystem.ActionUpdateThread;
 import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.actionSystem.CommonDataKeys;
@@ -126,33 +125,4 @@ public abstract class OpenAnotherLogTabAction extends DumbAwareAction {
     }
   }
 
-  @ApiStatus.Internal
-  public static class InEditor extends OpenAnotherLogTabAction {
-    @Override
-    public void update(@NotNull AnActionEvent e) {
-      if (Registry.is("toolwindow.open.tab.in.editor")) {
-        e.getPresentation().setEnabledAndVisible(false);
-        return;
-      }
-      super.update(e);
-      if (e.getData(PlatformDataKeys.TOOL_WINDOW) != null && ActionPlaces.VCS_LOG_TOOLBAR_PLACE.equals(e.getPlace())) {
-        e.getPresentation().setEnabledAndVisible(false);
-      }
-    }
-
-    @Override
-    protected @NotNull @Nls(capitalization = Nls.Capitalization.Sentence) String getDescription(@Nls @NotNull String vcsName) {
-      return VcsLogBundle.message("vcs.log.action.description.open.new.tab.with.log.in.editor", vcsName);
-    }
-
-    @Override
-    protected @NotNull @Nls(capitalization = Nls.Capitalization.Title) String getText(@Nls @NotNull String vcsName) {
-      return VcsLogBundle.message("vcs.log.action.open.new.tab.with.log.in.editor", vcsName);
-    }
-
-    @Override
-    protected @NotNull VcsLogTabLocation getLocation(@NotNull AnActionEvent e) {
-      return VcsLogTabLocation.EDITOR;
-    }
-  }
 }

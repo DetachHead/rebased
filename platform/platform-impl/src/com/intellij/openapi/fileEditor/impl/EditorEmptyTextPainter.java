@@ -87,7 +87,7 @@ public class EditorEmptyTextPainter {
 
   protected void advertiseActions(@NotNull JComponent splitters, @NotNull UIUtil.TextPainter painter) {
     appendPromotedActions(splitters, painter);
-    appendAction(painter, "Open Git Log", getActionShortcutText("Vcs.Log.OpenAnotherTabInEditor"));
+    appendAction(painter, "Open Git Log", getActionShortcutText("Vcs.Log.OpenAnotherTab"));
     appendToolWindow(painter, IdeBundle.message("empty.text.commit.view"), ToolWindowId.COMMIT, splitters);
     appendToolWindow(painter, IdeBundle.message("empty.text.terminal.view"), ToolWindowId.TERMINAL, splitters);
     appendToolWindow(painter, IdeBundle.message("empty.text.pr.view"), ToolWindowId.PULL_REQUESTS, splitters);

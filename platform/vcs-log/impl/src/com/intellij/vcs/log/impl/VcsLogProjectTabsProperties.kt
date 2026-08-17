@@ -27,6 +27,9 @@ class VcsLogProjectTabsProperties : PersistentStateComponent<VcsLogProjectTabsPr
   override fun getState(): State = _state
 
   override fun loadState(state: State) {
+    state.openTabs.replaceAll { _, location ->
+      if (location == VcsLogTabLocation.EDITOR) VcsLogTabLocation.TOOL_WINDOW else location
+    }
     _state = state
   }
 
@@ -62,8 +65,6 @@ class VcsLogProjectTabsProperties : PersistentStateComponent<VcsLogProjectTabsPr
   fun addRecentlyFilteredGroup(filterName: String, values: Collection<String>) {
     addRecentGroup(_state.recentFilters, filterName, values)
   }
-
-  fun shouldShowInEditor(): Boolean = appSettings[CommonUiProperties.SHOW_IN_EDITOR]
 
   class State {
     @get:OptionTag("TAB_STATES")

@@ -26,6 +26,8 @@ class VcsLogApplicationSettings : PersistentStateComponent<VcsLogApplicationSett
   override fun getState(): State = _state
 
   override fun loadState(state: State) {
+    // VCS Log is hosted by the Version Control tool window in Rebased.
+    state.showInEditor = false
     _state = state
   }
 
@@ -70,7 +72,7 @@ class VcsLogApplicationSettings : PersistentStateComponent<VcsLogApplicationSett
       CommonUiProperties.COLUMN_ID_ORDER -> _state.columnIdOrder = value as List<String>
       CommonUiProperties.SHOW_ISSUE_PREVIEW_ON_HOVER -> _state.isShowIssuePreviewOnHover = value as Boolean
       CommonUiProperties.SHOW_ISSUE_PREVIEW_ON_HOVER_DELAY -> _state.showIssuePreviewOnHoverDelay = value as Int
-      CommonUiProperties.SHOW_IN_EDITOR -> _state.showInEditor = value as Boolean
+      CommonUiProperties.SHOW_IN_EDITOR -> _state.showInEditor = false
       is TableColumnVisibilityProperty -> _state.columnIdVisibility[property.name] = value as Boolean
       else -> throw UnsupportedOperationException("Property $property does not exist")
     }
@@ -143,7 +145,7 @@ class VcsLogApplicationSettings : PersistentStateComponent<VcsLogApplicationSett
     var customBooleanProperties: MutableMap<String, Boolean> = HashMap()
 
     @get:OptionTag("SHOW_IN_EDITOR")
-    var showInEditor = true
+    var showInEditor = false
   }
 
   open class CustomBooleanProperty(name: @NonNls String) : VcsLogUiProperty<Boolean>(name) {
