@@ -34,7 +34,7 @@ internal object AndroidStudioReleases : ContentSource<AndroidStudio>() {
       AndroidStudio(
         displayText = "Android Studio Narwhal | 2025.1.1",
         imagePath = "/studio-splash-screens/Narwhal-stable.png",
-        versionName = "2025.1.1.13",
+        versionName = "2025.1.1.13.2",
         build = "AI-251.25410.109.2511.13665796",
         platformBuild = "251.25410.109",
         platformVersion = "2025.1.1",
@@ -881,7 +881,7 @@ internal object AndroidStudioReleases : ContentSource<AndroidStudio>() {
       AndroidStudio(
         displayText = "Android Studio Koala | 2024.1.1 Patch 2",
         imagePath = "/studio-splash-screens/Koala-stable.png",
-        versionName = "2024.1.1.13",
+        versionName = "2024.1.1.13.2",
         build = "AI-241.18034.62.2411.12169540",
         platformBuild = "241.18034.62",
         platformVersion = "2024.1.4",
@@ -1937,7 +1937,7 @@ internal object AndroidStudioReleases : ContentSource<AndroidStudio>() {
       AndroidStudio(
         displayText = "Android Studio Hedgehog | 2023.1.1 Canary 13",
         imagePath = "/studio-splash-screens/Hedgehog-canary.png",
-        versionName = "2023.1.1.13",
+        versionName = "2023.1.1.13.2",
         build = "AI-231.9161.38.2311.10491752",
         platformBuild = "231.9161.38",
         platformVersion = "2023.1.3",
@@ -2520,7 +2520,7 @@ internal object AndroidStudioReleases : ContentSource<AndroidStudio>() {
       AndroidStudio(
         displayText = "Android Studio Electric Eel | 2022.1.1 Beta 3",
         imagePath = "/studio-splash-screens/ElectricEel-stable.png",
-        versionName = "2022.1.1.13",
+        versionName = "2022.1.1.13.2",
         build = "AI-221.6008.13.2211.9173235",
         platformBuild = "221.6008.13",
         platformVersion = "2022.1.4",
@@ -3202,7 +3202,7 @@ internal object AndroidStudioReleases : ContentSource<AndroidStudio>() {
       AndroidStudio(
         displayText = "Android Studio Bumblebee | 2021.1.1 Canary 13",
         imagePath = "/studio-splash-screens/Bumblebee-canary.png",
-        versionName = "2021.1.1.13",
+        versionName = "2021.1.1.13.2",
         build = "AI-211.7628.21.2111.7762732",
         platformBuild = "211.7628.21",
         platformVersion = "2021.1.3",
