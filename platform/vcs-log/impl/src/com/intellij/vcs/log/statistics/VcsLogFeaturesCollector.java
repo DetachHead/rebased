@@ -106,7 +106,6 @@ public @NonNls class VcsLogFeaturesCollector extends ProjectUsagesCollector {
     EventFields.String("name", ContainerUtil.map(getDefaultDynamicColumns(), it -> it.getStableName()));
   private static final VarargEventId COLUMN = GROUP.registerVarargEvent("column", EventFields.Enabled, COLUMN_NAME);
   private static final VarargEventId ADDITIONAL_TOOL_WINDOW_TABS = GROUP.registerVarargEvent("additionalTabs.ToolWindow", EventFields.Count);
-  private static final VarargEventId ADDITIONAL_EDITOR_TABS = GROUP.registerVarargEvent("additionalTabs.Editor", EventFields.Count);
 
   @Override
   public @NotNull Set<MetricEvent> getMetrics(@NotNull Project project) {
@@ -120,8 +119,7 @@ public @NonNls class VcsLogFeaturesCollector extends ProjectUsagesCollector {
 
     MainVcsLogUi mainUi = actualManager.getMainUi();
     List<? extends MainVcsLogUi> additionalToolWindowUis = actualManager.getLogUis(VcsLogTabLocation.TOOL_WINDOW);
-    List<? extends MainVcsLogUi> additionalEditorUis = actualManager.getLogUis(VcsLogTabLocation.EDITOR);
-    if (mainUi == null && additionalToolWindowUis.isEmpty() && additionalEditorUis.isEmpty()) return Collections.emptySet();
+    if (mainUi == null && additionalToolWindowUis.isEmpty()) return Collections.emptySet();
 
     Set<MetricEvent> metricEvents = ContainerUtil.newHashSet(UI_INITIALIZED.metric());
 
@@ -130,17 +128,13 @@ public @NonNls class VcsLogFeaturesCollector extends ProjectUsagesCollector {
       metricEvents.add(MAIN_UI_INITIALIZED.metric());
       recordUiProperties(mainUi, metricEvents);
     }
-    for (MainVcsLogUi ui : ContainerUtil.union(additionalToolWindowUis, additionalEditorUis)) {
+    for (MainVcsLogUi ui : additionalToolWindowUis) {
       recordUiProperties(ui, metricEvents);
     }
 
     if (!additionalToolWindowUis.isEmpty()) {
       metricEvents.add(ADDITIONAL_TOOL_WINDOW_TABS.metric(EventFields.Count.with(additionalToolWindowUis.size())));
     }
-    if (!additionalEditorUis.isEmpty()) {
-      metricEvents.add(ADDITIONAL_EDITOR_TABS.metric(EventFields.Count.with(additionalEditorUis.size())));
-    }
-
     return metricEvents;
   }
 
