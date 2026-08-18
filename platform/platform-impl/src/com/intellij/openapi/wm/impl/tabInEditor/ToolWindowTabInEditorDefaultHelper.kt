@@ -32,7 +32,6 @@ import javax.swing.KeyStroke
 private val ORIGINAL_PREFERRED_FOCUSABLE_KEY: Key<JComponent?> = Key.create<JComponent>("component.preferredFocusableComponent")
 private const val TERMINAL_TOOL_WINDOW_ID: String = "Terminal"
 private val ALLOWED_TOOL_WINDOW_IDS: Set<String> = setOf(
-  ToolWindowId.VCS,
   ToolWindowId.RUN,
   ToolWindowId.SERVICES,
   TERMINAL_TOOL_WINDOW_ID,

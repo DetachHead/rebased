@@ -20,6 +20,7 @@ import com.intellij.openapi.actionSystem.UiDataProvider
 import com.intellij.openapi.actionSystem.ex.CustomComponentAction
 import com.intellij.openapi.project.DumbAware
 import com.intellij.openapi.util.Key
+import com.intellij.openapi.wm.ToolWindowId
 import com.intellij.openapi.wm.ToolWindowManager
 import com.intellij.openapi.wm.ex.ToolWindowManagerEx
 import com.intellij.openapi.wm.impl.AbstractSquareStripeButton
@@ -131,11 +132,13 @@ internal class XNextToolWindowAction(val toolWindowAction: ActivateToolWindowAct
       get() = myToolWindow
 
     init {
+      val popupGroup = DefaultActionGroup(MyPinAction(action.toolWindowAction.toolWindowId))
+      if (action.toolWindowAction.toolWindowId != ToolWindowId.VCS) {
+        popupGroup.add(ToolWindowMoveAction.Group())
+      }
       PopupHandler.installPopupMenu(this,
-                                    DefaultActionGroup(
-                                      MyPinAction(action.toolWindowAction.toolWindowId),
-                                      ToolWindowMoveAction.Group()), "XNextStatusBar.Popup")
-      MouseDragHelper.setComponentDraggable(this, true)
+                                    popupGroup, "XNextStatusBar.Popup")
+      MouseDragHelper.setComponentDraggable(this, action.toolWindowAction.toolWindowId != ToolWindowId.VCS)
     }
 
     override fun uiDataSnapshot(sink: DataSink) {
@@ -161,4 +164,3 @@ internal class XNextToolWindowAction(val toolWindowAction: ActivateToolWindowAct
 
   }
 }
-
