@@ -136,6 +136,12 @@ internal class ToolWindowManagerDecorators(
   }
 
   fun movedOrResized(source: InternalDecoratorImpl) {
+    // The central VCS decorator is hosted inside CentralVcsSurface, not in a docking splitter.
+    // Its size must never be persisted as the shared bottom tool window weight.
+    if (source.toolWindow.id == ToolWindowId.VCS) {
+      return
+    }
+
     if (!source.isShowing) {
       // do not recalculate the tool window size if it is not yet shown (and, therefore, has 0,0,0,0 bounds)
       return

@@ -99,6 +99,8 @@
     </extensionPoint>
   </extensionPoints>
   <extensions defaultExtensionNs="com.intellij">
+    <toolWindow id="File Editor" anchor="right" canCloseContents="false" icon="AllIcons.FileTypes.Any_type"
+                showStripeButton="true" factoryClass="com.intellij.openapi.fileEditor.impl.FileEditorToolWindowFactory"/>
     <ApplicationLoadListener implementation="com.intellij.util.imageio.ImageReaderWriterSpiRegistrar"/>
     <applicationActivity implementation="com.intellij.ide.debug.ImageDebugUtilLoader"/>
     <applicationService serviceImplementation="com.intellij.ui.WaylandAppIconPatcher"

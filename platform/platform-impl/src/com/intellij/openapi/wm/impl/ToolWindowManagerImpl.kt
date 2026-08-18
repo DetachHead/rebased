@@ -143,7 +143,7 @@ open class ToolWindowManagerImpl @NonInjectable @TestOnly internal constructor(
   internal var projectFrameTypeId: String? = null
   private val notifications = ToolWindowManagerNotifications(this)
   private val decorators = ToolWindowManagerDecorators(this)
-  private val centralVcsHost = CentralVcsHost()
+  private val centralVcsController = CentralVcsController()
 
   private var projectFrame: JFrame?
     get() = state.projectFrame
@@ -247,21 +247,21 @@ open class ToolWindowManagerImpl @NonInjectable @TestOnly internal constructor(
   }
 
   override fun dispose() {
-    centralVcsHost.detach(expectedComponent = null, dirtyMode = true)
+    centralVcsController.dispose(dirtyMode = true)
   }
 
   private fun getDefaultToolWindowPane() = toolWindowPanes.get(WINDOW_INFO_DEFAULT_TOOL_WINDOW_PANE_ID)!!
 
   private fun normalizeCentralVcsInfo(info: WindowInfoImpl) {
     if (info.id == ToolWindowId.VCS) {
-      centralVcsHost.normalize(info)
+      centralVcsController.normalize(info)
     }
   }
 
   private fun attachCentralVcs(entry: ToolWindowEntry, dirtyMode: Boolean) {
     val pane = toolWindowPanes[WINDOW_INFO_DEFAULT_TOOL_WINDOW_PANE_ID] ?: return
     val decorator = entry.toolWindow.getOrCreateDecoratorComponent()
-    centralVcsHost.attach(pane, decorator, dirtyMode)
+    centralVcsController.attach(pane, decorator, dirtyMode)
   }
 
   @ApiStatus.Internal fun getToolWindowPane(paneId: String): ToolWindowPane = toolWindowPanes.get(paneId) ?: getDefaultToolWindowPane()
@@ -283,7 +283,7 @@ open class ToolWindowManagerImpl @NonInjectable @TestOnly internal constructor(
     toolWindowPanes.put(toolWindowPane.paneId, toolWindowPane)
     Disposer.register(parentDisposable) {
       if (toolWindowPane.paneId == WINDOW_INFO_DEFAULT_TOOL_WINDOW_PANE_ID) {
-        centralVcsHost.detach(expectedComponent = null, dirtyMode = true)
+        centralVcsController.dispose(dirtyMode = true)
       }
       for (it in idToEntry.values) {
         if (it.readOnlyWindowInfo.safeToolWindowPaneId == toolWindowPane.paneId) {
@@ -301,15 +301,7 @@ open class ToolWindowManagerImpl @NonInjectable @TestOnly internal constructor(
   internal fun getToolWindowPanes(): List<ToolWindowPane> = toolWindowPanes.values.toList()
 
   internal fun detachCentralVcs(component: JComponent, dirtyMode: Boolean) {
-    centralVcsHost.detach(expectedComponent = component, dirtyMode = dirtyMode)
-  }
-
-  internal fun detachDocumentComponent(component: JComponent) {
-    val pane = toolWindowPanes[WINDOW_INFO_DEFAULT_TOOL_WINDOW_PANE_ID] ?: return
-    if (pane.getDocumentComponent() === component) {
-      pane.setDocumentComponent(null)
-      pane.validateAndRepaint()
-    }
+    centralVcsController.detach(expectedComponent = component, dirtyMode = dirtyMode)
   }
 
   internal fun revalidateStripeButtons() {
@@ -454,6 +446,9 @@ open class ToolWindowManagerImpl @NonInjectable @TestOnly internal constructor(
         toolWindowPanes.put(pane.paneId, pane)
       }
       defaultPaneInitialization.join()
+      withContext(Dispatchers.EDT) {
+        centralVcsController.install(pane, dirtyMode = true)
+      }
       toolWindowSetInitializer.initUi(reopeningEditorJob, taskListDeferred)
     }
 
@@ -549,7 +544,7 @@ open class ToolWindowManagerImpl @NonInjectable @TestOnly internal constructor(
   }
 
   internal fun projectClosed() {
-    centralVcsHost.detach(expectedComponent = null, dirtyMode = true)
+    centralVcsController.dispose(dirtyMode = true)
     // hide everything outside the frame (floating and windowed) - frame contents are handled separately elsewhere
     for (entry in idToEntry.values) {
       if (entry.toolWindow.windowInfo.type.isInternal) {
@@ -617,7 +612,7 @@ open class ToolWindowManagerImpl @NonInjectable @TestOnly internal constructor(
   ) {
     LOG.debug { "activateToolWindow($entry)" }
 
-    if (isUnifiedToolWindowSizesEnabled()) {
+    if (isUnifiedToolWindowSizesEnabled() && entry.id != ToolWindowId.VCS) {
       info.weight = layoutState.getUnifiedAnchorWeight(info.anchor)
       LOG.debug { "Activated tool window: ${info.id}, using ${info.anchor} unified weight of ${info.weight}" }
     }
@@ -891,6 +886,11 @@ open class ToolWindowManagerImpl @NonInjectable @TestOnly internal constructor(
     // hide and deactivate
     deactivateToolWindow(info, entry, dirtyMode = dirtyMode, mutation = mutation, source = source)
 
+    // Central VCS has no docked side and must not restore or consume ordinary Bottom SideStack entries.
+    if (entry.id == ToolWindowId.VCS) {
+      return
+    }
+
     if (hideSide && info.type != ToolWindowType.FLOATING && info.type != ToolWindowType.WINDOWED) {
       for (each in getVisibleToolWindowsOn(info.safeToolWindowPaneId, info.anchor)) {
         activeStack.remove(each, false)
@@ -902,7 +902,8 @@ open class ToolWindowManagerImpl @NonInjectable @TestOnly internal constructor(
       }
       for (otherEntry in idToEntry.values) {
         val otherInfo = layoutState.getInfo(otherEntry.id) ?: continue
-        if (otherInfo.isVisible && otherInfo.safeToolWindowPaneId == info.safeToolWindowPaneId && otherInfo.anchor == info.anchor) {
+        if (otherEntry.id != ToolWindowId.VCS && otherInfo.isVisible &&
+            otherInfo.safeToolWindowPaneId == info.safeToolWindowPaneId && otherInfo.anchor == info.anchor) {
           deactivateToolWindow(otherInfo, otherEntry, dirtyMode = dirtyMode, source = ToolWindowEventSource.HideSide)
         }
       }
@@ -1357,10 +1358,11 @@ open class ToolWindowManagerImpl @NonInjectable @TestOnly internal constructor(
         decorators.updateStateAndRemoveDecorator(state = item.new, entry = item.entry, dirtyMode = true)
       }
 
-      if (item.old.safeToolWindowPaneId != item.new.safeToolWindowPaneId
+      if (item.entry.id != ToolWindowId.VCS &&
+          (item.old.safeToolWindowPaneId != item.new.safeToolWindowPaneId
           || item.old.anchor != item.new.anchor
           || item.old.order != item.new.order
-          || item.old.isShowStripeButton != item.new.isShowStripeButton
+          || item.old.isShowStripeButton != item.new.isShowStripeButton)
       ) {
         LOG.debug {
           "Updating the anchor of the tool window ${item.entry.id} because one of the following has changed:" +
@@ -1422,13 +1424,15 @@ open class ToolWindowManagerImpl @NonInjectable @TestOnly internal constructor(
     LOG.debug("PASS 2: adjust sizes")
     // Now that the windows are shown/hidden/docked/whatever, we can adjust their sizes properly:
     for (item in list) {
-      if (item.new.isVisible && item.new.isDocked) {
+      if (item.entry.id != ToolWindowId.VCS && item.new.isVisible && item.new.isDocked) {
         val toolWindowPane = getToolWindowPane(item.entry.toolWindow)
         if (item.old.weight != item.new.weight) {
           LOG.debug { "Changing the tool window ${item.entry.id} weight from ${item.old.weight} to ${item.new.weight}" }
           val anchor = item.new.anchor
           var weight = item.new.weight
-          val another = list.firstOrNull { it !== item && it.new.anchor == anchor && it.new.isVisible && it.new.isDocked }
+          val another = list.firstOrNull {
+            it !== item && it.entry.id != ToolWindowId.VCS && it.new.anchor == anchor && it.new.isVisible && it.new.isDocked
+          }
           if (another != null && anchor.isUltrawideLayout()) { // split windows side-by-side, set weight of the entire splitter
             weight += another.new.weight
             LOG.debug {
@@ -1884,12 +1888,21 @@ open class ToolWindowManagerImpl @NonInjectable @TestOnly internal constructor(
   }
 
   internal fun stretchWidth(toolWindow: ToolWindowImpl, value: Int) {
+    if (toolWindow.id == ToolWindowId.VCS) {
+      return
+    }
     getToolWindowPane(toolWindow).stretchWidth(toolWindow, value)
   }
 
-  override fun isMaximized(window: ToolWindow): Boolean = getToolWindowPane(window).isMaximized(window)
+  override fun isMaximized(window: ToolWindow): Boolean {
+    return window.id != ToolWindowId.VCS && getToolWindowPane(window).isMaximized(window)
+  }
 
   override fun setMaximized(window: ToolWindow, maximized: Boolean) {
+    if (window.id == ToolWindowId.VCS) {
+      return
+    }
+
     if (window.type == ToolWindowType.FLOATING && window is ToolWindowImpl) {
       idToEntry.get(window.id)?.floatingDecorator?.toggleMaximized()
       return
@@ -1911,6 +1924,9 @@ open class ToolWindowManagerImpl @NonInjectable @TestOnly internal constructor(
   }
 
   internal fun stretchHeight(toolWindow: ToolWindowImpl, value: Int) {
+    if (toolWindow.id == ToolWindowId.VCS) {
+      return
+    }
     getToolWindowPane(toolWindow).stretchHeight(toolWindow, value)
   }
 

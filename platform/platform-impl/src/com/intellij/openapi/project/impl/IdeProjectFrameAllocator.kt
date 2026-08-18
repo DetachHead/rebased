@@ -183,14 +183,6 @@ internal class IdeProjectFrameAllocator(
           }
 
           launch {
-            val fileEditorManager = project.serviceAsync<FileEditorManager>() as FileEditorManagerImpl
-            fileEditorManager.initJob.join()
-            span("frame document component install", Dispatchers.UiWithModelAccess) {
-              frameHelper.toolWindowPane.setDocumentComponent(fileEditorManager.mainSplitters)
-            }
-          }
-
-          launch {
             span("project frame assigning") {
               frameHelper.setProject(project)
             }

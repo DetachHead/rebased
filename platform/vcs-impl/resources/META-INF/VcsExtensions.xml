@@ -186,8 +186,6 @@
 
     <toolWindow id="Version Control" anchor="bottom" canCloseContents="true" icon="AllIcons.Toolwindows.ToolWindowChanges"
                 factoryClass="com.intellij.openapi.vcs.changes.ui.ChangeViewToolWindowFactory"/>
-    <toolWindow id="File Editor" anchor="right" icon="AllIcons.FileTypes.Any_type" showStripeButton="true"
-                factoryClass="com.intellij.openapi.fileEditor.impl.FileEditorToolWindowFactory"/>
     <registryKey defaultValue="true" description="Show Version Control tool window in project without VCS" key="vcs.empty.toolwindow.show"/>
     <registryKey key="vcs.more.plugins.search.query"
                  defaultValue="/tag:&quot;VCS Integration&quot; /vendor:&quot;JetBrains s.r.o.&quot;"
