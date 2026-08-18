@@ -89,6 +89,15 @@ One of the goals of Rebased is to prevent users from having to install bloated p
 
 (currently only one language, but feel free to open an [issue](https://github.com/DetachHead/rebased/issues/new/choose) or [PR](https://github.com/DetachHead/rebased/compare) for others)
 
+## Plugins Disclaimer
+
+While installing plugins from the marketplace is supported, note that many of the core components otherwise present in every JetBrains IDE are disabled in Rebased. This means some plugins may not work properly (or at all) if they depend on such components.
+
+If you encounter any problems with a git-related plugin, you may open an issue, but keep in mind:
+
+- issues about language specific-plugins or other plugins that aren't related to git functionality are likely to be considered out-of-scope for Rebased, but will be assessed on a case-by-case basis
+- if fixing an issue with a git-related plugin requires re-enabling bloated IDE features that should otherwise not be required in a git client, it may still be considered out-of-scope
+
 ## Contributing
 
 See [`CONTRIBUTING.md`](./CONTRIBUTING.md)
