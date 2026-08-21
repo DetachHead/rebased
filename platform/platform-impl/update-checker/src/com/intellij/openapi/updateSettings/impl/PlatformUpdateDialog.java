@@ -277,15 +277,26 @@ public final class PlatformUpdateDialog extends AbstractUpdateDialog {
       updateButton.setEnabled(!myWriteProtected);
     }
     else {
-      var downloadUrl = myPlatformUpdate.getNewBuild().getDownloadUrl();
-      if (downloadUrl != null) {
-        updateButton = new AbstractAction(IdeBundle.message("updates.download.button")) {
+      if (RebasedMacUpdateController.canPrepare(myPlatformUpdate)) {
+        updateButton = new AbstractAction(IdeBundle.message("updates.download.update.button")) {
           @Override
           public void actionPerformed(ActionEvent e) {
             close(OK_EXIT_CODE);
-            BrowserUtil.browse(IdeUrlTrackingParametersProvider.getInstance().augmentUrl(downloadUrl));
+            RebasedMacUpdateController.prepareAndOfferRestart(myProject, myPlatformUpdate);
           }
         };
+      }
+      else {
+        var downloadUrl = myPlatformUpdate.getNewBuild().getDownloadUrl();
+        if (downloadUrl != null) {
+          updateButton = new AbstractAction(IdeBundle.message("updates.download.button")) {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+              close(OK_EXIT_CODE);
+              BrowserUtil.browse(IdeUrlTrackingParametersProvider.getInstance().augmentUrl(downloadUrl));
+            }
+          };
+        }
       }
     }
 

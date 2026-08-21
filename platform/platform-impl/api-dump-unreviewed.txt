@@ -4647,6 +4647,7 @@ f:com.intellij.openapi.ui.validation.ValidationsKt
 - sf:getCHECK_READABLE_DIRECTORY():com.intellij.openapi.ui.validation.DialogValidation$WithParameter
 f:com.intellij.openapi.updateSettings.impl.BuildInfo
 - f:getBlogPost():java.lang.String
+- f:getDownloadDigest():java.lang.String
 - f:getDownloadUrl():java.lang.String
 - f:getMessage():java.lang.String
 - f:getPatches():java.util.List

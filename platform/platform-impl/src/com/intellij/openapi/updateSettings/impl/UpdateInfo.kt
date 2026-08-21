@@ -13,6 +13,8 @@ import com.intellij.openapi.util.JDOMUtil
 import com.intellij.openapi.util.NlsSafe
 import com.intellij.openapi.util.SystemInfo
 import com.intellij.openapi.util.SystemInfoRt
+import com.intellij.openapi.util.text.StringUtil
+import com.intellij.util.system.CpuArch
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.intellij.lang.annotations.Language
@@ -29,6 +31,8 @@ import org.intellij.markdown.parser.MarkdownParser
 import org.intellij.markdown.flavours.gfm.GFMFlavourDescriptor
 import java.util.Date
 import java.util.Locale
+
+private val SHA256_DIGEST_PATTERN = Regex("[0-9a-fA-F]{64}")
 
 @Throws(IOException::class, JDOMException::class)
 fun parseUpdateData(
@@ -67,6 +71,9 @@ fun parseUpdateData(
   }
   val githubUrl = (ExternalProductResourceUrls.getInstance() as BaseJetBrainsExternalProductResourceUrls).productPageUrl
   val releasesUrl = "$githubUrl/releases/latest"
+  val releaseAsset = if (SystemInfoRt.isMac) selectRebasedMacAsset(json, CpuArch.CURRENT) else null
+  val downloadUrl = releaseAsset?.downloadUrl?.let { StringUtil.escapeXmlEntities(it) } ?: releasesUrl
+  val digestAttribute = releaseAsset?.sha256?.let { """ digest="$it"""" }.orEmpty()
   // we convert the release info to the format from https://www.jetbrains.com/updates/updates.xml because it's easier to just do that
   // than to update all the classes that can only be constructed from the parsed xml
   @Language("XML")
@@ -85,7 +92,7 @@ fun parseUpdateData(
         >
             <build number="$newVersion" version="$newVersion" fullNumber="$newVersion">
                 <message><![CDATA[${convertMarkdownToHtml(releaseDescription)}]]></message>
-                <button name="Download" url="$releasesUrl" download="true"/>
+                <button name="Download" url="$downloadUrl" download="true"$digestAttribute/>
             </build>
         </channel>
       </product>
@@ -124,7 +131,11 @@ class BuildInfo internal constructor(node: Element, productCode: String) {
   val releaseDate: Date? = parseDate(node.getAttributeValue("releaseDate"))
   val target: BuildRange? = BuildRange.fromStrings(node.getAttributeValue("targetSince"), node.getAttributeValue("targetUntil"))
   val patches: List<PatchInfo> = node.getChildren("patch").map(::PatchInfo)
-  val downloadUrl: String? = node.getChildren("button").find { it.getAttributeValue("download") != null }?.getMandatoryAttributeValue("url")
+  private val downloadButton = node.getChildren("button").find { it.getAttributeValue("download") != null }
+  val downloadUrl: String? = downloadButton?.getMandatoryAttributeValue("url")
+  val downloadDigest: String? = downloadButton?.getAttributeValue("digest")
+    ?.takeIf(SHA256_DIGEST_PATTERN::matches)
+    ?.lowercase(Locale.ROOT)
 
   private fun parseBuildNumber(value: String, productCode: String): BuildNumber {
     val buildNumber = BuildNumber.fromString(value)!!

@@ -163,7 +163,7 @@ object ExecUtil {
 
   internal fun escapeAppleScriptArgument(arg: String): @NlsSafe String =
     if (arg == "&&") "\"$arg\"" // support multiple commands separated with &&
-    else "quoted form of \"${arg.replace("\"", "\\\"").replace("\\", "\\\\")}\""
+    else "quoted form of \"${arg.replace("\\", "\\\\").replace("\"", "\\\"")}\""
 
   @ApiStatus.Internal
   @JvmStatic

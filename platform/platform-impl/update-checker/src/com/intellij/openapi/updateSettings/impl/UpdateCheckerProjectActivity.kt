@@ -33,6 +33,8 @@ internal class UpdateCheckerProjectActivity : ProjectActivity {
       return
     }
 
+    RebasedMacUpdateController.restoreNotifications(project)
+
     val current = ApplicationInfo.getInstance().build
     UpdateCheckerService.checkIfPreviousUpdateFailed(current)
     UpdateCheckerService.showSnapUpdateNotification(project, current)

@@ -86,7 +86,7 @@ final class NoUpdatesDialog extends AbstractUpdateDialog {
   static @Nls(capitalization = Nls.Capitalization.Sentence) String getNoUpdatesText() {
     String app = ApplicationNamesInfo.getInstance().getFullProductName();
     ExternalUpdateManager manager = ExternalUpdateManager.ACTUAL;
-    if (manager == null) {
+    if (!RebasedMacUpdateController.isExternalManagerBlocking(manager)) {
       return IdeBundle.message("updates.no.updates.message", app);
     }
     else if (manager == ExternalUpdateManager.TOOLBOX) {

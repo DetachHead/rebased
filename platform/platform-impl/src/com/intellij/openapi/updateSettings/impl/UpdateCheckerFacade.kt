@@ -10,6 +10,10 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.BuildNumber
 import com.intellij.util.concurrency.annotations.RequiresBackgroundThread
 import com.intellij.util.concurrency.annotations.RequiresReadLockAbsence
+import com.intellij.util.io.RequestBuilder
+import com.intellij.util.system.CpuArch
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
 import org.jetbrains.annotations.ApiStatus
 
 @ApiStatus.Internal
@@ -34,6 +38,8 @@ interface UpdateCheckerFacade {
   fun getNotificationGroupForIdeUpdateResults(): NotificationGroup
 
   fun loadProductData(indicator: ProgressIndicator?): Product?
+
+  fun loadFreshRebasedMacDigest(expectedVersion: String, indicator: ProgressIndicator): String?
 
   @ApiStatus.Internal
   fun updateDescriptorsForInstalledPlugins()
@@ -66,4 +72,19 @@ interface UpdateCheckerFacade {
   fun saveDisabledToUpdatePlugins()
 
   fun ignorePlugins(descriptors: List<IdeaPluginDescriptor>)
+}
+
+@ApiStatus.Internal
+fun loadFreshRebasedMacDigest(
+  expectedVersion: String,
+  indicator: ProgressIndicator,
+  arch: CpuArch,
+  request: RequestBuilder,
+): String? {
+  indicator.checkCanceled()
+  val release = Json.decodeFromString<JsonObject>(
+    request.productNameAsUserAgent().readString(indicator)
+  )
+  indicator.checkCanceled()
+  return selectFreshRebasedMacDigest(release, expectedVersion, arch)
 }

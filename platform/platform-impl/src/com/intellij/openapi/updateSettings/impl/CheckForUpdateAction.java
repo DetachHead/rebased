@@ -19,7 +19,7 @@ final class CheckForUpdateAction extends AnAction implements DumbAware {
       e.getPresentation().setVisible(!ActionPlaces.isMacSystemMenuAction(e));
     }
 
-    if (ExternalUpdateManager.ACTUAL != null) {
+    if (RebasedMacUpdateController.isExternalManagerBlocking(ExternalUpdateManager.ACTUAL)) {
       e.getPresentation().setDescription(ActionsBundle.message("action.CheckForUpdate.description.plugins"));
     }
   }

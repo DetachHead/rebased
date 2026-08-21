@@ -48,6 +48,7 @@ class UpdateSettingsConfigurable @JvmOverloads constructor (private val checkNow
   override fun createPanel(): DialogPanel {
     val settings = UpdateSettings.getInstance()
     val manager = ExternalUpdateManager.ACTUAL
+    val externalManagerBlocking = RebasedMacUpdateController.isExternalManagerBlocking(manager)
     val channelSelectionLockedMessage = UpdateStrategyCustomization.getInstance().getChannelSelectionLockedMessage()
     val appInfo = ApplicationInfo.getInstance()
     val channelModel = CollectionComboBoxModel(settings.activeChannels)
@@ -59,8 +60,8 @@ class UpdateSettingsConfigurable @JvmOverloads constructor (private val checkNow
 
       row {
         when {
-          manager != null -> {
-            comment(IdeBundle.message("updates.settings.external", manager.toolName))
+          externalManagerBlocking -> {
+            comment(IdeBundle.message("updates.settings.external", manager!!.toolName))
           }
           channelSelectionLockedMessage != null -> {
             checkBox(IdeBundle.message("updates.settings.checkbox"))

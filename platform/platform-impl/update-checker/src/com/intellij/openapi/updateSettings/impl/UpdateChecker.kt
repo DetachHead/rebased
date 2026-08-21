@@ -61,6 +61,7 @@ import com.intellij.util.containers.MultiMap
 import com.intellij.util.io.HttpRequests
 import com.intellij.util.text.VersionComparatorUtil
 import com.intellij.util.ui.UIUtil
+import com.intellij.util.system.CpuArch
 import com.intellij.xml.util.XmlStringUtil
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -91,6 +92,7 @@ private val LOG = logger<UpdateChecker>()
 private const val DISABLED_UPDATE = "disabled_update.txt"
 private const val DISABLED_PLUGIN_UPDATE = "plugin_disabled_updates.txt"
 private const val PRODUCT_DATA_TTL_MIN = 5L
+private const val REBASED_LATEST_RELEASE_URL = "https://api.github.com/repos/detachHead/rebased/releases/latest"
 
 private val shownNotifications = MultiMap<NotificationKind, Notification>()
 
@@ -121,6 +123,10 @@ internal class UpdateCheckerFacadeImpl : UpdateCheckerFacade {
 
   override fun loadProductData(indicator: ProgressIndicator?): Product? {
     return UpdateChecker.loadProductData(indicator)
+  }
+
+  override fun loadFreshRebasedMacDigest(expectedVersion: String, indicator: ProgressIndicator): String? {
+    return UpdateChecker.loadFreshRebasedMacDigest(expectedVersion, indicator)
   }
 
   override fun updateDescriptorsForInstalledPlugins() {
@@ -255,7 +261,9 @@ object UpdateChecker {
     try {
       indicator?.text = IdeBundle.message("updates.checking.platform")
       val productData = loadProductData(indicator)
-      if (productData == null || !settings.isCheckNeeded || ExternalUpdateManager.ACTUAL != null) {
+      if (productData == null ||
+          !settings.isCheckNeeded ||
+          RebasedMacUpdateController.isExternalManagerBlocking(ExternalUpdateManager.ACTUAL)) {
         return PlatformUpdates.Empty
       }
       else {
@@ -278,7 +286,7 @@ object UpdateChecker {
   @JvmStatic
   @Throws(IOException::class, JDOMException::class)
   fun loadProductData(indicator: ProgressIndicator?): Product? {
-    val url = Urls.newFromEncoded("https://api.github.com/repos/detachHead/rebased/releases/latest")
+    val url = Urls.newFromEncoded(REBASED_LATEST_RELEASE_URL)
 
     return productDataLock.withLock {
       val cached = productDataCache?.get()
@@ -300,6 +308,16 @@ object UpdateChecker {
         product
       }
     }
+  }
+
+  @ApiStatus.Internal
+  fun loadFreshRebasedMacDigest(expectedVersion: String, indicator: ProgressIndicator): String? {
+    return loadFreshRebasedMacDigest(
+      expectedVersion,
+      indicator,
+      CpuArch.CURRENT,
+      HttpRequests.request(Urls.newFromEncoded(REBASED_LATEST_RELEASE_URL)),
+    )
   }
 
   private fun clearProductDataCache() {
