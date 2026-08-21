@@ -10,7 +10,7 @@ jobs:
         with:
           identifier: detachhead.rebased
           token: ${{ secrets.WINGET_TOKEN }}
-          installers-regex: ^rebased.exe$
+          installers-regex: ^rebased(-aarch64)?.exe$
 
   homebrew:
     runs-on: macos-latest
