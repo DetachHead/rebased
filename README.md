@@ -89,7 +89,9 @@ One of the goals of Rebased is to prevent users from having to install bloated p
 
 (currently only one language, but feel free to open an [issue](https://github.com/DetachHead/rebased/issues/new/choose) or [PR](https://github.com/DetachHead/rebased/compare) for others)
 
-## Plugins Disclaimer
+## Plugins
+
+### Compatibility disclaimer
 
 While installing plugins from the marketplace is supported, note that many of the core components otherwise present in every JetBrains IDE are disabled in Rebased. This means some plugins may not work properly (or at all) if they depend on such components.
 
@@ -97,6 +99,22 @@ If you encounter any problems with a git-related plugin, you may open an issue, 
 
 - issues about language specific-plugins or other plugins that aren't related to git functionality are likely to be considered out-of-scope for Rebased, but will be assessed on a case-by-case basis
 - if fixing an issue with a git-related plugin requires re-enabling bloated IDE features that should otherwise not be required in a git client, it may still be considered out-of-scope
+
+### For plugin developers
+
+If you need to debug your plugin in Rebased, the IntelliJ platform gradle plugin [supports debugging with a local instance of the IDE](https://plugins.jetbrains.com/docs/intellij/tools-intellij-platform-gradle-plugin.html#dependenciesLocalPlatform). You can configure it to use Rebased.
+
+> [!NOTE]
+> If you're on linux using the AppImage, you'll have to either extract or mount it first. If you're using AppManager, you can click "Extract AppImage". Alternatively you can run `./Rebased.AppImage --appimage-mount` to mount it instead.
+> 
+> Once mounted/extracted, set the `local` path to the `usr` directory inside the AppImage's filesystem, for example:
+> ```kts
+> dependencies {
+>   intellijPlatform {
+>     local("/tmp/.mount_Rebaseccgcph/usr")
+>   }
+> }
+> ```
 
 ## Contributing
 
