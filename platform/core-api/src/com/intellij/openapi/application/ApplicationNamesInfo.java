@@ -28,7 +28,7 @@ public final class ApplicationNamesInfo {
   private static volatile ApplicationNamesInfo instance;
 
   private static @NotNull XmlElement loadData() {
-    String prefix = System.getProperty(PlatformUtils.PLATFORM_PREFIX_KEY, "");
+    String prefix = System.getProperty(PlatformUtils.PLATFORM_PREFIX_KEY, "Rebased");
     String appInfoData = getAppInfoData();
 
     if (AppMode.isRunningFromDevBuild() && appInfoData.isEmpty()) {
