@@ -2,10 +2,15 @@
 package com.intellij.openapi.vcs.configurable
 
 import com.intellij.ide.DataManager
+import com.intellij.ide.dnd.DnDSupport
+import com.intellij.ide.dnd.FileCopyPasteUtil
 import com.intellij.ide.trustedProjects.TrustedProjects
 import com.intellij.ide.util.scopeChooser.ScopeChooserConfigurable
 import com.intellij.ide.util.treeView.FileNameComparator
 import com.intellij.openapi.Disposable
+import com.intellij.openapi.application.EDT
+import com.intellij.openapi.application.ModalityState
+import com.intellij.openapi.application.asContextElement
 import com.intellij.openapi.options.ConfigurationException
 import com.intellij.openapi.options.ex.Settings
 import com.intellij.openapi.progress.ProgressIndicator
@@ -31,6 +36,7 @@ import com.intellij.openapi.vcs.roots.VcsRootErrorsFinder
 import com.intellij.openapi.vcs.update.AbstractCommonUpdateAction
 import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.openapi.vfs.VirtualFile
+import com.intellij.platform.ide.progress.withBackgroundProgress
 import com.intellij.ui.ColoredTableCellRenderer
 import com.intellij.ui.EditorNotificationPanel
 import com.intellij.ui.LightColors
@@ -55,7 +61,11 @@ import com.intellij.util.ui.JBDimension
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.ListTableModel
 import com.intellij.util.ui.UIUtil
+import com.intellij.vcs.VcsDisposable
 import com.intellij.vcsUtil.VcsUtil
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.jetbrains.annotations.Nls
 import java.awt.BorderLayout
 import java.awt.Component
@@ -73,6 +83,7 @@ internal class VcsDirectoryConfigurationPanel(private val project: Project) : Di
   private val vcsManager: ProjectLevelVcsManager = ProjectLevelVcsManager.getInstance(project)
   private val vcsConfiguration: VcsConfiguration = VcsConfiguration.getInstance(project)
   private val sharedProjectSettings: VcsSharedProjectSettings = VcsSharedProjectSettings.getInstance(project)
+  private val coroutineScope = VcsDisposable.getInstance(project).childScope("VcsDirectoryConfigurationPanel", this)
 
   private val allSupportedVcss: List<AbstractVcs> = vcsManager.getAllSupportedVcss().asList()
   private val vcsRootCheckers: Map<String, VcsRootChecker> =
@@ -154,6 +165,7 @@ internal class VcsDirectoryConfigurationPanel(private val project: Project) : Di
     mappingTable = TableView()
     mappingTable.setShowGrid(false)
     mappingTable.intercellSpacing = JBUI.emptySize()
+    mappingTable.fillsViewportHeight = true
     TableSpeedSearch.installOn(mappingTable) { info: Any? ->
       if (info is RecordInfo.MappingInfo) getPresentablePath(project, info.mapping) else ""
     }
@@ -176,6 +188,9 @@ internal class VcsDirectoryConfigurationPanel(private val project: Project) : Di
     mappingTable.rowHeight = vcsComboBox.preferredSize.height
     if (isEditingDisabled) {
       mappingTable.isEnabled = false
+    }
+    else {
+      installDirectoryDropTarget()
     }
   }
 
@@ -247,6 +262,97 @@ internal class VcsDirectoryConfigurationPanel(private val project: Project) : Di
       items.add(createRegisteredInfo(info.mapping))
     }
     setDisplayedMappings(items)
+  }
+
+  /** Installs desktop file-manager drop support while the toolbar remains available as the keyboard-accessible path. */
+  private fun installDirectoryDropTarget() {
+    DnDSupport.createBuilder(mappingTable)
+      .enableAsNativeTarget()
+      .disableAsSource()
+      .setTargetChecker { event ->
+        if (!FileCopyPasteUtil.isFileListFlavorAvailable(event)) return@setTargetChecker false
+
+        // Finder does not expose the dragged paths until the target accepts the drop on macOS.
+        event.isDropPossible = true
+        false
+      }
+      .setDropHandlerWithResult { event ->
+        val directories = FileCopyPasteUtil.getVirtualFileListFromAttachedObject(event.attachedObject)
+          .filter { it.isValid && it.isInLocalFileSystem && it.isDirectory }
+        if (directories.isEmpty()) return@setDropHandlerWithResult false
+
+        addDroppedMappings(directories, ModalityState.stateForComponent(mappingTable))
+        true
+      }
+      .setDisposableParent(this)
+      .install()
+  }
+
+  /** Detects each folder's VCS off the EDT, then adds all mappings in one model update. */
+  private fun addDroppedMappings(directories: List<VirtualFile>, modalityState: ModalityState) {
+    val distinctDirectories = directories.distinctBy { it.path }
+    val suggestedVcsName = allSupportedVcss.minWithOrNull(SuggestedVcsComparator.create(project))?.name.orEmpty()
+
+    coroutineScope.launch {
+      val droppedMappings = withBackgroundProgress(
+        project,
+        VcsBundle.message("settings.vcs.mapping.status.detecting.version.control"),
+      ) {
+        distinctDirectories.map { directory ->
+          val vcsName = vcsManager.findVersioningVcs(directory)?.name ?: suggestedVcsName
+          VcsDirectoryMapping(directory.path, vcsName)
+        }
+      }
+
+      withContext(Dispatchers.EDT + modalityState.asContextElement()) {
+        persistDroppedMappings(droppedMappings)
+      }
+    }
+  }
+
+  /** Persists only the dropped roots while preserving unrelated edits that still belong to the Settings transaction. */
+  private fun persistDroppedMappings(droppedMappings: List<VcsDirectoryMapping>) {
+    val items = mappingTableModel.items.toMutableList()
+    val persistedMappings = vcsManager.getDirectoryMappings()
+    val persistedMappingsByDirectory = persistedMappings.associateBy { it.directory }
+    val pendingMappings = items
+      .filterIsInstance<RecordInfo.RegisteredMappingInfo>()
+      .associateBy { it.mapping.directory }
+    val unregisteredMappings = items
+      .filterIsInstance<RecordInfo.UnregisteredMapping>()
+      .associateBy { it.mapping.directory }
+    val acceptedMappings = droppedMappings
+      .map { mapping ->
+        persistedMappingsByDirectory[mapping.directory]
+        ?: pendingMappings[mapping.directory]?.mapping
+        ?: unregisteredMappings[mapping.directory]?.mapping
+        ?: mapping
+      }
+      .distinctBy { it.directory }
+    val mappingsToAdd = acceptedMappings.filterNot { it.directory in persistedMappingsByDirectory }
+
+    if (mappingsToAdd.isNotEmpty()) {
+      val addedDirectories = mappingsToAdd.mapTo(HashSet()) { it.directory }
+      vcsConfiguration.removeFromIgnoredUnregisteredRoots(addedDirectories)
+      vcsManager.setDirectoryMappings(persistedMappings + mappingsToAdd)
+    }
+
+    val displayedDirectories = pendingMappings.keys
+    val mappingsToDisplay = acceptedMappings.filterNot { it.directory in displayedDirectories }
+    if (mappingsToDisplay.isNotEmpty()) {
+      val restoredDirectories = mappingsToDisplay.mapTo(HashSet()) { it.directory }
+      // Restore a matching pending removal, while every other pending edit remains untouched for Apply or Cancel.
+      items.removeIf { info ->
+        info is RecordInfo.UnregisteredMapping && info.mapping.directory in restoredDirectories
+      }
+      items.addAll(mappingsToDisplay.map(::createRegisteredInfo))
+      setDisplayedMappings(items)
+    }
+
+    // Replace any root scan that began before these mappings became persistent.
+    if (mappingsToAdd.isNotEmpty()) {
+      scheduleUnregisteredRootsLoading()
+    }
   }
 
   private fun setDisplayedMappings(mappings: List<RecordInfo>) {
