@@ -52,6 +52,18 @@ jobs:
           os: windows
           suffix: .win.zip
           artifacts_dir: ${{inputs.artifacts_dir}}
+      - name: upload-windows-installer-aarch64
+        uses: ./.github/actions/upload_ide
+        with:
+          os: windows
+          suffix: -aarch64.exe
+          artifacts_dir: ${{inputs.artifacts_dir}}
+      - name: upload-windows-zip-aarch64
+        uses: ./.github/actions/upload_ide
+        with:
+          os: windows
+          suffix: -aarch64.win.zip
+          artifacts_dir: ${{inputs.artifacts_dir}}
       - name: upload-mac-aarch64
         uses: ./.github/actions/upload_ide
         with:
