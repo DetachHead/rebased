@@ -17,13 +17,23 @@ See [this youtrack issue](https://youtrack.jetbrains.com/issue/IJPL-72504/Make-g
 
 ### Linux
 
-Download the appimage from [GitHub releases](https://github.com/DetachHead/rebased/releases).
+We recommend installing the AppImage with with [AppManager](https://github.com/kem-a/AppManager) to install it to your applications menu, and for automatic updates:
 
-We recommend using either [AppManager](https://github.com/kem-a/AppManager) or [Gear Lever](https://github.com/mijorus/gearlever) to install it to your applications menu, and for automatic updates.
+|Architecture|Install via AppManager|Manual Download|
+|-|-|-|
+|x86_64|[Install](https://detachhead.codeberg.page/urlwrapper/?url=appimg://install?url=https://github.com/DetachHead/rebased/releases/latest/download/Rebased-x86_64.AppImage)|[Download](https://github.com/DetachHead/rebased/releases/latest/download/Rebased-x86_64.AppImage)
+|aarch64|[Install](https://detachhead.codeberg.page/urlwrapper/?url=appimg://install?url=https://github.com/DetachHead/rebased/releases/latest/download/Rebased-aarch64.AppImage)|[Download](https://github.com/DetachHead/rebased/releases/latest/download/Rebased-aarch64.AppImage)
+
+Alternatively you can download the `.tar.gz` from [GitHub Releases](https://github.com/DetachHead/rebased/releases)
 
 ### Windows
 
-You can either download the installer `.exe` from [GitHub releases](https://github.com/DetachHead/rebased/releases) or install via winget:
+|Architecture|Installer|Portable `.zip`|
+|-|-|-|
+|x86_64|[Download](https://github.com/DetachHead/rebased/releases/latest/download/rebased.exe)|[Download](https://github.com/DetachHead/rebased/releases/latest/download/rebased.win.zip)|
+|aarch64|[Download](https://github.com/DetachHead/rebased/releases/latest/download/rebased-aarch64.exe)|[Download](https://github.com/DetachHead/rebased/releases/latest/download/rebased-aarch64.win.zip)|
+
+Alternatively you can install via winget:
 
 ```ps1
 winget install detachhead.rebased --source winget
@@ -37,19 +47,22 @@ Install with [homebrew](https://brew.sh/):
 brew install detachhead/tap/rebased
 ```
 
-<details>
-  <summary>Manual installation</summary>
+Alternatively you can download the `.dmg` manually:
 
-Download the `.dmg` from [GitHub releases](https://github.com/DetachHead/rebased/releases)
+> [!WARNING]
+> 
+> When installing the `.dmg` manually, you may see the following error message after copying `Rebased.app` to your Applications folder:
+> > "Rebased.app" is damaged and can't be opened. You should move it to the Bin.
+> 
+> **This is Apple lying to you.** Nothing is "damaged", it's just not code-signed with an Apple Developer certificate. To fix it, run the following command:
+> ```bash
+> xattr -rd com.apple.quarantine /Applications/Rebased.app
+> ```
 
-After copying `Rebased.app` to your Applications folder, you may see the following error message:
-> "Rebased.app" is damaged and can't be opened. You should move it to the Bin.
-
-**This is Apple lying to you.** Nothing is "damaged", it's just not code-signed with an Apple Developer certificate. To fix it, run the following command:
-  ```bash
-  xattr -rd com.apple.quarantine /Applications/Rebased.app
-  ```
-</details>
+|Architecture|Download|
+|-|-|
+|Apple Silicon (aarch64)|[Download](https://github.com/DetachHead/rebased/releases/latest/download/rebased-aarch64.dmg)|
+|Intel (x86_64)|[Download](https://github.com/DetachHead/rebased/releases/latest/download/rebased.dmg)|
 
 ## Exclusive Features
 
