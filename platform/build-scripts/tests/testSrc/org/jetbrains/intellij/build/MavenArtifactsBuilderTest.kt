@@ -57,7 +57,7 @@ class MavenArtifactsBuilderTest {
     val context = runBlocking {
       createBuildContext(
         projectHome = ULTIMATE_HOME,
-        productProperties = IdeaCommunityProperties(COMMUNITY_ROOT.communityRoot),
+        productProperties = RebasedProperties(COMMUNITY_ROOT.communityRoot),
         setupTracer = false,
       )
     }
@@ -81,7 +81,7 @@ class MavenArtifactsBuilderTest {
     val context = runBlocking {
       createBuildContext(
         projectHome = ULTIMATE_HOME,
-        productProperties = IdeaCommunityProperties(COMMUNITY_ROOT.communityRoot),
+        productProperties = RebasedProperties(COMMUNITY_ROOT.communityRoot),
         setupTracer = false,
       )
     }
