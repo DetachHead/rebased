@@ -233,6 +233,22 @@ class PyTypedDictTypeTest : PyCodeInsightTestCase() {
     )
 
     @Test
+    @TestFor(issues = ["PY-90620"])
+    fun `extra_items non-literal str key`() = test(
+      TestOptions(languageLevel = LanguageLevel.PYTHON313),
+      """
+      from typing_extensions import TypedDict
+
+      class Foo(TypedDict, extra_items=int):
+          pass
+
+      def bar(foo: Foo, key: str) -> None:
+          expr = foo[key]
+      #   └ TYPE int
+      """,
+    )
+
+    @Test
     @TestFor(issues = ["PY-85421"])
     fun `extra_items reflected in items`() = test(
       TestOptions(languageLevel = LanguageLevel.PYTHON313, assertRecursionPrevention = false),
@@ -514,7 +530,7 @@ class PyTypedDictTypeTest : PyCodeInsightTestCase() {
 
     @Test
     @TestFor(issues = ["PY-38873"])
-    fun `value access through list field`() = test("""
+    fun `value access through list field`() = test(TestOptions(enablePyAnyType = false), """
       from typing import TypedDict, List, LiteralString
       Movie = TypedDict('Movie', {'address': List[str]}, total=False)
       class Movie2(TypedDict, total=False):
@@ -652,7 +668,6 @@ class PyTypedDictTypeTest : PyCodeInsightTestCase() {
       def clear_intdict(x: IntDict) -> None:
           v: dict[str, int] = x  # OK
           v.clear()  # OK
-      #   ^^^^^^^^^ WARNING 'clear' is not callable
       
       not_required_num_dict: IntDictWithNum = {"num": 1, "bar": 2}
       regular_dict: dict[str, int] = not_required_num_dict  # OK
@@ -694,6 +709,22 @@ class PyTypedDictTypeTest : PyCodeInsightTestCase() {
       required_readonly_dict: IntDictRequiredReadOnly = {"id": 1}
       combined_error: dict[str, int] = required_readonly_dict  # Error: 'id' is both required and read-only
       #                                ^^^^^^^^^^^^^^^^^^^^^^ WARNING Expected type 'dict[str, int]', got 'IntDictRequiredReadOnly' instead
+      """)
+
+    @Test
+    @TestFor(issues = ["PY-90618"])
+    fun `assigning to a read-only extra item is reported`() = test(
+      // `enablePyAnyType = false`: writing an extra key feeds a `null` expected type into the value check;
+      // making that path yield the extra-items type instead is part of the `PyAnyType` migration (PY-88453).
+      TestOptions(enablePyAnyType = false),
+      """
+      from typing_extensions import TypedDict, ReadOnly
+
+      class Foo(TypedDict, extra_items=ReadOnly[int]):
+          pass
+
+      def f(foo: Foo) -> None:
+          foo["bar"] = 43  # WARNING TypedDict key "bar" is ReadOnly
       """)
   }
 
@@ -887,7 +918,7 @@ class PyTypedDictTypeTest : PyCodeInsightTestCase() {
 
   @Test
   @TestFor(issues = ["PY-90291"])
-  fun `TypedDict as Mapping or dict`() = test("""
+  fun `TypedDict as Mapping or dict`() = test(TestOptions(enablePyAnyType = false), """
     from typing import Mapping, TypedDict, NotRequired
     
     
@@ -923,11 +954,11 @@ class PyTypedDictTypeTest : PyCodeInsightTestCase() {
         pass
     
     
-    class ExtraIntRequired(ExtraInt):
+    class ExtraIntNotRequired1(ExtraInt):
         name: NotRequired[int]
     
     
-    class ExtraIntNotRequired(TypedDict, extra_items=int, total=False):
+    class ExtraIntNotRequired2(TypedDict, extra_items=int, total=False):
         name: int
     
     
@@ -936,20 +967,19 @@ class PyTypedDictTypeTest : PyCodeInsightTestCase() {
     
     
     ei: ExtraInt = {}
-    eir: ExtraIntRequired = {"name": 1}
-    einr: ExtraIntNotRequired = {"name": 1}
+    einr1: ExtraIntNotRequired1 = {"name": 1}
+    einr2: ExtraIntNotRequired2 = {"name": 1}
     esn: ExtraStrName = {"name": "s"}
     
     m_ei: Mapping[str, int] = ei
-    m_eir: Mapping[str, int] = eir
+    m_eir: Mapping[str, int] = einr1
     m_esn_int: Mapping[str, int] = esn
     #                              ^^^ WARNING Expected type 'Mapping[str, int]', got 'ExtraStrName' instead
     m_esn_union: Mapping[str, int | str] = esn
     
     d_ei: dict[str, int] = ei
-    d_eir: dict[str, int] = eir
-    #                       ^^^ WARNING Expected type 'dict[str, int]', got 'ExtraIntRequired' instead
-    d_einr: dict[str, int] = einr
+    d_einr1: dict[str, int] = einr1
+    d_einr2: dict[str, int] = einr2
     
     
     # A plain (open) TypedDict implicitly allows read-only extra items of type object,

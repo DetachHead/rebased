@@ -5,7 +5,6 @@ import com.intellij.openapi.module.Module
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.projectRoots.Sdk
 import com.intellij.python.pyproject.model.api.getPyProjectTomlFile
-import com.jetbrains.python.sdk.associatedModuleNioPath
 import com.jetbrains.python.sdk.findModuleForSdk
 import com.jetbrains.python.errorProcessing.PyResult
 import com.jetbrains.python.getOrNull
@@ -30,10 +29,11 @@ import com.jetbrains.python.packaging.packageRequirements.PackageStructureNode
 import com.jetbrains.python.packaging.packageRequirements.TreeParser
 import com.jetbrains.python.packaging.packageRequirements.collectAllNames
 import com.jetbrains.python.packaging.pip.PipRepositoryManager
-import com.jetbrains.python.packaging.pyRequirement
 import com.intellij.python.pyproject.PY_PROJECT_TOML
+import com.intellij.python.pyproject.PY_PROJECT_TOML_DEPENDENCY_GROUPS
 import com.intellij.python.pyproject.PyProjectToml
 import com.jetbrains.python.poetry.POETRY_LOCK
+import com.jetbrains.python.sdk.pySdkAdditionalData
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.jetbrains.annotations.ApiStatus
@@ -198,12 +198,13 @@ internal class PoetryPackageManager(project: Project, sdk: Sdk) : PythonPackageM
   }
 
   private suspend fun editablePackagesFromLock(): Map<String, URI?> {
-    val projectPath = sdk.associatedModuleNioPath ?: return emptyMap()
+    val data = sdk.pySdkAdditionalData
+    val workingDir = data.workingDirectory.takeIf { data.hasValidWorkingDirectory() } ?: return emptyMap()
     val content = withContext(Dispatchers.IO) {
-      try { projectPath.resolve(POETRY_LOCK.value).readText() } catch (_: IOException) { null }
+      try { workingDir.resolve(POETRY_LOCK.value).readText() } catch (_: IOException) { null }
     } ?: return emptyMap()
     return parsePoetryLockEditablePackages(content).mapValues { (_, url) ->
-      url?.let { resolveEditableLocation(it, projectPath) }
+      url?.let { resolveEditableLocation(it, workingDir) }
     }
   }
 
@@ -276,15 +277,26 @@ internal class PoetryPackageManager(project: Project, sdk: Sdk) : PythonPackageM
 }
 
 /**
- * Returns Poetry dependency group names from `[tool.poetry.group.<name>.dependencies]` sections.
- * Always includes "main" as the first entry (representing `[tool.poetry.dependencies]`).
+ * Returns Poetry dependency group names. Merges every group source Poetry itself recognises
+ * (Poetry 2.x accepts PEP 621 / PEP 735 alongside the legacy Poetry layout):
+ *  - "main" — implicit `[tool.poetry.dependencies]` / `[project].dependencies` group;
+ *  - "dev" — legacy `[tool.poetry.dev-dependencies]` shortcut (Poetry <2.0), still installable via
+ *    `poetry install --with dev`;
+ *  - `[tool.poetry.group.<name>.dependencies]` — Poetry-native group layout;
+ *  - `[dependency-groups]` keys — PEP 735 layout;
+ *  - `[project.optional-dependencies]` keys — PEP 621 extras, installable with `poetry install --extras`.
+ *
+ * Order: "main" first, then legacy dev, Poetry-native groups, PEP 735 groups, PEP 621 extras.
+ * Duplicates de-duplicated so a group declared in multiple spots surfaces once.
  */
 @ApiStatus.Internal
 private fun PyProjectToml.getPoetryGroupNames(): List<String> {
-  val toolTable = toml.getTable("tool") ?: return PyProjectToml.DEFAULT_GROUP_NAMES
-  val poetryTable = toolTable.getTable("poetry") ?: return PyProjectToml.DEFAULT_GROUP_NAMES
-  val groupTable = poetryTable.getTable("group") ?: return PyProjectToml.DEFAULT_GROUP_NAMES
-  return PyProjectToml.DEFAULT_GROUP_NAMES + groupTable.keySet().toList()
+  val poetryTable = toml.getTable("tool")?.getTable("poetry")
+  val legacyDev = listOfNotNull("dev".takeIf { poetryTable?.getTable("dev-dependencies") != null })
+  val poetryGroups = poetryTable?.getTable("group")?.keySet().orEmpty()
+  val pep735Groups = toml.getTable(PY_PROJECT_TOML_DEPENDENCY_GROUPS)?.keySet().orEmpty()
+  val pep621Extras = project.dependencies.optional.keys
+  return (PyProjectToml.DEFAULT_GROUP_NAMES + legacyDev + poetryGroups + pep735Groups + pep621Extras).distinct()
 }
 
 private class PoetryWorkspaceSupport(private val project: Project, private val sdk: Sdk) : PythonWorkspaceSupport {
