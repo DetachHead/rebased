@@ -41,6 +41,7 @@ jobs:
   build:
     needs: get_version
     uses: ./.github/workflows/ide_build_and_upload.yml
+    secrets: inherit
     with:
       artifacts_dir: out/idea-ce/artifacts
       product: intellij_idea
@@ -67,11 +68,12 @@ jobs:
           prerelease: false
           draft: true
           files: |
-            **/*.tar.gz
-            **/*.AppImage
-            **/*.zsync
-            **/*.exe
+            linux-*/*.tar.gz
+            linux-*/*.AppImage
+            linux-*/*.zsync
+            linux-*/*.spdx.json
+            windows-signed/rebased.exe
+            windows-signed/*.spdx.json
             **/*.win.zip
-            **/*.dmg
-            **/*.spdx.json
-            
+            mac-*/*.dmg
+            mac-*/*.spdx.json

@@ -20,6 +20,8 @@ permissions: {}
 jobs:
   distributions:
     runs-on: ubuntu-latest
+    outputs:
+      unsigned-windows-artifact-id: ${{ steps.upload-unsigned-artifact.outputs.artifact-id }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -42,6 +44,7 @@ jobs:
           artifacts_dir: ${{inputs.artifacts_dir}}
       - name: upload-windows-installer-x64
         uses: ./.github/actions/upload_ide
+        id: upload-unsigned-artifact
         with:
           os: windows
           suffix: .exe
@@ -188,3 +191,24 @@ jobs:
           os: linux
           suffix: -${{ matrix.arch.appimage }}.AppImage
           artifacts_dir: .
+  sign-windows-exe:
+    runs-on: ubuntu-latest
+    needs: distributions
+    steps:
+      - name: submit signing request
+        uses: signpath/github-action-submit-signing-request@b9d91eadd323de506c0c81cf0c7fe7438f3360fd
+        with:
+          api-token: '${{ secrets.SIGNPATH_API_TOKEN }}'
+          organization-id: '6fa8204e-d307-43a0-bd8b-39b0883fc150'
+          project-slug: 'rebased'
+          signing-policy-slug: 'release-signing'
+          github-artifact-id: '${{ needs.distributions.outputs.unsigned-windows-artifact-id }}'
+          wait-for-completion: true
+          output-artifact-directory: 'signed-exe'
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        id: upload
+        with:
+          name: windows-signed
+          if-no-files-found: 'error'
+          retention-days: 1
+          path: 'signed-exe/*'
