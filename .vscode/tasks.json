@@ -1,0 +1,27 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      // only intended to be used by the debug config
+      // ideally this wouldn't be needed, see https://github.com/DetachHead/rebased/issues/53 and https://github.com/Kotlin/kotlin-lsp/issues/46
+      // "hide": true,
+      "label": "debug",
+      "type": "process",
+      "command": "./bazel.cmd",
+      "args": [
+        "run",
+        "//build:idea_community",
+        "--jvmopt=-agentlib:jdwp=transport=dt_socket,server=y,suspend=y,address=5005"
+      ],
+      "isBackground": true,
+      "problemMatcher": {
+        "pattern": [],
+        "background": {
+          "activeOnStart": true,
+          "beginsPattern": ".*",
+          "endsPattern": "Listening for transport dt_socket.*"
+        }
+      }
+    }
+  ]
+}
