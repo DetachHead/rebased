@@ -24,6 +24,8 @@ internal class GitIgnoreSearchScope(
 
   override fun contains(file: VirtualFile): Boolean = super.contains(file) && !isIgnored(file)
 
+  override fun isDefaultSelected() = true
+
   @VisibleForTesting
   fun isIgnored(file: VirtualFile): Boolean {
     val filePath = file.filePath()
