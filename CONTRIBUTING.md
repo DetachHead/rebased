@@ -23,8 +23,9 @@ This section will guide you through getting the project sources and help avoid c
 
 #### Clone Main Repository
 
-Rebased is available from the [GitHub repository](https://github.com/detachhead/rebased). 
-The **master** (_default_) branch contains the source code which is periodically merged with upstream, however Rebased tracks upstream IntelliJ Community releases in [separate release branches](https://github.com/DetachHead/rebased/pulls?q=is%3Apr+label%3A%22release+branch%22). Releases are always published from the latest release branch instead of the master branch.
+Rebased is available from the [GitHub repository](https://github.com/detachhead/rebased).
+The **master** (_default_) branch contains the source code which is periodically merged with upstream, however Rebased tracks upstream IntelliJ Community releases in separate release branches. Releases are always published from the latest release branch instead of the master branch.
+[See below](#keeping-up-to-date-with-upstream) for more info.
 
 You can [clone this project](https://www.jetbrains.com/help/idea/manage-projects-hosted-on-github.html#clone-from-GitHub) directly using IntelliJ IDEA. 
 
@@ -141,3 +142,108 @@ to debug tests use: `-Dintellij.build.test.debug.suspend=true -Dintellij.build.t
 
 `tests.cmd` is used just to run [CommunityRunTestsBuildTarget](build/src/CommunityRunTestsBuildTarget.kt) from the command line.
 You can also call it directly from IDEA, see run configuration `tests` for an example.
+
+## Keeping up-to-date with upstream
+
+I try to keep rebased up-to-date with the latest releases of the IntelliJ IDEs. Specifically, I use the `idea/*` release tags as a base for
+the Rebased releases. I aim to do a release within a few days of the upstream release.
+
+This section details how exactly I do upstream merges. This is primarily for my own reference and not really relevant to contributors. All
+you really need to know as a contributor is that if your change is specific to code not yet present in `master`, you may need to make your PR
+to [the current release branch](https://github.com/DetachHead/rebased/pulls?q=is%3Apr+label%3A%22release+branch%22) instead.
+
+### How upstream merging works
+
+The way upstream does releases is extremely convoluted. Changes are initially merged into `master`, then cherry-picked into an intermediary
+branch (eg. `262`), then cherry-picked into a release branch (eg. `262.8665`) where the tag is published (eg. `idea/2026.2`).
+
+Unfortunately, each of these branches can contain commits that never end up in `master`, or even other release branches. This means we can't
+just merge `upstream/master` into our own `master` branch to do releases, because it never contains the exact state of the code that's tied
+to specific releases.
+
+Here is a diagram demonstrating how I merge changes from upstream:
+
+```mermaid
+---
+config:
+  gitGraph:
+    showCommitLabel: false
+    mainBranchName: 'upstream/master'
+---
+      gitGraph
+        commit
+        commit
+
+        %% rebased initial fork
+        branch "master" order: 1
+        commit
+
+        %% upstream 2026.2
+        checkout "upstream/master"
+        commit 
+        branch "upstream/262"
+        commit 
+        branch "2026.2-base" %% branch made by us, not upstream
+        branch "upstream/262.8665"
+        commit
+        commit tag:"idea/2026.2"
+
+        %% merge 2026.2 and release v1.0.0
+        checkout "master"
+        branch "262" order: 2
+        merge "2026.2-base"
+        branch "release/2026.2" order: 3
+        merge "upstream/262.8665" tag: "1.0.0"
+        
+        %% more changes in rebased
+        checkout "master"
+        commit id:"feat1"
+        checkout "262"
+        cherry-pick id:"feat1"
+        checkout "release/2026.2"
+        cherry-pick id:"feat1"
+        checkout "master"
+        commit id:"feat2"
+        checkout "262"
+        cherry-pick id:"feat2"
+        checkout "release/2026.2"
+        cherry-pick id:"feat2" tag:"1.0.1"
+
+        %% upstream releases 2026.2.1
+        checkout "upstream/262"
+        commit
+        branch "2026.2.1-base" %% branch made by us, not upstream
+        branch "upstream/262.9437"
+        commit
+        commit tag:"idea/2026.2.1"
+
+        %% merge 2026.2.1 and release v1.0.2
+        checkout "262"
+        merge "2026.2.1-base"
+        branch "release/2026.2.1" order: 4
+        merge "upstream/262.9437" tag: "1.0.2"
+
+        %% upstream releases 2026.2.2
+        checkout "upstream/262"
+        commit
+        branch "2026.2.2-base" %% branch made by us, not upstream
+        branch "upstream/262.10315"
+        commit
+        commit tag:"idea/2026.2.2"
+
+        %% merge 2026.2.2 and release v1.0.3
+        checkout "262"
+        merge "2026.2.2-base"
+        branch "release/2026.2.2" order: 5
+        merge "upstream/262.10315" tag: "1.0.3"
+
+        checkout "upstream/master"
+        commit
+        commit
+        checkout master
+        merge "upstream/master"
+```
+
+> [!NOTE]
+> - the `*-base` branches (eg. `2026.2-base`) are only created for the purpose of merging the *base* (ie. common ancestor) of two branches/tags (eg. `upstream/262` and `idea/2026.2`) into our own `262` branch. This prevents us having to re-resolve the same conflicts for every subsequent `2026.*` release
+> - This is not an accurate reflection of the history of this repo. The release tags are only examples and don't reflect the actual upstream version that those releases were based on.
