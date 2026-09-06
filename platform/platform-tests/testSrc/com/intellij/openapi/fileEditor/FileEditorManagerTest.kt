@@ -59,6 +59,7 @@ import org.intellij.lang.annotations.Language
 import org.jetbrains.jps.model.serialization.PathMacroUtil
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
+import org.junit.jupiter.api.Disabled
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.Arguments
@@ -269,30 +270,24 @@ class FileEditorManagerTest {
   }
 
   @Test
-  fun testCloseFilesWithChecksRunsBatchCheckOnceAndCancelsWholeCloseSet(): Unit = timeoutRunBlocking(context = Dispatchers.UiWithModelAccess) {
+  fun testCloseFilesWithChecksKeepsNonClosableFileOpen(): Unit = timeoutRunBlocking(context = Dispatchers.UiWithModelAccess) {
     openSourceFiles("1.txt", "2.txt")
     val window = currentWindow()
     var singleChecks = 0
-    var batchFiles: List<VirtualFile> = emptyList()
     registerPreCloseCheck(object : VirtualFilePreCloseCheck {
       override fun canCloseFile(file: VirtualFile): Boolean {
         singleChecks++
-        return true
-      }
-
-      override fun canCloseFiles(files: Collection<VirtualFile>): Boolean {
-        batchFiles = files.toList()
-        return false
+        return file.name == "1.txt"
       }
     })
 
-    assertThat(manager.closeFilesWithChecks(window.allComposites.map { Pair.create(it, window) })).isFalse()
+    assertThat(manager.closeFilesWithChecks(window.allComposites.map { Pair.create(it, window) })).isTrue()
 
-    assertThat(singleChecks).isZero()
-    assertThat(batchFiles.map { it.name }).containsExactly("1.txt", "2.txt")
-    assertOpenFiles("1.txt", "2.txt")
+    assertThat(singleChecks).isEqualTo(2)
+    assertOpenFiles("2.txt")
   }
 
+  @Disabled("this behavior is disabled in rebased")
   @Test
   fun testCloseFilesWithChecksClosesWholeSetAfterBatchCheck(): Unit = timeoutRunBlocking(context = Dispatchers.UiWithModelAccess) {
     openSourceFiles("1.txt", "2.txt")

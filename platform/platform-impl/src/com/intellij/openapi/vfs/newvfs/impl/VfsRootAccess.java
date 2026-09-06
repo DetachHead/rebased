@@ -291,7 +291,8 @@ public final class VfsRootAccess {
       var enumerator = ProjectRootManager.getInstance(project).orderEntries().using(new DefaultModulesProvider(project));
       ContainerUtil.addAll(roots, enumerator.classes().getUrls());
       ContainerUtil.addAll(roots, enumerator.sources().getUrls());
-      ContainerUtil.addAll(roots, enumerator.roots(AnnotationOrderRootType.getInstance()).getUrls());
+      // disabled in rebased. AnnotationOrderRootType looks like some java thing that we disabled so this crashes
+      //ContainerUtil.addAll(roots, enumerator.roots(AnnotationOrderRootType.getInstance()).getUrls());
       return roots;
     }
     finally {
