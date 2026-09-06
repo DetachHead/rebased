@@ -363,6 +363,7 @@ public class AllIcons {
     /** 16x16 */ public static final @NotNull Icon Frame = load("expui/debugger/frame.svg", "debugger/frame.svg", -388104166, 2);
     /** 16x16 */ public static final @NotNull Icon Freeze = load("expui/debugger/freeze.svg", "debugger/freeze.svg", 754396711, 2);
     /** 16x16 */ public static final @NotNull Icon FreezeAll = load("expui/debugger/freezeAll.svg", "debugger/freezeAll.svg", 1588999303, 2);
+    /** 16x16 */ public static final @NotNull Icon InspectionSeverity = load("expui/debugger/inspectionSeverity.svg", -492644959, 0);
     /** 16x16 */ public static final @NotNull Icon KillProcess = load("expui/run/killProcess.svg", "debugger/killProcess.svg", 1100470732, 2);
     /** 12x12 */ public static final @NotNull Icon LambdaBreakpoint = load("expui/breakpoints/breakpointLambda.svg", "debugger/LambdaBreakpoint.svg", -2130747183, 2);
     /** 12x12 */ public static final @NotNull Icon MultipleBreakpoints = load("expui/breakpoints/multipleBreakpoints.svg", "debugger/MultipleBreakpoints.svg", -1140485658, 2);
@@ -509,6 +510,7 @@ public class AllIcons {
     /** 16x16 */ public static final @NotNull Icon Terraform = load("expui/fileTypes/terraform.svg", 15103612, 2);
     /** 16x16 */ public static final @NotNull Icon Text = load("expui/fileTypes/text.svg", "fileTypes/text.svg", -444897274, 0);
     /** 16x16 */ public static final @NotNull Icon Toml = load("expui/fileTypes/toml.svg", 1967853425, 2);
+    /** 16x16 */ public static final @NotNull Icon TypeScript = load("expui/fileTypes/typeScript.svg", 2024070316, 2);
     /** 16x16 */ public static final @NotNull Icon UiForm = load("expui/fileTypes/uiForm.svg", "fileTypes/uiForm.svg", -734581860, 0);
     /** 16x16 */ public static final @NotNull Icon Unknown = load("expui/fileTypes/unknown.svg", "fileTypes/unknown.svg", 1094896438, 0);
     /** 16x16 */ public static final @NotNull Icon Vue = load("expui/fileTypes/vue.svg", 1065828359, 0);

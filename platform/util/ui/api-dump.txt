@@ -336,6 +336,7 @@ f:com.intellij.icons.AllIcons$Debugger
 - sf:Frame:javax.swing.Icon
 - sf:Freeze:javax.swing.Icon
 - sf:FreezeAll:javax.swing.Icon
+- sf:InspectionSeverity:javax.swing.Icon
 - sf:KillProcess:javax.swing.Icon
 - sf:LambdaBreakpoint:javax.swing.Icon
 - sf:MultipleBreakpoints:javax.swing.Icon
@@ -473,6 +474,7 @@ f:com.intellij.icons.AllIcons$FileTypes
 - sf:Terraform:javax.swing.Icon
 - sf:Text:javax.swing.Icon
 - sf:Toml:javax.swing.Icon
+- sf:TypeScript:javax.swing.Icon
 - sf:UiForm:javax.swing.Icon
 - sf:Unknown:javax.swing.Icon
 - sf:Vue:javax.swing.Icon
@@ -5684,6 +5686,7 @@ f:com.intellij.util.ui.accessibility.AccessibleContextUtil
 - sf:setParent(java.awt.Component,java.awt.Component):V
 f:com.intellij.util.ui.accessibility.ScreenReader
 - sf:ACCESS_BRIDGE:java.lang.String
+- sf:ASSISTIVE_TECHNOLOGIES_PROPERTY:java.lang.String
 - sf:ATK_WRAPPER:java.lang.String
 - sf:SCREEN_READER_ACTIVE_PROPERTY:java.lang.String
 - <init>():V

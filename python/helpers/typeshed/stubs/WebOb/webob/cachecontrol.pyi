@@ -1,3 +1,4 @@
+import builtins
 from _typeshed import SupportsItems
 from collections.abc import Callable
 from typing import Any, Generic, Literal, overload
@@ -37,7 +38,7 @@ class exists_property(Generic[_ScopeT]):
     def __delete__(self, obj: CacheControl[_ScopeT]) -> None: ...
 
 class value_property(Generic[_T, _DefaultT, _NoneLiteral, _ScopeT]):
-    def __init__(self, prop: str, default: _DefaultT = None, none: _NoneLiteral = None, type: _ScopeT = None) -> None: ...  # type: ignore[assignment]
+    def __init__(self, prop: str, default: _DefaultT = None, none: _NoneLiteral = None, type: _ScopeT = None) -> None: ...  # type: ignore[assignment]  # ty:ignore[invalid-parameter-default]
 
     @overload
     def __get__(self, obj: None, type: type[CacheControl[Any]] | None = None) -> Self: ...
@@ -68,7 +69,7 @@ class value_property(Generic[_T, _DefaultT, _NoneLiteral, _ScopeT]):
 
 class CacheControl(Generic[_ScopeT]):
     header_value: str
-    update_dict: type[UpdateDict]
+    update_dict: builtins.type[UpdateDict]
     properties: dict[str, Any]
     type: _ScopeT
     def __init__(self, properties: dict[str, Any], type: _ScopeT) -> None: ...

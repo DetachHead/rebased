@@ -6,9 +6,13 @@ import com.intellij.execution.process.NopProcessHandler
 import com.intellij.execution.ui.BaseContentCloseListener
 import com.intellij.execution.ui.RunContentManagerImpl
 import com.intellij.openapi.Disposable
+import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.diagnostic.logger
+import com.intellij.openapi.progress.ProgressManager
 import com.intellij.openapi.project.Project
+import com.intellij.platform.ide.progress.runWithModalProgressBlocking
 import com.intellij.ui.content.Content
+import kotlinx.coroutines.CancellationException
 import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.plugins.terminal.fus.ReworkedTerminalUsageCollector
 import kotlin.time.TimeSource
@@ -23,7 +27,7 @@ abstract class TerminalTabCloseListener(
   }
 
   override fun closeQuery(content: Content, projectClosing: Boolean): Boolean {
-    if (projectClosing) {
+    if (projectClosing || project.isDisposed || ApplicationManager.getApplication().isExitInProgress) {
       return true
     }
     if (content.getUserData(Content.TEMPORARY_REMOVED_KEY) == true) {
@@ -32,8 +36,14 @@ abstract class TerminalTabCloseListener(
 
     val startTime = TimeSource.Monotonic.markNow()
     try {
-      if (!shouldConfirmClosing(content)) {
-        return true
+      val result = shouldConfirmClosing(content)
+      when (result) {
+        CloseCheckResult.SHOULD_ASK_CONFIRMATION -> {
+          /** proceed to show the confirmation dialog below */
+        }
+        CloseCheckResult.CAN_CLOSE_SILENTLY -> return true
+        // Interpret explicit user cancellation of the check as "Do not close the tab".
+        CloseCheckResult.CHECK_WAS_CANCELLED -> return false
       }
     }
     catch (e: Exception) {
@@ -51,10 +61,32 @@ abstract class TerminalTabCloseListener(
     return result != null
   }
 
-  abstract fun shouldConfirmClosing(content: Content): Boolean
+  abstract fun shouldConfirmClosing(content: Content): CloseCheckResult
 
   override fun canClose(project: Project): Boolean {
     return project === this.project && closeQuery(this.content, true)
+  }
+
+  protected fun runCloseCheckBlocking(shouldConfirmClosing: suspend () -> Boolean): CloseCheckResult {
+    return try {
+      runWithModalProgressBlocking(myProject, TerminalBundle.message("checking.running.terminal.processes.progress")) {
+        if (shouldConfirmClosing()) {
+          CloseCheckResult.SHOULD_ASK_CONFIRMATION
+        }
+        else CloseCheckResult.CAN_CLOSE_SILENTLY
+      }
+    }
+    catch (_: CancellationException) {
+      ProgressManager.checkCanceled()
+      // User pressed "Cancel" in the modal progress dialog.
+      CloseCheckResult.CHECK_WAS_CANCELLED
+    }
+  }
+
+  enum class CloseCheckResult {
+    SHOULD_ASK_CONFIRMATION,
+    CAN_CLOSE_SILENTLY,
+    CHECK_WAS_CANCELLED,
   }
 
   companion object {

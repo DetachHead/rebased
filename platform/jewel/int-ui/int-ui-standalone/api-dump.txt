@@ -30,12 +30,13 @@ f:org.jetbrains.jewel.intui.standalone.IntUiTypography
 - getMedium(androidx.compose.runtime.Composer,I):androidx.compose.ui.text.TextStyle
 - getRegular(androidx.compose.runtime.Composer,I):androidx.compose.ui.text.TextStyle
 - getSmall(androidx.compose.runtime.Composer,I):androidx.compose.ui.text.TextStyle
+- rememberConsoleTextStyle-e402vg0(J,androidx.compose.ui.text.font.FontWeight,androidx.compose.ui.text.font.FontStyle,androidx.compose.runtime.Composer,I,I):androidx.compose.ui.text.TextStyle
+- rememberDefaultTextStyle-e402vg0(J,androidx.compose.ui.text.font.FontWeight,androidx.compose.ui.text.font.FontStyle,androidx.compose.runtime.Composer,I,I):androidx.compose.ui.text.TextStyle
+- rememberEditorTextStyle-e402vg0(J,androidx.compose.ui.text.font.FontWeight,androidx.compose.ui.text.font.FontStyle,androidx.compose.runtime.Composer,I,I):androidx.compose.ui.text.TextStyle
 f:org.jetbrains.jewel.intui.standalone.InterFontKt
 - sf:getInter(androidx.compose.ui.text.font.FontFamily$Companion):androidx.compose.ui.text.font.FontFamily
 f:org.jetbrains.jewel.intui.standalone.JetBrainsMonoFontKt
 - sf:getJetBrainsMono(androidx.compose.ui.text.font.FontFamily$Companion):androidx.compose.ui.text.font.FontFamily
-f:org.jetbrains.jewel.intui.standalone.PainterProviderKt
-- sf:standalonePainterProvider(java.lang.String):org.jetbrains.jewel.ui.painter.ResourcePainterProvider
 f:org.jetbrains.jewel.intui.standalone.StandalonePainterHintsProvider
 - org.jetbrains.jewel.ui.painter.PalettePainterHintsProvider
 - sf:$stable:I
@@ -548,8 +549,6 @@ f:org.jetbrains.jewel.intui.standalone.styling.IntUiScrollbarStylingKt
 - sf:dark(org.jetbrains.jewel.ui.component.styling.ScrollbarStyle$Companion):org.jetbrains.jewel.ui.component.styling.ScrollbarStyle
 - sf:default(org.jetbrains.jewel.ui.component.styling.ScrollbarVisibility$AlwaysVisible$Companion):org.jetbrains.jewel.ui.component.styling.ScrollbarVisibility$AlwaysVisible
 - sf:default(org.jetbrains.jewel.ui.component.styling.ScrollbarVisibility$WhenScrolling$Companion):org.jetbrains.jewel.ui.component.styling.ScrollbarVisibility$WhenScrolling
-- sf:default-TZvXluI(org.jetbrains.jewel.ui.component.styling.ScrollbarVisibility$WhenScrolling$Companion,F,F,androidx.compose.foundation.layout.PaddingValues,androidx.compose.foundation.layout.PaddingValues,J,J,J,J):org.jetbrains.jewel.ui.component.styling.ScrollbarVisibility$WhenScrolling
-- bs:default-TZvXluI$default(org.jetbrains.jewel.ui.component.styling.ScrollbarVisibility$WhenScrolling$Companion,F,F,androidx.compose.foundation.layout.PaddingValues,androidx.compose.foundation.layout.PaddingValues,J,J,J,J,I,java.lang.Object):org.jetbrains.jewel.ui.component.styling.ScrollbarVisibility$WhenScrolling
 - sf:light(org.jetbrains.jewel.ui.component.styling.ScrollbarStyle$Companion):org.jetbrains.jewel.ui.component.styling.ScrollbarStyle
 - sf:macOs-TZvXluI(org.jetbrains.jewel.ui.component.styling.ScrollbarVisibility$WhenScrolling$Companion,F,F,androidx.compose.foundation.layout.PaddingValues,androidx.compose.foundation.layout.PaddingValues,J,J,J,J):org.jetbrains.jewel.ui.component.styling.ScrollbarVisibility$WhenScrolling
 - bs:macOs-TZvXluI$default(org.jetbrains.jewel.ui.component.styling.ScrollbarVisibility$WhenScrolling$Companion,F,F,androidx.compose.foundation.layout.PaddingValues,androidx.compose.foundation.layout.PaddingValues,J,J,J,J,I,java.lang.Object):org.jetbrains.jewel.ui.component.styling.ScrollbarVisibility$WhenScrolling
@@ -565,8 +564,10 @@ f:org.jetbrains.jewel.intui.standalone.styling.IntUiScrollbarStylingKt
 - bs:macOsLight$default(org.jetbrains.jewel.ui.component.styling.ScrollbarStyle$Companion,org.jetbrains.jewel.ui.component.styling.ScrollbarColors,org.jetbrains.jewel.ui.component.styling.ScrollbarMetrics,org.jetbrains.jewel.ui.component.styling.TrackClickBehavior,org.jetbrains.jewel.ui.component.styling.ScrollbarVisibility,I,java.lang.Object):org.jetbrains.jewel.ui.component.styling.ScrollbarStyle
 - sf:macOsLight-zwkVjRg(org.jetbrains.jewel.ui.component.styling.ScrollbarColors$Companion,J,J,J,J,J,J,J,J,J,J,J,J):org.jetbrains.jewel.ui.component.styling.ScrollbarColors
 - bs:macOsLight-zwkVjRg$default(org.jetbrains.jewel.ui.component.styling.ScrollbarColors$Companion,J,J,J,J,J,J,J,J,J,J,J,J,I,java.lang.Object):org.jetbrains.jewel.ui.component.styling.ScrollbarColors
-- sf:tabStrip-FbBwQsc(org.jetbrains.jewel.ui.component.styling.ScrollbarVisibility$Companion,F,F,androidx.compose.foundation.layout.PaddingValues,androidx.compose.foundation.layout.PaddingValues,androidx.compose.foundation.layout.PaddingValues,J,J,J,J):org.jetbrains.jewel.ui.component.styling.ScrollbarVisibility
-- bs:tabStrip-FbBwQsc$default(org.jetbrains.jewel.ui.component.styling.ScrollbarVisibility$Companion,F,F,androidx.compose.foundation.layout.PaddingValues,androidx.compose.foundation.layout.PaddingValues,androidx.compose.foundation.layout.PaddingValues,J,J,J,J,I,java.lang.Object):org.jetbrains.jewel.ui.component.styling.ScrollbarVisibility
+- sf:tabStrip-FbBwQsc(org.jetbrains.jewel.ui.component.styling.ScrollbarVisibility$AlwaysVisible$Companion,F,F,androidx.compose.foundation.layout.PaddingValues,androidx.compose.foundation.layout.PaddingValues,androidx.compose.foundation.layout.PaddingValues,J,J,J,J):org.jetbrains.jewel.ui.component.styling.ScrollbarVisibility
+- bs:tabStrip-FbBwQsc$default(org.jetbrains.jewel.ui.component.styling.ScrollbarVisibility$AlwaysVisible$Companion,F,F,androidx.compose.foundation.layout.PaddingValues,androidx.compose.foundation.layout.PaddingValues,androidx.compose.foundation.layout.PaddingValues,J,J,J,J,I,java.lang.Object):org.jetbrains.jewel.ui.component.styling.ScrollbarVisibility
+- sf:tabStrip-TZvXluI(org.jetbrains.jewel.ui.component.styling.ScrollbarVisibility$WhenScrolling$Companion,F,F,androidx.compose.foundation.layout.PaddingValues,androidx.compose.foundation.layout.PaddingValues,J,J,J,J):org.jetbrains.jewel.ui.component.styling.ScrollbarVisibility
+- bs:tabStrip-TZvXluI$default(org.jetbrains.jewel.ui.component.styling.ScrollbarVisibility$WhenScrolling$Companion,F,F,androidx.compose.foundation.layout.PaddingValues,androidx.compose.foundation.layout.PaddingValues,J,J,J,J,I,java.lang.Object):org.jetbrains.jewel.ui.component.styling.ScrollbarVisibility
 - sf:windowsAndLinux-TZvXluI(org.jetbrains.jewel.ui.component.styling.ScrollbarVisibility$WhenScrolling$Companion,F,F,androidx.compose.foundation.layout.PaddingValues,androidx.compose.foundation.layout.PaddingValues,J,J,J,J):org.jetbrains.jewel.ui.component.styling.ScrollbarVisibility$WhenScrolling
 - bs:windowsAndLinux-TZvXluI$default(org.jetbrains.jewel.ui.component.styling.ScrollbarVisibility$WhenScrolling$Companion,F,F,androidx.compose.foundation.layout.PaddingValues,androidx.compose.foundation.layout.PaddingValues,J,J,J,J,I,java.lang.Object):org.jetbrains.jewel.ui.component.styling.ScrollbarVisibility$WhenScrolling
 - sf:windowsAndLinux-tYhzLtE(org.jetbrains.jewel.ui.component.styling.ScrollbarVisibility$AlwaysVisible$Companion,F,androidx.compose.foundation.layout.PaddingValues,J,J):org.jetbrains.jewel.ui.component.styling.ScrollbarVisibility$AlwaysVisible
@@ -697,7 +698,7 @@ f:org.jetbrains.jewel.intui.standalone.styling.IntUiSuccessBannerColorFactory
 - f:light--OWjLjI(J,J):org.jetbrains.jewel.ui.component.styling.BannerColors
 - bs:light--OWjLjI$default(org.jetbrains.jewel.intui.standalone.styling.IntUiSuccessBannerColorFactory,J,J,I,java.lang.Object):org.jetbrains.jewel.ui.component.styling.BannerColors
 f:org.jetbrains.jewel.intui.standalone.styling.IntUiTabStripScrollbarStylingKt
-- sf:tabStrip-ziNgDLE(org.jetbrains.jewel.ui.component.styling.ScrollbarVisibility$AlwaysVisible$Companion,F,androidx.compose.foundation.layout.PaddingValues,androidx.compose.foundation.layout.PaddingValues):org.jetbrains.jewel.ui.component.styling.ScrollbarVisibility$AlwaysVisible
+- bsf:tabStrip-ziNgDLE(org.jetbrains.jewel.ui.component.styling.ScrollbarVisibility$AlwaysVisible$Companion,F,androidx.compose.foundation.layout.PaddingValues,androidx.compose.foundation.layout.PaddingValues):org.jetbrains.jewel.ui.component.styling.ScrollbarVisibility$AlwaysVisible
 - bs:tabStrip-ziNgDLE$default(org.jetbrains.jewel.ui.component.styling.ScrollbarVisibility$AlwaysVisible$Companion,F,androidx.compose.foundation.layout.PaddingValues,androidx.compose.foundation.layout.PaddingValues,I,java.lang.Object):org.jetbrains.jewel.ui.component.styling.ScrollbarVisibility$AlwaysVisible
 - sf:tabStripDark(org.jetbrains.jewel.ui.component.styling.ScrollbarStyle$Companion):org.jetbrains.jewel.ui.component.styling.ScrollbarStyle
 - sf:tabStripLight(org.jetbrains.jewel.ui.component.styling.ScrollbarStyle$Companion):org.jetbrains.jewel.ui.component.styling.ScrollbarStyle

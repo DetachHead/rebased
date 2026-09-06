@@ -3,7 +3,7 @@ package com.jetbrains.python.sdk.configuration
 
 import com.intellij.openapi.extensions.ExtensionPointName
 import com.intellij.openapi.module.Module
-import com.intellij.python.common.tools.ToolId
+import com.intellij.python.community.common.tools.ToolId
 import com.jetbrains.python.PythonBinary
 import com.jetbrains.python.sdk.baseDir
 import com.jetbrains.python.venvReader.VirtualEnvReader
@@ -48,6 +48,15 @@ interface PyProjectSdkConfigurationExtension {
       get() = EP_NAME.extensionsIfPointIsRegistered.map { it.toolId }
 
     /**
+     * Dependency files that are supported by all the registered configurators.
+     */
+    val potentialDependencyFiles: Set<String>
+      get() = EP_NAME.extensionsIfPointIsRegistered.foldRight(mutableSetOf()) { configurator, result ->
+        result += configurator.potentialDependencyFiles
+        result
+      }
+
+    /**
      * EPs associated by tool id
      */
     fun createMap(): Map<ToolId, PyProjectSdkConfigurationExtension> = EP_NAME.extensionList.associateBy { it.toolId }
@@ -76,6 +85,7 @@ interface PyProjectSdkConfigurationExtension {
   }
 
   val toolId: ToolId
+  val potentialDependencyFiles: Set<String>
 
   /**
    * Discovers whether this extension can provide a Python SDK for the given module and prepares a creator for it.

@@ -37,6 +37,14 @@ object GradleVersionSpecificsUtil {
   fun isPluginExtensionSupported(gradleVersion: GradleVersion): Boolean =
     GradleVersionUtil.isGradleAtLeast(gradleVersion, "4.10")
 
+  /**
+   * This feature of kotlin-dsl was introduced in 1.0-RC12 which is bundled starting from Gradle 5.0.
+   * https://github.com/gradle/kotlin-dsl-samples/issues/879
+   */
+  @JvmStatic
+  fun isKotlinNamedAccessorsForCollectionsSupported(gradleVersion: GradleVersion): Boolean =
+    GradleVersionUtil.isGradleAtLeast(gradleVersion, "5.0")
+
   @JvmStatic
   fun isKotlinPropertyAssignmentSupported(gradleVersion: GradleVersion): Boolean =
     GradleVersionUtil.isGradleAtLeast(gradleVersion, "8.6")
@@ -52,8 +60,4 @@ object GradleVersionSpecificsUtil {
   @JvmStatic
   fun isBaseScriptModelSupported(gradleVersion: GradleVersion): Boolean =
     GradleVersionUtil.isGradleAtLeast(gradleVersion, "9.2")
-
-  @JvmStatic
-  fun isResilientModelFetchApiSupported(gradleVersion: GradleVersion): Boolean =
-    GradleVersionUtil.isGradleAtLeast(gradleVersion, "9.3")
 }

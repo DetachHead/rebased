@@ -79,7 +79,7 @@ open class RebasedProperties(private val communityHomeDir: Path) : JetBrainsProd
     //productLayout.pluginLayouts = CommunityRepositoryModules.COMMUNITY_REPOSITORY_PLUGINS + persistentListOf(
     //  JavaPluginLayout.javaPlugin(),
     //  CommunityRepositoryModules.groovyPlugin(),
-    //  *CommunityRepositoryModules.androidPlugin(),
+    //  CommunityRepositoryModules.androidPlugin(allPlatforms = true),
     //)
 
     productLayout.skipUnresolvedContentModules = true
@@ -94,7 +94,7 @@ open class RebasedProperties(private val communityHomeDir: Path) : JetBrainsProd
       "intellij.platform.util.zip",
     )
     mavenArtifacts.validateForMavenCentralPublication = { module ->
-      JewelMavenArtifacts.isPublishedJewelModule(module)
+      JewelMavenArtifacts.isPublishedJewelModule(module) || JewelMavenArtifacts.isPublishedPlatformDependency(module)
     }
     mavenArtifacts.patchCoordinates = { module, coordinates ->
       when {
@@ -111,10 +111,12 @@ open class RebasedProperties(private val communityHomeDir: Path) : JetBrainsProd
     mavenArtifacts.addPomMetadata = { module, model ->
       when {
         JewelMavenArtifacts.isPublishedJewelModule(module) -> JewelMavenArtifacts.addPomMetadata(module, model)
+        JewelMavenArtifacts.isPublishedPlatformDependency(module) -> JewelMavenArtifacts.addPlatformPomMetadata(module, model)
       }
     }
     mavenArtifacts.isJavadocJarRequired = {
-      JewelMavenArtifacts.isPublishedJewelModule(it) && it.name != "intellij.platform.jewel.intUi.decoratedWindow"
+      JewelMavenArtifacts.isPublishedPlatformDependency(it) ||
+      (JewelMavenArtifacts.isPublishedJewelModule(it) && it.name != "intellij.platform.jewel.intUi.decoratedWindow")
     }
     mavenArtifacts.validate = { context, artifacts ->
       JewelMavenArtifacts.validate(context, artifacts)

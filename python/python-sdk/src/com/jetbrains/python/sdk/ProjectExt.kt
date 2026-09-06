@@ -1,17 +1,29 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.jetbrains.python.sdk
 
+import com.intellij.execution.target.TargetBasedSdkAdditionalData
+import com.intellij.openapi.module.Module
 import com.intellij.openapi.module.ModuleManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.projectRoots.ProjectJdkTable
+import com.intellij.openapi.projectRoots.Sdk
 import com.intellij.openapi.roots.ModuleRootManager
 import com.intellij.openapi.roots.ModuleRootModificationUtil
 import com.intellij.openapi.roots.ProjectRootManager
+import com.intellij.platform.eel.EelMachine
+import com.intellij.platform.eel.provider.LocalEelMachine
+import com.intellij.platform.eel.provider.getEelMachine
+import com.intellij.platform.eel.provider.ownsPath
 import com.intellij.util.concurrency.annotations.RequiresWriteLock
 import com.jetbrains.python.Result
 import com.jetbrains.python.errorProcessing.PyResult
+import com.jetbrains.python.run.PythonInterpreterTargetEnvironmentFactory
+import com.jetbrains.python.run.codeCouldProbablyBeRunWithConfig
 import com.jetbrains.python.sdk.impl.PySdkBundle.message
+import com.jetbrains.python.sdk.legacy.PythonSdkUtil
 import org.jetbrains.annotations.ApiStatus.Internal
+import java.nio.file.InvalidPathException
+import java.nio.file.Path
 
 /**
  * Renames the SDK currently registered as [oldName] to [newName] and keeps this project's references pointing at it.
@@ -71,4 +83,53 @@ fun Project.renameSdk(oldName: String, newName: String): PyResult<Unit> {
     ModuleRootModificationUtil.setModuleSdk(module, sdk)
   }
   return Result.success(Unit)
+}
+
+/**
+ * Returns all Python SDKs registered in the IDE that are usable from this project, optionally restricted to the target
+ * the given [module] resides on. Remote interpreters are sorted last, then by name.
+ */
+@Internal
+fun Project.getAssignablePythonSdks(module: Module?): List<Sdk> = filterAssignablePythonSdks(PythonSdkUtil.getAllSdks(), module)
+
+/** First module in this project whose configured Python SDK equals [sdk], or `null` if none matches. */
+@Internal
+fun Project.findModuleForSdk(sdk: Sdk): Module? =
+  ModuleManager.getInstance(this).modules.find { PythonSdkUtil.findPythonSdk(it) == sdk }
+
+/** First Python SDK configured on any module of this project, or `null` if none. */
+@Internal
+fun Project.findFirstPythonSdk(): Sdk? =
+  ModuleManager.getInstance(this).modules.firstNotNullOfOrNull { PythonSdkUtil.findPythonSdk(it) }
+
+/**
+ * Filters and sorts [sdks] the same way [getAssignablePythonSdks] does. The "Python Interpreters" dialog passes the editable
+ * copies from its own `ProjectSdksModel` here, so the displayed list matches the live one.
+ */
+@Internal
+fun Project.filterAssignablePythonSdks(sdks: Collection<Sdk>, module: Module?): List<Sdk> {
+  val eelMachine = getEelMachine()
+  val targetModuleSitsOn = module?.let { PythonInterpreterTargetEnvironmentFactory.getTargetModuleResidesOn(it) }
+  return sdks
+    .filter { sdk ->
+      PythonSdkUtil.isPythonSdk(sdk) &&
+      sdkMatchesEel(eelMachine, sdk) &&
+      (targetModuleSitsOn == null || targetModuleSitsOn.codeCouldProbablyBeRunWithConfig(sdk.targetEnvConfiguration))
+    }
+    .sortedWith(compareBy({ PythonSdkUtil.isRemote(it) }, { it.name }))
+}
+
+/**
+ * Mirrors `ProjectSdksModel.sdkMatchesEel` (which lives in lang-impl and is unavailable here): target-based SDKs are
+ * always eligible; other SDKs must have a home path owned by the project's [eelMachine].
+ */
+private fun sdkMatchesEel(eelMachine: EelMachine, sdk: Sdk): Boolean {
+  if (sdk.sdkAdditionalData is TargetBasedSdkAdditionalData) return true
+  val home = sdk.homePath ?: return false
+  return try {
+    eelMachine.ownsPath(Path.of(home))
+  }
+  catch (_: InvalidPathException) {
+    eelMachine == LocalEelMachine
+  }
 }

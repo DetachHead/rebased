@@ -36,7 +36,10 @@ object PyCollectionTypeUtil {
         if (element is PyStarExpression) {
           val innerExpr = element.expression ?: return@map null
           val innerType = context.getType(innerExpr)
-          PyTypeUtil.widenLiteralAndNumeric((innerType as? PyCollectionType)?.iteratedItemType)
+          // Resolve the element via the context-aware entry point: the context-less `iteratedItemType`
+          // can't upcast a local generic subclass (e.g. `class A[T](list[str])`) to `Iterable`.
+          val elementType = (innerType as? PyClassType)?.let { PyTypeChecker.getIteratedItemType(it, context) }
+          PyTypeUtil.widenLiteralAndNumeric(elementType)
         }
         else {
           PyTypeUtil.widenLiteralAndNumeric(context.getType(element))
@@ -69,7 +72,7 @@ object PyCollectionTypeUtil {
       val elementType = context.getType(element)
       val (keyType, valueType) = getKeyValueType(elementType)
 
-      if (!(keyType is PyClassType && PyNames.TYPE_STR == keyType.classQName)) {
+      if (!(keyType is PyClassType && PyNames.FQN.STR == keyType.classQName)) {
         return null
       }
       val keyString: String? = if (keyType is PyLiteralType) {
@@ -103,8 +106,8 @@ object PyCollectionTypeUtil {
       }
 
     if (elements.size > MAX_ANALYZED_ELEMENTS_OF_LITERALS) {
-      keyTypes.add(null)
-      valueTypes.add(null)
+      keyTypes.add(PyAnyType.unknown)
+      valueTypes.add(PyAnyType.unknown)
     }
 
     return Pair(PyUnionType.union(keyTypes), PyUnionType.union(valueTypes))

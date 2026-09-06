@@ -9,11 +9,13 @@ import org.gradle.tooling.BuildController
 import org.gradle.tooling.FetchModelResult
 import org.gradle.tooling.internal.consumer.DefaultFetchModelResult
 import org.gradle.tooling.model.Model
+import java.io.File
 
 internal class TestBuildController : BuildController by notImplemented(BuildController::class.java) {
 
   private val modelRequests = ArrayList<TestModelRequest>()
   private val runActionCounts = ArrayList<Int>()
+  private val sentValues = ArrayList<Any>()
   private val models = HashMap<Pair<Model?, Class<*>>, Any>()
   private val modelFailures = HashMap<Pair<Model?, Class<*>>, Exception>()
   private val parameterFactories = HashMap<Class<*>, (() -> Any)>()
@@ -44,21 +46,41 @@ internal class TestBuildController : BuildController by notImplemented(BuildCont
     assertEqualsOrdered(expectedRunActionCounts, runActionCounts)
   }
 
-  override fun <T> findModel(target: Model?, modelType: Class<T>): T? {
-    modelRequests.add(TestModelRequest(target!!, modelType))
+  fun assertSentFailureTargetPaths(expectedTargetPaths: List<File?>) {
+    val actualTargetPaths = sentValues
+      .filterIsInstance<GradleModelFetchFailureState>()
+      .map { it.failureResult.targetPath }
+    assertEqualsOrdered(expectedTargetPaths, actualTargetPaths)
+  }
+
+  override fun <T> getModel(target: Model, modelType: Class<T>): T {
+    return findModel(target, modelType) ?: error("No model of type ${modelType.name} for $target")
+  }
+
+  override fun <T, P : Any> getModel(
+    target: Model,
+    modelType: Class<T>,
+    parameterType: Class<P>,
+    parameterInitializer: Action<in P>,
+  ): T {
+    return findModel(target, modelType, parameterType, parameterInitializer) ?: error("No model of type ${modelType.name} for $target")
+  }
+
+  override fun <T> findModel(target: Model, modelType: Class<T>): T? {
+    modelRequests.add(TestModelRequest(target, modelType))
     throwModelFailure(target, modelType)
     @Suppress("UNCHECKED_CAST")
     return models[target to modelType] as T?
   }
 
   override fun <T, P : Any> findModel(
-    target: Model?,
+    target: Model,
     modelType: Class<T>,
-    parameterType: Class<P>?,
-    parameterInitializer: Action<in P>?,
+    parameterType: Class<P>,
+    parameterInitializer: Action<in P>,
   ): T? {
-    val parameter = createParameter(parameterType!!, parameterInitializer!!)
-    modelRequests.add(TestModelRequest(target!!, modelType, parameterType, parameter))
+    val parameter = createParameter(parameterType, parameterInitializer)
+    modelRequests.add(TestModelRequest(target, modelType, parameterType, parameter))
     throwModelFailure(target, modelType)
     @Suppress("UNCHECKED_CAST")
     return models[target to modelType] as T?
@@ -78,18 +100,8 @@ internal class TestBuildController : BuildController by notImplemented(BuildCont
     return parameter
   }
 
-  override fun <T : Any> fetch(modelType: Class<T>): FetchModelResult<T> =
-    fetchModelResult { findModel(modelType) }
-
   override fun <T : Any> fetch(target: Model, modelType: Class<T>): FetchModelResult<T> =
     fetchModelResult { findModel(target, modelType) }
-
-  override fun <T : Any, P : Any> fetch(
-    modelType: Class<T>,
-    parameterType: Class<P>?,
-    parameterInitializer: Action<in P>?,
-  ): FetchModelResult<T> =
-    fetchModelResult { findModel(modelType, parameterType, parameterInitializer) }
 
   override fun <T : Any, P : Any> fetch(
     target: Model?,
@@ -97,14 +109,16 @@ internal class TestBuildController : BuildController by notImplemented(BuildCont
     parameterType: Class<P>?,
     parameterInitializer: Action<in P>?,
   ): FetchModelResult<T> =
-    fetchModelResult { findModel(target, modelType, parameterType, parameterInitializer) }
+    fetchModelResult { findModel(target!!, modelType, parameterType!!, parameterInitializer!!) }
 
   override fun <T> run(actions: Collection<BuildAction<out T>>): List<T> {
     runActionCounts.add(actions.size)
     return actions.map { it.execute(this) }
   }
 
-  override fun send(value: Any?) = Unit
+  override fun send(value: Any?) {
+    if (value != null) sentValues.add(value)
+  }
 
   private fun <T : Any> fetchModelResult(modelProvider: () -> T?): FetchModelResult<T> {
     return try {

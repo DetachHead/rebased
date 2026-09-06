@@ -28,7 +28,7 @@ class ArrayField(CheckPostgresInstalledMixin, CheckFieldDefaultMixin, Field[_ST,
     default_error_messages: ClassVar[_ErrorMessagesDict]
     base_field: Field
     size: int | None
-    default_validators: Sequence[_ValidatorCallable]
+    default_validators: list[_ValidatorCallable]
     from_db_value: Any
     def __init__(
         self,
@@ -69,7 +69,5 @@ class ArrayField(CheckPostgresInstalledMixin, CheckFieldDefaultMixin, Field[_ST,
     def get_placeholder(self, value: Unused, compiler: Unused, connection: BaseDatabaseWrapper) -> str: ...
     @override
     def get_transform(self, name: str) -> type[Transform] | None: ...
-    @override
-    def formfield(self, **kwargs: Any) -> Any: ...  # type: ignore[override]
 
 __all__ = ["ArrayField"]

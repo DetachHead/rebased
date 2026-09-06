@@ -110,7 +110,6 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -330,6 +329,8 @@ public abstract class PythonCommandLineState extends CommandLineState {
    */
   protected @NotNull ProcessHandler startProcess(PythonProcessStarter processStarter, CommandLinePatcher... patchers)
     throws ExecutionException {
+    PyLaunchPreparer.prepareAllBlocking(getEnvironment());
+
     GeneralCommandLine commandLine = generateCommandLine(patchers);
 
     // Extend command line
@@ -355,6 +356,8 @@ public abstract class PythonCommandLineState extends CommandLineState {
    */
   protected @NotNull ProcessHandler startProcess(@NotNull PythonScriptTargetedCommandLineBuilder builder)
     throws ExecutionException {
+    PyLaunchPreparer.prepareAllBlocking(getEnvironment());
+
     HelpersAwareTargetEnvironmentRequest helpersAwareTargetRequest = getPythonTargetInterpreter();
 
     Sdk sdk = getSdk();
@@ -739,11 +742,7 @@ public abstract class PythonCommandLineState extends CommandLineState {
                                       boolean isDebug,
                                       @NotNull HelpersAwareTargetEnvironmentRequest helpersAwareTargetRequest,
                                       @Nullable Sdk sdk) {
-    boolean addPyCharmHosted = true;
-    if (sdk != null && !CondaPythonExecKt.getUsePythonForLocalConda()) {
-      addPyCharmHosted = PySdkExtKt.getOrCreateAdditionalData(sdk).getFlavor().providePyCharmHosted();
-    }
-    final Map<String, String> env = prepareEnv(project, runParams, addPyCharmHosted);
+    final Map<String, String> env = prepareEnv(project, runParams, shouldAddPyCharmHosted(sdk));
 
     setupEncodingEnvs(commandLine, commandLine.getCharset());
 
@@ -768,10 +767,38 @@ public abstract class PythonCommandLineState extends CommandLineState {
     if (runParams.getEnvs() != null) {
       env.putAll(runParams.getEnvs());
     }
-    addCommonEnvironmentVariables(getInterpreterPath(project, runParams), env, addPyCharmHosted);
-
-    setupVirtualEnvVariables(runParams, env);
+    addCommonAndVirtualEnvVariables(project, runParams, env, addPyCharmHosted);
     return env;
+  }
+
+  /**
+   * @see PythonSdkFlavor#providePyCharmHosted()
+   */
+  @ApiStatus.Internal
+  public static boolean shouldAddPyCharmHosted(@Nullable Sdk sdk) {
+    if (sdk == null || CondaPythonExecKt.getUsePythonForLocalConda()) return true;
+    return PySdkExtKt.getOrCreateAdditionalData(sdk).getFlavor().providePyCharmHosted();
+  }
+
+  /**
+   * Adds the environment variables every launched Python process is expected to have: the common ones
+   * ({@code PYTHONUNBUFFERED}, {@code PYCHARM_HOSTED}, …) and the ones produced by activating the
+   * virtualenv of {@link PythonRunParams#getSdk()}.
+   * <p>
+   * {@code env} is expected to already contain the environment variables from the run configuration
+   * (env files and {@link PythonRunParams#getEnvs()}), because the user-specified ones win over the
+   * activated ones.
+   * <p>
+   * Meant for launchers that don't build their command line through {@link #startProcess}, most notably
+   * the debugpy DAP backend, which passes the environment to the debug adapter instead.
+   */
+  @ApiStatus.Internal
+  public static void addCommonAndVirtualEnvVariables(@NotNull Project project,
+                                                     @NotNull PythonRunParams runParams,
+                                                     @NotNull Map<String, String> env,
+                                                     boolean addPyCharmHosted) {
+    addCommonEnvironmentVariables(getInterpreterPath(project, runParams), env, addPyCharmHosted);
+    setupVirtualEnvVariables(runParams, env);
   }
 
   private static void setupVirtualEnvVariables(PythonRunParams runParams, Map<String, String> env) {
@@ -879,24 +906,6 @@ public abstract class PythonCommandLineState extends CommandLineState {
       initPythonPath(commandLine, passParentEnvs, pathList, sdkHome);
     }
   }
-
-  @ApiStatus.Internal
-  public static @NotNull Map<String, String> buildPythonPath(@NotNull AbstractPythonRunConfiguration<?> configuration,
-                                                             boolean passParentEnvs) {
-    Map<String, String> envs = new HashMap<>(configuration.getEnvs());
-    Module module = configuration.getModule();
-    Sdk sdk = configuration.getSdk();
-
-    if (sdk != null) {
-      List<String> pathList = new ArrayList<>();
-      pathList.addAll(getAddedPaths(sdk));
-      pathList.addAll(collectPythonPath(module, configuration.shouldAddContentRoots(), configuration.shouldAddSourceRoots()));
-      PythonEnvUtil.initPythonPath(envs, passParentEnvs, pathList);
-    }
-
-    return envs;
-  }
-
 
   @ApiStatus.Internal
   public static void buildPythonPath(@NotNull Project project,
