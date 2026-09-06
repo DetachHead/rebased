@@ -269,48 +269,21 @@ class FileEditorManagerTest {
   }
 
   @Test
-  fun testCloseFilesWithChecksRunsBatchCheckOnceAndCancelsWholeCloseSet(): Unit = timeoutRunBlocking(context = Dispatchers.UiWithModelAccess) {
+  fun testCloseFilesWithChecksKeepsNonClosableFileOpen(): Unit = timeoutRunBlocking(context = Dispatchers.UiWithModelAccess) {
     openSourceFiles("1.txt", "2.txt")
     val window = currentWindow()
     var singleChecks = 0
-    var batchFiles: List<VirtualFile> = emptyList()
     registerPreCloseCheck(object : VirtualFilePreCloseCheck {
       override fun canCloseFile(file: VirtualFile): Boolean {
         singleChecks++
-        return true
-      }
-
-      override fun canCloseFiles(files: Collection<VirtualFile>): Boolean {
-        batchFiles = files.toList()
-        return false
-      }
-    })
-
-    assertThat(manager.closeFilesWithChecks(window.allComposites.map { Pair.create(it, window) })).isFalse()
-
-    assertThat(singleChecks).isZero()
-    assertThat(batchFiles.map { it.name }).containsExactly("1.txt", "2.txt")
-    assertOpenFiles("1.txt", "2.txt")
-  }
-
-  @Test
-  fun testCloseFilesWithChecksClosesWholeSetAfterBatchCheck(): Unit = timeoutRunBlocking(context = Dispatchers.UiWithModelAccess) {
-    openSourceFiles("1.txt", "2.txt")
-    val window = currentWindow()
-    var batchChecks = 0
-    registerPreCloseCheck(object : VirtualFilePreCloseCheck {
-      override fun canCloseFile(file: VirtualFile): Boolean = true
-
-      override fun canCloseFiles(files: Collection<VirtualFile>): Boolean {
-        batchChecks++
-        return true
+        return file.name == "1.txt"
       }
     })
 
     assertThat(manager.closeFilesWithChecks(window.allComposites.map { Pair.create(it, window) })).isTrue()
 
-    assertThat(batchChecks).isEqualTo(1)
-    assertOpenFiles()
+    assertThat(singleChecks).isEqualTo(2)
+    assertOpenFiles("2.txt")
   }
 
   @Test

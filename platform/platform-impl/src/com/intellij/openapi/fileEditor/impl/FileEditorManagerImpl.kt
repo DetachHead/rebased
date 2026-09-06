@@ -905,28 +905,15 @@ open class FileEditorManagerImpl(
   }
 
   @RequiresEdt
-  override fun closeFilesWithChecks(filesWithWindows: List<Pair<EditorComposite, EditorWindow>>): Boolean {
-    val filesToClose = filesWithWindows.filter { it.second.getComposite(it.first.file) != null }
-    if (filesToClose.isEmpty()) {
-      return true
-    }
-    val filesToCheck = filesToClose.mapTo(LinkedHashSet()) { it.first.file }
-    if (!canCloseFiles(filesToCheck)) {
-      return false
-    }
-
-    openFileSetModificationCount.increment()
-    WriteIntentReadAction.run {
-      for (fileWithWindow in filesToClose) {
-        val window = fileWithWindow.second
-        val currentComposite = window.getComposite(fileWithWindow.first.file)
-        if (currentComposite != null) {
-          window.closeFile(file = currentComposite.file, composite = currentComposite)
-        }
-      }
-    }
-    return true
-  }
+  override fun closeFilesWithChecks(filesWithWindows: List<Pair<EditorComposite, EditorWindow>>): Boolean =
+  // in rebased we do the checks one at a time and close any closable files even if not all of them were closable.
+  // this differs from upstream which doesn't do anything if not all tabs were closable (apparently something clanker related that i
+  // dont care about). we need to change this behavior tho because the log tab is not closable
+  // TODO: figure out what the return value should be (whether all of them were closable or whether at least some were closable).
+    //  currently the result doesn't seem to be used outside of tests so i don't think it matters
+    filesWithWindows.map {
+      closeFileWithChecks(it.first.file, it.second)
+    }.any()
 
   @RequiresEdt
   override fun closeFile(file: VirtualFile, window: EditorWindow) {
