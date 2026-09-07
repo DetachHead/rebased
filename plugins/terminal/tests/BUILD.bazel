@@ -22,6 +22,8 @@ jvm_library(
     runtime_deps = [
         # do not sort,
         "//platform/platform-impl:ide-impl",
+        "//platform/platform-api:ide",
+        "//platform/ide-core",
         "//platform/testFramework",
         "//java/java-runtime:rt",
         "//platform/configuration-store-impl:configurationStore-tests",
@@ -78,6 +80,7 @@ jvm_library(
         # do not sort,
         ":tests",
         "//platform/platform-impl:ide-impl_test_lib",
+        "//platform/ide-core:ide-core_test_lib",
         "//platform/platform-util-io:ide-util-io_test_lib",
         "//platform/platform-impl/internal:internal_test_lib",
         "//platform/platform-impl/eel:ide-impl-wsl_test_lib",
@@ -85,6 +88,9 @@ jvm_library(
     deps = [
         # do not sort,
         "//platform/platform-impl:ide-impl",
+        "//platform/platform-api:ide",
+        "//platform/platform-api:ide_test_lib",
+        "//platform/ide-core",
         "//platform/testFramework",
         "//platform/testFramework:testFramework_test_lib",
         "//java/java-runtime:rt",
@@ -171,6 +177,10 @@ jvm_library(
         "//platform/testFramework/junit5/eel:testFramework-junit5-eel-tests_test_lib",
         "//platform/editor-ui-ex:editor-ex",
         "//platform/editor-ui-ex:editor-ex_test_lib",
+        "//libraries/junit5",
+        "//libraries/junit5:junit5_test_lib",
+        "//libraries/junit5-params",
+        "//libraries/junit5-params:junit5-params_test_lib",
     ],
 )
 ### auto-generated section `build intellij.terminal.tests` end

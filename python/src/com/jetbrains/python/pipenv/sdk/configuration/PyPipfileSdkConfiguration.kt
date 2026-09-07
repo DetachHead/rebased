@@ -8,7 +8,7 @@ import com.intellij.openapi.projectRoots.Sdk
 import com.intellij.openapi.util.io.toNioPathOrNull
 import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.platform.ide.progress.withBackgroundProgress
-import com.intellij.python.common.tools.ToolId
+import com.intellij.python.community.common.tools.ToolId
 import com.intellij.python.community.execService.ZeroCodeStdoutParserTransformer
 import com.intellij.python.community.impl.pipenv.pipenvPath
 import com.jetbrains.python.PyBundle
@@ -47,6 +47,8 @@ private val LOGGER = Logger.getInstance(PyPipfileSdkConfiguration::class.java)
 internal class PyPipfileSdkConfiguration : PyProjectSdkConfigurationExtension {
 
   override val toolId: ToolId = PIPENV_TOOL_ID
+
+  override val potentialDependencyFiles: Set<String> = setOf(PIP_FILE)
 
   override suspend fun checkEnvironmentAndPrepareSdkCreator(module: Module, venvsInModule: List<PythonBinary>): CreateSdkInfo? =
     prepareSdkCreator(
@@ -109,7 +111,7 @@ internal class PyPipfileSdkConfiguration : PyProjectSdkConfigurationExtension {
 
       val sdk = createSdk(
         PathHolder.Eel(file.toNioPath()),
-        PyPipEnvSdkAdditionalData(),
+        PyPipEnvSdkAdditionalData(Path.of(basePath)),
         suggestedSdkName(basePath)
       ).getOr { return@withBackgroundProgress it }
 

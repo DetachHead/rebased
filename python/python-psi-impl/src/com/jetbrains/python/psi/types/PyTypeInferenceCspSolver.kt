@@ -489,6 +489,11 @@ private object ConstraintReducer {
     }
 
 
+    if (left is PyTypeFormType || right is PyTypeFormType) {
+      reduceTypeFormType(left, right, variance, cp)
+      return
+    }
+
     if (left is PyClassLikeType && right is PyClassLikeType) {
       reduceNominalType(left, right, variance, cp)
       return
@@ -556,6 +561,17 @@ private object ConstraintReducer {
     val rReturnType = right.getReturnType(cp.context)
     val retTypeVariance = variance.multiply(Variance.COVARIANT)
     reduce(lReturnType, rReturnType, retTypeVariance, cp)
+  }
+
+  /** Reduces a PEP 747 `TypeForm` constraint to a constraint between the represented types. */
+  private fun reduceTypeFormType(left: PyType?, right: PyType?, variance: Variance, cp: ConstraintProblem) {
+    val leftRepr = PyTypeFormType.representedTypeOf(left)
+    val rightRepr = PyTypeFormType.representedTypeOf(right)
+    if (leftRepr == null || rightRepr == null) {
+      cp.fail()
+      return
+    }
+    reduce(leftRepr, rightRepr, variance, cp)
   }
 
   /**
@@ -765,9 +781,9 @@ private object ConstraintReducer {
     if (left is PyClassType && right is PyClassType && left.pyClass === right.pyClass) {
       matchCount += 1000
 
-      if (left is PyCollectionType && right is PyCollectionType) {
-        val lTArgs = left.getElementTypes()
-        val rTArgs = right.getElementTypes()
+      if (left.isParameterized && right.isParameterized) {
+        val lTArgs = left.getTypeArguments()
+        val rTArgs = right.getTypeArguments()
         if (lTArgs.size == rTArgs.size) {
           matchCount += 100
           for (i in lTArgs.indices) {
@@ -1419,7 +1435,7 @@ private object TypeBoundResolver {
       }
       // It may happen that inference variables depend on each other, hence create a cycle
       // In this case it is necessary to substitute these inference variables by Any type
-      val substitutedBoundType = substituteInferenceVariablesBy(boundType, context) { Ref(null) }
+      val substitutedBoundType = substituteInferenceVariablesBy(boundType, context) { Ref(PyAnyType.unknown) }
       result.add(substitutedBoundType)
     }
     return result.toTypedArray()
@@ -1635,6 +1651,12 @@ private fun substitutePyTypeVarTypes(original: PyType?, inferenceVars: Inference
   }
   return PyCloningTypeVisitor.clone(original, object : PyCloningTypeVisitor(context) {
     override fun visitPyClassType(classType: PyClassType): PyType {
+      // Parameterized types must be cloned recursively so that their type arguments (which may contain
+      // type variables being solved) are run through visitPyTypeVarType and replaced with inference variables.
+      // Before PY-79063 these went through the removed visitPyGenericType, which recursed via the base visitor.
+      if (classType.isParameterized) {
+        return super.visitPyClassType(classType) ?: classType
+      }
       return normalizeType(classType, context) ?: classType
     }
 

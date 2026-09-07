@@ -1,10 +1,9 @@
 // "Add context parameter to function" "false"
-// COMPILER_ARGUMENTS: -XXLanguage:+ContextParameters
-
+// COMPILER_ARGUMENTS: -Xcontext-parameters
 // K2_ERROR: No context argument for 'i: Int' found.
 // K2_AFTER_ERROR: No context argument for 'i: Int' found.
 context(i: Int) fun bar(): String = ""
 
 val result = <caret>bar()
 
-// FUS_K2_QUICKFIX_NAME: org.jetbrains.kotlin.idea.k2.codeinsight.fixes.AddContextParameterFix
+// FUS_K2_QUICKFIX_NAME: org.jetbrains.kotlin.idea.k2.codeinsight.fixes.AddContextParameterFix$ForEnclosingFunction

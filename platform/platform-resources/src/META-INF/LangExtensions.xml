@@ -1392,6 +1392,7 @@
 
     <searchEverywhereContributor implementation="com.intellij.ide.actions.searcheverywhere.FileSearchEverywhereContributorFactory"/>
     <searchEverywhereContributor implementation="com.intellij.ide.actions.searcheverywhere.NonIndexableFilesSEContributor$Factory"/>
+    <registryKey defaultValue="true" description="Lookup non-indexable content files in the project scope" key="lookup.non.indexable.content.in.project.scope"/>
     <searchEverywhereContributor implementation="com.intellij.ide.actions.searcheverywhere.ActionSearchEverywhereContributor$Factory"/>
     <searchEverywhereContributor implementation="com.intellij.ide.actions.searcheverywhere.CalculatorSEContributorFactory"/>
     <searchEverywhereContributor implementation="com.intellij.ide.actions.searcheverywhere.RecentFilesSEContributor$Factory"/>
@@ -1496,6 +1497,9 @@
     <registryKey key="inline.completion.insert.line.with.leading.whitespaces"
                  description="Action 'Insert Inline Completion Proposal Line' will also insert leading whitespaces of the next line"
                  defaultValue="true"/>
+    <inline.completion.element.manipulator
+      implementation="com.intellij.codeInsight.inline.completion.elements.InlineCompletionFragmentedElementManipulator"
+      order="first"/>
     <inline.completion.element.manipulator
       implementation="com.intellij.codeInsight.inline.completion.elements.InlineCompletionGrayTextElementManipulator"
       order="last"/>

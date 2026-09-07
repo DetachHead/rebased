@@ -2,10 +2,10 @@ import sys
 from collections.abc import Callable, Iterable
 from typing import Any, Protocol, overload, type_check_only
 
-from django.core import validators  # due to weird mypy.stubtest error
 from django.core.files.base import File
 from django.core.files.images import ImageFile
 from django.core.files.storage import Storage
+from django.core.validators import _ValidatorCallable
 from django.db.models.base import Model
 from django.db.models.expressions import Expression
 from django.db.models.fields import NOT_PROVIDED, Field, _ErrorMessagesMapping
@@ -90,7 +90,7 @@ class FileField(Field[Any, Any]):
         db_column: str | None = ...,
         db_comment: str | None = ...,
         db_tablespace: str | None = ...,
-        validators: Iterable[validators._ValidatorCallable] = ...,
+        validators: Iterable[_ValidatorCallable] = ...,
         error_messages: _ErrorMessagesMapping | None = ...,
     ) -> None: ...
     # class access
@@ -108,8 +108,6 @@ class FileField(Field[Any, Any]):
     @override
     def contribute_to_class(self, cls: type[Model], name: str, **kwargs: Any) -> None: ...  # type: ignore[override]
     def generate_filename(self, instance: Model | None, filename: _PathCompatible) -> str: ...
-    @override
-    def formfield(self, **kwargs: Any) -> Any: ...  # type: ignore[override]
 
 class ImageFileDescriptor(FileDescriptor):
     field: ImageField
@@ -145,5 +143,3 @@ class ImageField(FileField):
     @override
     def __get__(self, instance: Any, owner: Any) -> Self: ...
     def update_dimension_fields(self, instance: Model, force: bool = False, *args: Any, **kwargs: Any) -> None: ...
-    @override
-    def formfield(self, **kwargs: Any) -> Any: ...  # type: ignore[override]

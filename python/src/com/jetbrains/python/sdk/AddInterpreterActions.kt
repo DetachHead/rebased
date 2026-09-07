@@ -62,20 +62,19 @@ abstract class DialogAction(
   dynamicText: Supplier<@NlsActions.ActionText String>,
   val icon: Icon,
   val target: @Nls String,
+  private val project: Project,
 ) : AnAction(dynamicText, icon) {
   abstract fun createDialog(): DialogWrapper?
 
   override fun getActionUpdateThread(): ActionUpdateThread = ActionUpdateThread.BGT
 
   override fun update(e: AnActionEvent) {
-    val project = e.project ?: return
     if (e.getData(PlatformCoreDataKeys.IS_MODAL_CONTEXT) == true) {
       e.presentation.isEnabled = !project.isSdkConfigurationInProgress.value
     }
   }
 
   final override fun actionPerformed(e: AnActionEvent) {
-    val project = e.project ?: return
     if (e.getData(PlatformCoreDataKeys.IS_MODAL_CONTEXT) == true && project.isSdkConfigurationInProgress.value) return
     FileDocumentManager.getInstance().saveAllDocuments()
     createDialog()?.show()
@@ -94,12 +93,12 @@ fun collectAddInterpreterActions(moduleOrProject: ModuleOrProject, onSdkCreated:
     if (targetModuleSitsOn == null) {
       add(createAddLocalInterpreterAction(moduleOrProject, onSdkCreated::accept))
     }
-    addAll(collectNewInterpreterOnTargetActions(moduleOrProject.project, targetModuleSitsOn, onSdkCreated::accept))
+    addAll(collectNewInterpreterOnTargetActions(moduleOrProject, targetModuleSitsOn, onSdkCreated::accept))
   }
 }
 
 private fun collectNewInterpreterOnTargetActions(
-  project: Project,
+  moduleOrProject: ModuleOrProject,
   targetTypeModuleSitsOn: TargetConfigurationWithLocalFsAccess?,
   onSdkCreated: (Sdk) -> Unit,
 ): List<DialogAction> =
@@ -107,8 +106,8 @@ private fun collectNewInterpreterOnTargetActions(
     .filter { it.getTargetType().isSystemCompatible() }
     .filter { targetTypeModuleSitsOn == null || targetTypeModuleSitsOn.allowCreationTargetOfThisType(it.getTargetType()) }
     // filter create new interpreter actions on targets that need to be associated with module like PyDockerComposeTargetEnvironmentFactory
-    .filterNot { project.isDefault && it.needAssociateWithModule() }
-    .map { AddInterpreterOnTargetAction(project, it.getTargetType(), onSdkCreated) }
+    .filterNot { moduleOrProject.project.isDefault && it.needAssociateWithModule() }
+    .map { AddInterpreterOnTargetAction(moduleOrProject, it.getTargetType(), onSdkCreated) }
 
 internal class AddLocalInterpreterAction(
   private val moduleOrProject: ModuleOrProject,
@@ -118,6 +117,7 @@ internal class AddLocalInterpreterAction(
   dynamicText = PyBundle.messagePointer("python.sdk.action.add.local.interpreter.text"),
   icon = AllIcons.Nodes.HomeFolder,
   target = PyBundle.message("sdk.create.targets.local"),
+  project = moduleOrProject.project,
 ), DumbAware {
   override fun createDialog(): PythonAddLocalInterpreterDialog {
     val dialogPresenter = PythonAddLocalInterpreterPresenter(
@@ -131,16 +131,21 @@ internal class AddLocalInterpreterAction(
 }
 
 internal class AddInterpreterOnTargetAction(
-  private val project: Project,
+  private val moduleOrProject: ModuleOrProject,
   private val targetType: TargetEnvironmentType<*>,
   private val onSdkCreated: (Sdk) -> Unit,
 ) : DialogAction(
   dynamicText = PyBundle.messagePointer("python.sdk.action.add.interpreter.based.on.target.text", targetType.displayName),
   icon = targetType.icon,
   target = targetType.displayName,
+  project = moduleOrProject.project,
 ), DumbAware {
   override fun createDialog(): TargetEnvironmentWizard? {
-    val wizard = TargetEnvironmentWizard.createWizard(project, targetType, PythonLanguageRuntimeType.Helper.getInstance())
+    val runtimeType = PythonLanguageRuntimeType.Helper.getInstance()
+    val wizard = when (moduleOrProject) {
+      is ModuleAndProject -> TargetEnvironmentWizard.createWizard(moduleOrProject.module, targetType, runtimeType)
+      is ProjectOnly -> TargetEnvironmentWizard.createWizard(moduleOrProject.project, targetType, runtimeType)
+    }
 
     wizard?.let {
       Disposer.register(it.disposable, Disposable {

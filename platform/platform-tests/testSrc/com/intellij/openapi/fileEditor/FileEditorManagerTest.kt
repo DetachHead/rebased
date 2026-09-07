@@ -33,10 +33,12 @@ import com.intellij.openapi.project.DumbAware
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.util.JDOMUtil
+import com.intellij.openapi.util.Pair
 import com.intellij.openapi.util.io.FileUtil
 import com.intellij.openapi.util.io.IoTestUtil
 import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.openapi.vfs.VirtualFile
+import com.intellij.openapi.vfs.VirtualFilePreCloseCheck
 import com.intellij.platform.ide.progress.runWithModalProgressBlocking
 import com.intellij.pom.Navigatable
 import com.intellij.testFramework.DumbModeTestUtils
@@ -57,6 +59,7 @@ import org.intellij.lang.annotations.Language
 import org.jetbrains.jps.model.serialization.PathMacroUtil
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
+import org.junit.jupiter.api.Disabled
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.Arguments
@@ -246,6 +249,81 @@ class FileEditorManagerTest {
     manager.createSplitter(SwingConstants.VERTICAL, secondaryWindow)
     manager.closeFile(file, primaryWindow)
     assertThat(manager.windows).hasSize(2)
+  }
+
+  @Test
+  fun testCloseFileWithChecksVetoesSingleClose(): Unit = timeoutRunBlocking(context = Dispatchers.UiWithModelAccess) {
+    val file = openSourceFile("1.txt")
+    val window = currentWindow()
+    var checkedFile: VirtualFile? = null
+    registerPreCloseCheck(object : VirtualFilePreCloseCheck {
+      override fun canCloseFile(file: VirtualFile): Boolean {
+        checkedFile = file
+        return false
+      }
+    })
+
+    assertThat(manager.closeFileWithChecks(file, window)).isFalse()
+
+    assertThat(checkedFile).isEqualTo(file)
+    assertOpenFiles("1.txt")
+  }
+
+  @Test
+  fun testCloseFilesWithChecksKeepsNonClosableFileOpen(): Unit = timeoutRunBlocking(context = Dispatchers.UiWithModelAccess) {
+    openSourceFiles("1.txt", "2.txt")
+    val window = currentWindow()
+    var singleChecks = 0
+    registerPreCloseCheck(object : VirtualFilePreCloseCheck {
+      override fun canCloseFile(file: VirtualFile): Boolean {
+        singleChecks++
+        return file.name == "1.txt"
+      }
+    })
+
+    assertThat(manager.closeFilesWithChecks(window.allComposites.map { Pair.create(it, window) })).isTrue()
+
+    assertThat(singleChecks).isEqualTo(2)
+    assertOpenFiles("2.txt")
+  }
+
+  @Disabled("this behavior is disabled in rebased")
+  @Test
+  fun testCloseFilesWithChecksClosesWholeSetAfterBatchCheck(): Unit = timeoutRunBlocking(context = Dispatchers.UiWithModelAccess) {
+    openSourceFiles("1.txt", "2.txt")
+    val window = currentWindow()
+    var batchChecks = 0
+    registerPreCloseCheck(object : VirtualFilePreCloseCheck {
+      override fun canCloseFile(file: VirtualFile): Boolean = true
+
+      override fun canCloseFiles(files: Collection<VirtualFile>): Boolean {
+        batchChecks++
+        return true
+      }
+    })
+
+    assertThat(manager.closeFilesWithChecks(window.allComposites.map { Pair.create(it, window) })).isTrue()
+
+    assertThat(batchChecks).isEqualTo(1)
+    assertOpenFiles()
+  }
+
+  @Test
+  fun testUncheckedCloseBypassesPreCloseCheck(): Unit = timeoutRunBlocking(context = Dispatchers.UiWithModelAccess) {
+    val file = openSourceFile("1.txt")
+    val window = currentWindow()
+    var checked = false
+    registerPreCloseCheck(object : VirtualFilePreCloseCheck {
+      override fun canCloseFile(file: VirtualFile): Boolean {
+        checked = true
+        return false
+      }
+    })
+
+    manager.closeFile(file, window)
+
+    assertThat(checked).isFalse()
+    assertOpenFiles()
   }
 
   @Test
@@ -452,6 +530,10 @@ class FileEditorManagerTest {
     Disposer.register(disposable, providerDisposable)
     providerDisposables.add(providerDisposable)
     FileEditorProvider.EP_FILE_EDITOR_PROVIDER.point.registerExtension(provider, providerDisposable)
+  }
+
+  private fun registerPreCloseCheck(check: VirtualFilePreCloseCheck) {
+    VirtualFilePreCloseCheck.EP_NAME.point.registerExtension(check, disposable)
   }
 
   private fun getSourceFile(name: String): VirtualFile = getFile("/src/$name")

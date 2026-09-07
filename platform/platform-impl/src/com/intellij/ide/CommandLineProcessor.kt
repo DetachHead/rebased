@@ -33,6 +33,7 @@ import com.intellij.openapi.project.ex.ProjectManagerEx
 import com.intellij.openapi.util.NlsSafe
 import com.intellij.openapi.util.io.FileUtilRt
 import com.intellij.openapi.util.text.StringUtilRt
+import com.intellij.openapi.util.text.Strings
 import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.openapi.wm.IdeFocusManager
@@ -62,7 +63,13 @@ import java.util.concurrent.CancellationException
 
 object CommandLineProcessor {
   private val LOG = logger<CommandLineProcessor>()
+
   private const val OPTION_WAIT = "--wait"
+  private const val OPTION_EDIT = "--edit"
+  private const val OPTION_LINE = "--line"
+  private const val OPTION_COLUMN = "--column"
+  private const val OPTION_TEMP_PROJECT = "--temp-project"
+  private const val OPTION_PROJECT = "--project"
 
   @JvmField
   val OK_FUTURE: Deferred<CliResult> = CompletableDeferred(value = CliResult.OK)
@@ -191,9 +198,9 @@ object CommandLineProcessor {
       CliResult(0, IdeBundle.message("ide.protocol.exception", e.javaClass.simpleName, e.message))
     }
 
-    if (cliResult.message != null) {
+    cliResult.message?.let { message ->
       val title = IdeBundle.message("ide.protocol.cannot.title")
-      Notification("System Messages", title, cliResult.message!!, NotificationType.WARNING)
+      Notification("System Messages", title, Strings.escapeXmlEntities(message), NotificationType.WARNING)
         .addAction(ShowLogAction.notificationAction())
         .notify(null)
     }
@@ -395,6 +402,12 @@ object CommandLineProcessor {
     return result ?: error("Parsing result shouldn't be null at this point; args are not empty")
   }
 
+  @ApiStatus.Internal
+  fun isSupportedOption(option: String): Boolean = option in setOf(
+    OPTION_WAIT, OPTION_LINE, "-l", OPTION_COLUMN, "-c", OPTION_TEMP_PROJECT, OPTION_EDIT, "-e", OPTION_PROJECT, "-p"
+  )
+
+  // on any change, please update `isSupportedOption` accordingly
   private fun parseArgs(args: List<String>, currentDirectory: String?): Result<List<ParsingResult>> {
     val openProjectResults = mutableListOf<OpenProjectResult>()
     var line = -1
@@ -409,31 +422,31 @@ object CommandLineProcessor {
         i++
         continue
       }
-      if (arg == "-l" || arg == "--line") {
+      if (arg == OPTION_LINE || arg == "-l") {
         i++
         if (i == args.size) break
         line = args[i].toIntOrNull() ?: -1
         i++
         continue
       }
-      if (arg == "-c" || arg == "--column") {
+      if (arg == OPTION_COLUMN || arg == "-c") {
         i++
         if (i == args.size) break
         column = args[i].toIntOrNull() ?: -1
         i++
         continue
       }
-      if (arg == "--temp-project") {
+      if (arg == OPTION_TEMP_PROJECT) {
         tempProject = true
         i++
         continue
       }
-      if (arg == "-e" || arg == "--edit") {
+      if (arg == OPTION_EDIT || arg == "-e") {
         lightEditMode = true
         i++
         continue
       }
-      if (arg == "-p" || arg == "--project") {
+      if (arg == OPTION_PROJECT || arg == "-p") {
         tempProject = false
         i++
         continue

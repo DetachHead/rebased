@@ -723,6 +723,20 @@ open class FileEditorManagerImpl(
     queueUpdateFile(file)
   }
 
+  @RequiresEdt
+  override fun hasPinnedEditorTab(file: VirtualFile): Boolean {
+    return windows.any { window -> window.isFileOpen(file) && window.isFilePinned(file) }
+  }
+
+  @RequiresEdt
+  override fun setPinnedEditorTab(file: VirtualFile, pinned: Boolean) {
+    windows.forEach { window ->
+      if (window.isFileOpen(file)) {
+        window.setFilePinned(file, pinned)
+      }
+    }
+  }
+
   override fun updateFileName(file: VirtualFile) {
     if (!isFileOpen(file)) {
       return
@@ -877,10 +891,29 @@ open class FileEditorManagerImpl(
     return true
   }
 
+  private fun canCloseFiles(files: Collection<VirtualFile>): Boolean {
+    if (files.isEmpty()) {
+      return true
+    }
+    val checks = VirtualFilePreCloseCheck.EP_NAME.extensionsIfPointIsRegistered
+    return checks.all { it.canCloseFiles(files) }
+  }
+
   @RequiresEdt
   override fun closeFileWithChecks(file: VirtualFile, window: EditorWindow): Boolean {
     return closeFile(window = window, composite = window.getComposite(file) ?: return false, runChecks = true)
   }
+
+  @RequiresEdt
+  override fun closeFilesWithChecks(filesWithWindows: List<Pair<EditorComposite, EditorWindow>>): Boolean =
+  // in rebased we do the checks one at a time and close any closable files even if not all of them were closable.
+  // this differs from upstream which doesn't do anything if not all tabs were closable (apparently something clanker related that i
+  // dont care about). we need to change this behavior tho because the log tab is not closable
+  // TODO: figure out what the return value should be (whether all of them were closable or whether at least some were closable).
+    //  currently the result doesn't seem to be used outside of tests so i don't think it matters
+    filesWithWindows.map {
+      closeFileWithChecks(it.first.file, it.second)
+    }.any()
 
   @RequiresEdt
   override fun closeFile(file: VirtualFile, window: EditorWindow) {

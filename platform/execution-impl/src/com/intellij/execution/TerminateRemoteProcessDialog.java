@@ -3,6 +3,7 @@
 package com.intellij.execution;
 
 import com.intellij.CommonBundle;
+import com.intellij.concurrency.ConcurrentCollectionFactory;
 import com.intellij.execution.process.ProcessEvent;
 import com.intellij.execution.process.ProcessHandler;
 import com.intellij.execution.process.ProcessListener;
@@ -12,26 +13,48 @@ import com.intellij.ide.ProcessCloseConfirmation;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.DoNotAskOption;
 import com.intellij.openapi.ui.Messages;
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.util.ArrayUtil;
+import com.intellij.util.containers.ContainerUtil;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.Set;
 
 public final class TerminateRemoteProcessDialog {
-  public static @Nullable ProcessCloseConfirmation show(Project project,
-                                                        @NotNull String sessionName,
-                                                        @NotNull ProcessHandler processHandler) {
-    //noinspection deprecation
-    if (processHandler.isSilentlyDestroyOnClose() ||
-        Boolean.TRUE.equals(processHandler.getUserData(ProcessHandler.SILENTLY_DESTROY_ON_CLOSE))) {
+  public static @Nullable ProcessCloseConfirmation show(
+    Project project,
+    @NotNull String sessionName,
+    @NotNull ProcessHandler processHandler
+  ) {
+    return show(project, List.of(sessionName), List.of(processHandler));
+  }
+
+  /**
+   * Shows a single confirmation dialog for several running processes at once.
+   * {@code sessionNames} and {@code processHandlers} correspond to each other by index and are expected to be of the same size.
+   */
+  @ApiStatus.Experimental
+  public static @Nullable ProcessCloseConfirmation show(
+    Project project,
+    @NotNull List<@NotNull String> sessionNames,
+    @NotNull List<@NotNull ProcessHandler> processHandlers
+  ) {
+    if (sessionNames.isEmpty() || processHandlers.isEmpty()) {
+      throw new IllegalArgumentException("sessionNames and processHandlers must not be empty");
+    }
+    if (sessionNames.size() != processHandlers.size()) {
+      throw new IllegalArgumentException("sessionNames and processHandlers must have the same size");
+    }
+
+    if (ContainerUtil.all(processHandlers, TerminateRemoteProcessDialog::isSilentlyDestroyOnClose)) {
       return ProcessCloseConfirmation.TERMINATE;
     }
 
-    boolean canDisconnect =
-      !Boolean.TRUE.equals(processHandler.getUserData(RunContentManagerImpl.ALWAYS_USE_DEFAULT_STOPPING_BEHAVIOUR_KEY));
+    boolean canDisconnect = ContainerUtil.all(processHandlers, TerminateRemoteProcessDialog::canDisconnect);
     ProcessCloseConfirmation confirmation = GeneralSettings.getInstance().getProcessCloseConfirmation();
     if (confirmation != ProcessCloseConfirmation.ASK) {
       if (confirmation == ProcessCloseConfirmation.DISCONNECT && !canDisconnect) {
@@ -58,31 +81,65 @@ public final class TerminateRemoteProcessDialog {
       }
     };
 
-    AtomicBoolean alreadyGone = new AtomicBoolean(false);
+    Set<ProcessHandler> runningProcesses = ConcurrentCollectionFactory.createConcurrentSet();
+    runningProcesses.addAll(processHandlers);
     Runnable dialogRemover = Messages.createMessageDialogRemover(project);
     ProcessListener listener = new ProcessListener() {
       @Override
       public void processWillTerminate(@NotNull ProcessEvent event, boolean willBeDestroyed) {
-        alreadyGone.set(true);
-        dialogRemover.run();
+        // Only consider the processes "already gone" once every one of them has terminated.
+        // Otherwise, the dialog would be dismissed as soon as a single process exits while others keep running.
+        ProcessHandler handler = event.getProcessHandler();
+        if (handler != null && runningProcesses.remove(handler) && runningProcesses.isEmpty()) {
+          dialogRemover.run();
+        }
       }
     };
-    processHandler.addProcessListener(listener);
+    for (ProcessHandler processHandler : processHandlers) {
+      processHandler.addProcessListener(listener);
+    }
 
-    boolean defaultDisconnect = processHandler.detachIsDefault();
+    boolean defaultDisconnect = ContainerUtil.all(processHandlers, ProcessHandler::detachIsDefault);
     int exitCode = Messages.showDialog(project,
-                                       ExecutionBundle.message("terminate.process.confirmation.text", sessionName),
-                                       ExecutionBundle.message("process.is.running.dialog.title", sessionName),
+                                       getMessageText(sessionNames),
+                                       getTitleText(sessionNames),
                                        ArrayUtil.toStringArray(options),
                                        canDisconnect && defaultDisconnect ? 1 : 0,
                                        Messages.getWarningIcon(),
                                        doNotAskOption);
-    processHandler.removeProcessListener(listener);
-    if (alreadyGone.get()) {
+    for (ProcessHandler processHandler : processHandlers) {
+      processHandler.removeProcessListener(listener);
+    }
+    if (runningProcesses.isEmpty()) {
       return ProcessCloseConfirmation.DISCONNECT;
     }
 
     return getConfirmation(exitCode, canDisconnect);
+  }
+
+  private static boolean isSilentlyDestroyOnClose(@NotNull ProcessHandler processHandler) {
+    //noinspection deprecation
+    return processHandler.isSilentlyDestroyOnClose() ||
+           Boolean.TRUE.equals(processHandler.getUserData(ProcessHandler.SILENTLY_DESTROY_ON_CLOSE));
+  }
+
+  private static boolean canDisconnect(@NotNull ProcessHandler processHandler) {
+    return !Boolean.TRUE.equals(processHandler.getUserData(RunContentManagerImpl.ALWAYS_USE_DEFAULT_STOPPING_BEHAVIOUR_KEY));
+  }
+
+  private static @NlsContexts.DialogTitle String getTitleText(@NotNull List<@NotNull String> sessionNames) {
+    if (sessionNames.size() == 1) {
+      return ExecutionBundle.message("process.is.running.dialog.title", sessionNames.getFirst());
+    }
+    return ExecutionBundle.message("processes.are.running.dialog.title");
+  }
+
+  private static @NlsContexts.DialogMessage String getMessageText(@NotNull List<@NotNull String> sessionNames) {
+    if (sessionNames.size() == 1) {
+      return ExecutionBundle.message("terminate.process.confirmation.text", sessionNames.getFirst());
+    }
+    List<String> namesInQuotes = ContainerUtil.map(sessionNames, name -> "'%s'".formatted(name));
+    return ExecutionBundle.message("terminate.processes.confirmation.text", String.join(", ", namesInQuotes));
   }
 
   private static ProcessCloseConfirmation getConfirmation(int button, boolean withDisconnect) {

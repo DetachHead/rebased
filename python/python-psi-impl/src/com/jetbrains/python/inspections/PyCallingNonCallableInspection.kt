@@ -16,6 +16,7 @@
 package com.jetbrains.python.inspections
 
 import com.intellij.codeInspection.LocalInspectionToolSession
+import com.intellij.codeInspection.ProblemHighlightType
 import com.intellij.codeInspection.ProblemsHolder
 import com.intellij.psi.PsiElementVisitor
 import com.jetbrains.python.PyNames
@@ -69,11 +70,11 @@ class PyCallingNonCallableInspection : PyInspection() {
       if (callee != null && isCallable(callee, myTypeEvalContext) == false) {
         val calleeType = myTypeEvalContext.getType(callee)
         val message = when {
-          calleeType is PyClassType -> PyPsiBundle.message("INSP.class.object.is.not.callable", calleeType.name)
-          callee.name != null -> PyPsiBundle.message("INSP.symbol.is.not.callable", callee.name)
-          else -> PyPsiBundle.message("INSP.expression.is.not.callable")
+          calleeType is PyClassType -> PyPsiBundle.problemMessage("INSP.class.object.is.not.callable", calleeType.name)
+          callee.name != null -> PyPsiBundle.problemMessage("INSP.symbol.is.not.callable", callee.name)
+          else -> PyPsiBundle.problemMessage("INSP.expression.is.not.callable")
         }
-        registerProblem(node, message, PyRemoveCallQuickFix())
+        registerProblem(node, message, ProblemHighlightType.GENERIC_ERROR_OR_WARNING, PyRemoveCallQuickFix())
       }
     }
   }
@@ -83,6 +84,11 @@ private fun isCallable(element: PyExpression, context: TypeEvalContext): Boolean
   if (element is PyQualifiedExpression && PyNames.__CLASS__ == element.name) return true
 
   if (element is PyReferenceExpression) {
+    // PEP 747: `TypeForm(...)` is callable, even though the declared type of `TypeForm` is the non-callable `_SpecialForm`.
+    val qNames = PyTypingTypeProvider.resolveToQualifiedNames(element, context)
+    if (PyTypingTypeProvider.TYPE_FORM in qNames || PyTypingTypeProvider.TYPE_FORM_EXT in qNames) {
+      return true
+    }
     val resolved = element.getReference(PyResolveContext.defaultContext(context)).resolve()
     if (resolved is PyTargetExpression) {
       if (isExplicitTypeAliasWithNonCallableValue(resolved, context)) return false

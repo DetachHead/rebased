@@ -48,6 +48,9 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
+import static com.jetbrains.python.psi.types.PyTypeUtilKt.isAnyOrUnknown;
+import static com.jetbrains.python.psi.types.PyTypeUtilKt.isUnknown;
+
 public class PyOperatorReference extends PyReferenceImpl {
   public PyOperatorReference(PyQualifiedExpression element, @NotNull PyResolveContext context) {
     super(element, context);
@@ -60,7 +63,7 @@ public class PyOperatorReference extends PyReferenceImpl {
     }
     else if (myElement instanceof PyBinaryExpression expr) {
       final String name = expr.getReferencedName();
-      if (PyNames.CONTAINS.equals(name)) {
+      if (PyNames.STANDALONE_RIGHT_OPERATORS.contains(name)) {
         return resolveMember(expr.getRightExpression(), name);
       }
       else {
@@ -168,11 +171,11 @@ public class PyOperatorReference extends PyReferenceImpl {
       final TypeEvalContext typeEvalContext = myContext.getTypeEvalContext();
       final PyType type = typeEvalContext.getType(object);
       typeEvalContext.trace("Side text is %s, type is %s", object.getText(), type);
-      if (type != null) {
+      if (!isAnyOrUnknown(type)) {
         final List<? extends RatedResolveResult> res =
           PyTypeUtil
             .toStream(type)
-            .nonNull()
+            .filter( it -> !isUnknown(it) )
             .flatCollection(
               it -> it instanceof PyClassLikeType && ((PyClassLikeType)it).isDefinition()
                     ? resolveDefinitionMember((PyClassLikeType)it, object, name)

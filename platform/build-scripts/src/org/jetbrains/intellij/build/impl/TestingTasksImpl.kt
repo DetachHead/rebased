@@ -22,6 +22,7 @@ import com.intellij.platform.util.coroutines.filterConcurrent
 import com.intellij.testFramework.SkipInHeadlessEnvironment
 import com.intellij.util.io.awaitExit
 import com.intellij.util.lang.UrlClassLoader
+import com.intellij.util.text.nullize
 import io.opentelemetry.api.trace.Span
 import jetbrains.buildServer.messages.serviceMessages.BlockClosed
 import jetbrains.buildServer.messages.serviceMessages.BlockOpened
@@ -370,6 +371,7 @@ internal class TestingTasksImpl(context: CompilationContext, private val options
     testPatternSystemPropertyKey.let { options.testPatterns?.run { System.setProperty(it, this) } }  // from options, e.g. TestingTasksImpl#runTestsSkippedInHeadlessEnvironment
     testGroupSystemPropertyKey.let { options.testGroups?.run { System.setProperty(it, this) } }  // from options, e.g. RunAnyTestTheSameWayTeamCityDoes#run
     setPropertyFromPass(TestCaseLoader.INCLUDE_UNCONVENTIONALLY_NAMED_TESTS_FLAG)
+    setPropertyFromPass(TestCaseLoader.INCLUDE_ALL_UNCONVENTIONALLY_NAMED_TESTS_FLAG)
 
     // configure TestCaseLoader#matchesCurrentBucket with the properties from the test process
     listOf(
@@ -428,6 +430,16 @@ internal class TestingTasksImpl(context: CompilationContext, private val options
     val testModules = let {
       if (searchForTestsAcrossModuleDependencies && System.getProperty("pass.jar.dependencies.to.tests") == null && options.testSimplePatterns == null) guessTestModulesForGroupsAndPatterns(mainModule, rootExcludeCondition, systemProperties)
       else listOf(mainModule)
+    }.let { modules ->
+      //filter out only for community (ALL_EXCLUDE_DEFINED)
+      if (options.testGroups?.contains(GroupBasedTestClassFilter.ALL_EXCLUDE_DEFINED) == true) {
+        val (bazelMigratedModules, jpsModules) = modules.partition { COMMUNITY_AGGREGATOR_BAZEL_MIGRATED_MODULES.contains(it.name) }
+        if (bazelMigratedModules.isNotEmpty()) {
+          context.messages.info("Skipping tests in ${bazelMigratedModules.size} modules migrated to Bazel: ${bazelMigratedModules.joinToString(", ") { it.name }}")
+        }
+        jpsModules
+      }
+      else modules
     }
 
     context.messages.info("Will run tests from simple patterns, patterns, or groups in ${testModules.size} modules: ${testModules.joinToString(", ") { it.name }}")
@@ -555,6 +567,7 @@ internal class TestingTasksImpl(context: CompilationContext, private val options
 
     val modulePath: List<String>?
     var testClasspath = buildList {
+      val runContextModule = if (runContextModule.name != "intellij.ml.llm.tests") runContextModule else mainModule  // TODO: switch to test module classpath by default
       addAll(context.getModuleRuntimeClasspath(runContextModule, forTests = true))
 
       //module with "com.intellij.TestCaseLoader" which output should be found in `testClasspath + modulePath`
@@ -1472,3 +1485,32 @@ private suspend fun publishTestDiscovery(messages: BuildMessages, file: String?)
   }
   messages.buildStatus("With Discovery, {build.status.text}")
 }
+
+private val COMMUNITY_AGGREGATOR_BAZEL_MIGRATED_MODULES = listOf(
+  "intellij.maven.server.eventListener.tests",
+  "intellij.agent.workbench.chat.tests",
+  "intellij.ant.tests",
+  "intellij.commander.tests",
+  "intellij.completionMlRanking.tests",
+  "intellij.completionMlRankingModels.tests",
+  "intellij.configurationScript.tests",
+  "intellij.configurationScript.test.java",
+  "intellij.copyright.tests",
+  "intellij.devkit.apiDump.lang.tests",
+  "intellij.devkit.debugger.tests",
+  "intellij.devkit.gradle.tests",
+  "intellij.devkit.i18n.tests",
+  "intellij.devkit.testFramework",
+  "intellij.devkit.workspaceModel.tests",
+  "intellij.eclipse.tests",
+  "intellij.editorconfig.backend.tests",
+  "intellij.evaluationPlugin.languages.java.tests",
+  "intellij.evaluationPlugin.languages.kotlin.tests",
+  "intellij.evaluationPlugin.tests",
+  "intellij.execution.process.mediator.client.tests",
+  "intellij.execution.process.mediator.common.tests",
+  "intellij.featuresTrainer.tests",
+  "intellij.findUsagesMl.tests",
+  "intellij.gradle.completion.tests",
+  "intellij.gradle.java.maven.tests",
+)

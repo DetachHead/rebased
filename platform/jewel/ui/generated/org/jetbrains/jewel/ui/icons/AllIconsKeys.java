@@ -1006,6 +1006,9 @@ public final class AllIconsKeys {
     public static final @NotNull IntelliJIconKey FreezeAll = new IntelliJIconKey("debugger/freezeAll.svg", "expui/debugger/freezeAll.svg", AllIconsKeys.class);
     /** 16x16 */ 
     @GeneratedFromIntelliJSources
+    public static final @NotNull IntelliJIconKey InspectionSeverity = new IntelliJIconKey("expui/debugger/inspectionSeverity.svg", "expui/debugger/inspectionSeverity.svg", AllIconsKeys.class);
+    /** 16x16 */ 
+    @GeneratedFromIntelliJSources
     public static final @NotNull IntelliJIconKey KillProcess = new IntelliJIconKey("debugger/killProcess.svg", "expui/run/killProcess.svg", AllIconsKeys.class);
     /** 12x12 */ 
     @GeneratedFromIntelliJSources
@@ -1411,6 +1414,9 @@ public final class AllIconsKeys {
     /** 16x16 */ 
     @GeneratedFromIntelliJSources
     public static final @NotNull IntelliJIconKey Toml = new IntelliJIconKey("expui/fileTypes/toml.svg", "expui/fileTypes/toml.svg", AllIconsKeys.class);
+    /** 16x16 */ 
+    @GeneratedFromIntelliJSources
+    public static final @NotNull IntelliJIconKey TypeScript = new IntelliJIconKey("expui/fileTypes/typeScript.svg", "expui/fileTypes/typeScript.svg", AllIconsKeys.class);
     /** 16x16 */ 
     @GeneratedFromIntelliJSources
     public static final @NotNull IntelliJIconKey UiForm = new IntelliJIconKey("fileTypes/uiForm.svg", "expui/fileTypes/uiForm.svg", AllIconsKeys.class);

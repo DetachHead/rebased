@@ -4,7 +4,7 @@
     <module name="intellij.toml.core"/>
     <module name="intellij.platform.backend"/>
     <!-- region Generated dependencies - run `Generate Product Layouts` to regenerate -->
-    <module name="intellij.python.common"/>
+    <module name="intellij.python.community.common"/>
     <module name="intellij.python.community"/>
     <module name="intellij.python.community.execService"/>
     <module name="intellij.python.pyproject"/>
@@ -12,7 +12,15 @@
     <module name="intellij.python.uv.common"/>
     <!-- endregion -->
   </dependencies>
+  <extensions defaultExtensionNs="Pythonid">
+    <!-- Uv -->
+    <pythonFlavorProvider implementation="com.jetbrains.python.sdk.uv.UvSdkFlavorProvider"/>
+  </extensions>
   <extensions defaultExtensionNs="com.intellij.python.pyproject.model">
-    <tool implementation="com.intellij.python.uv.backend.UvTool"/>
+    <pyprojectmanager implementation="com.intellij.python.uv.backend.UvPyProjectManager"/>
+  </extensions>
+  <extensions defaultExtensionNs="com.intellij">
+    <python.pytools.pyTool implementation="com.intellij.python.uv.backend.UvPyTool"/>
+    <python.pytools.pyToolManagerProvider implementation="com.intellij.python.uv.backend.UvToolManagerProvider" order="first"/>
   </extensions>
 </idea-plugin>

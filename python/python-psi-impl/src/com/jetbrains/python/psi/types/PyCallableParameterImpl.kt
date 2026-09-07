@@ -18,6 +18,8 @@ package com.jetbrains.python.psi.types
 import com.intellij.openapi.util.NlsSafe
 import com.intellij.openapi.util.Ref
 import com.intellij.psi.PsiElement
+import com.jetbrains.python.PyNames
+import com.jetbrains.python.documentation.PyTypeRenderer
 import com.jetbrains.python.documentation.PythonDocumentationProvider
 import com.jetbrains.python.psi.PyExpression
 import com.jetbrains.python.psi.PyNamedParameter
@@ -42,6 +44,11 @@ class PyCallableParameterImpl @JvmOverloads internal constructor(
   private val myIsPositionalOnlySeparator: Boolean = false,
   private val myDeclarationElement: PsiElement? = null,
 ) : PyCallableParameter {
+  init {
+    if (myType != null) {
+      PyAnyType.validate(myType.get())
+    }
+  }
   @get:Nls
   override val name: @Nls String?
     get() = myName ?: parameter?.name
@@ -49,7 +56,7 @@ class PyCallableParameterImpl @JvmOverloads internal constructor(
   override fun getType(context: TypeEvalContext): PyType? = when {
     myType != null -> myType.get()
     parameter is PyNamedParameter -> context.getType(parameter)
-    else -> null
+    else -> PyAnyType.unknown
   }
 
   override val declarationElement: PsiElement?
@@ -86,12 +93,13 @@ class PyCallableParameterImpl @JvmOverloads internal constructor(
     get() = parameter is PySingleStarParameter || myIsKeywordOnlySeparator
 
   override fun getPresentableText(includeDefaultValue: Boolean, context: TypeEvalContext?): String {
-    return getPresentableText(includeDefaultValue, context, { it.isUnknown })
+    return getPresentableText(includeDefaultValue, context, false) { it.isAnyOrUnknown }
   }
 
   override fun getPresentableText(
     includeDefaultValue: Boolean,
     context: TypeEvalContext?,
+    renderTypeParameterBounds: Boolean,
     typeFilter: (PyType?) -> Boolean,
   ): String {
     if (parameter !is PyNamedParameter && parameter != null) {
@@ -105,7 +113,8 @@ class PyCallableParameterImpl @JvmOverloads internal constructor(
         val argumentType = getArgumentType(context)
         if (!typeFilter(argumentType)) {
           append(": ")
-          append(PythonDocumentationProvider.getTypeName(argumentType, context))
+          append(if (renderTypeParameterBounds) PythonDocumentationProvider.getTypeName(argumentType, context, PyTypeRenderer.Feature.TYPE_VAR_BOUNDS)
+                 else PythonDocumentationProvider.getTypeName(argumentType, context))
           renderedAsTyped = true
         }
       }
@@ -145,8 +154,8 @@ class PyCallableParameterImpl @JvmOverloads internal constructor(
         unpackedTupleType
     }
     else if (isKeywordContainer) {
-      if (parameterType is PyCollectionType) {
-        parameterType.elementTypes.getOrNull(1)
+      if (parameterType is PyClassType && parameterType.isParameterized) {
+        parameterType.typeArguments.getOrNull(1)
       }
       else parameterType as? PyUnpackedTypedDictType ?: parameterType
     }

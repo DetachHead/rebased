@@ -119,10 +119,6 @@ object DefaultUiPluginManagerController : UiPluginManagerController {
     return InstalledPluginsState.getInstance().installedPlugins.map { PluginUiModelAdapter(it) }.withSource()
   }
 
-  override suspend fun getUpdates(): List<PluginUiModel> {
-    return PluginUpdatesService.getUpdates()?.map { PluginUiModelAdapter(it) }?.withSource() ?: emptyList()
-  }
-
   override suspend fun getPlugin(id: PluginId): PluginUiModel? {
     return PluginManagerCore.getPlugin(id)?.let { PluginUiModelAdapter(it) }?.withSource()
   }
@@ -133,11 +129,6 @@ object DefaultUiPluginManagerController : UiPluginManagerController {
 
   override suspend fun isPluginInstalled(pluginId: PluginId): Boolean {
     return PluginManagerCore.isPluginInstalled(pluginId)
-  }
-
-  override suspend fun isNeedUpdate(pluginId: PluginId): Boolean {
-    val descriptor = PluginManagerCore.getPlugin(pluginId) ?: return false
-    return PluginUpdatesService.isNeedUpdate(descriptor)
   }
 
   override suspend fun isBundledUpdate(pluginIds: List<PluginId>): Boolean {
@@ -269,7 +260,7 @@ object DefaultUiPluginManagerController : UiPluginManagerController {
       val pluginsToInstall = listOf(descriptor.getDescriptor())
       val disabledPlugins = PluginManagerMain.getDisabledPlugins(pluginEnabler, pluginsToInstall, updateDescriptor != null)
       val disabledDependantPlugins = PluginManagerMain.getDisabledDependants(pluginEnabler, pluginsToInstall)
-      PluginManagerMain.enablePlugins(enableRequiredPlugins, disabledPlugins, disabledDependantPlugins, pluginEnabler)
+      enablePluginsForInstallation(session, enableRequiredPlugins, disabledPlugins, disabledDependantPlugins, pluginEnabler)
     }
 
     val installPluginRequest = InstallPluginRequest(sessionId,
@@ -281,6 +272,39 @@ object DefaultUiPluginManagerController : UiPluginManagerController {
     )
 
     return performInstallOperation(installPluginRequest, parentComponent, modalityState, pluginEnabler, customPlugins)
+  }
+
+  private fun enablePluginsForInstallation(
+    session: PluginManagerSession,
+    enableRequiredPlugins: Boolean,
+    disabledPlugins: Set<IdeaPluginDescriptor>,
+    disabledDependantPlugins: Set<IdeaPluginDescriptor>,
+    pluginEnabler: PluginEnabler,
+  ) {
+    if (pluginEnabler !is SessionStatePluginEnabler) {
+      PluginManagerMain.enablePlugins(enableRequiredPlugins, disabledPlugins, disabledDependantPlugins, pluginEnabler)
+      return
+    }
+
+    val descriptorsToEnable = LinkedHashSet<IdeaPluginDescriptor>()
+    if (enableRequiredPlugins) {
+      descriptorsToEnable.addAll(disabledPlugins)
+      descriptorsToEnable.addAll(disabledDependantPlugins)
+    }
+    else if (disabledPlugins.isNotEmpty()) {
+      descriptorsToEnable.addAll(disabledPlugins)
+    }
+
+    if (descriptorsToEnable.isEmpty()) {
+      return
+    }
+
+    val result = enableDependencies(session,
+                                    descriptorsToEnable.toList(),
+                                    PluginEnableDisableAction.ENABLE_GLOBALLY,
+                                    buildPluginIdMap(),
+                                    getPluginSet().buildContentModuleIdMap())
+    pluginEnabler.pluginsToEnable.addAll(result.changedStates.filterValues { it }.keys)
   }
 
   private suspend fun loadDetails(descriptor: PluginUiModel): PluginUiModel? {
@@ -501,22 +525,6 @@ object DefaultUiPluginManagerController : UiPluginManagerController {
       .firstOrNull()
   }
 
-  override fun connectToPluginUpdateService(sessionId: String, callback: (List<PluginUiModel>) -> Unit): PluginUpdatesService {
-    val session = createSession(sessionId)
-    if (session.updateService != null) {
-      val service = session.updateService!!
-      service.calculateUpdates({ updates -> callback(updates as List<PluginUiModel>) })
-      return service
-    } else {
-      val service = PluginUpdatesService.connectWithUpdates({ results ->
-                                                              callback(results.pluginUpdates.all.map { it.uiModel })
-                                                            })
-      service.setFilter { session.isPluginEnabled(it.pluginId) }
-      session.updateService = service
-      return service
-    }
-  }
-
   override fun getAllPluginsTags(): Set<String> {
     return MarketplaceRequests.getInstance().marketplaceTagsSupplier.get()
   }
@@ -582,6 +590,7 @@ object DefaultUiPluginManagerController : UiPluginManagerController {
           result.pluginsToDisable = pluginEnabler.pluginsToDisable
           result.pluginsToEnable = pluginEnabler.pluginsToEnable
         }
+        result.dependentPluginUpdateSourceIds = operation.dependentPluginUpdateSourceIds
       }
       catch (@Suppress("IncorrectCancellationExceptionHandling") _: ProcessCanceledException) {
         cancel = true

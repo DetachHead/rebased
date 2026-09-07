@@ -1,7 +1,9 @@
 // Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.intellij.plugins.markdown.ui.preview.html
 
+import com.intellij.openapi.progress.ProgressManager
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.util.text.StringUtil.BombedCharSequence
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.util.io.DigestUtil
 import org.intellij.markdown.MarkdownElementTypes
@@ -33,13 +35,18 @@ object MarkdownUtil {
     val parent = file.parent
     val baseUri = if (parent != null) File(parent.path).toURI() else null
 
-    val parsedTree = MarkdownParserManager.createMarkdownParser(MarkdownParserManager.FLAVOUR).buildMarkdownTreeFromString(text)
+    val parsedTree = MarkdownParserManager.createMarkdownParser(MarkdownParserManager.FLAVOUR)
+      .buildMarkdownTreeFromString(object : BombedCharSequence(text) {
+        override fun checkCanceled() {
+          ProgressManager.checkCanceled()
+        }
+      })
     val cacheCollector = MarkdownCodeFencePluginCacheCollector(file)
 
     val linkMap = LinkMap.buildLinkMap(parsedTree, text)
     val footnoteMap = FootnoteMap.build(parsedTree, text)
     val map = MarkdownParserManager.FLAVOUR.createHtmlGeneratingProviders(linkMap, baseUri).toMutableMap()
-    map[GFMElementTypes.ALERT] = map[MarkdownElementTypes.BLOCK_QUOTE]!!
+    map[GFMElementTypes.ALERT] = MarkdownAlertGeneratingProvider(map[MarkdownElementTypes.BLOCK_QUOTE]!!)
     map[MarkdownElementTypes.CODE_FENCE] = createCodeFenceProvider(project, file, cacheCollector)
     if (project != null) {
       map[MarkdownElementTypes.IMAGE] = IntelliJImageGeneratingProvider(linkMap)

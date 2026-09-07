@@ -30,7 +30,7 @@ import com.intellij.platform.backend.workspace.WorkspaceModelTopics
 import com.intellij.platform.backend.workspace.impl.WorkspaceModelInternal
 import com.intellij.platform.diagnostic.telemetry.helpers.Milliseconds
 import com.intellij.platform.diagnostic.telemetry.helpers.MillisecondsMeasurer
-import com.intellij.platform.eel.provider.LocalEelMachine
+import com.intellij.platform.eel.provider.getEelMachine
 import com.intellij.platform.workspace.storage.EntityChange
 import com.intellij.platform.workspace.storage.EntityStorage
 import com.intellij.platform.workspace.storage.ImmutableEntityStorage
@@ -364,7 +364,11 @@ open class WorkspaceModelImpl : WorkspaceModelInternal {
    * Things that must be considered if you'd love to change this logic: IDEA-342103
    */
   private fun checkRecursiveUpdate() = checkRecursiveUpdateTimeMs.addMeasuredTime {
-    val stackStraceIterator = RuntimeException().stackTrace.iterator()
+    val stackTrace = RuntimeException().stackTrace
+    if (stackTrace.size < 6) {
+      return@addMeasuredTime
+    }
+    val stackStraceIterator = stackTrace.iterator()
     // Skip six methods of the current update
     repeat(6) { stackStraceIterator.next() }
     while (stackStraceIterator.hasNext()) {
@@ -490,7 +494,7 @@ open class WorkspaceModelImpl : WorkspaceModelInternal {
     if (EDT.isCurrentThreadEdt() && ModalityState.current() != ModalityState.nonModal()) {
       throw IllegalStateException("awaitSynchronizationWithJpsModel() can only be called in non-modal context. Current context: ${ModalityState.current()}")
     }
-    GlobalWorkspaceModel.getInstance(LocalEelMachine).awaitSynchronizationWithJpsModel()
+    GlobalWorkspaceModel.getInstance(project.getEelMachine()).awaitSynchronizationWithJpsModel()
 
     CompletableDeferred<Unit>().also { deferred ->
       JpsProjectLoadingManager.getInstance(project).jpsProjectLoaded { deferred.complete(Unit) }

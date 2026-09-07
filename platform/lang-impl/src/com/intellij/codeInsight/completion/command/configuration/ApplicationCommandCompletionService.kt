@@ -94,7 +94,7 @@ class CommandCompletionSettingsService {
 internal class AppCommandCompletionSettings(
   var showCounts: Int = 0,
   var myEnabled: CommandCompletionEnabled = CommandCompletionEnabled.FROM_REGISTRY,
-  var myReadOnlyEnabled: Boolean = false,
+  var myReadOnlyEnabled: Boolean = true,
   var useGroup: Boolean = true,
 ) {
 
@@ -130,7 +130,7 @@ internal class AppCommandCompletionSettings(
     // production
     if (
       PlatformUtils.isIntelliJ() ||
-      NewRdCompletionSupport.isFrontendRdCompletionOn() && NewRdCompletionSupport.getInstance().isFrontendForIntelliJBackend()
+      NewRdCompletionSupport.isFrontendRdCompletionOn(null) && NewRdCompletionSupport.getInstance().isFrontendForIntelliJBackend()
     ) {
       if (Registry.`is`("ide.completion.command.force.enabled")) {
         return true

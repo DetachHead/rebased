@@ -471,7 +471,7 @@ public class MarkdownStyling(
 
                     public object Decimal : NumberFormatStyle {
                         override fun formatNumber(number: Int): String {
-                            require(number > 0) { "Input must be a positive integer" }
+                            require(number >= 0) { "Input must not be a negative integer" }
 
                             return number.toString()
                         }
@@ -479,7 +479,8 @@ public class MarkdownStyling(
 
                     public object Roman : NumberFormatStyle {
                         override fun formatNumber(number: Int): String {
-                            require(number > 0) { "Input must be a positive integer" }
+                            // Roman numerals can't represent 0; just render it as the literal "0".
+                            if (number < 1) return number.toString()
 
                             val values = intArrayOf(1000, 900, 500, 400, 100, 90, 50, 40, 10, 9, 5, 4, 1)
                             val symbols = arrayOf("m", "cm", "d", "cd", "c", "xc", "l", "xl", "x", "ix", "v", "iv", "i")
@@ -498,7 +499,8 @@ public class MarkdownStyling(
 
                     public object Alphabetical : NumberFormatStyle {
                         override fun formatNumber(number: Int): String {
-                            require(number > 0) { "Input must be a positive integer" }
+                            // Letters can't represent 0; just render it as the literal "0".
+                            if (number < 1) return number.toString()
 
                             var num = number
                             return buildString {
@@ -1093,34 +1095,6 @@ public class InlinesStyling(
     public val strongEmphasis: SpanStyle,
     public val inlineHtml: SpanStyle,
 ) {
-    @Deprecated("Use variant without renderInlineHtml instead.", level = DeprecationLevel.HIDDEN)
-    public constructor(
-        textStyle: TextStyle,
-        inlineCode: SpanStyle,
-        link: SpanStyle,
-        linkDisabled: SpanStyle,
-        linkFocused: SpanStyle,
-        linkHovered: SpanStyle,
-        linkPressed: SpanStyle,
-        linkVisited: SpanStyle,
-        emphasis: SpanStyle,
-        strongEmphasis: SpanStyle,
-        inlineHtml: SpanStyle,
-        @Suppress("UnusedPrivateProperty") renderInlineHtml: Boolean,
-    ) : this(
-        textStyle,
-        inlineCode,
-        link,
-        linkDisabled,
-        linkFocused,
-        linkHovered,
-        linkPressed,
-        linkVisited,
-        emphasis,
-        strongEmphasis,
-        inlineHtml,
-    )
-
     public val textLinkStyles: TextLinkStyles =
         TextLinkStyles(style = link, focusedStyle = linkFocused, hoveredStyle = linkHovered, pressedStyle = linkPressed)
 

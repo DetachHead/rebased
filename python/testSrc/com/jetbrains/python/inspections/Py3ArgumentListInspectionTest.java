@@ -368,6 +368,52 @@ public class Py3ArgumentListInspectionTest extends PyInspectionTestCase {
     doMultiFileTest();
   }
 
+  @TestFor(issues = "PY-79173")
+  public void testInitSubclassUnexpectedAndUnfilledArguments() {
+    doTestByText(
+      """
+        class A:
+            def __init_subclass__(cls, a: int):
+                ...
+        
+        
+        class B1(A, <warning descr="Unexpected argument">z="a"</warning><warning descr="Parameter 'a' unfilled">)</warning>: ...
+        class B2(A, a=1): ...
+        """);
+  }
+
+  @TestFor(issues = "PY-79173")
+  public void testInitSubclassKeywordContainerAcceptsAnyArgument() {
+    doTestByText(
+      """
+        class A:
+            def __init_subclass__(cls, **kwargs): ...
+        
+        
+        class B(A, anything=1):
+            ...
+        """);
+  }
+
+  @TestFor(issues = "PY-79173")
+  public void testInitSubclassCustomMetaClassConsumesArguments() {
+    doTestByText(
+      """
+        class Meta(type):
+            def __new__(mcs, name, bases, namespace, **kwargs):
+                return super().__new__(mcs, name, bases, namespace)
+        
+        
+        class A(metaclass=Meta):
+            def __init_subclass__(cls):
+                ...
+        
+        
+        class B(A, whatever=1):
+            ...
+        """);
+  }
+
   // PY-76899
   public void testFieldInDataclassTransformInitIsSkippedDueToFieldSpecifierOverloadMultifile() {
     doMultiFileTest();
@@ -740,7 +786,7 @@ public class Py3ArgumentListInspectionTest extends PyInspectionTestCase {
                    a: str = Field(alias="b")
 
                _ = Model(a="value")
-               _ = Model<warning descr="No signature matches the arguments. Argument types: (str). Expected one of: (b: str), (a: str)">("value"<warning descr="No signature matches the arguments. Argument types: (str). Expected one of: (b: str), (a: str)">)</warning></warning>
+               _ = Model<warning descr="No signature matches the arguments. Argument types: (Literal[\\"value\\"]). Expected one of: (b: str), (a: str)">("value"<warning descr="No signature matches the arguments. Argument types: (Literal[\\"value\\"]). Expected one of: (b: str), (a: str)">)</warning></warning>
                """);
   }
 

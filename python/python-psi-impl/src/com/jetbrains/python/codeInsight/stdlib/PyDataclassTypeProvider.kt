@@ -39,7 +39,6 @@ import com.jetbrains.python.psi.types.PyCallableType
 import com.jetbrains.python.psi.types.PyCallableTypeImpl
 import com.jetbrains.python.psi.types.PyClassLikeType
 import com.jetbrains.python.psi.types.PyClassType
-import com.jetbrains.python.psi.types.PyCollectionType
 import com.jetbrains.python.psi.types.PyDescriptorTypeUtil
 import com.jetbrains.python.psi.types.PyType
 import com.jetbrains.python.psi.types.PyTypeChecker
@@ -47,6 +46,7 @@ import com.jetbrains.python.psi.types.PyTypeMember
 import com.jetbrains.python.psi.types.PyTypeProviderBase
 import com.jetbrains.python.psi.types.PyTypeUtil.notNullToRef
 import com.jetbrains.python.psi.types.PyTypeUtil.toStream
+import com.jetbrains.python.psi.types.PyTypeUtil.widenLiteralAndNumeric
 import com.jetbrains.python.psi.types.PyUnionType
 import com.jetbrains.python.psi.types.PyUnsafeUnionType
 import com.jetbrains.python.psi.types.TypeEvalContext
@@ -167,8 +167,8 @@ class PyDataclassTypeProvider : PyTypeProviderBase() {
         .flatMap { it.classAttributes }
         .mapNotNull {
           val type = context.getType(it)
-          if (type is PyCollectionType && type.classQName == Dataclasses.DATACLASSES_INITVAR) {
-            InitVarInfo(it, type.elementTypes.singleOrNull())
+          if (type is PyClassType && type.isParameterized && type.classQName == Dataclasses.DATACLASSES_INITVAR) {
+            InitVarInfo(it, type.typeArguments.singleOrNull())
           }
           else {
             null
@@ -194,7 +194,8 @@ class PyDataclassTypeProvider : PyTypeProviderBase() {
 
     fun getDataclassTypeForClass(clsType: PyType?, context: TypeEvalContext): PyType? {
       if (clsType !is PyClassType) return null
-      val genericClassType = clsType as? PyCollectionType ?: PyTypeChecker.findGenericDefinitionType(clsType.pyClass, context) ?: clsType
+      val genericClassType = clsType.takeIf { it.isParameterized }
+                             ?: PyTypeChecker.findGenericDefinitionType(clsType.pyClass, context) ?: clsType
 
       val paramsSets = collectDataclassFieldParameters(genericClassType, context, initOnly = true) ?: return null
       if (paramsSets.isEmpty()) return null
@@ -413,8 +414,8 @@ class PyDataclassTypeProvider : PyTypeProviderBase() {
       }
 
       val type = context.getType(field)
-      if (type is PyCollectionType && type.classQName == Dataclasses.DATACLASSES_INITVAR) {
-        return type.elementTypes.firstOrNull()
+      if (type is PyClassType && type.isParameterized && type.classQName == Dataclasses.DATACLASSES_INITVAR) {
+        return type.typeArguments.firstOrNull()
       }
       if (type is PyClassLikeType) {
         val expectedConstructorArgumentTypeRef = PyDescriptorTypeUtil.getExpectedValueTypeForDunderSet(field, type, context)
@@ -424,9 +425,8 @@ class PyDataclassTypeProvider : PyTypeProviderBase() {
       }
 
       if (type == null && dataclassType.asPredefinedType == PyDataclassParameters.PredefinedType.ATTRS) {
-        methodDecoratedAsAttributeDefault(cls, field.name)
-          ?.let { context.getReturnType(it) }
-          ?.let { return PyUnionType.createWeakType(it) }
+        methodDecoratedAsAttributeDefault(cls, field.name)?.getReturnType(context)
+          ?.let { return PyUnionType.createWeakType(widenLiteralAndNumeric(it)) }
       }
 
       return type

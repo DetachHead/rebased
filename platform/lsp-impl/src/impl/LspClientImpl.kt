@@ -17,7 +17,6 @@ import com.intellij.platform.lsp.api.LspClientManagerListener
 import com.intellij.platform.lsp.api.LspIntegrationProvider
 import com.intellij.platform.lsp.api.LspCommunicationChannel
 import com.intellij.platform.lsp.api.LspCommunicationChannel.StdIO
-import com.intellij.platform.lsp.api.LspServerNotificationsHandler
 import com.intellij.platform.lsp.api.LspServerState
 import com.intellij.platform.lsp.impl.connector.Lsp4jServerConnector
 import com.intellij.platform.lsp.impl.connector.Lsp4jServerConnectorSocket
@@ -87,7 +86,7 @@ class LspClientImpl internal constructor(
   val requestExecutor: LspRequestExecutor = LspRequestExecutor(this, documentMapping)
   internal val globMatcher: LspGlobMatcher = LspGlobMatcher()
   internal val dynamicCapabilities: LspDynamicCapabilities = LspDynamicCapabilities()
-  internal val serverNotificationsHandler: LspServerNotificationsHandler = LspServerNotificationsHandlerImpl(this)
+  internal val serverNotificationsHandler: LspServerNotificationsHandlerImpl = LspServerNotificationsHandlerImpl(this)
 
   internal val documentSyncManager = LspDocumentSyncManager(this)
   internal val watchedFiles = LspWatchedFiles(this)
@@ -288,12 +287,15 @@ class LspClientImpl internal constructor(
       logInfo("Stopping LSP server ${if (explicitStop) "normally" else "unexpectedly"}")
       state = if (explicitStop) LspServerState.ShutdownNormally else LspServerState.ShutdownUnexpectedly
 
-      forEachOpenedFile { file ->
-        LspHighlightingApplier.getInstance(project).scheduleHighlightingRefresh(file)
-        LspInlayApplier.getInstance(project).scheduleRefresh(file)
+      if (!project.isDisposed) {
+        forEachOpenedFile { file ->
+          LspHighlightingApplier.getInstance(project).scheduleHighlightingRefresh(file)
+          LspInlayApplier.getInstance(project).scheduleRefresh(file)
+        }
       }
       documentSyncManager.clearOpenedFiles()
       requestExecutor.shutdownNow()
+      serverNotificationsHandler.cancelAllProgress()
 
       highlightingCacheRegistry.clearCache()
 
