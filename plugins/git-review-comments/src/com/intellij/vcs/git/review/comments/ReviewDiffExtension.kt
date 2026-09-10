@@ -74,22 +74,28 @@ class ReviewDiffExtension : DiffExtension() {
     val cs = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     cs.coroutineContext.job.cancelOnDispose(viewer)
     cs.launch {
-      LOG.warn("onViewerCreated: calling showCodeReview")
-      viewer.showCodeReview { editor, _, locationToLine, lineToLocation, _ ->
-        LOG.warn("onViewerCreated: showCodeReview callback fired, editor=$editor")
-        coroutineScope {
-          val model = InMemoryGutterControlsModel(this, store, filePath, locationToLine, lineToLocation) {
-            Messages.showInputDialog(
-              GitReviewCommentsBundle.message("review.comment.dialog.message"),
-              GitReviewCommentsBundle.message("review.comment.dialog.title"),
-              null,
-              "",
-              null,
-            )
+      try {
+        LOG.warn("onViewerCreated: calling showCodeReview")
+        viewer.showCodeReview { editor, _, locationToLine, lineToLocation, _ ->
+          LOG.warn("onViewerCreated: showCodeReview callback fired, editor=$editor")
+          coroutineScope {
+            val model = InMemoryGutterControlsModel(this, store, filePath, locationToLine, lineToLocation) {
+              Messages.showInputDialog(
+                GitReviewCommentsBundle.message("review.comment.dialog.message"),
+                GitReviewCommentsBundle.message("review.comment.dialog.title"),
+                null,
+                "",
+                null,
+              )
+            }
+            LOG.warn("onViewerCreated: calling CodeReviewEditorGutterControlsRenderer.render")
+            CodeReviewEditorGutterControlsRenderer.render(model, editor)
           }
-          LOG.warn("onViewerCreated: calling CodeReviewEditorGutterControlsRenderer.render")
-          CodeReviewEditorGutterControlsRenderer.render(model, editor)
         }
+      }
+      catch (e: Throwable) {
+        LOG.warn("onViewerCreated: showCodeReview threw", e)
+        throw e
       }
     }
   }
