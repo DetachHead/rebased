@@ -133,16 +133,29 @@ get the user's approval before touching any files.
 
 Once approved, apply the fixes to the real source files.
 
-### 6. Clear the export and loop
+### 6. Ask before looping — don't just poll again silently
 
-Delete the export file(s) again (same command as step 1), then repeat step 2
-(Rebased should still be open — no need to relaunch, just remind the user
-the fixes are in and ask them to re-review) and step 3.
+The "Finish Review" button requires at least one comment to be clickable
+(deliberately — a stray click with nothing to say shouldn't produce a fake
+"done" signal), so **do not** silently re-enter the polling loop after
+applying fixes: if the user has nothing further to flag, they have no way to
+signal that back through the button, and the poll would hang forever with no
+way out.
+
+Instead, ask directly: "Fixes applied. Want another round of review, or is
+this good?"
+
+- If the user wants another round: delete the export file(s) again (same
+  command as step 1), remind them the fixes are in and Rebased is still open
+  for them to re-review, then repeat step 3 (poll again).
+- If the user says they're done (in any form — "looks good", "done", "no"):
+  stop here. Do not poll. Tell them the review is complete.
 
 ### 7. Loop until done
 
-Repeat steps 3–6 until a round comes back with an empty array. At that
-point, tell the user the review is complete.
+Repeat steps 3–6 until either a round comes back with an empty array, or the
+user says they're done in step 6. Either way, tell the user the review is
+complete.
 
 ## Using the `review` CLI command instead
 

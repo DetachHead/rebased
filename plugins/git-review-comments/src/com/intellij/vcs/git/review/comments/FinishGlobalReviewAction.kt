@@ -56,9 +56,13 @@ internal class FinishGlobalReviewAction : DumbAwareAction() {
   companion object {
     /**
      * Enabled once a local-change diff has resolved a repo root for this project (i.e. at
-     * least one such diff has been opened) and there is at least one comment to export --
-     * unlike [FinishReviewAction.isEnabled], finishing with zero comments isn't a meaningful
-     * action here since there is no session to end.
+     * least one such diff has been opened) and there is at least one comment to export.
+     * Deliberately requires a real comment, unlike [FinishReviewAction.isEnabled]: this button
+     * has no session to "end" the way a CLI review's window-owning action does, so a stray
+     * click with nothing to say shouldn't be able to produce a "review complete" signal on its
+     * own -- the "I'm done, no more comments" exit is handled conversationally instead (the
+     * `diff-review` skill asks the user directly rather than depending on this button being
+     * clickable with an empty store).
      */
     internal fun isEnabled(project: Project): Boolean {
       val projectStore = project.service<ProjectReviewCommentStore>()
