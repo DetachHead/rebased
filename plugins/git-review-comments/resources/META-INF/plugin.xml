@@ -11,6 +11,8 @@
     assistant skill).
   ]]></description>
 
+  <content namespace="jetbrains"/>
+
   <dependencies>
     <!-- region Generated dependencies - run `Generate Product Layouts` to regenerate -->
     <module name="intellij.platform.diff"/>
