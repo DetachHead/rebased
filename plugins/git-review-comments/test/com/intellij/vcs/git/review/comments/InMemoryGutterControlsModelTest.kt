@@ -89,21 +89,24 @@ class InMemoryGutterControlsModelTest {
   }
 
   @Test
-  fun `requestNewComment adds a comment to the store at the mapped location`() {
+  fun `requestNewComment adds a comment with the text captured from requestCommentText`() {
     val (locationToLine, lineToLocation) = identityMappings()
     val store = InMemoryReviewCommentStore()
-    val model = InMemoryGutterControlsModel(testScope(), store, "a.txt", locationToLine, lineToLocation)
+    val model = InMemoryGutterControlsModel(testScope(), store, "a.txt", locationToLine, lineToLocation) { "actual typed text" }
 
     model.requestNewComment(3)
 
-    assertEquals(listOf(ReviewComment("a.txt", line = 3, side = Side.RIGHT, text = "")), store.commentsForFile("a.txt"))
+    assertEquals(
+      listOf(ReviewComment("a.txt", line = 3, side = Side.RIGHT, text = "actual typed text")),
+      store.commentsForFile("a.txt"),
+    )
   }
 
   @Test
   fun `requestNewComment for an unmapped line is a no-op`() {
     val (locationToLine, lineToLocation) = identityMappings()
     val store = InMemoryReviewCommentStore()
-    val model = InMemoryGutterControlsModel(testScope(), store, "a.txt", locationToLine, lineToLocation)
+    val model = InMemoryGutterControlsModel(testScope(), store, "a.txt", locationToLine, lineToLocation) { "typed text" }
 
     model.requestNewComment(99)
 
@@ -111,7 +114,29 @@ class InMemoryGutterControlsModelTest {
   }
 
   @Test
-  fun `cancelNewComment removes comments at the mapped location`() {
+  fun `requestNewComment does nothing when the text callback returns null -- user cancelled`() {
+    val (locationToLine, lineToLocation) = identityMappings()
+    val store = InMemoryReviewCommentStore()
+    val model = InMemoryGutterControlsModel(testScope(), store, "a.txt", locationToLine, lineToLocation) { null }
+
+    model.requestNewComment(3)
+
+    assertTrue(store.isEmpty())
+  }
+
+  @Test
+  fun `requestNewComment does nothing when the text callback returns blank text`() {
+    val (locationToLine, lineToLocation) = identityMappings()
+    val store = InMemoryReviewCommentStore()
+    val model = InMemoryGutterControlsModel(testScope(), store, "a.txt", locationToLine, lineToLocation) { "   " }
+
+    model.requestNewComment(3)
+
+    assertTrue(store.isEmpty())
+  }
+
+  @Test
+  fun `cancelNewComment removes an empty-text placeholder comment at the mapped location`() {
     val (locationToLine, lineToLocation) = identityMappings()
     val store = InMemoryReviewCommentStore()
     store.addComment(ReviewComment("a.txt", line = 3, side = Side.RIGHT, text = ""))
@@ -120,6 +145,19 @@ class InMemoryGutterControlsModelTest {
     model.cancelNewComment(3)
 
     assertEquals(emptyList<ReviewComment>(), store.commentsForFile("a.txt"))
+  }
+
+  @Test
+  fun `cancelNewComment does not remove a real, already-written comment at the same location`() {
+    val (locationToLine, lineToLocation) = identityMappings()
+    val store = InMemoryReviewCommentStore()
+    val realComment = ReviewComment("a.txt", line = 3, side = Side.RIGHT, text = "a real comment")
+    store.addComment(realComment)
+    val model = InMemoryGutterControlsModel(testScope(), store, "a.txt", locationToLine, lineToLocation)
+
+    model.cancelNewComment(3)
+
+    assertEquals(listOf(realComment), store.commentsForFile("a.txt"))
   }
 
   @Test

@@ -48,9 +48,18 @@ class InMemoryReviewCommentStore {
     _comments.value = current.subList(0, index) + current.subList(index + 1, current.size)
   }
 
-  /** Removes every comment on the given [filePath]/[line]/[side], if any. */
-  fun removeCommentsAt(filePath: String, line: Int, side: Side) {
-    _comments.value = _comments.value.filterNot { it.filePath == filePath && it.line == line && it.side == side }
+  /**
+   * Removes comments on the given [filePath]/[line]/[side], if any.
+   *
+   * @param onlyIfTextEmpty when `true`, only removes matching comments whose [ReviewComment.text]
+   *   is empty -- used by [ReviewDiffExtension]'s `cancelNewComment` to discard an
+   *   in-progress/placeholder comment without also deleting a real, already-written comment
+   *   that happens to share the same file/line/side.
+   */
+  fun removeCommentsAt(filePath: String, line: Int, side: Side, onlyIfTextEmpty: Boolean = false) {
+    _comments.value = _comments.value.filterNot {
+      it.filePath == filePath && it.line == line && it.side == side && (!onlyIfTextEmpty || it.text.isEmpty())
+    }
   }
 
   /** Snapshot of the comments currently anchored to [filePath], in insertion order. */

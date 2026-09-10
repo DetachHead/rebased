@@ -51,14 +51,14 @@ import java.io.File
  * uses one chain covering every changed file, exactly as originally planned; no fallback to
  * looping `showDiffBuiltin` calls per file was needed.
  */
-internal class ReviewApplication : ApplicationStarterBase(/* possibleArgumentsCount = */ 0, 1) {
+internal class ReviewApplication : ApplicationStarterBase(/* possibleArgumentsCount = */ 0, 1, 2) {
   override val commandName: String get() = "review"
   override val usageMessage: String
     get() = GitReviewCommentsBundle.message("review.application.usage")
 
   override suspend fun executeCommand(args: List<String>, currentDirectory: String?): CliResult {
     val ref = parseRef(args)
-    val repoRoot = File(currentDirectory ?: System.getProperty("user.dir"))
+    val repoRoot = resolveRepoRoot(currentDirectory)
     val changedFiles = ChangesetResolver(repoRoot).resolveChangedFiles(ref)
     val project = ProjectManager.getInstance().openProjects.firstOrNull()
 
@@ -98,11 +98,36 @@ internal class ReviewApplication : ApplicationStarterBase(/* possibleArgumentsCo
     /**
      * `args[0]` is always the command name itself (`"review"`), matching
      * `DiffApplication.executeCommand`'s own `args.drop(1)` convention -- so `args.size == 1`
-     * means "no ref given" (uncommitted changes) and `args.size == 2` means one ref/range
-     * argument. Internal (not private) so [ReviewApplicationTest] can exercise this without
-     * touching the diff-opening side effect.
+     * means "no ref given" (uncommitted changes), `args.size == 2` means one ref/range
+     * argument, and `args.size == 3` means two separate ref arguments (e.g. an unquoted
+     * `rebased review main feature` invocation, two distinct shell tokens) -- joined back into
+     * one space-separated string here so [ChangesetResolver.splitRef]'s existing
+     * whitespace-splitting handles both this case and a single quoted `"main feature"`
+     * argument identically. Internal (not private) so [ReviewApplicationTest] can exercise
+     * this without touching the diff-opening side effect.
      */
-    internal fun parseRef(args: List<String>): String? = args.drop(1).firstOrNull()
+    internal fun parseRef(args: List<String>): String? {
+      val refArgs = args.drop(1)
+      return if (refArgs.isEmpty()) null else refArgs.joinToString(" ")
+    }
+
+    /**
+     * Resolves the actual git repository root for a `review` invocation, via
+     * `git rev-parse --show-toplevel` run from [currentDirectory] (or the JVM's working
+     * directory if the CLI didn't supply one) -- rather than treating that directory itself
+     * as the repo root, which breaks every repo-relative path resolved by
+     * [ChangesetResolver]/[ReviewCommentsJsonExporter] whenever `review` is invoked from a
+     * subdirectory of the repo. Internal (not private), and takes a [git] factory, so
+     * [ReviewApplicationTest] can exercise this against a fake [GitCommandRunner] rather than
+     * a real git checkout.
+     *
+     * @throws GitCommandException if [currentDirectory] is not inside a git repository
+     */
+    internal fun resolveRepoRoot(currentDirectory: String?, git: (File) -> GitCommandRunner = ::ProcessGitCommandRunner): File {
+      val cwd = File(currentDirectory ?: System.getProperty("user.dir"))
+      val output = git(cwd).run("rev-parse", "--show-toplevel")
+      return File(output.trim())
+    }
 
     /**
      * The repo root a `review` session was opened against, attached to the session's

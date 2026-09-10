@@ -6,6 +6,7 @@ import com.intellij.diff.tools.util.DiffDataKeys
 import com.intellij.openapi.actionSystem.ActionUpdateThread
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.actionSystem.PlatformCoreDataKeys
+import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.project.DumbAwareAction
 import com.intellij.openapi.ui.Messages
 import java.awt.event.WindowEvent
@@ -50,7 +51,7 @@ class FinishReviewAction : DumbAwareAction() {
       return
     }
 
-    closeReviewWindow(e)
+    closeReviewWindow(e, context)
   }
 
   /**
@@ -58,13 +59,27 @@ class FinishReviewAction : DumbAwareAction() {
    * event rather than disposing directly, so the `windowClosed` listener [ReviewApplication]
    * installs (which completes the `review` CLI command's await) fires normally.
    */
-  private fun closeReviewWindow(e: AnActionEvent) {
-    val component = e.getData(PlatformCoreDataKeys.CONTEXT_COMPONENT) ?: return
-    val window = SwingUtilities.getWindowAncestor(component) ?: return
+  private fun closeReviewWindow(e: AnActionEvent, context: DiffContext) {
+    val component = e.getData(PlatformCoreDataKeys.CONTEXT_COMPONENT)
+    val window = component?.let { SwingUtilities.getWindowAncestor(it) }
+    if (window == null) {
+      // The comments were already exported successfully at this point -- failing to also
+      // close the window shouldn't look like data loss, but it should be visible rather than
+      // a silent no-op (the `review` CLI invocation would otherwise hang indefinitely).
+      LOG.warn("Finish Review: could not resolve a window to close from the action event's context component")
+      Messages.showErrorDialog(
+        context.project,
+        GitReviewCommentsBundle.message("finish.review.window.not.found"),
+        GitReviewCommentsBundle.message("action.Git.Review.FinishReview.text"),
+      )
+      return
+    }
     window.dispatchEvent(WindowEvent(window, WindowEvent.WINDOW_CLOSING))
   }
 
   companion object {
+    private val LOG = logger<FinishReviewAction>()
+
     /**
      * A `review` session is considered "active" (and this action enabled) if [context] is a
      * diff viewer created within one -- signaled by [InMemoryReviewCommentStore.KEY] being

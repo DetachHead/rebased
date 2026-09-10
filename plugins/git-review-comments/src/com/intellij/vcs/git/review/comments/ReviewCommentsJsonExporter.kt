@@ -14,6 +14,14 @@ import java.io.IOException
  * `<repo-root>/.git/review-comments.json` -- the repo-root-relative convention documented in
  * the plan's "Open design decisions" table, so the Claude Code skill and this plugin agree on
  * where to find the file without a CLI flag or env var.
+ *
+ * Line-number convention: [ReviewComment.line] is 0-based internally (see its doc comment),
+ * but this exporter writes it out as a **1-based** line number (`line + 1`), matching the
+ * file's on-disk line numbers and the `file:line` annotation convention the `diff-review`
+ * Claude Code skill formats it as. Keeping the internal/gutter-model representation 0-based
+ * (matching platform `Editor`/`Document` convention) while converting only at the JSON-export
+ * boundary avoids threading a "which convention is this number in" question through the rest
+ * of the plugin.
  */
 object ReviewCommentsJsonExporter {
   /** Repo-relative path (under [repoRoot]) that the exported JSON is written to. */
@@ -53,7 +61,8 @@ object ReviewCommentsJsonExporter {
   private fun ReviewComment.toExportEntry(): Map<String, Any> =
     linkedMapOf(
       "filePath" to filePath,
-      "line" to line,
+      // +1: see the class doc's "Line-number convention" note -- [line] is 0-based internally.
+      "line" to line + 1,
       "side" to side.name,
       "text" to text,
     )

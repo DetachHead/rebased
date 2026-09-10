@@ -2,6 +2,7 @@
 package com.intellij.vcs.git.review.comments
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Test
@@ -11,7 +12,8 @@ import java.io.File
  * Plain unit tests for [ChangesetResolver] against a fake [GitCommandRunner] -- no real git
  * checkout, working directory, or platform fixture required. Also exercises the pure
  * ref-parsing companion functions ([ChangesetResolver.buildDiffNameOnlyArgs],
- * [ChangesetResolver.parseNameOnlyOutput], [ChangesetResolver.resolveSides]) directly.
+ * [ChangesetResolver.parseNameOnlyOutput], [ChangesetResolver.splitRef],
+ * [ChangesetResolver.requireSafeRef], [ChangesetResolver.isPathNotFoundError]) directly.
  */
 class ChangesetResolverTest {
   // ---- buildDiffNameOnlyArgs ----
@@ -32,13 +34,38 @@ class ChangesetResolverTest {
   }
 
   @Test
-  fun `buildDiffNameOnlyArgs with a three-dot range splits into two positional refs`() {
-    assertEquals(listOf("diff", "--name-only", "main", "feature"), ChangesetResolver.buildDiffNameOnlyArgs("main...feature"))
+  fun `buildDiffNameOnlyArgs with a three-dot range is passed through unsplit -- git's own merge-base syntax`() {
+    // main...feature (git diff a...b) is a single, self-contained positional argument with
+    // its own symmetric/merge-base-diff meaning -- splitting it into two positional refs
+    // ("main" "feature") would silently change it into a plain two-ref diff instead.
+    assertEquals(listOf("diff", "--name-only", "main...feature"), ChangesetResolver.buildDiffNameOnlyArgs("main...feature"))
   }
 
   @Test
   fun `buildDiffNameOnlyArgs with two space-separated refs passes both through`() {
     assertEquals(listOf("diff", "--name-only", "main", "feature"), ChangesetResolver.buildDiffNameOnlyArgs("main feature"))
+  }
+
+  @Test
+  fun `buildDiffNameOnlyArgs rejects a ref that looks like a command-line option`() {
+    try {
+      ChangesetResolver.buildDiffNameOnlyArgs("--upload-pack=evil")
+      fail("expected a GitCommandException")
+    }
+    catch (e: GitCommandException) {
+      assertTrue(e.message!!.contains("--upload-pack=evil"))
+    }
+  }
+
+  @Test
+  fun `buildDiffNameOnlyArgs rejects either half of a range that looks like an option`() {
+    try {
+      ChangesetResolver.buildDiffNameOnlyArgs("main..-Xoption")
+      fail("expected a GitCommandException")
+    }
+    catch (e: GitCommandException) {
+      assertTrue(e.message!!.contains("-Xoption"))
+    }
   }
 
   // ---- parseNameOnlyOutput ----
@@ -57,33 +84,80 @@ class ChangesetResolverTest {
     )
   }
 
-  // ---- resolveSides ----
+  // ---- splitRef ----
 
   @Test
-  fun `resolveSides with no ref is HEAD versus working tree`() {
-    assertEquals("HEAD" to null, ChangesetResolver.resolveSides(null))
+  fun `splitRef with a plain ref returns just that ref`() {
+    assertEquals(ChangesetResolver.SplitRef("HEAD~1", null), ChangesetResolver.splitRef("HEAD~1"))
   }
 
   @Test
-  fun `resolveSides with a single ref is that ref versus working tree`() {
-    assertEquals("HEAD~1" to null, ChangesetResolver.resolveSides("HEAD~1"))
+  fun `splitRef with a two-dot range splits without merge-base semantics`() {
+    assertEquals(ChangesetResolver.SplitRef("main", "feature", isMergeBaseRange = false), ChangesetResolver.splitRef("main..feature"))
   }
 
   @Test
-  fun `resolveSides with a range is ref versus ref`() {
-    assertEquals("main" to "feature", ChangesetResolver.resolveSides("main..feature"))
-    assertEquals("main" to "feature", ChangesetResolver.resolveSides("main feature"))
+  fun `splitRef with a three-dot range splits with merge-base semantics`() {
+    assertEquals(ChangesetResolver.SplitRef("main", "feature", isMergeBaseRange = true), ChangesetResolver.splitRef("main...feature"))
+  }
+
+  @Test
+  fun `splitRef with two space-separated refs splits without merge-base semantics`() {
+    assertEquals(ChangesetResolver.SplitRef("main", "feature", isMergeBaseRange = false), ChangesetResolver.splitRef("main feature"))
+  }
+
+  // ---- requireSafeRef / isPathNotFoundError ----
+
+  @Test
+  fun `requireSafeRef rejects a ref starting with a dash`() {
+    try {
+      ChangesetResolver.requireSafeRef("--output=/tmp/evil")
+      fail("expected a GitCommandException")
+    }
+    catch (e: GitCommandException) {
+      assertTrue(e.message!!.contains("--output=/tmp/evil"))
+    }
+  }
+
+  @Test
+  fun `requireSafeRef accepts an ordinary ref`() {
+    ChangesetResolver.requireSafeRef("main") // does not throw
+    ChangesetResolver.requireSafeRef("HEAD~1")
+  }
+
+  @Test
+  fun `isPathNotFoundError recognizes git's actual path-not-found stderr patterns`() {
+    assertTrue(ChangesetResolver.isPathNotFoundError(GitCommandException("fatal: path 'x' does not exist in 'HEAD'")))
+    assertTrue(ChangesetResolver.isPathNotFoundError(GitCommandException("fatal: path 'x' exists on disk, but not in 'HEAD'")))
+    assertFalse(ChangesetResolver.isPathNotFoundError(GitCommandException("fatal: unable to read tree object")))
   }
 
   // ---- resolveChangedFiles (end-to-end against a fake runner) ----
 
-  private class FakeGitCommandRunner(private val responses: Map<List<String>, String>) : GitCommandRunner {
+  /**
+   * @param errors explicit error messages for specific arg lists, taking priority over the
+   *   default fallback below -- used to simulate a *genuine* git failure (as opposed to the
+   *   default fallback's "path not found" shape) for a specific call.
+   */
+  private class FakeGitCommandRunner(
+    private val responses: Map<List<String>, String> = emptyMap(),
+    private val errors: Map<List<String>, String> = emptyMap(),
+  ) : GitCommandRunner {
     val calls = mutableListOf<List<String>>()
 
     override fun run(vararg args: String): String {
       val argsList = args.toList()
       calls += argsList
-      return responses[argsList] ?: throw GitCommandException("unknown revision or path not in the working tree: $argsList")
+      responses[argsList]?.let { return it }
+      errors[argsList]?.let { throw GitCommandException(it) }
+      // Mirrors git's real behavior: an unconfigured "show ref:path" call means the path
+      // doesn't exist at that ref (the shape ChangesetResolver.readSide must tolerate),
+      // while any other unconfigured call is a genuine failure (e.g. an unknown ref).
+      if (argsList.size == 2 && argsList[0] == "show" && ":" in argsList[1]) {
+        val (ref, path) = argsList[1].split(":", limit = 2)
+        throw GitCommandException("fatal: path '$path' does not exist in '$ref'")
+      }
+      throw GitCommandException("unknown revision or path not in the working tree: $argsList")
     }
   }
 
@@ -146,6 +220,80 @@ class ChangesetResolverTest {
       val changed = ChangesetResolver(repoRoot, git).resolveChangedFiles(ref = "main..feature")
 
       assertEquals(listOf(ChangedFile("a.txt", oldContent = "content on main", newContent = "content on feature")), changed)
+      // Verify the actual sequence of git invocations, not just the final result -- confirms
+      // no working-tree read and no spurious merge-base call happen for a plain two-dot range.
+      assertEquals(
+        listOf(
+          listOf("diff", "--name-only", "main", "feature"),
+          listOf("show", "main:a.txt"),
+          listOf("show", "feature:a.txt"),
+        ),
+        git.calls,
+      )
+    }
+    finally {
+      repoRoot.deleteRecursively()
+    }
+  }
+
+  @Test
+  fun `three-dot range diffs symmetrically and reads old content from the merge base, not the left-hand ref`() {
+    val repoRoot = createTempDir()
+    try {
+      val git = FakeGitCommandRunner(
+        mapOf(
+          listOf("diff", "--name-only", "main...feature") to "a.txt\n",
+          listOf("merge-base", "main", "feature") to "abc123\n",
+          listOf("show", "abc123:a.txt") to "content at the merge base",
+          listOf("show", "feature:a.txt") to "content on feature",
+        )
+      )
+
+      val changed = ChangesetResolver(repoRoot, git).resolveChangedFiles(ref = "main...feature")
+
+      assertEquals(listOf(ChangedFile("a.txt", oldContent = "content at the merge base", newContent = "content on feature")), changed)
+    }
+    finally {
+      repoRoot.deleteRecursively()
+    }
+  }
+
+  @Test
+  fun `a ref that looks like a command-line option is rejected before reaching git`() {
+    val repoRoot = createTempDir()
+    try {
+      val git = FakeGitCommandRunner()
+
+      try {
+        ChangesetResolver(repoRoot, git).resolveChangedFiles(ref = "--upload-pack=evil")
+        fail("expected a GitCommandException")
+      }
+      catch (e: GitCommandException) {
+        assertTrue(e.message!!.contains("--upload-pack=evil"))
+      }
+      assertTrue("git must never have been invoked with the unsafe ref", git.calls.isEmpty())
+    }
+    finally {
+      repoRoot.deleteRecursively()
+    }
+  }
+
+  @Test
+  fun `a genuine git show failure is rethrown rather than treated as no content`() {
+    val repoRoot = createTempDir()
+    try {
+      val git = FakeGitCommandRunner(
+        responses = mapOf(listOf("diff", "--name-only", "HEAD~1") to "a.txt\n"),
+        errors = mapOf(listOf("show", "HEAD~1:a.txt") to "fatal: unable to read tree object HEAD~1"),
+      )
+
+      try {
+        ChangesetResolver(repoRoot, git).resolveChangedFiles(ref = "HEAD~1")
+        fail("expected a GitCommandException")
+      }
+      catch (e: GitCommandException) {
+        assertTrue(e.message!!.contains("unable to read tree object"))
+      }
     }
     finally {
       repoRoot.deleteRecursively()

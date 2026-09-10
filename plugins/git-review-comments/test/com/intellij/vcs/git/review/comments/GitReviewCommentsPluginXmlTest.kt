@@ -6,6 +6,7 @@ import com.intellij.platform.pluginSystem.parser.impl.parsePluginXml
 import com.intellij.util.xml.dom.NoOpXmlInterner
 import com.intellij.util.xml.dom.XmlInterner
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
 

@@ -60,8 +60,19 @@ class ProcessGitCommandRunner(private val repoRoot: File) : GitCommandRunner {
     catch (e: IOException) {
       throw GitCommandException("Failed to start git ${args.joinToString(" ")}: ${e.message}")
     }
-    val stdout = process.inputStream.bufferedReader().readText()
-    val stderr = process.errorStream.bufferedReader().readText()
+    // Read stdout and stderr concurrently on separate threads. Reading one stream fully
+    // before touching the other (as a naive sequential implementation would) can deadlock:
+    // if git writes enough to the *other* stream to fill its OS pipe buffer while this
+    // thread is still blocked reading the first one, git blocks writing and this thread
+    // blocks reading -- neither side makes progress.
+    var stdout = ""
+    var stderr = ""
+    val stdoutThread = Thread({ stdout = process.inputStream.bufferedReader().readText() }, "git-stdout-reader")
+    val stderrThread = Thread({ stderr = process.errorStream.bufferedReader().readText() }, "git-stderr-reader")
+    stdoutThread.start()
+    stderrThread.start()
+    stdoutThread.join()
+    stderrThread.join()
     val exitCode = process.waitFor()
     if (exitCode != 0) {
       throw GitCommandException("git ${args.joinToString(" ")} failed: ${stderr.trim().ifEmpty { "exit code $exitCode" }}")
@@ -84,9 +95,21 @@ class ProcessGitCommandRunner(private val repoRoot: File) : GitCommandRunner {
  *  - `null`/absent: uncommitted changes -- diffs the working tree against `HEAD` (matches
  *    the "auto-detect" convention used elsewhere in this repo, see `commits/SKILL.md`).
  *  - a single ref (e.g. `HEAD~1`, `main`): diffs that ref against the working tree.
- *  - two refs (a `..`/`...` range, e.g. `main..feature`, or two space-separated refs, e.g.
- *    `main feature`): diffs the two refs against each other -- both sides are read via
- *    `git show`, neither comes from the working tree.
+ *  - a `..` range (e.g. `main..feature`) or two space-separated refs (e.g. `main feature`):
+ *    diffs the two refs directly against each other -- both sides are read via `git show`,
+ *    neither comes from the working tree.
+ *  - a `...` range (e.g. `main...feature`): symmetric/merge-base diff, matching plain
+ *    `git diff a...b` semantics -- the "old" side actually read is the merge base of the two
+ *    refs (computed via `git merge-base`), not the left-hand ref itself.
+ *
+ * Note on consistency: [resolveChangedFiles] fetches the changed-file list with one
+ * `git diff --name-only` call and then reads each file's content in a separate, later step.
+ * A concurrent working-tree edit between those two steps can in principle produce an
+ * inconsistent result (e.g. a file listed as changed whose content has since reverted) --
+ * this is an accepted limitation for a manually-invoked review CLI (mirroring
+ * `DiffApplicationBase`'s own non-atomic file reads), not addressed by snapshotting the
+ * working tree (e.g. via `git stash create`), which was judged not worth the added
+ * complexity for this workflow.
  */
 class ChangesetResolver(
   private val repoRoot: File,
@@ -97,16 +120,34 @@ class ChangesetResolver(
     val diffArgs = buildDiffNameOnlyArgs(ref)
     val output = git.run(*diffArgs.toTypedArray())
     val paths = parseNameOnlyOutput(output)
-    val (oldRef, newRef) = resolveSides(ref)
+    val (oldRef, newRef) = resolveContentSides(ref)
     return paths.map { path -> ChangedFile(path, readSide(oldRef, path), readSide(newRef, path)) }
+  }
+
+  /**
+   * Resolves the (old, new) ref pair to read file content from for a given [ref] argument.
+   * `null` on either side means "the working tree". For a `...` (merge-base) range, resolves
+   * the actual merge-base commit via `git merge-base` rather than using the left-hand ref
+   * directly, since that is what `git diff a...b` itself compares against.
+   */
+  private fun resolveContentSides(ref: String?): Pair<String?, String?> {
+    if (ref == null) return "HEAD" to null
+    val split = splitRef(ref)
+    requireSafeRef(split.old)
+    split.new?.let(::requireSafeRef)
+    if (split.new == null) return split.old to null
+    val oldRef = if (split.isMergeBaseRange) git.run("merge-base", split.old, split.new).trim() else split.old
+    return oldRef to split.new
   }
 
   /**
    * Reads [path]'s content at [ref], or straight off disk if [ref] is `null` (meaning "the
    * working tree"). Returns `null` if the path did not exist on that side (added/deleted
    * file), rather than throwing -- only [resolveChangedFiles]'s `git diff --name-only` call
-   * surfaces an unknown-ref error; a missing path at a *known* ref is an expected shape
-   * (addition/deletion), not a failure.
+   * and [resolveContentSides]'s `git merge-base` call are expected to surface an unknown-ref
+   * error here; a missing path at a *known* ref is an expected shape (addition/deletion),
+   * not a failure. Any other git failure (bad object, permissions, etc.) is rethrown rather
+   * than silently treated as "no content", per [isPathNotFoundError].
    */
   private fun readSide(ref: String?, path: String): String? {
     if (ref == null) {
@@ -117,7 +158,7 @@ class ChangesetResolver(
       git.run("show", "$ref:$path")
     }
     catch (e: GitCommandException) {
-      null
+      if (isPathNotFoundError(e)) null else throw e
     }
   }
 
@@ -125,46 +166,94 @@ class ChangesetResolver(
     /**
      * The `git diff --name-only` args for a given [ref] argument. Internal (not private) so
      * [ChangesetResolverTest] can exercise the pure ref-parsing logic directly.
+     *
+     * @throws GitCommandException if [ref] (or either half of a two-ref range) looks like a
+     *   command-line option rather than a revision (see [requireSafeRef]).
      */
-    internal fun buildDiffNameOnlyArgs(ref: String?): List<String> =
-      listOf("diff", "--name-only") + (if (ref == null) listOf("HEAD") else splitRef(ref))
+    internal fun buildDiffNameOnlyArgs(ref: String?): List<String> {
+      if (ref == null) return listOf("diff", "--name-only", "HEAD")
+      val split = splitRef(ref)
+      requireSafeRef(split.old)
+      split.new?.let(::requireSafeRef)
+      return listOf("diff", "--name-only") + when {
+        // `git diff a...b` (merge-base/symmetric diff) is only valid git syntax as a single
+        // positional argument -- splitting it into two positional refs (`a b`) silently
+        // changes the semantics to a plain two-ref diff, so it is passed through unsplit.
+        split.isMergeBaseRange -> listOf("${split.old}...${split.new}")
+        split.new != null -> listOf(split.old, split.new)
+        else -> listOf(split.old)
+      }
+    }
 
     /** Parses `git diff --name-only` stdout into a list of repo-relative file paths. */
     internal fun parseNameOnlyOutput(output: String): List<String> =
       output.lineSequence().map { it.trim() }.filter { it.isNotEmpty() }.toList()
 
     /**
-     * Resolves the (old, new) ref pair to read file content from for a given [ref]
-     * argument. `null` on either side means "the working tree".
+     * The result of splitting a ref/range argument into its component ref(s).
+     *
+     * @param old the single ref (plain ref), or the left-hand ref of a range
+     * @param new the right-hand ref of a range, or `null` for a plain single ref
+     * @param isMergeBaseRange `true` for a `...` (merge-base/symmetric) range, as opposed to a
+     *   `..` range or two space-separated refs (both of which behave like a plain two-ref diff)
      */
-    internal fun resolveSides(ref: String?): Pair<String?, String?> {
-      if (ref == null) return "HEAD" to null
-      val parts = splitRef(ref)
-      return if (parts.size == 2) parts[0] to parts[1] else parts[0] to null
-    }
+    internal data class SplitRef(val old: String, val new: String?, val isMergeBaseRange: Boolean = false)
 
     /**
      * Splits a two-ref argument (`"main..feature"`, `"main...feature"`, or
-     * `"main feature"`) into its two refs, or returns a single-element list for a plain ref
-     * (`"HEAD~1"`). `git diff <a> <b>` (two positional args) behaves the same as
-     * `git diff <a>..<b>`, so splitting a `..`/`...` range into two positional args before
-     * handing them to `git diff --name-only` is equivalent to passing the range through
-     * unsplit.
+     * `"main feature"`) into its two refs, or returns a single-ref result for a plain ref
+     * (`"HEAD~1"`). Internal (not private) so [ChangesetResolverTest] can exercise this
+     * directly.
      */
-    private fun splitRef(ref: String): List<String> {
+    internal fun splitRef(ref: String): SplitRef {
       val trimmed = ref.trim()
-      val rangeSeparator = when {
-        "..." in trimmed -> "..."
-        ".." in trimmed -> ".."
-        else -> null
+      if ("..." in trimmed) {
+        val parts = trimmed.split("...", limit = 2).map { it.trim() }
+        if (parts.size == 2 && parts.all { it.isNotEmpty() }) return SplitRef(parts[0], parts[1], isMergeBaseRange = true)
       }
-      if (rangeSeparator != null) {
-        return trimmed.split(rangeSeparator, limit = 2).map { it.trim() }.filter { it.isNotEmpty() }
+      if (".." in trimmed) {
+        val parts = trimmed.split("..", limit = 2).map { it.trim() }
+        if (parts.size == 2 && parts.all { it.isNotEmpty() }) return SplitRef(parts[0], parts[1])
       }
       if (trimmed.any { it.isWhitespace() }) {
-        return trimmed.split(Regex("\\s+"), limit = 2)
+        val parts = trimmed.split(Regex("\\s+"), limit = 2)
+        return SplitRef(parts[0], parts.getOrNull(1))
       }
-      return listOf(trimmed)
+      return SplitRef(trimmed, null)
+    }
+
+    /**
+     * Rejects a ref that looks like a command-line option (starts with `-`), since handing
+     * one straight to `git` risks argument injection -- e.g. a ref of `--output=/some/path`
+     * passed to `git show` can be interpreted as an option that forces an arbitrary file
+     * write, rather than as a (nonexistent) revision name. A trailing `--`
+     * end-of-options separator isn't syntactically valid for every git invocation shape used
+     * here (e.g. `git show <ref>:<path>` is a single positional argument, not a bare ref), so
+     * refs are validated up front instead.
+     *
+     * @throws GitCommandException if [ref] starts with `-`
+     */
+    internal fun requireSafeRef(ref: String) {
+      if (ref.startsWith("-")) {
+        throw GitCommandException("refusing to treat '$ref' as a git ref: it looks like a command-line option")
+      }
+    }
+
+    /**
+     * Patterns git's own stderr uses (as of the git versions this was checked against) when
+     * `git show <ref>:<path>` fails because the path simply doesn't exist at that ref --
+     * as opposed to some other failure (bad ref, corrupt object, permissions, etc.), which
+     * must be surfaced rather than treated as "no content".
+     */
+    private val PATH_NOT_FOUND_MESSAGE_FRAGMENTS = listOf(
+      "does not exist in",
+      "exists on disk, but not in",
+    )
+
+    /** Internal (not private) so [ChangesetResolverTest] can exercise this directly. */
+    internal fun isPathNotFoundError(e: GitCommandException): Boolean {
+      val message = e.message ?: return false
+      return PATH_NOT_FOUND_MESSAGE_FRAGMENTS.any { it in message }
     }
   }
 }

@@ -90,6 +90,26 @@ To address this problem, Rebased allows you to disable the creation of the `.ide
 > [!NOTE]
 > This does not disable project-level config. Instead, Rebased will store each project's config inside a single centralized `.idea` directory in the same place as the IDE's global settings.
 
+### Diff review with inline comments
+
+Rebased ships a `review` CLI command that opens a multi-file diff viewer for a changeset --
+by default, your uncommitted changes, or a git ref/range you pass explicitly (e.g.
+`rebased review main..feature`):
+
+```bash
+rebased review [<ref>]
+```
+
+While the review window is open, click the gutter next to any line to leave an inline
+comment. When you're done, click "Finish Review" in the diff viewer toolbar to export every
+comment to `.git/review-comments.json` (relative to the repo root) and close the window.
+
+This is intended for consumption by coding-assistant tooling rather than for reading by
+hand: Rebased bundles a `diff-review` Claude Code skill (see `.claude/skills/diff-review` /
+`.agents/skills/diff-review`) that drives the whole loop -- launching the review, reading the
+exported comments, applying fixes, and relaunching for re-review -- so you can leave comments
+in the diff viewer and have an AI coding assistant act on them directly.
+
 ### Additional TextMate bundles
 
 IntelliJ Community Edition includes syntax highlighting for many languages, even when their corresponding language plugin is not installed, thanks to the [TextMate Bundles](https://plugins.jetbrains.com/plugin/7221) plugin.

@@ -10,6 +10,7 @@ import com.intellij.diff.DiffExtension
 import com.intellij.diff.FrameDiffTool
 import com.intellij.diff.requests.DiffRequest
 import com.intellij.diff.tools.util.base.DiffViewerBase
+import com.intellij.openapi.ui.Messages
 import com.intellij.openapi.util.Key
 import com.intellij.util.cancelOnDispose
 import kotlinx.coroutines.CoroutineScope
@@ -20,6 +21,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.job
 import kotlinx.coroutines.launch
 
 /**
@@ -60,17 +62,27 @@ class ReviewDiffExtension : DiffExtension() {
 
     // GHPRReviewDiffExtension/GitLabMergeRequestDiffExtension launch from a project-level
     // @Service's CoroutineScope; this extension has no such service (Task 2 introduces no new
-    // platform services), so it owns a standalone scope instead, cancelled when the viewer is
-    // disposed via cancelOnDispose below.
+    // platform services), so it owns a standalone scope instead. The scope's root job (not
+    // just the one child job launched below) is cancelled when the viewer is disposed, so no
+    // part of the scope survives it.
     val cs = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+    cs.coroutineContext.job.cancelOnDispose(viewer)
     cs.launch {
       viewer.showCodeReview { editor, _, locationToLine, lineToLocation, _ ->
         coroutineScope {
-          val model = InMemoryGutterControlsModel(this, store, filePath, locationToLine, lineToLocation)
+          val model = InMemoryGutterControlsModel(this, store, filePath, locationToLine, lineToLocation) {
+            Messages.showInputDialog(
+              GitReviewCommentsBundle.message("review.comment.dialog.message"),
+              GitReviewCommentsBundle.message("review.comment.dialog.title"),
+              null,
+              "",
+              null,
+            )
+          }
           CodeReviewEditorGutterControlsRenderer.render(model, editor)
         }
       }
-    }.cancelOnDispose(viewer)
+    }
   }
 
   companion object {
@@ -85,11 +97,19 @@ class ReviewDiffExtension : DiffExtension() {
 
 /**
  * [CodeReviewEditorGutterControlsModel] backed by [InMemoryReviewCommentStore], filtered to
- * [filePath]. Constructing/adding a comment here only updates the in-memory store -- there is
- * no comment bubble/text-field UI wired up in this extension (see the class doc on
- * [ReviewDiffExtension]); [requestNewComment] exists so the gutter renderer has something to
- * call, and is expected to be replaced with real UI (e.g. reusing
- * `CodeReviewCommentTextFieldFactory`) in a later task.
+ * [filePath]. There is no inline comment bubble/text-field UI wired up in this extension (see
+ * the class doc on [ReviewDiffExtension] for why a full inlay model is out of scope); instead,
+ * [requestNewComment] captures the comment's actual text via [requestCommentText] -- a plain
+ * callback (rather than importing [com.intellij.openapi.ui.Messages] directly here) so this
+ * class stays free of any platform-UI dependency and testable with a plain fake, the same way
+ * [locationToLine]/[lineToLocation] are. [ReviewDiffExtension] wires the real callback to a
+ * modal input dialog.
+ *
+ * @param requestCommentText invoked synchronously when the user requests a new comment;
+ *   returns the entered text, or `null`/blank if the user cancelled -- in which case no
+ *   comment is added. Defaults to always returning an empty string, which is only correct for
+ *   tests that don't care about the actual text captured (production wiring always supplies a
+ *   real, UI-backed callback).
  */
 internal class InMemoryGutterControlsModel(
   cs: CoroutineScope,
@@ -97,6 +117,7 @@ internal class InMemoryGutterControlsModel(
   private val filePath: String,
   private val locationToLine: (DiffLineLocation) -> Int?,
   private val lineToLocation: (Int) -> DiffLineLocation?,
+  private val requestCommentText: () -> String? = { "" },
 ) : CodeReviewEditorGutterControlsModel {
 
   override val gutterControlsState: StateFlow<CodeReviewEditorGutterControlsModel.ControlsState?> =
@@ -109,12 +130,17 @@ internal class InMemoryGutterControlsModel(
 
   override fun requestNewComment(lineIdx: Int) {
     val (side, line) = lineToLocation(lineIdx) ?: return
-    store.addComment(ReviewComment(filePath, line, side, text = ""))
+    val text = requestCommentText() ?: return
+    if (text.isBlank()) return
+    store.addComment(ReviewComment(filePath, line, side, text = text))
   }
 
   override fun cancelNewComment(lineIdx: Int) {
     val (side, line) = lineToLocation(lineIdx) ?: return
-    store.removeCommentsAt(filePath, line, side)
+    // Only remove an empty-text placeholder, never a real, already-written comment that
+    // happens to share this file/line/side -- see the doc on
+    // [InMemoryReviewCommentStore.removeCommentsAt].
+    store.removeCommentsAt(filePath, line, side, onlyIfTextEmpty = true)
   }
 
   override fun toggleComments(lineIdx: Int) {

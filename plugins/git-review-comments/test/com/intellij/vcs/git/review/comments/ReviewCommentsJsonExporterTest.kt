@@ -34,6 +34,8 @@ class ReviewCommentsJsonExporterTest {
 
   @Test
   fun `multiple comments across multiple files export in insertion order with correct shape`() {
+    // ReviewComment.line is 0-based internally; the exported JSON's "line" is 1-based (see
+    // ReviewCommentsJsonExporter's class doc), so these are expected as line + 1 below.
     val comments = listOf(
       ReviewComment("a.txt", line = 1, side = Side.LEFT, text = "first"),
       ReviewComment("b/c.txt", line = 42, side = Side.RIGHT, text = "second"),
@@ -45,15 +47,23 @@ class ReviewCommentsJsonExporterTest {
     assertEquals(2, parsed.size())
     val first = parsed[0].asJsonObject
     assertEquals("a.txt", first["filePath"].asString)
-    assertEquals(1, first["line"].asInt)
+    assertEquals(2, first["line"].asInt)
     assertEquals("LEFT", first["side"].asString)
     assertEquals("first", first["text"].asString)
 
     val second = parsed[1].asJsonObject
     assertEquals("b/c.txt", second["filePath"].asString)
-    assertEquals(42, second["line"].asInt)
+    assertEquals(43, second["line"].asInt)
     assertEquals("RIGHT", second["side"].asString)
     assertEquals("second", second["text"].asString)
+  }
+
+  @Test
+  fun `line 0 (first document line) exports as 1, not 0`() {
+    val json = ReviewCommentsJsonExporter.toJson(listOf(ReviewComment("a.txt", line = 0, side = Side.RIGHT, text = "top of file")))
+    val parsed = Gson().fromJson(json, JsonArray::class.java)
+
+    assertEquals(1, parsed[0].asJsonObject["line"].asInt)
   }
 
   @Test
