@@ -13,12 +13,18 @@ description: >-
 
 Rebased ships a `review` CLI command (backed by the `git-review-comments`
 plugin's `ReviewApplication`, registered as an `appStarter` with command name
-`review`) that opens a multi-file diff viewer for a changeset. The reviewer
-leaves inline gutter comments, then clicks "Finish Review" in the diff viewer
-toolbar, which exports every comment to a fixed JSON file and closes the
-window. This skill drives that loop from the agent side: launch the review,
-wait for the window to close, read the comments, plan and apply fixes, then
-relaunch so the reviewer can verify and leave more comments.
+`review`) that opens a multi-file diff viewer for a changeset. The same
+comment UI is also available from inside a running Rebased instance via the
+"Review Changes" action in the Local Changes view's right-click menu
+(`ReviewChangesAction`) — both trigger paths share the same session logic
+(`openReviewSession`), so behave identically. The reviewer clicks a line's
+gutter icon to add a comment, which then shows up as visible inline text
+directly under that line (like a GitHub/GitLab PR review comment, not just a
+gutter marker), then clicks "Finish Review" in the diff viewer toolbar, which
+exports every comment to a fixed JSON file and closes the window. This skill
+drives the CLI path from the agent side: launch the review, wait for the
+window to close, read the comments, plan and apply fixes, then relaunch so
+the reviewer can verify and leave more comments.
 
 ## Activation triggers
 

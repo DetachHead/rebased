@@ -37,7 +37,7 @@ class FinishReviewAction : DumbAwareAction() {
   override fun actionPerformed(e: AnActionEvent) {
     val context = e.getData(DiffDataKeys.DIFF_CONTEXT) ?: return
     val store = context.getUserData(InMemoryReviewCommentStore.KEY) ?: return
-    val repoRoot = context.getUserData(ReviewApplication.REPO_ROOT_KEY) ?: return
+    val repoRoot = context.getUserData(REPO_ROOT_KEY) ?: return
 
     try {
       ReviewCommentsJsonExporter.export(store.comments.value, repoRoot)
