@@ -43,6 +43,17 @@ explicitly asks to run it from a terminal.
 
 ## Workflow
 
+### 0. Check there's actually something to review
+
+```bash
+git -C "<repo-root>" status --porcelain
+```
+
+If this is empty (clean working tree, no uncommitted changes), there is
+nothing for a local-changes diff to show — stop here and tell the user
+there's nothing to review, rather than launching Rebased or waiting on a
+comment export that can never come from an empty Local Changes view.
+
 ### 1. Determine the repo root and clear stale state
 
 ```bash
