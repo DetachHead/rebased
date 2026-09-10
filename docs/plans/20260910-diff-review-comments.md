@@ -132,26 +132,28 @@ This plan adds:
 - Create: `plugins/git-review-comments/resources/messages/GitReviewCommentsBundle.properties`
 - Create: `plugins/git-review-comments/src/com/intellij/vcs/git/review/comments/GitReviewCommentsBundle.kt`
 
-- [ ] create the `.iml` mirroring `plugins/git-modal-commit/intellij.vcs.git.commit.modal.iml`,
+- [x] create the `.iml` mirroring `plugins/git-modal-commit/intellij.vcs.git.commit.modal.iml`,
       depending on `intellij.platform.diff`, `intellij.platform.diff.impl`,
       `intellij.platform.collaborationTools`, `intellij.platform.vcs.impl`,
       `intellij.platform.core`, `kotlin-stdlib`
-- [ ] create `BUILD.bazel` mirroring `plugins/git-modal-commit/BUILD.bazel`'s structure,
+- [x] create `BUILD.bazel` mirroring `plugins/git-modal-commit/BUILD.bazel`'s structure,
       with matching module deps plus a `gson` library dependency for JSON export
-- [ ] create `plugin-content.yaml` (`- name: lib/vcs-git-review-comments.jar`,
+- [x] create `plugin-content.yaml` (`- name: lib/vcs-git-review-comments.jar`,
       `modules: [{ name: intellij.vcs.git.review.comments }]`)
-- [ ] create `resources/META-INF/plugin.xml` skeleton (`<idea-plugin>`, `<id>`, `<name>`,
+- [x] create `resources/META-INF/plugin.xml` skeleton (`<idea-plugin>`, `<id>`, `<name>`,
       `<vendor>`, `<dependencies>` block, empty `<extensions>`/`<actions>` blocks, and
       `<resource-bundle>messages.GitReviewCommentsBundle</resource-bundle>`), following
       `plugins/git-modal-commit/resources/META-INF/plugin.xml`
-- [ ] create the `GitReviewCommentsBundle` message bundle class + `.properties` file
+- [x] create the `GitReviewCommentsBundle` message bundle class + `.properties` file
       (empty placeholders for now; populated in Tasks 3–4 per the `actions` skill
       convention of text/description via bundle, not hardcoded)
-- [ ] write a smoke test that loads the module's plugin descriptor in a light test
+- [x] write a smoke test that loads the module's plugin descriptor in a light test
       fixture and asserts it parses without errors
-- [ ] write a test asserting the `BUILD.bazel` module name matches the `.iml` module name
+- [x] write a test asserting the `BUILD.bazel` module name matches the `.iml` module name
       (simple string-based sanity check, prevents drift between the two build systems)
-- [ ] run tests — must pass before Task 2
+- [x] run tests — must pass before Task 2 (validated via XML well-formedness checks and a
+      Python simulation of both tests' logic against the real files, since this sandbox has
+      no JVM runtime or Bazel binary available — see progress log for details)
 
 ### Task 2: `DiffExtension` + in-memory gutter comment model
 

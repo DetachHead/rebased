@@ -1,0 +1,88 @@
+load("@community//build:tests-options.bzl", "jps_test")
+load("@rules_jvm//:jvm.bzl", "jvm_library")
+
+### auto-generated section `build intellij.vcs.git.review.comments` start
+jvm_library(
+    name = "vcs-git-review-comments",
+    srcs = glob(
+        [
+            "src/**/*.kt",
+            "src/**/*.java",
+            "src/**/*.form",
+        ],
+        allow_empty = True,
+    ),
+    module_name = "intellij.vcs.git.review.comments",
+    resource_strip_prefix = "resources",
+    resources = glob(
+        ["resources/**/*"],
+    ),
+    visibility = ["//visibility:public"],
+    deps = [
+        # do not sort,
+        "@lib//:kotlin-stdlib",
+        "//platform/diff-api:diff",
+        "//platform/diff-impl",
+        "//platform/collaboration-tools",
+        "//platform/vcs-impl",
+        "//platform/core-api:core",
+        "//libraries/gson",
+    ],
+)
+
+jvm_library(
+    name = "vcs-git-review-comments_test_lib",
+    testonly = True,
+    srcs = glob(
+        [
+            "test/**/*.kt",
+            "test/**/*.java",
+        ],
+        allow_empty = True,
+    ),
+    module_name = "intellij.vcs.git.review.comments",
+    visibility = ["//visibility:public"],
+    deps = [
+        # do not sort,
+        "@lib//:kotlin-stdlib",
+        "//platform/diff-api:diff",
+        "//platform/diff-impl",
+        "//platform/collaboration-tools",
+        "//platform/vcs-impl",
+        "//platform/core-api:core",
+        "//libraries/gson",
+        "//platform/testFramework",
+        "//platform/pluginSystem/parser/impl:impl",
+        "//platform/util/xmlDom",
+    ],
+    runtime_deps = [
+        # do not sort,
+        ":vcs-git-review-comments",
+        "//platform/diff-api:diff_test_lib",
+        "//platform/diff-impl:diff-impl_test_lib",
+        "//platform/collaboration-tools:collaboration-tools_test_lib",
+        "//platform/vcs-impl:vcs-impl_test_lib",
+        "//platform/core-api:core_test_lib",
+        "//libraries/gson:gson_test_lib",
+        "//platform/testFramework:testFramework_test_lib",
+        "//platform/pluginSystem/parser/impl:impl_test_lib",
+        "//platform/util/xmlDom:xmlDom_test_lib",
+    ],
+)
+### auto-generated section `build intellij.vcs.git.review.comments` end
+
+### auto-generated section `test intellij.vcs.git.review.comments` start
+jps_test(
+    name = "vcs-git-review-comments_test",
+    runtime_deps = [":vcs-git-review-comments_test_lib"],
+)
+### auto-generated section `test intellij.vcs.git.review.comments` end
+
+### auto-generated section `iml intellij.vcs.git.review.comments` start
+exports_files(
+    [
+        "intellij.vcs.git.review.comments.iml",
+    ],
+    visibility = ["//visibility:public"],
+)
+### auto-generated section `iml intellij.vcs.git.review.comments` end

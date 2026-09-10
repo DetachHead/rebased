@@ -1,0 +1,30 @@
+<idea-plugin>
+  <name>Git Review Comments</name>
+  <id>intellij.vcs.git.review.comments</id>
+  <category>Version Controls</category>
+  <vendor>JetBrains</vendor>
+  <description><![CDATA[
+    Adds a per-line gutter "add comment" affordance to Rebased's diff viewers and a
+    <code>review</code> CLI command that opens a multi-file changeset review session.
+    Comments collected during a review session can be exported to a JSON file via the
+    "Finish Review" action, for consumption by external tooling (e.g. an AI coding
+    assistant skill).
+  ]]></description>
+
+  <dependencies>
+    <!-- region Generated dependencies - run `Generate Product Layouts` to regenerate -->
+    <module name="intellij.platform.diff"/>
+    <module name="intellij.platform.diff.impl"/>
+    <module name="intellij.platform.collaborationTools"/>
+    <module name="intellij.platform.vcs.impl"/>
+    <!-- endregion -->
+  </dependencies>
+
+  <resource-bundle>messages.GitReviewCommentsBundle</resource-bundle>
+
+  <extensions defaultExtensionNs="com.intellij">
+  </extensions>
+
+  <actions>
+  </actions>
+</idea-plugin>

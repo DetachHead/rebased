@@ -1701,6 +1701,7 @@
       <module fileurl="file://$PROJECT_DIR$/plugins/git4idea/backend/intellij.vcs.git.backend.iml" filepath="$PROJECT_DIR$/plugins/git4idea/backend/intellij.vcs.git.backend.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/git4idea/intellij.vcs.git.backend.tests.iml" filepath="$PROJECT_DIR$/plugins/git4idea/intellij.vcs.git.backend.tests.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/git-modal-commit/intellij.vcs.git.commit.modal.iml" filepath="$PROJECT_DIR$/plugins/git-modal-commit/intellij.vcs.git.commit.modal.iml" />
+      <module fileurl="file://$PROJECT_DIR$/plugins/git-review-comments/intellij.vcs.git.review.comments.iml" filepath="$PROJECT_DIR$/plugins/git-review-comments/intellij.vcs.git.review.comments.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/git4idea/intellij.vcs.git.coverage/intellij.vcs.git.coverage.iml" filepath="$PROJECT_DIR$/plugins/git4idea/intellij.vcs.git.coverage/intellij.vcs.git.coverage.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/git4idea/intellij.vcs.git.coverage/intellij.vcs.git.coverage.tests.iml" filepath="$PROJECT_DIR$/plugins/git4idea/intellij.vcs.git.coverage/intellij.vcs.git.coverage.tests.iml" />
       <module fileurl="file://$PROJECT_DIR$/plugins/git-features-trainer/intellij.vcs.git.featuresTrainer.iml" filepath="$PROJECT_DIR$/plugins/git-features-trainer/intellij.vcs.git.featuresTrainer.iml" />
