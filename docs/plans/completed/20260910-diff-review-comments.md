@@ -433,16 +433,24 @@ This plan adds:
 
 ### Task 7: [Final] Update documentation
 
-- [ ] update `plugins/git-review-comments`'s `plugin.xml` `<description>` if scope shifted
-      during implementation
-- [ ] add a short section to the top-level `README.md` (or `CONTRIBUTING.md`, whichever
+- [x] update `plugins/git-review-comments`'s `plugin.xml` `<description>` if scope shifted
+      during implementation — re-read the description against the actual Tasks 1–6
+      implementation: it already accurately describes the gutter "add comment" affordance,
+      the `review` CLI command, and the "Finish Review" JSON export. Scope did not shift
+      from what's already documented there. No change needed.
+- [x] add a short section to the top-level `README.md` (or `CONTRIBUTING.md`, whichever
       documents bundled plugins) mentioning the `review` CLI command and the
       `diff-review` Claude Code skill, if this repo documents its bundled plugins there —
-      check during implementation and skip if there's no existing precedent for
-      per-plugin README entries
-- [ ] update `CLAUDE.md` if new patterns worth remembering emerged (e.g. the fixed
-      `.git/review-comments.json` convention)
-- [ ] move this plan to `docs/plans/completed/`
+      checked both files: neither `README.md` nor `CONTRIBUTING.md` documents any
+      individual bundled plugin by name (no mention of `git-modal-commit`, `git4idea`, or
+      any `plugins/*` module). No existing precedent for per-plugin README/CONTRIBUTING
+      entries, so per the plan's own allowance this is skipped.
+- [x] update `CLAUDE.md` if new patterns worth remembering emerged (e.g. the fixed
+      `.git/review-comments.json` convention) — `CLAUDE.md` does not exist at the repo
+      root. Creating one solely to note this single convention would not add real value
+      (the convention is already documented in this plan and in the `diff-review` skill
+      files, which is where an agent following the skill would look). Skipped.
+- [x] move this plan to `docs/plans/completed/`
 
 ## Post-Completion
 
