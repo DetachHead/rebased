@@ -1,5 +1,5 @@
 ---
-name: diff-review
+name: rebased-review
 description: >-
   Use this skill after making code changes, whenever the user asks for a diff
   review, says "review my changes", or "review this with rebased". Opens (or
@@ -9,7 +9,7 @@ description: >-
   and leave more comments -- until a review round comes back with none.
 ---
 
-# Diff Review
+# Rebased Review
 
 Rebased shows a per-line gutter "add comment" affordance and a visible inline
 comment (like a GitHub/GitLab PR review, not just a gutter marker) on any
