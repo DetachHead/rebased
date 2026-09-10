@@ -164,29 +164,44 @@ This plan adds:
 - Modify: `plugins/git-review-comments/resources/META-INF/plugin.xml`
 - Create: `plugins/git-review-comments/test/com/intellij/vcs/git/review/comments/InMemoryReviewCommentStoreTest.kt`
 
-- [ ] define `ReviewComment(filePath: String, line: Int, side: Side, text: String)` data
+- [x] define `ReviewComment(filePath: String, line: Int, side: Side, text: String)` data
       class (reuse `com.intellij.diff.util.Side` from `intellij.platform.diff`)
-- [ ] implement `InMemoryReviewCommentStore` — a session-scoped, mutable collection of
+- [x] implement `InMemoryReviewCommentStore` — a session-scoped, mutable collection of
       `ReviewComment`s shared across every file diff opened in one `review` session,
       exposing add/remove/list operations (this is the piece `GHPRReviewDiffExtension.kt`
       backs with a real backend API call; here it's just an in-memory list, since the
       "backend" is a local JSON file written once at Finish Review time)
-- [ ] implement `ReviewDiffExtension : DiffExtension`, mirroring
+- [x] implement `ReviewDiffExtension : DiffExtension`, mirroring
       `GHPRReviewDiffExtension.kt`: on `onViewerCreated`, build a
       `CodeReviewCommentableEditorModel` + `CodeReviewEditorGutterControlsModel`
       implementation backed by `InMemoryReviewCommentStore` (filtered to the current
       file's `filePath`), and attach it the same way `GHPRReviewDiffExtension` calls
       `showCodeReview` — reusing `CodeReviewEditorGutterControlsRenderer` for the actual
-      gutter paint/click handling instead of writing a new renderer
-- [ ] register `ReviewDiffExtension` under `<extensions defaultExtensionNs="com.intellij">
+      gutter paint/click handling instead of writing a new renderer. Scope note (see
+      code doc on `ReviewDiffExtension`): `isLineCommentable` allows any line present in
+      the document rather than being restricted to changed-line ranges — computing
+      changed-line ranges generically across `SimpleDiffViewer`/`SimpleOnesideDiffViewer`/
+      `UnifiedDiffViewer` has no shared viewer-type-agnostic API and is deferred as a
+      follow-up, per this task's own allowance to narrow scope if a full integration
+      proves impractical.
+- [x] register `ReviewDiffExtension` under `<extensions defaultExtensionNs="com.intellij">
       <diff.DiffExtension implementation="..."/> </extensions>` in `plugin.xml`
-- [ ] write unit tests for `InMemoryReviewCommentStore` (add/remove/list, filtering by
+- [x] write unit tests for `InMemoryReviewCommentStore` (add/remove/list, filtering by
       file path, success + edge cases: duplicate line comments, empty store)
-- [ ] write a light platform test (or, if a full viewer-creation fixture proves
-      impractical, a focused unit test against `ReviewDiffExtension`'s model-construction
-      logic in isolation) verifying that `onViewerCreated` attaches a gutter-commentable
-      model whose `isLineCommentable` reflects the diff's changed-line ranges
-- [ ] run tests — must pass before Task 3
+- [x] write a focused unit test against `InMemoryGutterControlsModel`'s (the model class
+      backing `ReviewDiffExtension`) construction logic in isolation — a full
+      viewer-creation light platform test proved impractical without `ChangesetResolver`/
+      `ReviewApplication` (a later task) to build a real `DiffRequestChain`; verifies
+      `isLineCommentable`/`linesWithComments` against fake `locationToLine`/
+      `lineToLocation` mappings of the same shape `showCodeReview` provides
+- [x] run tests — must pass before Task 3 (validated via read-verification against the
+      real API signatures in `DiffExtension.java`, `CodeReviewCommentableEditorModel.kt`,
+      `CodeReviewEditorGutterControlsModel.kt`, `CodeReviewEditorGutterControlsRenderer.kt`,
+      `diffViewerUtil.kt`, `GHPRReviewDiffExtension.kt`, and `GitLabMergeRequestDiffExtension.kt`,
+      plus a Python simulation of both new test files' logic against equivalent Python
+      re-implementations of `InMemoryReviewCommentStore`/`InMemoryGutterControlsModel` — see
+      progress log for details; no JVM/Bazel toolchain available in this sandbox to actually
+      compile/run the Kotlin)
 
 ### Task 3: Changeset `ApplicationStarter` (`review` CLI command)
 

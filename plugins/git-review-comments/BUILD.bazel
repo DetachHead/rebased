@@ -26,6 +26,7 @@ jvm_library(
         "//platform/collaboration-tools",
         "//platform/vcs-impl",
         "//platform/core-api:core",
+        "//platform/util",
         "//libraries/gson",
     ],
 )
@@ -50,6 +51,7 @@ jvm_library(
         "//platform/collaboration-tools",
         "//platform/vcs-impl",
         "//platform/core-api:core",
+        "//platform/util",
         "//libraries/gson",
         "//platform/testFramework",
         "//platform/pluginSystem/parser/impl:impl",
@@ -63,6 +65,7 @@ jvm_library(
         "//platform/collaboration-tools:collaboration-tools_test_lib",
         "//platform/vcs-impl:vcs-impl_test_lib",
         "//platform/core-api:core_test_lib",
+        "//platform/util:util_test_lib",
         "//libraries/gson:gson_test_lib",
         "//platform/testFramework:testFramework_test_lib",
         "//platform/pluginSystem/parser/impl:impl_test_lib",
