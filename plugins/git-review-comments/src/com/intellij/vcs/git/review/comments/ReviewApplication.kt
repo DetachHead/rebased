@@ -59,6 +59,15 @@ internal class ReviewApplication : ApplicationStarterBase(/* possibleArgumentsCo
   override suspend fun executeCommand(args: List<String>, currentDirectory: String?): CliResult {
     val ref = parseRef(args)
     val repoRoot = resolveRepoRoot(currentDirectory)
+    // Clear any pre-existing export from an earlier/interrupted session *before* opening the
+    // diff viewer: the JSON file is only (re-)written if the user clicks "Finish Review" (see
+    // FinishReviewAction). If a prior session's window was closed any other way (OS close
+    // button, Alt+F4, killed process), that earlier file would otherwise still be sitting at
+    // the well-known path when this new session starts -- and a consumer (e.g. the
+    // diff-review Claude Code skill) could mistake it for this session's export. Deleting it
+    // up front means only *this* session's own "Finish Review" click can ever produce the
+    // file consumers see afterwards.
+    ReviewCommentsJsonExporter.clear(repoRoot)
     val changedFiles = ChangesetResolver(repoRoot).resolveChangedFiles(ref)
     val project = ProjectManager.getInstance().openProjects.firstOrNull()
 

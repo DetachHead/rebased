@@ -41,7 +41,7 @@ class GitCommandException(message: String) : Exception(message)
  * are wired around a `Project`+`VirtualFile`, not a bare repo root path as available here
  * before any project is guaranteed to be open); adding `intellij.vcs.git` as a module
  * dependency of this plugin for that alone was judged not worth it, so `git show`/
- * `git diff --name-only` are used instead, matching `DiffApplicationBase`'s own precedent
+ * `git diff --name-status -M` are used instead, matching `DiffApplicationBase`'s own precedent
  * of doing file-level plumbing without a heavier VCS service.
  */
 interface GitCommandRunner {
@@ -91,7 +91,7 @@ class ProcessGitCommandRunner(private val repoRoot: File) : GitCommandRunner {
  * to build [com.intellij.diff.requests.DiffRequest]s from.
  *
  * The ref argument's shape matches plain `git diff` semantics, since it is simply handed
- * to `git diff --name-only`:
+ * to `git diff --name-status -M`:
  *  - `null`/absent: uncommitted changes -- diffs the working tree against `HEAD` (matches
  *    the "auto-detect" convention used elsewhere in this repo, see `commits/SKILL.md`).
  *  - a single ref (e.g. `HEAD~1`, `main`): diffs that ref against the working tree.
@@ -103,7 +103,8 @@ class ProcessGitCommandRunner(private val repoRoot: File) : GitCommandRunner {
  *    refs (computed via `git merge-base`), not the left-hand ref itself.
  *
  * Note on consistency: [resolveChangedFiles] fetches the changed-file list with one
- * `git diff --name-only` call and then reads each file's content in a separate, later step.
+ * `git diff --name-status -M` call and then reads each file's content in a separate, later
+ * step.
  * A concurrent working-tree edit between those two steps can in principle produce an
  * inconsistent result (e.g. a file listed as changed whose content has since reverted) --
  * this is an accepted limitation for a manually-invoked review CLI (mirroring
@@ -115,13 +116,23 @@ class ChangesetResolver(
   private val repoRoot: File,
   private val git: GitCommandRunner = ProcessGitCommandRunner(repoRoot),
 ) {
-  /** @throws GitCommandException if [ref] does not resolve to a known revision. */
+  /**
+   * @throws GitCommandException if [ref] does not resolve to a known revision.
+   *
+   * Rename handling: file listing is done via `git diff --name-status -M`, not
+   * `--name-only`, so renamed files surface as an explicit `oldPath` -> `newPath` pair (see
+   * [DiffEntry]) rather than a single path. Without this, a rename's old content would be
+   * looked up at its *new* path -- which never existed on the old side -- and the whole file
+   * would show as a fabricated full addition instead of a rename+modify diff.
+   */
   fun resolveChangedFiles(ref: String?): List<ChangedFile> {
-    val diffArgs = buildDiffNameOnlyArgs(ref)
+    val diffArgs = buildDiffNameStatusArgs(ref)
     val output = git.run(*diffArgs.toTypedArray())
-    val paths = parseNameOnlyOutput(output)
+    val entries = parseNameStatusOutput(output)
     val (oldRef, newRef) = resolveContentSides(ref)
-    return paths.map { path -> ChangedFile(path, readSide(oldRef, path), readSide(newRef, path)) }
+    return entries.map { entry ->
+      ChangedFile(entry.newPath, readSide(oldRef, entry.oldPath), readSide(newRef, entry.newPath))
+    }
   }
 
   /**
@@ -143,8 +154,8 @@ class ChangesetResolver(
   /**
    * Reads [path]'s content at [ref], or straight off disk if [ref] is `null` (meaning "the
    * working tree"). Returns `null` if the path did not exist on that side (added/deleted
-   * file), rather than throwing -- only [resolveChangedFiles]'s `git diff --name-only` call
-   * and [resolveContentSides]'s `git merge-base` call are expected to surface an unknown-ref
+   * file), rather than throwing -- only [resolveChangedFiles]'s `git diff --name-status -M`
+   * call and [resolveContentSides]'s `git merge-base` call are expected to surface an unknown-ref
    * error here; a missing path at a *known* ref is an expected shape (addition/deletion),
    * not a failure. Any other git failure (bad object, permissions, etc.) is rethrown rather
    * than silently treated as "no content", per [isPathNotFoundError].
@@ -164,18 +175,22 @@ class ChangesetResolver(
 
   companion object {
     /**
-     * The `git diff --name-only` args for a given [ref] argument. Internal (not private) so
-     * [ChangesetResolverTest] can exercise the pure ref-parsing logic directly.
+     * The `git diff --name-status -M` args for a given [ref] argument. `-M` (rename
+     * detection) is what makes renamed files surface as an explicit `R<score>` status line
+     * with both the old and new path (see [parseNameStatusOutput]/[DiffEntry]), instead of a
+     * bare path that [readSide] would otherwise treat as "newly added" on the old side.
+     * Internal (not private) so [ChangesetResolverTest] can exercise the pure ref-parsing
+     * logic directly.
      *
      * @throws GitCommandException if [ref] (or either half of a two-ref range) looks like a
      *   command-line option rather than a revision (see [requireSafeRef]).
      */
-    internal fun buildDiffNameOnlyArgs(ref: String?): List<String> {
-      if (ref == null) return listOf("diff", "--name-only", "HEAD")
+    internal fun buildDiffNameStatusArgs(ref: String?): List<String> {
+      if (ref == null) return listOf("diff", "--name-status", "-M", "HEAD")
       val split = splitRef(ref)
       requireSafeRef(split.old)
       split.new?.let(::requireSafeRef)
-      return listOf("diff", "--name-only") + when {
+      return listOf("diff", "--name-status", "-M") + when {
         // `git diff a...b` (merge-base/symmetric diff) is only valid git syntax as a single
         // positional argument -- splitting it into two positional refs (`a b`) silently
         // changes the semantics to a plain two-ref diff, so it is passed through unsplit.
@@ -185,9 +200,37 @@ class ChangesetResolver(
       }
     }
 
-    /** Parses `git diff --name-only` stdout into a list of repo-relative file paths. */
-    internal fun parseNameOnlyOutput(output: String): List<String> =
-      output.lineSequence().map { it.trim() }.filter { it.isNotEmpty() }.toList()
+    /**
+     * One line of `git diff --name-status -M` output: the old and new repo-relative paths
+     * for a changed file. Equal for every change type except a detected rename, where
+     * [oldPath] is the pre-rename path (read for the "old" side's content) and [newPath] is
+     * the post-rename path (read for the "new" side's content, and used as the diff's
+     * display/comment-anchoring path).
+     */
+    internal data class DiffEntry(val oldPath: String, val newPath: String)
+
+    /**
+     * Parses `git diff --name-status -M` stdout into [DiffEntry] pairs. Ordinary lines have
+     * the shape `<status>\t<path>` (`A`, `M`, `D`, ...); a detected rename has the shape
+     * `R<score>\t<oldPath>\t<newPath>` (e.g. `R100\told/path.kt\tnew/path.kt`) -- copy
+     * detection is not requested (`-M`, not `-C`), so a `C` status is not expected here.
+     */
+    internal fun parseNameStatusOutput(output: String): List<DiffEntry> =
+      output.lineSequence()
+        .map { it.trim() }
+        .filter { it.isNotEmpty() }
+        .map { line ->
+          val parts = line.split("\t")
+          val status = parts[0]
+          if (status.startsWith("R") && parts.size >= 3) {
+            DiffEntry(oldPath = parts[1], newPath = parts[2])
+          }
+          else {
+            val path = parts.last()
+            DiffEntry(oldPath = path, newPath = path)
+          }
+        }
+        .toList()
 
     /**
      * The result of splitting a ref/range argument into its component ref(s).

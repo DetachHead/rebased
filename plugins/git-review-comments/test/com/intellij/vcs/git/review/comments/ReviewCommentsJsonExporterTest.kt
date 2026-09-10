@@ -121,6 +121,25 @@ class ReviewCommentsJsonExporterTest {
   }
 
   @Test
+  fun `export falls back to a repo-root dotfile when dot-git is a file, not a directory`() {
+    // Simulates a git worktree/submodule checkout, where .git is a plain file containing a
+    // "gitdir: <path>" pointer rather than a directory.
+    val repoRoot = tempFolder.newFolder("worktree-repo")
+    File(repoRoot, ".git").writeText("gitdir: /somewhere/else/.git/worktrees/worktree-repo\n")
+    val comment = ReviewComment("a.txt", line = 1, side = Side.LEFT, text = "hi")
+
+    val target = ReviewCommentsJsonExporter.export(listOf(comment), repoRoot)
+
+    assertEquals(File(repoRoot, ".git-review-comments.json"), target)
+    assertTrue(target.isFile)
+    val parsed = Gson().fromJson(target.readText(), JsonArray::class.java)
+    assertEquals(1, parsed.size())
+    assertEquals("a.txt", parsed[0].asJsonObject["filePath"].asString)
+    // Must not have touched the .git pointer file itself.
+    assertEquals("gitdir: /somewhere/else/.git/worktrees/worktree-repo\n", File(repoRoot, ".git").readText())
+  }
+
+  @Test
   fun `write failure surfaces an IOException rather than silently no-op`() {
     // Point "repoRoot" itself at a plain file, not a directory -- File(repoRoot, ".git") can
     // then never be created, so the write must fail loudly instead of pretending to succeed.
@@ -130,5 +149,37 @@ class ReviewCommentsJsonExporterTest {
       ReviewCommentsJsonExporter.export(emptyList(), notADirectory)
     }
     assertFalse(File(notADirectory, ".git/review-comments.json").exists())
+  }
+
+  @Test
+  fun `clear deletes a previously exported file`() {
+    val repoRoot = tempFolder.newFolder("repo3")
+    File(repoRoot, ".git").mkdirs()
+    ReviewCommentsJsonExporter.export(listOf(ReviewComment("a.txt", line = 0, side = Side.LEFT, text = "stale")), repoRoot)
+    assertTrue(File(repoRoot, ".git/review-comments.json").isFile)
+
+    ReviewCommentsJsonExporter.clear(repoRoot)
+
+    assertFalse(File(repoRoot, ".git/review-comments.json").exists())
+  }
+
+  @Test
+  fun `clear deletes the worktree-fallback file when dot-git is a file`() {
+    val repoRoot = tempFolder.newFolder("worktree-repo2")
+    File(repoRoot, ".git").writeText("gitdir: /somewhere/else\n")
+    ReviewCommentsJsonExporter.export(listOf(ReviewComment("a.txt", line = 0, side = Side.LEFT, text = "stale")), repoRoot)
+    assertTrue(File(repoRoot, ".git-review-comments.json").isFile)
+
+    ReviewCommentsJsonExporter.clear(repoRoot)
+
+    assertFalse(File(repoRoot, ".git-review-comments.json").exists())
+  }
+
+  @Test
+  fun `clear on a repo root with no prior export is a no-op, not a failure`() {
+    val repoRoot = tempFolder.newFolder("repo4")
+    File(repoRoot, ".git").mkdirs()
+
+    ReviewCommentsJsonExporter.clear(repoRoot) // must not throw
   }
 }

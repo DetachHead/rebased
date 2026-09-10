@@ -11,45 +11,54 @@ import java.io.File
 /**
  * Plain unit tests for [ChangesetResolver] against a fake [GitCommandRunner] -- no real git
  * checkout, working directory, or platform fixture required. Also exercises the pure
- * ref-parsing companion functions ([ChangesetResolver.buildDiffNameOnlyArgs],
- * [ChangesetResolver.parseNameOnlyOutput], [ChangesetResolver.splitRef],
+ * ref-parsing companion functions ([ChangesetResolver.buildDiffNameStatusArgs],
+ * [ChangesetResolver.parseNameStatusOutput], [ChangesetResolver.splitRef],
  * [ChangesetResolver.requireSafeRef], [ChangesetResolver.isPathNotFoundError]) directly.
  */
 class ChangesetResolverTest {
-  // ---- buildDiffNameOnlyArgs ----
+  // ---- buildDiffNameStatusArgs ----
 
   @Test
-  fun `buildDiffNameOnlyArgs with no ref diffs HEAD`() {
-    assertEquals(listOf("diff", "--name-only", "HEAD"), ChangesetResolver.buildDiffNameOnlyArgs(null))
+  fun `buildDiffNameStatusArgs with no ref diffs HEAD`() {
+    assertEquals(listOf("diff", "--name-status", "-M", "HEAD"), ChangesetResolver.buildDiffNameStatusArgs(null))
   }
 
   @Test
-  fun `buildDiffNameOnlyArgs with a single ref diffs that ref`() {
-    assertEquals(listOf("diff", "--name-only", "HEAD~1"), ChangesetResolver.buildDiffNameOnlyArgs("HEAD~1"))
+  fun `buildDiffNameStatusArgs with a single ref diffs that ref`() {
+    assertEquals(listOf("diff", "--name-status", "-M", "HEAD~1"), ChangesetResolver.buildDiffNameStatusArgs("HEAD~1"))
   }
 
   @Test
-  fun `buildDiffNameOnlyArgs with a two-dot range splits into two positional refs`() {
-    assertEquals(listOf("diff", "--name-only", "main", "feature"), ChangesetResolver.buildDiffNameOnlyArgs("main..feature"))
+  fun `buildDiffNameStatusArgs with a two-dot range splits into two positional refs`() {
+    assertEquals(
+      listOf("diff", "--name-status", "-M", "main", "feature"),
+      ChangesetResolver.buildDiffNameStatusArgs("main..feature"),
+    )
   }
 
   @Test
-  fun `buildDiffNameOnlyArgs with a three-dot range is passed through unsplit -- git's own merge-base syntax`() {
+  fun `buildDiffNameStatusArgs with a three-dot range is passed through unsplit -- git's own merge-base syntax`() {
     // main...feature (git diff a...b) is a single, self-contained positional argument with
     // its own symmetric/merge-base-diff meaning -- splitting it into two positional refs
     // ("main" "feature") would silently change it into a plain two-ref diff instead.
-    assertEquals(listOf("diff", "--name-only", "main...feature"), ChangesetResolver.buildDiffNameOnlyArgs("main...feature"))
+    assertEquals(
+      listOf("diff", "--name-status", "-M", "main...feature"),
+      ChangesetResolver.buildDiffNameStatusArgs("main...feature"),
+    )
   }
 
   @Test
-  fun `buildDiffNameOnlyArgs with two space-separated refs passes both through`() {
-    assertEquals(listOf("diff", "--name-only", "main", "feature"), ChangesetResolver.buildDiffNameOnlyArgs("main feature"))
+  fun `buildDiffNameStatusArgs with two space-separated refs passes both through`() {
+    assertEquals(
+      listOf("diff", "--name-status", "-M", "main", "feature"),
+      ChangesetResolver.buildDiffNameStatusArgs("main feature"),
+    )
   }
 
   @Test
-  fun `buildDiffNameOnlyArgs rejects a ref that looks like a command-line option`() {
+  fun `buildDiffNameStatusArgs rejects a ref that looks like a command-line option`() {
     try {
-      ChangesetResolver.buildDiffNameOnlyArgs("--upload-pack=evil")
+      ChangesetResolver.buildDiffNameStatusArgs("--upload-pack=evil")
       fail("expected a GitCommandException")
     }
     catch (e: GitCommandException) {
@@ -58,9 +67,9 @@ class ChangesetResolverTest {
   }
 
   @Test
-  fun `buildDiffNameOnlyArgs rejects either half of a range that looks like an option`() {
+  fun `buildDiffNameStatusArgs rejects either half of a range that looks like an option`() {
     try {
-      ChangesetResolver.buildDiffNameOnlyArgs("main..-Xoption")
+      ChangesetResolver.buildDiffNameStatusArgs("main..-Xoption")
       fail("expected a GitCommandException")
     }
     catch (e: GitCommandException) {
@@ -68,19 +77,30 @@ class ChangesetResolverTest {
     }
   }
 
-  // ---- parseNameOnlyOutput ----
+  // ---- parseNameStatusOutput ----
 
   @Test
-  fun `parseNameOnlyOutput on empty output returns an empty list`() {
-    assertEquals(emptyList<String>(), ChangesetResolver.parseNameOnlyOutput(""))
-    assertEquals(emptyList<String>(), ChangesetResolver.parseNameOnlyOutput("\n\n"))
+  fun `parseNameStatusOutput on empty output returns an empty list`() {
+    assertEquals(emptyList<ChangesetResolver.DiffEntry>(), ChangesetResolver.parseNameStatusOutput(""))
+    assertEquals(emptyList<ChangesetResolver.DiffEntry>(), ChangesetResolver.parseNameStatusOutput("\n\n"))
   }
 
   @Test
-  fun `parseNameOnlyOutput splits and trims lines, dropping blanks`() {
+  fun `parseNameStatusOutput splits and trims ordinary status lines, dropping blanks`() {
     assertEquals(
-      listOf("a.txt", "dir/b.kt"),
-      ChangesetResolver.parseNameOnlyOutput("a.txt\n\ndir/b.kt\n"),
+      listOf(
+        ChangesetResolver.DiffEntry("a.txt", "a.txt"),
+        ChangesetResolver.DiffEntry("dir/b.kt", "dir/b.kt"),
+      ),
+      ChangesetResolver.parseNameStatusOutput("M\ta.txt\n\nA\tdir/b.kt\n"),
+    )
+  }
+
+  @Test
+  fun `parseNameStatusOutput parses a rename status line into distinct old and new paths`() {
+    assertEquals(
+      listOf(ChangesetResolver.DiffEntry(oldPath = "old/path.kt", newPath = "new/path.kt")),
+      ChangesetResolver.parseNameStatusOutput("R100\told/path.kt\tnew/path.kt\n"),
     )
   }
 
@@ -168,7 +188,7 @@ class ChangesetResolverTest {
       File(repoRoot, "a.txt").writeText("new on disk")
       val git = FakeGitCommandRunner(
         mapOf(
-          listOf("diff", "--name-only", "HEAD") to "a.txt\n",
+          listOf("diff", "--name-status", "-M", "HEAD") to "M\ta.txt\n",
           listOf("show", "HEAD:a.txt") to "old from HEAD",
         )
       )
@@ -189,7 +209,7 @@ class ChangesetResolverTest {
       File(repoRoot, "a.txt").writeText("working tree content")
       val git = FakeGitCommandRunner(
         mapOf(
-          listOf("diff", "--name-only", "HEAD~1") to "a.txt\n",
+          listOf("diff", "--name-status", "-M", "HEAD~1") to "M\ta.txt\n",
           listOf("show", "HEAD~1:a.txt") to "content at HEAD~1",
         )
       )
@@ -211,7 +231,7 @@ class ChangesetResolverTest {
       File(repoRoot, "a.txt").writeText("uncommitted local edit")
       val git = FakeGitCommandRunner(
         mapOf(
-          listOf("diff", "--name-only", "main", "feature") to "a.txt\n",
+          listOf("diff", "--name-status", "-M", "main", "feature") to "M\ta.txt\n",
           listOf("show", "main:a.txt") to "content on main",
           listOf("show", "feature:a.txt") to "content on feature",
         )
@@ -224,7 +244,7 @@ class ChangesetResolverTest {
       // no working-tree read and no spurious merge-base call happen for a plain two-dot range.
       assertEquals(
         listOf(
-          listOf("diff", "--name-only", "main", "feature"),
+          listOf("diff", "--name-status", "-M", "main", "feature"),
           listOf("show", "main:a.txt"),
           listOf("show", "feature:a.txt"),
         ),
@@ -242,7 +262,7 @@ class ChangesetResolverTest {
     try {
       val git = FakeGitCommandRunner(
         mapOf(
-          listOf("diff", "--name-only", "main...feature") to "a.txt\n",
+          listOf("diff", "--name-status", "-M", "main...feature") to "M\ta.txt\n",
           listOf("merge-base", "main", "feature") to "abc123\n",
           listOf("show", "abc123:a.txt") to "content at the merge base",
           listOf("show", "feature:a.txt") to "content on feature",
@@ -252,6 +272,43 @@ class ChangesetResolverTest {
       val changed = ChangesetResolver(repoRoot, git).resolveChangedFiles(ref = "main...feature")
 
       assertEquals(listOf(ChangedFile("a.txt", oldContent = "content at the merge base", newContent = "content on feature")), changed)
+    }
+    finally {
+      repoRoot.deleteRecursively()
+    }
+  }
+
+  @Test
+  fun `a renamed file reads old content from its old path and new content from its new path`() {
+    val repoRoot = createTempDir()
+    try {
+      File(repoRoot, "new").mkdirs()
+      File(repoRoot, "new/path.kt").writeText("renamed and modified content")
+      val git = FakeGitCommandRunner(
+        mapOf(
+          listOf("diff", "--name-status", "-M", "HEAD") to "R100\told/path.kt\tnew/path.kt\n",
+          listOf("show", "HEAD:old/path.kt") to "original content before the rename",
+        )
+      )
+
+      val changed = ChangesetResolver(repoRoot, git).resolveChangedFiles(ref = null)
+
+      // repoRelativePath/newContent come from the *new* path; oldContent is read from the
+      // *old* path -- not the same path reused for both sides, which would show the whole
+      // file as a fabricated addition instead of a rename+modify diff.
+      assertEquals(
+        listOf(
+          ChangedFile(
+            "new/path.kt",
+            oldContent = "original content before the rename",
+            newContent = "renamed and modified content",
+          )
+        ),
+        changed,
+      )
+      // Confirms the old side is read at the old path, not the new one.
+      assertTrue(listOf("show", "HEAD:old/path.kt") in git.calls)
+      assertTrue(listOf("show", "HEAD:new/path.kt") !in git.calls)
     }
     finally {
       repoRoot.deleteRecursively()
@@ -283,7 +340,7 @@ class ChangesetResolverTest {
     val repoRoot = createTempDir()
     try {
       val git = FakeGitCommandRunner(
-        responses = mapOf(listOf("diff", "--name-only", "HEAD~1") to "a.txt\n"),
+        responses = mapOf(listOf("diff", "--name-status", "-M", "HEAD~1") to "M\ta.txt\n"),
         errors = mapOf(listOf("show", "HEAD~1:a.txt") to "fatal: unable to read tree object HEAD~1"),
       )
 
@@ -304,7 +361,7 @@ class ChangesetResolverTest {
   fun `empty changeset resolves to an empty list`() {
     val repoRoot = createTempDir()
     try {
-      val git = FakeGitCommandRunner(mapOf(listOf("diff", "--name-only", "HEAD") to ""))
+      val git = FakeGitCommandRunner(mapOf(listOf("diff", "--name-status", "-M", "HEAD") to ""))
 
       val changed = ChangesetResolver(repoRoot, git).resolveChangedFiles(ref = null)
 
@@ -322,7 +379,7 @@ class ChangesetResolverTest {
       File(repoRoot, "new.txt").writeText("brand new")
       val git = FakeGitCommandRunner(
         mapOf(
-          listOf("diff", "--name-only", "HEAD") to "new.txt\n",
+          listOf("diff", "--name-status", "-M", "HEAD") to "A\tnew.txt\n",
           // No "show HEAD:new.txt" entry -- the fake throws GitCommandException for it,
           // simulating git's "path does not exist" error, which ChangesetResolver must
           // treat as "no old content" rather than propagating.
@@ -345,7 +402,7 @@ class ChangesetResolverTest {
       // Not creating gone.txt on disk at all -- simulates a deletion.
       val git = FakeGitCommandRunner(
         mapOf(
-          listOf("diff", "--name-only", "HEAD") to "gone.txt\n",
+          listOf("diff", "--name-status", "-M", "HEAD") to "D\tgone.txt\n",
           listOf("show", "HEAD:gone.txt") to "content that used to be there",
         )
       )

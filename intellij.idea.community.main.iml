@@ -45,5 +45,6 @@
     <orderEntry type="module" module-name="intellij.vcs.gitlab" scope="RUNTIME" />
     <orderEntry type="module" module-name="intellij.vcs.github.tracker" scope="RUNTIME" />
     <orderEntry type="module" module-name="intellij.vcs.git.commit.modal" scope="RUNTIME" />
+    <orderEntry type="module" module-name="intellij.vcs.git.review.comments" scope="RUNTIME" />
   </component>
 </module>

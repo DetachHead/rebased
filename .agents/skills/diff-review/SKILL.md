@@ -31,7 +31,8 @@ relaunch so the reviewer can verify and leave more comments.
 ### 1. Determine the ref to review
 
 `rebased review` takes zero or one optional ref argument, handed straight to
-`git diff --name-only` semantics (see `ChangesetResolver`):
+`git diff --name-status -M` semantics (rename detection included, see
+`ChangesetResolver`):
 
 - No argument → uncommitted changes (working tree vs. `HEAD`). Default when
   the user just says "review my changes" and has uncommitted edits.
@@ -63,8 +64,12 @@ not) once the process returns.
 ### 3. Read the exported comments
 
 Once the command returns, read `<repo-root>/.git/review-comments.json`
-(repo-root-relative, fixed path — no flag or env var controls it). Each entry
-has the shape:
+(repo-root-relative, fixed path — no flag or env var controls it). In a `git
+worktree`/submodule checkout, where `<repo-root>/.git` is a file rather than
+a directory, the plugin instead writes to
+`<repo-root>/.git-review-comments.json` — check that path too if the normal
+one is absent and a worktree/submodule checkout is in play. Each entry has
+the shape:
 
 ```json
 { "filePath": "path/relative/to/repo/root", "line": 1, "side": "LEFT", "text": "comment text" }
@@ -76,6 +81,13 @@ has the shape:
   is complete with no outstanding comments — stop here and tell the user the
   review finished clean.
 - Otherwise, continue to step 4.
+
+Note: every `review` invocation deletes any pre-existing export at session
+start, before the diff viewer even opens (see `ReviewApplication`) — so a
+stale file from an earlier or interrupted session (one closed without
+"Finish Review") can never be mistaken for this session's output. A file you
+read after `rebased review` returns was written by *that* invocation's own
+"Finish Review" click, or does not exist.
 
 ### 4. Plan the fixes
 
@@ -96,8 +108,9 @@ Once approved, apply the fixes to the real source files.
 
 ### 6. Clear the file and relaunch
 
-Delete (or otherwise clear) `<repo-root>/.git/review-comments.json`, then
-relaunch:
+Delete (or otherwise clear) `<repo-root>/.git/review-comments.json` (this is
+belt-and-suspenders — the next `rebased review` invocation also clears it
+automatically at startup, see the note in step 3), then relaunch:
 
 ```bash
 rebased review [<ref>]

@@ -13,6 +13,7 @@ import org.jetbrains.intellij.build.productLayout.DEFAULT_BUNDLED_PLUGINS
 val REBASED_BUNDLED_PLUGINS = DEFAULT_BUNDLED_PLUGINS + persistentListOf(
   "intellij.vcs.git",
   "intellij.vcs.git.commit.modal",
+  "intellij.vcs.git.review.comments",
   "intellij.vcs.github",
   "intellij.vcs.gitlab",
   "intellij.terminal",
