@@ -211,7 +211,7 @@ This plan adds:
 - Modify: `plugins/git-review-comments/resources/META-INF/plugin.xml`
 - Create: `plugins/git-review-comments/test/com/intellij/vcs/git/review/comments/ChangesetResolverTest.kt`
 
-- [ ] implement `ChangesetResolver` — given a repo root and a ref/range argument (e.g.
+- [x] implement `ChangesetResolver` — given a repo root and a ref/range argument (e.g.
       `HEAD~1`, `main`, or nothing for uncommitted changes, matching the auto-detect
       conventions already used by the `commits`/other review-style skills in this repo),
       resolve the set of changed files and, per file, the two content sources to diff
@@ -222,21 +222,44 @@ This plan adds:
     codebase for reading historical file content; if a suitable existing service isn't
     found, fall back to shelling out to `git show <ref>:<path>` for old content, `git
     diff --name-only` for the file list.
-- [ ] implement `ReviewApplication : ApplicationStarterBase(...)` with `commandName = "review"`,
+  - ➕ Decision: no git4idea API was found that reads historical file content from a bare
+    repo-root path without a full `GitRepository`/`Project` context, so `ChangesetResolver`
+    shells out to `git show`/`git diff --name-only` via a small `GitCommandRunner`
+    interface (real impl: `ProcessGitCommandRunner`, using `ProcessBuilder`), per the
+    plan's own fallback allowance. The interface also keeps the ref-parsing/file-listing
+    logic unit-testable with a fake runner, no real git checkout needed.
+- [x] implement `ReviewApplication : ApplicationStarterBase(...)` with `commandName = "review"`,
       accepting one optional ref argument, using `ChangesetResolver` to build one
       multi-file `DiffRequestChain` (or one `showDiffBuiltin` call per file if the
       platform's `DiffRequestChain` doesn't support a clean multi-file "browse next/prev
       file" UX — verify during implementation and note in Progress Tracking if scope
       changes), opening the chain via `DiffManagerEx.getInstance().showDiffBuiltin(...)`,
       same as `DiffApplication`
-- [ ] register `ReviewApplication` as an `applicationStarter` extension in `plugin.xml`,
+  - ➕ Decision (see Progress Tracking): `SimpleDiffRequestChain.fromProducers(...)` natively
+    supports multiple `DiffRequestProducer`s and already backs multi-file commit/changelist
+    diffs elsewhere in the platform via `CacheDiffRequestChainProcessor` (which every
+    `showDiffBuiltin` window uses), giving "next/prev file" browsing for free — no fallback
+    to looping `showDiffBuiltin` per file was needed; scope unchanged from the plan.
+- [x] register `ReviewApplication` as an `applicationStarter` extension in `plugin.xml`,
       following the pattern used for `diff` in
       `platform/platform-resources/src/META-INF/PlatformExtensions.xml`
-- [ ] write unit tests for `ChangesetResolver` (uncommitted changes, ref vs ref, ref vs
+  - ➕ Note: the actual extension point name (per `PlatformExtensionPoints.xml` and the
+    `diff`/`merge` registrations in `PlatformExtensions.xml`) is `appStarter`, not
+    `applicationStarter` as the plan text says — registered as
+    `<appStarter id="review" implementation="com.intellij.vcs.git.review.comments.ReviewApplication" .../>`.
+- [x] write unit tests for `ChangesetResolver` (uncommitted changes, ref vs ref, ref vs
       working tree, empty changeset, nonexistent ref → error case)
-- [ ] write a test for `ReviewApplication`'s argument parsing (0 args = uncommitted, 1 arg
+- [x] write a test for `ReviewApplication`'s argument parsing (0 args = uncommitted, 1 arg
       = ref) separate from the actual diff-opening side effect
-- [ ] run tests — must pass before Task 4
+- [x] run tests — must pass before Task 4 (validated via read-verification against the real
+      API signatures in `DiffApplication.kt`, `DiffApplicationBase.java`,
+      `ApplicationStarterBase.kt`, `DiffRequestChain.java`, `SimpleDiffRequestChain.java`,
+      `DiffRequestProducer.java`, `DiffContentFactory.java`, `DiffRequestFactory.java`,
+      `PlatformExtensions.xml`/`PlatformExtensionPoints.xml`, plus a Python simulation of
+      `ChangesetResolver`'s and `ReviewApplication.parseRef`'s pure logic exercising the same
+      cases as the new Kotlin test files (all assertions passed) — no JVM/Bazel toolchain
+      available in this sandbox to actually compile/run the Kotlin; `plugin.xml` re-checked
+      with `xmllint --noout`
 
 ### Task 4: "Finish Review" action + JSON export
 
