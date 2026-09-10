@@ -10,6 +10,7 @@ import com.intellij.diff.DiffExtension
 import com.intellij.diff.FrameDiffTool
 import com.intellij.diff.requests.DiffRequest
 import com.intellij.diff.tools.util.base.DiffViewerBase
+import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.ui.Messages
 import com.intellij.openapi.util.Key
 import com.intellij.util.cancelOnDispose
@@ -56,9 +57,14 @@ import kotlinx.coroutines.launch
  */
 class ReviewDiffExtension : DiffExtension() {
   override fun onViewerCreated(viewer: FrameDiffTool.DiffViewer, context: DiffContext, request: DiffRequest) {
+    LOG.warn("onViewerCreated: viewer=${viewer::class.qualifiedName}, isDiffViewerBase=${viewer is DiffViewerBase}")
     if (viewer !is DiffViewerBase) return
-    val store = context.getUserData(InMemoryReviewCommentStore.KEY) ?: return
-    val filePath = request.getUserData(FILE_PATH_KEY) ?: return
+    val store = context.getUserData(InMemoryReviewCommentStore.KEY)
+    LOG.warn("onViewerCreated: store=$store")
+    if (store == null) return
+    val filePath = request.getUserData(FILE_PATH_KEY)
+    LOG.warn("onViewerCreated: filePath=$filePath")
+    if (filePath == null) return
 
     // GHPRReviewDiffExtension/GitLabMergeRequestDiffExtension launch from a project-level
     // @Service's CoroutineScope; this extension has no such service (Task 2 introduces no new
@@ -68,7 +74,9 @@ class ReviewDiffExtension : DiffExtension() {
     val cs = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     cs.coroutineContext.job.cancelOnDispose(viewer)
     cs.launch {
+      LOG.warn("onViewerCreated: calling showCodeReview")
       viewer.showCodeReview { editor, _, locationToLine, lineToLocation, _ ->
+        LOG.warn("onViewerCreated: showCodeReview callback fired, editor=$editor")
         coroutineScope {
           val model = InMemoryGutterControlsModel(this, store, filePath, locationToLine, lineToLocation) {
             Messages.showInputDialog(
@@ -79,6 +87,7 @@ class ReviewDiffExtension : DiffExtension() {
               null,
             )
           }
+          LOG.warn("onViewerCreated: calling CodeReviewEditorGutterControlsRenderer.render")
           CodeReviewEditorGutterControlsRenderer.render(model, editor)
         }
       }
@@ -86,6 +95,7 @@ class ReviewDiffExtension : DiffExtension() {
   }
 
   companion object {
+    private val LOG = logger<ReviewDiffExtension>()
     /**
      * The repo-relative path of the file being diffed in a given viewer, attached to the
      * [DiffRequest] by `ReviewApplication` so [ReviewDiffExtension] can filter
