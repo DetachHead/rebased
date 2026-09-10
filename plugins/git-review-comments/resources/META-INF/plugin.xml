@@ -5,11 +5,12 @@
   <vendor>JetBrains</vendor>
   <description><![CDATA[
     Adds a per-line gutter "add comment" affordance and visible inline comments (like a
-    GitHub/GitLab PR review) to Rebased's diff viewers, triggered either via the "Review
-    Changes" action in the Local Changes view or the <code>review</code> CLI command --
-    both open the same multi-file changeset review session. Comments collected during a
-    review session can be exported to a JSON file via the "Finish Review" action, for
-    consumption by external tooling (e.g. an AI coding assistant skill).
+    GitHub/GitLab PR review) directly to Rebased's ordinary diff viewers -- double-click a
+    changed file in Local Changes, or "Show Diff" -- with no dedicated action needed. Click
+    "Finish Review" in the Local Changes toolbar to export accumulated comments to a JSON
+    file, for consumption by external tooling (e.g. an AI coding assistant skill). A separate
+    <code>review</code> CLI command opens the same comment UI for a whole changeset from a
+    terminal, with its own "Finish Review" action in that session's diff toolbar.
   ]]></description>
 
   <content namespace="jetbrains"/>
@@ -37,15 +38,15 @@
     <diff.DiffExtension implementation="com.intellij.vcs.git.review.comments.ReviewDiffExtension"/>
     <appStarter id="review" implementation="com.intellij.vcs.git.review.comments.ReviewApplication"
                 bundle="messages.GitReviewCommentsBundle" key="review.help"/>
-    <projectService serviceImplementation="com.intellij.vcs.git.review.comments.ReviewCoroutineScopeService"/>
+    <projectService serviceImplementation="com.intellij.vcs.git.review.comments.ProjectReviewCommentStore"/>
   </extensions>
 
   <actions>
     <action id="Git.Review.FinishReview" class="com.intellij.vcs.git.review.comments.FinishReviewAction">
       <add-to-group group-id="Diff.ViewerToolbar" anchor="last"/>
     </action>
-    <action id="Git.Review.ReviewChanges" class="com.intellij.vcs.git.review.comments.ReviewChangesAction">
-      <add-to-group group-id="ChangesViewPopupMenu" anchor="after" relative-to-action="Diff.ShowStandaloneDiff"/>
+    <action id="Git.Review.FinishGlobalReview" class="com.intellij.vcs.git.review.comments.FinishGlobalReviewAction">
+      <add-to-group group-id="ChangesViewToolbar" anchor="after" relative-to-action="Diff.ShowDiff"/>
     </action>
   </actions>
 </idea-plugin>

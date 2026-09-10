@@ -128,4 +128,25 @@ class InMemoryReviewCommentStoreTest {
 
     assertTrue(store.isEmpty())
   }
+
+  @Test
+  fun `clear removes every comment across every file`() {
+    val store = InMemoryReviewCommentStore()
+    store.addComment(ReviewComment("a.txt", line = 1, side = Side.RIGHT, text = "one"))
+    store.addComment(ReviewComment("b.txt", line = 2, side = Side.LEFT, text = "two"))
+
+    store.clear()
+
+    assertTrue(store.isEmpty())
+    assertEquals(emptyList<ReviewComment>(), store.comments.value)
+  }
+
+  @Test
+  fun `clear on an empty store is a no-op`() {
+    val store = InMemoryReviewCommentStore()
+
+    store.clear()
+
+    assertTrue(store.isEmpty())
+  }
 }

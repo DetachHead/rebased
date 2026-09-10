@@ -8,8 +8,10 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
 /**
- * A session-scoped, mutable collection of [ReviewComment]s shared across every file diff
- * opened during one `review` session.
+ * A mutable collection of [ReviewComment]s, shared across every file diff that reads/writes
+ * it. Two lifetimes use this same class: a `review` CLI session's store lives only for that
+ * session (see [KEY]); [ProjectReviewCommentStore]'s store instead persists for the whole
+ * project session, shared across independently-opened local-change diffs.
  *
  * Where `GHPRReviewDiffExtension`/`GitLabMergeRequestDiffExtension` back their gutter models
  * with a real backend-synced review view model, this is intentionally just an in-memory list:
@@ -68,6 +70,15 @@ class InMemoryReviewCommentStore {
 
   /** True if the store has no comments at all, across every file. */
   fun isEmpty(): Boolean = _comments.value.isEmpty()
+
+  /**
+   * Removes every comment from the store. Used by [FinishGlobalReviewAction] after exporting
+   * [ProjectReviewCommentStore]'s comments, so the next round of local-change diffs starts
+   * from an empty store rather than re-exporting already-handled comments.
+   */
+  fun clear() {
+    _comments.value = emptyList()
+  }
 
   companion object {
     val KEY: Key<InMemoryReviewCommentStore> = Key.create(InMemoryReviewCommentStore::class.java.name)

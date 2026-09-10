@@ -13,8 +13,10 @@ import java.io.File
  *
  * Accepts zero or one argument: no argument reviews uncommitted changes, one argument is a
  * ref/range handed straight to [ChangesetResolver] (see its class doc for the accepted
- * shapes). The actual diff-chain construction and comment UI wiring is shared with the in-app
- * "Review Changes" action ([ReviewChangesAction]) via [openReviewSession].
+ * shapes). [openReviewSession] builds the actual diff chain and wires up the comment UI --
+ * the same comment UI ([ReviewDiffExtension]) also applies automatically to any other diff of
+ * a local/uncommitted change (Local Changes view, "Show Diff", etc.), with no CLI invocation
+ * needed at all -- see the class doc on [ReviewDiffExtension].
  */
 internal class ReviewApplication : ApplicationStarterBase(/* possibleArgumentsCount = */ 0, 1, 2) {
   override val commandName: String get() = "review"

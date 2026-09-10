@@ -30,10 +30,9 @@ import java.io.File
 
 /**
  * Opens one `review` session for [ref] (`null` means uncommitted changes) against [repoRoot],
- * shared by both the `review` CLI command ([ReviewApplication]) and the in-app "Review
- * Changes" action ([ReviewChangesAction]) so both trigger paths behave identically: same
- * multi-file diff chain, same [InMemoryReviewCommentStore]/gutter+inline comment UI, same
- * `.git/review-comments.json` export on Finish Review.
+ * driving the `review` CLI command ([ReviewApplication]): builds the multi-file diff chain,
+ * attaches an [InMemoryReviewCommentStore] for [ReviewDiffExtension]'s gutter+inline comment
+ * UI, and exports to `.git/review-comments.json` on Finish Review.
  *
  * Always opens in [WindowWrapper.Mode.FRAME] -- see the note on [ReviewDiffExtension] for why
  * [WindowWrapper.Mode.MODAL] silently breaks the comment UI.
@@ -59,8 +58,16 @@ internal suspend fun openReviewSession(project: Project?, repoRoot: File, ref: S
     chain.putUserData(REPO_ROOT_KEY, repoRoot)
     chain.putUserData(DiffUserDataKeys.PLACE, DiffPlaces.EXTERNAL)
 
+    // FrameWrapper.getFrame() does `WindowManager.getInstance().getIdeFrame(project)!!` --
+    // FRAME mode crashes with an NPE unless an IDE frame for `project` already exists (i.e.
+    // some project is already open). MODAL mode creates a standalone dialog with no such
+    // requirement, but was confirmed (via manual testing) not to reliably run the diff
+    // viewer's rediff-completion signal ReviewDiffExtension's comment UI depends on. FRAME
+    // is safe and correct whenever a project is open (validated manually); MODAL is the only
+    // option with none, at the cost of the comment UI not showing up in that specific case.
+    val mode = if (project != null) WindowWrapper.Mode.FRAME else WindowWrapper.Mode.MODAL
     val task = CompletableDeferred<Unit>()
-    val dialogHints = DiffDialogHints(WindowWrapper.Mode.FRAME, null) { wrapper ->
+    val dialogHints = DiffDialogHints(mode, null) { wrapper ->
       val window = wrapper.window
       hideSplashBeforeShow(window)
       AppIcon.getInstance().requestFocus(window)

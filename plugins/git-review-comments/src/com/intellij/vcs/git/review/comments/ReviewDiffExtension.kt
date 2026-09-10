@@ -12,10 +12,13 @@ import com.intellij.diff.DiffExtension
 import com.intellij.diff.FrameDiffTool
 import com.intellij.diff.requests.DiffRequest
 import com.intellij.diff.tools.util.base.DiffViewerBase
+import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.editor.ComponentInlayRenderer
 import com.intellij.openapi.ui.Messages
 import com.intellij.openapi.util.Key
+import com.intellij.openapi.vcs.changes.CurrentContentRevision
+import com.intellij.openapi.vcs.changes.actions.diff.ChangeDiffRequestProducer
 import com.intellij.ui.components.JBLabel
 import com.intellij.util.cancelOnDispose
 import com.intellij.util.ui.JBUI
@@ -30,31 +33,43 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.job
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.io.File
 
 /**
  * Attaches a per-line gutter "add comment" affordance, and a visible inline comment display
- * directly under the commented line (like a GitHub/GitLab PR review), to every diff viewer
- * opened during a `review` session, backed by an [InMemoryReviewCommentStore].
+ * directly under the commented line (like a GitHub/GitLab PR review), to two kinds of diff
+ * viewer -- see [resolveReviewTarget] for the two sources this pulls from:
+ *
+ * 1. Every file diff opened during a `review` session ([ReviewApplication]'s CLI command, via
+ *    [openReviewSession]), backed by that session's own [InMemoryReviewCommentStore].
+ * 2. Any *other* diff of a local/uncommitted VCS change -- double-click a changed file in
+ *    Local Changes, "Show Diff", etc. -- with no dedicated `review` session needed at all,
+ *    backed by the project-scoped [ProjectReviewCommentStore] instead. This is what makes
+ *    leaving a comment work from the IDE's normal, everyday diff views, not just a special
+ *    action or CLI invocation.
+ *
+ * Either way, comments accumulate until "Finish Review" ([FinishReviewAction] for a CLI
+ * session, [FinishGlobalReviewAction] for the project-scoped store) exports them to JSON.
  *
  * Mirrors [org.jetbrains.plugins.github.pullrequest.ui.diff.GHPRReviewDiffExtension] and
  * [org.jetbrains.plugins.gitlab.mergerequest.diff.GitLabMergeRequestDiffExtension]: reads a
- * review view model off the [DiffContext]'s user data, then calls
+ * review view model off the [DiffContext]/[DiffRequest]'s user data, then calls
  * [com.intellij.collaboration.ui.codereview.diff.viewer.showCodeReview] to wire it into the
  * viewer's editor(s) -- both the gutter "add comment" control and the inline comment text
  * inlay are handled by that single call once [InMemoryReviewEditorModel] implements both
  * [CodeReviewEditorGutterControlsModel] and [CodeReviewEditorInlaysModel].
  *
- * `ReviewApplication`, which drives the `review` CLI command (and `ReviewChangesAction`, which
- * drives the in-app "Review Changes" action), is responsible for:
- *  - creating one [InMemoryReviewCommentStore] per review session and attaching it to the
- *    session's [DiffContext] under [InMemoryReviewCommentStore.KEY];
- *  - attaching each file's repo-relative path to its [DiffRequest] under [FILE_PATH_KEY], so
- *    this extension knows which file's comments to show/collect in a given viewer;
- *  - always opening the diff in [com.intellij.openapi.ui.WindowWrapper.Mode.FRAME] -- the
- *    diff viewer's rediff-completion signal this extension's [showCodeReview] call depends on
- *    was confirmed (via manual testing) to never fire in
- *    [com.intellij.openapi.ui.WindowWrapper.Mode.MODAL] with no project open, leaving the
- *    gutter/inlays permanently unrendered with no error.
+ * For the `review` CLI session path, [openReviewSession] opens the diff in
+ * [com.intellij.openapi.ui.WindowWrapper.Mode.FRAME] whenever a project is already open -- the
+ * diff viewer's rediff-completion signal this extension's [showCodeReview] call depends on was
+ * confirmed (via manual testing) to never fire in
+ * [com.intellij.openapi.ui.WindowWrapper.Mode.MODAL], leaving the gutter/inlays permanently
+ * unrendered with no error. FRAME mode itself requires an existing IDE frame to attach to
+ * (`WindowManager.getIdeFrame(project)!!` inside `FrameWrapper.getFrame()` throws an NPE
+ * otherwise), so MODAL is still used as a fallback when no project is open -- with the known
+ * limitation that the comment UI will not appear in that specific case. This limitation does
+ * not apply to the project-scoped path, which only ever runs inside an already-open project.
  *
  * Scope note: [isLineCommentable] currently allows commenting on any line present in the
  * document, rather than being restricted to changed-line ranges. Computing "changed-line
@@ -68,8 +83,6 @@ import kotlinx.coroutines.launch
 class ReviewDiffExtension : DiffExtension() {
   override fun onViewerCreated(viewer: FrameDiffTool.DiffViewer, context: DiffContext, request: DiffRequest) {
     if (viewer !is DiffViewerBase) return
-    val store = context.getUserData(InMemoryReviewCommentStore.KEY) ?: return
-    val filePath = request.getUserData(FILE_PATH_KEY) ?: return
 
     // GHPRReviewDiffExtension/GitLabMergeRequestDiffExtension launch from a project-level
     // @Service's CoroutineScope; this extension has no such service, so it owns a standalone
@@ -79,6 +92,7 @@ class ReviewDiffExtension : DiffExtension() {
     cs.coroutineContext.job.cancelOnDispose(viewer)
     cs.launch {
       try {
+        val (store, filePath) = resolveReviewTarget(context, request) ?: return@launch
         viewer.showCodeReview(
           modelFactory = { locationToLine, lineToLocation ->
             InMemoryReviewEditorModel(this, store, filePath, locationToLine, lineToLocation) {
@@ -105,8 +119,55 @@ class ReviewDiffExtension : DiffExtension() {
         throw e
       }
       catch (e: Throwable) {
-        LOG.warn("Failed to attach review comment UI for $filePath", e)
+        LOG.warn("Failed to attach review comment UI", e)
       }
+    }
+  }
+
+  /**
+   * Resolves which [InMemoryReviewCommentStore] and repo-relative file path a given diff
+   * viewer's comments belong to, trying two sources in order:
+   *
+   * 1. A `review` CLI session: [InMemoryReviewCommentStore.KEY]/[FILE_PATH_KEY] attached by
+   *    [openReviewSession] to this session's [DiffContext]/[DiffRequest].
+   * 2. Any other diff of a local/uncommitted VCS change (double-click a changed file in Local
+   *    Changes, "Show Diff", etc.) -- detected via [ChangeDiffRequestProducer.CHANGE_KEY]
+   *    carrying a [com.intellij.openapi.vcs.changes.Change] whose
+   *    [com.intellij.openapi.vcs.changes.Change.getAfterRevision] is a [CurrentContentRevision]
+   *    (i.e. the "new" side reads the actual working-tree file, not a historical revision --
+   *    the same signal that distinguishes an uncommitted change from an arbitrary two-revision
+   *    comparison). Backed by the project-scoped [ProjectReviewCommentStore] instead of a
+   *    per-session store, since there is no single "review session" umbrella for diffs opened
+   *    this way.
+   *
+   * Returns `null` if neither source applies (e.g. a plain file comparison, or a diff of a
+   * historical/non-local revision) -- comments are simply not offered on that diff.
+   */
+  private suspend fun resolveReviewTarget(context: DiffContext, request: DiffRequest): Pair<InMemoryReviewCommentStore, String>? {
+    val sessionStore = context.getUserData(InMemoryReviewCommentStore.KEY)
+    if (sessionStore != null) {
+      val filePath = request.getUserData(FILE_PATH_KEY) ?: return null
+      return sessionStore to filePath
+    }
+
+    val project = context.project ?: return null
+    val change = request.getUserData(ChangeDiffRequestProducer.CHANGE_KEY) ?: return null
+    val afterRevision = change.afterRevision as? CurrentContentRevision ?: return null
+    val absoluteFile = afterRevision.file.ioFile
+
+    val projectStore = project.service<ProjectReviewCommentStore>()
+    val repoRoot = projectStore.repoRoot ?: resolveRepoRootFor(absoluteFile)?.also { projectStore.repoRoot = it } ?: return null
+    val relativePath = repoRoot.toPath().relativize(absoluteFile.toPath()).toString().replace(File.separatorChar, '/')
+    return projectStore.store to relativePath
+  }
+
+  private suspend fun resolveRepoRootFor(file: File): File? = withContext(Dispatchers.IO) {
+    try {
+      File(ProcessGitCommandRunner(file.parentFile).run("rev-parse", "--show-toplevel").trim())
+    }
+    catch (e: GitCommandException) {
+      LOG.warn("Could not resolve git repo root for $file", e)
+      null
     }
   }
 
