@@ -26,6 +26,25 @@ data class ChangedFile(
 class GitCommandException(message: String) : Exception(message)
 
 /**
+ * One changed-file record from `git diff --name-status -M -z` output: the old and new
+ * repo-relative paths for a changed file. Equal for every change type except a detected
+ * rename, where [oldPath] is the pre-rename path (read for the "old" side's content) and
+ * [newPath] is the post-rename path (read for the "new" side's content, and used as the
+ * diff's display/comment-anchoring path).
+ */
+data class DiffEntry(val oldPath: String, val newPath: String)
+
+/**
+ * The result of splitting a ref/range argument into its component ref(s).
+ *
+ * @param old the single ref (plain ref), or the left-hand ref of a range
+ * @param new the right-hand ref of a range, or `null` for a plain single ref
+ * @param isMergeBaseRange `true` for a `...` (merge-base/symmetric) range, as opposed to a
+ *   `..` range or two space-separated refs (both of which behave like a plain two-ref diff)
+ */
+data class SplitRef(val old: String, val new: String?, val isMergeBaseRange: Boolean = false)
+
+/**
  * Runs a single `git` subcommand against a repo checkout and returns its stdout.
  *
  * Extracted behind an interface (rather than [ChangesetResolver] shelling out directly)
@@ -207,15 +226,6 @@ class ChangesetResolver(
     }
 
     /**
-     * One changed-file record from `git diff --name-status -M -z` output: the old and new
-     * repo-relative paths for a changed file. Equal for every change type except a detected
-     * rename, where [oldPath] is the pre-rename path (read for the "old" side's content) and
-     * [newPath] is the post-rename path (read for the "new" side's content, and used as the
-     * diff's display/comment-anchoring path).
-     */
-    internal data class DiffEntry(val oldPath: String, val newPath: String)
-
-    /**
      * Parses `git diff --name-status -M -z` stdout into [DiffEntry] pairs.
      *
      * With `-z`, git emits raw, NUL (`\u0000`)-terminated fields instead of newline-separated,
@@ -252,16 +262,6 @@ class ChangesetResolver(
       }
       return entries
     }
-
-    /**
-     * The result of splitting a ref/range argument into its component ref(s).
-     *
-     * @param old the single ref (plain ref), or the left-hand ref of a range
-     * @param new the right-hand ref of a range, or `null` for a plain single ref
-     * @param isMergeBaseRange `true` for a `...` (merge-base/symmetric) range, as opposed to a
-     *   `..` range or two space-separated refs (both of which behave like a plain two-ref diff)
-     */
-    internal data class SplitRef(val old: String, val new: String?, val isMergeBaseRange: Boolean = false)
 
     /**
      * Splits a two-ref argument (`"main..feature"`, `"main...feature"`, or
