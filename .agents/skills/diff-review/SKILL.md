@@ -79,10 +79,12 @@ pgrep -f "Rebased.app/Contents/MacOS/rebased"
 ```
 
 - If it's already running, assume the user is already looking at (or can
-  switch to) that window -- do not launch a second instance.
+  switch to) that window -- do not launch a second instance, and remember
+  this skill did **not** launch it (so step 6/7 must not close it later).
 - If not running, launch it pointed at the repo root so it opens as a
   project (matching the `idea .`-style convention -- passing `.` opens the
-  current working directory):
+  current working directory), and remember that this skill **did** launch
+  it, for the same reason:
 
   ```bash
   rebased "<repo-root>" &
@@ -121,7 +123,9 @@ Once a file appears with content, read it. Each entry has the shape:
 
 - If the exported array is **empty** (`[]`) — the user clicked "Finish
   Review" with nothing to flag. Treat this as "review complete, no
-  outstanding comments" — stop here and tell the user so.
+  outstanding comments" — apply the same close-the-app-if-this-skill-
+  launched-it step described at the end of step 6, then stop and tell the
+  user so.
 - If it has entries, continue to step 4. Only start planning/iterating once
   there is at least one real comment to act on — an empty export is a
   legitimate "done" signal, not a bug.
@@ -159,7 +163,17 @@ this good?"
   command as step 1), remind them the fixes are in and Rebased is still open
   for them to re-review, then repeat step 3 (poll again).
 - If the user says they're done (in any form — "looks good", "done", "no"):
-  stop here. Do not poll. Tell them the review is complete.
+  stop polling. If this skill launched Rebased itself in step 2 (not if it
+  was already running before), close it gracefully:
+
+  ```bash
+  osascript -e 'tell application "Rebased" to quit'
+  ```
+
+  (a graceful quit, not a force-kill, so the app can handle any of its own
+  shutdown/save state normally). Never close it if it was already running
+  before this skill started — that instance isn't this skill's to manage.
+  Then tell the user the review is complete.
 
 ### 7. Loop until done
 
