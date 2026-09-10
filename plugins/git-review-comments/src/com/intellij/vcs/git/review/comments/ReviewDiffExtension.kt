@@ -1,6 +1,7 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.vcs.git.review.comments
 
+import com.intellij.collaboration.ui.codereview.comment.CodeReviewCommentUIUtil
 import com.intellij.collaboration.ui.codereview.diff.DiffLineLocation
 import com.intellij.collaboration.ui.codereview.diff.viewer.showCodeReview
 import com.intellij.collaboration.ui.codereview.editor.CodeReviewEditorGutterControlsModel
@@ -19,6 +20,7 @@ import com.intellij.openapi.ui.Messages
 import com.intellij.openapi.util.Key
 import com.intellij.openapi.vcs.changes.CurrentContentRevision
 import com.intellij.openapi.vcs.changes.actions.diff.ChangeDiffRequestProducer
+import com.intellij.ui.JBColor
 import com.intellij.ui.components.JBLabel
 import com.intellij.util.cancelOnDispose
 import com.intellij.util.ui.JBUI
@@ -107,10 +109,10 @@ class ReviewDiffExtension : DiffExtension() {
           },
           rendererFactory = { inlay ->
             ComponentInlayRenderer(
-              JBLabel(inlay.text).apply {
-                foreground = JBUI.CurrentTheme.Label.foreground()
-                border = JBUI.Borders.empty(2, 8)
-              },
+              CodeReviewCommentUIUtil.createEditorInlayPanel(
+                JBLabel(inlay.text).apply { border = JBUI.Borders.empty(4, 8) },
+                tint = JBColor.YELLOW,
+              ),
             )
           },
         )
