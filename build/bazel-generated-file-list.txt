@@ -891,6 +891,7 @@ plugins/filePrediction
 plugins/findUsagesMl
 plugins/git-features-trainer
 plugins/git-modal-commit
+plugins/git-review-comments
 plugins/git4idea
 plugins/git4idea/backend
 plugins/git4idea/frontend

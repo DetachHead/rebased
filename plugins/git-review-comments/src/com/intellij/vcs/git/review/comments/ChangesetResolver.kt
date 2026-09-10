@@ -175,10 +175,16 @@ class ChangesetResolver(
 
   companion object {
     /**
-     * The `git diff --name-status -M` args for a given [ref] argument. `-M` (rename
-     * detection) is what makes renamed files surface as an explicit `R<score>` status line
+     * The `git diff --name-status -M -z` args for a given [ref] argument. `-M` (rename
+     * detection) is what makes renamed files surface as an explicit `R<score>` status record
      * with both the old and new path (see [parseNameStatusOutput]/[DiffEntry]), instead of a
-     * bare path that [readSide] would otherwise treat as "newly added" on the old side.
+     * bare path that [readSide] would otherwise treat as "newly added" on the old side. `-z`
+     * makes git emit that output as raw, NUL-separated (`\u0000`) fields instead of
+     * newline-separated, tab-delimited text -- without it, git C-style-quotes/escapes any
+     * path containing non-ASCII or otherwise "unusual" bytes (e.g. `café.txt` becomes the
+     * literal 14-character string `"caf\303\251.txt"` in the output), which a naive
+     * tab/newline-based parser would read verbatim as the wrong path. `-z` output is never
+     * quoted, so [parseNameStatusOutput] gets the real bytes directly.
      * Internal (not private) so [ChangesetResolverTest] can exercise the pure ref-parsing
      * logic directly.
      *
@@ -186,11 +192,11 @@ class ChangesetResolver(
      *   command-line option rather than a revision (see [requireSafeRef]).
      */
     internal fun buildDiffNameStatusArgs(ref: String?): List<String> {
-      if (ref == null) return listOf("diff", "--name-status", "-M", "HEAD")
+      if (ref == null) return listOf("diff", "--name-status", "-M", "-z", "HEAD")
       val split = splitRef(ref)
       requireSafeRef(split.old)
       split.new?.let(::requireSafeRef)
-      return listOf("diff", "--name-status", "-M") + when {
+      return listOf("diff", "--name-status", "-M", "-z") + when {
         // `git diff a...b` (merge-base/symmetric diff) is only valid git syntax as a single
         // positional argument -- splitting it into two positional refs (`a b`) silently
         // changes the semantics to a plain two-ref diff, so it is passed through unsplit.
@@ -201,36 +207,51 @@ class ChangesetResolver(
     }
 
     /**
-     * One line of `git diff --name-status -M` output: the old and new repo-relative paths
-     * for a changed file. Equal for every change type except a detected rename, where
-     * [oldPath] is the pre-rename path (read for the "old" side's content) and [newPath] is
-     * the post-rename path (read for the "new" side's content, and used as the diff's
-     * display/comment-anchoring path).
+     * One changed-file record from `git diff --name-status -M -z` output: the old and new
+     * repo-relative paths for a changed file. Equal for every change type except a detected
+     * rename, where [oldPath] is the pre-rename path (read for the "old" side's content) and
+     * [newPath] is the post-rename path (read for the "new" side's content, and used as the
+     * diff's display/comment-anchoring path).
      */
     internal data class DiffEntry(val oldPath: String, val newPath: String)
 
     /**
-     * Parses `git diff --name-status -M` stdout into [DiffEntry] pairs. Ordinary lines have
-     * the shape `<status>\t<path>` (`A`, `M`, `D`, ...); a detected rename has the shape
-     * `R<score>\t<oldPath>\t<newPath>` (e.g. `R100\told/path.kt\tnew/path.kt`) -- copy
-     * detection is not requested (`-M`, not `-C`), so a `C` status is not expected here.
+     * Parses `git diff --name-status -M -z` stdout into [DiffEntry] pairs.
+     *
+     * With `-z`, git emits raw, NUL (`\u0000`)-terminated fields instead of newline-separated,
+     * tab-delimited lines -- there is no tab separator and no line-based structure at all, and
+     * paths are never C-style-quoted/escaped (see [buildDiffNameStatusArgs] for why that
+     * matters). An ordinary change is the two-field record `<status>\u0000<path>\u0000` (`A`,
+     * `M`, `D`, ...); a detected rename or copy is the three-field record
+     * `<status><score>\u0000<oldPath>\u0000<newPath>\u0000` (e.g.
+     * `R100\u0000old/path.kt\u0000new/path.kt\u0000`) -- copy detection is not requested (`-M`,
+     * not `-C`), so a `C` status is not expected in practice, but is still handled the same way
+     * defensively. Records are simply concatenated one after another with no extra separator,
+     * so the field list must be walked status-by-status (consuming 1 or 2 path fields per
+     * status, depending on its first letter) rather than split on any fixed delimiter.
      */
-    internal fun parseNameStatusOutput(output: String): List<DiffEntry> =
-      output.lineSequence()
-        .map { it.trim() }
-        .filter { it.isNotEmpty() }
-        .map { line ->
-          val parts = line.split("\t")
-          val status = parts[0]
-          if (status.startsWith("R") && parts.size >= 3) {
-            DiffEntry(oldPath = parts[1], newPath = parts[2])
-          }
-          else {
-            val path = parts.last()
-            DiffEntry(oldPath = path, newPath = path)
-          }
+    internal fun parseNameStatusOutput(output: String): List<DiffEntry> {
+      val fields = output.split('\u0000').toMutableList()
+      // `-z` NUL-terminates every field, including the last one, so splitting on it leaves a
+      // trailing empty field that must be dropped rather than treated as a spurious record.
+      if (fields.isNotEmpty() && fields.last().isEmpty()) fields.removeAt(fields.size - 1)
+      val entries = mutableListOf<DiffEntry>()
+      var i = 0
+      while (i < fields.size) {
+        val status = fields[i]
+        i++
+        if ((status.startsWith("R") || status.startsWith("C")) && i + 1 < fields.size) {
+          entries.add(DiffEntry(oldPath = fields[i], newPath = fields[i + 1]))
+          i += 2
         }
-        .toList()
+        else if (i < fields.size) {
+          val path = fields[i]
+          entries.add(DiffEntry(oldPath = path, newPath = path))
+          i++
+        }
+      }
+      return entries
+    }
 
     /**
      * The result of splitting a ref/range argument into its component ref(s).

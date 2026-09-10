@@ -186,6 +186,7 @@ jvm_library(
         "//plugins/gitlab/gitlab-core:vcs-gitlab",
         "//plugins/github/github-tracker:vcs-github-tracker",
         "//plugins/git-modal-commit:vcs-git-commit-modal",
+        "//plugins/git-review-comments:vcs-git-review-comments",
     ],
 )
 
@@ -235,6 +236,7 @@ jvm_library(
         "//plugins/gitlab/gitlab-core:vcs-gitlab_test_lib",
         "//plugins/github/github-tracker:vcs-github-tracker_test_lib",
         "//plugins/git-modal-commit:vcs-git-commit-modal_test_lib",
+        "//plugins/git-review-comments:vcs-git-review-comments_test_lib",
     ],
 )
 ### auto-generated section `build intellij.idea.community.main` end
