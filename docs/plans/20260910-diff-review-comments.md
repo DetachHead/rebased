@@ -270,27 +270,50 @@ This plan adds:
 - Modify: `plugins/git-review-comments/resources/messages/GitReviewCommentsBundle.properties`
 - Create: `plugins/git-review-comments/test/com/intellij/vcs/git/review/comments/ReviewCommentsJsonExporterTest.kt`
 
-- [ ] implement `ReviewCommentsJsonExporter` — serializes the current
+- [x] implement `ReviewCommentsJsonExporter` — serializes the current
       `InMemoryReviewCommentStore` contents to
       `[{ "filePath": ..., "line": ..., "side": ..., "text": ... }, ...]` via `gson`, writing
       to `<repo-root>/.git/review-comments.json` (resolve repo root the same way
       `ChangesetResolver` does)
-- [ ] implement `FinishReviewAction : DumbAwareAction` (no-arg constructor, no
+- [x] implement `FinishReviewAction : DumbAwareAction` (no-arg constructor, no
       `Presentation` in constructor, per `actions` skill conventions) — on
       `actionPerformed`, calls the exporter, then closes the review session/diff window
   - overrides `update()` to enable only when a `ReviewDiffExtension`-backed session is
     active (comment store non-empty, or session marker present)
   - overrides `getActionUpdateThread()` returning `ActionUpdateThread.BGT`
-- [ ] register `FinishReviewAction` in `plugin.xml` under `<actions>`, added to the diff
+  - ➕ Note: repo root is resolved via a new `ReviewApplication.REPO_ROOT_KEY` attached to
+    the session's `DiffContext`/`DiffRequestChain` user data (same mechanism as
+    `InMemoryReviewCommentStore.KEY`), set by `ReviewApplication` at session start, rather
+    than re-deriving it from the current working directory at "Finish Review" time.
+    Enablement (`FinishReviewAction.isEnabled`) treats "session marker present" (the
+    comment store attached to the `DiffContext`, regardless of whether it's empty) as the
+    active-session signal, since finishing a review with zero comments is a valid outcome.
+- [x] register `FinishReviewAction` in `plugin.xml` under `<actions>`, added to the diff
       viewer toolbar/popup group referenced in `DiffExtension.java`'s javadoc, with
       `action.Git.Review.FinishReview.text` / `.description` keys added to
       `GitReviewCommentsBundle.properties`
-- [ ] write unit tests for `ReviewCommentsJsonExporter` (empty store → empty array file,
+  - ➕ Note: the javadoc on `DiffExtension.java` references `IdeActions.DIFF_VIEWER_TOOLBAR`
+    / `DIFF_VIEWER_POPUP` / `GROUP_DIFF_EDITOR_POPUP`; confirmed against
+    `platform/ide-core/src/com/intellij/openapi/actionSystem/IdeActions.java` that
+    `DIFF_VIEWER_TOOLBAR = "Diff.ViewerToolbar"` is the actual group id (also used by
+    `SwapDiffSidesAction`/`SwapThreeWayColorModeAction` in `PlatformActions.xml` as
+    precedent for the `<add-to-group group-id="Diff.ViewerToolbar"/>` shape) — registered
+    the action there.
+- [x] write unit tests for `ReviewCommentsJsonExporter` (empty store → empty array file,
       multiple comments across multiple files, special characters in comment text escape
       correctly, write failure surfaces an error rather than silently no-op)
-- [ ] write a test for `FinishReviewAction.update()`'s enablement logic (enabled only with
+- [x] write a test for `FinishReviewAction.update()`'s enablement logic (enabled only with
       an active review session)
-- [ ] run tests — must pass before Task 5
+- [x] run tests — must pass before Task 5 (validated via read-verification against the real
+      API signatures in `DiffExtension.java`, `IdeActions.java`, `DiffDataKeys.java`,
+      `DiffContext.java`/`FocusableContext.java`, `PlatformCoreDataKeys.java`,
+      `Messages.java`, and `CombinedDiffModel.kt` (precedent for subclassing `DiffContext`
+      directly in a test), plus a Python simulation of `ReviewCommentsJsonExporter.toJson`/
+      `export`'s pure logic (empty array, multi-file ordering/shape, special-character
+      escaping and round-trip, `.git` dir auto-creation, overwrite behavior, loud failure on
+      a bad repo root) and `FinishReviewAction.isEnabled`'s enablement logic — all
+      assertions passed; `plugin.xml` re-checked with `xmllint --noout`; no JVM/Bazel
+      toolchain available in this sandbox to actually compile/run the Kotlin)
 
 ### Task 5: Claude Code skill — `diff-review`
 

@@ -29,5 +29,8 @@
   </extensions>
 
   <actions>
+    <action id="Git.Review.FinishReview" class="com.intellij.vcs.git.review.comments.FinishReviewAction">
+      <add-to-group group-id="Diff.ViewerToolbar" anchor="last"/>
+    </action>
   </actions>
 </idea-plugin>

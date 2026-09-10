@@ -20,6 +20,7 @@ import com.intellij.openapi.progress.ProgressIndicator
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.ProjectManager
 import com.intellij.openapi.ui.WindowWrapper
+import com.intellij.openapi.util.Key
 import com.intellij.openapi.util.UserDataHolder
 import com.intellij.platform.ide.bootstrap.hideSplashBeforeShow
 import com.intellij.ui.AppIcon
@@ -71,6 +72,7 @@ internal class ReviewApplication : ApplicationStarterBase(/* possibleArgumentsCo
           SimpleDiffRequestChain.fromProducers(changedFiles.map { ChangedFileDiffRequestProducer(project, it) })
         }
       chain.putUserData(InMemoryReviewCommentStore.KEY, store)
+      chain.putUserData(REPO_ROOT_KEY, repoRoot)
       chain.putUserData(DiffUserDataKeys.PLACE, DiffPlaces.EXTERNAL)
 
       val mode = if (project != null) WindowWrapper.Mode.FRAME else WindowWrapper.Mode.MODAL
@@ -101,6 +103,16 @@ internal class ReviewApplication : ApplicationStarterBase(/* possibleArgumentsCo
      * touching the diff-opening side effect.
      */
     internal fun parseRef(args: List<String>): String? = args.drop(1).firstOrNull()
+
+    /**
+     * The repo root a `review` session was opened against, attached to the session's
+     * [DiffRequestChain]/[com.intellij.diff.DiffContext] user data the same way
+     * [InMemoryReviewCommentStore.KEY] is, so [FinishReviewAction] can resolve the same
+     * `<repo-root>/.git/review-comments.json` path that [ChangesetResolver] resolved paths
+     * relative to -- without re-deriving the repo root from scratch (e.g. from the current
+     * working directory, which may differ by the time "Finish Review" is invoked).
+     */
+    internal val REPO_ROOT_KEY: Key<File> = Key.create("com.intellij.vcs.git.review.comments.RepoRoot")
   }
 }
 
