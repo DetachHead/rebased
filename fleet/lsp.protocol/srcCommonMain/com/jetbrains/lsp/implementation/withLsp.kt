@@ -2,6 +2,7 @@ package com.jetbrains.lsp.implementation
 
 import com.jetbrains.lsp.protocol.CancelParams
 import com.jetbrains.lsp.protocol.ErrorCodes
+import com.jetbrains.lsp.protocol.ExitNotificationType
 import com.jetbrains.lsp.protocol.LSP
 import com.jetbrains.lsp.protocol.NotificationMessage
 import com.jetbrains.lsp.protocol.NotificationType
@@ -37,7 +38,7 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlin.concurrent.atomics.AtomicInt
 import kotlin.concurrent.atomics.incrementAndFetch
 
-private val LOG = logger<LspClient>()
+private val LOG by lazy { logger<LspClient>() }
 
 private class ProtocolViolation(message: String) : Exception(message)
 
@@ -79,12 +80,14 @@ internal suspend fun withLspImpl(
             outgoing.send(LSP.json.encodeToJsonElement(RequestMessage.serializer(), request))
             @Suppress("UNCHECKED_CAST")
             return try {
-                when (requestType) {
-                    Shutdown -> null
-                    else -> deferred.await()
-                } as Result
+                deferred.await() as Result
             } catch (c: CancellationException) {
-                notifyAsync(LSP.CancelNotificationType, CancelParams(id))
+                runCatching {
+                    notifyAsync(LSP.CancelNotificationType, CancelParams(id))
+                }.onFailure {
+                    currentCoroutineContext().job.ensureActive()
+                    LOG.info("Request cancellation for ${requestType.method} is not delivered ($it)")
+                }
                 outgoingRequests.remove(id)
                 throw c
             }
@@ -211,10 +214,12 @@ internal suspend fun withLspImpl(
                                         )
                                     }
                                 ).let { responseMessage ->
-                                    outgoing.send(LSP.json.encodeToJsonElement(ResponseMessage.serializer(), responseMessage))
-                                    if (request.method == Shutdown.method) {
-                                        incoming.cancel()
-                                        outgoing.close()
+                                    val encodedResponse = LSP.json.encodeToJsonElement(ResponseMessage.serializer(), responseMessage)
+                                    runCatching {
+                                        outgoing.send(encodedResponse)
+                                    }.onFailure {
+                                        currentCoroutineContext().job.ensureActive()
+                                        LOG.info("Response for ${request.method} is not delivered ($it)")
                                     }
                                 }
                             }.also { requestJob ->
@@ -291,11 +296,16 @@ internal suspend fun withLspImpl(
                                     runCatching {
                                         when (val handler = handlers.notificationHandler(notification.method)) {
                                             null ->
-                                                LOG.debug { "no handler for notification: ${notification.method}" }
+                                                LOG.info("Notification handler for ${notification.method} is not found")
 
                                             else -> {
                                                 val deserializedParams = notification.params?.let { params ->
                                                     LSP.json.decodeFromJsonElement(handler.notificationType.paramsSerializer, params)
+                                                }
+                                                // After receiving the exit notification, no further communication may happen.
+                                                if (notification.method == ExitNotificationType.method) {
+                                                    incoming.cancel()
+                                                    outgoing.close()
                                                 }
                                                 @Suppress("UNCHECKED_CAST")
                                                 (handler as LspNotificationHandler<Any?>).handler(

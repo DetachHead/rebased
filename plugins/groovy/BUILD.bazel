@@ -1,8 +1,18 @@
 load("@community//build:tests-options.bzl", "jps_test")
+load("@community//platform/build-scripts/bazel-rules:dev_dist_plugin.bzl", "dev_dist_plugin")
 load("@rules_jvm//:jvm.bzl", "jvm_library")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "dev_dist_plugin_jar")
+
+# Checkout directories that plugin layouts copy into a distribution verbatim (`withResource*`). They are
+# resolved against the module content root and exist in no jar, so a dev assembly that materializes its own
+# project tree has to declare them. Consumed through `ULTIMATE_EXTRA_PROJECT_FILES`.
+filegroup(
+    name = "dev_dist_resources",
+    srcs = ["hotswap/gragent.jar"],
+    visibility = ["//visibility:public"],
+)
 
 ### auto-generated section `build intellij.groovy` start
-
 jvm_library(
     name = "groovy",
     srcs = glob(
@@ -37,7 +47,6 @@ jvm_library(
         "//platform/refactoring",
         "//platform/structure-view-impl:structureView",
         "//platform/workspace/storage",
-        "//xml/dom-openapi:dom",
         "//java/openapi:java",
         "//java/java-syntax:syntax",
         "//java/java-psi-api:psi",
@@ -45,8 +54,6 @@ jvm_library(
         "//plugins/groovy/rt",
         "//platform/observable",
         "//platform/platform-impl:ide-impl",
-        "//plugins/groovy/spock-rt",
-        "//platform/smRunner",
         "//java/compiler/impl",
         "//platform/ide-core-impl",
         "//platform/ide-core",
@@ -61,14 +68,9 @@ jvm_library(
         "//java/execution/openapi:java-execution",
         "//java/idea-ui:ui",
         "//java/java-impl:impl",
-        "//plugins/copyright",
-        "//plugins/IntelliLang:langInjection",
         "//libraries/guava",
-        "//java/langInjection",
         "//jps/jps-builders:build",
         "//spellchecker",
-        "//plugins/junit",
-        "//plugins/junit_rt:junit-rt",
         "//java/java-indexing-api:indexing",
         "//plugins/groovy/jps-plugin:jps",
         "//plugins/properties/properties-psi-api:psi",
@@ -87,11 +89,9 @@ jvm_library(
         "//platform/testIntegration-ui",
         "//platform/workspace/jps",
         "//platform/backend/workspace",
-        "//xml/xml-psi-api:psi",
         "//java/unscramble",
         "//platform/execution",
         "//platform/statistics",
-        "//platform/testRunner",
         "//platform/forms_rt:java-guiForms-rt",
         "//java/java-frontback-psi-api:frontback-psi",
         "//libraries/kotlinx/collections-immutable:libraries-kotlinx-collections-immutable",
@@ -130,7 +130,6 @@ jvm_library(
         "//platform/refactoring:refactoring_test_lib",
         "//platform/structure-view-impl:structureView_test_lib",
         "//platform/workspace/storage:storage_test_lib",
-        "//xml/dom-openapi:dom_test_lib",
         "//java/openapi:java_test_lib",
         "//java/java-syntax:syntax_test_lib",
         "//java/java-psi-api:psi_test_lib",
@@ -138,8 +137,6 @@ jvm_library(
         "//plugins/groovy/rt:rt_test_lib",
         "//platform/observable:observable_test_lib",
         "//platform/platform-impl:ide-impl_test_lib",
-        "//plugins/groovy/spock-rt:spock-rt_test_lib",
-        "//platform/smRunner:smRunner_test_lib",
         "//java/compiler/impl:impl_test_lib",
         "//platform/ide-core-impl:ide-core-impl_test_lib",
         "//platform/ide-core:ide-core_test_lib",
@@ -154,20 +151,13 @@ jvm_library(
         "//java/execution/openapi:java-execution_test_lib",
         "//java/idea-ui:ui_test_lib",
         "//java/java-impl:impl_test_lib",
-        "//plugins/copyright:copyright_test_lib",
-        "//plugins/IntelliLang:langInjection_test_lib",
         "//libraries/guava:guava_test_lib",
         "//java/testFramework",
         "//java/testFramework:testFramework_test_lib",
-        "//java/langInjection:langInjection_test_lib",
-        "//xml/langInjection",
-        "//xml/langInjection:langInjection_test_lib",
         "//jps/jps-builders:build_test_lib",
         "//spellchecker:spellchecker_test_lib",
         "//plugins/grazie/src:core",
         "//plugins/grazie/src:core_test_lib",
-        "//plugins/junit:junit_test_lib",
-        "//plugins/junit_rt:junit-rt_test_lib",
         "//java/java-indexing-api:indexing_test_lib",
         "//plugins/groovy/jps-plugin:jps_test_lib",
         "//plugins/properties/properties-psi-api:psi_test_lib",
@@ -198,12 +188,11 @@ jvm_library(
         "//platform/backend/workspace:workspace_test_lib",
         "//tools/intellij.tools.ide.metrics.benchmark:ide-metrics-benchmark",
         "//tools/intellij.tools.ide.metrics.benchmark:ide-metrics-benchmark_test_lib",
-        "//xml/xml-psi-api:psi_test_lib",
         "//java/unscramble:unscramble_test_lib",
         "//platform/execution:execution_test_lib",
         "//platform/statistics:statistics_test_lib",
-        "//platform/testRunner:testRunner_test_lib",
-        "@lib//:jet_check",
+        "//libraries/jetcheck",
+        "//libraries/jetcheck:jetcheck_test_lib",
         "//platform/forms_rt:java-guiForms-rt_test_lib",
         "//java/java-frontback-psi-api:frontback-psi_test_lib",
         "//libraries/kotlinx/collections-immutable:libraries-kotlinx-collections-immutable_test_lib",
@@ -215,13 +204,87 @@ jvm_library(
 exports_files(
     [
         "intellij.groovy.iml",
+        "resources/META-INF/gant-support.xml",
+        "resources/META-INF/geb-support.xml",
+        "resources/META-INF/groovy-console.xml",
+        "resources/META-INF/groovy-dynamic-members.xml",
+        "resources/META-INF/groovy-indexed-property-support.xml",
+        "resources/META-INF/groovy-intentions.xml",
+        "resources/META-INF/groovy-logback-support.xml",
+        "resources/META-INF/groovy-templates.xml",
+        "resources/META-INF/plugin.xml",
+        "resources/org/jetbrains/plugins/groovy/config/groovy.sdk.xml",
     ],
     visibility = ["//visibility:public"],
 )
 ### auto-generated section `iml intellij.groovy` end
 
-### auto-generated section `build intellij.groovy.tests` start
+### auto-generated section `dev intellij.groovy` start
+dev_dist_plugin(
+    content_modules = [
+        "//libraries/hamcrest",
+        "//libraries/junit4",
+        "//libraries/opentest4j",
+        "//plugins/groovy/git",
+        "//plugins/groovy/groovy-psi:psi",
+    ],
+    descriptor_module = ":groovy",
+    libraries = [
+        "@lib//:eclipse",
+        "@lib//:groovy-spock-rt-spockframework-spock-core",
+        "@lib//:libraries-hamcrest-hamcrest",
+        "@lib//:libraries-junit4-_j_unit4",
+        "@lib//:libraries-opentest4j-opentest4j",
+    ],
+    prepacked_content_modules = [
+        "//plugins/groovy/ant:ant_content_module_jar",
+        "//plugins/groovy/byteCodeViewer:byteCodeViewer_content_module_jar",
+        "//plugins/groovy/intellij.groovy.copyright:copyright_content_module_jar",
+        "//plugins/groovy/langInjection:langInjection_content_module_jar",
+        "//plugins/groovy/spock:spock_content_module_jar",
+        "//plugins/groovy/structuralsearch-groovy:structuralSearch_content_module_jar",
+    ],
+    prepacked_layout_jars = [
+        ":groovy-constants-rt_dev_dist_plugin_jar",
+        ":groovy-jps_dev_dist_plugin_jar",
+        ":groovy-rt-class-loader_dev_dist_plugin_jar",
+        ":groovy-rt_dev_dist_plugin_jar",
+        ":groovy-spock-rt_dev_dist_plugin_jar",
+    ],
+)
 
+dev_dist_plugin_jar(
+    modules = ["//plugins/groovy/rt-constants:constants-rt"],
+    plugin_main_module = "intellij.groovy",
+    relative_output_file = "groovy-constants-rt.jar",
+)
+
+dev_dist_plugin_jar(
+    modules = ["//plugins/groovy/jps-plugin:jps"],
+    plugin_main_module = "intellij.groovy",
+    relative_output_file = "groovy-jps.jar",
+)
+
+dev_dist_plugin_jar(
+    modules = ["//plugins/groovy/rt/classLoader"],
+    plugin_main_module = "intellij.groovy",
+    relative_output_file = "groovy-rt-class-loader.jar",
+)
+
+dev_dist_plugin_jar(
+    modules = ["//plugins/groovy/rt"],
+    plugin_main_module = "intellij.groovy",
+    relative_output_file = "groovy-rt.jar",
+)
+
+dev_dist_plugin_jar(
+    modules = ["//plugins/groovy/spock-rt"],
+    plugin_main_module = "intellij.groovy",
+    relative_output_file = "groovy-spock-rt.jar",
+)
+### auto-generated section `dev intellij.groovy` end
+
+### auto-generated section `build intellij.groovy.tests` start
 jvm_library(
     name = "groovy-tests",
     srcs = glob(
@@ -231,6 +294,11 @@ jvm_library(
     module_name = "intellij.groovy.tests",
     visibility = ["//visibility:public"],
     exports = ["//plugins/groovy/groovy-psi:psi"],
+    runtime_deps = [
+        # do not sort,
+        "//plugins/groovy/langInjection",
+        "//plugins/groovy/spock",
+    ],
 )
 
 jvm_library(
@@ -262,6 +330,8 @@ jvm_library(
         "//platform/ide-core-impl:ide-core-impl_test_lib",
         "//platform/ide-core:ide-core_test_lib",
         "//platform/platform-util-io:ide-util-io_test_lib",
+        "//plugins/groovy/langInjection:langInjection_test_lib",
+        "//plugins/groovy/spock:spock_test_lib",
     ],
     deps = [
         # do not sort,
@@ -416,7 +486,6 @@ jvm_library(
         "//java/unscramble:unscramble_test_lib",
         "//platform/execution",
         "//platform/execution:execution_test_lib",
-        "@lib//:jet_check",
         "//platform/forms_rt:java-guiForms-rt",
         "//platform/forms_rt:java-guiForms-rt_test_lib",
         "//java/java-frontback-psi-api:frontback-psi",
@@ -429,6 +498,10 @@ jvm_library(
         "//plugins/groovy-live-templates:groovy-live-templates_test_lib",
         "//platform/statistics",
         "//platform/statistics:statistics_test_lib",
+        "//libraries/junit4",
+        "//libraries/junit4:junit4_test_lib",
+        "//libraries/junit5",
+        "//libraries/junit5:junit5_test_lib",
     ],
 )
 ### auto-generated section `build intellij.groovy.tests` end
@@ -443,7 +516,6 @@ exports_files(
 ### auto-generated section `iml intellij.groovy.tests` end
 
 ### auto-generated section `test intellij.groovy.tests` start
-
 jps_test(
     name = "groovy-tests_test",
     runtime_deps = [":groovy-tests_test_lib"],
@@ -451,7 +523,6 @@ jps_test(
 ### auto-generated section `test intellij.groovy.tests` end
 
 ### auto-generated section `build intellij.groovy.tests.main` start
-
 jvm_library(
     name = "groovy-tests-main",
     srcs = glob(

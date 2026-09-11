@@ -58,6 +58,11 @@ public class MavenConfigureProjectByChangingFileTestGenerated extends AbstractMa
         runTest("testData/configurator/jvm/pluginMissing/");
     }
 
+    @TestMetadata("reuseActiveKotlinPlugin")
+    public void testReuseActiveKotlinPlugin() throws Exception {
+        runTest("testData/configurator/jvm/reuseActiveKotlinPlugin/");
+    }
+
     @TestMetadata("simpleProject")
     public void testSimpleProject() throws Exception {
         runTest("testData/configurator/jvm/simpleProject/");
@@ -81,6 +86,11 @@ public class MavenConfigureProjectByChangingFileTestGenerated extends AbstractMa
     @TestMetadata("simpleProjectKotlin2_3_10AddsExtensionsToPlugin")
     public void testSimpleProjectKotlin2_3_10AddsExtensionsToPlugin() throws Exception {
         runTest("testData/configurator/jvm/simpleProjectKotlin2_3_10AddsExtensionsToPlugin/");
+    }
+
+    @TestMetadata("simpleProjectKotlin2_3_10PreservesCompilerTarget")
+    public void testSimpleProjectKotlin2_3_10PreservesCompilerTarget() throws Exception {
+        runTest("testData/configurator/jvm/simpleProjectKotlin2_3_10PreservesCompilerTarget/");
     }
 
     @TestMetadata("simpleProjectKotlin2_4DoesntAddSourceDirectories")

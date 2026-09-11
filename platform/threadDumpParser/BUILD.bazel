@@ -1,8 +1,17 @@
 load("@community//build:tests-options.bzl", "jps_test")
 load("@rules_jvm//:jvm.bzl", "jvm_library")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
+
+jps_test(
+    name = "threadDumpParser-tests_test",
+    timeout = "moderate",
+    tags = ["community-aggregator"],
+    runtime_deps = [":threadDumpParser-tests_test_lib"],
+)
+
+### skip generation section `test intellij.platform.threadDumpParser.tests`
 
 ### auto-generated section `build intellij.platform.threadDumpParser` start
-
 jvm_library(
     name = "threadDumpParser",
     srcs = glob(
@@ -32,6 +41,8 @@ jvm_library(
         "//libraries/kotlinx/serialization/json",
     ],
 )
+
+content_module_jar(module = ":threadDumpParser")
 
 jvm_library(
     name = "threadDumpParser_test_lib",
@@ -67,13 +78,14 @@ jvm_library(
 exports_files(
     [
         "intellij.platform.threadDumpParser.iml",
+        "resources/intellij.platform.threadDumpParser.xml",
+        "module-content.yaml",
     ],
     visibility = ["//visibility:public"],
 )
 ### auto-generated section `iml intellij.platform.threadDumpParser` end
 
 ### auto-generated section `build intellij.platform.threadDumpParser.tests` start
-
 jvm_library(
     name = "threadDumpParser-tests",
     srcs = glob(
@@ -121,7 +133,8 @@ jvm_library(
         "//libraries/jackson3/jackson:libraries-jackson3_test_lib",
         "//libraries/jackson3/databind",
         "//libraries/jackson3/databind:databind_test_lib",
-        "@lib//:junit4",
+        "//libraries/junit4",
+        "//libraries/junit4:junit4_test_lib",
     ],
 )
 ### auto-generated section `build intellij.platform.threadDumpParser.tests` end
@@ -134,11 +147,3 @@ exports_files(
     visibility = ["//visibility:public"],
 )
 ### auto-generated section `iml intellij.platform.threadDumpParser.tests` end
-
-### auto-generated section `test intellij.platform.threadDumpParser.tests` start
-
-jps_test(
-    name = "threadDumpParser-tests_test",
-    runtime_deps = [":threadDumpParser-tests_test_lib"],
-)
-### auto-generated section `test intellij.platform.threadDumpParser.tests` end

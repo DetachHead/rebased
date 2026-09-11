@@ -14,6 +14,7 @@ import org.jetbrains.intellij.build.ContentModuleFilter
 import org.jetbrains.intellij.build.PLUGIN_XML_RELATIVE_PATH
 import org.jetbrains.intellij.build.classPath.DescriptorSearchScope
 import org.jetbrains.intellij.build.classPath.XIncludeElementResolverImpl
+import org.jetbrains.intellij.build.classPath.descriptorResolveContext
 import org.jetbrains.intellij.build.classPath.resolveAndEmbedContentModuleDescriptor
 import org.jetbrains.intellij.build.classPath.resolveIncludes
 import org.jetbrains.intellij.build.productLayout.LIB_MODULE_PREFIX
@@ -76,7 +77,7 @@ internal suspend fun processAndGetProductPluginContentModules(
   // be specified in an included file. This is done not only for performance but for correctness.
   val xIncludeResolver = XIncludeElementResolverImpl(
     searchPath = listOf(DescriptorSearchScope(descriptorResolverModules, descriptorCache)),
-    context = context,
+    context = descriptorResolveContext(context),
   )
   resolveIncludes(element = element, elementResolver = xIncludeResolver)
 
@@ -156,7 +157,7 @@ internal suspend fun filterAndProcessContentModules(
   }
 }
 
-private suspend fun processProductModule(
+private fun processProductModule(
   moduleElement: Element,
   layout: PlatformLayout,
   result: LinkedHashSet<ModuleItem>,
@@ -192,7 +193,11 @@ private suspend fun processProductModule(
   // For non-scrambled modules, we embed the module descriptor to address this.
   //
   // Note: We could implement runtime loading via the module's classloader, but that would significantly complicate the runtime code.
-  if (!willBeScrambled) {
+  //
+  // An assembly that produces neither of the two files the inlined descriptors reach skips this entirely - resolving a
+  // descriptor means reading that module's jar, which then becomes an input of the assembly. See
+  // [BuildOptions.embedProductContentModuleDescriptors].
+  if (!willBeScrambled && context.options.embedProductContentModuleDescriptors) {
     resolveAndEmbedContentModuleDescriptor(
       moduleElement = moduleElement,
       descriptorCache = descriptorCache,

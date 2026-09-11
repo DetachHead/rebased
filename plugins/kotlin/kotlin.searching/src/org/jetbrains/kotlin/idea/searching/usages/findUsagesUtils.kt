@@ -2,15 +2,16 @@
 package org.jetbrains.kotlin.idea.searching.usages
 
 import org.jetbrains.kotlin.analysis.api.KaSession
-import org.jetbrains.kotlin.analysis.api.analyze
-import org.jetbrains.kotlin.analysis.api.resolution.KaCall
+import org.jetbrains.kotlin.analysis.api.resolution.KaSimpleCall
 import org.jetbrains.kotlin.analysis.api.resolution.calls
+import org.jetbrains.kotlin.analysis.api.resolution.resolveSuccessfulCall
+import org.jetbrains.kotlin.analysis.api.session.analyze
 import org.jetbrains.kotlin.psi.KtElement
+import org.jetbrains.kotlin.resolution.KtResolvableCall
 
-internal inline fun <R> withResolvedCall(element: KtElement, crossinline block: KaSession.(KaCall) -> R): R? = analyze(element) {
-    withResolvedCall(element, block)
-}
-
-internal inline fun <R> KaSession.withResolvedCall(element: KtElement, crossinline block: KaSession.(KaCall) -> R): R? {
-    return element.resolveToCall()?.calls?.singleOrNull()?.let { block(it) }
+internal inline fun <R> withResolvedCall(
+    element: KtElement,
+    crossinline block: context(KaSession) (KaSimpleCall<*, *>) -> R
+): R? = analyze(element) {
+    (element as? KtResolvableCall)?.resolveSuccessfulCall()?.calls?.singleOrNull()?.let { block(it) }
 }

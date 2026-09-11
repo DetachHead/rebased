@@ -5,13 +5,14 @@ package org.jetbrains.kotlin.idea.k2.codeinsight.slicer
 import com.intellij.psi.PsiCall
 import com.intellij.slicer.SliceUsage
 import com.intellij.usageView.UsageInfo
-import org.jetbrains.kotlin.analysis.api.analyze
-import org.jetbrains.kotlin.analysis.api.resolution.KaCallableMemberCall
 import org.jetbrains.kotlin.analysis.api.resolution.KaExplicitReceiverValue
 import org.jetbrains.kotlin.analysis.api.resolution.KaImplicitReceiverValue
-import org.jetbrains.kotlin.analysis.api.resolution.singleCallOrNull
+import org.jetbrains.kotlin.analysis.api.resolution.simple
+import org.jetbrains.kotlin.analysis.api.resolution.single
+import org.jetbrains.kotlin.analysis.api.session.analyze
 import org.jetbrains.kotlin.analysis.api.symbols.KaCallableSymbol
 import org.jetbrains.kotlin.idea.codeInsight.slicer.KotlinSliceAnalysisMode
+import org.jetbrains.kotlin.idea.util.tryResolveExpressionCall
 import org.jetbrains.kotlin.psi.KtExpression
 import org.jetbrains.kotlin.psi.KtFunctionLiteral
 import org.jetbrains.kotlin.psi.KtTypeReference
@@ -22,8 +23,8 @@ object ReceiverSliceProducer : SliceProducer {
         when (refElement) {
             is KtExpression -> {
                 analyze(refElement) {
-                    val resolvedCall = refElement.resolveToCall()?.singleCallOrNull<KaCallableMemberCall<*, *>>() ?: return emptyList()
-                    when (val receiver = resolvedCall.partiallyAppliedSymbol.extensionReceiver) {
+                    val resolvedCall = refElement.tryResolveExpressionCall()?.single?.simple ?: return emptyList()
+                    when (val receiver = resolvedCall.extensionReceiver) {
                         is KaExplicitReceiverValue -> {
                             return listOf(KotlinSliceUsage(receiver.expression, parent, mode, forcedExpressionMode = true))
                         }
@@ -59,6 +60,6 @@ object ReceiverSliceProducer : SliceProducer {
     override val testPresentation: String
         get() = "RECEIVER"
 
-    override fun equals(other: Any?) = other === this
-    override fun hashCode() = 0
+    override fun equals(other: Any?): Boolean = other === this
+    override fun hashCode(): Int = 0
 }

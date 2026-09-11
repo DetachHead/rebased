@@ -1,8 +1,10 @@
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.terminal.frontend.toolwindow
 
 import com.intellij.ui.content.ContentManager
 import com.intellij.util.concurrency.annotations.RequiresEdt
 import org.jetbrains.annotations.ApiStatus
+import org.jetbrains.plugins.terminal.TerminalEmulatorType
 import org.jetbrains.plugins.terminal.fus.TerminalStartupFusInfo
 import org.jetbrains.plugins.terminal.startup.TerminalProcessType
 
@@ -49,6 +51,13 @@ interface TerminalToolWindowTabBuilder {
   fun processType(processType: TerminalProcessType): TerminalToolWindowTabBuilder
 
   /**
+   * Specifies the terminal emulator that should drive the session of this tab.
+   * If unspecified, [TerminalEmulatorType.default] is used.
+   */
+  @ApiStatus.Internal
+  fun emulatorType(emulatorType: TerminalEmulatorType?): TerminalToolWindowTabBuilder
+
+  /**
    * The title show in the tool window tab.
    *
    * If not specified, the default tab name specified in the Terminal settings will be used.
@@ -82,6 +91,17 @@ interface TerminalToolWindowTabBuilder {
    * Default value depends on user settings: [org.jetbrains.plugins.terminal.TerminalOptionsProvider.closeSessionOnLogout].
    */
   fun closeOnProcessTermination(shouldClose: Boolean): TerminalToolWindowTabBuilder
+
+  /**
+   * Whether this tab is remembered in the project's terminal tab state and re-created — re-running its
+   * command — the next time the project is opened.
+   * True by default.
+   *
+   * Pass `false` for a one-shot process whose command is only meaningful for the request that started it:
+   * an authentication command, or anything started with an environment that dies with the current session.
+   * Such a tab is restored as a command re-run with nothing waiting for its result.
+   */
+  fun restoreOnProjectReopen(restore: Boolean): TerminalToolWindowTabBuilder
 
   /**
    * Whether to add the tab to the Terminal tool window or create the detached tab.

@@ -66,7 +66,8 @@ object PyKnownDecoratorUtil {
       return resolved
         .filterIsInstance<PyQualifiedNameOwner>()
         .mapNotNull { it.qualifiedName }
-        .map { QualifiedName.fromDottedString(it) }
+        .map(PyNames.FQN::unqualifyBuiltinName)
+        .map { QualifiedName.fromDottedString(it!!) }
         .mapNotNull { findByQualifiedName(it) }
     }
     else {
@@ -133,6 +134,20 @@ object PyKnownDecoratorUtil {
   @JvmStatic
   fun hasRedeclarationDecorator(function: PyFunction, context: TypeEvalContext): Boolean {
     return getKnownDecorators(function, context).contains(PyKnownDecorator.TYPING_OVERLOAD)
+  }
+
+  @JvmStatic
+  fun findOverrideDecorator(decoratable: PyDecoratable, context: TypeEvalContext): PyDecorator? {
+    return decoratable.decoratorList?.decorators?.firstOrNull { decorator ->
+      asKnownDecorators(decorator, context).any {
+        it == PyKnownDecorator.TYPING_OVERRIDE || it == PyKnownDecorator.TYPING_EXTENSIONS_OVERRIDE
+      }
+    }
+  }
+
+  @JvmStatic
+  fun hasOverrideDecorator(decoratable: PyDecoratable, context: TypeEvalContext): Boolean {
+    return findOverrideDecorator(decoratable, context) != null
   }
 
   @JvmStatic

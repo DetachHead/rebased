@@ -1,6 +1,12 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
+load("//build:compiler-options.bzl", "create_kotlinc_options")
 
 ### auto-generated section `build intellij.platform.eel.provider` start
+create_kotlinc_options(
+    name = "custom_eel-provider",
+    warn = "error",
+    x_warning_level = ["DEPRECATION:warning"],
+)
 
 jvm_library(
     name = "eel-provider",
@@ -12,6 +18,7 @@ jvm_library(
         ],
         allow_empty = True,
     ),
+    kotlinc_opts = ":custom_eel-provider",
     module_name = "intellij.platform.eel.provider",
     visibility = ["//visibility:public"],
     exports = [
@@ -29,10 +36,10 @@ jvm_library(
         "@lib//:kotlin-stdlib",
         "//platform/util/coroutines",
         "//platform/util/base",
+        "//platform/util/annotations",
         "//libraries/hash4j",
-        "//platform/core-nio-fs",
-        "//platform/external-process-auth-helper/rt",
         "//platform/ide-core",
+        "//platform/core-nio-fs",
     ],
 )
 
@@ -43,6 +50,7 @@ jvm_library(
         [],
         allow_empty = True,
     ),
+    kotlinc_opts = ":custom_eel-provider",
     module_name = "intellij.platform.eel.provider",
     visibility = ["//visibility:public"],
     exports = [
@@ -62,10 +70,10 @@ jvm_library(
         "//libraries/kotlinx/coroutines/core:core_test_lib",
         "//platform/util/coroutines:coroutines_test_lib",
         "//platform/util/base:base_test_lib",
+        "//platform/util/annotations:annotations_test_lib",
         "//libraries/hash4j:hash4j_test_lib",
-        "//platform/core-nio-fs:core-nio-fs_test_lib",
-        "//platform/external-process-auth-helper/rt:rt_test_lib",
         "//platform/ide-core:ide-core_test_lib",
+        "//platform/core-nio-fs:core-nio-fs_test_lib",
     ],
 )
 ### auto-generated section `build intellij.platform.eel.provider` end

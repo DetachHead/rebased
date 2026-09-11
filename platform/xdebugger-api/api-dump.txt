@@ -309,12 +309,14 @@ a:com.intellij.xdebugger.breakpoints.XBreakpointType
 - getPropertyXMLDescriptions(com.intellij.xdebugger.breakpoints.XBreakpoint):java.util.List
 - getShortText(com.intellij.xdebugger.breakpoints.XBreakpoint):java.lang.String
 - getSourcePosition(com.intellij.xdebugger.breakpoints.XBreakpoint):com.intellij.xdebugger.XSourcePosition
+- getSuspendNoneDisabledIcon():javax.swing.Icon
 - getSuspendNoneIcon():javax.swing.Icon
 - getTitle():java.lang.String
 - getVisibleStandardPanels():java.util.EnumSet
 - hasCustomCondition(com.intellij.xdebugger.breakpoints.XBreakpoint):Z
 - isAddBreakpointButtonVisible():Z
 - isSuspendThreadSupported():Z
+- isTemporaryBreakpointSupported():Z
 - shouldShowInBreakpointsDialog(com.intellij.openapi.project.Project):Z
 e:com.intellij.xdebugger.breakpoints.XBreakpointType$StandardPanels
 - java.lang.Enum
@@ -353,6 +355,7 @@ a:com.intellij.xdebugger.breakpoints.XLineBreakpointType
 - getShortText(com.intellij.xdebugger.breakpoints.XLineBreakpoint):java.lang.String
 - getSourcePosition(com.intellij.xdebugger.breakpoints.XBreakpoint):com.intellij.xdebugger.XSourcePosition
 - getTemporaryIcon():javax.swing.Icon
+- isTemporaryBreakpointSupported():Z
 - variantAndBreakpointMatch(com.intellij.xdebugger.breakpoints.XLineBreakpoint,com.intellij.xdebugger.breakpoints.XLineBreakpointType$XLineBreakpointVariant):Z
 c:com.intellij.xdebugger.breakpoints.XLineBreakpointType$XLineBreakpointAllVariant
 - com.intellij.xdebugger.breakpoints.XLineBreakpointType$XLineBreakpointVariant
@@ -717,6 +720,7 @@ com.intellij.xdebugger.frame.presentation.XValuePresentation$XValueTextRenderer
 com.intellij.xdebugger.hotswap.HotSwapProvider
 - a:createChangesCollector(com.intellij.xdebugger.hotswap.HotSwapSession,kotlinx.coroutines.CoroutineScope,com.intellij.xdebugger.hotswap.SourceFileChangesListener):com.intellij.xdebugger.hotswap.SourceFileChangesCollector
 - a:performHotSwap(com.intellij.xdebugger.hotswap.HotSwapSession):V
+- restart():V
 com.intellij.xdebugger.hotswap.HotSwapResultListener
 - a:onCanceled():V
 - a:onFailure():V
@@ -736,6 +740,7 @@ com.intellij.xdebugger.hotswap.SourceFileChangesCollector
 - a:resetChanges():V
 com.intellij.xdebugger.hotswap.SourceFileChangesListener
 - a:onChangesCanceled():V
+- a:onIncompatibleChanges(java.lang.String):V
 - a:onNewChanges():V
 a:com.intellij.xdebugger.settings.DebuggerConfigurableProvider
 - sf:EXTENSION_POINT:com.intellij.openapi.extensions.ExtensionPointName

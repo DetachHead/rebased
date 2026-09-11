@@ -1,7 +1,7 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
 ### auto-generated section `build intellij.kotlin.compilerPlugins.support.maven` start
-
 jvm_library(
     name = "maven",
     srcs = glob(
@@ -27,11 +27,13 @@ jvm_library(
         "//plugins/kotlin/maven",
         "//plugins/kotlin/compiler-plugins/compiler-plugin-support/common:kotlin-compilerPlugins-support",
         "//plugins/maven",
-        "@lib//:kotlinc-kotlin-jps-common",
+        "//libraries/kotlinc/kotlin-jps-common:libraries-kotlinc-kotlin-jps-common",
         "//plugins/kotlin/base/plugin",
         "//platform/eel-provider",
     ],
 )
+
+content_module_jar(module = ":maven")
 
 jvm_library(
     name = "maven_test_lib",
@@ -51,6 +53,7 @@ jvm_library(
         "//plugins/kotlin/maven:maven_test_lib",
         "//plugins/kotlin/compiler-plugins/compiler-plugin-support/common:kotlin-compilerPlugins-support_test_lib",
         "//plugins/maven:maven_test_lib",
+        "//libraries/kotlinc/kotlin-jps-common:libraries-kotlinc-kotlin-jps-common_test_lib",
         "//plugins/kotlin/base/plugin:plugin_test_lib",
         "//platform/eel-provider:eel-provider_test_lib",
     ],
@@ -61,6 +64,7 @@ jvm_library(
 exports_files(
     [
         "intellij.kotlin.compilerPlugins.support.maven.iml",
+        "resources/intellij.kotlin.compilerPlugins.support.maven.xml",
     ],
     visibility = ["//visibility:public"],
 )

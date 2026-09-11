@@ -193,7 +193,7 @@ fun extractDeclaredDependencies(trees: List<PackageTreeNode>): List<PythonPackag
 }
 
 @ApiStatus.Internal
-internal interface DependencyTreeProvider {
+interface DependencyTreeProvider {
   suspend fun getDependencyTrees(): List<PackageTreeNode>
   fun invalidateCache()
 }
@@ -201,6 +201,7 @@ internal interface DependencyTreeProvider {
 @ApiStatus.Internal
 internal class CachedDependencyTreeProvider(
   private val fetchOutput: suspend () -> String?,
+  private val parse: (String) -> List<PackageTreeNode> = { TreeParser.parseTrees(it.lines()) },
 ) : DependencyTreeProvider {
   private val mutex = Mutex()
 
@@ -212,7 +213,7 @@ internal class CachedDependencyTreeProvider(
     return mutex.withLock {
       cachedTrees?.let { return it }
       val output = fetchOutput()
-      val trees = if (output != null) TreeParser.parseTrees(output.lines()) else emptyList()
+      val trees = if (output != null) parse(output) else emptyList()
       cachedTrees = trees
       trees
     }

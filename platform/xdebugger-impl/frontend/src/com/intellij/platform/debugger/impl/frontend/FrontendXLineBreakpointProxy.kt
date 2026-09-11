@@ -5,7 +5,6 @@ import com.intellij.ide.rpc.DocumentPatchVersion
 import com.intellij.ide.rpc.util.TextRangeDto
 import com.intellij.ide.rpc.util.textRange
 import com.intellij.ide.vfs.virtualFile
-import com.intellij.openapi.application.EDT
 import com.intellij.openapi.application.readAction
 import com.intellij.openapi.editor.Document
 import com.intellij.openapi.editor.RangeMarker
@@ -15,21 +14,21 @@ import com.intellij.openapi.editor.markup.RangeHighlighter
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.openapi.vfs.findDocument
+import com.intellij.platform.debugger.impl.frontend.util.SequentialRpcRequestsExecutor
 import com.intellij.platform.debugger.impl.rpc.XBreakpointApi
 import com.intellij.platform.debugger.impl.rpc.XBreakpointDto
 import com.intellij.platform.debugger.impl.rpc.XLineBreakpointInfo
 import com.intellij.platform.debugger.impl.shared.proxy.XBreakpointAttachment
+import com.intellij.platform.debugger.impl.shared.proxy.XBreakpointAttachmentNotifier
 import com.intellij.platform.debugger.impl.shared.proxy.XLineBreakpointHighlighterRange
 import com.intellij.platform.debugger.impl.shared.proxy.XLineBreakpointProxy
 import com.intellij.platform.debugger.impl.shared.proxy.XLineBreakpointTypeProxy
 import com.intellij.platform.util.coroutines.childScope
-import com.intellij.xdebugger.SplitDebuggerMode
 import com.intellij.xdebugger.XDebuggerUtil
 import com.intellij.xdebugger.XSourcePosition
 import com.intellij.xdebugger.breakpoints.XLineBreakpointVerticalPlacement
-import com.intellij.xdebugger.impl.breakpoints.XBreakpointVisualRepresentation
+import com.intellij.xdebugger.impl.breakpoints.BreakpointDraggableObjectFactory
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.consumeAsFlow
@@ -72,7 +71,11 @@ private sealed interface BreakpointRequest {
   }
 }
 
-private class RequestsDebouncer(cs: CoroutineScope, private val breakpoint: XLineBreakpointProxy) {
+private class RequestsDebouncer(
+  cs: CoroutineScope,
+  private val breakpoint: XLineBreakpointProxy,
+  private val sequentialExecutor: SequentialRpcRequestsExecutor,
+) {
   private val debouncedRequests = Channel<BreakpointRequest>(Channel.UNLIMITED)
 
   init {
@@ -89,7 +92,15 @@ private class RequestsDebouncer(cs: CoroutineScope, private val breakpoint: XLin
     val channel = Channel<BreakpointRequest>()
     launch {
       channel.consumeAsFlow().collectLatest {
-        it.sendRequest(breakpoint, it.requestId)
+        val request = sequentialExecutor.submit {
+          it.sendRequest(breakpoint, it.requestId)
+        }
+        try {
+          request.await()
+        }
+        finally {
+          request.cancel()
+        }
       }
     }
     return channel
@@ -106,12 +117,17 @@ internal class FrontendXLineBreakpointProxy(
   dto: XBreakpointDto,
   override val type: XLineBreakpointTypeProxy,
   manager: FrontendXBreakpointManager,
-) : FrontendXBreakpointProxy(project, parentCs, dto, type, manager.breakpointRequestCounter), XLineBreakpointProxy {
-  private val debouncer = RequestsDebouncer(cs, this)
+  creationTrigger: XBreakpointCreationTrigger,
+) : FrontendXBreakpointProxy(project, parentCs, dto, type, manager.breakpointRequestCounter),
+    XLineBreakpointProxy,
+    XBreakpointAttachmentNotifier,
+    FrontendXLineBreakpointVisualizable {
+  private val debouncer = RequestsDebouncer(cs, this, sequentialExecutor)
 
   private var lineSourcePosition: XSourcePosition? = null
 
-  private val visualRepresentation = XBreakpointVisualRepresentation(cs, this, SplitDebuggerMode.isSplitDebugger(), manager)
+  override val visualRepresentation = XBreakpointVisualRepresentation(cs, this)
+  private val breakpointDraggableObjectFactory = BreakpointDraggableObjectFactory(manager, this)
 
   private val lineBreakpointInfo: XLineBreakpointInfo
     get() = currentState.lineBreakpointInfo!!
@@ -127,18 +143,12 @@ internal class FrontendXLineBreakpointProxy(
    * Attachments created by [FrontendXLineBreakpointAttachmentProvider] extensions.
    * Attachments are notified when the breakpoint state changes.
    */
-  override val attachments: List<XBreakpointAttachment> =
-    FrontendXLineBreakpointAttachmentProvider.createAttachments(this, attachmentScope)
+  val attachments: List<XBreakpointAttachment> =
+    FrontendXLineBreakpointAttachmentProvider.createAttachments(this, attachmentScope, creationTrigger)
 
-  override fun isTemporary(): Boolean {
-    return lineBreakpointInfo.isTemporary
-  }
-
-  override fun setTemporary(isTemporary: Boolean) {
-    updateLineBreakpointStateIfNeeded(newValue = isTemporary,
-                                      getter = { it.isTemporary },
-                                      copy = { it.copy(isTemporary = isTemporary) }) { requestId ->
-      XBreakpointApi.getInstance().setTemporary(id, requestId, isTemporary)
+  override fun notifyBreakpointAttachments() {
+    for (attachment in attachments) {
+      attachment.breakpointChanged()
     }
   }
 
@@ -250,11 +260,7 @@ internal class FrontendXLineBreakpointProxy(
     return XLineBreakpointHighlighterRange.Available(range?.textRange())
   }
 
-  override fun updatePosition() {
-    // everything is done in fastUpdatePosition
-  }
-
-  override fun fastUpdatePosition() {
+  fun updatePosition() {
     val highlighter: RangeMarker? = visualRepresentation.rangeMarker
     if (highlighter != null && highlighter.isValid()) {
       lineSourcePosition = null // reset the source position even if the line number has not changed, as the offset may be cached inside
@@ -262,16 +268,8 @@ internal class FrontendXLineBreakpointProxy(
     }
   }
 
-  override fun getHighlighter(): RangeHighlighter? {
+  fun getHighlighter(): RangeHighlighter? {
     return visualRepresentation.highlighter
-  }
-
-  override fun doUpdateUI(callOnUpdate: () -> Unit) {
-    visualRepresentation.doUpdateUI(callOnUpdate)
-  }
-
-  override fun getGutterIconRenderer(): GutterIconRenderer? {
-    return visualRepresentation.highlighter?.gutterIconRenderer
   }
 
   private fun <T> updateLineBreakpointStateIfNeeded(
@@ -291,8 +289,12 @@ internal class FrontendXLineBreakpointProxy(
     }
   }
 
-  override fun createBreakpointDraggableObject(): GutterDraggableObject {
-    return visualRepresentation.createBreakpointDraggableObject()
+  fun createBreakpointDraggableObject(): GutterDraggableObject {
+    return breakpointDraggableObjectFactory.create()
+  }
+
+  override fun getGutterIconRenderer(): GutterIconRenderer {
+    return visualRepresentation.highlighter?.gutterIconRenderer ?: super.getGutterIconRenderer()
   }
 
   override fun updateIcon() {

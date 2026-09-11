@@ -7,13 +7,13 @@ import com.intellij.modcommand.ModPsiUpdater
 import com.intellij.modcommand.Presentation
 import com.intellij.openapi.util.TextRange
 import com.intellij.psi.PsiElement
-import org.jetbrains.kotlin.analysis.api.KaContextParameterApi
-import org.jetbrains.kotlin.analysis.api.KaExperimentalApi
 import org.jetbrains.kotlin.analysis.api.KaSession
-import org.jetbrains.kotlin.analysis.api.components.allSupertypes
+import org.jetbrains.kotlin.analysis.api.expressions.expressionType
+import org.jetbrains.kotlin.analysis.api.resolution.resolveSuccessfulSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaNamedFunctionSymbol
 import org.jetbrains.kotlin.analysis.api.types.KaType
 import org.jetbrains.kotlin.analysis.api.types.KaUsualClassType
+import org.jetbrains.kotlin.analysis.api.types.allSupertypes
 import org.jetbrains.kotlin.idea.base.resources.KotlinBundle
 import org.jetbrains.kotlin.idea.codeinsight.api.applicable.asUnit
 import org.jetbrains.kotlin.idea.codeinsight.api.applicable.intentions.KotlinApplicableModCommandAction
@@ -77,14 +77,14 @@ internal class ConvertToForEachFunctionCallIntention :
     }
 
 
-    @OptIn(KaExperimentalApi::class)
-    override fun KaSession.prepareContext(element: KtForExpression): Unit? {
+    context(session: KaSession)
+    override fun prepareContext(element: KtForExpression): Unit? {
         val loopRange = element.loopRange ?: return null
 
         val callExpression = loopRange.getPossiblyQualifiedCallExpression()
         if (callExpression?.calleeExpression?.text == WITH_INDEX_NAME) {
             if (element.loopParameter?.destructuringDeclaration?.entries?.size != 2) return null
-            val symbol = callExpression.resolveSymbol() as? KaNamedFunctionSymbol ?: return null
+            val symbol = callExpression.resolveSuccessfulSymbol() as? KaNamedFunctionSymbol ?: return null
             if (symbol.callableId?.asSingleFqName() !in withIndexedFunctionFqNames) return null
         }
 
@@ -114,7 +114,6 @@ internal class ConvertToForEachFunctionCallIntention :
         commentSaver.restore(result)
     }
 
-    @OptIn(KaContextParameterApi::class)
     context(_: KaSession)
     private fun KaType.isLoopRangeType(): Boolean {
         fun KaType.fqNameMatches() = (this as? KaUsualClassType)?.classId?.asSingleFqName() in loopRangeTypeFqNames

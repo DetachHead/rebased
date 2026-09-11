@@ -8,7 +8,7 @@ import com.intellij.openapi.components.serviceAsync
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.extensions.ExtensionPointName
 import com.intellij.openapi.project.Project
-import com.intellij.openapi.util.NotNullLazyKey
+import com.intellij.openapi.util.Key
 import org.jetbrains.annotations.ApiStatus.Experimental
 import org.jetbrains.annotations.ApiStatus.Internal
 import org.jetbrains.annotations.VisibleForTesting
@@ -60,10 +60,13 @@ enum class ProjectFrameCapability {
 }
 
 /**
- * Optional startup UI policy for a project frame.
+ * Optional startup focus/visibility policy for a project frame.
  *
  * This policy is consumed during frame/toolwindow initialization to adjust initial focus and
  * visibility (for example, select a specific Project View pane or activate/hide toolwindows).
+ *
+ * It is resolved from a [Project], so it cannot be consulted before one exists. Static per-frame-type
+ * policy — including the toolwindow layout profile — is declared by [ProjectFrameTypeBean] instead.
  */
 @Internal
 @Experimental
@@ -77,17 +80,13 @@ data class ProjectFrameUiPolicy(
   /** Toolwindow ids to hide after startup activation. */
   val toolWindowIdsToHideOnStartup: Set<String> = emptySet(),
 
-  /**
-   * Toolwindow layout profile id used to seed project frame layout on first open (when no
-   * project-specific toolwindow layout has been persisted yet).
-   */
-  val toolWindowLayoutProfileId: String? = null,
+  /** Toolwindow ids to hide after startup activation. */
+  val toolWindowIdsToExclusiveShowing: Set<String> = emptySet(),
 ) {
   fun isEmpty(): Boolean {
     return projectPaneToActivateId == null &&
            startupToolWindowIdToActivate == null &&
-           toolWindowIdsToHideOnStartup.isEmpty() &&
-           toolWindowLayoutProfileId == null
+           toolWindowIdsToHideOnStartup.isEmpty()
   }
 }
 
@@ -126,13 +125,17 @@ class ProjectFrameCapabilitiesService {
 
     @Deprecated("Use getInstance instead", ReplaceWith("getInstance()"))
     fun getInstanceSync(): ProjectFrameCapabilitiesService = service()
+
+    val TOOL_WINDOW_INIT: Key<Boolean> = Key("PROJECT_TOOL_WINDOW_INIT")
   }
 
-  private val capabilitiesByProject = NotNullLazyKey.createLazyKey<Set<ProjectFrameCapability>, Project>(
-    "project.frame.capabilities"
-  ) { project ->
-    computeProjectFrameCapabilities(project)
-  }
+  /**
+   * Caches the aggregate per project, together with the provider list it was computed from.
+   *
+   * [ExtensionPointName.extensionsIfPointIsRegistered] returns the same list instance until the extension point changes,
+   * so a dynamically loaded or unloaded provider invalidates the cache on the next read.
+   */
+  private val capabilitiesByProject = Key.create<CachedCapabilities>("project.frame.capabilities")
 
   fun has(project: Project, capability: ProjectFrameCapability): Boolean {
     return getAll(project).contains(capability)
@@ -158,7 +161,7 @@ class ProjectFrameCapabilitiesService {
       return null
     }
 
-    val capabilities = getOrComputeCapabilities(project)
+    val capabilities = getOrComputeCapabilities(project, providers)
     var uiPolicy: ProjectFrameUiPolicy? = null
     var uiPolicyProvider: ProjectFrameCapabilitiesProvider? = null
 
@@ -181,11 +184,32 @@ class ProjectFrameCapabilitiesService {
     return uiPolicy
   }
 
-  private fun getOrComputeCapabilities(project: Project): Set<ProjectFrameCapability> {
+  fun getUiPolicyForToolWindows(project: Project): ProjectFrameUiPolicy? {
+    return try {
+      project.putUserData(TOOL_WINDOW_INIT, true)
+      getUiPolicy(project)
+    }
+    finally {
+      project.putUserData(TOOL_WINDOW_INIT, null)
+    }
+  }
+
+  private fun getOrComputeCapabilities(
+    project: Project,
+    providers: List<ProjectFrameCapabilitiesProvider> = EP_NAME.extensionsIfPointIsRegistered,
+  ): Set<ProjectFrameCapability> {
     if (project.isDisposed) {
       return emptySet()
     }
-    return capabilitiesByProject.getValue(project)
+
+    val cached = project.getUserData(capabilitiesByProject)
+    if (cached != null && cached.providers === providers) {
+      return cached.capabilities
+    }
+
+    val capabilities = computeProjectFrameCapabilities(project, providers)
+    project.putUserData(capabilitiesByProject, CachedCapabilities(providers, capabilities))
+    return capabilities
   }
 }
 
@@ -241,8 +265,15 @@ suspend fun isIndexingActivitiesSuppressed(project: Project?): Boolean {
          capabilitiesService.has(project, ProjectFrameCapability.SUPPRESS_INDEXING_ACTIVITIES)
 }
 
-private fun computeProjectFrameCapabilities(project: Project): Set<ProjectFrameCapability> {
-  val providers = ProjectFrameCapabilitiesService.EP_NAME.extensionsIfPointIsRegistered
+private class CachedCapabilities(
+  @JvmField val providers: List<ProjectFrameCapabilitiesProvider>,
+  @JvmField val capabilities: Set<ProjectFrameCapability>,
+)
+
+private fun computeProjectFrameCapabilities(
+  project: Project,
+  providers: List<ProjectFrameCapabilitiesProvider>,
+): Set<ProjectFrameCapability> {
   if (providers.isEmpty()) {
     return emptySet()
   }

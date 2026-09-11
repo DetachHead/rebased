@@ -2,7 +2,6 @@
 package org.jetbrains.kotlin.idea.k2.codeinsight.fixes.replaceWith
 
 import com.intellij.psi.util.findParentOfType
-import org.jetbrains.kotlin.analysis.api.KaExperimentalApi
 import org.jetbrains.kotlin.analysis.api.KaSession
 import org.jetbrains.kotlin.analysis.api.fir.diagnostics.KaFirDiagnostic
 import org.jetbrains.kotlin.analysis.api.renderer.base.annotations.KaRendererAnnotationsFilter
@@ -11,12 +10,15 @@ import org.jetbrains.kotlin.analysis.api.renderer.declarations.impl.KaDeclaratio
 import org.jetbrains.kotlin.analysis.api.renderer.declarations.modifiers.renderers.KaRendererOtherModifiersProvider
 import org.jetbrains.kotlin.analysis.api.renderer.declarations.modifiers.renderers.KaRendererVisibilityModifierProvider
 import org.jetbrains.kotlin.analysis.api.renderer.declarations.renderers.callables.KaPropertyAccessorsRenderer
+import org.jetbrains.kotlin.analysis.api.scopes.memberScope
+import org.jetbrains.kotlin.analysis.api.session.useSiteSession
 import org.jetbrains.kotlin.analysis.api.symbols.KaCallableSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaClassSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaDeclarationSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaFunctionSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaPropertySymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaSymbol
+import org.jetbrains.kotlin.analysis.api.symbols.containingDeclaration
 import org.jetbrains.kotlin.analysis.api.symbols.name
 import org.jetbrains.kotlin.analysis.utils.printer.prettyPrint
 import org.jetbrains.kotlin.idea.codeinsight.api.applicators.fixes.KotlinQuickFixFactory
@@ -34,7 +36,6 @@ internal object ReplaceProtectedToPublishedApiCallFixFactory {
     private val String.newNameQuoted: String
         get() = "`$newName`"
 
-    @OptIn(KaExperimentalApi::class)
     private val signatureRenderer = KaDeclarationRendererForSource.WITH_SHORT_NAMES.with {
         parameterDefaultValueRenderer = KaParameterDefaultValueRenderer.NO_DEFAULT_VALUE
         propertyAccessorsRenderer = KaPropertyAccessorsRenderer.NONE
@@ -51,8 +52,8 @@ internal object ReplaceProtectedToPublishedApiCallFixFactory {
         }
     }
 
-    @OptIn(KaExperimentalApi::class)
-    private fun KaSession.createQuickFix(
+    context(session: KaSession)
+    private fun createQuickFix(
         element: KtElement,
         referencedDeclaration: KaSymbol,
     ): ReplaceProtectedToPublishedApiCallFix? {
@@ -66,7 +67,7 @@ internal object ReplaceProtectedToPublishedApiCallFixFactory {
 
         val originalName = referencedDeclaration.name?.asString() ?: return null
         val signature = prettyPrint {
-            signatureRenderer.renderDeclaration(this@createQuickFix, referencedDeclaration, this)
+            signatureRenderer.renderDeclaration(useSiteSession, referencedDeclaration, this)
         }
         val newSignature =
             if (isProperty) {
@@ -83,7 +84,7 @@ internal object ReplaceProtectedToPublishedApiCallFixFactory {
         }
         val isPublishedMemberAlreadyExists = declarationsWithSameName.filterIsInstance<KaCallableSymbol>().any {
             val memberSignature = prettyPrint {
-                signatureRenderer.renderDeclaration(this@createQuickFix, it, this)
+                signatureRenderer.renderDeclaration(useSiteSession, it, this)
             }
             memberSignature == newSignature
         }

@@ -44,6 +44,7 @@ internal class ProjectFileBasedIndexStartupActivity : RequiredForSmartMode {
 
   override fun runActivity(project: Project) {
     if (isIndexingActivitiesSuppressedSync(project)) {
+      // TODO-ANK: this looks contra intuitive: why one should leave dumb mode if indexes are not there and will never be built?
       return
     }
 
@@ -80,13 +81,27 @@ internal class ProjectFileBasedIndexStartupActivity : RequiredForSmartMode {
         }
       }
 
-      fileBasedIndex.registerProject(project, projectDirtyFilesQueue.fileIds)
-      fileBasedIndex.registerProjectFileSets(project)
-      fileBasedIndex.setLastSeenIndexInOrphanQueue(project, projectDirtyFilesQueue.lastSeenIndexInOrphanQueue)
-      fileBasedIndex.indexableFilesFilterHolder.onProjectOpened(project, vfsCreationTimestamp)
+      try {
+        fileBasedIndex.registerProject(project, projectDirtyFilesQueue.fileIds)
+        fileBasedIndex.registerProjectFileSets(project)
+        fileBasedIndex.setLastSeenIndexInOrphanQueue(project, projectDirtyFilesQueue.lastSeenIndexInOrphanQueue)
+        fileBasedIndex.indexableFilesFilterHolder.onProjectOpened(project, vfsCreationTimestamp)
 
-      openProjects.add(project)
-      true
+        openProjects.add(project)
+        true
+      }
+      catch (failure: Throwable) {
+        //If any startup step _before_ openProjects.add(project) fails -> automatic project closing won't work.
+        // So, for that case we roll back the registration here
+        openProjects.remove(project)
+        try {
+          fileBasedIndex.onProjectClosing(project)
+        }
+        catch (cleanupFailure: Throwable) {
+          failure.addSuppressed(cleanupFailure)
+        }
+        throw failure
+      }
     }
 
     if (!registered) {

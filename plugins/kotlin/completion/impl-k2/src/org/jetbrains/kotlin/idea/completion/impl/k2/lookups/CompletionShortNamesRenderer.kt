@@ -5,7 +5,7 @@ package org.jetbrains.kotlin.idea.completion.impl.k2.lookups
 import org.jetbrains.annotations.NonNls
 import org.jetbrains.kotlin.analysis.api.KaExperimentalApi
 import org.jetbrains.kotlin.analysis.api.KaSession
-import org.jetbrains.kotlin.analysis.api.components.render
+import org.jetbrains.kotlin.analysis.api.renderer.render
 import org.jetbrains.kotlin.analysis.api.renderer.types.KaExpandedTypeRenderingMode
 import org.jetbrains.kotlin.analysis.api.renderer.types.impl.KaTypeRendererForSource
 import org.jetbrains.kotlin.analysis.api.signatures.KaVariableSignature
@@ -19,7 +19,6 @@ import org.jetbrains.kotlin.types.Variance
 
 internal object CompletionShortNamesRenderer {
 
-    @OptIn(KaExperimentalApi::class)
     context(_: KaSession)
     fun renderFunctionalTypeParameters(functionalType: KaFunctionType): String = functionalType.parameterTypes.joinToString(
         prefix = "(",
@@ -31,7 +30,6 @@ internal object CompletionShortNamesRenderer {
         return renderReceiver(variable)
     }
 
-    @OptIn(KaExperimentalApi::class)
     context(_: KaSession)
     private fun renderReceiver(variable: KaVariableSignature<*>): String {
         val receiverType = variable.receiverType ?: return ""
@@ -59,7 +57,6 @@ internal object CompletionShortNamesRenderer {
         append(" }")
     }
 
-    @OptIn(KaExperimentalApi::class)
     context(_: KaSession)
     private fun renderFunctionParameter(
         parameter: KaVariableSignature<KaValueParameterSymbol>,
@@ -79,7 +76,6 @@ internal object CompletionShortNamesRenderer {
         }
     }
 
-    @OptIn(KaExperimentalApi::class)
     context(_: KaSession)
     private fun <A : Appendable> A.appendParameter(
         parameterName: Name,

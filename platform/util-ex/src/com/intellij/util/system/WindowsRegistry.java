@@ -1,0 +1,274 @@
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+package com.intellij.util.system;
+
+import org.jetbrains.annotations.ApiStatus;
+import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
+
+import java.io.IOException;
+import java.lang.foreign.Arena;
+import java.lang.foreign.FunctionDescriptor;
+import java.lang.foreign.Linker;
+import java.lang.foreign.MemorySegment;
+import java.lang.foreign.SymbolLookup;
+import java.lang.invoke.MethodHandle;
+import java.nio.charset.StandardCharsets;
+
+import static java.lang.foreign.ValueLayout.ADDRESS;
+import static java.lang.foreign.ValueLayout.JAVA_BYTE;
+import static java.lang.foreign.ValueLayout.JAVA_INT;
+import static java.lang.foreign.ValueLayout.JAVA_INT_UNALIGNED;
+import static java.lang.foreign.ValueLayout.JAVA_LONG;
+
+/**
+ * Read access to the Windows registry through {@code advapi32.dll} downcalls. Windows only: the first call loads the DLL.
+ * <p>
+ * A missing key or value is a {@code null} result, not an error. Every other {@code LSTATUS} throws
+ * {@link RegistryException} with the code. A {@code HKEY} travels as a {@code long}.
+ * <p>
+ * A read through a {@link View} opens the key with {@code RegOpenKeyExW} and the matching {@code KEY_WOW64_*} access right,
+ * so a 32-bit process can read the 64-bit view and the other way round.
+ */
+@ApiStatus.Internal
+public final class WindowsRegistry {
+  private WindowsRegistry() { }
+
+  /** A predefined root key. {@code winreg.h} defines it as {@code (HKEY)(ULONG_PTR)((LONG)value)}, so the value is sign-extended. */
+  public enum Hive {
+    CURRENT_USER(0x80000001),
+    LOCAL_MACHINE(0x80000002);
+
+    final long handle;
+
+    Hive(int value) {
+      handle = value;
+    }
+  }
+
+  /** The registry view to read; {@code winnt.h} defines the {@code KEY_WOW64_*} access rights. */
+  public enum View {
+    /** The view of this process. */
+    DEFAULT(0),
+    /** {@code KEY_WOW64_64KEY} */
+    WOW64_64(0x0100),
+    /** {@code KEY_WOW64_32KEY} */
+    WOW64_32(0x0200);
+
+    final int accessRight;
+
+    View(int accessRight) {
+      this.accessRight = accessRight;
+    }
+  }
+
+  /** A registry call failed. {@link #errorCode} is the {@code LSTATUS} it returned. */
+  public static final class RegistryException extends IOException {
+    public final int errorCode;
+
+    RegistryException(@NotNull String function, int errorCode) {
+      super(function + " failed with Win32 error " + errorCode);
+      this.errorCode = errorCode;
+    }
+  }
+
+  private static final int ERROR_SUCCESS = 0;
+  private static final int ERROR_FILE_NOT_FOUND = 2;
+  private static final int ERROR_MORE_DATA = 234;
+
+  private static final int KEY_READ = 0x20019;
+
+  private static final int RRF_RT_REG_SZ = 0x2;
+  private static final int RRF_RT_REG_EXPAND_SZ = 0x4;
+  private static final int RRF_RT_REG_DWORD = 0x10;
+  private static final int RRF_NOEXPAND = 0x10000000;
+
+  /**
+   * @return a {@code REG_SZ} or {@code REG_EXPAND_SZ} value, not expanded, or {@code null} when the key or the value does not exist
+   */
+  public static @Nullable String getString(@NotNull Hive hive, @NotNull String key, @NotNull String value) throws RegistryException {
+    return toString(getValue(hive, key, value, RRF_RT_REG_SZ | RRF_RT_REG_EXPAND_SZ | RRF_NOEXPAND));
+  }
+
+  /**
+   * @return a {@code REG_SZ} or {@code REG_EXPAND_SZ} value from the given view, not expanded, or {@code null} when the key or the value does not exist
+   */
+  public static @Nullable String getString(@NotNull Hive hive, @NotNull String key, @NotNull String value, @NotNull View view) throws RegistryException {
+    if (view == View.DEFAULT) {
+      return getString(hive, key, value);
+    }
+    try (Arena arena = Arena.ofConfined()) {
+      MemorySegment openedKey = arena.allocate(JAVA_LONG);
+      int status = openKey(hive.handle, arena.allocateFrom(key, StandardCharsets.UTF_16LE), KEY_READ | view.accessRight, openedKey);
+      if (status == ERROR_FILE_NOT_FOUND) {
+        return null;
+      }
+      if (status != ERROR_SUCCESS) {
+        throw new RegistryException("RegOpenKeyExW(" + key + ")", status);
+      }
+      long handle = openedKey.get(JAVA_LONG, 0);
+      try {
+        return toString(getValue(handle, MemorySegment.NULL, arena.allocateFrom(value, StandardCharsets.UTF_16LE), RRF_RT_REG_SZ | RRF_RT_REG_EXPAND_SZ | RRF_NOEXPAND, arena, key + '\\' + value));
+      }
+      finally {
+        int ignored = closeKey(handle);
+      }
+    }
+  }
+
+  /**
+   * @return the names of the direct subkeys, or {@code null} when the key does not exist
+   */
+  public static @NotNull String @Nullable [] subKeys(@NotNull Hive hive, @NotNull String key) throws RegistryException {
+    try (Arena arena = Arena.ofConfined()) {
+      MemorySegment openedKey = arena.allocate(JAVA_LONG);
+      int status = openKey(hive.handle, arena.allocateFrom(key, StandardCharsets.UTF_16LE), KEY_READ, openedKey);
+      if (status == ERROR_FILE_NOT_FOUND) {
+        return null;
+      }
+      if (status != ERROR_SUCCESS) {
+        throw new RegistryException("RegOpenKeyExW(" + key + ")", status);
+      }
+      long handle = openedKey.get(JAVA_LONG, 0);
+      try {
+        MemorySegment count = arena.allocate(JAVA_INT);
+        MemorySegment maxNameLength = arena.allocate(JAVA_INT);
+        status = (int)Handles.REG_QUERY_INFO_KEY.invokeExact(handle, MemorySegment.NULL, MemorySegment.NULL, MemorySegment.NULL, count, maxNameLength,
+                                                             MemorySegment.NULL, MemorySegment.NULL, MemorySegment.NULL, MemorySegment.NULL, MemorySegment.NULL, MemorySegment.NULL);
+        if (status != ERROR_SUCCESS) {
+          throw new RegistryException("RegQueryInfoKeyW(" + key + ")", status);
+        }
+        int capacity = maxNameLength.get(JAVA_INT, 0) + 1;
+        MemorySegment name = arena.allocate(2L * capacity);
+        MemorySegment nameLength = arena.allocate(JAVA_INT);
+        String[] result = new String[count.get(JAVA_INT, 0)];
+        for (int i = 0; i < result.length; i++) {
+          nameLength.set(JAVA_INT, 0, capacity);
+          status = (int)Handles.REG_ENUM_KEY_EX.invokeExact(handle, i, name, nameLength, MemorySegment.NULL, MemorySegment.NULL, MemorySegment.NULL, MemorySegment.NULL);
+          if (status != ERROR_SUCCESS) {
+            throw new RegistryException("RegEnumKeyExW(" + key + ", " + i + ")", status);
+          }
+          result[i] = new String(name.asSlice(0, 2L * nameLength.get(JAVA_INT, 0)).toArray(JAVA_BYTE), StandardCharsets.UTF_16LE);
+        }
+        return result;
+      }
+      catch (RegistryException e) {
+        throw e;
+      }
+      catch (Throwable t) {
+        throw new IllegalStateException(t);
+      }
+      finally {
+        int ignored = closeKey(handle);
+      }
+    }
+  }
+
+  private static @Nullable String toString(byte @Nullable [] data) {
+    if (data == null) {
+      return null;
+    }
+    String text = new String(data, StandardCharsets.UTF_16LE);
+    int terminator = text.indexOf('\0');
+    return terminator >= 0 ? text.substring(0, terminator) : text;
+  }
+
+  /**
+   * @return a {@code REG_DWORD} value, or {@code null} when the key or the value does not exist
+   */
+  public static @Nullable Integer getInt(@NotNull Hive hive, @NotNull String key, @NotNull String value) throws RegistryException {
+    byte[] data = getValue(hive, key, value, RRF_RT_REG_DWORD);
+    if (data == null) {
+      return null;
+    }
+    if (data.length != Integer.BYTES) {
+      throw new RegistryException("RegGetValueW(" + value + ") returned " + data.length + " bytes for a DWORD", ERROR_MORE_DATA);
+    }
+    // A heap segment over a byte array has byte alignment, so the aligned JAVA_INT layout rejects it.
+    return MemorySegment.ofArray(data).get(JAVA_INT_UNALIGNED, 0);
+  }
+
+  /** Reads the raw bytes of a value with {@code RegGetValueW}: one call for the size, one for the data. */
+  private static byte @Nullable [] getValue(@NotNull Hive hive, @NotNull String key, @NotNull String value, int flags) throws RegistryException {
+    try (Arena arena = Arena.ofConfined()) {
+      MemorySegment subKey = arena.allocateFrom(key, StandardCharsets.UTF_16LE);
+      MemorySegment valueName = arena.allocateFrom(value, StandardCharsets.UTF_16LE);
+      return getValue(hive.handle, subKey, valueName, flags, arena, key + '\\' + value);
+    }
+  }
+
+  private static byte @Nullable [] getValue(long key, MemorySegment subKey, MemorySegment valueName, int flags, Arena arena, String path) throws RegistryException {
+    MemorySegment size = arena.allocate(JAVA_INT);
+    int status = getValue(key, subKey, valueName, flags, MemorySegment.NULL, size);
+    if (status == ERROR_FILE_NOT_FOUND) {
+      return null;
+    }
+    if (status != ERROR_SUCCESS) {
+      throw new RegistryException("RegGetValueW(" + path + ")", status);
+    }
+    MemorySegment data = arena.allocate(size.get(JAVA_INT, 0));
+    status = getValue(key, subKey, valueName, flags, data, size);
+    if (status != ERROR_SUCCESS) {
+      throw new RegistryException("RegGetValueW(" + path + ")", status);
+    }
+    return data.asSlice(0, size.get(JAVA_INT, 0)).toArray(JAVA_BYTE);
+  }
+
+  private static int openKey(long hive, MemorySegment subKey, int access, MemorySegment result) {
+    try {
+      return (int)Handles.REG_OPEN_KEY_EX.invokeExact(hive, subKey, 0, access, result);
+    }
+    catch (Throwable t) {
+      throw new IllegalStateException(t);
+    }
+  }
+
+  private static int closeKey(long key) {
+    try {
+      return (int)Handles.REG_CLOSE_KEY.invokeExact(key);
+    }
+    catch (Throwable t) {
+      throw new IllegalStateException(t);
+    }
+  }
+
+  private static int getValue(long hive, MemorySegment subKey, MemorySegment value, int flags, MemorySegment data, MemorySegment size) {
+    try {
+      return (int)Handles.REG_GET_VALUE.invokeExact(hive, subKey, value, flags, MemorySegment.NULL, data, size);
+    }
+    catch (Throwable t) {
+      throw new IllegalStateException(t);
+    }
+  }
+
+  /**
+   * Downcalls into {@code advapi32.dll}. {@code HKEY} is {@code long},
+   * {@code LSTATUS} and {@code DWORD} are {@code int}.
+   */
+  private static final class Handles {
+    private static final Linker LINKER = Linker.nativeLinker();
+    private static final SymbolLookup ADVAPI32 = WindowsSystemLibraries.lookup("advapi32.dll");
+
+    /** {@code LSTATUS RegGetValueW(HKEY, LPCWSTR subKey, LPCWSTR value, DWORD flags, LPDWORD type, PVOID data, LPDWORD size)} */
+    static final MethodHandle REG_GET_VALUE = LINKER.downcallHandle(
+      ADVAPI32.findOrThrow("RegGetValueW"),
+      FunctionDescriptor.of(JAVA_INT, JAVA_LONG, ADDRESS, ADDRESS, JAVA_INT, ADDRESS, ADDRESS, ADDRESS));
+
+    /** {@code LSTATUS RegOpenKeyExW(HKEY, LPCWSTR subKey, DWORD options, REGSAM access, PHKEY result)} */
+    static final MethodHandle REG_OPEN_KEY_EX = LINKER.downcallHandle(
+      ADVAPI32.findOrThrow("RegOpenKeyExW"),
+      FunctionDescriptor.of(JAVA_INT, JAVA_LONG, ADDRESS, JAVA_INT, JAVA_INT, ADDRESS));
+
+    /** {@code LSTATUS RegQueryInfoKeyW(HKEY, LPWSTR class, LPDWORD classLength, LPDWORD reserved, LPDWORD subKeys, LPDWORD maxSubKeyLength, LPDWORD maxClassLength, LPDWORD values, LPDWORD maxValueNameLength, LPDWORD maxValueLength, LPDWORD securityDescriptor, PFILETIME lastWriteTime)} */
+    static final MethodHandle REG_QUERY_INFO_KEY = LINKER.downcallHandle(
+      ADVAPI32.findOrThrow("RegQueryInfoKeyW"),
+      FunctionDescriptor.of(JAVA_INT, JAVA_LONG, ADDRESS, ADDRESS, ADDRESS, ADDRESS, ADDRESS, ADDRESS, ADDRESS, ADDRESS, ADDRESS, ADDRESS, ADDRESS));
+
+    /** {@code LSTATUS RegEnumKeyExW(HKEY, DWORD index, LPWSTR name, LPDWORD nameLength, LPDWORD reserved, LPWSTR class, LPDWORD classLength, PFILETIME lastWriteTime)} */
+    static final MethodHandle REG_ENUM_KEY_EX = LINKER.downcallHandle(
+      ADVAPI32.findOrThrow("RegEnumKeyExW"),
+      FunctionDescriptor.of(JAVA_INT, JAVA_LONG, JAVA_INT, ADDRESS, ADDRESS, ADDRESS, ADDRESS, ADDRESS, ADDRESS));
+
+    /** {@code LSTATUS RegCloseKey(HKEY)} */
+    static final MethodHandle REG_CLOSE_KEY = LINKER.downcallHandle(ADVAPI32.findOrThrow("RegCloseKey"), FunctionDescriptor.of(JAVA_INT, JAVA_LONG));
+  }
+}

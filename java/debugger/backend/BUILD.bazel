@@ -1,7 +1,7 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
 ### auto-generated section `build intellij.java.debugger.impl.backend` start
-
 jvm_library(
     name = "backend",
     srcs = glob(
@@ -49,6 +49,8 @@ jvm_library(
     ],
 )
 
+content_module_jar(module = ":backend")
+
 jvm_library(
     name = "backend_test_lib",
     testonly = True,
@@ -94,6 +96,8 @@ jvm_library(
 exports_files(
     [
         "intellij.java.debugger.impl.backend.iml",
+        "resources/intellij.java.debugger.impl.backend.content.xml",
+        "resources/intellij.java.debugger.impl.backend.xml",
     ],
     visibility = ["//visibility:public"],
 )

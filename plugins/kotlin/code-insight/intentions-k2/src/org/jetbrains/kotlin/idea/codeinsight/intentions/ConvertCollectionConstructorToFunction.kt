@@ -5,8 +5,8 @@ import com.intellij.codeInspection.util.IntentionFamilyName
 import com.intellij.modcommand.ActionContext
 import com.intellij.modcommand.ModPsiUpdater
 import org.jetbrains.kotlin.analysis.api.KaSession
-import org.jetbrains.kotlin.analysis.api.resolution.successfulConstructorCallOrNull
-import org.jetbrains.kotlin.analysis.api.resolution.symbol
+import org.jetbrains.kotlin.analysis.api.resolution.resolveSuccessfulSymbol
+import org.jetbrains.kotlin.analysis.api.symbols.KaConstructorSymbol
 import org.jetbrains.kotlin.idea.base.resources.KotlinBundle
 import org.jetbrains.kotlin.idea.codeinsight.api.applicable.intentions.KotlinApplicableModCommandAction
 import org.jetbrains.kotlin.psi.KtCallExpression
@@ -25,8 +25,9 @@ internal class ConvertCollectionConstructorToFunction :
     override fun isApplicableByPsi(element: KtCallExpression): Boolean =
         element.valueArguments.isEmpty() && COLLECTION_SHORT_NAMES.contains(element.calleeExpression?.text)
 
-    override fun KaSession.prepareContext(element: KtCallExpression): Context? {
-        val symbol = element.resolveToCall()?.successfulConstructorCallOrNull()?.symbol ?: return null
+    context(session: KaSession)
+    override fun prepareContext(element: KtCallExpression): Context? {
+        val symbol = element.resolveSuccessfulSymbol() as? KaConstructorSymbol ?: return null
         val fqName = symbol.containingClassId?.asFqNameString() ?: return null
         val functionName = COLLECTION_CTOR_TO_FUNC[fqName] ?: return null
         return Context(functionName)

@@ -1,7 +1,7 @@
+load("@community//platform/build-scripts/bazel-rules:ij_plugin.bzl", "ij_plugin")
 load("@rules_jvm//:jvm.bzl", "jvm_library")
 
 ### auto-generated section `build intellij.marketplaceMl` start
-
 jvm_library(
     name = "marketplace-ml",
     srcs = glob(
@@ -54,12 +54,19 @@ jvm_library(
         "//platform/ml-impl:ml-impl_test_lib",
     ],
 )
+
+ij_plugin(
+    name = "marketplace-ml_plugin",
+    descriptor_module = ":marketplace-ml",
+    visibility = ["//visibility:public"],
+)
 ### auto-generated section `build intellij.marketplaceMl` end
 
 ### auto-generated section `iml intellij.marketplaceMl` start
 exports_files(
     [
         "intellij.marketplaceMl.iml",
+        "resources/META-INF/plugin.xml",
     ],
     visibility = ["//visibility:public"],
 )

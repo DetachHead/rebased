@@ -12,7 +12,9 @@ import org.jetbrains.annotations.TestOnly
 import java.awt.AWTEvent
 
 /**
- * Consider using Kotlin coroutines and [Dispatchers.EDT][com.intellij.openapi.application.EDT].
+ * Legacy synchronous bridge to EDT. In coroutine-based tests, prefer a bounded
+ * `timeoutRunBlocking` boundary and a small `withContext(Dispatchers.UI)` block. Use
+ * `Dispatchers.EDT` only for operations known to require IntelliJ model or lock access.
  */
 @TestOnly
 fun <V> runInEdtAndGet(compute: () -> V): V {
@@ -21,7 +23,9 @@ fun <V> runInEdtAndGet(compute: () -> V): V {
 }
 
 /**
- * Consider using Kotlin coroutines and [Dispatchers.EDT][com.intellij.openapi.application.EDT].
+ * Legacy synchronous bridge to EDT. In coroutine-based tests, prefer a bounded
+ * `timeoutRunBlocking` boundary and a small `withContext(Dispatchers.UI)` block. Use
+ * `Dispatchers.EDT` only for operations known to require IntelliJ model or lock access.
  */
 @TestOnly
 fun <V> runInEdtAndGet(writeIntent: Boolean, compute: () -> V): V {
@@ -30,7 +34,9 @@ fun <V> runInEdtAndGet(writeIntent: Boolean, compute: () -> V): V {
 }
 
 /**
- * Consider using Kotlin coroutines and [Dispatchers.EDT][com.intellij.openapi.application.EDT].
+ * Legacy synchronous bridge to EDT. In coroutine-based tests, prefer a bounded
+ * `timeoutRunBlocking` boundary and a small `withContext(Dispatchers.UI)` block. Use
+ * `Dispatchers.EDT` only for operations known to require IntelliJ model or lock access.
  */
 @TestOnly
 fun runInEdtAndWait(runnable: () -> Unit) {
@@ -39,7 +45,9 @@ fun runInEdtAndWait(runnable: () -> Unit) {
 }
 
 /**
- * Consider using Kotlin coroutines and [Dispatchers.EDT][com.intellij.openapi.application.EDT].
+ * Legacy synchronous bridge to EDT. In coroutine-based tests, prefer a bounded
+ * `timeoutRunBlocking` boundary and a small `withContext(Dispatchers.UI)` block. Use
+ * `Dispatchers.EDT` only for operations known to require IntelliJ model or lock access.
  */
 @TestOnly
 fun runInEdtAndWait(writeIntent: Boolean, runnable: () -> Unit) {
@@ -55,15 +63,39 @@ fun runInEdtAndWait(writeIntent: Boolean, runnable: () -> Unit) {
  */
 @RequiresEdt
 fun dispatchAllEventsInIdeEventQueue() {
+  doDispatchAllEventsInIdeEventQueue(null)
+}
+
+/**
+ * Dispatches pending events until the IDE event queue is observed empty or the absolute [deadlineNs] (nanoseconds) is reached.
+ * Use this overload when the caller must retain control of its own timeout while events keep replenishing the queue.
+ * @return false if deadlineNs is breached while not all available events were dispatched
+ */
+@RequiresEdt
+fun dispatchAllEventsInIdeEventQueue(deadlineNs: Long): Boolean {
+  return doDispatchAllEventsInIdeEventQueue(deadlineNs)
+}
+
+/**
+ * Keeps write-intent release and event-drain mechanics shared by bounded and unbounded dispatch
+ * @return false if deadlineNs is breached while not all available  events were dispatched
+ */
+private fun doDispatchAllEventsInIdeEventQueue(deadlineNs: Long?): Boolean {
   ThreadingAssertions.assertEventDispatchThread()
 
+  var timedOut = false
   releaseTheAcquiredWriteIntentLockThenExecuteActionAndTakeWriteIntentLockBack {
     while (true) {
+      if(deadlineNs != null && System.nanoTime() >= deadlineNs){
+        timedOut = true
+        break
+      }
       if (dispatchNextEventIfAny() == null) {
         break
       }
     }
   }
+  return !timedOut
 }
 
 /**

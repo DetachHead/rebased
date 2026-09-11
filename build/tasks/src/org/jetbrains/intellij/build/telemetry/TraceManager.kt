@@ -33,7 +33,7 @@ import java.util.concurrent.atomic.AtomicReference
 import kotlin.time.Duration.Companion.seconds
 
 // don't use JaegerJsonSpanExporter - not needed for clients, should be enabled only if needed to avoid writing a ~500KB JSON file
-fun withTracer(serviceName: String, traceFile: Path? = null, block: suspend () -> Unit): Unit = runBlocking(Dispatchers.Default) {
+fun <T> withTracer(serviceName: String, traceFile: Path? = null, block: suspend () -> T): T = runBlocking(Dispatchers.Default) {
   val batchSpanProcessorScope = CoroutineScope(SupervisorJob(parent = coroutineContext.job)) + CoroutineName("BatchSpanProcessor")
 
   @Suppress("ReplaceJavaStaticMethodWithKotlinAnalog")
@@ -141,7 +141,7 @@ object TraceManager {
     batchSpanProcessor?.forceShutdown()
   }
 
-  suspend fun scheduleExportPendingSpans() {
+  fun scheduleExportPendingSpans() {
     if (isEnabled) {
       batchSpanProcessor?.scheduleFlush()
     }
@@ -198,6 +198,11 @@ object JaegerJsonSpanExporterManager {
         add(OtlpSpanExporter(otlpEndPoint))
       }
     }
+  }
+
+  /** Closes the current trace file. The span processor stays alive, and a later span goes to no file. */
+  suspend fun closeOutput() {
+    jaegerJsonSpanExporter.getAndSet(null)?.shutdown()
   }
 
   suspend fun setOutput(file: Path, addShutDownHook: Boolean = true) {

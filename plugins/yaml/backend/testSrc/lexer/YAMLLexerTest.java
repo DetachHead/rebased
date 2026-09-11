@@ -1,16 +1,17 @@
 // Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.yaml.lexer;
 
-import com.intellij.lexer.Lexer;
 import com.intellij.openapi.application.PathManager;
 import com.intellij.openapi.application.ex.PathManagerEx;
-import com.intellij.testFramework.LexerTestCase;
+import com.intellij.platform.syntax.lexer.Lexer;
+import com.intellij.testFramework.syntax.LexerTestCase;
+import com.intellij.yaml.syntax.YamlSyntaxDefinition;
 import org.jetbrains.annotations.NotNull;
 
 public class YAMLLexerTest extends LexerTestCase {
   @Override
   protected @NotNull Lexer createLexer() {
-    return new YAMLFlexLexer();
+    return YamlSyntaxDefinition.INSTANCE.createLexer();
   }
 
   @Override

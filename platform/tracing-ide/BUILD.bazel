@@ -1,7 +1,6 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
 
 ### auto-generated section `build intellij.platform.tracing.ide` start
-
 jvm_library(
     name = "tracing-ide",
     srcs = glob(
@@ -60,6 +59,7 @@ jvm_library(
 exports_files(
     [
         "intellij.platform.tracing.ide.iml",
+        "resources/META-INF/plugin.xml",
     ],
     visibility = ["//visibility:public"],
 )

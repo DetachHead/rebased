@@ -1,7 +1,7 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
 ### auto-generated section `build intellij.json.networknt.wrapper` start
-
 jvm_library(
     name = "networknt.wrapper",
     srcs = glob(
@@ -20,18 +20,18 @@ jvm_library(
     visibility = ["//visibility:public"],
     exports = [
         # do not sort,
-        "@lib//:json-networknt-wrapper-json-schema-validator-jetbrains",
-        "@lib//:json-networknt-wrapper-jackson-databind-3",
-        "@lib//:json-networknt-wrapper-jackson-core-3",
+        "//libraries/json-schema-validator",
+        "//libraries/jackson3/jackson:libraries-jackson3",
+        "//libraries/jackson3/databind",
     ],
     deps = [
         # do not sort,
-        "@lib//:json-networknt-wrapper-json-schema-validator-jetbrains",
-        "@lib//:json-networknt-wrapper-jackson-databind-3",
-        "@lib//:json-networknt-wrapper-jackson-core-3",
+        "//libraries/json-schema-validator",
+        "//libraries/jackson3/jackson:libraries-jackson3",
+        "//libraries/jackson3/databind",
         "@lib//:kotlin-stdlib",
         "@lib//:slf4j-api",
-        "@lib//:joni",
+        "//libraries/joni",
         "//json/backend",
         "//libraries/jackson/annotations",
         "//libraries/jackson3/dataformat-yaml:libraries-jackson3-dataformat-yaml",
@@ -44,6 +44,8 @@ jvm_library(
     ],
 )
 
+content_module_jar(module = ":networknt.wrapper")
+
 jvm_library(
     name = "networknt.wrapper_test_lib",
     testonly = True,
@@ -55,13 +57,20 @@ jvm_library(
     visibility = ["//visibility:public"],
     exports = [
         # do not sort,
-        "@lib//:json-networknt-wrapper-json-schema-validator-jetbrains",
-        "@lib//:json-networknt-wrapper-jackson-databind-3",
-        "@lib//:json-networknt-wrapper-jackson-core-3",
+        "//libraries/json-schema-validator",
+        "//libraries/json-schema-validator:json-schema-validator_test_lib",
+        "//libraries/jackson3/jackson:libraries-jackson3",
+        "//libraries/jackson3/jackson:libraries-jackson3_test_lib",
+        "//libraries/jackson3/databind",
+        "//libraries/jackson3/databind:databind_test_lib",
     ],
     runtime_deps = [
         # do not sort,
         ":networknt.wrapper",
+        "//libraries/json-schema-validator:json-schema-validator_test_lib",
+        "//libraries/jackson3/jackson:libraries-jackson3_test_lib",
+        "//libraries/jackson3/databind:databind_test_lib",
+        "//libraries/joni:joni_test_lib",
         "//json/backend:backend_test_lib",
         "//libraries/jackson/annotations:annotations_test_lib",
         "//libraries/jackson3/dataformat-yaml:libraries-jackson3-dataformat-yaml_test_lib",
@@ -79,6 +88,7 @@ jvm_library(
 exports_files(
     [
         "intellij.json.networknt.wrapper.iml",
+        "resources/intellij.json.networknt.wrapper.xml",
     ],
     visibility = ["//visibility:public"],
 )

@@ -1,8 +1,8 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
 load("//build:compiler-options.bzl", "create_kotlinc_options")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
 ### auto-generated section `build intellij.kotlin.compilerPlugins.support.bundled` start
-
 create_kotlinc_options(
     name = "custom_compilerPlugins-support-bundled",
     opt_in = ["org.jetbrains.kotlin.K1Deprecation"],
@@ -20,11 +20,15 @@ jvm_library(
     ),
     kotlinc_opts = ":custom_compilerPlugins-support-bundled",
     module_name = "intellij.kotlin.compilerPlugins.support.bundled",
+    resource_strip_prefix = "resources",
+    resources = glob(
+        ["resources/**/*"],
+    ),
     visibility = ["//visibility:public"],
     deps = [
         # do not sort,
         "@lib//:kotlin-stdlib",
-        "@lib//:kotlinc-kotlin-compiler-common",
+        "//libraries/kotlinc/kotlin-compiler-common:libraries-kotlinc-kotlin-compiler-common",
         "//platform/core-api:core",
         "//platform/lang-api:lang",
         "@lib//:kotlinc-allopen-compiler-plugin",
@@ -32,15 +36,17 @@ jvm_library(
         "@lib//:kotlinc-sam-with-receiver-compiler-plugin",
         "@lib//:kotlinc-noarg-compiler-plugin",
         "@lib//:kotlinc-lombok-compiler-plugin",
-        "@lib//:kotlinc-assignment-compiler-plugin",
+        "//libraries/kotlinc/assignment-compiler-plugin:libraries-kotlinc-assignment-compiler-plugin",
         "@lib//:kotlinc-parcelize-compiler-plugin",
-        "@lib//:kotlinc-scripting-compiler-plugin",
+        "//libraries/kotlinc/scripting-compiler-plugin:libraries-kotlinc-scripting-compiler-plugin",
         "@lib//:kotlinc-js-plain-objects-compiler-plugin",
         "//plugins/kotlin/base/plugin",
-        "@lib//:kotlinc-kotlinx-serialization-compiler-plugin",
+        "//libraries/kotlinc/kotlinx-serialization-compiler-plugin:libraries-kotlinc-kotlinx-serialization-compiler-plugin",
         "@lib//:kotlinc-kotlin-dataframe-compiler-plugin",
     ],
 )
+
+content_module_jar(module = ":compilerPlugins-support-bundled")
 
 jvm_library(
     name = "compilerPlugins-support-bundled_test_lib",
@@ -55,9 +61,13 @@ jvm_library(
     runtime_deps = [
         # do not sort,
         ":compilerPlugins-support-bundled",
+        "//libraries/kotlinc/kotlin-compiler-common:libraries-kotlinc-kotlin-compiler-common_test_lib",
         "//platform/core-api:core_test_lib",
         "//platform/lang-api:lang_test_lib",
+        "//libraries/kotlinc/assignment-compiler-plugin:libraries-kotlinc-assignment-compiler-plugin_test_lib",
+        "//libraries/kotlinc/scripting-compiler-plugin:libraries-kotlinc-scripting-compiler-plugin_test_lib",
         "//plugins/kotlin/base/plugin:plugin_test_lib",
+        "//libraries/kotlinc/kotlinx-serialization-compiler-plugin:libraries-kotlinc-kotlinx-serialization-compiler-plugin_test_lib",
     ],
 )
 ### auto-generated section `build intellij.kotlin.compilerPlugins.support.bundled` end
@@ -66,6 +76,7 @@ jvm_library(
 exports_files(
     [
         "intellij.kotlin.compilerPlugins.support.bundled.iml",
+        "resources/intellij.kotlin.compilerPlugins.support.bundled.xml",
     ],
     visibility = ["//visibility:public"],
 )

@@ -1,17 +1,18 @@
 package com.intellij.terminal.frontend.view.impl
 
-import com.intellij.codeInsight.inline.completion.InlineCompletion
+import com.intellij.execution.impl.EditorTextDecorationApplier
+import com.intellij.execution.impl.createEditorTextDecorationApplier
+import com.intellij.ide.dnd.DnDSupport
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.actionSystem.DataSink
 import com.intellij.openapi.actionSystem.PlatformDataKeys
 import com.intellij.openapi.actionSystem.UiDataProvider
+import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.EDT
 import com.intellij.openapi.application.ModalityState
-import com.intellij.openapi.application.UI
 import com.intellij.openapi.application.asContextElement
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.editor.Editor
-import com.intellij.openapi.editor.event.MockDocumentEvent
 import com.intellij.openapi.editor.ex.EditorEx
 import com.intellij.openapi.editor.impl.EditorImpl
 import com.intellij.openapi.project.Project
@@ -21,14 +22,15 @@ import com.intellij.openapi.util.registry.Registry
 import com.intellij.openapi.wm.IdeFocusManager
 import com.intellij.platform.eel.provider.LocalEelDescriptor
 import com.intellij.platform.util.coroutines.childScope
+import com.intellij.platform.util.coroutines.flow.mapStateIn
 import com.intellij.psi.PsiDocumentManager
 import com.intellij.terminal.JBTerminalSystemSettingsProviderBase
 import com.intellij.terminal.TerminalTitle
 import com.intellij.terminal.actions.TerminalActionUtil
 import com.intellij.terminal.frontend.fus.TerminalFusCursorPainterListener
 import com.intellij.terminal.frontend.fus.TerminalFusFirstOutputListener
-import com.intellij.terminal.frontend.view.TerminalInputInterceptor
 import com.intellij.terminal.frontend.view.TerminalKeyEvent
+import com.intellij.terminal.frontend.view.TerminalKeyEventsListener
 import com.intellij.terminal.frontend.view.TerminalTextSelectionModel
 import com.intellij.terminal.frontend.view.TerminalView
 import com.intellij.terminal.frontend.view.TerminalViewSessionState
@@ -37,6 +39,9 @@ import com.intellij.terminal.frontend.view.completion.ShellRuntimeContextProvide
 import com.intellij.terminal.frontend.view.completion.TerminalCommandCompletionTypingListener
 import com.intellij.terminal.frontend.view.hyperlinks.FrontendTerminalHyperlinkFacade
 import com.intellij.terminal.frontend.view.hyperlinks.installHyperlinksProcessing
+import com.intellij.terminal.frontend.view.hyperlinks.installOsc8HyperlinksProcessing
+import com.intellij.terminal.frontend.view.impl.dnd.TerminalViewDropHandler
+import com.intellij.terminal.frontend.view.inlineCompletion.TerminalInlineCompletionController
 import com.intellij.terminal.frontend.view.typeahead.TerminalTypeAhead
 import com.intellij.terminal.frontend.view.typeahead.TerminalTypeAheadOutputModelController
 import com.intellij.terminal.frontend.view.typeahead.TerminalTypeAheadOutputModelControllerV1
@@ -44,9 +49,7 @@ import com.intellij.terminal.frontend.view.typeahead.TerminalTypeAheadOutputMode
 import com.intellij.terminal.refreshVfsOnFocusChange
 import com.intellij.ui.components.JBLayeredPane
 import com.intellij.ui.components.panels.ListLayout
-import com.intellij.util.AwaitCancellationAndInvoke
 import com.intellij.util.asDisposable
-import com.intellij.util.awaitCancellationAndInvoke
 import com.intellij.util.containers.ContainerUtil
 import com.intellij.util.ui.components.BorderLayoutPanel
 import kotlinx.coroutines.CompletableDeferred
@@ -83,7 +86,6 @@ import org.jetbrains.plugins.terminal.block.reworked.lang.TerminalOutputPsiFile
 import org.jetbrains.plugins.terminal.block.ui.TerminalUiUtils
 import org.jetbrains.plugins.terminal.block.ui.addToLayer
 import org.jetbrains.plugins.terminal.block.ui.calculateTerminalSize
-import org.jetbrains.plugins.terminal.block.ui.isTerminalOutputScrollChangingActionInProgress
 import org.jetbrains.plugins.terminal.fus.TerminalStartupFusInfo
 import org.jetbrains.plugins.terminal.hyperlinks.TerminalHyperlinkId
 import org.jetbrains.plugins.terminal.hyperlinks.TerminalSourceNavigationInfo
@@ -91,6 +93,7 @@ import org.jetbrains.plugins.terminal.hyperlinks.session.TerminalHyperlinksSessi
 import org.jetbrains.plugins.terminal.session.TerminalGridSize
 import org.jetbrains.plugins.terminal.session.TerminalStartupOptions
 import org.jetbrains.plugins.terminal.session.impl.TerminalSession
+import org.jetbrains.plugins.terminal.util.convertNativePathToNioPath
 import org.jetbrains.plugins.terminal.util.getNow
 import org.jetbrains.plugins.terminal.view.TerminalContentChangeEvent
 import org.jetbrains.plugins.terminal.view.TerminalCursorOffsetChangeEvent
@@ -105,10 +108,7 @@ import org.jetbrains.plugins.terminal.view.impl.TerminalOutputModelsSetImpl
 import org.jetbrains.plugins.terminal.view.impl.TerminalSendTextBuilderImpl
 import org.jetbrains.plugins.terminal.view.impl.TerminalSendTextOptions
 import org.jetbrains.plugins.terminal.view.shellIntegration.TerminalBlocksModel
-import org.jetbrains.plugins.terminal.view.shellIntegration.TerminalCommandBlock
-import org.jetbrains.plugins.terminal.view.shellIntegration.TerminalOutputStatus
 import org.jetbrains.plugins.terminal.view.shellIntegration.TerminalShellIntegration
-import org.jetbrains.plugins.terminal.view.shellIntegration.getTypedCommandText
 import java.awt.Component
 import java.awt.Dimension
 import java.awt.Point
@@ -116,10 +116,9 @@ import java.awt.event.ComponentAdapter
 import java.awt.event.ComponentEvent
 import java.awt.event.FocusEvent
 import java.awt.event.FocusListener
-import java.awt.event.KeyEvent
+import java.nio.file.Path
 import javax.swing.JComponent
 import javax.swing.JPanel
-import kotlin.coroutines.cancellation.CancellationException
 import kotlin.math.min
 
 @Suppress("TestOnlyProblems")
@@ -143,11 +142,17 @@ class TerminalViewImpl(
   private val terminalSearchController: TerminalSearchController
 
   @VisibleForTesting
-  val outputEditor: EditorEx
-  private val alternateBufferEditor: EditorEx
+  val outputEditor: EditorImpl
+  @VisibleForTesting
+  val alternateBufferEditor: EditorImpl
+
+  @VisibleForTesting
+  val outputEditorDecorationApplier: EditorTextDecorationApplier
 
   private val scrollingModel: TerminalOutputScrollingModel
-  private var isAlternateScreenBuffer = false
+
+  @VisibleForTesting
+  var isAlternateScreenBuffer: Boolean = false
 
   private val terminalPanel: TerminalPanel
 
@@ -179,7 +184,15 @@ class TerminalViewImpl(
     onBufferOverflow = BufferOverflow.DROP_OLDEST
   )
   override val keyEventsFlow: Flow<TerminalKeyEvent> = mutableKeyEventsFlow.asSharedFlow()
-  private val inputInterceptors = ContainerUtil.createLockFreeCopyOnWriteList<TerminalInputInterceptor>()
+  private val keyEventsListeners = ContainerUtil.createLockFreeCopyOnWriteList<TerminalKeyEventsListener>().apply {
+    add(object : TerminalKeyEventsListener {
+      override fun afterKeyEvent(event: TerminalKeyEvent) {
+        check(mutableKeyEventsFlow.tryEmit(event))
+      }
+    })
+  }
+
+  override val workingDirectoryFlow: StateFlow<Path?>
 
   override val shellIntegrationDeferred: CompletableDeferred<TerminalShellIntegration> =
     CompletableDeferred(coroutineScope.coroutineContext.job)
@@ -191,6 +204,12 @@ class TerminalViewImpl(
 
   init {
     sessionModel = TerminalSessionModelImpl()
+    workingDirectoryFlow = sessionModel.terminalState.mapStateIn(coroutineScope.childScope("workingDirectoryFlow")) {
+      val directoryString = it.currentDirectory ?: return@mapStateIn null
+      val eelDescriptor = sessionDeferred.getNow()?.eelDescriptor ?: return@mapStateIn null
+      convertNativePathToNioPath(directoryString, eelDescriptor)
+    }
+
     encodingManager = TerminalKeyEncodingManager(sessionModel, coroutineScope.childScope("TerminalKeyEncodingManager"))
 
     terminalInput = TerminalInput(
@@ -205,8 +224,14 @@ class TerminalViewImpl(
     // Usually, the cursor is painted or output received first in the output editor
     // because it is shown by default on a new session opening.
     // But in the case of session restoration in RemDev, there can be an alternate buffer.
-    val fusCursorPaintingListener = startupFusInfo?.let { TerminalFusCursorPainterListener(it) }
-    val fusFirstOutputListener = startupFusInfo?.let { TerminalFusFirstOutputListener(it) }
+    val fusCursorPaintingListener = if (startupFusInfo?.triggerTime != null) {
+      TerminalFusCursorPainterListener(startupFusInfo.triggerTime!!, startupFusInfo.way)
+    }
+    else null
+    val fusFirstOutputListener = if (startupFusInfo?.triggerTime != null) {
+      TerminalFusFirstOutputListener(startupFusInfo.triggerTime!!, startupFusInfo.way)
+    }
+    else null
 
     alternateBufferEditor = TerminalEditorFactory.createAlternateBufferEditor(
       project,
@@ -217,24 +242,26 @@ class TerminalViewImpl(
     val alternateBufferModel = MutableTerminalOutputModelImpl(alternateBufferEditor.document, maxOutputLength = 0)
     val alternateBufferModelController = TerminalOutputModelControllerImpl(alternateBufferModel)
     val alternateBufferKeyEventsHandler = TerminalKeyEventsHandlerImpl(
-      mutableKeyEventsFlow,
       alternateBufferEditor,
-      encodingManager,
       terminalInput,
-      settings,
       scrollingModel = null,
       alternateBufferModel,
       typeAhead = null,
-      inputInterceptors = { inputInterceptors },
+      keyEventsListeners = keyEventsListeners,
+      sessionDeferred = sessionDeferred,
+      coroutineScope = coroutineScope.childScope("TerminalAlternateBufferKeyEvents"),
     )
     val alternateBufferMouseEventsHandler = TerminalMouseEventsHandlerImpl(
       alternateBufferEditor,
       terminalInput,
-      sessionModel,
-      encodingManager,
-      settings,
+      sessionDeferred,
     )
 
+    // Should be created before "configureOutputEditor" is called where mouse reporting is configured (TerminalMouseEventsHandlerImpl).
+    // To make mouse events first handled by hyperlinks logic and only then reported to the process.
+    val alternateBufferDecorationApplier = createEditorTextDecorationApplier(alternateBufferEditor, coroutineScope.asDisposable()) {
+      consumeOnlyOnCtrlClick = true
+    }
     configureOutputEditor(
       project,
       editor = alternateBufferEditor,
@@ -267,24 +294,26 @@ class TerminalViewImpl(
     outputEditor.putUserData(TerminalTypeAhead.KEY, outputModelController)
 
     outputEditorKeyEventsHandler = TerminalKeyEventsHandlerImpl(
-      mutableKeyEventsFlow,
       outputEditor,
-      encodingManager,
       terminalInput,
-      settings,
       scrollingModel,
       outputModel,
       typeAhead = outputModelController,
-      inputInterceptors = { inputInterceptors },
+      keyEventsListeners = keyEventsListeners,
+      sessionDeferred = sessionDeferred,
+      coroutineScope = coroutineScope.childScope("TerminalOutputKeyEvents"),
     )
     val outputEditorMouseEventsHandler = TerminalMouseEventsHandlerImpl(
       outputEditor,
       terminalInput,
-      sessionModel,
-      encodingManager,
-      settings,
+      sessionDeferred,
     )
 
+    // Should be created before "configureOutputEditor" is called where mouse reporting is configured (TerminalMouseEventsHandlerImpl).
+    // To make mouse events first handled by hyperlinks logic and only then reported to the process.
+    outputEditorDecorationApplier = createEditorTextDecorationApplier(outputEditor, coroutineScope.asDisposable()) {
+      consumeOnlyOnCtrlClick = true
+    }
     configureOutputEditor(
       project,
       editor = outputEditor,
@@ -325,6 +354,7 @@ class TerminalViewImpl(
       outputModelController,
       sessionModel,
       shellIntegrationDeferred,
+      sessionDeferred,
       startupOptionsDeferred,
       coroutineScope.childScope("TerminalShellIntegrationEventsHandler"),
     )
@@ -343,7 +373,6 @@ class TerminalViewImpl(
     listenPanelSizeChanges()
     listenAlternateBufferSwitch()
     listenApplicationTitleChanges()
-    listenKeyEvents()
 
     refreshVfsOnFocusChange(
       component = terminalPanel,
@@ -354,26 +383,44 @@ class TerminalViewImpl(
       coroutineScope.childScope("Terminal VFS refresh on command finish")
     )
 
-    // Configure hyperlinks' processing
+    // Configure hyperlinks' processing.
+    // The filter-based and OSC8 hyperlinks of an editor must share a single decoration applier,
+    // because its click/hover handling operates on editor-global markup.
     coroutineScope.launch {
       val eelDescriptor = sessionDeferred.await().eelDescriptor
       outputBufferHyperlinksFacade = installHyperlinksProcessing(
         project = project,
         outputModel = outputModel,
-        editor = outputEditor,
+        decorationApplier = outputEditorDecorationApplier,
         sessionModel = sessionModel,
         eelDescriptor = eelDescriptor,
-        coroutineScope = coroutineScope.childScope("Output Buffer Hyperlinks")
+        coroutineScope = coroutineScope.childScope("Output Buffer Hyperlinks"),
       )
       alternateBufferHyperlinksFacade = installHyperlinksProcessing(
         project = project,
         outputModel = alternateBufferModel,
-        editor = alternateBufferEditor,
+        decorationApplier = alternateBufferDecorationApplier,
         sessionModel = sessionModel,
         eelDescriptor = eelDescriptor,
-        coroutineScope = coroutineScope.childScope("Alternate Buffer Hyperlinks")
+        coroutineScope = coroutineScope.childScope("Alternate Buffer Hyperlinks"),
       )
     }
+
+    // Configure OSC8 hyperlinks' processing (rendered via the same appliers as above).
+    installOsc8HyperlinksProcessing(
+      project = project,
+      outputModel = outputModel,
+      editor = outputEditor,
+      applier = outputEditorDecorationApplier,
+      coroutineScope = coroutineScope.childScope("Output Buffer OSC8 Hyperlinks"),
+    )
+    installOsc8HyperlinksProcessing(
+      project = project,
+      outputModel = alternateBufferModel,
+      editor = alternateBufferEditor,
+      applier = alternateBufferDecorationApplier,
+      coroutineScope = coroutineScope.childScope("Alternate Buffer OSC8 Hyperlinks"),
+    )
 
     shellIntegrationFeaturesInitJob = coroutineScope.launch(
       Dispatchers.EDT +
@@ -391,13 +438,15 @@ class TerminalViewImpl(
         coroutineScope.childScope("TerminalBlocksDecorator")
       )
 
+      val typingTracker = installTypingTracker(
+        project = project,
+        terminalView = this@TerminalViewImpl,
+        model = outputModel,
+        shellIntegration = shellIntegration,
+        coroutineScope = coroutineScope.childScope("TerminalTypingTracker")
+      )
       if (TerminalAiInlineCompletion.isEnabled()) {
-        configureInlineCompletion(
-          terminalView = this@TerminalViewImpl,
-          outputEditor,
-          shellIntegration,
-          coroutineScope.childScope("TerminalInlineCompletion")
-        )
+        configureInlineCompletion(outputModel, shellIntegration, typingTracker)
       }
 
       val startupOptions = startupOptionsDeferred.await()
@@ -410,6 +459,8 @@ class TerminalViewImpl(
         coroutineScope.childScope("TerminalCommandCompletion")
       )
     }
+
+    installDropHandler()
   }
 
   fun connectToSession(session: TerminalSession) {
@@ -437,10 +488,10 @@ class TerminalViewImpl(
     return TerminalSendTextBuilderImpl(this::doSendText)
   }
 
-  override fun addInputInterceptor(parentDisposable: Disposable, interceptor: TerminalInputInterceptor) {
-    inputInterceptors.add(interceptor)
+  override fun addKeyEventsListener(parentDisposable: Disposable, listener: TerminalKeyEventsListener) {
+    keyEventsListeners.add(listener)
     Disposer.register(parentDisposable) {
-      inputInterceptors.remove(interceptor)
+      keyEventsListeners.remove(listener)
     }
   }
 
@@ -525,18 +576,6 @@ class TerminalViewImpl(
     }
   }
 
-  /** Logic that can be performed asynchronously with typing */
-  private fun listenKeyEvents() {
-    coroutineScope.launch(Dispatchers.UI + CoroutineName("Key events listener")) {
-      keyEventsFlow.collect { e ->
-        if (e.awtEvent.id == KeyEvent.KEY_TYPED) {
-          outputEditor.selectionModel.let { if (it.hasSelection()) it.removeSelection() }
-          alternateBufferEditor.selectionModel.let { if (it.hasSelection()) it.removeSelection() }
-        }
-      }
-    }
-  }
-
   private fun createOutputModelController(
     project: Project,
     outputModel: MutableTerminalOutputModel,
@@ -558,7 +597,7 @@ class TerminalViewImpl(
   private fun configureOutputEditor(
     project: Project,
     editor: EditorImpl,
-    model: TerminalOutputModel,
+    model: MutableTerminalOutputModel,
     settings: JBTerminalSystemSettingsProviderBase,
     sessionModel: TerminalSessionModel,
     terminalInput: TerminalInput,
@@ -570,25 +609,18 @@ class TerminalViewImpl(
   ) {
     val parentDisposable = coroutineScope.asDisposable() // same lifecycle as `this@ReworkedTerminalView`
 
+    editor.putUserData(TerminalView.KEY, this@TerminalViewImpl)
     editor.putUserData(TerminalOutputModel.KEY, model)
 
-    // Document modifications can change the scroll position.
-    // Mark them with the corresponding flag to indicate that this change is not caused by the explicit user action.
+    // Resolve and cache the PSI file here, not inside the listener below: getPsiFile may require a read lock,
+    // which can be acquired at this point but not in afterContentChanged — that listener runs on the
+    // strict UI output dispatcher (see TerminalSessionController), where taking a lock is prohibited.
+    val psiFile = PsiDocumentManager.getInstance(project).getPsiFile(model.document) as? TerminalOutputPsiFile
     model.addListener(parentDisposable, object : TerminalOutputModelListener {
-      override fun beforeContentChanged(model: TerminalOutputModel) {
-        editor.isTerminalOutputScrollChangingActionInProgress = true
-      }
-
       override fun afterContentChanged(event: TerminalContentChangeEvent) {
-        editor.isTerminalOutputScrollChangingActionInProgress = false
-
         // Repaint the whole screen to update all changed highlightings.
         repaintEditorScreen(editor)
-
-        // Update the PSI file content
-        val psiFile =
-          PsiDocumentManager.getInstance(project).getPsiFile((model as MutableTerminalOutputModel).document) as? TerminalOutputPsiFile
-        psiFile?.charsSequence = model.document.immutableCharSequence  // must be the snapshot
+        psiFile?.charsSequence = model.document.immutableCharSequence
       }
     })
 
@@ -604,7 +636,7 @@ class TerminalViewImpl(
     }
 
     setupKeyEventsHandling(editor, settings, keyEventsHandler, parentDisposable)
-    setupMouseEventsHandling(editor, sessionModel, settings, mouseEventsHandler, parentDisposable)
+    setupMouseEventsHandling(editor, mouseEventsHandler, parentDisposable)
 
     TerminalOutputEditorInputMethodSupport(
       editor,
@@ -641,81 +673,6 @@ class TerminalViewImpl(
     }
   }
 
-  @OptIn(AwaitCancellationAndInvoke::class)
-  private fun configureInlineCompletion(
-    terminalView: TerminalView,
-    editor: EditorEx,
-    shellIntegration: TerminalShellIntegration,
-    coroutineScope: CoroutineScope,
-  ) {
-    InlineCompletion.install(editor, coroutineScope)
-    // Inline completion handler needs to be manually disposed
-    coroutineScope.awaitCancellationAndInvoke(Dispatchers.EDT) {
-      InlineCompletion.remove(editor)
-    }
-
-    val outputModel = terminalView.outputModels.regular
-    outputModel.addListener(coroutineScope.asDisposable(), object : TerminalOutputModelListener {
-      var commandText: String? = null
-      var cursorPosition: Int? = null
-
-      override fun afterContentChanged(event: TerminalContentChangeEvent) {
-        if (shellIntegration.outputStatus.value != TerminalOutputStatus.TypingCommand) {
-          commandText = null
-          cursorPosition = null
-          return
-        }
-
-        val commandBlock = shellIntegration.blocksModel.activeBlock as? TerminalCommandBlock ?: return
-        val curCommandText = commandBlock.getTypedCommandText(outputModel) ?: return
-
-        val inlineCompletionTypingSession = InlineCompletion.getHandlerOrNull(editor)?.typingSessionTracker
-        if (event.isTypeAhead) {
-          // Trim because of differing whitespace between terminal and type ahead
-          commandText = curCommandText
-          val newCursorOffset = outputModel.cursorOffset.toRelative(outputModel) + 1
-          editor.caretModel.moveToOffset(newCursorOffset)
-          inlineCompletionTypingSession?.ignoreDocumentChanges = true
-          inlineCompletionTypingSession?.endTypingSession(editor)
-          cursorPosition = newCursorOffset
-        }
-        else if (commandText != null && (curCommandText != commandText || cursorPosition != outputModel.cursorOffset.toRelative(outputModel))) {
-          inlineCompletionTypingSession?.ignoreDocumentChanges = false
-          inlineCompletionTypingSession?.collectTypedCharOrInvalidateSession(MockDocumentEvent(editor.document, 0), editor)
-          commandText = null
-        }
-      }
-    })
-
-    coroutineScope.launch(Dispatchers.UI) {
-      terminalView.keyEventsFlow.collect {
-        try {
-          val session = InlineCompletion.getHandlerOrNull(editor)?.typingSessionTracker ?: return@collect
-          when (it.awtEvent.id) {
-            KeyEvent.KEY_PRESSED -> {
-              session.endTypingSession(editor)
-              // To invalidate inline completion in the case of inputs like backspace, CTRL + C, etc.
-              session.ignoreDocumentChanges = false
-            }
-            KeyEvent.KEY_TYPED -> {
-              editor.caretModel.moveToOffset(outputModel.cursorOffset.toRelative(outputModel))
-              session.startTypingSession(editor)
-            }
-            else -> {
-              // Shouldn't be the case.
-            }
-          }
-        }
-        catch (e: CancellationException) {
-          throw e
-        }
-        catch (e: Exception) {
-          LOG.error("Exception when handling inline completion key event: $it", e)
-        }
-      }
-    }
-  }
-
   private fun configureCommandCompletion(
     terminalView: TerminalView,
     editor: EditorEx,
@@ -742,9 +699,44 @@ class TerminalViewImpl(
     )
   }
 
+  private fun configureInlineCompletion(
+    outputModel: MutableTerminalOutputModel,
+    shellIntegration: TerminalShellIntegration,
+    typingTracker: TerminalTypingTracker,
+  ) {
+    val inlineCompletionScope = coroutineScope.childScope("TerminalInlineCompletion")
+    val inlineCompletionController = TerminalInlineCompletionController(
+      editor = outputEditor,
+      model = outputModel,
+      shellIntegration = shellIntegration,
+      typingTracker = typingTracker,
+      coroutineScope = inlineCompletionScope
+    )
+    inlineCompletionController.install()
+  }
+
+  private fun installDropHandler() {
+    // Drag-and-drop and docking rely on the tool window decorator (real UI), which is absent in a headless environment.
+    // Skip them there so the tool window can still be initialized in tests.
+    if (ApplicationManager.getApplication().isHeadlessEnvironment) return
+
+    DnDSupport.createBuilder(component)
+      .setDropHandler(
+        TerminalViewDropHandler(
+          project = project,
+          terminalView = this,
+          scrollingModel = scrollingModel,
+        )
+      )
+      .setDisposableParent(coroutineScope.asDisposable())
+      .enableAsNativeTarget()
+      .disableAsSource()
+      .install()
+  }
+
   override fun toString(): String {
     val commandText = startupOptionsDeferred.getNow()?.let { "${it.shellCommand}" }
-    return "TerminalViewImpl(state=${sessionState.value}, command=$commandText, cwd=${getCurrentDirectory()})"
+    return "TerminalViewImpl(state=${sessionState.value}, command=$commandText, cwd=${workingDirectoryFlow.value})"
   }
 
   private inner class TerminalPanel(initialContent: Editor) : BorderLayoutPanel(), UiDataProvider, TerminalPanelMarker {
@@ -795,7 +787,7 @@ class TerminalViewImpl(
 
       // Hyperlinks data
       val hyperlinksFacade = if (isAlternateScreenBuffer) alternateBufferHyperlinksFacade else outputBufferHyperlinksFacade
-      sink[TerminalHyperlinksSessionId.DATA_KEY] = hyperlinksFacade?.sessionIdDeferred?.getNow()
+      sink[TerminalHyperlinksSessionId.DATA_KEY] = hyperlinksFacade?.sessionId
       sink[TerminalHyperlinkId.KEY] = hyperlinksFacade?.getHoveredHyperlinkId()
     }
 

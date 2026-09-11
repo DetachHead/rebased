@@ -1,7 +1,7 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library", "jvm_provided_library")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
 ### auto-generated section `build intellij.markdown.frontmatter.toml` start
-
 jvm_provided_library(
     name = "plugins_toml_core_provided",
     lib = "//plugins/toml/core",
@@ -36,6 +36,8 @@ jvm_library(
     ],
 )
 
+content_module_jar(module = ":toml")
+
 jvm_library(
     name = "toml_test_lib",
     testonly = True,
@@ -64,6 +66,7 @@ jvm_library(
 exports_files(
     [
         "intellij.markdown.frontmatter.toml.iml",
+        "src/main/resources/intellij.markdown.frontmatter.toml.xml",
     ],
     visibility = ["//visibility:public"],
 )

@@ -88,11 +88,6 @@
                  key="debugger.remove.disable.actions"/>
 
     <registryKey defaultValue="true"
-                 description="Debugger implementation for split mode. Enable it in monolith as well to have the same experience as in RD."
-                 key="xdebugger.toolwindow.split"
-                 restartRequired="true"/>
-
-    <registryKey defaultValue="true"
                  description="Throw warnings and errors about misusages of frontend components on the backend (and vice versa)"
                  key="xdebugger.toolwindow.split.warnings"/>
 
@@ -156,10 +151,16 @@
       <reference ref="Debugger.ThawSelectedThreads"/>
     </group>
 
+    <!-- Shared group. Actions added to this group are displayed in all ParallelStacks like implementations. E.g., Parallel Threads, Parallel Tasks (Rider specific), etc. -->
     <group id="XDebugger.ParallelStacks.Popup.Extra">
     </group>
 
+    <!-- Shared group. Actions added to this group are displayed in all ParallelStacks like implementations. E.g., Parallel Threads, Parallel Tasks (Rider specific), etc. -->
     <group id="XDebugger.ParallelStacks.ToolBar.Extra">
+    </group>
+
+    <!-- Actions added to this group are displayed ONLY in Parallel Threads -->
+    <group id="XDebugger.ParallelThreads.Popup.Extra">
     </group>
 
     <action class="com.intellij.xdebugger.impl.runToolbar.ConfigurationXDebuggerResumeAction">
@@ -212,7 +213,5 @@
   <projectListeners>
     <listener class="com.intellij.xdebugger.impl.dashboard.XDebuggerRunDashboardUpdater"
               topic="com.intellij.execution.ExecutionListener"/>
-    <listener class="com.intellij.xdebugger.impl.proxy.MonolithListenerAdapter"
-              topic="com.intellij.xdebugger.XDebuggerManagerListener"/>
   </projectListeners>
 </idea-plugin>

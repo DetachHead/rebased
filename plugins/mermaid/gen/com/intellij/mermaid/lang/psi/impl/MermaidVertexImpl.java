@@ -35,6 +35,12 @@ public class MermaidVertexImpl extends ASTWrapperPsiElement implements MermaidVe
 
   @Override
   @Nullable
+  public MermaidMetadata getMetadata() {
+    return findChildByClass(MermaidMetadata.class);
+  }
+
+  @Override
+  @Nullable
   public MermaidVertexText getVertexText() {
     return findChildByClass(MermaidVertexText.class);
   }

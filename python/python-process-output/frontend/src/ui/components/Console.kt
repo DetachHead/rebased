@@ -1,319 +1,268 @@
 package com.intellij.python.processOutput.frontend.ui.components
 
-import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.ScrollState
-import androidx.compose.foundation.gestures.BringIntoViewSpec
-import androidx.compose.foundation.gestures.LocalBringIntoViewSpec
-import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.offset
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.layout.onGloballyPositioned
-import androidx.compose.ui.layout.positionInParent
-import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.text.AnnotatedString
-import androidx.compose.ui.text.TextLayoutResult
-import androidx.compose.ui.text.buildAnnotatedString
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.TextFieldValue
-import androidx.compose.ui.unit.Dp
-import androidx.compose.ui.unit.IntSize
-import androidx.compose.ui.unit.dp
-import com.intellij.python.processOutput.frontend.ConsoleTag
-import com.intellij.python.processOutput.frontend.ConsoleTagFormatter
+import com.intellij.openapi.application.EDT
+import com.intellij.python.processOutput.common.LoggedProcessDto
+import com.intellij.python.processOutput.common.OutputKindDto
+import com.intellij.python.processOutput.common.OutputLineDto
+import com.intellij.python.processOutput.frontend.InfoTag
+import com.intellij.python.processOutput.frontend.OutputFilter
+import com.intellij.python.processOutput.frontend.OutputTag
 import com.intellij.python.processOutput.frontend.ProcessOutputBundle.message
-import com.intellij.python.processOutput.frontend.ui.Icons
-import com.intellij.python.processOutput.frontend.ui.thenIfNotNull
-import org.jetbrains.jewel.foundation.modifier.thenIf
-import org.jetbrains.jewel.foundation.theme.JewelTheme
-import org.jetbrains.jewel.ui.component.HorizontalScrollbar
-import org.jetbrains.jewel.ui.component.Text
-import org.jetbrains.jewel.ui.component.VerticalScrollbar
-import org.jetbrains.jewel.ui.component.scrollbarContentSafePadding
+import com.intellij.python.processOutput.frontend.ProcessStatus
+import com.intellij.python.processOutput.frontend.formatFull
+import com.intellij.python.processOutput.frontend.ui.ProcessOutputUiContext
+import com.intellij.python.processOutput.frontend.ui.commandString
+import com.intellij.ui.JBColor
+import com.intellij.ui.ScrollPaneFactory
+import com.intellij.ui.components.JBPanelWithEmptyText
+import com.intellij.util.ui.JBUI
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.launch
+import java.awt.BorderLayout
+import java.awt.Dimension
+import java.awt.Point
+import java.awt.Rectangle
+import javax.swing.BoxLayout
+import javax.swing.JComponent
+import javax.swing.JPanel
+import javax.swing.JScrollPane
+import javax.swing.JViewport
+import javax.swing.ScrollPaneConstants
+import javax.swing.Scrollable
+import javax.swing.SwingUtilities
 
-private object ConsoleStyling {
-    val LINE_START_PADDING = 8.dp
-    val COPY_SECTION_BUTTON_SPACE_SIZE = 18.dp
-}
+internal class Console(private val uiContext: ProcessOutputUiContext) {
+  private val contentPanel: ContentPanel = ContentPanel()
+  private val scrollPane: JScrollPane = ScrollPaneFactory.createScrollPane(contentPanel, true)
+  private var linesJob: Job? = null
 
-internal data class ConsoleContext(
-    val consoleContainerSize: IntSize,
-    val verticalScrollState: ScrollState,
-    val horizontalScrollState: ScrollState,
-    val wrapContent: Boolean,
-)
+  val component: JComponent
+    field = JPanel(BorderLayout())
 
-internal data class ConsoleLine<TTag : ConsoleTag>(
-    val tag: TTag,
-    val text: AnnotatedString,
-)
+  private val infoSection = CollapsibleConsolePanel(
+    title = message("process.output.output.sections.info"),
+    name = Naming.INFO_SECTION_NAME,
+    formatter = InfoTag.formatter,
+    onToggle = { uiContext.controller.toggleProcessInfo() },
+  )
 
-@OptIn(ExperimentalFoundationApi::class)
-@Composable
-internal fun ConsoleContainer(
-    verticalScrollState: ScrollState = rememberScrollState(),
-    horizontalScrollState: ScrollState = rememberScrollState(),
-    wrapContent: Boolean = false,
-    content: @Composable ConsoleContext.() -> Unit,
-) {
-    var consoleContext by remember {
-        mutableStateOf(
-            ConsoleContext(IntSize.Zero, verticalScrollState, horizontalScrollState, wrapContent),
-        )
-    }
+  private val outputSection = CollapsibleConsolePanel(
+    title = message("process.output.output.sections.output"),
+    name = Naming.OUTPUT_SECTION_NAME,
+    formatter = OutputTag.formatter,
+    onToggle = { uiContext.controller.toggleProcessOutput() },
+    onCopy = this::onCopy,
+    onRebuild = this::onOutputPanelRebuild,
+  )
 
-    LaunchedEffect(wrapContent) {
-        consoleContext = consoleContext.copy(wrapContent = wrapContent)
-    }
+  init {
+    contentPanel.isOpaque = false
+    contentPanel.layout = BoxLayout(contentPanel, BoxLayout.Y_AXIS)
+    contentPanel.border =
+      JBUI.Borders.empty(
+        Styling.CONTENT_PANEL_PADDING,
+        Styling.CONTENT_PANEL_PADDING,
+        Styling.CONTENT_PANEL_PADDING,
+        Styling.CONTENT_PANEL_PADDING_EAST,
+      )
+    contentPanel.withEmptyText(message("process.output.output.blankMessage"))
 
-    Box(
-        modifier =
-            Modifier
-                .fillMaxSize()
-                .onGloballyPositioned { coordinates ->
-                    consoleContext = consoleContext.copy(consoleContainerSize = coordinates.size)
-                },
-    ) {
-        CompositionLocalProvider(LocalBringIntoViewSpec provides NoScrollOnFocusBringIntoViewSpec) {
-            Box {
-                Column(
-                    modifier =
-                        Modifier
-                            .verticalScroll(verticalScrollState)
-                            .thenIf(!wrapContent) {
-                                horizontalScroll(horizontalScrollState)
-                            }
-                            .fillMaxSize(),
-                ) {
-                    consoleContext.content()
-                }
+    component.add(scrollPane)
 
-                VerticalScrollbar(
-                    scrollState = verticalScrollState,
-                    modifier = Modifier.fillMaxHeight().align(Alignment.CenterEnd),
-                )
+    uiContext.coroutineScope.launch(Dispatchers.EDT) {
+      uiContext.controller.selectedProcess.collect { loggedProcess ->
+        linesJob?.cancelAndJoin()
+        linesJob = null
 
-                if (!wrapContent) {
-                    HorizontalScrollbar(
-                        scrollState = horizontalScrollState,
-                        modifier =
-                            Modifier
-                                .fillMaxWidth()
-                                .align(Alignment.BottomCenter)
-                                .padding(end = scrollbarContentSafePadding()),
-                    )
-                }
-            }
+        if (loggedProcess == null) {
+          contentPanel.removeAll()
+          uiContext.scrollOnProcessDisplayed = ProcessOutputUiContext.ScrollOnProcessDisplayed.None
         }
-    }
-}
+        else {
+          infoSection.setLines(buildInfoLines(loggedProcess.data))
 
-@Composable
-internal fun <TTag> ConsoleContext.ConsoleOutput(
-    lines: List<ConsoleLine<TTag>>,
-    formatter: ConsoleTagFormatter<TTag>,
-    displayTags: Boolean = true,
-    displayCopyButtons: Boolean = false,
-    inputTestTag: String? = null,
-    tagTestTag: String? = null,
-    copyButtonTestTag: String? = null,
-    onCopy: (ConsoleLine<TTag>, Int) -> Unit = { _, _ -> },
-) where TTag : ConsoleTag, TTag : Enum<TTag> {
-    val density = LocalDensity.current
-    var textValue by remember { mutableStateOf(TextFieldValue(AnnotatedString(""))) }
-    var sections by remember { mutableStateOf<List<Section<TTag>>>(emptyList()) }
-    var textLayout by remember { mutableStateOf<TextLayoutResult?>(null) }
-    var xPosition by remember { mutableStateOf(0f) }
-    var yPosition by remember { mutableStateOf(0f) }
-
-    LaunchedEffect(lines, formatter, displayTags) {
-        val newTags = mutableListOf<Section<TTag>>()
-        val newTextValue = buildAnnotatedString {
-            var prevTag: TTag? = null
-            for ((index, line) in lines.withIndex()) {
-                val prevLength = length
-
-                appendLine(line.text)
-
-                if (line.tag != prevTag) {
-                    newTags += Section(line, prevLength, index)
-                }
-
-                prevTag = line.tag
-            }
-        }
-
-        textValue = textValue.copy(annotatedString = newTextValue)
-        sections = newTags
-    }
-
-    // auto scroll to the end of the selection if it is offscreen
-    LaunchedEffect(textValue.selection) {
-        val selection = textValue.selection.takeIf { !it.collapsed } ?: return@LaunchedEffect
-        val width = consoleContainerSize.width
-        val height = consoleContainerSize.height
-        val rect = textLayout?.getCursorRect(selection.end) ?: return@LaunchedEffect
-        val top = rect.top - verticalScrollState.value
-        val bottom = rect.bottom - verticalScrollState.value
-        val left = rect.left - horizontalScrollState.value
-        val right = rect.right - horizontalScrollState.value
-        val verticalScrollValue = when {
-            top + yPosition < 0 -> rect.top.toInt() + yPosition.toInt()
-            bottom + yPosition > height -> (rect.bottom.toInt() - height) + yPosition.toInt()
-            else -> null
-        }
-        val horizontalScrollValue = when {
-            left + xPosition < 0 -> rect.left.toInt() + xPosition.toInt()
-            right + xPosition > width -> (rect.right.toInt() - width) + xPosition.toInt()
-            else -> null
-        }
-
-        if (verticalScrollValue != null) {
-            verticalScrollState.scrollTo(verticalScrollValue)
-        }
-
-        if (horizontalScrollValue != null) {
-            horizontalScrollState.scrollTo(horizontalScrollValue)
-        }
-    }
-
-    @Composable
-    fun ConsoleInput(modifier: Modifier = Modifier) {
-        BasicTextField(
-            value = textValue,
-            onValueChange = { newValue -> textValue = newValue },
-            onTextLayout = { newTextLayout -> textLayout = newTextLayout },
-            modifier =
-                modifier
-                    .padding(end = scrollbarContentSafePadding())
-                    .thenIfNotNull(inputTestTag) { testTag(it) },
-            readOnly = true,
-            textStyle = JewelTheme.consoleTextStyle,
-        )
-    }
-
-    Row(
-        modifier =
-            Modifier
-                .onGloballyPositioned { coordinates ->
-                    yPosition = coordinates.positionInParent().y
-                }
-                .widthIn(
-                    min = with(density) { consoleContainerSize.width.toDp() },
-                ),
-    ) {
-        Column(modifier = Modifier.padding(start = ConsoleStyling.LINE_START_PADDING)) {
-            if (displayTags) {
-                Box {
-                    sections.composeForEachWithinLayout(textLayout) { line, yOffset, _ ->
-                        Text(
-                            text = formatter.colonTagString(line.tag),
-                            modifier =
-                                Modifier
-                                    .offset(y = yOffset)
-                                    .padding(end = ConsoleStyling.LINE_START_PADDING)
-                                    .thenIfNotNull(tagTestTag) { testTag(it) },
-                            style = JewelTheme.consoleTextStyle,
-                            fontWeight = FontWeight.Thin,
-                        )
-                    }
+          linesJob =
+            this@launch.launch {
+              combine(
+                loggedProcess.lines,
+                loggedProcess.status,
+              ) { lines, status ->
+                buildOutputLines(lines, status)
+              }
+                .collect {
+                  outputSection.setLines(it)
                 }
             }
+
+          if (contentPanel.componentCount == 0) {
+            contentPanel.add(infoSection.component)
+            contentPanel.add(outputSection.component)
+          }
+
+          if (uiContext.scrollOnProcessDisplayed == ProcessOutputUiContext.ScrollOnProcessDisplayed.None) {
+            uiContext.scrollOnProcessDisplayed = ProcessOutputUiContext.ScrollOnProcessDisplayed.Up(loggedProcess.data.id)
+          }
         }
 
-        if (wrapContent) {
-            Column(
-                modifier =
-                    Modifier
-                        .weight(1f)
-                        .onGloballyPositioned { coordinates ->
-                            xPosition = coordinates.positionInParent().x
-                        },
-            ) {
-                ConsoleInput()
+        contentPanel.revalidate()
+        contentPanel.repaint()
+      }
+    }
+
+    uiContext.coroutineScope.launch(Dispatchers.EDT) {
+      uiContext.controller.outputSectionState.isInfoExpanded.collect {
+        infoSection.setExpanded(it)
+      }
+    }
+
+    uiContext.coroutineScope.launch(Dispatchers.EDT) {
+      uiContext.controller.outputSectionState.isOutputExpanded.collect {
+        outputSection.setExpanded(it)
+      }
+    }
+
+    uiContext.coroutineScope.launch(Dispatchers.EDT) {
+      uiContext.controller.outputSectionState.filters.active
+        .collect { active ->
+          val showTags = OutputFilter.Item.SHOW_TAGS in active
+          val wrap = OutputFilter.Item.WRAP_CONTENT in active
+
+          outputSection.setShowTags(showTags)
+          infoSection.setWrapContent(wrap)
+          outputSection.setWrapContent(wrap)
+
+          contentPanel.wrapContent = wrap
+          scrollPane.horizontalScrollBarPolicy =
+            if (wrap) {
+              ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER
             }
-        } else {
-            ConsoleInput(
-                modifier =
-                    Modifier.onGloballyPositioned { coordinates ->
-                        xPosition = coordinates.positionInParent().x
-                    },
-            )
-            Spacer(modifier = Modifier.weight(1f))
-        }
-
-        Column(modifier = Modifier.padding(end = scrollbarContentSafePadding())) {
-            if (displayCopyButtons) {
-                Box {
-                    sections.composeForEachWithinLayout(textLayout) { line, yOffset, index ->
-                        Box(modifier = Modifier.offset(y = yOffset)) {
-                            ActionIconButton(
-                                modifier = Modifier
-                                    .size(ConsoleStyling.COPY_SECTION_BUTTON_SPACE_SIZE)
-                                    .thenIfNotNull(copyButtonTestTag) { testTag(it) },
-                                iconKey = Icons.Keys.Copy,
-                                tooltipText = message("process.output.output.copySection.tooltip"),
-                                onClick = { onCopy(line, index) },
-                            )
-                        }
-                    }
-                }
+            else {
+              ScrollPaneConstants.HORIZONTAL_SCROLLBAR_AS_NEEDED
             }
+
+          contentPanel.revalidate()
         }
     }
-}
+  }
 
-@Composable
-private fun <TTag : ConsoleTag> List<Section<TTag>>.composeForEachWithinLayout(
-    layout: TextLayoutResult?,
-    callback: @Composable (ConsoleLine<TTag>, Dp, Int) -> Unit,
-) {
-    if (layout == null) {
-        return
+  private fun onCopy(line: ConsoleTextLine<OutputTag>, index: Int) {
+    val loggedProcess = uiContext.controller.selectedProcess.value ?: return
+
+    when (line.tag) {
+      OutputTag.EXIT ->
+        uiContext.controller.copyOutputExitInfoToClipboard(loggedProcess)
+      OutputTag.OUTPUT, OutputTag.ERROR ->
+        uiContext.controller.copyOutputTagAtIndexToClipboard(loggedProcess, index)
+    }
+  }
+
+  private fun onOutputPanelRebuild() {
+    SwingUtilities.invokeLater {
+      val selectedProcess = uiContext.controller.selectedProcess.value
+
+      when (val scrollData = uiContext.scrollOnProcessDisplayed) {
+        is ProcessOutputUiContext.ScrollOnProcessDisplayed.Up -> {
+          if (selectedProcess?.data?.id == scrollData.processId) {
+            uiContext.scrollOnProcessDisplayed = ProcessOutputUiContext.ScrollOnProcessDisplayed.None
+
+            scrollPane.viewport.viewPosition = Point(0, 0)
+          }
+        }
+        is ProcessOutputUiContext.ScrollOnProcessDisplayed.Down -> {
+          if (selectedProcess?.data?.id == scrollData.processId) {
+            uiContext.scrollOnProcessDisplayed = ProcessOutputUiContext.ScrollOnProcessDisplayed.None
+
+            scrollPane.viewport.viewPosition = Point(0, Int.MAX_VALUE)
+          }
+        }
+        ProcessOutputUiContext.ScrollOnProcessDisplayed.None -> {}
+      }
+    }
+  }
+
+  private fun buildInfoLines(data: LoggedProcessDto): List<ConsoleTextLine<InfoTag>> =
+    buildList {
+      add(ConsoleTextLine(InfoTag.STARTED, data.startedAt.formatFull()))
+      add(ConsoleTextLine(InfoTag.COMMAND, data.commandString))
+      data.pid?.also { pid -> add(ConsoleTextLine(InfoTag.PID, pid.toString())) }
+      data.cwd?.also { cwd -> add(ConsoleTextLine(InfoTag.CWD, cwd)) }
+      add(ConsoleTextLine(InfoTag.TARGET, data.target))
+
+      for ((key, value) in data.env.entries) {
+        add(ConsoleTextLine(InfoTag.ENV, "$key=$value"))
+      }
     }
 
-    val density = LocalDensity.current
-    val length = layout.layoutInput.text.length
-
-    for ((tag, textOffset, index) in this) {
-        if (textOffset !in 0..length) {
-            continue
+  private fun buildOutputLines(
+    lines: List<OutputLineDto>,
+    status: ProcessStatus,
+  ): List<ConsoleTextLine<OutputTag>> =
+    buildList {
+      for ((kind, text) in lines) {
+        val tag = when (kind) {
+          OutputKindDto.OUT -> OutputTag.OUTPUT
+          OutputKindDto.ERR -> OutputTag.ERROR
         }
 
-        val yOffset = with(density) { layout.getCursorRect(textOffset).top.toDp() }
+        add(ConsoleTextLine(tag, text))
+      }
 
-        callback(tag, yOffset, index)
+      when (status) {
+        ProcessStatus.Running -> {}
+        is ProcessStatus.Done -> {
+          val color = Styling.ERROR_FOREGROUND.takeIf { status.exitCode != 0 }
+          val exitText = buildString {
+            append(status.exitCode)
+            status.additionalMessageToUser?.also { messageToUser ->
+              append(": ")
+              append(messageToUser)
+            }
+          }
+
+          add(ConsoleTextLine(OutputTag.EXIT, exitText, color))
+        }
+      }
     }
-}
 
-private data class Section<TTag : ConsoleTag>(
-    val line: ConsoleLine<TTag>,
-    val textOffset: Int,
-    val index: Int,
-)
+  private object Styling {
+    const val CONTENT_PANEL_PADDING = 8
+    const val CONTENT_PANEL_PADDING_EAST = 12
+    const val SCROLLABLE_UNIT_INCREMENT = 16
+    const val SCROLLABLE_BLOCK_INCREMENT = 100
+    val ERROR_FOREGROUND = JBColor.namedColor("Label.errorForeground")
+  }
 
-private val NoScrollOnFocusBringIntoViewSpec = object : BringIntoViewSpec {
-    override fun calculateScrollDistance(offset: Float, size: Float, containerSize: Float): Float =
-        0f
+  private object Naming {
+    const val INFO_SECTION_NAME = "Python.ProcessOutput.Output.Info"
+    const val OUTPUT_SECTION_NAME = "Python.ProcessOutput.Output.Output"
+  }
+
+  private class ContentPanel : JBPanelWithEmptyText(), Scrollable {
+    var wrapContent: Boolean = false
+
+    override fun getPreferredScrollableViewportSize(): Dimension =
+      preferredSize
+
+    override fun getScrollableUnitIncrement(visibleRect: Rectangle?, orientation: Int, direction: Int): Int =
+      Styling.SCROLLABLE_UNIT_INCREMENT
+
+    override fun getScrollableBlockIncrement(visibleRect: Rectangle?, orientation: Int, direction: Int): Int =
+      Styling.SCROLLABLE_BLOCK_INCREMENT
+
+    override fun getScrollableTracksViewportWidth(): Boolean {
+      if (wrapContent || componentCount == 0) {
+        return true
+      }
+
+      val vp = parent as? JViewport ?: return false
+
+      return preferredSize.width <= vp.width
+    }
+
+    override fun getScrollableTracksViewportHeight(): Boolean =
+      componentCount == 0
+  }
 }

@@ -13,6 +13,7 @@ import com.intellij.diff.util.Range
 import com.intellij.diff.util.Side
 import com.intellij.diff.util.TextDiffType
 import com.intellij.openapi.Disposable
+import com.intellij.openapi.application.EDT
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.editor.EditorCustomElementRenderer
 import com.intellij.openapi.editor.Inlay
@@ -33,8 +34,8 @@ import com.intellij.openapi.util.RecursionManager
 import com.intellij.openapi.vcs.ex.end
 import com.intellij.openapi.vcs.ex.start
 import com.intellij.ui.ColorUtil
-import com.intellij.util.ui.update.MergingUpdateQueue
-import com.intellij.util.ui.update.Update
+import com.intellij.util.ui.update.DebouncedUpdates
+import kotlinx.coroutines.Dispatchers
 import org.jetbrains.annotations.ApiStatus
 import java.awt.Color
 import java.awt.Graphics
@@ -49,6 +50,11 @@ class SimpleAlignedDiffModel(val viewer: SimpleDiffViewer): AlignedDiffModelBase
                                                                                  viewer.component,
                                                                                  viewer.editor1, viewer.editor2,
                                                                                  viewer.syncScrollable) {
+  // Stays nullable: the viewer only has a sync scroll support between onInit() and onDispose().
+  @Suppress("RedundantNullableReturnType")
+  override val syncScrollSupport: SyncScrollSupport.Support?
+    get() = viewer.syncScrollSupport
+
   init {
     textSettings.addListener(object : TextDiffSettingsHolder.TextDiffSettings.Listener {
       override fun alignModeChanged() {
@@ -106,9 +112,30 @@ abstract class AlignedDiffModelBase(
   private val editor1: EditorEx,
   private val editor2: EditorEx,
   private val syncScrollable: SyncScrollSupport.SyncScrollable) : AlignedDiffModel {
-  private val queue = MergingUpdateQueue("SimpleAlignedDiffModel", 300, true, parent, this)
+  private val queue = DebouncedUpdates.forComponent<Unit>(parent, "SimpleAlignedDiffModel", 300)
+    .withContext(Dispatchers.EDT)
+    .runLatest { realignChanges() }
+    .cancelOnDispose(this)
 
   protected val textSettings get() = TextDiffViewerUtil.getTextSettings(diffContext)
+
+  /**
+   * Sync scrolling has to be suppressed while the scroll position is restored, otherwise restoring
+   * one editor fires a VisibleAreaEvent that gets turned into a scroll of the other one.
+   */
+  protected open val syncScrollSupport: SyncScrollSupport.Support?
+    get() = null
+
+  private inline fun withSyncScrollDisabled(block: () -> Unit) {
+    val support = syncScrollSupport
+    support?.enterDisableScrollSection()
+    try {
+      block()
+    }
+    finally {
+      support?.exitDisableScrollSection()
+    }
+  }
 
   // sorted by highlighter offset
   private val changeInlays = mutableListOf<ChangeInlay>()
@@ -130,7 +157,7 @@ abstract class AlignedDiffModelBase(
 
   fun scheduleRealignChanges() {
     if (!needAlignChanges()) return
-    queue.queue(Update.create("update") { realignChanges() })
+    queue.queue(Unit)
   }
 
   override fun needAlignChanges(): Boolean {
@@ -146,10 +173,24 @@ abstract class AlignedDiffModelBase(
     if (listOf(editor1, editor2).any { it.isDisposed || (it.foldingModel as FoldingModelImpl).isInBatchFoldingOperation }) return
 
     RecursionManager.doPreventingRecursion(this, true) {
+      // scheduleRealignChanges() runs this from a debounced queue, so it can happen long after
+      // the rediff that caused it and outside SimpleDiffViewer.runPreservingScrollingPosition -
+      // nothing else preserves the scroll position here. clear() drops every alignment inlay before
+      // initInlays() puts them back, and while they are gone the documents are shorter by the total
+      // height of the alignment blocks, which clamps the vertical scroll offset. The viewport is
+      // then left far away from the caret.
+      val position1 = DiffUtil.getScrollingPosition(editor1)
+      val position2 = DiffUtil.getScrollingPosition(editor2)
+
       clear()
 
       initInlays()
       updateInlayHeights()
+
+      withSyncScrollDisabled {
+        DiffUtil.scrollToPoint(editor1, position1, false)
+        DiffUtil.scrollToPoint(editor2, position2, false)
+      }
     }
   }
 

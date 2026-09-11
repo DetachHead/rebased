@@ -283,6 +283,24 @@ object MermaidTokens {
     @JvmField
     val FLOWCHART = MermaidToken("Flowchart.FLOWCHART")
 
+    // mermaid 11.3+ `A@{ shape: rect, label: "..." }` node metadata, and the 11.5+ edge form
+    // `e1@{ animate: true }`. Both use the same inline-mapping syntax.
+    @JvmField
+    val METADATA_START = MermaidToken("Flowchart.METADATA_START")
+
+    @JvmField
+    val METADATA_END = MermaidToken("Flowchart.METADATA_END")
+
+    @JvmField
+    val METADATA_KEY = MermaidToken("Flowchart.METADATA_KEY")
+
+    @JvmField
+    val METADATA_VALUE = MermaidToken("Flowchart.METADATA_VALUE")
+
+    // The `@` binding an edge id to its arrow: `A e1@--> B` (mermaid 11.5+).
+    @JvmField
+    val EDGE_ID_MARKER = MermaidToken("Flowchart.EDGE_ID_MARKER")
+
     @JvmField
     val STADIUM_START = MermaidToken("Flowchart.STADIUM_START")
 
@@ -578,6 +596,10 @@ object MermaidTokens {
 
     @JvmField
     val EXCLUDES = MermaidToken("Gantt.EXCLUDES")
+
+    // `weekend friday` names which day counts as the weekend (mermaid 11.16).
+    @JvmField
+    val WEEKEND = MermaidToken("Gantt.WEEKEND")
 
     @JvmField
     val INCLUDES = MermaidToken("Gantt.INCLUDES")
@@ -912,6 +934,10 @@ object MermaidTokens {
     @JvmField
     val QUADRANT_CHART = MermaidToken("Quadrant.QUADRANT_CHART")
 
+    // `Campaign A: [0.9, 0.0] radius: 12` sizes an individual point (mermaid 11.16).
+    @JvmField
+    val RADIUS = MermaidToken("Quadrant.RADIUS")
+
     @JvmField
     val QUADRANT = MermaidToken("Quadrant.QUADRANT")
 
@@ -923,6 +949,21 @@ object MermaidTokens {
   object ZenUML {
     @JvmField
     val ZEN_UML = MermaidToken("ZenUML.ZEN_UML")
+  }
+
+
+  /**
+   * Diagram families mermaid renders but this grammar does not model in detail yet. They are lexed
+   * permissively so such a file is not reported as one long error: the header is recognised and the body
+   * becomes opaque text, which still leaves comments, frontmatter, accessibility statements and the
+   * preview working.
+   */
+  object Generic {
+    @JvmField
+    val GENERIC_DIAGRAM = MermaidToken("Generic.GENERIC_DIAGRAM")
+
+    @JvmField
+    val GENERIC_TEXT = MermaidToken("Generic.GENERIC_TEXT")
   }
 
 

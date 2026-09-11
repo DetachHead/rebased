@@ -1,7 +1,13 @@
 load("@community//build:tests-options.bzl", "jps_test")
 load("@rules_jvm//:jvm.bzl", "jvm_library")
+load("//build:compiler-options.bzl", "create_kotlinc_options")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
 ### auto-generated section `build intellij.python.community.services.internal.impl` start
+create_kotlinc_options(
+    name = "custom_python-community-services-internal-impl",
+    warn = "error",
+)
 
 jvm_library(
     name = "python-community-services-internal-impl",
@@ -13,6 +19,7 @@ jvm_library(
         ],
         allow_empty = True,
     ),
+    kotlinc_opts = ":custom_python-community-services-internal-impl",
     module_name = "intellij.python.community.services.internal.impl",
     resource_strip_prefix = "resources",
     resources = glob(
@@ -25,13 +32,15 @@ jvm_library(
         "//python/python-parser:parser",
         "//python/services/shared",
         "//platform/eel-provider",
-        "@lib//:jetbrains-annotations",
+        "//libraries/jetbrains/annotations",
         "//python/openapi:community",
         "//libraries/kotlinx/coroutines/core",
-        "//python/python-sdk:sdk",
+        "//python/python-sdk/backend",
         "//python/python-exec-service/execService.python",
     ],
 )
+
+content_module_jar(module = ":python-community-services-internal-impl")
 
 jvm_library(
     name = "python-community-services-internal-impl_test_lib",
@@ -40,6 +49,7 @@ jvm_library(
         [],
         allow_empty = True,
     ),
+    kotlinc_opts = ":custom_python-community-services-internal-impl",
     module_name = "intellij.python.community.services.internal.impl",
     visibility = ["//visibility:public"],
     runtime_deps = [
@@ -48,9 +58,10 @@ jvm_library(
         "//python/python-parser:parser_test_lib",
         "//python/services/shared:shared_test_lib",
         "//platform/eel-provider:eel-provider_test_lib",
+        "//libraries/jetbrains/annotations:annotations_test_lib",
         "//python/openapi:community_test_lib",
         "//libraries/kotlinx/coroutines/core:core_test_lib",
-        "//python/python-sdk:sdk_test_lib",
+        "//python/python-sdk/backend:backend_test_lib",
         "//python/python-exec-service/execService.python:execService.python_test_lib",
     ],
 )
@@ -60,12 +71,18 @@ jvm_library(
 exports_files(
     [
         "intellij.python.community.services.internal.impl.iml",
+        "resources/intellij.python.community.services.internal.impl.xml",
     ],
     visibility = ["//visibility:public"],
 )
 ### auto-generated section `iml intellij.python.community.services.internal.impl` end
 
 ### auto-generated section `build intellij.python.community.services.internal.impl.tests` start
+create_kotlinc_options(
+    name = "custom_python-community-services-internal-impl-tests",
+    warn = "error",
+    x_warning_level = ["DEPRECATION:warning"],
+)
 
 jvm_library(
     name = "python-community-services-internal-impl-tests",
@@ -92,6 +109,7 @@ jvm_library(
         "//python/services/internal-impl:python-community-services-internal-impl",
         "//python/services/internal-impl:python-community-services-internal-impl_test_lib",
     ],
+    kotlinc_opts = ":custom_python-community-services-internal-impl-tests",
     resource_strip_prefix = "testResources",
     resources = glob(
         ["testResources/**/*"],
@@ -107,7 +125,8 @@ jvm_library(
         "//python/services/shared:shared_test_lib",
         "//platform/eel-provider",
         "//platform/eel-provider:eel-provider_test_lib",
-        "@lib//:jetbrains-annotations",
+        "//libraries/jetbrains/annotations",
+        "//libraries/jetbrains/annotations:annotations_test_lib",
         "//python/openapi:community",
         "//python/openapi:community_test_lib",
         "//platform/testFramework/junit5",
@@ -118,8 +137,8 @@ jvm_library(
         "//libraries/hamcrest:hamcrest_test_lib",
         "//libraries/kotlinx/coroutines/core",
         "//libraries/kotlinx/coroutines/core:core_test_lib",
-        "//python/python-sdk:sdk",
-        "//python/python-sdk:sdk_test_lib",
+        "//python/python-sdk/backend",
+        "//python/python-sdk/backend:backend_test_lib",
         "//python/junit5Tests-framework:community-junit5Tests-framework",
         "//python/junit5Tests-framework:community-junit5Tests-framework_test_lib",
         "//python/python-exec-service/execService.python",
@@ -138,7 +157,6 @@ exports_files(
 ### auto-generated section `iml intellij.python.community.services.internal.impl.tests` end
 
 ### auto-generated section `test intellij.python.community.services.internal.impl.tests` start
-
 jps_test(
     name = "python-community-services-internal-impl-tests_test",
     runtime_deps = [":python-community-services-internal-impl-tests_test_lib"],

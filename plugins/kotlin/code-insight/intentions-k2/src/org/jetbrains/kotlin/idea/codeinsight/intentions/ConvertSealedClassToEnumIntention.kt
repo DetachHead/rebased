@@ -20,6 +20,7 @@ import com.intellij.refactoring.util.RefactoringDescriptionLocation
 import org.jetbrains.annotations.Nls
 import org.jetbrains.kotlin.analysis.api.KaSession
 import org.jetbrains.kotlin.analysis.api.symbols.KaClassSymbol
+import org.jetbrains.kotlin.analysis.api.symbols.symbol
 import org.jetbrains.kotlin.analysis.api.types.symbol
 import org.jetbrains.kotlin.asJava.unwrapped
 import org.jetbrains.kotlin.idea.base.resources.KotlinBundle
@@ -37,7 +38,6 @@ import org.jetbrains.kotlin.psi.KtObjectDeclaration
 import org.jetbrains.kotlin.psi.KtPsiFactory
 import org.jetbrains.kotlin.psi.KtSuperTypeCallEntry
 import org.jetbrains.kotlin.psi.psiUtil.containingClassOrObject
-import kotlin.collections.iterator
 
 /**
  * Tests:
@@ -68,7 +68,8 @@ internal class ConvertSealedClassToEnumIntention : KotlinApplicableModCommandAct
         return listOf(range)
     }
 
-    override fun KaSession.prepareContext(element: KtClass): Unit? {
+    context(session: KaSession)
+    override fun prepareContext(element: KtClass): Unit? {
         val symbol = element.symbol as? KaClassSymbol ?: return null
         val superTypesNotAny =
             symbol.superTypes
@@ -200,7 +201,7 @@ internal class ConvertSealedClassToEnumIntention : KotlinApplicableModCommandAct
             subclass as KtObjectDeclaration
 
             val entryText = buildString {
-                append(subclass.name)
+                append(subclass.nameIdentifier?.text)
                 if (constructorCallNeeded) {
                     append((subclass.superTypeListEntries.firstOrNull() as? KtSuperTypeCallEntry)?.valueArgumentList?.text ?: "()")
                 }

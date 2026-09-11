@@ -103,7 +103,6 @@ import com.intellij.util.EventDispatcher;
 import com.intellij.util.ObjectUtils;
 import com.intellij.util.concurrency.EdtScheduler;
 import com.intellij.util.concurrency.Semaphore;
-import com.intellij.util.containers.CollectionFactory;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.containers.DisposableWrapperList;
 import com.intellij.util.lang.JavaVersion;
@@ -156,6 +155,7 @@ import com.sun.jdi.connect.VMStartException;
 import com.sun.jdi.event.LocatableEvent;
 import com.sun.jdi.request.EventRequest;
 import com.sun.jdi.request.EventRequestManager;
+import com.sun.jdi.request.InvalidRequestStateException;
 import com.sun.jdi.request.StepRequest;
 import kotlin.Unit;
 import kotlin.coroutines.EmptyCoroutineContext;
@@ -198,6 +198,7 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 import static com.intellij.debugger.engine.DebuggerUtils.forEachSafe;
+import static com.intellij.debugger.engine.EvaluationUtilsKt.BREAKPOINT_CHECK_FN_KEY;
 import static com.intellij.debugger.engine.MethodInvokeUtilsKt.tryInvokeWithHelper;
 import static com.intellij.platform.util.coroutines.CoroutineScopeKt.childScope;
 
@@ -216,8 +217,6 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
   private final List<ProcessListener> myProcessListeners = ContainerUtil.createLockFreeCopyOnWriteList();
   private final StringBuilder myTextBeforeStart = new StringBuilder();
 
-  protected Map<VirtualMachineProxyImpl, EnterAndExitEvaluationCheck> myBreakpointCheckFnMap = CollectionFactory.createWeakMap();
-
   protected enum State {INITIAL, ATTACHED, DETACHING, DETACHED}
 
   protected final AtomicReference<State> myState = new AtomicReference<>(State.INITIAL);
@@ -235,7 +234,7 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
   private final Map<Type, Object> myNodeRenderersMap = Collections.synchronizedMap(new HashMap<>());
 
   private final SuspendManagerImpl mySuspendManager = new SuspendManagerImpl(this);
-  protected CompoundPositionManager myPositionManager = CompoundPositionManager.DISABLED;
+  protected volatile CompoundPositionManager myPositionManager = CompoundPositionManager.DISABLED;
   private volatile @NotNull DebuggerManagerThreadImpl myDebuggerManagerThread;
 
   private final Semaphore myWaitFor = new Semaphore();
@@ -1145,7 +1144,12 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
             forEachSafe(myDebugProcessListeners, it -> it.processDetached(this, closedByUser));
           }
           finally {
-            callback.accept(vmData);
+            try {
+              callback.accept(vmData);
+            }
+            finally {
+              myPositionManager = CompoundPositionManager.DISABLED;
+            }
           }
         }
       }
@@ -1182,7 +1186,6 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
     if (myRootProcessClosed.compareAndSet(false, true)) {
       myDebuggerManagerThread.closeAndCancel();
       myWaitFor.up();
-      myPositionManager = CompoundPositionManager.DISABLED;
     }
   }
 
@@ -1438,6 +1441,7 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
       myEvaluationDispatcher.getMulticaster().evaluationStarted(suspendContext);
       beforeMethodInvocation(suspendContext, myMethod, internalEvaluate);
 
+      List<StepRequest> disabledStepRequests = disableStepIntoRequests(invokeThread);
       Object resumeData = null;
       try {
         for (SuspendContextImpl suspendingContext : suspendingContexts) {
@@ -1479,6 +1483,7 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
         throw EvaluateExceptionUtil.createEvaluateException(e);
       }
       finally {
+        enableStepRequests(disabledStepRequests);
         if (LOG.isDebugEnabled()) {
           LOG.debug("Evaluation finished in " + suspendContext);
         }
@@ -1614,6 +1619,35 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
         LOG.assertTrue(isSuspended, thread);
       }
       catch (ObjectCollectedException ignored) {
+      }
+    }
+
+    private static @NotNull List<StepRequest> disableStepIntoRequests(@NotNull ThreadReferenceProxyImpl thread) {
+      ThreadReference threadReference = thread.getThreadReference();
+      List<StepRequest> disabledRequests = new ArrayList<>();
+      for (StepRequest request : thread.getVirtualMachineProxy().eventRequestManager().stepRequests()) {
+        try {
+          if (request.isEnabled() && threadReference.equals(request.thread()) && request.depth() == StepRequest.STEP_INTO) {
+            request.disable();
+            disabledRequests.add(request);
+          }
+        }
+        catch (InvalidRequestStateException e) {
+          LOG.error(e);
+        }
+      }
+      LOG.assertTrue(disabledRequests.size() < 2, "More than one enabled STEP_INTO request for the evaluation thread");
+      return disabledRequests;
+    }
+
+    private static void enableStepRequests(@NotNull List<? extends StepRequest> requests) {
+      for (StepRequest request : requests) {
+        try {
+          request.enable();
+        }
+        catch (InvalidRequestStateException ignored) {
+          // request may be deleted already, for example, on pause or session stop
+        }
       }
     }
   }
@@ -1914,6 +1948,9 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
     return loadClass(evaluationContext, exception.className(), classLoader);
   }
 
+  /**
+   * Loads and initializes a class by its qualified name in the given evaluation context and using the specified class loader.
+   */
   public ReferenceType loadClass(@NotNull EvaluationContextImpl evaluationContext, String qName, ClassLoaderReference classLoader)
     throws InvocationException, ClassNotLoadedException, IncompatibleThreadStateException, InvalidTypeException, EvaluateException {
 
@@ -3127,7 +3164,12 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
 
   @ApiStatus.Internal
   public void setIsUnderBreakpointCheckFn(@NotNull Method enterBreakpointCheckFn, @NotNull Method checkIsDoneFn) {
-    myBreakpointCheckFnMap.put(VirtualMachineProxyImpl.getCurrent(), new EnterAndExitEvaluationCheck(enterBreakpointCheckFn, checkIsDoneFn));
+    VirtualMachineProxyImpl.getCurrent()
+      .putUserData(BREAKPOINT_CHECK_FN_KEY, new EnterAndExitEvaluationCheck(enterBreakpointCheckFn, checkIsDoneFn));
+  }
+
+  protected @Nullable EnterAndExitEvaluationCheck getIsUnderBreakpointCheckFn(@NotNull VirtualMachineProxyImpl virtualMachineProxy) {
+    return virtualMachineProxy.getUserData(BREAKPOINT_CHECK_FN_KEY);
   }
 
   @ApiStatus.Internal

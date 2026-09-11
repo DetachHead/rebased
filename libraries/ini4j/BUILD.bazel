@@ -1,7 +1,7 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
 ### auto-generated section `build intellij.libraries.ini4j` start
-
 jvm_library(
     name = "ini4j",
     srcs = glob(
@@ -16,6 +16,11 @@ jvm_library(
     visibility = ["//visibility:public"],
     exports = ["@lib//:libraries-ini4j-ini4j"],
     runtime_deps = ["@lib//:libraries-ini4j-ini4j"],
+)
+
+content_module_jar(
+    libraries = ["@lib//:libraries-ini4j-ini4j"],
+    module = ":ini4j",
 )
 
 jvm_library(
@@ -37,6 +42,8 @@ jvm_library(
 exports_files(
     [
         "intellij.libraries.ini4j.iml",
+        "resources/intellij.libraries.ini4j.xml",
+        "module-content.yaml",
     ],
     visibility = ["//visibility:public"],
 )

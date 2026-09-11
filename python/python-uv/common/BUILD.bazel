@@ -1,6 +1,13 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
+load("//build:compiler-options.bzl", "create_kotlinc_options")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
 ### auto-generated section `build intellij.python.uv.common` start
+create_kotlinc_options(
+    name = "custom_common",
+    warn = "error",
+    x_warning_level = ["DEPRECATION:warning"],
+)
 
 jvm_library(
     name = "common",
@@ -14,6 +21,7 @@ jvm_library(
         ],
         allow_empty = True,
     ),
+    kotlinc_opts = ":custom_common",
     module_name = "intellij.python.uv.common",
     resource_strip_prefix = "resources",
     resources = glob(
@@ -23,13 +31,15 @@ jvm_library(
     deps = [
         # do not sort,
         "@lib//:kotlin-stdlib",
-        "@lib//:jetbrains-annotations",
+        "//libraries/jetbrains/annotations",
         "//platform/util",
         "//python/openapi:community",
         "//python/common",
         "//python/python-process-output/common",
     ],
 )
+
+content_module_jar(module = ":common")
 
 jvm_library(
     name = "common_test_lib",
@@ -38,11 +48,13 @@ jvm_library(
         [],
         allow_empty = True,
     ),
+    kotlinc_opts = ":custom_common",
     module_name = "intellij.python.uv.common",
     visibility = ["//visibility:public"],
     runtime_deps = [
         # do not sort,
         ":common",
+        "//libraries/jetbrains/annotations:annotations_test_lib",
         "//platform/util:util_test_lib",
         "//python/openapi:community_test_lib",
         "//python/common:common_test_lib",
@@ -55,6 +67,7 @@ jvm_library(
 exports_files(
     [
         "intellij.python.uv.common.iml",
+        "resources/intellij.python.uv.common.xml",
     ],
     visibility = ["//visibility:public"],
 )

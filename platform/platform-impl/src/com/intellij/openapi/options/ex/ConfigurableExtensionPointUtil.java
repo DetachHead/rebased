@@ -12,6 +12,7 @@ import com.intellij.openapi.options.ConfigurableEP;
 import com.intellij.openapi.options.ConfigurableGroup;
 import com.intellij.openapi.options.ConfigurableProvider;
 import com.intellij.openapi.options.OptionsBundle;
+import com.intellij.openapi.options.newEditor.SettingsDialogPerformanceTracker;
 import com.intellij.openapi.progress.ProcessCanceledException;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.project.ProjectUtil;
@@ -40,6 +41,7 @@ import java.util.Set;
 public final class ConfigurableExtensionPointUtil {
   public static final @NonNls String CONFIGURABLE_ID_PREFIX = "configurable.group.";
   private static final @NonNls String ROOT_ID = "root";
+  private static final @NonNls String FALLBACK_GROUP_ID = "tools";
   private static final @NonNls String OTHER_ID = "other";
   public static final @NonNls String ROOT_CONFIGURABLE_ID = CONFIGURABLE_ID_PREFIX + ROOT_ID;
   private static final Logger LOG = Logger.getInstance(ConfigurableExtensionPointUtil.class);
@@ -140,10 +142,11 @@ public final class ConfigurableExtensionPointUtil {
   public static @NotNull ConfigurableGroup doGetConfigurableGroup(@Nullable Project targetProject, boolean withIdeSettings) {
     return new EpBasedConfigurableGroup(
       targetProject,
-      () -> {
+      // the group is built lazily, so the build is measured here and not at the call site
+      () -> SettingsDialogPerformanceTracker.measureConfigurableTreeBuild(() -> {
         List<Configurable> configurables = getConfigurables(targetProject, withIdeSettings);
         return getConfigurableGroup(configurables, targetProject);
-      }
+      })
     );
   }
 
@@ -226,11 +229,11 @@ public final class ConfigurableExtensionPointUtil {
     String id = CONFIGURABLE_ID_PREFIX + groupId;
     ResourceBundle bundle = ep != null ? ep.getResourceBundle() : getBundle(id + ".settings.display.name", configurables, alternative);
     if (bundle == null) {
-      bundle = OptionsBundle.INSTANCE.getResourceBundle();
+      bundle = OptionsBundle.getResourceBundle();
       if (!root) {
-        LOG.warn("use other group instead of unexpected one: " + groupId);
-        groupId = OTHER_ID;
-        id = CONFIGURABLE_ID_PREFIX + OTHER_ID;
+        LOG.warn("use '" + FALLBACK_GROUP_ID + "' group instead of unexpected one: " + groupId);
+        groupId = FALLBACK_GROUP_ID;
+        id = CONFIGURABLE_ID_PREFIX + FALLBACK_GROUP_ID;
       }
     }
     Node<SortedConfigurableGroup> node = Node.get(tree, groupId);
@@ -437,7 +440,7 @@ public final class ConfigurableExtensionPointUtil {
   public static @Nullable ResourceBundle getBundle(@NonNls @NotNull String resource,
                                                    @Nullable Iterable<? extends Configurable> configurables,
                                                    @Nullable ResourceBundle alternative) {
-    ResourceBundle bundle = OptionsBundle.INSTANCE.getResourceBundle();
+    ResourceBundle bundle = OptionsBundle.getResourceBundle();
     if (getString(bundle, resource) != null) {
       return bundle;
     }

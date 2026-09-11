@@ -1,4 +1,4 @@
-// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.kotlin.idea.refactoring
 
 import com.intellij.lang.java.JavaLanguage
@@ -23,17 +23,18 @@ import com.intellij.usageView.UsageInfo
 import com.intellij.util.containers.MultiMap
 import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.kotlin.analysis.api.KaSession
-import org.jetbrains.kotlin.analysis.api.components.isFunctionType
-import org.jetbrains.kotlin.analysis.api.components.isFunctionalInterface
-import org.jetbrains.kotlin.analysis.api.components.isSuspendFunctionType
-import org.jetbrains.kotlin.analysis.api.components.resolveToCall
-import org.jetbrains.kotlin.analysis.api.resolution.KaErrorCallInfo
-import org.jetbrains.kotlin.analysis.api.resolution.KaSimpleFunctionCall
-import org.jetbrains.kotlin.analysis.api.resolution.successfulFunctionCallOrNull
-import org.jetbrains.kotlin.analysis.api.resolution.successfulVariableAccessCall
+import org.jetbrains.kotlin.analysis.api.resolution.KaFunctionCall
+import org.jetbrains.kotlin.analysis.api.resolution.calls
+import org.jetbrains.kotlin.analysis.api.resolution.function
+import org.jetbrains.kotlin.analysis.api.resolution.successful
 import org.jetbrains.kotlin.analysis.api.resolution.symbol
+import org.jetbrains.kotlin.analysis.api.resolution.tryResolveCall
+import org.jetbrains.kotlin.analysis.api.resolution.variable
 import org.jetbrains.kotlin.analysis.api.types.KaType
 import org.jetbrains.kotlin.analysis.api.types.KaTypeParameterType
+import org.jetbrains.kotlin.analysis.api.types.isFunctionType
+import org.jetbrains.kotlin.analysis.api.types.isFunctionalInterface
+import org.jetbrains.kotlin.analysis.api.types.isSuspendFunctionType
 import org.jetbrains.kotlin.idea.base.codeInsight.KotlinOptimizeImportsFacility
 import org.jetbrains.kotlin.idea.base.projectStructure.RootKindFilter
 import org.jetbrains.kotlin.idea.base.projectStructure.matches
@@ -74,6 +75,7 @@ import org.jetbrains.kotlin.psi.KtQualifiedExpression
 import org.jetbrains.kotlin.psi.KtSafeQualifiedExpression
 import org.jetbrains.kotlin.psi.KtScript
 import org.jetbrains.kotlin.psi.KtSecondaryConstructor
+import org.jetbrains.kotlin.psi.KtSimpleNameExpression
 import org.jetbrains.kotlin.psi.psiUtil.allChildren
 import org.jetbrains.kotlin.psi.psiUtil.containingClass
 import org.jetbrains.kotlin.psi.psiUtil.containingClassOrObject
@@ -88,6 +90,7 @@ import org.jetbrains.kotlin.psi.psiUtil.parentsWithSelf
 import org.jetbrains.kotlin.psi.psiUtil.quoteIfNeeded
 import org.jetbrains.kotlin.psi.psiUtil.siblings
 import org.jetbrains.kotlin.psi.unpackFunctionLiteral
+import org.jetbrains.kotlin.resolution.KtResolvableCall
 import org.jetbrains.kotlin.utils.addToStdlib.firstIsInstanceOrNull
 import java.util.Collections
 import kotlin.math.min
@@ -95,7 +98,7 @@ import kotlin.math.min
 /**
  * Get the element that specifies the name of [this] element.
  */
-fun PsiElement.nameDeterminant() = when {
+fun PsiElement.nameDeterminant(): PsiNamedElement = when {
     this is KtConstructor<*> -> containingClass() ?: error("Constructor had no containing class")
     this is PsiMethod && isConstructor -> containingClass ?: error("Constructor had no containing class")
     else -> this
@@ -165,6 +168,11 @@ fun KtCallExpression.isComplexCallWithLambdaArgument(): Boolean = when {
     valueArguments.count { it.getArgumentExpression()?.unpackFunctionLiteral() != null } > 1 -> true
     else -> false
 }
+
+fun KtSimpleNameExpression.updateSimpleName(changeInfo: ChangeInfo): PsiElement? =
+    if (changeInfo.isNameChanged) {
+        getReferencedNameElement().replace(KtPsiFactory(project).createExpression(changeInfo.newName))
+    } else null
 
 fun KtCallExpression.moveFunctionLiteralOutsideParentheses(moveCaretTo: ((Int) -> Unit)? = null) {
     assert(lambdaArguments.isEmpty())
@@ -294,29 +302,28 @@ fun KtCallExpression.canMoveLambdaOutsideParentheses(
     val callee = calleeExpression
     if (callee !is KtNameReferenceExpression) return true
 
-    val resolveCall = callee.resolveToCall() ?: return false
-    val call = resolveCall.successfulFunctionCallOrNull()
+    val resolutionAttempt = (callee as? KtResolvableCall)?.tryResolveCall()
+    val call = resolutionAttempt?.successful
+    val functionCall = call?.function
 
     fun KaType.isFunctionalType(): Boolean = this is KaTypeParameterType || isSuspendFunctionType || isFunctionType || isFunctionalInterface
 
-    if (call == null) {
-        val paramType = resolveCall.successfulVariableAccessCall()?.partiallyAppliedSymbol?.symbol?.returnType
+    if (functionCall == null) {
+        val paramType = call?.variable?.symbol?.returnType
         if (paramType != null && paramType.isFunctionalType()) {
             return true
         }
-        val calls =
-            (resolveCall as? KaErrorCallInfo)?.candidateCalls?.filterIsInstance<KaSimpleFunctionCall>() ?:
-            emptyList()
 
+        val calls = resolutionAttempt?.calls?.filterIsInstance<KaFunctionCall<*>>() ?: emptyList()
         return calls.isEmpty() || calls.all { functionalCall ->
-            val lastParameter = functionalCall.partiallyAppliedSymbol.signature.valueParameters.lastOrNull()
+            val lastParameter = functionalCall.signature.valueParameters.lastOrNull()
             val lastParameterType = lastParameter?.returnType
             lastParameterType != null && lastParameterType.isFunctionalType()
         }
     }
 
-    val lastParameter = call.argumentMapping[lastLambdaExpression]
-        ?: lastLambdaExpression.parentLabeledExpression()?.let(call.argumentMapping::get)
+    val lastParameter = functionCall.valueArgumentMapping[lastLambdaExpression]
+        ?: lastLambdaExpression.parentLabeledExpression()?.let(functionCall.valueArgumentMapping::get)
         ?: return false
 
     if (lastParameter.symbol.isVararg) {
@@ -324,7 +331,7 @@ fun KtCallExpression.canMoveLambdaOutsideParentheses(
         return false
     }
 
-    return if (lastParameter.symbol != call.partiallyAppliedSymbol.signature.valueParameters.lastOrNull()?.symbol) {
+    return if (lastParameter.symbol != functionCall.signature.valueParameters.lastOrNull()?.symbol) {
         false
     } else {
         lastParameter.returnType.isFunctionalType()

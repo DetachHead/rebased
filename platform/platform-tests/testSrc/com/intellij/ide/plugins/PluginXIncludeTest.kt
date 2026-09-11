@@ -3,9 +3,12 @@ package com.intellij.ide.plugins
 
 import com.intellij.platform.pluginSystem.testFramework.PluginSetTestBuilder
 import com.intellij.testFramework.LoggedErrorProcessor
+import com.intellij.testFramework.assertions.Assertions
+import com.intellij.testFramework.junit5.SystemProperty
 import com.intellij.testFramework.junit5.TestApplication
 import com.intellij.testFramework.rules.InMemoryFsExtension
 import com.intellij.util.io.createParentDirectories
+import com.intellij.util.io.directoryContent
 import org.assertj.core.api.Assertions.assertThat
 import org.intellij.lang.annotations.Language
 import org.junit.jupiter.api.Test
@@ -326,6 +329,52 @@ internal class PluginXIncludeTest {
   }
 
   @Test
+  @SystemProperty(propertyKey = "plugin.include.enabled", propertyValue = "true")
+  fun `includeIf attribute is ignored and warns`() {
+    val pluginId = "org.jetbrains.kotlin"
+    @Suppress("XmlPathReference")
+    pluginDirPath.resolve("META-INF/plugin.xml").writeXml("""
+      <idea-plugin xmlns:xi="http://www.w3.org/2001/XInclude">
+        <id>$pluginId</id>
+        <xi:include href="a.xml" includeIf="plugin.include.enabled"/>
+      </idea-plugin>
+    """.trimIndent())
+    pluginDirPath.resolve("META-INF/a.xml").writeXml(includes(), appServices = listOf("included"))
+
+    val (pluginSet, warnings) = runAndReturnWithLoggedWarnings { buildPluginSet() }
+
+    assertThat(pluginSet).hasExactlyEnabledPlugins(pluginId)
+    assertThat(pluginSet.getEnabledPlugin(pluginId)).hasExactlyApplicationServices()
+    assertThat(warnings).hasSize(1)
+    assertThat(warnings.single())
+      .contains("includeIf attribute support is disabled and has no effect anymore IJPL-215563")
+      .contains("plugin id=$pluginId")
+  }
+
+  @Test
+  @SystemProperty(propertyKey = "plugin.include.disabled", propertyValue = "false")
+  fun `includeUnless attribute is ignored and warns`() {
+    val pluginId = "org.jetbrains.kotlin"
+    @Suppress("XmlPathReference")
+    pluginDirPath.resolve("META-INF/plugin.xml").writeXml("""
+      <idea-plugin xmlns:xi="http://www.w3.org/2001/XInclude">
+        <id>$pluginId</id>
+        <xi:include href="a.xml" includeUnless="plugin.include.disabled"/>
+      </idea-plugin>
+    """.trimIndent())
+    pluginDirPath.resolve("META-INF/a.xml").writeXml(includes(), appServices = listOf("included"))
+
+    val (pluginSet, warnings) = runAndReturnWithLoggedWarnings { buildPluginSet() }
+
+    assertThat(pluginSet).hasExactlyEnabledPlugins(pluginId)
+    assertThat(pluginSet.getEnabledPlugin(pluginId)).hasExactlyApplicationServices()
+    assertThat(warnings).hasSize(1)
+    assertThat(warnings.single())
+      .contains("includeUnless attribute support is disabled and has no effect anymore IJPL-215563")
+      .contains("plugin id=$pluginId")
+  }
+
+  @Test
   fun `includes are forbidden inside extensions element, yet the plugin loads`() {
     @Suppress("XmlPathReference")
     pluginDirPath.resolve("META-INF/plugin.xml").writeXml("""
@@ -346,6 +395,53 @@ internal class PluginXIncludeTest {
     assertThat(err).isNotNull.hasMessageContaining("`include` is supported only on a root level")
     assertThat(pluginSet).hasExactlyEnabledPlugins(pluginId)
     assertThat(pluginSet.getEnabledPlugin(pluginId)).hasExactlyApplicationServices("before", "after")
+  }
+
+  @Test
+  fun `xi-include in content module from lib`() {
+    directoryContent {
+      dir("lib") {
+        zip("kotlin.jar") {
+          dir("META-INF") {
+            file("plugin.xml",
+                 """
+              <idea-plugin>
+                <id>kotlin</id>
+                <content namespace="jetbrains">
+                  <module name="compiler.module" loading="required"/>
+                </content>
+              </idea-plugin>
+            """.trimIndent())
+          }
+        }
+        zip("compiler.library.jar") {
+          dir("META-INF") {
+            file("extensions.xml",
+                 """
+                <idea-plugin>
+                  <extensions defaultExtensionNs="com.intellij">
+                    <applicationService serviceImplementation="java.lang.Runnable"/>
+                  </extensions>
+                </idea-plugin>
+                """.trimIndent())
+          }
+        }
+        dir("modules") {
+          zip("compiler.module.jar") {
+            file("compiler.module.xml",
+                 """
+                   <idea-plugin xmlns:xi="http://www.w3.org/2001/XInclude">
+                     <xi:include href="/META-INF/extensions.xml"/>
+                   </idea-plugin>
+                 """.trimIndent())
+          }
+        }
+      }
+    }.generate(pluginsPath.resolve("kotlin"))
+    val pluginSet = buildPluginSet()
+    assertThat(pluginSet).hasExactlyEnabledPlugins("kotlin")
+    val module = pluginSet.getEnabledModule("compiler.module")
+    Assertions.assertThat(module.appContainerDescriptor.services).hasSize(1)
   }
 
   private fun buildPluginSet(expiredPluginIds: Array<String> = emptyArray(), disabledPluginIds: Array<String> = emptyArray()) =

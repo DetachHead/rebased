@@ -24,6 +24,8 @@ import com.intellij.openapi.progress.runBlockingCancellable
 import com.intellij.openapi.ui.MessageDialogBuilder
 import com.intellij.openapi.ui.Messages
 import com.intellij.openapi.updateSettings.impl.PluginDownloader
+import com.intellij.openapi.updateSettings.impl.PluginUpdateSourceId
+import com.intellij.openapi.updateSettings.impl.createRepository
 import com.intellij.openapi.util.ActionCallback
 import com.intellij.openapi.util.Ref
 import com.intellij.openapi.util.registry.Registry
@@ -53,6 +55,7 @@ class PluginInstallOperation(
   private val myPendingDynamicPluginInstalls: MutableList<PendingDynamicPluginInstall> = ArrayList()
   private var myRestartRequired = false
   private var myShownErrors = false
+  private var myPendingUpdateToReplace: PluginId? = null
   private val myLocalInstallCallbacks: MutableMap<PluginId, ActionCallback> = IdentityHashMap()
   private val myLocalWaitInstallCallbacks: MutableMap<PluginId, ActionCallback> = IdentityHashMap()
 
@@ -93,6 +96,11 @@ class PluginInstallOperation(
     myAllowInstallWithoutRestart = allowInstallWithoutRestart
   }
 
+  @ApiStatus.Internal
+  fun setPendingUpdateToReplace(pluginId: PluginId?) {
+    myPendingUpdateToReplace = pluginId
+  }
+
   val pendingDynamicPluginInstalls: List<PendingDynamicPluginInstall>
     get() = myPendingDynamicPluginInstalls
 
@@ -110,6 +118,9 @@ class PluginInstallOperation(
 
   val installedDependentPlugins: Set<PluginInstallCallbackData>
     get() = myDependant
+
+  internal val dependentPluginUpdateSourceIds: Map<PluginId, PluginUpdateSourceId>
+    field: MutableMap<PluginId, PluginUpdateSourceId> = HashMap()
 
   val isShownErrors: Boolean
     get() = myShownErrors
@@ -225,7 +236,7 @@ class PluginInstallOperation(
       previousVersion,
     )
 
-    val prepared = downloader.prepareToInstall(myIndicator)
+    val prepared = downloader.prepareToInstall(myIndicator, pluginNode.pluginId == myPendingUpdateToReplace)
     if (prepared) {
       val descriptor = downloader.descriptor as PluginMainDescriptor
       if (!checkMissingDependencies(descriptor, installModel)) {
@@ -237,21 +248,13 @@ class PluginInstallOperation(
       }
       val allowNoRestart = myAllowInstallWithoutRestart &&
                            runBlockingCancellable {
-                             if (DynamicPluginsSupport.getInstance() != null) {
-                               DynamicPlugins.checkCanReconfigureWithoutRestart(
-                                 addNewCustomPlugins = newPluginVersions,
-                                 forceRemovePlugins = emptyList(),
-                                 extraStateValidator = DynamicPlugins.expectPluginsState(expectToLoad = newPluginVersions.map { it.pluginId }),
-                                 pretendEnabled = emptyList(),
-                                 pretendDisabled = emptyList(),
-                               )
-                             }
-                             else {
-                               DynamicPlugins.allowLoadUnloadWithoutRestart(
-                                 descriptor, null,
-                                 myPendingDynamicPluginInstalls.map { pluginInstall -> pluginInstall.pluginDescriptor },
-                               )
-                             }
+                             DynamicPlugins.checkCanReconfigureWithoutRestart(
+                               addNewCustomPlugins = newPluginVersions,
+                               forceRemovePlugins = emptyList(),
+                               extraStateValidator = DynamicPlugins.expectPluginsState(expectToLoad = newPluginVersions.map { it.pluginId }),
+                               pretendEnabled = emptyList(),
+                               pretendDisabled = emptyList(),
+                             )
                            }
       if (allowNoRestart) {
         myPendingDynamicPluginInstalls.add(PendingDynamicPluginInstall(downloader.getFilePath(), descriptor))
@@ -265,6 +268,7 @@ class PluginInstallOperation(
         }
       }
       myDependant.add(PluginInstallCallbackData(downloader.getFilePath(), descriptor, !allowNoRestart))
+      dependentPluginUpdateSourceIds[downloader.id] = createRepository(downloader.uiModel)
       val node = pluginNode.getDescriptor()
       if (node is PluginNode) {
         node.status = PluginNode.Status.DOWNLOADED

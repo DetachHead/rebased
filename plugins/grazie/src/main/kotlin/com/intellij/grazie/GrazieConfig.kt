@@ -103,6 +103,8 @@ class GrazieConfig : PersistentStateComponent<GrazieConfig.State>, ModificationT
     @Property val parametersPerDomain: Map<TextStyleDomain, Map<Language, Map<String, String>>> = TreeMap(),
     @Property val useOxfordSpelling: Boolean = false,
     @Property val autoFix: Boolean = false,
+    @Property val autoUpdateLanguages: Boolean = false,
+    @Property val specificationAnalysisEnabled: Boolean = false,
     // Ex. Grazie Cloud
     @Property val explicitlyChosenProcessing: Processing? = null,
   ) : VersionedState<Version, State> {
@@ -128,7 +130,7 @@ class GrazieConfig : PersistentStateComponent<GrazieConfig.State>, ModificationT
 
     val dictionaries: List<HunspellDictionary>
       get() = enabledLanguages
-        .filter { it.iso != LanguageISO.EN && it.jLanguage != null }
+        .filter { it.iso != LanguageISO.EN }
         .mapNotNull {
           ProgressManager.checkCanceled()
           it.dictionary

@@ -1,7 +1,7 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
 ### auto-generated section `build intellij.debugger.streams.java` start
-
 jvm_library(
     name = "java",
     srcs = glob(
@@ -32,6 +32,7 @@ jvm_library(
         "//java/java-impl:impl",
         "//libraries/stream",
         "//java/debugger/impl",
+        "//libraries/asm",
         "//platform/xdebugger-impl:debugger-impl",
         "//platform/xdebugger-impl/shared",
         "//platform/xdebugger-impl/ui",
@@ -40,10 +41,17 @@ jvm_library(
         "//java/java-frontback-psi-api:frontback-psi",
         "//platform/core-ui",
         "//platform/platform-util-io:ide-util-io",
+        "//platform/projectModel-api:projectModel",
+        "//platform/util/jdom",
         "//platform/analysis-api:analysis",
         "//platform/code-style-api:codeStyle",
+        "//java/debugger/shared",
+        "//plugins/stream-debugger/rt",
+        "//plugins/stream-debugger/rt/gatherers",
     ],
 )
+
+content_module_jar(module = ":java")
 
 jvm_library(
     name = "java_test_lib",
@@ -75,6 +83,7 @@ jvm_library(
         "//java/java-impl:impl_test_lib",
         "//libraries/stream:stream_test_lib",
         "//java/debugger/impl:impl_test_lib",
+        "//libraries/asm:asm_test_lib",
         "//platform/xdebugger-impl:debugger-impl_test_lib",
         "//platform/xdebugger-impl/shared:shared_test_lib",
         "//platform/xdebugger-impl/ui:ui_test_lib",
@@ -90,10 +99,15 @@ jvm_library(
         "//platform/platform-util-io:ide-util-io_test_lib",
         "//plugins/stream-debugger/testFramework",
         "//plugins/stream-debugger/testFramework:testFramework_test_lib",
+        "//platform/projectModel-api:projectModel_test_lib",
+        "//platform/util/jdom:jdom_test_lib",
         "//platform/util/coroutines",
         "//platform/util/coroutines:coroutines_test_lib",
         "//platform/analysis-api:analysis_test_lib",
         "//platform/code-style-api:codeStyle_test_lib",
+        "//java/debugger/shared:shared_test_lib",
+        "//plugins/stream-debugger/rt:rt_test_lib",
+        "//plugins/stream-debugger/rt/gatherers:gatherers_test_lib",
     ],
 )
 ### auto-generated section `build intellij.debugger.streams.java` end
@@ -102,6 +116,7 @@ jvm_library(
 exports_files(
     [
         "intellij.debugger.streams.java.iml",
+        "resources/intellij.debugger.streams.java.xml",
     ],
     visibility = ["//visibility:public"],
 )

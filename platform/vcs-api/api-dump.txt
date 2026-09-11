@@ -291,9 +291,6 @@ a:com.intellij.openapi.vcs.ProjectLevelVcsManager
 - sf:VCS_CONFIGURATION_CHANGED:com.intellij.util.messages.Topic
 - sf:VCS_CONFIGURATION_CHANGED_IN_PLUGIN:com.intellij.util.messages.Topic
 - <init>():V
-- a:addMessageToConsoleWindow(com.intellij.openapi.vcs.VcsConsoleLine):V
-- a:addMessageToConsoleWindow(java.lang.String,com.intellij.execution.ui.ConsoleViewContentType):V
-- a:addMessageToConsoleWindow(java.lang.String,com.intellij.openapi.editor.markup.TextAttributes):V
 - areVcsesActivated():Z
 - a:awaitInitialization(kotlin.coroutines.Continuation):java.lang.Object
 - a:checkAllFilesAreUnder(com.intellij.openapi.vcs.AbstractVcs,com.intellij.openapi.vfs.VirtualFile[]):Z
@@ -347,11 +344,9 @@ a:com.intellij.openapi.vcs.ProjectLevelVcsManager
 - a:iterateVcsRoot(com.intellij.openapi.vfs.VirtualFile,com.intellij.util.Processor,com.intellij.openapi.vcs.VirtualFileFilter):V
 - a:iterateVfUnderVcsRoot(com.intellij.openapi.vfs.VirtualFile,com.intellij.util.Processor):V
 - a:runAfterInitialization(java.lang.Runnable):V
-- a:scrollConsoleToTheEnd():V
 - a:setDirectoryMapping(java.lang.String,java.lang.String):V
 - a:setDirectoryMappings(java.util.List):V
 - bf:setDirectoryMappingsDoNotUse(java.util.List):V
-- a:showConsole(java.lang.Runnable):V
 - a:startBackgroundVcsOperation():V
 - a:stopBackgroundVcsOperation():V
 - f:updateActiveVcss():V
@@ -810,12 +805,11 @@ com.intellij.openapi.vcs.changes.ChangeListListener
 - defaultListChanged(com.intellij.openapi.vcs.changes.ChangeList,com.intellij.openapi.vcs.changes.ChangeList,Z):V
 - unchangedFileStatusChanged():V
 - unchangedFileStatusChanged(Z):V
-a:com.intellij.openapi.vcs.changes.ChangeListManager
+Fa:com.intellij.openapi.vcs.changes.ChangeListManager
 - com.intellij.openapi.vcs.changes.ChangeListModification
 - <init>():V
 - a:addChangeListListener(com.intellij.openapi.vcs.changes.ChangeListListener):V
 - a:addChangeListListener(com.intellij.openapi.vcs.changes.ChangeListListener,com.intellij.openapi.Disposable):V
-- a:addDirectoryToIgnoreImplicitly(java.lang.String):V
 - a:areChangeListsEnabled():Z
 - a:commitChanges(com.intellij.openapi.vcs.changes.LocalChangeList,java.util.List):V
 - a:findChangeList(java.lang.String):com.intellij.openapi.vcs.changes.LocalChangeList
@@ -837,11 +831,9 @@ a:com.intellij.openapi.vcs.changes.ChangeListManager
 - a:getChangesIn(com.intellij.openapi.vfs.VirtualFile):java.util.Collection
 - a:getDefaultChangeList():com.intellij.openapi.vcs.changes.LocalChangeList
 - a:getDefaultListName():java.lang.String
-- a:getFilesToIgnore():com.intellij.openapi.vcs.changes.IgnoredFileBean[]
 - a:getIgnoredFilePaths():java.util.List
 - s:getInstance(com.intellij.openapi.project.Project):com.intellij.openapi.vcs.changes.ChangeListManager
 - a:getModifiedWithoutEditing():java.util.List
-- a:getRegisteredExecutors():java.util.List
 - a:getResolvedConflictPaths():java.util.List
 - a:getStatus(com.intellij.openapi.vcs.FilePath):com.intellij.openapi.vcs.FileStatus
 - a:getStatus(com.intellij.openapi.vfs.VirtualFile):com.intellij.openapi.vcs.FileStatus
@@ -863,7 +855,6 @@ a:com.intellij.openapi.vcs.changes.ChangeListManager
 - a:reopenFiles(java.util.List):V
 - a:scheduleAutomaticEmptyChangeListDeletion(com.intellij.openapi.vcs.changes.LocalChangeList):V
 - a:scheduleAutomaticEmptyChangeListDeletion(com.intellij.openapi.vcs.changes.LocalChangeList,Z):V
-- a:setFilesToIgnore(com.intellij.openapi.vcs.changes.IgnoredFileBean[]):V
 com.intellij.openapi.vcs.changes.ChangeListManagerGate
 - a:addChangeList(java.lang.String,java.lang.String):com.intellij.openapi.vcs.changes.LocalChangeList
 - a:editComment(java.lang.String,java.lang.String):V
@@ -904,8 +895,6 @@ com.intellij.openapi.vcs.changes.ChangelistBuilder
 - a:processSwitchedFile(com.intellij.openapi.vfs.VirtualFile,java.lang.String,Z):V
 - a:processUnversionedFile(com.intellij.openapi.vcs.FilePath):V
 - a:removeRegisteredChangeFor(com.intellij.openapi.vcs.FilePath):V
-- a:reportAdditionalInfo(com.intellij.openapi.util.Factory):V
-- a:reportAdditionalInfo(java.lang.String):V
 - a:reportChangesOutsideProject():Z
 f:com.intellij.openapi.vcs.changes.ChangesUtil
 - sf:CASE_SENSITIVE_FILE_PATH_HASHING_STRATEGY:com.intellij.util.containers.HashingStrategy
@@ -1003,10 +992,7 @@ c:com.intellij.openapi.vcs.changes.EmptyChangelistBuilder
 - processSwitchedFile(com.intellij.openapi.vfs.VirtualFile,java.lang.String,Z):V
 - processUnversionedFile(com.intellij.openapi.vcs.FilePath):V
 - removeRegisteredChangeFor(com.intellij.openapi.vcs.FilePath):V
-- reportAdditionalInfo(com.intellij.openapi.util.Factory):V
-- reportAdditionalInfo(java.lang.String):V
 - reportChangesOutsideProject():Z
-- reportWarningMessage(java.lang.String):V
 c:com.intellij.openapi.vcs.changes.ExternallyRenamedChange
 - com.intellij.openapi.vcs.changes.Change
 - <init>(com.intellij.openapi.vcs.changes.ContentRevision,com.intellij.openapi.vcs.changes.ContentRevision,java.lang.String):V
@@ -2005,8 +1991,12 @@ f:com.intellij.vcs.commit.CommitChecksResult$SmartModeRequired
 com.intellij.vcs.commit.CommitExecutorListener
 - java.util.EventListener
 - a:executorCalled(com.intellij.openapi.vcs.changes.CommitExecutor):V
+com.intellij.vcs.commit.CommitMessageListener
+- java.util.EventListener
+- a:onTextChanged(java.lang.String):V
 com.intellij.vcs.commit.CommitMessageUi
 - com.intellij.ui.TextAccessor
+- addCommitMessageListener(com.intellij.vcs.commit.CommitMessageListener):V
 - a:focus():V
 - a:getText():java.lang.String
 - a:setText(java.lang.String):V

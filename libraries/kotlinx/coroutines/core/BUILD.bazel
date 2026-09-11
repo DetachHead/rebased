@@ -1,7 +1,7 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
 ### auto-generated section `build intellij.libraries.kotlinx.coroutines.core` start
-
 jvm_library(
     name = "core",
     srcs = glob(
@@ -16,6 +16,11 @@ jvm_library(
     visibility = ["//visibility:public"],
     exports = ["@lib//:kotlinx-coroutines-core"],
     runtime_deps = ["@lib//:kotlinx-coroutines-core"],
+)
+
+content_module_jar(
+    libraries = ["@lib//:kotlinx-coroutines-core"],
+    module = ":core",
 )
 
 jvm_library(
@@ -37,6 +42,8 @@ jvm_library(
 exports_files(
     [
         "intellij.libraries.kotlinx.coroutines.core.iml",
+        "resources/intellij.libraries.kotlinx.coroutines.core.xml",
+        "module-content.yaml",
     ],
     visibility = ["//visibility:public"],
 )

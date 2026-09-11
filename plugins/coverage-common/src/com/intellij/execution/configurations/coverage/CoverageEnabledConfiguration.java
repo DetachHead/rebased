@@ -45,13 +45,13 @@ public abstract class CoverageEnabledConfiguration implements JDOMExternalizable
 
   private boolean myIsCoverageEnabled = false;
   private String myRunnerId;
-  private CoverageRunner myCachedRunner;
   private boolean myTrackTestFolders = false;
 
   private boolean myBranchCoverage = false;
   private boolean myTrackPerTestCoverage = false;
   @ApiStatus.Internal
   protected @NonNls String myCoverageFilePath;
+  private @NonNls String myCoverageFilePathOverride;
   private CoverageSuite myCurrentCoverageSuite;
 
   /**
@@ -78,10 +78,7 @@ public abstract class CoverageEnabledConfiguration implements JDOMExternalizable
 
   @ApiStatus.Internal
   public @Nullable CoverageRunner getCoverageRunner() {
-    if (myCachedRunner == null && myRunnerId != null) {
-      myCachedRunner = CoverageRunner.getInstanceById(myRunnerId);
-    }
-    return myCachedRunner;
+    return myRunnerId == null ? null : CoverageRunner.getInstanceById(myRunnerId);
   }
 
   /**
@@ -90,7 +87,6 @@ public abstract class CoverageEnabledConfiguration implements JDOMExternalizable
    */
   public void setCoverageRunner(@Nullable CoverageRunner coverageRunner) {
     myRunnerId = coverageRunner == null ? null : coverageRunner.getId();
-    myCachedRunner = coverageRunner;
     myCoverageFilePath = null;
   }
 
@@ -179,15 +175,22 @@ public abstract class CoverageEnabledConfiguration implements JDOMExternalizable
   public void coverageRunnerExtensionRemoved(@NotNull CoverageRunner runner) {
     if (runner.getId().equals(myRunnerId)) {
       myConfiguration.putCopyableUserData(COVERAGE_KEY, null);
-      myCachedRunner = null;
     }
   }
 
   public @NonNls @Nullable String getCoverageFilePath() {
+    if (myCoverageFilePathOverride != null) {
+      return myCoverageFilePathOverride;
+    }
     if (myCoverageFilePath == null) {
       myCoverageFilePath = createCoverageFile();
     }
     return myCoverageFilePath;
+  }
+
+  @ApiStatus.Internal
+  public void setCoverageFilePathOverride(@NonNls @Nullable String coverageFilePath) {
+    myCoverageFilePathOverride = coverageFilePath;
   }
 
   @Override

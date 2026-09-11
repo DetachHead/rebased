@@ -14,18 +14,20 @@ import com.intellij.psi.createSmartPointer
 import com.intellij.psi.util.endOffset
 import com.intellij.psi.util.startOffset
 import org.jetbrains.kotlin.analysis.api.KaSession
-import org.jetbrains.kotlin.analysis.api.analyze
+import org.jetbrains.kotlin.analysis.api.session.analyze
 import org.jetbrains.kotlin.analysis.api.symbols.KaClassSymbol
+import org.jetbrains.kotlin.analysis.api.symbols.symbol
 import org.jetbrains.kotlin.config.LanguageFeature
 import org.jetbrains.kotlin.idea.base.facet.platform.platform
 import org.jetbrains.kotlin.idea.base.projectStructure.languageVersionSettings
 import org.jetbrains.kotlin.idea.base.psi.getOrCreateCompanionObject
 import org.jetbrains.kotlin.idea.base.psi.relativeTo
 import org.jetbrains.kotlin.idea.base.resources.KotlinBundle
-import org.jetbrains.kotlin.idea.codeinsight.intentions.ConvertEnumToSealedClassIntention.Context
 import org.jetbrains.kotlin.idea.codeinsight.api.applicable.intentions.KotlinApplicableModCommandAction
+import org.jetbrains.kotlin.idea.codeinsight.intentions.ConvertEnumToSealedClassIntention.Context
 import org.jetbrains.kotlin.idea.search.ExpectActualUtils
 import org.jetbrains.kotlin.lexer.KtTokens
+import org.jetbrains.kotlin.name.render
 import org.jetbrains.kotlin.platform.jvm.isJvm
 import org.jetbrains.kotlin.psi.KtClass
 import org.jetbrains.kotlin.psi.KtDeclaration
@@ -34,7 +36,6 @@ import org.jetbrains.kotlin.psi.KtObjectDeclaration
 import org.jetbrains.kotlin.psi.KtPsiFactory
 import org.jetbrains.kotlin.psi.psiUtil.allChildren
 import org.jetbrains.kotlin.psi.psiUtil.siblings
-import kotlin.collections.iterator
 
 /**
  * Tests:
@@ -68,7 +69,8 @@ internal class ConvertEnumToSealedClassIntention : KotlinApplicableModCommandAct
         return listOf(TextRange(enumKeyword.startOffset, nameIdentifier.endOffset).relativeTo(element))
     }
 
-    override fun KaSession.prepareContext(element: KtClass): Context? {
+    context(session: KaSession)
+    override fun prepareContext(element: KtClass): Context? {
         val enumClassName = element.name ?: return null
         if (enumClassName.isEmpty()) return null
 
@@ -120,7 +122,7 @@ internal class ConvertEnumToSealedClassIntention : KotlinApplicableModCommandAct
                 listOfNotNull(
                     "data".takeIf { supportsDataObjects },
                     "object",
-                    member.name,
+                    member.nameAsSafeName.render(),
                 ).joinToString(" ")
             )
 
@@ -156,7 +158,7 @@ internal class ConvertEnumToSealedClassIntention : KotlinApplicableModCommandAct
         }
 
         if (isJvmPlatform) {
-            val enumEntryNames = objects.map { it.nameAsSafeName.asString() }
+            val enumEntryNames = objects.map { it.nameAsSafeName.render() }
             val targetClassName = klass.nameIdentifier?.text
             if (enumEntryNames.isNotEmpty() && targetClassName != null) {
                 val companionObject = klass.getOrCreateCompanionObject()

@@ -1,22 +1,40 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.platform.buildScripts.testFramework.pluginModel
 
+import com.intellij.ide.plugins.ChainedExclusion
 import com.intellij.ide.plugins.ContentModuleDescriptor
 import com.intellij.ide.plugins.DataLoader
 import com.intellij.ide.plugins.DependsSubDescriptor
+import com.intellij.ide.plugins.DescriptorExclusionReason
+import com.intellij.ide.plugins.ExcludedByEnvironmentConfiguration
 import com.intellij.ide.plugins.IdeaPluginDescriptorImpl
 import com.intellij.ide.plugins.ModuleLoadingRule
+import com.intellij.ide.plugins.NonBundledPluginsLoadingIsDisabled
+import com.intellij.ide.plugins.OnDemandContentModuleHasNoDependentsLeft
+import com.intellij.ide.plugins.PackagePrefixConflictWithAnotherModule
 import com.intellij.ide.plugins.PathResolver
 import com.intellij.ide.plugins.PluginDescriptorLoadingContext
-import com.intellij.ide.plugins.PluginLoadingError
+import com.intellij.ide.plugins.PluginIncompatibilityReason
+import com.intellij.ide.plugins.PluginInitializationDiagnosticUtils
+import com.intellij.ide.plugins.PluginIsIncompatibleWithProduct
+import com.intellij.ide.plugins.PluginIsMarkedDisabled
+import com.intellij.ide.plugins.PluginIsNotContainedInTheExplicitlyConfiguredSubsetOfPluginsForLoading
+import com.intellij.ide.plugins.PluginLoadingIsDisabledCompletelyExceptCore
 import com.intellij.ide.plugins.PluginMainDescriptor
 import com.intellij.ide.plugins.PluginManagerCore
 import com.intellij.ide.plugins.PluginModuleId
 import com.intellij.ide.plugins.PluginSet
+import com.intellij.ide.plugins.PluginVersionIsSuperseded
+import com.intellij.ide.plugins.ProductRulesImposedExclusion
+import com.intellij.ide.plugins.ResolvedPluginSet
 import com.intellij.ide.plugins.cl.PluginClassLoader
 import com.intellij.ide.plugins.contentModuleName
+import com.intellij.ide.plugins.getMainDescriptor
 import com.intellij.ide.plugins.isLoaded
 import com.intellij.ide.plugins.loadPluginSubDescriptors
+import com.intellij.ide.plugins.sequenceAllDescriptors
+import com.intellij.ide.plugins.sequenceDescriptorExclusionChain
+import com.intellij.openapi.diagnostic.logger
 import com.intellij.platform.ide.bootstrap.ZipFilePoolImpl
 import com.intellij.platform.pluginSystem.parser.impl.LoadPathUtil
 import com.intellij.platform.pluginSystem.parser.impl.LoadedXIncludeReference
@@ -29,8 +47,10 @@ import com.intellij.platform.pluginSystem.parser.impl.parsePluginXml
 import com.intellij.platform.pluginSystem.testFramework.PluginSetTestBuilder
 import com.intellij.platform.pluginSystem.testFramework.isModuleSetPath
 import com.intellij.platform.pluginSystem.testFramework.loadRawPluginDescriptorInTest
+import com.intellij.platform.pluginSystem.testFramework.loadXIncludeReferenceFromResolvedRoots
 import com.intellij.platform.pluginSystem.testFramework.resolveModuleSetPath
 import com.intellij.platform.runtime.product.ProductMode
+import com.intellij.util.SmartList
 import com.intellij.util.SystemProperties
 import com.intellij.util.lang.UrlClassLoader
 import kotlinx.coroutines.sync.Mutex
@@ -45,6 +65,7 @@ import org.jetbrains.jps.model.module.JpsModuleDependency
 import org.jetbrains.jps.model.module.JpsModuleSourceRoot
 import java.nio.file.Files
 import java.nio.file.Path
+import java.util.BitSet
 import kotlin.io.path.inputStream
 import kotlin.io.path.name
 import kotlin.io.path.pathString
@@ -72,11 +93,8 @@ class PluginDependenciesValidator private constructor(
     ): List<PluginModuleConfigurationError> {
       val validator = PluginDependenciesValidator(tempDir = tempDir, project = project, productMode = productMode, pluginLayoutProvider = pluginLayoutProvider, options = options)
       val pluginSetTestBuilder = validator.createPluginSet()
-      val (pluginSet, loadingErrors) = pluginSetBuildMutex.withLock {
-        val pluginManagerState = pluginSetTestBuilder.buildState()
-        pluginManagerState.pluginSet to pluginManagerState.loadingErrors
-      }
-      validator.reportPluginLoadingErrors(loadingErrors)
+      val pluginSet = pluginSetBuildMutex.withLock { pluginSetTestBuilder.build() }
+      validator.reportPluginLoadingErrors(pluginSet)
       validator.checkPluginSet(pluginSet)
       return validator.errors
     }
@@ -105,46 +123,89 @@ class PluginDependenciesValidator private constructor(
   private val zipPool = ZipFilePoolImpl()
   private val errors = ArrayList<PluginModuleConfigurationError>()
 
-  private fun reportPluginLoadingErrors(loadingErrors: List<PluginLoadingError>) {
-    for (error in loadingErrors) {
-      val errorMessage = error.htmlMessage.toString() + if (error.reason != null) { ":\n  ${error.reason!!.logMessage}" } else ""
-      if (errorMessage.startsWith("<a href")) {
-        //it's an action, not a real error, so ignore it
-        continue
-      }
-      if (errorMessage.contains("is not compatible with the current host platform")) {
-        //just ignore the problem on this OS
-        continue
-      }
-
-      // Use structured error data instead of parsing HTML
-      val moduleName = when (val reason = error.reason) {
-        null -> {
-          // Fallback to regex for errors without structured data
-          val pluginErrorRegexp = Regex("Plugin &#39;(.*?)&#39;.*")
-          val matchResult = pluginErrorRegexp.matchEntire(errorMessage)
-          if (matchResult == null) "unknown" else "plugin_${matchResult.groupValues[1].replace(Regex("[^a-zA-Z0-9_+/]"), "_")}"
-        }
-        else -> {
-          "plugin_${reason.plugin.name}"
-        }
-      }
-
+  private fun reportPluginLoadingErrors(pluginSet: PluginSet) {
+    for (error in pluginSet.input.discoveryResult.descriptorLoadingErrors) {
       errors.add(PluginModuleConfigurationError(
-        pluginModelModuleName = moduleName,
-        errorMessage = errorMessage,
-        pluginLoadingError = error
+        pluginModelModuleName = "unknown",
+        errorMessage = "Failed to read a plugin descriptor from ${error.path}",
+        cause = error.error,
       ))
+    }
+
+    val reportedMessages = HashSet<String>()
+    fun report(reason: DescriptorExclusionReason) {
+      val descriptor = reason.descriptor
+      val rootReason = if (reason is ChainedExclusion) {
+        val rootDescriptor = descriptor.sequenceDescriptorExclusionChain(pluginSet.resolvedPluginSet::getExclusionReason).last()
+        pluginSet.resolvedPluginSet.getExclusionReason(rootDescriptor)!!
+      }
+      else {
+        reason
+      }
+      if (rootReason.isIgnoredByBuildValidation() || rootReason.isHostSpecificIncompatibility()) {
+        return
+      }
+      val errorMessage = PluginInitializationDiagnosticUtils.buildSingleExclusionChainMessage(pluginSet, descriptor)
+                         ?: return
+      if (!reportedMessages.add(errorMessage)) {
+        return
+      }
+      errors.add(PluginModuleConfigurationError(
+        pluginModelModuleName = "plugin_${descriptor.getMainDescriptor().name}",
+        descriptorExclusionReason = reason,
+        errorMessage = errorMessage,
+      ))
+    }
+
+    for ((plugin, reason) in pluginSet.excludedFromCandidateSubset) {
+      if (!pluginSet.initContext.isPluginDisabled(plugin.pluginId)) {
+        report(reason)
+      }
+    }
+    for (plugin in pluginSet.resolvedPluginSet.candidateSet.plugins) {
+      pluginSet.resolvedPluginSet.getExclusionReason(plugin)?.let(::report)
+      for (descriptor in plugin.sequenceAllDescriptors()) {
+        val reason = pluginSet.resolvedPluginSet.getExclusionReason(descriptor)
+        if (reason is PackagePrefixConflictWithAnotherModule) {
+          report(reason)
+        }
+      }
     }
   }
 
+  private fun DescriptorExclusionReason.isIgnoredByBuildValidation(): Boolean = when (this) {
+    is ExcludedByEnvironmentConfiguration,
+    is OnDemandContentModuleHasNoDependentsLeft,
+    is PluginIsMarkedDisabled,
+    is PluginVersionIsSuperseded -> true
+    is ProductRulesImposedExclusion -> when (productReason) {
+      NonBundledPluginsLoadingIsDisabled,
+      PluginIsNotContainedInTheExplicitlyConfiguredSubsetOfPluginsForLoading,
+      PluginLoadingIsDisabledCompletelyExceptCore -> true
+      else -> false
+    }
+    else -> false
+  }
+
+  private fun DescriptorExclusionReason.isHostSpecificIncompatibility(): Boolean =
+    this is PluginIsIncompatibleWithProduct &&
+    (incompatibilityReason is PluginIncompatibilityReason.IncompatibleWithHostPlatform ||
+     incompatibilityReason is PluginIncompatibilityReason.IncompatibleWithCpuArch)
+
   private fun checkPluginSet(pluginSet: PluginSet) {
     val jpsModuleToRuntimeDescriptors = LinkedHashMap<String, MutableList<IdeaPluginDescriptorImpl>>()
+    val runtimeDescriptorToJpsModules = HashMap<IdeaPluginDescriptorImpl, String>()
     for (descriptor in pluginSet.getEnabledModules()) {
       val jarFiles = descriptor.ownClassPath ?: continue
       jarFiles.groupByTo(jpsModuleToRuntimeDescriptors, {
         getModuleName(it) ?: error("Cannot detect module name for $it in $descriptor")  
       }, { descriptor })
+    }
+
+    for ((jpsModule, descriptors) in jpsModuleToRuntimeDescriptors) {
+      for (descriptor in descriptors) {
+        runtimeDescriptorToJpsModules[descriptor] = jpsModule
+      }
     }
 
     val unusedIgnoredDependenciesPatterns = options.missingCompileDeps.toMutableSet()
@@ -266,6 +327,10 @@ class PluginDependenciesValidator private constructor(
     unusedIgnoredDependenciesPatterns.forEach { entry ->
         println("Unused ignored dependency pattern: '${entry.fromModule}' -> '${entry.toModule}' (${entry.issueId})")
     }
+
+    if (options.checkExtensionPointDependencies) {
+      checkExtensionsUseOnlyExtensionPointsFromDependencies(pluginSet, runtimeDescriptorToJpsModules, errors.isNotEmpty())
+    }
   }
 
   private fun findIgnoredDependencyPattern(fromModule: String, toModule: String): MissingCompileDep? {
@@ -283,11 +348,97 @@ class PluginDependenciesValidator private constructor(
     return options.missingCompileDeps.find { fromModule.matches(it.fromModule) && toModule.matches(it.toModule) }
   }
 
+  private fun checkExtensionsUseOnlyExtensionPointsFromDependencies(
+    pluginSet: PluginSet,
+    runtimeDescriptorToJpsModules: Map<IdeaPluginDescriptorImpl, String>,
+    isDependenciesMisconfigurationDetected: Boolean,
+  ) {
+    fun reportExtensionPointMisuse(descriptor: IdeaPluginDescriptorImpl, epName: String, message: String) {
+      val violation = ExtensionPointDependencyViolation(descriptor, epName)
+      if (violation in options.extensionPointDependencyViolationsToIgnore) {
+        return
+      }
+      errors.add(
+        PluginModuleConfigurationError(
+          pluginModelModuleName = runtimeDescriptorToJpsModules[descriptor] ?: violation.moduleName,
+          errorMessage = buildString {
+            appendLine(message)
+            if (isDependenciesMisconfigurationDetected) {
+              appendLine("! Note: this issue may be caused by misconfigured dependencies, see other reported issues first")
+            }
+            appendLine()
+            append("violation = $violation")
+          }
+        )
+      )
+    }
+
+    val extensionPointDeclarations = HashMap<String, MutableList<IdeaPluginDescriptorImpl>>()
+    for (descriptor in pluginSet.resolvedPluginSet.sortedResolvedDescriptors) {
+      for (container in listOf(descriptor.appContainerDescriptor, descriptor.projectContainerDescriptor, descriptor.moduleContainerDescriptor)) {
+        for (ep in container.extensionPoints) {
+          extensionPointDeclarations.computeIfAbsent(ep.getQualifiedName(descriptor)) { SmartList() }.add(descriptor)
+        }
+      }
+    }
+
+    val closureHandler = TransitiveDependenciesClosureHandler(pluginSet.resolvedPluginSet)
+    val staleSuppressions = mutableSetOf<ExtensionPointDependencyViolation>() // collect only those that are verified to be fixed
+
+    for (descriptor in pluginSet.resolvedPluginSet.sortedResolvedDescriptors) {
+      for ((epName, _) in descriptor.extensions) {
+        val declarationSources = extensionPointDeclarations[epName].orEmpty()
+        if (declarationSources.isEmpty()) {
+          reportExtensionPointMisuse(
+            descriptor = descriptor,
+            epName = epName,
+            message = "${descriptor.shortPresentation} declares an extension for extension point '$epName' which is not registered in any loaded plugin/module"
+          )
+          continue
+        }
+
+        var ok = false
+        for (dependency in closureHandler.getDependenciesClosureScopeIterator(descriptor)) {
+          if (dependency in declarationSources) {
+            ok = true
+            break
+          }
+        }
+        if (!ok) {
+          val declarationsPart = when {
+            declarationSources.size == 1 -> "which is registered in ${declarationSources.first().shortPresentation} " +
+                                            "but ${descriptor.shortPresentation} does not depend on it in runtime"
+            else -> "which is registered in ${declarationSources.joinToString(prefix = "[", postfix = "]") { it.shortPresentation }} " +
+                    "but ${descriptor.shortPresentation} does not depend on any of them in runtime"
+          }
+          reportExtensionPointMisuse(
+            descriptor = descriptor,
+            epName = epName,
+            message = """
+              |${descriptor.shortPresentation} declares an extension for extension point '$epName' $declarationsPart.
+              |Make sure there is a runtime dependency from ${descriptor.shortPresentation} to a module that registers the '$epName' extension point.
+            """.trimMargin()
+          )
+        }
+        else {
+          val violation = ExtensionPointDependencyViolation(descriptor, epName)
+          if (violation in options.extensionPointDependencyViolationsToIgnore) {
+            staleSuppressions += violation
+          }
+        }
+      }
+    }
+
+    if (staleSuppressions.isNotEmpty()) {
+      logger<PluginDependenciesValidator>().warn("Stale 'extension point dependency violation' suppressions:\n${staleSuppressions.joinToString(separator = "\n")}")
+    }
+  }
+
   private val IdeaPluginDescriptorImpl.shortPresentation: String
     get() = when (this) {
       is PluginMainDescriptor -> "main plugin module of '${pluginId}'"
       is ContentModuleDescriptor -> "content module '${contentModuleName}' of plugin '${pluginId}'"
-      is DependsSubDescriptor -> "depends sub descriptor of plugin '${pluginId}'"
+      is DependsSubDescriptor -> "<depends> config of plugin '${pluginId}'"
     }
 
   /**
@@ -353,7 +504,7 @@ class PluginDependenciesValidator private constructor(
           errors.add(PluginModuleConfigurationError(
             pluginModelModuleName = it.mainJpsModule,
             errorMessage = e.message ?: e.toString(),
-            pluginLoadingError = PluginLoadingError(reason = null, messageSupplier = { e.message ?: e.toString() }, error = e),
+            cause = e,
           ))
           null
         }
@@ -419,12 +570,6 @@ class PluginDependenciesValidator private constructor(
 
   private inner class PluginMainModuleFromSourceXIncludeLoader(private val layout: PluginLayoutDescription): XIncludeLoader {
     override fun loadXIncludeReference(path: String): LoadedXIncludeReference? {
-      // Handle external library paths
-      if (path in options.pathsIncludedFromLibrariesViaXiInclude || path.startsWith("META-INF/tips-")) {
-        //todo: support loading from libraries
-        return LoadedXIncludeReference("<idea-plugin/>".encodeToByteArray(), "dummy tag for external $path")
-      }
-
       // Handle module set files using shared resolution logic
       if (isModuleSetPath(path)) {
         val fileName = path.substringAfterLast('/')
@@ -434,13 +579,17 @@ class PluginDependenciesValidator private constructor(
         }
       }
 
-      // Handle other files from module classpaths
-      return layout.jpsModulesInClasspath
+      val moduleSourceReference = layout.jpsModulesInClasspath
         .asSequence()
         .mapNotNull { project.findModuleByName(it) }
         .flatMap { it.productionSourceRoots }
         .firstNotNullOfOrNull { it.findFile(path) }
         ?.let { LoadedXIncludeReference(Files.readAllBytes(it), it.pathString) }
+      if (moduleSourceReference != null) {
+        return moduleSourceReference
+      }
+
+      return loadXIncludeReferenceFromResolvedRoots(path, layout.libraryRootsInClasspath.asSequence())
     }
 
     override fun toString(): String {
@@ -590,6 +739,50 @@ private fun suggestFix(
     is DependsSubDescriptor -> {
       """since files included via <depends> tag cannot declare additional dependencies,
         |$extractToContentModule""".trimMargin()
+    }
+  }
+}
+
+private class TransitiveDependenciesClosureHandler(private val resolvedPluginSet: ResolvedPluginSet) {
+  private val indexToDescriptor = resolvedPluginSet.sortedResolvedDescriptors.toList()
+  private val descriptorsCount = indexToDescriptor.size
+  private val descriptorToIndex = indexToDescriptor.withIndex().associateTo(HashMap(indexToDescriptor.size)) { it.value to it.index }
+  private val transitiveDependenciesClosure = MutableList<BitSet?>(descriptorsCount) { null }
+
+  // we know there are no cycles; total complexity O(M*N/w), where N - descriptors, M - dependency edges;
+  // not thread safe, but potential data races are benign
+  private fun getDependenciesClosureRow(index: Int): BitSet {
+    transitiveDependenciesClosure[index]?.let {
+      return it
+    }
+    val row = BitSet(descriptorsCount)
+    row.set(index)
+    for (dependency in resolvedPluginSet.getDirectResolvedDependencies(indexToDescriptor[index])) {
+      val dependencyIndex = descriptorToIndex[dependency]!!
+      row.or(getDependenciesClosureRow(dependencyIndex))
+    }
+    transitiveDependenciesClosure[index] = row
+    return row
+  }
+
+  /**
+   * Resulting iterator includes [descriptor]
+   */
+  fun getDependenciesClosureScopeIterator(descriptor: IdeaPluginDescriptorImpl): Iterator<IdeaPluginDescriptorImpl> {
+    val ownIndex = descriptorToIndex[descriptor] ?: throw IllegalArgumentException("Unexpected descriptor $descriptor")
+    val dependencies = getDependenciesClosureRow(ownIndex)
+    return object : Iterator<IdeaPluginDescriptorImpl> {
+      var nextIndex = dependencies.nextSetBit(0)
+
+      override fun next(): IdeaPluginDescriptorImpl {
+        val result = indexToDescriptor[nextIndex]
+        nextIndex = dependencies.nextSetBit(nextIndex + 1)
+        return result
+      }
+
+      override fun hasNext(): Boolean {
+        return nextIndex != -1
+      }
     }
   }
 }

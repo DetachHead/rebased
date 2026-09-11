@@ -1,7 +1,7 @@
+load("@community//platform/build-scripts/bazel-rules:dev_dist_plugin.bzl", "dev_dist_plugin")
 load("@rules_jvm//:jvm.bzl", "jvm_library")
 
 ### auto-generated section `build intellij.grid.core.plugin` start
-
 jvm_library(
     name = "plugin",
     srcs = glob(
@@ -33,7 +33,32 @@ jvm_library(
 exports_files(
     [
         "intellij.grid.core.plugin.iml",
+        "resources/META-INF/plugin.xml",
     ],
     visibility = ["//visibility:public"],
 )
 ### auto-generated section `iml intellij.grid.core.plugin` end
+
+### auto-generated section `dev intellij.grid.core.plugin` start
+dev_dist_plugin(
+    descriptor = "resources/META-INF/plugin.xml",
+    descriptor_module = ":plugin",
+    descriptors = {
+        "@community//grid/api:resources/intellij.grid.xml": "intellij.grid.xml",
+        "@community//grid/core-impl:resources/intellij.grid.core.impl.xml": "intellij.grid.core.impl.xml",
+        "@community//grid/csv:resources/intellij.grid.csv.core.impl.xml": "intellij.grid.csv.core.impl.xml",
+        "@community//grid/impl-ide:resources/intellij.grid.impl.ide.xml": "intellij.grid.impl.ide.xml",
+        "@community//grid/impl:resources/intellij.grid.impl.xml": "intellij.grid.impl.xml",
+        "@community//grid/types:resources/intellij.grid.types.xml": "intellij.grid.types.xml",
+    },
+    main_module = "intellij.grid.core.plugin",
+    prepacked_content_modules = [
+        "//grid/api:grid_content_module_jar",
+        "//grid/core-impl:core-impl_content_module_jar",
+        "//grid/csv:csv-core-impl_content_module_jar",
+        "//grid/impl-ide:impl-ide_content_module_jar",
+        "//grid/impl:impl_content_module_jar",
+        "//grid/types:types_content_module_jar",
+    ],
+)
+### auto-generated section `dev intellij.grid.core.plugin` end

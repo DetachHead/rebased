@@ -35,6 +35,7 @@ import com.intellij.ui.util.width
 import com.intellij.util.ui.AbstractLayoutManager
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.JBUI.scale
+import org.jetbrains.annotations.ApiStatus
 import java.awt.Color
 import java.awt.Container
 import java.awt.Dimension
@@ -53,6 +54,7 @@ import java.awt.event.MouseAdapter
 import java.awt.event.MouseEvent
 import java.awt.event.MouseListener
 import java.beans.PropertyChangeListener
+import javax.swing.AbstractButton
 import javax.swing.AbstractButton.ICON_CHANGED_PROPERTY
 import javax.swing.AbstractButton.MNEMONIC_CHANGED_PROPERTY
 import javax.swing.AbstractButton.TEXT_CHANGED_PROPERTY
@@ -65,7 +67,6 @@ import javax.swing.SwingUtilities
 import javax.swing.SwingUtilities.replaceUIActionMap
 import javax.swing.SwingUtilities.replaceUIInputMap
 import javax.swing.event.ChangeListener
-import org.jetbrains.annotations.ApiStatus
 
 open class BasicOptionButtonUI : OptionButtonUI() {
   private var _optionButton: JBOptionButton? = null
@@ -103,6 +104,16 @@ open class BasicOptionButtonUI : OptionButtonUI() {
     uninstallPopup()
 
     _optionButton = null
+  }
+
+  /**
+   * Reads the nullable backing fields rather than [mainButton] and [arrowButton]: those throw once the UI is
+   * uninstalled, and a caller asking where the halves are must be told "nowhere" instead.
+   */
+  @ApiStatus.Internal
+  override fun splitButtonHalfButton(half: SplitButtonHalf): AbstractButton? = when (half) {
+    SplitButtonHalf.ACTION -> _mainButton
+    SplitButtonHalf.EXPAND -> _arrowButton?.takeIf { it.isVisible }
   }
 
   override fun getPreferredSize(c: JComponent): Dimension {
@@ -364,7 +375,6 @@ open class BasicOptionButtonUI : OptionButtonUI() {
     arrowButton.isVisible = !isSimpleButton
   }
 
-  @ApiStatus.Internal
   open inner class BaseButton : JButton() {
     override fun hasFocus(): Boolean = optionButton.hasFocus()
     override fun isDefaultButton(): Boolean = DarculaButtonUI.isDefaultButton(optionButton)

@@ -4,6 +4,8 @@ package com.jetbrains.performancePlugin.remotedriver.fixtures
 import com.intellij.driver.model.TreePath
 import com.intellij.driver.model.TreePathToRow
 import com.intellij.driver.model.TreePathToRowList
+import com.intellij.ui.LoadingNode
+import com.intellij.ui.SimpleTextAttributes
 import com.intellij.ui.tree.TreeVisitor
 import com.intellij.util.ReflectionUtil
 import com.intellij.util.ui.tree.TreeUtil
@@ -84,9 +86,11 @@ open class JTreeTextFixture(robot: Robot, private val component: JTree) : JTreeF
 
   fun areTreeNodesLoaded(): Boolean {
     var isLoaded = true
+    val loadingText = LoadingNode.getText().trim()
     computeOnEdt {
       TreeUtil.visitVisibleRows(component) { path ->
-        isLoaded = !TreeUtil.isLoadingPath(path)
+        isLoaded = !TreeUtil.isLoadingPath(path) &&
+                   !cellReader.valueAt(component, path.lastPathComponent).equals(loadingText, ignoreCase = true)
         if (!isLoaded) TreeVisitor.Action.INTERRUPT else TreeVisitor.Action.CONTINUE
       }
     }
@@ -106,6 +110,18 @@ open class JTreeTextFixture(robot: Robot, private val component: JTree) : JTreeF
 
   fun expandAll(timeoutMs: Int) {
     computeOnEdt { TreeUtil.promiseExpandAll(component) }.blockingGet(timeoutMs)
+  }
+
+  fun expandRowRecursively(row: Int, timeoutMs: Int) {
+    val selectedPath = computeOnEdt {
+      require(row in 0 until component.rowCount) {
+        "The given row $row should be between 0 and ${component.rowCount - 1}"
+      }
+      requireNotNull(component.getPathForRow(row))
+    }
+    computeOnEdt {
+      TreeUtil.promiseExpandRecursively(component, selectedPath)
+    }.blockingGet(timeoutMs)
   }
 
   fun collectIconsAtRow(row: Int): List<Icon> {
@@ -139,6 +155,11 @@ open class JTreeTextFixture(robot: Robot, private val component: JTree) : JTreeF
       tree.scrollRowToVisible(row)
       AWT.centerOf(tree.visibleRect.intersection(tree.getRowBounds(row)))
     }
+  }
+
+  fun getTextAttributes(row: Int): List<Pair<String, SimpleTextAttributes>> {
+    val rowComponent = getComponentAtRow(row)
+    return rowComponent.collectTextAttributes(robot())
   }
 
   private fun JTree.checkRowInBounds(row: Int): Int {

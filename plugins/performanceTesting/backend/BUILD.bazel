@@ -1,7 +1,7 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library", "jvm_provided_library")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
 ### auto-generated section `build intellij.performanceTesting.backend` start
-
 jvm_provided_library(
     name = "libraries_cli-parser_provided",
     lib = "//libraries/cli-parser",
@@ -60,6 +60,8 @@ jvm_library(
     ],
 )
 
+content_module_jar(module = ":backend")
+
 jvm_library(
     name = "backend_test_lib",
     testonly = True,
@@ -112,6 +114,7 @@ jvm_library(
 exports_files(
     [
         "intellij.performanceTesting.backend.iml",
+        "resources/intellij.performanceTesting.backend.xml",
     ],
     visibility = ["//visibility:public"],
 )

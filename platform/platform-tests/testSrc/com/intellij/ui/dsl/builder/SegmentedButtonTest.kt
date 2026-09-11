@@ -4,19 +4,18 @@ package com.intellij.ui.dsl.builder
 import com.intellij.openapi.actionSystem.impl.ActionButtonWithText
 import com.intellij.openapi.ui.DialogPanel
 import com.intellij.testFramework.TestApplicationManager
-import com.intellij.ui.dsl.UiDslException
 import com.intellij.util.ui.UIUtil
 import org.assertj.core.api.Assertions.assertThat
 import org.jetbrains.annotations.Nls
 import org.junit.Before
 import org.junit.Test
-import org.junit.jupiter.api.assertThrows
 import java.awt.Dimension
 import java.awt.image.BufferedImage
 import javax.swing.JComboBox
 import javax.swing.JComponent
 import javax.swing.JLabel
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -94,7 +93,7 @@ class SegmentedButtonTest {
       }
     }
 
-    assertThrows<UiDslException> {
+    assertFailsWith<IllegalStateException> {
       panel {
         row {
           segmentedButton(listOf(1)) { }

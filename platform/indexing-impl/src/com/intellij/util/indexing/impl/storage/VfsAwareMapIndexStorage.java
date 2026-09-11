@@ -11,6 +11,7 @@ import com.intellij.util.indexing.VfsAwareIndexStorage;
 import com.intellij.util.indexing.impl.MapIndexStorage;
 import com.intellij.util.io.DataExternalizer;
 import com.intellij.util.io.KeyDescriptor;
+import com.intellij.util.io.StorageLockContext;
 import it.unimi.dsi.fastutil.ints.IntSet;
 import org.jetbrains.annotations.ApiStatus.Internal;
 import org.jetbrains.annotations.NotNull;
@@ -23,6 +24,14 @@ import java.nio.file.Path;
 
 @Internal
 public class VfsAwareMapIndexStorage<Key, Value> extends MapIndexStorage<Key, Value> implements VfsAwareIndexStorage<Key, Value> {
+  /**
+   * Enables {@link #processKeys(Processor, GlobalSearchScope, IdFilter)} optimization in multi-project environment:
+   * {@link KeyHashLog} persists (key.hash, fileId) pairs, and caches `Set(keyHash : fileId in project)` in memory,
+   * so keys that do not belong to the project -- could be filtered early, before submitting them to {@link Processor}.
+   * An optimization works well for >1 _significantly different_ projects -- it doesn't work so well for N +/- copies
+   * of the same project, i.e. different branches of the same project, since in this case almost all the keys belong to
+   * all the projects => pre-filter does nothing, while still costs something.
+   */
   private final boolean myBuildKeyHashToVirtualFileMapping;
   private @Nullable KeyHashLog<Key> myKeyHashToVirtualFileMapping;
 
@@ -44,6 +53,27 @@ public class VfsAwareMapIndexStorage<Key, Value> extends MapIndexStorage<Key, Va
                                  boolean keyIsUniqueForIndexedFile,
                                  boolean buildKeyHashToVirtualFileMapping,
                                  boolean enableWal) throws IOException {
+    this(storageFile,
+         keyDescriptor,
+         valueExternalizer,
+         cacheSize,
+         keyIsUniqueForIndexedFile,
+         buildKeyHashToVirtualFileMapping,
+         enableWal,
+         null);
+  }
+
+  /**
+   * Uses the supplied lock context for all persistent map files owned by this index storage.
+   */
+  public VfsAwareMapIndexStorage(@NotNull Path storageFile,
+                                 @NotNull KeyDescriptor<Key> keyDescriptor,
+                                 @NotNull DataExternalizer<Value> valueExternalizer,
+                                 int cacheSize,
+                                 boolean keyIsUniqueForIndexedFile,
+                                 boolean buildKeyHashToVirtualFileMapping,
+                                 boolean enableWal,
+                                 @Nullable StorageLockContext storageLockContext) throws IOException {
     super(storageFile,
           keyDescriptor,
           valueExternalizer,
@@ -52,7 +82,8 @@ public class VfsAwareMapIndexStorage<Key, Value> extends MapIndexStorage<Key, Va
           /* initialize: */ false,
           /* readOnly: */   false,
           enableWal,
-          /*inputRemapping: */null
+          /* inputRemapping: */ null,
+          storageLockContext
     );
     myBuildKeyHashToVirtualFileMapping = buildKeyHashToVirtualFileMapping;
     initMapAndCache();
@@ -65,7 +96,7 @@ public class VfsAwareMapIndexStorage<Key, Value> extends MapIndexStorage<Key, Va
       if (myBuildKeyHashToVirtualFileMapping && myBaseStorageFile != null) {
         FileSystem projectFileFS = myBaseStorageFile.getFileSystem();
         assert !projectFileFS.isReadOnly() : "File system " + projectFileFS + " is read only";
-        myKeyHashToVirtualFileMapping = new KeyHashLog<>(myKeyDescriptor, myBaseStorageFile);
+        myKeyHashToVirtualFileMapping = new KeyHashLog<>(myKeyDescriptor, myBaseStorageFile, storageLockContext());
       }
       else {
         myKeyHashToVirtualFileMapping = null;
@@ -110,9 +141,9 @@ public class VfsAwareMapIndexStorage<Key, Value> extends MapIndexStorage<Key, Va
 
         Project project = scope.getProject();
         if (myKeyHashToVirtualFileMapping != null && project != null && idFilter != null) {
-          IntSet hashMaskSet = myKeyHashToVirtualFileMapping.getSuitableKeyHashes(idFilter, project);
+          IntSet keyHashesBelongingToProject = myKeyHashToVirtualFileMapping.getSuitableKeyHashes(idFilter, project);
           return doProcessKeys(key -> {
-            if (!hashMaskSet.contains(myKeyDescriptor.getHashCode(key))) return true;
+            if (!keyHashesBelongingToProject.contains(myKeyDescriptor.getHashCode(key))) return true;
             return processor.process(key);
           });
         }

@@ -1,10 +1,10 @@
 load("@community//build:tests-options.bzl", "jps_test")
 load("@rules_jvm//:jvm.bzl", "jvm_library")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
 ### auto-generated section `iml intellij.gradle.toml` end
 
 ### auto-generated section `build intellij.gradle.completion.toml` start
-
 jvm_library(
     name = "toml",
     srcs = glob(
@@ -39,6 +39,8 @@ jvm_library(
     ],
 )
 
+content_module_jar(module = ":toml")
+
 jvm_library(
     name = "toml_test_lib",
     testonly = True,
@@ -71,13 +73,13 @@ jvm_library(
 exports_files(
     [
         "intellij.gradle.completion.toml.iml",
+        "resources/intellij.gradle.completion.toml.xml",
     ],
     visibility = ["//visibility:public"],
 )
 ### auto-generated section `iml intellij.gradle.completion.toml` end
 
 ### auto-generated section `build intellij.gradle.completion.toml.tests` start
-
 jvm_library(
     name = "gradle-completion-toml-tests",
     srcs = glob(
@@ -129,7 +131,8 @@ jvm_library(
         "//plugins/gradle/completion/toml:toml_test_lib",
         "//plugins/gradle",
         "//plugins/gradle:gradle_test_lib",
-        "@lib//:kotlin-test-junit",
+        "//libraries/kotlin/test-junit:libraries-kotlin-test-junit",
+        "//libraries/kotlin/test-junit:libraries-kotlin-test-junit_test_lib",
         "//platform/testFramework",
         "//platform/testFramework:testFramework_test_lib",
         "//platform/testFramework/junit5",
@@ -150,8 +153,6 @@ jvm_library(
         "//plugins/groovy:groovy_test_lib",
         "//plugins/groovy:groovy-tests",
         "//plugins/groovy:groovy-tests_test_lib",
-        "//plugins/repository-search",
-        "//plugins/repository-search:repository-search_test_lib",
         "//libraries/junit5",
         "//libraries/junit5:junit5_test_lib",
         "//libraries/junit5-params",
@@ -178,7 +179,6 @@ exports_files(
 ### auto-generated section `iml intellij.gradle.completion.toml.tests` end
 
 ### auto-generated section `test intellij.gradle.completion.toml.tests` start
-
 jps_test(
     name = "gradle-completion-toml-tests_test",
     runtime_deps = [":gradle-completion-toml-tests_test_lib"],

@@ -12,16 +12,12 @@ import com.intellij.collaboration.ui.codereview.CodeReviewChatItemUIUtil
 import com.intellij.collaboration.ui.codereview.CodeReviewChatItemUIUtil.ComponentType
 import com.intellij.collaboration.ui.codereview.CodeReviewTimelineUIUtil
 import com.intellij.collaboration.ui.codereview.comment.CodeReviewCommentUIUtil
-import com.intellij.collaboration.ui.codereview.timeline.thread.CodeReviewTrackableItemViewModel
 import com.intellij.collaboration.ui.html.AsyncHtmlImageLoader
 import com.intellij.collaboration.ui.icon.IconsProvider
 import com.intellij.collaboration.ui.util.bindChildIn
 import com.intellij.collaboration.ui.util.bindDisabledIn
 import com.intellij.collaboration.ui.util.bindTextIn
-import com.intellij.openapi.actionSystem.UiDataProvider
 import com.intellij.openapi.project.Project
-import com.intellij.util.ui.InlineIconButton
-import icons.CollaborationToolsIcons
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.awaitCancellation
@@ -34,10 +30,8 @@ import org.jetbrains.plugins.gitlab.api.dto.GitLabUserDTO
 import org.jetbrains.plugins.gitlab.data.GitLabImageLoader
 import org.jetbrains.plugins.gitlab.mergerequest.ui.emoji.GitLabReactionsComponentFactory
 import org.jetbrains.plugins.gitlab.mergerequest.ui.emoji.GitLabReactionsPickerComponentFactory
-import org.jetbrains.plugins.gitlab.mergerequest.ui.emoji.GitLabReactionsViewModel
 import org.jetbrains.plugins.gitlab.mergerequest.util.addGitLabHyperlinkListener
 import org.jetbrains.plugins.gitlab.util.GitLabStatistics
-import java.awt.event.ActionListener
 import java.net.URL
 import javax.swing.JComponent
 
@@ -66,14 +60,11 @@ internal object GitLabNoteComponentFactory {
     }
 
     val actionsPanel = createActions(cs, flowOf(vm), project, place)
-    return UiDataProvider.wrapComponent(
-      CodeReviewChatItemUIUtil.build(componentType,
-                                     { avatarIconsProvider.getIcon(vm.author, it) },
-                                     contentPanel) {
-        withHeader(createTitle(cs, vm, project, place), actionsPanel)
-      }, { sink ->
-      sink[CodeReviewTrackableItemViewModel.TRACKABLE_ITEM_KEY] = vm
-      })
+    return CodeReviewChatItemUIUtil.build(componentType,
+                                          { avatarIconsProvider.getIcon(vm.author, it) },
+                                          contentPanel) {
+      withHeader(createTitle(cs, vm, project, place), actionsPanel)
+    }
   }
 
   @OptIn(ExperimentalCoroutinesApi::class)
@@ -149,7 +140,12 @@ internal object GitLabNoteComponentFactory {
 
             val reactionsVm = it.reactionsVm
             if (reactionsVm != null) {
-              createAddReactionButton(buttonsCs, reactionsVm).also(::add)
+              CodeReviewCommentUIUtil.createAddReactionButton {
+                val parentComponent = it.source as JComponent
+                buttonsCs.launch {
+                  GitLabReactionsPickerComponentFactory.showPopup(reactionsVm, parentComponent)
+                }
+              }.also(::add)
             }
 
             revalidate()
@@ -163,21 +159,6 @@ internal object GitLabNoteComponentFactory {
       }
     }
     return panel
-  }
-
-  private fun createAddReactionButton(cs: CoroutineScope, reactionsVm: GitLabReactionsViewModel): InlineIconButton {
-    val button = InlineIconButton(
-      CollaborationToolsIcons.AddEmoji,
-      CollaborationToolsIcons.AddEmojiHovered,
-      tooltip = CollaborationToolsBundle.message("review.comments.reaction.add.tooltip")
-    )
-    button.actionListener = ActionListener {
-      cs.launch {
-        GitLabReactionsPickerComponentFactory.showPopup(reactionsVm, button)
-      }
-    }
-
-    return button
   }
 
   fun createTextPanel(

@@ -1,8 +1,17 @@
 load("@community//build:tests-options.bzl", "jps_test")
 load("@rules_jvm//:jvm.bzl", "jvm_library")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
+
+jps_test(
+    name = "coverage-tests_test",
+    timeout = "moderate",
+    tags = ["community-aggregator"],
+    runtime_deps = [":coverage-tests_test_lib"],
+)
+
+### skip generation section `test intellij.platform.coverage.tests`
 
 ### auto-generated section `build intellij.platform.coverage` start
-
 jvm_library(
     name = "coverage",
     srcs = glob(
@@ -40,7 +49,9 @@ jvm_library(
         "//platform/lvcs-api:lvcs",
         "//platform/platform-impl/concurrency",
         "//platform/ide-core",
+        "//platform/progress/shared:ide-progress",
         "//platform/util/diff",
+        "//libraries/kotlinx/coroutines/core",
         "//platform/vcs-api:vcs",
         "//libraries/fastutil",
         "//platform/core-ui",
@@ -53,6 +64,8 @@ jvm_library(
         "//jps/model-api:model",
     ],
 )
+
+content_module_jar(module = ":coverage")
 
 jvm_library(
     name = "coverage_test_lib",
@@ -87,7 +100,9 @@ jvm_library(
         "//platform/lvcs-api:lvcs_test_lib",
         "//platform/platform-impl/concurrency:concurrency_test_lib",
         "//platform/ide-core:ide-core_test_lib",
+        "//platform/progress/shared:ide-progress_test_lib",
         "//platform/util/diff:diff_test_lib",
+        "//libraries/kotlinx/coroutines/core:core_test_lib",
         "//platform/vcs-api:vcs_test_lib",
         "//libraries/fastutil:fastutil_test_lib",
         "//platform/core-ui:core-ui_test_lib",
@@ -106,13 +121,14 @@ jvm_library(
 exports_files(
     [
         "intellij.platform.coverage.iml",
+        "resources/intellij.platform.coverage.xml",
+        "module-content.yaml",
     ],
     visibility = ["//visibility:public"],
 )
 ### auto-generated section `iml intellij.platform.coverage` end
 
 ### auto-generated section `build intellij.platform.coverage.tests` start
-
 jvm_library(
     name = "coverage-tests",
     srcs = glob(
@@ -215,11 +231,3 @@ exports_files(
     visibility = ["//visibility:public"],
 )
 ### auto-generated section `iml intellij.platform.coverage.tests` end
-
-### auto-generated section `test intellij.platform.coverage.tests` start
-
-jps_test(
-    name = "coverage-tests_test",
-    runtime_deps = [":coverage-tests_test_lib"],
-)
-### auto-generated section `test intellij.platform.coverage.tests` end

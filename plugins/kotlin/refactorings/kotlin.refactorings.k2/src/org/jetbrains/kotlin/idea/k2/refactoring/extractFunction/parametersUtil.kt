@@ -1,4 +1,4 @@
-// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.kotlin.idea.k2.refactoring.extractFunction
 
 import com.intellij.psi.PsiMember
@@ -7,33 +7,29 @@ import com.intellij.psi.PsiNamedElement
 import com.intellij.psi.util.PsiTreeUtil
 import com.intellij.psi.util.parentOfType
 import com.intellij.util.text.UniqueNameGenerator
-import org.jetbrains.kotlin.analysis.api.KaExperimentalApi
 import org.jetbrains.kotlin.analysis.api.KaSession
-import org.jetbrains.kotlin.analysis.api.analyze
-import org.jetbrains.kotlin.analysis.api.analyzeCopy
 import org.jetbrains.kotlin.analysis.api.components.KaDiagnosticCheckerFilter
-import org.jetbrains.kotlin.analysis.api.components.buildSubstitutor
-import org.jetbrains.kotlin.analysis.api.components.builtinTypes
-import org.jetbrains.kotlin.analysis.api.components.callableSymbol
-import org.jetbrains.kotlin.analysis.api.components.containingDeclaration
-import org.jetbrains.kotlin.analysis.api.components.expectedType
-import org.jetbrains.kotlin.analysis.api.components.expressionType
-import org.jetbrains.kotlin.analysis.api.components.resolveToCall
-import org.jetbrains.kotlin.analysis.api.components.type
-import org.jetbrains.kotlin.analysis.api.components.typeCreator
+import org.jetbrains.kotlin.analysis.api.components.diagnostics
+import org.jetbrains.kotlin.analysis.api.components.returnType
+import org.jetbrains.kotlin.analysis.api.dataflow.smartCastInfo
+import org.jetbrains.kotlin.analysis.api.diagnostics.diagnostics
+import org.jetbrains.kotlin.analysis.api.expressions.expectedType
+import org.jetbrains.kotlin.analysis.api.expressions.expressionType
 import org.jetbrains.kotlin.analysis.api.fir.diagnostics.KaFirDiagnostic
+import org.jetbrains.kotlin.analysis.api.javaInterop.callableSymbol
 import org.jetbrains.kotlin.analysis.api.projectStructure.KaDanglingFileResolutionMode
-import org.jetbrains.kotlin.analysis.api.resolution.KaCallableMemberCall
-import org.jetbrains.kotlin.analysis.api.resolution.KaErrorCallInfo
 import org.jetbrains.kotlin.analysis.api.resolution.KaExplicitReceiverValue
 import org.jetbrains.kotlin.analysis.api.resolution.KaImplicitReceiverValue
-import org.jetbrains.kotlin.analysis.api.resolution.KaPartiallyAppliedSymbol
 import org.jetbrains.kotlin.analysis.api.resolution.KaReceiverValue
+import org.jetbrains.kotlin.analysis.api.resolution.KaSimpleCall
 import org.jetbrains.kotlin.analysis.api.resolution.KaSmartCastedReceiverValue
-import org.jetbrains.kotlin.analysis.api.resolution.singleCallOrNull
+import org.jetbrains.kotlin.analysis.api.resolution.errors
+import org.jetbrains.kotlin.analysis.api.resolution.simple
+import org.jetbrains.kotlin.analysis.api.resolution.single
 import org.jetbrains.kotlin.analysis.api.resolution.symbol
-import org.jetbrains.kotlin.analysis.api.signatures.KaCallableSignature
-import org.jetbrains.kotlin.analysis.api.symbols.KaCallableSymbol
+import org.jetbrains.kotlin.analysis.api.resolution.tryResolveCall
+import org.jetbrains.kotlin.analysis.api.session.analyze
+import org.jetbrains.kotlin.analysis.api.session.analyzeCopy
 import org.jetbrains.kotlin.analysis.api.symbols.KaClassKind
 import org.jetbrains.kotlin.analysis.api.symbols.KaClassSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaClassifierSymbol
@@ -43,9 +39,16 @@ import org.jetbrains.kotlin.analysis.api.symbols.KaNamedFunctionSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaReceiverParameterSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaTypeParameterSymbol
+import org.jetbrains.kotlin.analysis.api.symbols.containingDeclaration
 import org.jetbrains.kotlin.analysis.api.symbols.symbol
 import org.jetbrains.kotlin.analysis.api.types.KaClassType
 import org.jetbrains.kotlin.analysis.api.types.KaType
+import org.jetbrains.kotlin.analysis.api.types.buildSubstitutor
+import org.jetbrains.kotlin.analysis.api.types.builtinTypes
+import org.jetbrains.kotlin.analysis.api.types.isSubtypeOf
+import org.jetbrains.kotlin.analysis.api.types.restore
+import org.jetbrains.kotlin.analysis.api.types.type
+import org.jetbrains.kotlin.analysis.api.types.typeCreation.typeCreator
 import org.jetbrains.kotlin.idea.base.codeInsight.KotlinDeclarationNameValidator
 import org.jetbrains.kotlin.idea.base.codeInsight.KotlinNameSuggester
 import org.jetbrains.kotlin.idea.base.codeInsight.KotlinNameSuggester.Companion.suggestNameByName
@@ -66,6 +69,7 @@ import org.jetbrains.kotlin.idea.refactoring.introduce.extractionEngine.collectR
 import org.jetbrains.kotlin.idea.refactoring.introduce.extractionEngine.processTypeIfExtractable
 import org.jetbrains.kotlin.idea.refactoring.introduce.extractionEngine.resolveResult
 import org.jetbrains.kotlin.idea.references.mainReference
+import org.jetbrains.kotlin.idea.util.tryResolveExpressionCall
 import org.jetbrains.kotlin.lexer.KtToken
 import org.jetbrains.kotlin.name.Name
 import org.jetbrains.kotlin.psi.KtBlockExpression
@@ -99,6 +103,7 @@ import org.jetbrains.kotlin.psi.psiUtil.getParentOfTypeAndBranch
 import org.jetbrains.kotlin.psi.psiUtil.getQualifiedExpressionForSelector
 import org.jetbrains.kotlin.psi.psiUtil.getQualifiedExpressionForSelectorOrThis
 import org.jetbrains.kotlin.psi.psiUtil.isInsideOf
+import org.jetbrains.kotlin.resolution.KtResolvableCall
 import org.jetbrains.kotlin.types.expressions.OperatorConventions
 
 /**
@@ -121,7 +126,6 @@ private class ParameterWithReference(val parameterOrigin: PsiNamedElement, val r
     }
 }
 
-@OptIn(KaExperimentalApi::class)
 context(session: KaSession)
 internal fun ExtractionData.inferParametersInfo(
     virtualBlock: KtBlockExpression,
@@ -154,27 +158,33 @@ internal fun ExtractionData.inferParametersInfo(
     val unknownContextParameters = analyzeCopy(virtualBlock, KaDanglingFileResolutionMode.IGNORE_SELF) {
         val parameters = linkedMapOf<KaType, KtParameter>()
         for (referenceExpression in virtualBlock.collectDescendantsOfType<KtReferenceExpression> { it.resolveResult != null }) {
-            val call = referenceExpression.resolveToCall()
+            val errors = (referenceExpression as? KtResolvableCall)?.tryResolveCall()?.errors
+            if (errors?.isNotEmpty() != true) continue
+
             val substitutions = buildSubstitutor {
-                referenceExpression.resolveResult!!.originalRefExpr.resolveToCall()?.singleCallOrNull<KaCallableMemberCall<*, *>>()?.typeArgumentsMapping?.let {
+                referenceExpression.resolveResult!!.originalRefExpr.tryResolveExpressionCall()?.single?.simple?.typeArgumentsMapping?.let {
                     substitutions(it)
                 }
             }
-            if (call is KaErrorCallInfo) {
-                val diagnostics = (referenceExpression.parent as? KtCallExpression ?: referenceExpression).diagnostics(
-                        KaDiagnosticCheckerFilter.ONLY_COMMON_CHECKERS
-                    ).takeIf { it.isNotEmpty() } ?: listOf(call.diagnostic)
-                diagnostics.filterIsInstance<KaFirDiagnostic.NoContextArgument>().forEach { diagnostic ->
-                    val parameter = (diagnostic.symbol as? KaContextParameterSymbol)?.psi as? KtParameter
-                    if (parameter != null) {
-                        val implicitContextParameterType = substitutions.substitute(parameter.returnType)
-                        if (extractedDescriptorToParameter.none { it.value.contextParameter && (it.value.originalDescriptor as? KtParameter)?.returnType?.isSubtypeOf(implicitContextParameterType) == true }) {
-                            parameters.putIfAbsent(implicitContextParameterType, parameter)
-                        }
+
+            val elementToCheck = referenceExpression.parent as? KtCallExpression ?: referenceExpression
+            val diagnostics = elementToCheck.diagnostics()
+                .directOnly(true)
+                .toList()
+                .takeIf { it.isNotEmpty() }
+                ?: errors.map { it.diagnostic }
+
+            diagnostics.filterIsInstance<KaFirDiagnostic.NoContextArgument>().forEach { diagnostic ->
+                val parameter = (diagnostic.symbol as? KaContextParameterSymbol)?.psi as? KtParameter
+                if (parameter != null) {
+                    val implicitContextParameterType = substitutions.substitute(parameter.returnType)
+                    if (extractedDescriptorToParameter.none { it.value.contextParameter && (it.value.originalDescriptor as? KtParameter)?.returnType?.isSubtypeOf(implicitContextParameterType) == true }) {
+                        parameters.putIfAbsent(implicitContextParameterType, parameter)
                     }
                 }
             }
         }
+
         parameters.mapKeys { it.key.createPointer() }
     }
 
@@ -230,7 +240,7 @@ internal fun ExtractionData.inferParametersInfo(
             name,
             contextParam.ownerDeclaration as KtNamedDeclaration,
             false,
-            with(session) { type.restore() } ?: builtinTypes.any,
+            type.restore() ?: builtinTypes.any,
             targetSibling as KtElement,
             contextParameter = true
         )
@@ -261,10 +271,9 @@ private fun ExtractionData.registerParameter(
 ) {
     val (originalRef, _, originalDeclaration, resolvedCall) = refInfo.resolveResult
 
-    val partiallyAppliedSymbol =
-        resolvedCall?.resolveToCall()?.singleCallOrNull<KaCallableMemberCall<*, *>>()?.partiallyAppliedSymbol
-    val dispatchReceiver = partiallyAppliedSymbol?.dispatchReceiver
-    val extensionReceiver = partiallyAppliedSymbol?.extensionReceiver
+    val singleCall = resolvedCall?.tryResolveExpressionCall()?.single?.simple
+    val dispatchReceiver = singleCall?.dispatchReceiver
+    val extensionReceiver = singleCall?.extensionReceiver
     //Context receivers are not supported.
     //So if both receivers are provided,
     //unresolved conflict is generated by `validate` check and
@@ -284,7 +293,7 @@ private fun ExtractionData.registerParameter(
     val thisExpr = refInfo.refExpr.parent as? KtThisExpression
 
     val referencedClassifierSymbol: KaClassifierSymbol? =
-        getReferencedClassifierSymbol(thisSymbol, originalDeclaration, refInfo, partiallyAppliedSymbol)
+        getReferencedClassifierSymbol(thisSymbol, originalDeclaration, refInfo, singleCall)
 
     if (referencedClassifierSymbol != null) {
         registerQualifierReplacements(referencedClassifierSymbol, info, originalDeclaration, originalRef)
@@ -437,7 +446,6 @@ private fun ExtractionData.registerQualifierReplacements(
             val fqNameChild = if (name != null) fqName.child(Name.identifier(name)) else fqName
             parametersInfo.replacementMap.putValue(originalRef, FqNameReplacement(fqNameChild))
         } else {
-            @OptIn(KaExperimentalApi::class)
             parametersInfo.nonDenotableTypes.add(typeCreator.classType(referencedClassifierSymbol))
         }
     }
@@ -448,9 +456,9 @@ private fun getReferencedClassifierSymbol(
     thisSymbol: KaSymbol?,
     originalDeclaration: PsiNamedElement,
     refInfo: ResolvedReferenceInfo<PsiNamedElement, KtReferenceExpression, KaType>,
-    partiallyAppliedSymbol: KaPartiallyAppliedSymbol<KaCallableSymbol, KaCallableSignature<KaCallableSymbol>>?
+    singleCall: KaSimpleCall<*, *>?
 ): KaClassifierSymbol? {
-    if (partiallyAppliedSymbol?.symbol is KaNamedFunctionSymbol && originalDeclaration is KtConstructor<*>) {
+    if (singleCall?.symbol is KaNamedFunctionSymbol && originalDeclaration is KtConstructor<*>) {
         // dataClass.copy(): do not replace with call to constructor
         return null
     }
@@ -460,7 +468,7 @@ private fun getReferencedClassifierSymbol(
         is KaClassSymbol -> when (referencedSymbol.classKind) {
             KaClassKind.OBJECT, KaClassKind.COMPANION_OBJECT, KaClassKind.ENUM_CLASS -> referencedSymbol
             //if type reference or call to implicit constructor, then type expansion might be required
-            else -> if (refInfo.refExpr.getNonStrictParentOfType<KtTypeReference>() != null || partiallyAppliedSymbol?.symbol is KaConstructorSymbol) referencedSymbol else null
+            else -> if (refInfo.refExpr.getNonStrictParentOfType<KtTypeReference>() != null || singleCall?.symbol is KaConstructorSymbol) referencedSymbol else null
         }
 
         is KaTypeParameterSymbol -> referencedSymbol
@@ -480,7 +488,6 @@ private fun createOriginalType(
 ): KaType = when {
         extractFunctionRef -> analyze(originalDeclaration as KtNamedFunction) {
             val functionSymbol = originalDeclaration.symbol as KaNamedFunctionSymbol
-            @OptIn(KaExperimentalApi::class)
             typeCreator.functionType {
                 receiverType = functionSymbol.receiverParameter?.returnType
 
@@ -494,7 +501,6 @@ private fun createOriginalType(
         else -> parameterExpression?.expressionType ?: receiverToExtract?.type
     } ?: builtinTypes.nullableAny
 
-@OptIn(KaExperimentalApi::class)
 private fun ExtractionData.getBrokenReferencesInfo(body: KtBlockExpression): List<ResolvedReferenceInfo<PsiNamedElement, KtReferenceExpression, KaType>> {
     val newReferences = body.collectDescendantsOfType<KtReferenceExpression> { it.resolveResult != null }
 
@@ -533,7 +539,7 @@ private fun ExtractionData.getBrokenReferencesInfo(body: KtBlockExpression): Lis
             smartCast = calculateSmartCastType(smartCastTarget)
             possibleTypes = analyze(smartCastTarget) { smartCastTarget.expectedType?.let { setOf(it) } ?: emptySet() }
             val (isCompanionObject, bothReceivers) = analyze(smartCastTarget) {
-                val symbol = originalRefExpr.resolveToCall()?.singleCallOrNull<KaCallableMemberCall<*, *>>()?.partiallyAppliedSymbol
+                val symbol = originalRefExpr.tryResolveExpressionCall()?.single?.simple
                 val receiverSymbol = (symbol?.dispatchReceiver as? KaImplicitReceiverValue)?.symbol
                 ((receiverSymbol?.containingDeclaration as? KaClassSymbol)?.classKind == KaClassKind.COMPANION_OBJECT) to
                         (symbol?.dispatchReceiver != null && symbol.extensionReceiver != null)

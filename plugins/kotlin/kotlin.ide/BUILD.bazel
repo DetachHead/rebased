@@ -1,7 +1,7 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
 ### auto-generated section `build intellij.kotlin.ide` start
-
 jvm_library(
     name = "kotlin.ide",
     srcs = glob(
@@ -13,6 +13,10 @@ jvm_library(
         allow_empty = True,
     ),
     module_name = "intellij.kotlin.ide",
+    resource_strip_prefix = "resources",
+    resources = glob(
+        ["resources/**/*"],
+    ),
     visibility = ["//visibility:public"],
     deps = [
         # do not sort,
@@ -28,7 +32,7 @@ jvm_library(
         "//platform/core-impl",
         "//platform/analysis-api:analysis",
         "//platform/lang-impl",
-        "@lib//:kotlinc-kotlin-compiler-common",
+        "//libraries/kotlinc/kotlin-compiler-common:libraries-kotlinc-kotlin-compiler-common",
         "//plugins/kotlin/base/project-structure",
         "//plugins/kotlin/base/resources:kotlin-base-resources",
         "//libraries/jsoup",
@@ -50,14 +54,16 @@ jvm_library(
         "//platform/util:util-ui",
         "//plugins/kotlin/code-insight/impl-base:kotlin-codeInsight-shared",
         "//platform/diff-impl",
-        "@lib//:kotlinc-kotlin-scripting-common",
-        "@lib//:kotlinc-kotlin-scripting-compiler-impl",
+        "//libraries/kotlinc/kotlin-scripting-common:libraries-kotlinc-kotlin-scripting-common",
+        "//libraries/kotlinc/kotlin-scripting-compiler-impl:libraries-kotlinc-kotlin-scripting-compiler-impl",
         "//plugins/kotlin/base/scripting/scripting.shared",
         "//libraries/gson",
         "//platform/structure-view-impl:structureView",
         "//platform/statistics",
     ],
 )
+
+content_module_jar(module = ":kotlin.ide")
 
 jvm_library(
     name = "kotlin.ide_test_lib",
@@ -83,6 +89,7 @@ jvm_library(
         "//platform/core-impl:core-impl_test_lib",
         "//platform/analysis-api:analysis_test_lib",
         "//platform/lang-impl:lang-impl_test_lib",
+        "//libraries/kotlinc/kotlin-compiler-common:libraries-kotlinc-kotlin-compiler-common_test_lib",
         "//plugins/kotlin/base/project-structure:project-structure_test_lib",
         "//plugins/kotlin/base/resources:kotlin-base-resources_test_lib",
         "//libraries/jsoup:jsoup_test_lib",
@@ -104,6 +111,8 @@ jvm_library(
         "//platform/util:util-ui_test_lib",
         "//plugins/kotlin/code-insight/impl-base:kotlin-codeInsight-shared_test_lib",
         "//platform/diff-impl:diff-impl_test_lib",
+        "//libraries/kotlinc/kotlin-scripting-common:libraries-kotlinc-kotlin-scripting-common_test_lib",
+        "//libraries/kotlinc/kotlin-scripting-compiler-impl:libraries-kotlinc-kotlin-scripting-compiler-impl_test_lib",
         "//plugins/kotlin/base/scripting/scripting.shared:scripting.shared_test_lib",
         "//libraries/gson:gson_test_lib",
         "//platform/structure-view-impl:structureView_test_lib",
@@ -116,6 +125,7 @@ jvm_library(
 exports_files(
     [
         "intellij.kotlin.ide.iml",
+        "resources/intellij.kotlin.ide.xml",
     ],
     visibility = ["//visibility:public"],
 )

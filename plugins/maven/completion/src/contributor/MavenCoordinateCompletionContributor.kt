@@ -22,17 +22,21 @@ import com.intellij.repository.search.completion.lookup.DependencyCompletionFuzz
 import com.intellij.repository.search.completion.lookup.StrictOrderWeigher
 import com.intellij.util.xml.DomManager
 import com.intellij.util.xml.GenericDomValue
-import org.jetbrains.idea.maven.dom.model.MavenDomShortArtifactCoordinates
 import org.jetbrains.idea.maven.dom.model.MavenDomProjectModel
+import org.jetbrains.idea.maven.dom.model.MavenDomShortArtifactCoordinates
 
 abstract class MavenCoordinateCompletionContributor protected constructor(private val myTagId: String) : CompletionContributor() {
   override fun fillCompletionVariants(parameters: CompletionParameters, result: CompletionResultSet) {
     if (parameters.completionType != CompletionType.BASIC) return
+    val xmlText = parameters.position.parent as? XmlText
+    if (parameters.invocationCount == 0) {
+      if (xmlText != null && trimDummy(xmlText.value).length < 3) return
+    }
     val placeChecker = MavenCoordinateCompletionPlaceChecker(myTagId, parameters).checkPlace()
     if (!placeChecker.isCorrectPlace) return
     result.stopHere()
     val coordinates = placeChecker.coordinates!!
-    val completionPrefix = CompletionUtil.findReferenceOrAlphanumericPrefix(parameters)
+    val completionPrefix = trimDummy(xmlText?.value)
     val amendedResult = amendResultSet(result, completionPrefix)
     val context = parameters.getCompletionContext()
     runBlockingCancellable {
@@ -52,6 +56,7 @@ abstract class MavenCoordinateCompletionContributor protected constructor(privat
 
   protected open fun amendResultSet(result: CompletionResultSet, completionPrefix: String): CompletionResultSet {
     result.restartCompletionWhenNothingMatches()
+    result.restartCompletionOnAnyPrefixChange()
     return result
       .withPrefixMatcher(DependencyCompletionFuzzyMatcher(completionPrefix))
       .withRelevanceSorter(CompletionSorter.emptySorter().weigh(StrictOrderWeigher()))
@@ -92,6 +97,12 @@ internal class MavenCoordinateCompletionPlaceChecker(private val myTagId: String
 
     val xmlText = element.parent
     if (xmlText !is XmlText) {
+      badPlace = true
+      return this
+    }
+
+    // Do not complete coordinates inside ${...} property references – let property completion handle those
+    if (isInsidePropertyReference(myParameters.originalFile.text, myParameters.offset)) {
       badPlace = true
       return this
     }
@@ -144,5 +155,16 @@ internal class MavenCoordinateCompletionPlaceChecker(private val myTagId: String
     else {
       badPlace = true
     }
+  }
+
+  private fun isInsidePropertyReference(text: String, offset: Int): Boolean {
+    var i = offset - 1
+    while (i > 0) {
+      val c = text[i]
+      if (c == '{' && text[i - 1] == '$') return true
+      if (!c.isLetterOrDigit() && c != '.') return false
+      i--
+    }
+    return false
   }
 }

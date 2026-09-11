@@ -1,5 +1,6 @@
 package org.intellij.plugins.markdown.reference;
 
+import com.intellij.markdown.backend.inspections.MarkdownUnresolvedFileReferenceInspection;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.psi.PsiFile;
 import com.intellij.psi.PsiPolyVariantReference;
@@ -72,6 +73,58 @@ public class CommonLinkDestinationReferenceTest extends BasePlatformTestCase {
 
   public void testLinkBrack() {
     doTest();
+  }
+
+  public void testLinkText() {
+    PsiFile file = myFixture.getFile();
+    String fileText = file.getText();
+    assertSameReference(file, fileText.indexOf("[link]") + 1, fileText.indexOf("foo", fileText.indexOf("[link]")));
+    assertSameReference(file, fileText.indexOf("[linkBrack]") + 1, fileText.indexOf("foo", fileText.indexOf("[linkBrack]")));
+  }
+
+  public void testInlineLinkLabel() {
+    myFixture.addFileToProject("A.mdc", "# Yet another header");
+    PsiFile file = myFixture.configureByText("C.md", "[Testing resolving](A.mdc#yet-another-header)");
+    String fileText = file.getText();
+    assertSameReference(file, fileText.indexOf("resolving") + 1, fileText.indexOf("header"));
+  }
+
+  public void testInlineWebLinkLabel() {
+    PsiFile file = myFixture.configureByText("some.md", "[Google](http://app.com/foo.txt)");
+    String fileText = file.getText();
+    assertGoodReference(file, fileText.indexOf("app.com"));
+  }
+
+  public void testRelativeFileLinkLabel() {
+    PsiFile file = myFixture.configureByText("some.md", "[Read Docs](app/foo.txt)");
+    String fileText = file.getText();
+    assertSameReference(file, fileText.indexOf("Read Docs") + 1, fileText.indexOf("foo.txt"));
+  }
+
+  public void testSamePageAnchorLinkLabel() {
+    PsiFile file = myFixture.configureByText("some.md", "[Jump to Intro](#introduction)\n\n# Introduction");
+    String fileText = file.getText();
+    assertSameReference(file, fileText.indexOf("Jump to Intro") + 1, fileText.indexOf("introduction"));
+  }
+
+  public void testImageDescription() {
+    PsiFile file = myFixture.configureByText("some.md", "![Logo](app/foo.txt)");
+    String fileText = file.getText();
+    assertSameReference(file, fileText.indexOf("Logo") + 1, fileText.indexOf("foo.txt"));
+  }
+
+  public void testUnresolvedReferenceHighlighting() {
+    myFixture.enableInspections(new MarkdownUnresolvedFileReferenceInspection());
+    myFixture.configureByText("a.md", "[xxx](app/)");
+    myFixture.checkHighlighting();
+  }
+
+  private static void assertSameReference(PsiFile file, int linkTextOffset, int destinationOffset) {
+    PsiReference linkTextReference = file.findReferenceAt(linkTextOffset);
+    PsiReference destinationReference = file.findReferenceAt(destinationOffset);
+    assertNotNull(linkTextReference);
+    assertNotNull(destinationReference);
+    assertEquals(destinationReference.resolve(), linkTextReference.resolve());
   }
 
   public void testTrailingSlashUrl() {

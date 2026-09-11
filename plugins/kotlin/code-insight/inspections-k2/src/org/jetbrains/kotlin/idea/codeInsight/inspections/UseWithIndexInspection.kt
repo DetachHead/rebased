@@ -15,9 +15,13 @@ import com.intellij.psi.search.PsiSearchHelper
 import com.intellij.psi.search.searches.ReferencesSearch
 import com.intellij.psi.util.PsiTreeUtil
 import org.jetbrains.kotlin.analysis.api.KaSession
-import org.jetbrains.kotlin.analysis.api.resolution.successfulVariableAccessCall
-import org.jetbrains.kotlin.analysis.api.resolution.symbol
+import org.jetbrains.kotlin.analysis.api.components.returnType
+import org.jetbrains.kotlin.analysis.api.expressions.expressionType
 import org.jetbrains.kotlin.analysis.api.symbols.KaVariableSymbol
+import org.jetbrains.kotlin.analysis.api.types.KaStandardTypeClassIds
+import org.jetbrains.kotlin.analysis.api.types.classId
+import org.jetbrains.kotlin.analysis.api.types.isArrayOrPrimitiveArray
+import org.jetbrains.kotlin.analysis.api.types.isSubtypeOf
 import org.jetbrains.kotlin.idea.base.psi.unwrapIfLabeled
 import org.jetbrains.kotlin.idea.base.resources.KotlinBundle
 import org.jetbrains.kotlin.idea.codeinsight.api.applicable.inspections.KotlinApplicableInspectionBase
@@ -25,6 +29,7 @@ import org.jetbrains.kotlin.idea.codeinsight.api.applicable.inspections.KotlinMo
 import org.jetbrains.kotlin.idea.codeinsight.api.applicators.ApplicabilityRange
 import org.jetbrains.kotlin.idea.references.KtSimpleNameReference
 import org.jetbrains.kotlin.idea.references.readWriteAccess
+import org.jetbrains.kotlin.idea.util.resolveSuccessfulExpressionSymbol
 import org.jetbrains.kotlin.lexer.KtTokens
 import org.jetbrains.kotlin.name.StandardClassIds
 import org.jetbrains.kotlin.psi.KtBlockExpression
@@ -77,7 +82,8 @@ internal class UseWithIndexInspection : KotlinApplicableInspectionBase.Simple<Kt
         return true
     }
 
-    override fun KaSession.prepareContext(element: KtForExpression): Context? {
+    context(session: KaSession)
+    override fun prepareContext(element: KtForExpression): Context? {
         val loopRange = element.loopRange ?: return null
         if (!isExpressionTypeSupported(loopRange)) return null
 
@@ -139,13 +145,15 @@ internal class UseWithIndexInspection : KotlinApplicableInspectionBase.Simple<Kt
             }
         }
 
-    private fun KaSession.isExpressionTypeSupported(rangeExpression: KtExpression): Boolean {
+    context(session: KaSession)
+    private fun isExpressionTypeSupported(rangeExpression: KtExpression): Boolean {
         val rangeExpressionType = rangeExpression.expressionType ?: return false
         return rangeExpressionType.isSubtypeOf(StandardClassIds.Iterable)
                 || rangeExpressionType.isArrayOrPrimitiveArray
     }
 
-    private fun KaSession.collectVariableInitializationInfo(
+    context(session: KaSession)
+    private fun collectVariableInitializationInfo(
         possibleIndexIncrement: KtUnaryExpression,
         forLoopExpression: KtForExpression,
         forLoopStatements: List<KtExpression>,
@@ -191,7 +199,8 @@ internal class UseWithIndexInspection : KotlinApplicableInspectionBase.Simple<Kt
         val initializer: KtExpression
     )
 
-    private fun KaSession.findVariableInitializationBeforeLoop(
+    context(session: KaSession)
+    private fun findVariableInitializationBeforeLoop(
         incrementExpressionOperand: KtExpression,
         forLoopExpression: KtForExpression,
     ): VariableInitializationInfo? {
@@ -201,7 +210,7 @@ internal class UseWithIndexInspection : KotlinApplicableInspectionBase.Simple<Kt
         val variableSymbol = resolveToVariable(incrementExpressionOperand) ?: return null
         val variable = variableSymbol.psi as? KtProperty ?: return null
         if (!variable.isVar) return null
-        if (!variable.returnType.isIntType) return null
+        if (variable.returnType.classId != KaStandardTypeClassIds.INT) return null
 
         val unwrappedFor = forLoopExpression.unwrapIfLabeled()
         if (unwrappedFor.parent !is KtBlockExpression) return null
@@ -233,7 +242,8 @@ internal class UseWithIndexInspection : KotlinApplicableInspectionBase.Simple<Kt
             }
     }
 
-    private fun KaSession.extractVariableInitialization(
+    context(session: KaSession)
+    private fun extractVariableInitialization(
         statement: KtExpression,
         variable: KtProperty,
         variableSymbol: KaVariableSymbol,
@@ -252,6 +262,7 @@ internal class UseWithIndexInspection : KotlinApplicableInspectionBase.Simple<Kt
         return VariableInitializationInfo(variable, statement, initializer)
     }
 
-    private fun KaSession.resolveToVariable(callExpression: KtElement): KaVariableSymbol? =
-        callExpression.resolveToCall()?.successfulVariableAccessCall()?.symbol
+    context(session: KaSession)
+    private fun resolveToVariable(callExpression: KtExpression): KaVariableSymbol? =
+        callExpression.resolveSuccessfulExpressionSymbol() as? KaVariableSymbol
 }

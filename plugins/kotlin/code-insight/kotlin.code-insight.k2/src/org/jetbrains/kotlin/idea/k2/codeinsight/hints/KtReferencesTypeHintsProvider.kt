@@ -7,29 +7,28 @@ import com.intellij.codeInsight.hints.declarative.InlineInlayPosition
 import com.intellij.openapi.util.registry.Registry
 import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiWhiteSpace
-import org.jetbrains.annotations.ApiStatus
-import org.jetbrains.kotlin.analysis.api.KaExperimentalApi
 import org.jetbrains.kotlin.analysis.api.KaSession
-import org.jetbrains.kotlin.analysis.api.analyze
-import org.jetbrains.kotlin.analysis.api.components.augmentedByWarningLevelAnnotations
-import org.jetbrains.kotlin.analysis.api.components.isAnyType
-import org.jetbrains.kotlin.analysis.api.components.isUnitType
-import org.jetbrains.kotlin.analysis.api.components.render
-import org.jetbrains.kotlin.analysis.api.components.resolveToCall
 import org.jetbrains.kotlin.analysis.api.components.resolveToSymbol
-import org.jetbrains.kotlin.analysis.api.components.smartCastInfo
+import org.jetbrains.kotlin.analysis.api.dataflow.smartCastInfo
+import org.jetbrains.kotlin.analysis.api.renderer.render
 import org.jetbrains.kotlin.analysis.api.renderer.types.impl.KaTypeRendererForSource
-import org.jetbrains.kotlin.analysis.api.resolution.singleConstructorCallOrNull
-import org.jetbrains.kotlin.analysis.api.resolution.singleFunctionCallOrNull
+import org.jetbrains.kotlin.analysis.api.resolution.constructor
+import org.jetbrains.kotlin.analysis.api.resolution.function
+import org.jetbrains.kotlin.analysis.api.resolution.single
 import org.jetbrains.kotlin.analysis.api.resolution.symbol
+import org.jetbrains.kotlin.analysis.api.resolution.tryResolveCall
+import org.jetbrains.kotlin.analysis.api.session.analyze
 import org.jetbrains.kotlin.analysis.api.symbols.KaClassLikeSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaEnumEntrySymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaPackageSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaSamConstructorSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaSymbol
 import org.jetbrains.kotlin.analysis.api.types.KaErrorType
+import org.jetbrains.kotlin.analysis.api.types.KaStandardTypeClassIds
 import org.jetbrains.kotlin.analysis.api.types.KaType
 import org.jetbrains.kotlin.analysis.api.types.KaUsualClassType
+import org.jetbrains.kotlin.analysis.api.types.augmentedByWarningLevelAnnotations
+import org.jetbrains.kotlin.analysis.api.types.classId
 import org.jetbrains.kotlin.idea.base.psi.getLineNumber
 import org.jetbrains.kotlin.idea.base.psi.isMultiLine
 import org.jetbrains.kotlin.idea.base.psi.isOneLiner
@@ -41,6 +40,7 @@ import org.jetbrains.kotlin.idea.codeinsight.utils.isEnum
 import org.jetbrains.kotlin.idea.codeinsights.impl.base.CallableReturnTypeUpdaterUtils.calculateAllTypes
 import org.jetbrains.kotlin.idea.formatter.kotlinCustomSettings
 import org.jetbrains.kotlin.idea.references.mainReference
+import org.jetbrains.kotlin.idea.util.tryResolveExpressionCall
 import org.jetbrains.kotlin.name.SpecialNames
 import org.jetbrains.kotlin.psi.KtAnnotatedExpression
 import org.jetbrains.kotlin.psi.KtBlockExpression
@@ -173,10 +173,8 @@ class KtReferencesTypeHintsProvider: AbstractKtInlayHintsProvider() {
     }
 }
 
-@ApiStatus.Internal
 internal fun KtNamedDeclaration.getReturnTypeReference() = getReturnTypeReferences().singleOrNull()
 
-@ApiStatus.Internal
 internal fun KtNamedDeclaration.getReturnTypeReferences(): List<KtTypeReference> =
     when (this) {
         is KtCallableDeclaration -> listOfNotNull(typeReference)
@@ -185,11 +183,9 @@ internal fun KtNamedDeclaration.getReturnTypeReferences(): List<KtTypeReference>
         else -> throw AssertionError("Unexpected declaration kind: $text")
     }
 
-@ApiStatus.Internal
 internal fun PsiElement.isNameReferenceInCall() =
     this is KtNameReferenceExpression && parent is KtCallExpression
 
-@ApiStatus.Internal
 internal fun KtExpression.isLambdaReturnValueHintsApplicable(allowOneLiner: Boolean = false): Boolean {
     //if (allowOneLiner && this.isOneLiner()) {
     //    val literalWithBody = this is KtBlockExpression && isFunctionalLiteralWithBody()
@@ -301,13 +297,12 @@ private fun isMultilineLocalProperty(element: PsiElement): Boolean {
     return false
 }
 
-@OptIn(KaExperimentalApi::class)
 context(_: KaSession)
 private fun renderKtTypeHint(element: KtCallableDeclaration, multilineLocalProperty: Boolean): KaType? =
     calculateAllTypes(element) { declarationType, allTypes, _ ->
         if (declarationType is KaErrorType) return@calculateAllTypes null
 
-        if (declarationType.isUnitType && multilineLocalProperty) {
+        if (declarationType.classId == KaStandardTypeClassIds.UNIT && multilineLocalProperty) {
             return@calculateAllTypes null
         }
 
@@ -364,14 +359,14 @@ private fun isUnclearType(type: KaType, element: KtCallableDeclaration): Boolean
         }
     }
 
-    return !type.isAnyType
+    return type.classId != KaStandardTypeClassIds.ANY
 }
 
 internal fun collectLambdaTypeHint(lambdaExpression: KtExpression, sink: InlayTreeSink) {
     val functionLiteral = lambdaExpression.getStrictParentOfType<KtFunctionLiteral>() ?: return
 
     analyze(lambdaExpression) {
-        val functionCall = functionLiteral.resolveToCall()?.singleFunctionCallOrNull() ?: return
+        val functionCall = functionLiteral.tryResolveExpressionCall()?.single?.function ?: return
         sink.addPresentation(InlineInlayPosition(lambdaExpression.endOffset, true), hintFormat = HintFormat.default) {
             text(": ")
             printKtType(functionCall.symbol.returnType)
@@ -383,17 +378,16 @@ internal fun collectLambdaTypeHint(lambdaExpression: KtExpression, sink: InlayTr
 context(_: KaSession)
 private fun isConstructorCall(initializer: KtExpression?): Boolean {
     val callExpression = initializer as? KtCallExpression ?: return false
-    val resolveCall = initializer.resolveToCall() ?: return false
-    val functionCall = resolveCall.singleFunctionCallOrNull()
+    val resolutionAttempt = callExpression.tryResolveCall() ?: return false
+    val functionCall = resolutionAttempt.single?.function
     if (functionCall?.symbol is KaSamConstructorSymbol) {
         return true
     }
 
-    val constructorCall = resolveCall.singleConstructorCallOrNull()
+    val constructorCall = resolutionAttempt.single?.constructor
     return constructorCall != null && (constructorCall.symbol.typeParameters.isEmpty() || callExpression.typeArgumentList != null)
 }
 
-@OptIn(KaExperimentalApi::class)
 context(_: KaSession)
 private fun isConstructorLikeCall(type: KaType, initializer: KtExpression?): Boolean {
     val callExpression = initializer as? KtCallExpression ?: return false

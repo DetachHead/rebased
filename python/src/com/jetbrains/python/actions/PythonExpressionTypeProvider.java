@@ -8,7 +8,6 @@ import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiFile;
 import com.intellij.psi.SyntaxTraverser;
 import com.jetbrains.python.PyBundle;
-import com.jetbrains.python.documentation.PyTypeRenderer.Feature;
 import com.jetbrains.python.documentation.PythonDocumentationProvider;
 import com.jetbrains.python.psi.PyExpression;
 import com.jetbrains.python.psi.types.TypeEvalContext;
@@ -55,8 +54,8 @@ final class PythonExpressionTypeProvider extends ExpressionTypeProvider<PyExpres
       TypeEvalContext.userInitiated: %s
       TypeEvalContext.codeAnalysis: %s
       """.formatted(
-      PythonDocumentationProvider.getTypeName(userInitiated.getType(element), userInitiated, Feature.UNSAFE_UNION),
-      PythonDocumentationProvider.getTypeName(codeAnalysis.getType(element), codeAnalysis, Feature.UNSAFE_UNION)
+      PythonDocumentationProvider.getTypeName(userInitiated.getType(element), userInitiated),
+      PythonDocumentationProvider.getTypeName(codeAnalysis.getType(element), codeAnalysis)
     );
   }
 }

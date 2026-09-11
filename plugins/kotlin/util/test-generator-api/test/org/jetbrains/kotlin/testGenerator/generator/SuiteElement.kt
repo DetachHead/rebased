@@ -87,8 +87,7 @@ class SuiteElement private constructor(
                     model.passTestDataPath,
                     file,
                     model.ignored,
-                    model.
-                    methodAnnotations
+                    model.methodAnnotations + model.methodAnnotationsByTestDataPath[path].orEmpty()
                 )
             }
 
@@ -218,6 +217,36 @@ class SuiteElement private constructor(
         appendModifiers(modifiers)
         appendBlock("class $className extends ${suite.abstractTestClass.simpleName}") {
             appendList(methods + nestedSuites, separator = "\n\n")
+        }
+    }
+
+    /**
+     * Renders this suite as a single top-level JUnit 5 Kotlin class (see `Junit5Suite`). Unlike [render], the generated
+     * class has no `@RunWith` and no nested classes; the `runTest` bridge lives on the hand-written abstract base.
+     */
+    fun Code.renderKotlin() {
+        if (model.ignored) return
+        check(nestedSuites.isEmpty()) { "JUnit 5 generation does not support nested suites (class $className)" }
+
+        val junit5 = suite.junit5!!
+        val testDataPath = testDataPath().toRelativeStringSystemIndependent(group.moduleRoot)
+
+        appendLine("@TestApplication")
+        junit5.classAnnotations.forEach { appendLine("@$it") }
+        appendLine("@TestRoot(\"${group.modulePath}\")")
+        appendLine("@TestDataPath(\"\\\$CONTENT_ROOT\")")
+        appendLine("@TestMetadata(\"$testDataPath\")")
+
+        val header = buildString {
+            append("class ").append(className)
+            if (junit5.constructorParams.isNotEmpty()) {
+                append("(").append(junit5.constructorParams).append(")")
+            }
+            append(" : ").append(suite.abstractTestClass.simpleName).append("(").append(junit5.superConstructorArgs).append(")")
+        }
+
+        appendBlock(header) {
+            appendList(methods.filterIsInstance<TestCaseMethod>(), separator = "\n\n") { with(it) { renderKotlin() } }
         }
     }
 }

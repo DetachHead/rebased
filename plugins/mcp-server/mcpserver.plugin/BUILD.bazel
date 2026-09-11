@@ -1,0 +1,111 @@
+load("@community//platform/build-scripts/bazel-rules:dev_dist_plugin.bzl", "dev_dist_plugin")
+load("@rules_jvm//:jvm.bzl", "jvm_library")
+
+### auto-generated section `build intellij.mcpserver.plugin` start
+jvm_library(
+    name = "mcpserver.plugin",
+    srcs = glob(
+        [],
+        allow_empty = True,
+    ),
+    module_name = "intellij.mcpserver.plugin",
+    resource_strip_prefix = "resources",
+    resources = glob(
+        ["resources/**/*"],
+    ),
+    visibility = ["//visibility:public"],
+    runtime_deps = [
+        # do not sort,
+        "//plugins/mcp-server:mcpserver",
+        "//plugins/mcp-server/mcpserver.toolsets",
+        "//plugins/mcp-server/mcpserver.frontend",
+        "//plugins/mcp-server/mcpserver.stdio",
+        "//plugins/mcp-server/mcpserver.terminal",
+        "//plugins/mcp-server/mcpserver.terminal.frontend",
+        "//plugins/mcp-server/mcpserver.vcs",
+    ],
+)
+
+jvm_library(
+    name = "mcpserver.plugin_test_lib",
+    testonly = True,
+    srcs = glob(
+        [],
+        allow_empty = True,
+    ),
+    module_name = "intellij.mcpserver.plugin",
+    visibility = ["//visibility:public"],
+    runtime_deps = [
+        # do not sort,
+        ":mcpserver.plugin",
+        "//plugins/mcp-server:mcpserver_test_lib",
+        "//plugins/mcp-server/mcpserver.toolsets:mcpserver.toolsets_test_lib",
+        "//plugins/mcp-server/mcpserver.frontend:mcpserver.frontend_test_lib",
+        "//plugins/mcp-server/mcpserver.stdio:mcpserver.stdio_test_lib",
+        "//plugins/mcp-server/mcpserver.terminal:mcpserver.terminal_test_lib",
+        "//plugins/mcp-server/mcpserver.terminal.frontend:mcpserver.terminal.frontend_test_lib",
+        "//plugins/mcp-server/mcpserver.vcs:mcpserver.vcs_test_lib",
+    ],
+)
+### auto-generated section `build intellij.mcpserver.plugin` end
+
+### auto-generated section `iml intellij.mcpserver.plugin` start
+exports_files(
+    [
+        "intellij.mcpserver.plugin.iml",
+        "resources/META-INF/plugin.xml",
+    ],
+    visibility = ["//visibility:public"],
+)
+### auto-generated section `iml intellij.mcpserver.plugin` end
+
+### auto-generated section `dev intellij.mcpserver.plugin` start
+dev_dist_plugin(
+    content_modules = [
+        "//libraries/kotlin/logging",
+        "//libraries/ktor/server-content-negotiation:libraries-ktor-server-content-negotiation",
+        "//libraries/ktor/server-sse:libraries-ktor-server-sse",
+        "//libraries/mcp-kotlin-sdk",
+        "//libraries/schema-kenerator",
+        "//plugins/mcp-server/mcpserver.stdio",
+        "//plugins/mcp-server:mcpserver",
+    ],
+    descriptor = "resources/META-INF/plugin.xml",
+    descriptor_module = ":mcpserver.plugin",
+    descriptors = {
+        "@community//libraries/kotlin/logging:resources/intellij.libraries.kotlin.logging.xml": "intellij.libraries.kotlin.logging.xml",
+        "@community//libraries/ktor/server-content-negotiation:resources/intellij.libraries.ktor.server.content.negotiation.xml": "intellij.libraries.ktor.server.content.negotiation.xml",
+        "@community//libraries/ktor/server-sse:resources/intellij.libraries.ktor.server.sse.xml": "intellij.libraries.ktor.server.sse.xml",
+        "@community//libraries/mcp-kotlin-sdk:resources/intellij.libraries.mcp.kotlin.sdk.xml": "intellij.libraries.mcp.kotlin.sdk.xml",
+        "@community//libraries/night-config-toml:resources/intellij.libraries.night.config.toml.xml": "intellij.libraries.night.config.toml.xml",
+        "@community//libraries/schema-kenerator:resources/intellij.libraries.schema.kenerator.xml": "intellij.libraries.schema.kenerator.xml",
+        "@community//plugins/mcp-server/mcpserver.frontend:resources/intellij.mcpserver.frontend.xml": "intellij.mcpserver.frontend.xml",
+        "@community//plugins/mcp-server/mcpserver.stdio:resources/intellij.mcpserver.stdio.xml": "intellij.mcpserver.stdio.xml",
+        "@community//plugins/mcp-server/mcpserver.terminal.frontend:resources/intellij.mcpserver.terminal.frontend.xml": "intellij.mcpserver.terminal.frontend.xml",
+        "@community//plugins/mcp-server/mcpserver.terminal:resources/intellij.mcpserver.terminal.xml": "intellij.mcpserver.terminal.xml",
+        "@community//plugins/mcp-server/mcpserver.toolsets:resources/intellij.mcpserver.toolsets.xml": "intellij.mcpserver.toolsets.xml",
+        "@community//plugins/mcp-server/mcpserver.vcs:resources/intellij.mcpserver.vcs.xml": "intellij.mcpserver.vcs.xml",
+        "@community//plugins/mcp-server:resources/intellij.mcpserver.xml": "intellij.mcpserver.xml",
+    },
+    libraries = [
+        "@lib//:libraries-kotlin-logging-io-github-oshai-kotlin-logging-jvm",
+        "@lib//:libraries-ktor-server-content-negotiation-ktor-server-content-negotiation",
+        "@lib//:libraries-ktor-server-sse-ktor-server-sse-jvm",
+        "@lib//:libraries-mcp-kotlin-sdk-io-modelcontextprotocol-kotlin-sdk",
+        "@lib//:libraries-schema-kenerator-io-github-smiley4-schema-kenerator-core",
+        "@lib//:libraries-schema-kenerator-io-github-smiley4-schema-kenerator-jsonschema",
+        "@lib//:libraries-schema-kenerator-io-github-smiley4-schema-kenerator-serialization",
+        "@lib//:slf4j-api",
+        "@lib//:slf4j-jdk14",
+    ],
+    main_module = "intellij.mcpserver.plugin",
+    prepacked_content_modules = [
+        "//libraries/night-config-toml:night-config-toml_content_module_jar",
+        "//plugins/mcp-server/mcpserver.frontend:mcpserver.frontend_content_module_jar",
+        "//plugins/mcp-server/mcpserver.terminal.frontend:mcpserver.terminal.frontend_content_module_jar",
+        "//plugins/mcp-server/mcpserver.terminal:mcpserver.terminal_content_module_jar",
+        "//plugins/mcp-server/mcpserver.toolsets:mcpserver.toolsets_content_module_jar",
+        "//plugins/mcp-server/mcpserver.vcs:mcpserver.vcs_content_module_jar",
+    ],
+)
+### auto-generated section `dev intellij.mcpserver.plugin` end

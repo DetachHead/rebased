@@ -11,8 +11,8 @@ import androidx.compose.runtime.mutableStateOf
  * * They have the same [name]
  * * The [isPopupVisible] value is the same
  *
- * @param name An optional name given to the instance.
  * @param onPopupVisibleChange A lambda to call when the popup visibility changes.
+ * @param name An optional name given to the instance.
  */
 public class PopupManager(public val onPopupVisibleChange: (Boolean) -> Unit = {}, public val name: String? = null) {
     private val _isPopupVisible: MutableState<Boolean> = mutableStateOf(false)
@@ -49,7 +49,7 @@ public class PopupManager(public val onPopupVisibleChange: (Boolean) -> Unit = {
     }
 
     override fun hashCode(): Int {
-        var result = name?.hashCode() ?: 0
+        var result = name.hashCode()
         result = 31 * result + isPopupVisible.value.hashCode()
         return result
     }

@@ -1,9 +1,10 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.ide.browsers;
 
 import com.intellij.icons.AllIcons;
 import com.intellij.ide.IdeBundle;
 import com.intellij.openapi.util.Comparing;
+import com.intellij.openapi.util.NlsContexts;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.util.PathUtil;
 import org.jetbrains.annotations.NotNull;
@@ -31,16 +32,17 @@ final class ConfigurableWebBrowser extends WebBrowser {
     this(id, family, family.getName(), family.getExecutionPath(), true, family.createBrowserSpecificSettings());
   }
 
-  ConfigurableWebBrowser(@NotNull UUID id,
-                                @NotNull BrowserFamily family,
-                                @NotNull String name,
-                                @Nullable String path,
-                                boolean active,
-                                @Nullable BrowserSpecificSettings specificSettings) {
+  ConfigurableWebBrowser(
+    @NotNull UUID id,
+    @NotNull BrowserFamily family,
+    @NotNull String name,
+    @Nullable String path,
+    boolean active,
+    @Nullable BrowserSpecificSettings specificSettings
+  ) {
     this.id = id;
     this.family = family;
     this.name = name;
-
     this.path = StringUtil.nullize(path);
     this.active = active;
     this.specificSettings = specificSettings;
@@ -68,6 +70,12 @@ final class ConfigurableWebBrowser extends WebBrowser {
       }
       else if (WebBrowserManager.isOpera(this)) {
         return AllIcons.Xml.Browsers.Opera;
+      }
+      else if (checkNameAndPath("Vivaldi")) {
+        return AllIcons.Xml.Browsers.Vivaldi;
+      }
+      else if (checkNameAndPath("Brave")) {
+        return AllIcons.Xml.Browsers.Brave;
       }
       else if (checkNameAndPath("node-webkit") || checkNameAndPath("nw") || checkNameAndPath("nwjs")) {
         return AllIcons.Xml.Browsers.Nwjs;
@@ -117,19 +125,14 @@ final class ConfigurableWebBrowser extends WebBrowser {
 
   @Override
   public boolean equals(Object o) {
-    if (this == o) {
-      return true;
-    }
-    if (!(o instanceof ConfigurableWebBrowser browser)) {
-      return false;
-    }
-
-    return getId().equals(browser.getId()) &&
-           family.equals(browser.family) &&
-           active == browser.active &&
-           Comparing.strEqual(name, browser.name) &&
-           Objects.equals(path, browser.path) &&
-           Comparing.equal(specificSettings, browser.specificSettings);
+    return this == o || o instanceof ConfigurableWebBrowser browser && (
+      getId().equals(browser.getId()) &&
+      family.equals(browser.family) &&
+      active == browser.active &&
+      Comparing.strEqual(name, browser.name) &&
+      Objects.equals(path, browser.path) &&
+      Comparing.equal(specificSettings, browser.specificSettings)
+    );
   }
 
   @Override
@@ -153,10 +156,9 @@ final class ConfigurableWebBrowser extends WebBrowser {
   }
 
   @Override
-  public @NotNull String getBrowserNotFoundMessage() {
+  public @NotNull @NlsContexts.NotificationContent String getBrowserNotFoundMessage() {
     return IdeBundle.message("error.0.browser.path.not.specified", getName());
   }
-
 
   @Override
   public String toString() {

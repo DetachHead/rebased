@@ -14,6 +14,7 @@ import com.intellij.testFramework.LightVirtualFile;
 import com.intellij.util.ObjectUtils;
 import com.intellij.util.containers.ContainerUtil;
 import org.intellij.plugins.markdown.lang.MarkdownLanguage;
+import org.intellij.plugins.markdown.lang.formatter.settings.TableStyle;
 import org.intellij.plugins.markdown.lang.psi.impl.MarkdownCodeFence;
 import org.intellij.plugins.markdown.lang.psi.impl.MarkdownFile;
 import org.intellij.plugins.markdown.lang.psi.impl.MarkdownHeader;
@@ -59,13 +60,26 @@ public final class MarkdownPsiElementFactory {
                                                            @Nullable String language,
                                                            @NotNull String text,
                                                            @Nullable String indent) {
-    String content = "```" + StringUtil.notNullize(language) + "\n" +
+    return createCodeFence(project, language, text, indent, "");
+  }
+
+  public static @NotNull MarkdownCodeFence createCodeFence(@NotNull Project project,
+                                                           @Nullable String language,
+                                                           @NotNull String text,
+                                                           @Nullable String indent,
+                                                           @NotNull String openingIndent) {
+    String contentIndent = StringUtil.notNullize(indent);
+    String containerIndent = !openingIndent.isEmpty() && contentIndent.endsWith(openingIndent)
+                             ? contentIndent.substring(0, contentIndent.length() - openingIndent.length())
+                             : "";
+    String openingPrefix = containerIndent.indexOf('>') >= 0 ? containerIndent : "";
+    String content = openingPrefix + openingIndent + "```" + StringUtil.notNullize(language) + "\n" +
                      text + "\n" +
-                     StringUtil.notNullize(indent) + "```";
+                     contentIndent + "```";
 
     final MarkdownFile file = createFile(project, content);
 
-    return (MarkdownCodeFence)file.getFirstChild();
+    return Objects.requireNonNull(PsiTreeUtil.findChildOfType(file, MarkdownCodeFence.class));
   }
 
   public static @NotNull MarkdownPsiElement createTextElement(@NotNull Project project, @NotNull String text) {
@@ -200,9 +214,24 @@ public final class MarkdownPsiElementFactory {
     }
   }
 
+  /**
+   * @deprecated Use {@link #createTableEmptyRow(Project, Collection, TableStyle)} instead
+   */
   @ApiStatus.Experimental
+  @Deprecated(forRemoval = true)
   public static @NotNull MarkdownTableRow createTableEmptyRow(@NotNull Project project, @NotNull Collection<Integer> widths) {
-    final var contents = ContainerUtil.map(widths, width -> " ".repeat(width));
+    return createTableEmptyRow(project, widths, TableStyle.ALIGNED);
+  }
+
+  @ApiStatus.Experimental
+  public static @NotNull MarkdownTableRow createTableEmptyRow(@NotNull Project project,
+                                                              @NotNull Collection<Integer> widths,
+                                                              @NotNull TableStyle tableStyle) {
+    final var contents = ContainerUtil.map(widths, width -> switch (tableStyle) {
+      case ALIGNED -> " ".repeat(width);
+      case COMPACT -> " ";
+      case TIGHT -> "";
+    });
     return createTableRow(project, contents);
   }
 

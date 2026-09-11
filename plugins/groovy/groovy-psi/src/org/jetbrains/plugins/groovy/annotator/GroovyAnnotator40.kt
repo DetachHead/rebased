@@ -1,4 +1,4 @@
-// Copyright 2000-2022 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.plugins.groovy.annotator
 
 import com.intellij.codeInspection.InspectionManager
@@ -8,6 +8,7 @@ import com.intellij.lang.annotation.HighlightSeverity
 import com.intellij.psi.PsiClassType
 import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiModifier
+import com.intellij.psi.util.PsiTreeUtil
 import com.intellij.psi.util.parentOfType
 import com.intellij.util.asSafely
 import org.jetbrains.plugins.groovy.GroovyBundle
@@ -17,6 +18,7 @@ import org.jetbrains.plugins.groovy.annotator.intentions.GrReplaceReturnWithYiel
 import org.jetbrains.plugins.groovy.codeInspection.GroovyQuickFixFactory
 import org.jetbrains.plugins.groovy.codeInspection.utils.ControlFlowUtils
 import org.jetbrains.plugins.groovy.lang.psi.GroovyElementVisitor
+import org.jetbrains.plugins.groovy.lang.psi.GroovyFile
 import org.jetbrains.plugins.groovy.lang.psi.api.auxiliary.modifiers.GrModifier
 import org.jetbrains.plugins.groovy.lang.psi.api.auxiliary.modifiers.GrModifierList
 import org.jetbrains.plugins.groovy.lang.psi.api.auxiliary.modifiers.annotation.GrAnnotation
@@ -50,14 +52,13 @@ import org.jetbrains.plugins.groovy.transformations.immutable.isImmutable
 class GroovyAnnotator40(private val holder: AnnotationHolder) : GroovyElementVisitor() {
 
   companion object {
-    private val CONFLICTING_MODIFIERS =
-      listOf(
-        GrModifier.SEALED,
-        GrModifier.NON_SEALED,
-        GrModifier.FINAL,
-        GroovyCommonClassNames.GROOVY_TRANSFORM_SEALED,
-        GroovyCommonClassNames.GROOVY_TRANSFORM_NON_SEALED,
-      )
+    private val CONFLICTING_MODIFIERS = listOf(
+      GrModifier.SEALED,
+      GrModifier.NON_SEALED,
+      GrModifier.FINAL,
+      GroovyCommonClassNames.GROOVY_TRANSFORM_SEALED,
+      GroovyCommonClassNames.GROOVY_TRANSFORM_NON_SEALED,
+    )
 
     private val FORBIDDEN_FOR_RECORD = listOf(
       GrModifier.SEALED,
@@ -89,9 +90,8 @@ class GroovyAnnotator40(private val holder: AnnotationHolder) : GroovyElementVis
     }
     val field = record.fields.find { it.name == formalParameter.name } ?: return
     if (!isImmutable(field)) {
-      holder
-        .newAnnotation(HighlightSeverity.ERROR,
-                       GroovyBundle.message("inspection.message.record.parameter.should.be.immutable", formalParameter.name))
+      holder.newAnnotation(HighlightSeverity.ERROR,
+                           GroovyBundle.message("inspection.message.record.parameter.should.be.immutable", formalParameter.name))
         .range(formalParameter.nameIdentifierGroovy)
         .create()
     }
@@ -106,8 +106,7 @@ class GroovyAnnotator40(private val holder: AnnotationHolder) : GroovyElementVis
 
   private fun PsiElement.forbidForRecord() {
     val elementName = if (this is GrAnnotation) shortName else text
-    holder
-      .newAnnotation(HighlightSeverity.ERROR, GroovyBundle.message("inspection.message.0.not.allowed.for.record", elementName))
+    holder.newAnnotation(HighlightSeverity.ERROR, GroovyBundle.message("inspection.message.0.not.allowed.for.record", elementName))
       .range(this)
       .withFix(
         GrChangeModifiersFix(FORBIDDEN_FOR_RECORD, null, GroovyBundle.message("intention.name.remove.wrong.modifiers.for.record"), true))
@@ -136,8 +135,8 @@ class GroovyAnnotator40(private val holder: AnnotationHolder) : GroovyElementVis
   private fun createExclusivenessAnnotation(element: PsiElement) {
     val elementName = if (element is GrAnnotation) element.shortName else element.text
     holder
-      .newAnnotation(HighlightSeverity.ERROR, GroovyBundle.message(
-        "inspection.message.only.one.final.sealed.non.sealed.should.be.applied.to.class"))
+      .newAnnotation(HighlightSeverity.ERROR, 
+                     GroovyBundle.message("inspection.message.only.one.final.sealed.non.sealed.should.be.applied.to.class"))
       .range(element)
       .withFix(GrChangeModifiersFix(CONFLICTING_MODIFIERS, null, GroovyBundle.message("leave.only.modifier.or.annotation.0", elementName)))
       .create()
@@ -148,13 +147,13 @@ class GroovyAnnotator40(private val holder: AnnotationHolder) : GroovyElementVis
     if (getAllPermittedClassElements(owner).isEmpty()) {
       if (owner.isInterface) {
         holder.newAnnotation(HighlightSeverity.ERROR,
-                             GroovyBundle.message("inspection.message.interface.has.no.explicit.or.implicit.implementors",
-                                                  owner.name)).range(sealedElement).create()
+                             GroovyBundle.message("inspection.message.interface.has.no.explicit.or.implicit.implementors", owner.name))
+          .range(sealedElement).create()
       }
       else {
         holder.newAnnotation(HighlightSeverity.ERROR,
-                             GroovyBundle.message("inspection.message.class.has.no.explicit.or.implicit.subclasses", owner.name)).range(
-          sealedElement).create()
+                             GroovyBundle.message("inspection.message.class.has.no.explicit.or.implicit.subclasses", owner.name))
+          .range(sealedElement).create()
       }
     }
   }
@@ -197,8 +196,7 @@ class GroovyAnnotator40(private val holder: AnnotationHolder) : GroovyElementVis
     }
     if (modifierList?.hasModifierProperty(GrModifier.SEALED) == true) return
     val fix = GrChangeModifiersFix(CONFLICTING_MODIFIERS, GrModifier.SEALED, GroovyBundle.message("add.modifier.sealed"))
-    holder
-      .newAnnotation(HighlightSeverity.ERROR, GroovyBundle.message("inspection.message.invalid.permits.clause.must.be.sealed", name))
+    holder.newAnnotation(HighlightSeverity.ERROR, GroovyBundle.message("inspection.message.invalid.permits.clause.must.be.sealed", name))
       .range(permitsClause.keyword!!).withFix(fix)
       .create()
   }
@@ -220,14 +218,14 @@ class GroovyAnnotator40(private val holder: AnnotationHolder) : GroovyElementVis
         continue
       }
       val message = GroovyBundle.message("inspection.message.not.allowed.in.sealed.hierarchy", ownerType.className)
-      val problemDescriptor = InspectionManager.getInstance(project).createProblemDescriptor(element, element, message, ProblemHighlightType.ERROR, true)
-      holder
-        .newAnnotation(HighlightSeverity.ERROR,
-                       message)
+      val problemDescriptor =
+        InspectionManager.getInstance(project).createProblemDescriptor(element, element, message, ProblemHighlightType.ERROR, true)
+      holder.newAnnotation(HighlightSeverity.ERROR, message)
         .range(element)
         .apply {
           if (baseClass.hasModifierProperty(GrModifier.SEALED)) {
-            baseClass.permitsClause?.let { newLocalQuickFix(AddToPermitsList(name ?: "", element.text), problemDescriptor).range(element.textRange).registerFix() }
+            baseClass.permitsClause?.let { newLocalQuickFix(AddToPermitsList(name ?: "", element.text), problemDescriptor)
+              .range(element.textRange).registerFix() }
           }
         }
         .create()
@@ -255,9 +253,8 @@ class GroovyAnnotator40(private val holder: AnnotationHolder) : GroovyElementVis
     if (method.modifierList.getModifier(GrModifier.PUBLIC) == null &&
         method.modifierList.getModifier(GrModifier.PRIVATE) == null &&
         method.modifierList.getModifier(GrModifier.PROTECTED) == null) {
-      holder
-        .newAnnotation(HighlightSeverity.ERROR,
-                       GroovyBundle.message("inspection.message.compact.constructor.should.have.explicit.visibility.modifier"))
+      holder.newAnnotation(HighlightSeverity.ERROR,
+                           GroovyBundle.message("inspection.message.compact.constructor.should.have.explicit.visibility.modifier"))
         .range(method.nameIdentifierGroovy)
         .withFix(
           GrChangeModifiersFix(emptyList(), GrModifier.PUBLIC, GroovyBundle.message("intention.name.make.compact.constructor.public")))
@@ -270,7 +267,7 @@ class GroovyAnnotator40(private val holder: AnnotationHolder) : GroovyElementVis
       // old-style switch statements are handled within the other classes
       return
     }
-    val caseSections = switchElement.caseSections ?: emptyArray()
+    val caseSections = switchElement.caseSections
     if (caseSections.isEmpty()) {
       switchElement.firstChild?.let {
         holder.newAnnotation(HighlightSeverity.ERROR,
@@ -294,8 +291,8 @@ class GroovyAnnotator40(private val holder: AnnotationHolder) : GroovyElementVis
     val arrows = caseSections.mapNotNull(GrCaseSection::getArrow).takeIf(List<*>::isNotEmpty) ?: return
     val colons = caseSections.mapNotNull(GrCaseSection::getColon).takeIf(List<*>::isNotEmpty) ?: return
     for (element in arrows + colons) {
-      holder.newAnnotation(HighlightSeverity.ERROR, GroovyBundle.message("inspection.message.mixing.arrows.colons.not.allowed")).range(
-        element).create()
+      holder.newAnnotation(HighlightSeverity.ERROR, GroovyBundle.message("inspection.message.mixing.arrows.colons.not.allowed"))
+        .range(element).create()
     }
   }
 
@@ -303,16 +300,20 @@ class GroovyAnnotator40(private val holder: AnnotationHolder) : GroovyElementVis
     super.visitMethodCall(call)
     if (call.invokedExpression.asSafely<GrReferenceExpression>()?.isQualified == false) {
       val resolved = call.resolveMethod()?.takeIf { it.hasModifierProperty(PsiModifier.STATIC) } ?: return
-      if (resolved.containingClass?.isInterface == true) {
-        val fix = GroovyQuickFixFactory.getInstance().createQualifyExpressionFix()
-        val problemDescriptor =
-          InspectionManager.getInstance(call.project)
-            .createProblemDescriptor(call, GroovyBundle.message("intention.name.replace.with.qualified.expression"), fix, ProblemHighlightType.ERROR, true)
-        holder
-          .newAnnotation(HighlightSeverity.ERROR, GroovyBundle.message("inspection.message.static.interface.methods.must.be.qualified.in.groovy.4"))
-          .range(call.invokedExpression)
-          .newLocalQuickFix(fix, problemDescriptor).registerFix()
-          .create()
+      val containingClass = resolved.containingClass
+      if (containingClass != null && containingClass.isInterface) {
+        val owner = PsiTreeUtil.getParentOfType<GrTypeDefinition?>(call, GrTypeDefinition::class.java, true, GroovyFile::class.java)
+        if (owner != null && owner.isInheritor(containingClass, true)) {
+          val fix = GroovyQuickFixFactory.getInstance().createQualifyExpressionFix()
+          val problemDescriptor = InspectionManager.getInstance(call.project)
+              .createProblemDescriptor(call, GroovyBundle.message("intention.name.replace.with.qualified.expression"),
+                                       fix, ProblemHighlightType.ERROR, true)
+          holder.newAnnotation(HighlightSeverity.ERROR,
+                               GroovyBundle.message("inspection.message.static.interface.methods.must.be.qualified.in.groovy.4"))
+            .range(call.invokedExpression)
+            .newLocalQuickFix(fix, problemDescriptor).registerFix()
+            .create()
+        }
       }
     }
   }
@@ -324,8 +325,7 @@ class GroovyAnnotator40(private val holder: AnnotationHolder) : GroovyElementVis
     val flow = ControlFlowUtils.getCaseSectionInstructions(caseSection)
     val returns = ControlFlowUtils.collectReturns(flow, caseSection, false)
     for (returnStatement in returns.filterIsInstance<GrReturnStatement>()) {
-      holder
-        .newAnnotation(HighlightSeverity.ERROR, GroovyBundle.message("inspection.message.switch.expressions.do.not.support.return"))
+      holder.newAnnotation(HighlightSeverity.ERROR, GroovyBundle.message("inspection.message.switch.expressions.do.not.support.return"))
         .range(returnStatement)
         .withFix(GrReplaceReturnWithYield())
         .create()

@@ -19,8 +19,6 @@ enum class SuppressionType {
   PLUGIN_XML_MODULE,
   /** plugins[].suppressPlugins - plugin deps in plugin.xml */
   PLUGIN_XML_PLUGIN,
-  /** contentModules[].suppressLibraries - library to module replacements in IML */
-  LIBRARY_REPLACEMENT,
   /** contentModules[].suppressTestLibraryScope - test library scope changes in IML */
   TEST_LIBRARY_SCOPE,
 }
@@ -137,6 +135,27 @@ data class ProductGenerationResult(
 )
 
 /**
+ * Result of generating a single dev-distribution plan file.
+ */
+data class DevDistPlanFileResult(
+  /** Relative path from project root */
+  @JvmField val relativePath: String,
+  /** Change status of the file */
+  override val status: FileChangeStatus,
+) : HasFileChangeStatus
+
+/**
+ * Result of generating all dev-distribution plan files.
+ *
+ * The plan holds every file the dev-distribution fragments read: the cache partition, the declared inputs, the module
+ * sets, the content sets, and the descriptor tables. The list holds the unchanged files too, so the summary can state
+ * how many files it covers.
+ */
+data class DevDistPlanGenerationResult(
+  @JvmField val files: List<DevDistPlanFileResult>,
+)
+
+/**
  * Result of generating a single module descriptor dependency file.
  */
 data class DependencyFileResult(
@@ -171,10 +190,10 @@ data class DependencyFileResult(
   val testDependencies: List<ContentModuleName> = emptyList(),
   /** Module dependencies that were already in XML before generation (from parsing existing file) */
   val existingXmlModuleDependencies: Set<ContentModuleName> = emptySet(),
-  /** Plugin dependencies written to the XML descriptor (always written, no filter) */
+  /** Effective plugin dependencies written to the XML descriptor. */
   val writtenPluginDependencies: List<PluginId> = emptyList(),
-  /** All JPS deps that are main plugin modules (for validation: IML deps → XML plugin deps) */
-  @JvmField val allJpsPluginDependencies: Set<PluginId> = emptySet(),
+  /** Plugin deps required by descriptor policy (for validation: IML deps → XML plugin deps) */
+  @JvmField val requiredPluginDependencies: Set<PluginId> = emptySet(),
   /** Suppression usages recorded during generation (for unified stale detection) */
   @JvmField val suppressionUsages: List<SuppressionUsage> = emptyList(),
 ) : HasFileChangeStatus
@@ -283,6 +302,35 @@ data class SuppressionConfigStats(
 )
 
 /**
+ * When one part of the generation ran, and for how long. A stage or a pipeline node.
+ *
+ * [startEpochMs] is wall-clock, so a caller can replay the part as a span at the time it really happened. Millisecond
+ * resolution, because the whole generation takes seconds.
+ */
+data class GenerationTiming(
+  @JvmField val name: String,
+  @JvmField val startEpochMs: Long,
+  @JvmField val durationMs: Long,
+)
+
+/**
+ * Times [block] and appends the result to [into].
+ *
+ * The `finally` matters: a stage that throws still reports how long it ran before it did, and a failed generation is
+ * exactly when a reader wants the timing.
+ */
+suspend fun <T> recordGenerationTiming(name: String, into: MutableList<GenerationTiming>, block: suspend () -> T): T {
+  val startEpochMs = System.currentTimeMillis()
+  val startNano = System.nanoTime()
+  try {
+    return block()
+  }
+  finally {
+    into.add(GenerationTiming(name = name, startEpochMs = startEpochMs, durationMs = (System.nanoTime() - startNano) / 1_000_000))
+  }
+}
+
+/**
  * Combined results from all generation operations.
  * Used to collect parallel generation results before printing summary.
  */
@@ -295,11 +343,42 @@ data class GenerationStats(
   @JvmField val productResult: ProductGenerationResult?,
   @JvmField val testPluginResult: TestPluginGenerationResult? = null,
   @JvmField val suppressionConfigStats: SuppressionConfigStats? = null,
+  /** Result of the dev-distribution plan generation. `null` means the run did not evaluate the plan. */
+  @JvmField val devDistPlanResult: DevDistPlanGenerationResult? = null,
   @JvmField val durationMs: Long,
-  /** All file diffs from DeferredFileUpdater - single source of truth for change detection */
+  /** All file diffs from DeferredFileUpdater. The pipeline owns these files. See [hasChanges] for the rest. */
   @JvmField val fileUpdaterDiffs: List<FileDiff> = emptyList(),
+  /**
+   * When each pipeline node ran, and for how long, sorted by start.
+   *
+   * The pipeline runs a level of nodes in parallel, so these overlap and do not sum to [durationMs]. A caller that
+   * traces the generation replays them as spans, which is how one slow node becomes visible inside one opaque total.
+   */
+  @JvmField val nodeTimings: List<GenerationTiming> = emptyList(),
+  /**
+   * When each generation stage ran, and for how long, sorted by start.
+   *
+   * The stages are sequential, so these do sum to close to [durationMs]. This is the list that says which stage owns
+   * the time; [nodeTimings] then says which node owns the EXECUTE stage. A caller past the pipeline appends its own
+   * stages here, so one list covers the whole generation.
+   */
+  @JvmField val stageTimings: List<GenerationTiming> = emptyList(),
+  /**
+   * When each step of the BUILD_MODEL stage ran, and for how long, sorted by start.
+   *
+   * A step nests inside the `build model` stage, so this list is separate from [stageTimings]. One list would count the
+   * same time twice. The steps are sequential, so they sum to close to the `build model` entry of [stageTimings]. A
+   * name is the name of the called function, and never a phase label, because the labels do not follow the execution
+   * order.
+   */
+  @JvmField val phaseTimings: List<GenerationTiming> = emptyList(),
 ) {
-  /** Uses central file tracking as single source of truth */
+  /**
+   * Central file tracking, plus the dev-distribution plan.
+   *
+   * The plan generator writes outside [fileUpdaterDiffs], so that list alone cannot answer this. A summary that reads
+   * only the updater reports `All files unchanged` after a run rewrote a plan file.
+   */
   val hasChanges: Boolean
-    get() = fileUpdaterDiffs.isNotEmpty()
+    get() = fileUpdaterDiffs.isNotEmpty() || devDistPlanResult?.files?.hasChanges() == true
 }

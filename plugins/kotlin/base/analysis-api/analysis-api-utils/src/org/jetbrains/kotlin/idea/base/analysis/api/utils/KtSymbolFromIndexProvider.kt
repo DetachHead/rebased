@@ -13,20 +13,17 @@ import com.intellij.psi.search.GlobalSearchScope
 import com.intellij.psi.search.PsiShortNamesCache
 import com.intellij.util.Processor
 import org.jetbrains.annotations.ApiStatus
-import org.jetbrains.kotlin.analysis.api.KaExperimentalApi
 import org.jetbrains.kotlin.analysis.api.KaPlatformInterface
 import org.jetbrains.kotlin.analysis.api.KaSession
-import org.jetbrains.kotlin.analysis.api.components.KaBuiltinTypes
-import org.jetbrains.kotlin.analysis.api.components.analysisScope
-import org.jetbrains.kotlin.analysis.api.components.builtinTypes
-import org.jetbrains.kotlin.analysis.api.components.callableSymbol
-import org.jetbrains.kotlin.analysis.api.components.namedClassSymbol
-import org.jetbrains.kotlin.analysis.api.components.resolveExtensionScopeWithTopLevelDeclarations
-import org.jetbrains.kotlin.analysis.api.components.withNullability
+import org.jetbrains.kotlin.analysis.api.javaInterop.callableSymbol
+import org.jetbrains.kotlin.analysis.api.javaInterop.namedClassSymbol
 import org.jetbrains.kotlin.analysis.api.platform.projectStructure.KotlinProjectStructureProvider
 import org.jetbrains.kotlin.analysis.api.projectStructure.KaDanglingFileModule
 import org.jetbrains.kotlin.analysis.api.projectStructure.KaModule
 import org.jetbrains.kotlin.analysis.api.projectStructure.KaSourceModule
+import org.jetbrains.kotlin.analysis.api.resolve.extensions.resolveExtensionScopeWithTopLevelDeclarations
+import org.jetbrains.kotlin.analysis.api.session.analysisScope
+import org.jetbrains.kotlin.analysis.api.session.useSiteModule
 import org.jetbrains.kotlin.analysis.api.symbols.KaCallableSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaClassLikeSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaClassSymbol
@@ -36,6 +33,7 @@ import org.jetbrains.kotlin.analysis.api.symbols.KaNamedClassSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.namedClassSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.receiverType
 import org.jetbrains.kotlin.analysis.api.symbols.symbol
+import org.jetbrains.kotlin.analysis.api.types.KaBuiltinTypes
 import org.jetbrains.kotlin.analysis.api.types.KaCapturedType
 import org.jetbrains.kotlin.analysis.api.types.KaClassType
 import org.jetbrains.kotlin.analysis.api.types.KaDefinitelyNotNullType
@@ -43,7 +41,8 @@ import org.jetbrains.kotlin.analysis.api.types.KaFlexibleType
 import org.jetbrains.kotlin.analysis.api.types.KaIntersectionType
 import org.jetbrains.kotlin.analysis.api.types.KaType
 import org.jetbrains.kotlin.analysis.api.types.KaTypeParameterType
-import org.jetbrains.kotlin.analysis.api.useSiteModule
+import org.jetbrains.kotlin.analysis.api.types.builtinTypes
+import org.jetbrains.kotlin.analysis.api.types.withNullability
 import org.jetbrains.kotlin.base.analysis.isExcludedFromAutoImport
 import org.jetbrains.kotlin.idea.base.psi.kotlinFqName
 import org.jetbrains.kotlin.idea.stubindex.KotlinClassShortNameIndex
@@ -58,6 +57,7 @@ import org.jetbrains.kotlin.idea.stubindex.KotlinTopLevelPropertyFqnNameIndex
 import org.jetbrains.kotlin.idea.stubindex.KotlinTypeAliasByExpansionShortNameIndex
 import org.jetbrains.kotlin.idea.stubindex.KotlinTypeAliasShortNameIndex
 import org.jetbrains.kotlin.idea.stubindex.cancelableCollectFilterProcessor
+import org.jetbrains.kotlin.name.ClassId
 import org.jetbrains.kotlin.name.Name
 import org.jetbrains.kotlin.platform.isMultiPlatform
 import org.jetbrains.kotlin.psi.KtCallableDeclaration
@@ -106,7 +106,6 @@ class KtSymbolFromIndexProvider(
         return true
     }
 
-    @OptIn(KaExperimentalApi::class)
     context(_: KaSession)
     fun getKotlinClassesByName(
         name: Name,
@@ -126,7 +125,6 @@ class KtSymbolFromIndexProvider(
         )
     }
 
-    @OptIn(KaExperimentalApi::class)
     context(_: KaSession)
     fun getKotlinClassesByNameFilter(
         nameFilter: (Name) -> Boolean,
@@ -232,7 +230,6 @@ class KtSymbolFromIndexProvider(
         }.mapNotNull { it.namedClassSymbol }
     }
 
-    @OptIn(KaExperimentalApi::class)
     context(_: KaSession)
     fun getKotlinCallableSymbolsByNameFilter(
         nameFilter: (Name) -> Boolean,
@@ -254,7 +251,6 @@ class KtSymbolFromIndexProvider(
         .filterIsInstance<KaCallableSymbol>() +
             resolveExtensionScopeWithTopLevelDeclarations.callables(nameFilter)
 
-    @OptIn(KaExperimentalApi::class)
     context(_: KaSession)
     fun getKotlinCallableSymbolsByName(
         name: Name,
@@ -367,7 +363,6 @@ class KtSymbolFromIndexProvider(
     /**
      *  Returns top-level callables, excluding extensions. To obtain extensions use [getExtensionCallableSymbolsByNameFilter].
      */
-    @OptIn(KaExperimentalApi::class)
     context(_: KaSession)
     fun getTopLevelCallableSymbolsByNameFilter(
         nameFilter: (Name) -> Boolean,
@@ -399,7 +394,6 @@ class KtSymbolFromIndexProvider(
     /**
      * Returns top-level callables, including extensions.
      */
-    @OptIn(KaExperimentalApi::class)
     context(_: KaSession)
     fun getTopLevelCallableSymbolsByNameFilterIncludingExtensions(
         nameFilter: (Name) -> Boolean,
@@ -426,7 +420,6 @@ class KtSymbolFromIndexProvider(
         .filterIsInstance<KaCallableSymbol>() +
             resolveExtensionScopeWithTopLevelDeclarations.callables(nameFilter)
 
-    @OptIn(KaExperimentalApi::class)
     context(_: KaSession)
     fun getExtensionCallableSymbolsByName(
         name: Name,
@@ -463,7 +456,6 @@ class KtSymbolFromIndexProvider(
         }
     }
 
-    @OptIn(KaExperimentalApi::class)
     context(_: KaSession)
     fun getExtensionCallableSymbolsByNameFilter(
         nameFilter: (Name) -> Boolean,
@@ -527,6 +519,8 @@ private fun findAllNamesForTypes(
     scope: GlobalSearchScope,
     builtinTypes: KaBuiltinTypes,
 ): Set<Name> {
+    val visitedTypes = hashMapOf<ClassId, Set<Name>>()
+
     fun findAllNamesForType(type: KaType): Set<Name> = when (type) {
         is KaFlexibleType -> findAllNamesForType(type.lowerBound)
 
@@ -549,13 +543,15 @@ private fun findAllNamesForTypes(
         }
 
         is KaClassType -> {
-            val typeName = type.classId
-                .shortClassName
+            val classId = type.classId
+            val typeName = classId.shortClassName
 
-            if (typeName.isSpecial)
+            if (typeName.isSpecial) {
                 emptySet()
-            else
-                buildSet {
+            } else {
+                visitedTypes[classId]?.let { return it }
+
+                val names = buildSet {
                     add(typeName)
                     addAll(getPossibleTypeAliasExpansionNames(project, typeName, scope))
 
@@ -565,6 +561,9 @@ private fun findAllNamesForTypes(
                         ?.flatMap { findAllNamesForType(it) }
                         ?.forEach { add(it) }
                 }
+                visitedTypes[classId] = names
+                names
+            }
         }
 
         else -> emptySet()

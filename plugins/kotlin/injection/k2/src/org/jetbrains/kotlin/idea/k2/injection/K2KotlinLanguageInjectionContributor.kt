@@ -6,21 +6,24 @@ import com.intellij.psi.PsiFile
 import com.intellij.psi.PsiReference
 import com.intellij.psi.util.PsiTreeUtil
 import org.intellij.plugins.intelliLang.inject.InjectorUtils
-import org.jetbrains.kotlin.analysis.api.KaExperimentalApi
 import org.jetbrains.kotlin.analysis.api.KaPlatformInterface
 import org.jetbrains.kotlin.analysis.api.KaSession
-import org.jetbrains.kotlin.analysis.api.analyze
 import org.jetbrains.kotlin.analysis.api.annotations.KaAnnotation
 import org.jetbrains.kotlin.analysis.api.annotations.KaAnnotationValue
 import org.jetbrains.kotlin.analysis.api.base.KaConstantValue
+import org.jetbrains.kotlin.analysis.api.components.resolveToSymbol
 import org.jetbrains.kotlin.analysis.api.projectStructure.KaDanglingFileModule
 import org.jetbrains.kotlin.analysis.api.projectStructure.KaDanglingFileResolutionMode
 import org.jetbrains.kotlin.analysis.api.projectStructure.copyOrigin
-import org.jetbrains.kotlin.analysis.api.resolution.singleFunctionCallOrNull
+import org.jetbrains.kotlin.analysis.api.resolution.function
+import org.jetbrains.kotlin.analysis.api.resolution.single
 import org.jetbrains.kotlin.analysis.api.resolution.symbol
+import org.jetbrains.kotlin.analysis.api.resolution.tryResolveCall
+import org.jetbrains.kotlin.analysis.api.session.analyze
 import org.jetbrains.kotlin.analysis.api.symbols.KaCallableSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaFunctionSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.markers.KaAnnotatedSymbol
+import org.jetbrains.kotlin.analysis.api.symbols.symbol
 import org.jetbrains.kotlin.idea.base.injection.InjectionInfo
 import org.jetbrains.kotlin.idea.base.injection.KotlinLanguageInjectionContributorBase
 import org.jetbrains.kotlin.idea.base.projectStructure.getKaModuleOfTypeSafe
@@ -32,7 +35,6 @@ import org.jetbrains.kotlin.name.FqName
 import org.jetbrains.kotlin.name.Name
 import org.jetbrains.kotlin.psi.KtCallExpression
 import org.jetbrains.kotlin.psi.KtCallableDeclaration
-import org.jetbrains.kotlin.psi.KtElement
 import org.jetbrains.kotlin.psi.KtFile
 import org.jetbrains.kotlin.psi.KtProperty
 import org.intellij.lang.annotations.Language as LanguageAnnotation
@@ -43,13 +45,13 @@ internal class K2KotlinLanguageInjectionContributor : KotlinLanguageInjectionCon
     }
 
     override fun KtCallExpression.hasCallableId(packageName: FqName, callableName: Name): Boolean = analyze(this) {
-        val symbol = resolveToCall()?.singleFunctionCallOrNull()?.symbol
+        val symbol = tryResolveCall()?.single?.function?.symbol
         symbol?.callableId == CallableId(packageName, callableName)
     }
 
     override fun resolveReference(reference: PsiReference): PsiElement? = reference.resolve()
 
-    @OptIn(KaExperimentalApi::class, KaPlatformInterface::class)
+    @OptIn(KaPlatformInterface::class)
     override fun getTargetProperty(ktProperty: KtProperty, containingFile: PsiFile): KtProperty {
         val copyOrigin = containingFile.copyOrigin as? KtFile
             ?: return super.getTargetProperty(ktProperty, containingFile)
@@ -83,7 +85,7 @@ internal class K2KotlinLanguageInjectionContributor : KotlinLanguageInjectionCon
         argumentName: Name?,
         argumentIndex: Int
     ): InjectionInfo? {
-        val element = functionReference.element as? KtElement ?: return null
+        val element = functionReference.element
         return analyze(element) {
             val functionSymbol = element.mainReference?.resolveToSymbol() as? KaFunctionSymbol ?: return null
             val parameterSymbol = if (argumentName != null) {
@@ -95,7 +97,7 @@ internal class K2KotlinLanguageInjectionContributor : KotlinLanguageInjectionCon
             // For a parameter of a primary constructor, there are multiple possible locations for the annotation in the generated Java
             // bytecode e.g., getter. Thus, we cannot get annotations of the parameter symbol itself. We have to check its use-site targets.
             // We first check its generated property here.
-            val annotationForParameter = parameterSymbol.generatedPrimaryConstructorProperty?.findAnnotation()
+            val annotationForParameter = parameterSymbol.primaryConstructorProperty?.findAnnotation()
                 ?: parameterSymbol.findAnnotation() ?: return null
             injectionInfoByAnnotation(annotationForParameter)
         }

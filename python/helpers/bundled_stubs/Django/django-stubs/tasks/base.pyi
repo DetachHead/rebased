@@ -1,7 +1,7 @@
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Generic, overload
+from typing import Any, Concatenate, Generic, Literal, overload
 
 from django.db.models.enums import TextChoices as TextChoices
 from django.utils.module_loading import import_string as import_string
@@ -27,13 +27,14 @@ class TaskResultStatus(TextChoices):
 _P = ParamSpec("_P")
 _R = TypeVar("_R")
 
-@dataclass(kw_only=True)
+@dataclass(frozen=True, slots=True, kw_only=True)
 class Task(Generic[_P, _R]):
-    priority: int
-    func: Callable[_P, _R]
-    backend: str
-    queue_name: str
-    run_after: datetime | None
+    # Loose: `_P` excludes `TaskContext` when `takes_context=True`, so `func` may have an extra leading param.
+    func: Callable[..., _R]
+    priority: int = ...
+    backend: str = ...
+    queue_name: str = ...
+    run_after: datetime | None = None
     takes_context: bool = ...
     def __post_init__(self) -> None: ...
     @property
@@ -58,12 +59,21 @@ class Task(Generic[_P, _R]):
 
 @overload
 def task(
+    function: Callable[Concatenate[TaskContext[Any, Any], _P], _R],
+    *,
+    priority: int | None = None,
+    queue_name: str | None = None,
+    backend: str | None = None,
+    takes_context: Literal[True],
+) -> Task[_P, _R]: ...
+@overload
+def task(
     function: Callable[_P, _R],
     *,
     priority: int | None = None,
     queue_name: str | None = None,
     backend: str | None = None,
-    takes_context: bool = ...,
+    takes_context: Literal[False] = False,
 ) -> Task[_P, _R]: ...
 @overload
 def task(
@@ -71,7 +81,15 @@ def task(
     priority: int | None = None,
     queue_name: str | None = None,
     backend: str | None = None,
-    takes_context: bool = ...,
+    takes_context: Literal[True],
+) -> Callable[[Callable[Concatenate[TaskContext[Any, Any], _P], _R]], Task[_P, _R]]: ...
+@overload
+def task(
+    *,
+    priority: int | None = None,
+    queue_name: str | None = None,
+    backend: str | None = None,
+    takes_context: Literal[False] = False,
 ) -> Callable[[Callable[_P, _R]], Task[_P, _R]]: ...
 
 @dataclass(kw_only=True)

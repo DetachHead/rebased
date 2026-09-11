@@ -1,8 +1,12 @@
 package org.jetbrains.kotlin.idea.highlighting
 
-import org.jetbrains.kotlin.analysis.api.analyze
 import org.jetbrains.kotlin.analysis.api.permissions.KaAllowAnalysisOnEdt
 import org.jetbrains.kotlin.analysis.api.permissions.allowAnalysisOnEdt
+import org.jetbrains.kotlin.analysis.api.resolution.resolveSuccessfulSymbol
+import org.jetbrains.kotlin.analysis.api.session.analyze
+import org.jetbrains.kotlin.analysis.api.symbols.symbol
+import org.jetbrains.kotlin.analysis.api.types.KaStandardTypeClassIds
+import org.jetbrains.kotlin.analysis.api.types.classId
 import org.jetbrains.kotlin.psi.KtDeclarationWithBody
 import org.jetbrains.kotlin.psi.KtFunction
 import org.jetbrains.kotlin.psi.KtFunctionLiteral
@@ -15,7 +19,7 @@ class KotlinHighlightExitPointsHandlerFactory: AbstractKotlinHighlightExitPoints
     override fun getRelevantReturnDeclaration(returnExpression: KtReturnExpression): KtDeclarationWithBody? {
         val psi = allowAnalysisOnEdt {
             analyze(returnExpression) {
-                returnExpression.targetSymbol?.psi
+                returnExpression.resolveSuccessfulSymbol()?.psi
             }
         }
         return psi as? KtDeclarationWithBody
@@ -35,7 +39,7 @@ class KotlinHighlightExitPointsHandlerFactory: AbstractKotlinHighlightExitPoints
         allowAnalysisOnEdt {
             analyze(functionLiteral) {
                 val returnType = functionLiteral.symbol.returnType
-                !(returnType.isUnitType || returnType.isNothingType)
+                !(returnType.classId == KaStandardTypeClassIds.UNIT || returnType.classId == KaStandardTypeClassIds.NOTHING)
             }
         }
 }

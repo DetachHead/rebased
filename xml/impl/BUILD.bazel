@@ -1,7 +1,7 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
 ### auto-generated section `build intellij.xml.impl` start
-
 jvm_library(
     name = "impl",
     srcs = glob(
@@ -24,7 +24,11 @@ jvm_library(
         "//xml/xml-ui-common:ui-common",
         "//xml/xml-analysis-impl:analysis-impl",
     ],
-    runtime_deps = ["//platform/backend"],
+    runtime_deps = [
+        # do not sort,
+        "//platform/backend",
+        "//platform/vcs-impl",
+    ],
     deps = [
         # do not sort,
         "//platform/analysis-api:analysis",
@@ -76,6 +80,8 @@ jvm_library(
         "//platform/util:util-ui",
     ],
 )
+
+content_module_jar(module = ":impl")
 
 jvm_library(
     name = "impl_test_lib",
@@ -146,6 +152,7 @@ jvm_library(
         "//libraries/kotlinx/collections-immutable:libraries-kotlinx-collections-immutable_test_lib",
         "//platform/util/concurrency:concurrency_test_lib",
         "//platform/util:util-ui_test_lib",
+        "//platform/vcs-impl:vcs-impl_test_lib",
     ],
 )
 ### auto-generated section `build intellij.xml.impl` end
@@ -154,6 +161,9 @@ jvm_library(
 exports_files(
     [
         "intellij.xml.impl.iml",
+        "resources/com/intellij/xml/util/htmlreferencetable.xml",
+        "resources/intellij.xml.impl.xml",
+        "module-content.yaml",
     ],
     visibility = ["//visibility:public"],
 )

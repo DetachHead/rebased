@@ -1,4 +1,5 @@
 // Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+@file:ApiStatus.Experimental
 package com.intellij.ui.tree
 
 import com.intellij.ide.projectView.PresentationData
@@ -124,6 +125,14 @@ internal fun buildPresentation(builder: TreeNodePresentationBuilder, userObject:
     return builder.build()
   }
   userObject.update()
+  return buildTreeNodeDescriptorPresentation(userObject, builder)
+}
+
+@ApiStatus.Experimental
+fun buildTreeNodeDescriptorPresentation(
+  userObject: PresentableNodeDescriptor<*>,
+  builder: TreeNodePresentationBuilder,
+): TreeNodePresentation {
   val colorScheme = EditorColorsManager.getInstance().schemeForCurrentUITheme
   val presentation = userObject.presentation
   return builder.run {
@@ -166,7 +175,9 @@ internal fun buildPresentation(builder: TreeNodePresentationBuilder, userObject:
       val suffix = presentation.locationSuffix
       appendTextFragment(prefix + location + suffix, locationAttributes)
     }
+    setBackground(presentation.background)
     setToolTipText(presentation.tooltip)
+    setTextAttributesKey(presentation.textAttributesKey)
     build()
   }
 }

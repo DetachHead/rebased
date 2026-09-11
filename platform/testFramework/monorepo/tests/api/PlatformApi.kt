@@ -15,7 +15,9 @@ internal object PlatformApi {
     "intellij.platform.images", // plugin
     "intellij.platform.images.copyright", // plugin
     "intellij.platform.images.xdebugger", // plugin
+    "intellij.platform.images.jcef", // plugin
     "intellij.platform.pluginGraph", // build scripts
+    "intellij.platform.distributionContent", // build scripts
     "intellij.platform.images.build", // build scripts
   )
 

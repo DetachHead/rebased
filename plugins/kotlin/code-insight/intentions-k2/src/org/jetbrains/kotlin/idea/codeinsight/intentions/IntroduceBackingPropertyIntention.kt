@@ -8,8 +8,9 @@ import com.intellij.modcommand.ModPsiUpdater
 import com.intellij.openapi.project.Project
 import com.intellij.psi.SmartPsiElementPointer
 import com.intellij.psi.createSmartPointer
-import org.jetbrains.kotlin.analysis.api.KaExperimentalApi
 import org.jetbrains.kotlin.analysis.api.KaSession
+import org.jetbrains.kotlin.analysis.api.evaluation.evaluate
+import org.jetbrains.kotlin.analysis.api.resolution.resolveSuccessfulSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaBackingFieldSymbol
 import org.jetbrains.kotlin.idea.base.codeInsight.ShortenReferencesFacility
 import org.jetbrains.kotlin.idea.base.psi.copied
@@ -27,7 +28,6 @@ import org.jetbrains.kotlin.idea.util.isBackingFieldRequired
 import org.jetbrains.kotlin.lexer.KtTokens
 import org.jetbrains.kotlin.psi.KtClassOrObject
 import org.jetbrains.kotlin.psi.KtElement
-import org.jetbrains.kotlin.psi.KtExperimentalApi
 import org.jetbrains.kotlin.psi.KtProperty
 import org.jetbrains.kotlin.psi.KtPropertyAccessor
 import org.jetbrains.kotlin.psi.KtPsiFactory
@@ -56,7 +56,8 @@ class IntroduceBackingPropertyIntention :
 
     override fun getFamilyName(): @IntentionFamilyName String = KotlinBundle.message("introduce.backing.property")
 
-    override fun KaSession.prepareContext(element: KtProperty): Context? {
+    context(session: KaSession)
+    override fun prepareContext(element: KtProperty): Context? {
         val name = element.name ?: return null
         if (!isBackingFieldRequiredAndCanBeUsed(element)) return null
 
@@ -81,7 +82,8 @@ class IntroduceBackingPropertyIntention :
         return !element.hasJvmFieldAnnotation()
     }
 
-    private fun KaSession.isBackingFieldRequiredAndCanBeUsed(property: KtProperty): Boolean {
+    context(session: KaSession)
+    private fun isBackingFieldRequiredAndCanBeUsed(property: KtProperty): Boolean {
         if (property.isAbstract()) return false
 
         if (property.isLocal) return false
@@ -190,12 +192,12 @@ class IntroduceBackingPropertyIntention :
         return if (property.nameIdentifier?.text?.startsWith('`') == true) "`_${property.name}`" else "_${property.name}"
     }
 
-    @OptIn(KaExperimentalApi::class, KtExperimentalApi::class)
-    private fun KaSession.collectFieldReferences(element: KtElement): List<SmartPsiElementPointer<KtSimpleNameExpression>> {
+    context(session: KaSession)
+    private fun collectFieldReferences(element: KtElement): List<SmartPsiElementPointer<KtSimpleNameExpression>> {
         val fieldReferences = mutableListOf<SmartPsiElementPointer<KtSimpleNameExpression>>()
         element.acceptChildren(object : KtTreeVisitorVoid() {
             override fun visitSimpleNameExpression(expression: KtSimpleNameExpression) {
-                val variableSymbol = expression.resolveSymbol()
+                val variableSymbol = expression.resolveSuccessfulSymbol()
                 if (variableSymbol is KaBackingFieldSymbol) {
                     fieldReferences.add(expression.createSmartPointer())
                 }

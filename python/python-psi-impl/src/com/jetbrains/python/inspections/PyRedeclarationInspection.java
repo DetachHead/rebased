@@ -72,9 +72,10 @@ public final class PyRedeclarationInspection extends PyInspection {
                                                  boolean isOnTheFly,
                                                  @NotNull LocalInspectionToolSession session) {
     TypeEvalContext context = PyInspectionVisitor.getContext(session);
-    Visitor visitor = new Visitor(holder, context);
-    visitor.downgradeHighlightForTypeEngine = context.getUsesExternalTypeEngine();
-    return visitor;
+    if (context.getUsesExternalTypeEngine()) {
+      return PsiElementVisitor.EMPTY_VISITOR;
+    }
+    return new Visitor(holder, context);
   }
 
   private static class Visitor extends PyInspectionVisitor {
@@ -177,9 +178,8 @@ public final class PyRedeclarationInspection extends PyInspection {
           }
           final PsiElement identifier = element.getNameIdentifier();
           registerProblem(identifier != null ? identifier : element,
-                          PyPsiBundle.message("INSP.redeclared.name", name),
+                          PyPsiBundle.problemMessage("INSP.redeclared.name", name),
                           ProblemHighlightType.GENERIC_ERROR_OR_WARNING,
-                          null,
                           quickFixes.toArray(LocalQuickFix.EMPTY_ARRAY));
         }
       }

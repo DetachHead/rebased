@@ -21,17 +21,17 @@ import com.intellij.refactoring.memberPullUp.PullUpData
 import com.intellij.refactoring.memberPullUp.PullUpHelper
 import com.intellij.refactoring.util.RefactoringUtil
 import com.intellij.util.containers.reverse
-import org.jetbrains.kotlin.analysis.api.KaExperimentalApi
 import org.jetbrains.kotlin.analysis.api.KaSession
-import org.jetbrains.kotlin.analysis.api.analyze
-import org.jetbrains.kotlin.analysis.api.permissions.KaAllowAnalysisOnEdt
-import org.jetbrains.kotlin.analysis.api.resolution.KaCallableMemberCall
+import org.jetbrains.kotlin.analysis.api.renderer.render
 import org.jetbrains.kotlin.analysis.api.resolution.KaExplicitReceiverValue
-import org.jetbrains.kotlin.analysis.api.resolution.singleFunctionCallOrNull
-import org.jetbrains.kotlin.analysis.api.resolution.singleVariableAccessCall
-import org.jetbrains.kotlin.analysis.api.resolution.successfulCallOrNull
-import org.jetbrains.kotlin.analysis.api.resolution.successfulVariableAccessCall
+import org.jetbrains.kotlin.analysis.api.resolution.function
+import org.jetbrains.kotlin.analysis.api.resolution.simple
+import org.jetbrains.kotlin.analysis.api.resolution.single
 import org.jetbrains.kotlin.analysis.api.resolution.symbol
+import org.jetbrains.kotlin.analysis.api.resolution.tryResolveCall
+import org.jetbrains.kotlin.analysis.api.resolution.variable
+import org.jetbrains.kotlin.analysis.api.session.analyze
+import org.jetbrains.kotlin.analysis.api.signatures.asSignature
 import org.jetbrains.kotlin.analysis.api.symbols.KaCallableSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaClassSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaConstructorSymbol
@@ -40,9 +40,16 @@ import org.jetbrains.kotlin.analysis.api.symbols.KaNamedClassSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaPackageSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaPropertySymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaValueParameterSymbol
+import org.jetbrains.kotlin.analysis.api.symbols.allOverriddenSymbols
+import org.jetbrains.kotlin.analysis.api.symbols.containingDeclaration
+import org.jetbrains.kotlin.analysis.api.symbols.isDirectSubClassOf
+import org.jetbrains.kotlin.analysis.api.symbols.isSubClassOf
 import org.jetbrains.kotlin.analysis.api.symbols.sourcePsi
+import org.jetbrains.kotlin.analysis.api.symbols.symbol
 import org.jetbrains.kotlin.analysis.api.types.KaErrorType
 import org.jetbrains.kotlin.analysis.api.types.KaSubstitutor
+import org.jetbrains.kotlin.analysis.api.types.expandedSymbol
+import org.jetbrains.kotlin.analysis.api.types.type
 import org.jetbrains.kotlin.asJava.getRepresentativeLightMethod
 import org.jetbrains.kotlin.asJava.namedUnwrappedElement
 import org.jetbrains.kotlin.asJava.toLightClass
@@ -73,6 +80,9 @@ import org.jetbrains.kotlin.idea.refactoring.removeOverrideModifier
 import org.jetbrains.kotlin.idea.refactoring.rename.KotlinRenameRefactoringSupport
 import org.jetbrains.kotlin.idea.refactoring.rename.dropDefaultValue
 import org.jetbrains.kotlin.idea.util.isBackingFieldRequired
+import org.jetbrains.kotlin.idea.util.resolveSuccessfulExpressionCall
+import org.jetbrains.kotlin.idea.util.resolveSuccessfulExpressionSymbol
+import org.jetbrains.kotlin.idea.util.tryResolveExpressionCall
 import org.jetbrains.kotlin.lexer.KtModifierKeywordToken
 import org.jetbrains.kotlin.lexer.KtTokens
 import org.jetbrains.kotlin.name.Name.identifier
@@ -114,6 +124,7 @@ import org.jetbrains.kotlin.psi.psiUtil.asAssignment
 import org.jetbrains.kotlin.psi.psiUtil.getStrictParentOfType
 import org.jetbrains.kotlin.psi.psiUtil.parameterIndex
 import org.jetbrains.kotlin.psi.psiUtil.visibilityModifierTypeOrDefault
+import org.jetbrains.kotlin.resolution.KtResolvableCall
 import org.jetbrains.kotlin.types.Variance
 
 private val MODIFIERS_TO_LIFT_IN_SUPERCLASS = listOf(KtTokens.PRIVATE_KEYWORD)
@@ -142,9 +153,8 @@ internal class K2PullUpHelper(
             override fun visitKtFile(file: KtFile, data: Nothing?): Boolean = false
 
             override fun visitSimpleNameExpression(expression: KtSimpleNameExpression, arg: Nothing?): Boolean = analyze(expression) {
-                val resolvedCall = expression.resolveToCall()?.successfulCallOrNull<KaCallableMemberCall<*, *>>() ?: return true
-                val partiallyAppliedSymbol = resolvedCall.partiallyAppliedSymbol
-                val receiverValue = partiallyAppliedSymbol.dispatchReceiver ?: partiallyAppliedSymbol.extensionReceiver
+                val resolvedCall = expression.resolveSuccessfulExpressionCall()?.simple ?: return true
+                val receiverValue = resolvedCall.dispatchReceiver ?: resolvedCall.extensionReceiver
                 val receiver = (receiverValue as? KaExplicitReceiverValue)?.expression
                 if (receiver != null && receiver !is KtThisExpression && receiver !is KtSuperExpression) return true
 
@@ -160,14 +170,15 @@ internal class K2PullUpHelper(
                     symbol = symbol.containingDeclaration
                 }
                 symbol is KaPackageSymbol || isSubClassOf(
-                    subClass = data.getTargetClassSymbol(analysisSession = this),
+                    subClass = data.getTargetClassSymbol(),
                     superClass = symbol,
                 )
             }
         }, null
     )
 
-    private fun KaSession.getCommonInitializer(
+    context(session: KaSession)
+    private fun getCommonInitializer(
         currentInitializer: KtExpression?,
         scope: KtBlockExpression?,
         propertySymbol: KaPropertySymbol,
@@ -183,8 +194,7 @@ internal class K2PullUpHelper(
                 val receiver = (lhs as? KtQualifiedExpression)?.receiverExpression
                 if (receiver != null && receiver !is KtThisExpression) return@let
 
-                val resolvedCall = lhs.resolveToCall()?.successfulVariableAccessCall() ?: return@let
-                if (resolvedCall.symbol != propertySymbol) return@let
+                if (lhs.resolveSuccessfulExpressionSymbol() != propertySymbol) return@let
 
                 if (initializerCandidate == null) {
                     if (currentInitializer == null) {
@@ -212,7 +222,8 @@ internal class K2PullUpHelper(
         val elementsToRemove: Set<KtElement>,
     )
 
-    private fun KaSession.getInitializerInfo(
+    context(session: KaSession)
+    private fun getInitializerInfo(
         property: KtProperty,
         propertySymbol: KaPropertySymbol,
         targetConstructor: KtElement,
@@ -231,9 +242,8 @@ internal class K2PullUpHelper(
         val usedParameters = LinkedHashSet<KtParameter>()
         val visitor = object : KtTreeVisitorVoid() {
             override fun visitSimpleNameExpression(expression: KtSimpleNameExpression) {
-                val resolvedCall = expression.resolveToCall()?.singleVariableAccessCall() ?: return
-                val partiallyAppliedSymbol = resolvedCall.partiallyAppliedSymbol
-                val receiverValue = partiallyAppliedSymbol.dispatchReceiver ?: partiallyAppliedSymbol.extensionReceiver
+                val resolvedCall = expression.tryResolveExpressionCall()?.single?.variable ?: return
+                val receiverValue = resolvedCall.dispatchReceiver ?: resolvedCall.extensionReceiver
                 val receiver = (receiverValue as? KaExplicitReceiverValue)?.expression
                 if (receiver != null && receiver !is KtThisExpression) return
                 when (val target = resolvedCall.symbol.sourcePsi<KtCallableDeclaration>()) {
@@ -380,7 +390,8 @@ internal class K2PullUpHelper(
 
     override fun encodeContextInfo(info: MemberInfoBase<PsiMember>): Unit = Unit
 
-    private fun KaSession.fixOverrideAndGetClashingSuper(
+    context(session: KaSession)
+    private fun fixOverrideAndGetClashingSuper(
         sourceMember: KtCallableDeclaration,
         targetMember: KtCallableDeclaration,
     ): KtCallableDeclaration? {
@@ -398,29 +409,24 @@ internal class K2PullUpHelper(
         return clashingSuperSymbol.psi as? KtCallableDeclaration
     }
 
-    @OptIn(KaExperimentalApi::class)
     private fun moveSuperInterface(member: KtNamedDeclaration, substitutor: PsiSubstitutor) {
         val realMemberPsi = (member as? KtPsiClassWrapper)?.psiClass ?: member
 
         val currentSpecifier = allowAnalysisFromWriteActionInEdt(member) {
-            analyze(member) {
-                val classSymbol = member.symbol as? KaClassSymbol ?: return
-                getSuperTypeEntryBySymbol(
-                    data.sourceClass,
-                    classSymbol,
-                ) ?: return
-            }
+            val classSymbol = member.symbol as? KaClassSymbol ?: return
+            getSuperTypeEntryBySymbol(
+                data.sourceClass,
+                classSymbol,
+            ) ?: return
         }
         when (data.targetClass) {
             is KtClass -> {
                 allowAnalysisFromWriteActionInEdt(data.sourceClass) {
-                    analyze(data.sourceClass) {
-                        addSuperTypeEntry(
-                            currentSpecifier,
-                            data.targetClass,
-                            data.getSourceToTargetClassSubstitutor(analysisSession = this),
-                        )
-                    }
+                    addSuperTypeEntry(
+                        currentSpecifier,
+                        data.targetClass,
+                        data.getSourceToTargetClassSubstitutor(),
+                    )
                 }
                 data.sourceClass.removeSuperTypeListEntry(currentSpecifier)
             }
@@ -436,11 +442,9 @@ internal class K2PullUpHelper(
                 data.sourceClass.removeSuperTypeListEntry(currentSpecifier)
 
                 allowAnalysisFromWriteActionInEdt(data.sourceClass) {
-                    analyze(data.sourceClass) {
-                        val classSymbol = member.symbol as KaClassSymbol
-                        val targetClassSymbol = data.getTargetClassSymbol(analysisSession = this)
-                        if (targetClassSymbol.isSubClassOf(classSymbol)) return
-                    }
+                    val classSymbol = member.symbol as KaClassSymbol
+                    val targetClassSymbol = data.getTargetClassSymbol()
+                    if (targetClassSymbol.isSubClassOf(classSymbol)) return
                 }
 
                 val refList = if (data.isInterfaceTarget) data.targetClass.extendsList else data.targetClass.implementsList
@@ -532,7 +536,6 @@ internal class K2PullUpHelper(
         JavaCodeStyleManager.getInstance(project).shortenClassReferences(movedMember)
     }
 
-    @OptIn(KaExperimentalApi::class)
     override fun move(info: MemberInfoBase<PsiMember>, substitutor: PsiSubstitutor) {
         val member = info.member.toKtDeclarationWrapperAware() ?: return
 
@@ -548,14 +551,12 @@ internal class K2PullUpHelper(
         } else if (targetClass !is KtClass) return
 
         val markedElements = allowAnalysisFromWriteActionInEdt(member) {
-            analyze(member) {
-                markElements(
-                    member,
-                    data.sourceClass,
-                    targetClass,
-                    data.getSourceToTargetClassSubstitutor(analysisSession = this),
-                )
-            }
+            markElements(
+                member,
+                data.sourceClass,
+                targetClass,
+                data.getSourceToTargetClassSubstitutor(),
+            )
         }
         val memberCopy = member.copy() as KtNamedDeclaration
 
@@ -572,9 +573,7 @@ internal class K2PullUpHelper(
         fun moveCallableMember(member: KtCallableDeclaration, memberCopy: KtCallableDeclaration): KtCallableDeclaration {
             val movedMember: KtCallableDeclaration
             val clashingSuper = allowAnalysisFromWriteActionInEdt(member) {
-                analyze(member) {
-                    fixOverrideAndGetClashingSuper(member, memberCopy)
-                }
+                fixOverrideAndGetClashingSuper(member, memberCopy)
             }
 
             val psiFactory = KtPsiFactory(member.project)
@@ -593,13 +592,11 @@ internal class K2PullUpHelper(
             if (toAbstract) {
                 if (!originalIsAbstract) {
                     val renderedType = allowAnalysisFromWriteActionInEdt(member) {
-                        analyze(member) {
-                            computeAndRenderReturnType(
-                                member.symbol as KaCallableSymbol,
-                                memberCopy,
-                                data.getSourceToTargetClassSubstitutor(analysisSession = this),
-                            )
-                        }
+                        computeAndRenderReturnType(
+                            member.symbol as KaCallableSymbol,
+                            memberCopy,
+                            data.getSourceToTargetClassSubstitutor(),
+                        )
                     }
                     if (renderedType != null) {
                         memberCopy.typeReference = KtPsiFactory(member.project).createType(renderedType)
@@ -623,30 +620,28 @@ internal class K2PullUpHelper(
                     CONSTRUCTOR_VAL_VAR_MODIFIERS.forEach { member.removeModifier(it) }
 
                     allowAnalysisFromWriteActionInEdt(data.sourceClass) {
-                        analyze(data.sourceClass) {
-                            val superEntry = data.getSuperEntryForTargetClass(analysisSession = this)
-                            val superResolvedCall = superEntry?.resolveToCall()?.singleFunctionCallOrNull()
-                            if (superResolvedCall != null) {
-                                val superCall = if (superEntry !is KtSuperTypeCallEntry || superEntry.valueArgumentList == null) {
-                                    superEntry.replaced(psiFactory.createSuperTypeCallEntry("${superEntry.text}()"))
-                                } else superEntry
-                                val argumentList = superCall.valueArgumentList!!
+                        val superEntry: KtSuperTypeListEntry? = data.getSuperEntryForTargetClass()
+                        val superResolvedCall = (superEntry as? KtResolvableCall)?.tryResolveCall()?.single?.function
+                        if (superResolvedCall != null) {
+                            val superCall = if (superEntry !is KtSuperTypeCallEntry || superEntry.valueArgumentList == null) {
+                                superEntry.replaced(psiFactory.createSuperTypeCallEntry("${superEntry.text}()"))
+                            } else superEntry
+                            val argumentList = superCall.valueArgumentList!!
 
-                                val parameterIndex = movedMember.parameterIndex()
-                                val prevParameterSymbol = superResolvedCall.symbol.valueParameters.getOrNull(parameterIndex - 1)
+                            val parameterIndex = movedMember.parameterIndex()
+                            val prevParameterSymbol = superResolvedCall.symbol.valueParameters.getOrNull(parameterIndex - 1)
 
 
-                                val prevArgument = prevParameterSymbol?.asSignature()?.let { prevParameterSignature ->
-                                    superResolvedCall.argumentMapping.reverse()[prevParameterSignature]
-                                }?.parent as? KtValueArgument
-                                val newArgumentName =
-                                    if (prevArgument != null && prevArgument.isNamed()) identifier(member.name!!) else null
-                                val newArgument = psiFactory.createArgument(psiFactory.createExpression(member.name!!), newArgumentName)
-                                if (prevArgument == null) {
-                                    argumentList.addArgument(newArgument)
-                                } else {
-                                    argumentList.addArgumentAfter(newArgument, prevArgument)
-                                }
+                            val prevArgument = prevParameterSymbol?.asSignature()?.let { prevParameterSignature ->
+                                superResolvedCall.valueArgumentMapping.reverse()[prevParameterSignature]
+                            }?.parent as? KtValueArgument
+                            val newArgumentName =
+                                if (prevArgument != null && prevArgument.isNamed()) identifier(member.name!!) else null
+                            val newArgument = psiFactory.createArgument(psiFactory.createExpression(member.name!!), newArgumentName)
+                            if (prevArgument == null) {
+                                argumentList.addArgument(newArgument)
+                            } else {
+                                argumentList.addArgumentAfter(newArgument, prevArgument)
                             }
                         }
                     }
@@ -686,7 +681,6 @@ internal class K2PullUpHelper(
         KotlinRenameRefactoringSupport.getInstance().dropOverrideKeywordIfNecessary(declaration)
     }
 
-    @OptIn(KaExperimentalApi::class)
     override fun moveFieldInitializations(movedFields: LinkedHashSet<PsiField>) {
         val psiFactory = KtPsiFactory(data.sourceClass.project)
 
@@ -729,7 +723,7 @@ internal class K2PullUpHelper(
 
                     val renderedType = analyze(it) {
                         val originalType = it.symbol.returnType
-                        data.getSourceToTargetClassSubstitutor(analysisSession = this)
+                        data.getSourceToTargetClassSubstitutor()
                             .substitute(originalType)
                             .render(position = Variance.INVARIANT)
                     }
@@ -776,9 +770,7 @@ internal class K2PullUpHelper(
                 val info = propertyToInitializerInfo.getValue(oldProperty)
 
                 allowAnalysisFromWriteActionInEdt(constructorElement) {
-                    analyze(constructorElement) {
-                        addUsedParameters(constructorElement, info)
-                    }
+                    addUsedParameters(constructorElement, info)
                 }
 
                 info.initializer?.let {
@@ -793,13 +785,14 @@ internal class K2PullUpHelper(
     override fun updateUsage(element: PsiElement): Unit = Unit
 }
 
-private fun KaSession.isSubClassOf(
+context(session: KaSession)
+private fun isSubClassOf(
     subClass: KaDeclarationSymbol?,
     superClass: KaDeclarationSymbol?,
 ): Boolean = subClass is KaClassSymbol && superClass is KaClassSymbol && subClass.isSubClassOf(superClass)
 
-@OptIn(KaExperimentalApi::class)
-private fun KaSession.addSuperTypeEntry(
+context(session: KaSession)
+private fun addSuperTypeEntry(
     delegator: KtSuperTypeListEntry,
     targetClass: KtClassOrObject,
     substitutor: KaSubstitutor,

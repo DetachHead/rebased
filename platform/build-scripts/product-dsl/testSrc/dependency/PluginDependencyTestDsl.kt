@@ -4,6 +4,7 @@
 
 package org.jetbrains.intellij.build.productLayout.dependency
 
+import com.intellij.platform.buildScripts.licenses.LibraryLicense
 import com.intellij.platform.pluginGraph.ContentModuleName
 import com.intellij.platform.pluginGraph.PluginGraph
 import com.intellij.platform.pluginGraph.PluginId
@@ -48,6 +49,8 @@ import org.jetbrains.jps.model.java.JpsJavaDependencyScope
 import org.jetbrains.jps.model.java.JpsJavaExtensionService
 import org.jetbrains.jps.model.java.JpsJavaLibraryType
 import org.jetbrains.jps.model.java.JpsJavaModuleType
+import org.jetbrains.jps.model.library.JpsMavenRepositoryLibraryDescriptor
+import org.jetbrains.jps.model.library.JpsRepositoryLibraryType
 import org.jetbrains.jps.model.module.JpsLibraryDependency
 import org.jetbrains.jps.model.module.JpsModule
 import org.jetbrains.jps.model.module.JpsModuleReference
@@ -85,11 +88,20 @@ internal fun jpsProject(baseDir: Path, block: JpsProjectBuilder.() -> Unit): Jps
 
 @JpsTestDsl
 class JpsProjectBuilder(private val baseDir: Path) {
-  private val libraries = mutableListOf<String>()
+  private val libraries = mutableListOf<JpsLibrarySpec>()
   private val modules = mutableListOf<JpsModuleSpec>()
 
   fun library(name: String) {
-    libraries.add(name)
+    libraries.add(JpsLibrarySpec(name = name, mavenDescriptor = null))
+  }
+
+  /**
+   * Adds a project library that carries a Maven descriptor.
+   *
+   * Use it when a rule reads the coordinates of a library. The plain [library] has no descriptor.
+   */
+  fun mavenLibrary(name: String, groupId: String, artifactId: String, version: String) {
+    libraries.add(JpsLibrarySpec(name = name, mavenDescriptor = JpsMavenRepositoryLibraryDescriptor(groupId, artifactId, version)))
   }
 
   fun module(name: String, block: JpsModuleBuilder.() -> Unit = {}) {
@@ -103,8 +115,19 @@ class JpsProjectBuilder(private val baseDir: Path) {
     val project = model.project
 
     // Create libraries
-    val libraryMap = libraries.associateWith { name ->
-      project.libraryCollection.addLibrary(name, JpsJavaLibraryType.INSTANCE)
+    val libraryMap = libraries.associate { spec ->
+      val descriptor = spec.mavenDescriptor
+      val library = if (descriptor == null) {
+        project.libraryCollection.addLibrary(spec.name, JpsJavaLibraryType.INSTANCE)
+      }
+      else {
+        project.libraryCollection.addLibrary(
+          spec.name,
+          JpsRepositoryLibraryType.INSTANCE,
+          JpsElementFactory.getInstance().createSimpleElement(descriptor),
+        )
+      }
+      spec.name to library
     }
 
     // Create modules
@@ -207,6 +230,11 @@ internal data class JpsModuleSpec(
   @JvmField val moduleDeps: List<ModuleDep>,
 )
 
+internal data class JpsLibrarySpec(
+  @JvmField val name: String,
+  @JvmField val mavenDescriptor: JpsMavenRepositoryLibraryDescriptor?,
+)
+
 internal data class LibraryDep(
   @JvmField val name: String,
   @JvmField val scope: JpsJavaDependencyScope,
@@ -280,7 +308,8 @@ class PluginTestSetupBuilder(private val tempDir: Path) {
     // Create content modules first
     for (spec in contentModules) {
       val moduleDir = tempDir.resolve(spec.name.replace('.', '/'))
-      val resourcesDir = moduleDir.resolve("resources")
+      val inTestResources = spec.descriptorInTestResources
+      val resourcesDir = moduleDir.resolve(if (inTestResources) "testResources" else "resources")
       Files.createDirectories(resourcesDir)
 
       val jpsModule = project.addModule(spec.name, JpsJavaModuleType.INSTANCE)
@@ -288,10 +317,17 @@ class PluginTestSetupBuilder(private val tempDir: Path) {
         JpsModuleSerializationDataExtensionImpl.ROLE,
         JpsModuleSerializationDataExtensionImpl(moduleDir),
       )
-      jpsModule.addSourceRoot(JpsPathUtil.pathToUrl(resourcesDir.toString()), JavaResourceRootType.RESOURCE)
+      jpsModule.addSourceRoot(
+        JpsPathUtil.pathToUrl(resourcesDir.toString()),
+        if (inTestResources) JavaResourceRootType.TEST_RESOURCE else JavaResourceRootType.RESOURCE,
+      )
 
       // Write descriptor XML
       Files.writeString(resourcesDir.resolve("${spec.name}.xml"), spec.descriptor)
+
+      spec.resourceFiles.forEach { (fileName, fileContent) ->
+        Files.writeString(resourcesDir.resolve(fileName), fileContent)
+      }
 
       // Track JPS dependencies for this content module (just module names for plugin-level tracking)
       contentModuleJpsDeps.put(spec.name, spec.jpsDependencies.map { it.moduleName })
@@ -410,6 +446,7 @@ class TestPluginBuilder(private val name: String) {
 
   /** If true, plugin dependencies are auto-derived from JPS deps. */
   var isTestPlugin: Boolean = false
+
   private val contentModules = LinkedHashSet<String>()
   private val contentLoadings = LinkedHashMap<String, com.intellij.platform.pluginSystem.parser.impl.elements.ModuleLoadingRuleValue?>()
   private val moduleDependencies = LinkedHashSet<String>()
@@ -444,13 +481,26 @@ class TestPluginBuilder(private val name: String) {
 @JpsTestDsl
 class TestContentModuleBuilder(private val name: String) {
   var descriptor: String = """<idea-plugin package="com.test"/>"""
+
+  /**
+   * Put the descriptor into a `testResources` root of type [JavaResourceRootType.TEST_RESOURCE] instead of the production
+   * `resources` root, as real test-only modules do (e.g. `CIDR/clion-profiling/tests`).
+   */
+  var descriptorInTestResources: Boolean = false
+
   private val jpsDependencies = mutableListOf<TestJpsDependency>()
+  private val resourceFiles = LinkedHashMap<String, String>()
 
   fun jpsDependency(moduleName: String, scope: JpsJavaDependencyScope = JpsJavaDependencyScope.COMPILE) {
     jpsDependencies.add(TestJpsDependency(moduleName, scope))
   }
 
-  internal fun build() = TestContentModuleSpec(name, descriptor, jpsDependencies.toList())
+  /** Writes an additional file next to the descriptor in the resource root (e.g. an xi:included actions XML). */
+  fun resourceFile(fileName: String, content: String) {
+    resourceFiles.put(fileName, content)
+  }
+
+  internal fun build() = TestContentModuleSpec(name, descriptor, jpsDependencies.toList(), descriptorInTestResources, resourceFiles.toMap())
 }
 
 internal data class TestJpsDependency(
@@ -506,6 +556,8 @@ internal data class TestContentModuleSpec(
   @JvmField val name: String,
   @JvmField val descriptor: String,
   @JvmField val jpsDependencies: List<TestJpsDependency>,
+  @JvmField val descriptorInTestResources: Boolean = false,
+  @JvmField val resourceFiles: Map<String, String> = emptyMap(),
 )
 internal data class TestProductSpec(
   @JvmField val name: String,
@@ -716,7 +768,7 @@ internal fun createTestModuleOutputProvider(project: JpsProject): ModuleOutputPr
 
     override fun getAllModules(): List<JpsModule> = project.modules
 
-    override suspend fun readFileContentFromModuleOutput(module: JpsModule, relativePath: String, forTests: Boolean): ByteArray {
+    override fun readFileContentFromModuleOutput(module: JpsModule, relativePath: String, forTests: Boolean): ByteArray {
       throw UnsupportedOperationException("Not needed for this test")
     }
 
@@ -782,6 +834,10 @@ internal fun testGenerationModel(
   pluginAllowedMissingDependencies: Map<ContentModuleName, Set<ContentModuleName>> = emptyMap(),
   testLibraryAllowedInModule: Map<ContentModuleName, Set<String>> = emptyMap(),
   productAllowedMissing: Map<String, Set<ContentModuleName>> = emptyMap(),
+  dslTestPluginsByProduct: Map<String, List<org.jetbrains.intellij.build.productLayout.TestPluginSpec>> = emptyMap(),
+  libraryLicenses: List<LibraryLicense> = emptyList(),
+  communityLibraryLicenses: List<LibraryLicense> = emptyList(),
+  moduleSetsByLabel: Map<String, List<org.jetbrains.intellij.build.productLayout.ModuleSet>> = emptyMap(),
 ): GenerationModel {
   val effectiveOutputProvider = outputProvider ?: stubModuleOutputProvider()
   val effectiveFileUpdater = fileUpdater ?: DeferredFileUpdater(Path.of("."))
@@ -789,7 +845,7 @@ internal fun testGenerationModel(
   val generationMode = if (updateSuppressions) GenerationMode.UPDATE_SUPPRESSIONS else GenerationMode.NORMAL
   return GenerationModel(
     discovery = DiscoveryResult(
-      moduleSetsByLabel = emptyMap(),
+      moduleSetsByLabel = moduleSetsByLabel,
       products = emptyList(),
       testProductSpecs = emptyList(),
       moduleSetSources = emptyMap(),
@@ -800,6 +856,8 @@ internal fun testGenerationModel(
       projectRoot = Path.of("."),
       outputProvider = effectiveOutputProvider,
       projectLibraryToModuleMap = effectiveOutputProvider.getProjectLibraryToModuleMap(),
+      libraryLicenses = libraryLicenses,
+      communityLibraryLicenses = communityLibraryLicenses,
       pluginAllowedMissingDependencies = pluginAllowedMissingDependencies,
       testLibraryAllowedInModule = testLibraryAllowedInModule,
       suppressionConfigPath = suppressionConfigPath,
@@ -812,7 +870,7 @@ internal fun testGenerationModel(
     generatedArtifactWritePolicy = GeneratedArtifactWritePolicy(generationMode, effectiveFileUpdater),
     scope = GlobalScope,
     pluginGraph = pluginGraph,
-    dslTestPluginsByProduct = emptyMap(),
+    dslTestPluginsByProduct = dslTestPluginsByProduct,
     dslTestPluginDependencyChains = emptyMap(),
     dslTestPluginSuppressionUsages = emptyList(),
     productAllowedMissing = productAllowedMissing,
@@ -958,7 +1016,7 @@ private fun stubModuleOutputProvider(): ModuleOutputProvider {
 
     override fun getProjectLibraryToModuleMap(): Map<String, String> = emptyMap()
 
-    override suspend fun readFileContentFromModuleOutput(module: JpsModule, relativePath: String, forTests: Boolean): ByteArray {
+    override fun readFileContentFromModuleOutput(module: JpsModule, relativePath: String, forTests: Boolean): ByteArray {
       throw UnsupportedOperationException("Stub")
     }
 

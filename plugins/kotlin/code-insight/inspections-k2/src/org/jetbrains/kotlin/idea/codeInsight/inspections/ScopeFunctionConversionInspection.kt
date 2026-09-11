@@ -13,32 +13,31 @@ import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiElementVisitor
 import com.intellij.psi.SmartPsiElementPointer
 import com.intellij.psi.createSmartPointer
-import org.jetbrains.kotlin.analysis.api.KaExperimentalApi
-import org.jetbrains.kotlin.analysis.api.KaIdeApi
 import org.jetbrains.kotlin.analysis.api.KaSession
-import org.jetbrains.kotlin.analysis.api.analyze
-import org.jetbrains.kotlin.analysis.api.resolution.KaCallableMemberCall
+import org.jetbrains.kotlin.analysis.api.expressions.expressionType
 import org.jetbrains.kotlin.analysis.api.resolution.KaImplicitReceiverValue
 import org.jetbrains.kotlin.analysis.api.resolution.KaReceiverValue
-import org.jetbrains.kotlin.analysis.api.resolution.successfulCallOrNull
-import org.jetbrains.kotlin.analysis.api.resolution.symbol
+import org.jetbrains.kotlin.analysis.api.resolution.resolveSuccessfulSymbol
+import org.jetbrains.kotlin.analysis.api.resolution.simple
+import org.jetbrains.kotlin.analysis.api.session.analyze
 import org.jetbrains.kotlin.analysis.api.symbols.KaAnonymousFunctionSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaAnonymousObjectSymbol
+import org.jetbrains.kotlin.analysis.api.symbols.KaCallableSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaClassKind
 import org.jetbrains.kotlin.analysis.api.symbols.KaClassSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaClassifierSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaDeclarationSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaNamedFunctionSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaReceiverParameterSymbol
+import org.jetbrains.kotlin.analysis.api.symbols.containingSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.markers.KaNamedSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.receiverType
+import org.jetbrains.kotlin.analysis.api.types.isNullable
 import org.jetbrains.kotlin.analysis.api.types.symbol
 import org.jetbrains.kotlin.builtins.StandardNames
 import org.jetbrains.kotlin.idea.base.analysis.api.utils.shortenReferences
 import org.jetbrains.kotlin.idea.base.codeInsight.ShortenOptionsForIde
 import org.jetbrains.kotlin.idea.base.resources.KotlinBundle
-import org.jetbrains.kotlin.idea.codeinsight.api.applicable.inspections.KotlinModCommandQuickFix
-import org.jetbrains.kotlin.idea.codeinsight.api.classic.inspections.AbstractKotlinInspection
 import org.jetbrains.kotlin.idea.codeInsight.inspections.utils.applyFromWithConversion
 import org.jetbrains.kotlin.idea.codeInsight.inspections.utils.applyToWithConversion
 import org.jetbrains.kotlin.idea.codeInsight.inspections.utils.counterpartNames
@@ -50,9 +49,13 @@ import org.jetbrains.kotlin.idea.codeInsight.inspections.utils.isSimpleLambdaPar
 import org.jetbrains.kotlin.idea.codeInsight.inspections.utils.nameResolvesToStdlib
 import org.jetbrains.kotlin.idea.codeInsight.inspections.utils.usesExplicitParameter
 import org.jetbrains.kotlin.idea.codeInsight.inspections.utils.usesImplicitThis
+import org.jetbrains.kotlin.idea.codeinsight.api.applicable.inspections.KotlinModCommandQuickFix
+import org.jetbrains.kotlin.idea.codeinsight.api.classic.inspections.AbstractKotlinInspection
 import org.jetbrains.kotlin.idea.refactoring.rename.KotlinVariableInplaceRenameHandler
 import org.jetbrains.kotlin.idea.references.mainReference
 import org.jetbrains.kotlin.idea.util.application.isUnitTestMode
+import org.jetbrains.kotlin.idea.util.resolveSuccessfulExpressionCall
+import org.jetbrains.kotlin.name.render
 import org.jetbrains.kotlin.psi.KtCallExpression
 import org.jetbrains.kotlin.psi.KtClass
 import org.jetbrains.kotlin.psi.KtDotQualifiedExpression
@@ -72,6 +75,7 @@ import org.jetbrains.kotlin.psi.callExpressionVisitor
 import org.jetbrains.kotlin.psi.createExpressionByPattern
 import org.jetbrains.kotlin.psi.psiUtil.endOffset
 import org.jetbrains.kotlin.psi.psiUtil.getOrCreateParameterList
+import org.jetbrains.kotlin.psi.psiUtil.quoteIfNeeded
 import org.jetbrains.kotlin.psi.psiUtil.startOffset
 
 class ScopeFunctionConversionInspection : AbstractKotlinInspection() {
@@ -118,7 +122,6 @@ class ScopeFunctionConversionInspection : AbstractKotlinInspection() {
  * @param expression The call expression to check
  * @return List of counterpart function names that are valid conversions
  */
-@OptIn(KaExperimentalApi::class)
 private fun getCounterparts(expression: KtCallExpression): List<String> {
     val callee = expression.calleeExpression as? KtNameReferenceExpression ?: return emptyList()
     val calleeName = callee.getReferencedName()
@@ -135,7 +138,7 @@ private fun getCounterparts(expression: KtCallExpression): List<String> {
     }
 
     return analyze(callee) {
-        val symbol = callee.resolveCall()?.symbol ?: return@analyze emptyList()
+        val symbol = callee.resolveSuccessfulSymbol() as? KaCallableSymbol ?: return@analyze emptyList()
         if (symbol.receiverType == null && (symbol as? KaNamedFunctionSymbol)?.name?.asString() != "with") return@analyze emptyList()
 
         counterpartCandidates.filter { counterpartName ->
@@ -268,7 +271,8 @@ abstract class ConvertScopeFunctionFix(protected val counterpartName: String) : 
      */
     protected abstract fun postprocessLambda(lambda: KtLambdaArgument)
 
-    protected abstract fun KaSession.analyzeLambda(
+    context(session: KaSession)
+    protected abstract fun analyzeLambda(
         lambda: KtLambdaArgument,
         replacements: ReplacementCollection
     )
@@ -305,15 +309,18 @@ private class ReceiverToParameterVisitor(
         if (expression is KtOperationReferenceExpression) return
 
         // Try to resolve the call
-        val resolvedCall = with(session) { 
-            expression.resolveToCall()?.successfulCallOrNull<KaCallableMemberCall<*, *>>() 
+        val resolvedCall = context(session) {
+            expression.resolveSuccessfulExpressionCall()?.simple
         } ?: return
-        val dispatchReceiver: KaReceiverValue? = resolvedCall.partiallyAppliedSymbol.dispatchReceiver
-        val extensionReceiver = resolvedCall.partiallyAppliedSymbol.extensionReceiver
+        val dispatchReceiver: KaReceiverValue? = resolvedCall.dispatchReceiver
+        val extensionReceiver = resolvedCall.extensionReceiver
 
         // If the call is on the lambda's receiver, replace it with a call on the parameter
-        if (with(session) { isReceiverFromFunctionLiteral(dispatchReceiver, functionLiteral) } || 
-            with(session) { isReceiverFromFunctionLiteral(extensionReceiver, functionLiteral) }) {
+        if (context(session) {
+                isReceiverFromFunctionLiteral(dispatchReceiver, functionLiteral) ||
+                        isReceiverFromFunctionLiteral(extensionReceiver, functionLiteral)
+            }
+        ) {
             val parent = expression.parent
             if (parent is KtCallExpression && expression == parent.calleeExpression) {
                 // Handle method calls: this.foo() -> paramName.foo()
@@ -326,7 +333,7 @@ private class ReceiverToParameterVisitor(
                 // Skip already qualified expressions: this.foo -> paramName.foo (handled elsewhere)
             } else {
                 // Handle property access: this.prop -> paramName.prop
-                val referencedName = expression.getReferencedName()
+                val referencedName = expression.getReferencedName().quoteIfNeeded()
                 replacements.add(expression) {
                     createExpression("$parameterName.$referencedName")
                 }
@@ -350,7 +357,8 @@ private class ReceiverToParameterVisitor(
  */
 class ConvertScopeFunctionToParameter(counterpartName: String) : ConvertScopeFunctionFix(counterpartName) {
 
-    override fun KaSession.analyzeLambda(
+    context(session: KaSession)
+    override fun analyzeLambda(
         lambda: KtLambdaArgument,
         replacements: ReplacementCollection
     ) {
@@ -380,11 +388,10 @@ class ConvertScopeFunctionToParameter(counterpartName: String) : ConvertScopeFun
         }
 
         // Process the lambda body to replace 'this' with the parameter name
-        val visitor = ReceiverToParameterVisitor(functionLiteral, replacements, parameterName, factory, this)
+        val visitor = ReceiverToParameterVisitor(functionLiteral, replacements, parameterName, factory, session)
         lambda.accept(visitor)
     }
 
-    @OptIn(KaIdeApi::class)
     override fun postprocessLambda(lambda: KtLambdaArgument) {
         shortenReferences(
             lambda,
@@ -482,13 +489,13 @@ private class ParameterToReceiverVisitor(
             return
         } else {
             // Handle implicit receiver references that need to be qualified
-            val resolvedCall = with(session) { 
-                expression.resolveToCall()?.successfulCallOrNull<KaCallableMemberCall<*, *>>()
+            val resolvedCall = context(session) {
+                expression.resolveSuccessfulExpressionCall()?.simple
             } ?: return
-            val dispatchReceiver = resolvedCall.partiallyAppliedSymbol.dispatchReceiver
+            val dispatchReceiver = resolvedCall.dispatchReceiver
 
             // Skip if this is the receiver from the lambda we're converting (e.g., 'with' to 'run')
-            if (with(session) { isReceiverFromFunctionLiteral(dispatchReceiver, functionLiteral) }) return
+            if (context(session) { isReceiverFromFunctionLiteral(dispatchReceiver, functionLiteral) }) return
 
             // Only handle implicit receivers
             if (dispatchReceiver !is KaImplicitReceiverValue) return
@@ -496,8 +503,8 @@ private class ParameterToReceiverVisitor(
             val symbol = dispatchReceiver.type.symbol
             if (symbol !is KaDeclarationSymbol) return
 
-            val implicitReceiverValue = with(session) { 
-                expression.resolveToCall()?.successfulCallOrNull<KaCallableMemberCall<*, *>>()?.partiallyAppliedSymbol?.dispatchReceiver as? KaImplicitReceiverValue 
+            val implicitReceiverValue = context(session) {
+                expression.resolveSuccessfulExpressionCall()?.simple?.dispatchReceiver as? KaImplicitReceiverValue
             } ?: return
 
             // Get the appropriate qualifier for this receiver
@@ -511,7 +518,7 @@ private class ParameterToReceiverVisitor(
                 }
             } else {
                 // Handle property access: prop -> this@Qualifier.prop
-                val referencedName = expression.getReferencedName()
+                val referencedName = expression.getReferencedName().quoteIfNeeded()
                 replacements.add(expression) {
                     createExpression("$thisQualifier.$referencedName")
                 }
@@ -527,23 +534,24 @@ private class ParameterToReceiverVisitor(
         return when {
             // For companion objects, use ContainingClass.CompanionName
             (symbol as? KaClassSymbol)?.classKind == KaClassKind.COMPANION_OBJECT -> {
-                val containingClassName = (with(session) { symbol.containingSymbol } as KaClassifierSymbol).name?.asString() ?: ""
-                val companionName = symbol.name?.asString() ?: ""
+                val containingClass = context(session) { symbol.containingSymbol } as KaClassifierSymbol
+                val containingClassName = containingClass.name?.render() ?: ""
+                val companionName = symbol.name?.render() ?: ""
                 "$containingClassName.$companionName"
             }
             // For objects, use the object name
             (symbol as? KaClassSymbol)?.classKind == KaClassKind.OBJECT -> {
-                symbol.name?.asString()
+                symbol.name?.render()
             }
             // For classes, use this@ClassName
             symbol is KaClassifierSymbol && symbol !is KaAnonymousObjectSymbol -> {
-                val className = (symbol.psi as? PsiClass)?.name ?: symbol.name?.asString()
+                val className = (symbol.psi as? PsiClass)?.name?.quoteIfNeeded() ?: symbol.name?.render()
                 if (className != null) "this@$className" else "this"
             }
             // For functions, use this@FunctionName if available
             symbol is KaReceiverParameterSymbol && 
             (symbol.owningCallableSymbol is KaNamedSymbol || symbol.owningCallableSymbol is KaAnonymousFunctionSymbol) -> {
-                symbol.owningCallableSymbol.getThisLabelName()?.let { "this@$it" } ?: "this"
+                symbol.owningCallableSymbol.getThisLabelName()?.quoteIfNeeded()?.let { "this@$it" } ?: "this"
             }
             // Default case
             else -> "this"
@@ -552,13 +560,13 @@ private class ParameterToReceiverVisitor(
 
     override fun visitThisExpression(expression: KtThisExpression) {
         // Handle 'this' expressions that need to be qualified
-        val implicitReceiverValue = with(session) { 
-            expression.resolveToCall()?.successfulCallOrNull<KaCallableMemberCall<*, *>>()?.partiallyAppliedSymbol?.dispatchReceiver as? KaImplicitReceiverValue
+        val implicitReceiverValue = context(session) {
+            expression.resolveSuccessfulExpressionCall()?.simple?.dispatchReceiver as? KaImplicitReceiverValue
         }
 
         if (implicitReceiverValue == null) {
             // If we can't get an implicit receiver, try to get the class name directly
-            val className = (expression.instanceReference.mainReference.resolve() as? KtClass)?.name ?: return
+            val className = (expression.instanceReference.mainReference.resolve() as? KtClass)?.nameIdentifier?.text ?: return
             // Replace with a qualified 'this' expression
             replacements.add(expression) { createThisExpression(className) }
         } else {
@@ -575,7 +583,8 @@ private class ParameterToReceiverVisitor(
  * For example, converts 'let' to 'run' or 'also' to 'apply'.
  */
 class ConvertScopeFunctionToReceiver(counterpartName: String) : ConvertScopeFunctionFix(counterpartName) {
-    override fun KaSession.analyzeLambda(
+    context(session: KaSession)
+    override fun analyzeLambda(
         lambda: KtLambdaArgument,
         replacements: ReplacementCollection
     ) {
@@ -589,7 +598,7 @@ class ConvertScopeFunctionToReceiver(counterpartName: String) : ConvertScopeFunc
         val functionLiteral = lambda.getLambdaExpression()?.functionLiteral
 
         // Process the lambda body to replace parameter references with 'this'
-        val visitor = ParameterToReceiverVisitor(functionLiteral, replacements, this)
+        val visitor = ParameterToReceiverVisitor(functionLiteral, replacements, session)
         lambda.accept(visitor)
     }
 
@@ -597,7 +606,6 @@ class ConvertScopeFunctionToReceiver(counterpartName: String) : ConvertScopeFunc
      * Performs additional processing on the lambda after the conversion.
      * For conversion to receiver, we want to remove redundant 'this' references but keep 'this@' labels.
      */
-    @OptIn(KaIdeApi::class)
     override fun postprocessLambda(lambda: KtLambdaArgument) {
         shortenReferences(
             lambda,

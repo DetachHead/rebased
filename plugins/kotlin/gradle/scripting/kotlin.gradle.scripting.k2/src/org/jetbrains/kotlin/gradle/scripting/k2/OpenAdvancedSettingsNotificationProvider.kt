@@ -10,6 +10,8 @@ import com.intellij.openapi.options.advanced.AdvancedSettingsConfigurable
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.platform.backend.workspace.WorkspaceModel
+import com.intellij.platform.backend.workspace.findEntitiesByVirtualFile
+import com.intellij.platform.backend.workspace.toVirtualFileUrl
 import com.intellij.ui.EditorNotificationPanel
 import com.intellij.ui.EditorNotificationPanel.Status
 import com.intellij.ui.EditorNotificationProvider
@@ -49,7 +51,7 @@ class OpenAdvancedSettingsNotificationProvider : EditorNotificationProvider {
         var currentFile: VirtualFile? = this
         while (currentFile != null) {
             val entities =
-                index.findEntitiesByUrl(fileUrlManager.getOrCreateFromUrl(currentFile.url)).filterIsInstance<KotlinScriptLibraryEntity>()
+                index.findEntitiesByVirtualFile(currentFile, fileUrlManager).filterIsInstance<KotlinScriptLibraryEntity>()
             if (entities.none()) {
                 currentFile = currentFile.parent
                 continue

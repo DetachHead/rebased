@@ -77,6 +77,7 @@ import com.intellij.ui.components.JBLabel;
 import com.intellij.ui.components.JBPanelWithEmptyText;
 import com.intellij.ui.components.JBTabbedPane;
 import com.intellij.ui.content.Content;
+import com.intellij.ui.treeStructure.CachingTreePath;
 import com.intellij.ui.treeStructure.Tree;
 import com.intellij.usageView.UsageInfo;
 import com.intellij.usageView.UsageViewBundle;
@@ -194,11 +195,55 @@ import static com.intellij.openapi.actionSystem.impl.Utils.createAsyncDataContex
 import static com.intellij.usages.impl.UsageFilteringRuleActions.usageFilteringRuleActions;
 
 public class UsageViewImpl implements UsageViewEx {
+  
+  // ========== static stuff ============
+  
   private static final String DUMB_AWARE_KEY = "DumbAware";
-  private final int myUniqueIdentifier;
   private static final GroupNode.NodeComparator NODE_COMPARATOR = new GroupNode.NodeComparator();
   private static final Logger LOG = Logger.getInstance(UsageViewImpl.class);
   public static final @NonNls String SHOW_RECENT_FIND_USAGES_ACTION_ID = "UsageView.ShowRecentFindUsages";
+  public static final @NonNls String HELP_ID = "ideaInterface.find";
+  public static final UsageNode NULL_NODE = new UsageNode(null, NullUsage.INSTANCE);
+  public static final Comparator<Usage> USAGE_COMPARATOR_BY_FILE_AND_OFFSET = (o1, o2) -> {
+    if (o1 == o2) return 0;
+    if (o1 == null) return -1;
+    if (o2 == null) return 1;
+    if (o1 == NullUsage.INSTANCE) return -1;
+    if (o2 == NullUsage.INSTANCE) return 1;
+
+    int c = Integer.compare(getUsagePriority(o1), getUsagePriority(o2));
+    if (c != 0) {
+      return c;
+    }
+    c = compareByFileAndOffset(o1, o2);
+    if (c != 0) {
+      return c;
+    }
+    return o1.toString().compareTo(o2.toString());
+  };
+
+  private static int compareByFileAndOffset(@NotNull Usage o1, @NotNull Usage o2) {
+    VirtualFile file1 = o1 instanceof UsageInFile inFile1 ? inFile1.getFile() : null;
+    VirtualFile file2 = o2 instanceof UsageInFile inFile2 ? inFile2.getFile() : null;
+    if (file1 == null) return file2 == null ? 0 : -1;
+    if (file2 == null) return 1;
+    if (file1.equals(file2)) {
+      return Integer.compare(o1.getNavigationOffset(), o2.getNavigationOffset());
+    }
+    return VfsUtilCore.compareByPath(file1, file2);
+  }
+
+  private static int getUsagePriority(@NotNull Usage usage) {
+    return usage instanceof UsageInfo2UsageAdapter usageInfo ? usageInfo.getUsageInfo().getPriority() : 0;
+  }
+
+  // ========== non-static stuff ============
+  
+  // This is a legacy complicated class. Please keep all the fields here to make it easier to reason about the constructor's correctness.
+  // No Swing UI init is allowed here, the constructor can be invoked on a BGT (IJPL-205703).
+  // Swing init goes to initInEDT.
+  
+  private final int myUniqueIdentifier;
 
   private final UsageNodeTreeBuilder myBuilder;
   private final @NotNull CoroutineScope coroutineScope;
@@ -221,53 +266,14 @@ public class UsageViewImpl implements UsageViewEx {
 
   private final ExclusionHandlerEx<DefaultMutableTreeNode> myExclusionHandler;
   private final Map<Usage, UsageNode> myUsageNodes = new ConcurrentHashMap<>();
-  public static final UsageNode NULL_NODE = new UsageNode(null, NullUsage.INSTANCE);
-  private final ButtonPanel myButtonPanel;
+  private ButtonPanel myButtonPanel; // accessed in EDT only, created in initInEDT
   private boolean myNeedUpdateButtons;
-  private final JComponent myAdditionalComponent = new JPanel(new BorderLayout());
+  private JComponent myAdditionalComponent; // accessed in EDT only, created in initInEDT
   private volatile boolean isDisposed;
   private volatile boolean myChangesDetected;
   private @Nullable GroupNode myAutoSelectedGroupNode;
   private final AtomicReference<@NotNull Set<UsageInfo>> myNonDisposableUsageInfos = new AtomicReference<>(Collections.emptySet());
 
-  public static final Comparator<Usage> USAGE_COMPARATOR_BY_FILE_AND_OFFSET = (o1, o2) -> {
-    if (o1 == o2) return 0;
-    if (o1 == null) return -1;
-    if (o2 == null) return 1;
-    if (o1 == NullUsage.INSTANCE) return -1;
-    if (o2 == NullUsage.INSTANCE) return 1;
-
-    int c = compareByFileAndOffset(o1, o2);
-    if (c != 0) {
-      return c;
-    }
-    return o1.toString().compareTo(o2.toString());
-  };
-
-  @ApiStatus.Internal
-  public int getFilteredOutNodeCount() {
-    return myBuilder.getFilteredUsagesCount();
-  }
-
-  @ApiStatus.Internal
-  public void setFilteringRules(UsageFilteringRule @NotNull [] rules) {
-    myFilteringRules = rules;
-    myBuilder.setFilteringRules(rules);
-    rulesChanged();
-  }
-
-  private static int compareByFileAndOffset(@NotNull Usage o1, @NotNull Usage o2) {
-    VirtualFile file1 = o1 instanceof UsageInFile inFile1 ? inFile1.getFile() : null;
-    VirtualFile file2 = o2 instanceof UsageInFile inFile2 ? inFile2.getFile() : null;
-    if (file1 == null) return file2 == null ? 0 : -1;
-    if (file2 == null) return 1;
-    if (file1.equals(file2)) {
-      return Integer.compare(o1.getNavigationOffset(), o2.getNavigationOffset());
-    }
-    return VfsUtilCore.compareByPath(file1, file2);
-  }
-
-  public static final @NonNls String HELP_ID = "ideaInterface.find";
   private UsageContextPanel myCurrentUsageContextPanel; // accessed in EDT only
   private final List<UsageContextPanel> myAllUsageContextPanels = new ArrayList<>(); // accessed in EDT only
   private UsageContextPanel.Provider myCurrentUsageContextProvider; // accessed in EDT only
@@ -279,7 +285,7 @@ public class UsageViewImpl implements UsageViewEx {
   private Splitter myPreviewSplitter; // accessed in EDT only
   private volatile ProgressIndicator associatedProgress; // the progress that current find usages is running under
 
-  private final UsageViewTreeCellRenderer myUsageViewTreeCellRenderer;
+  private UsageViewTreeCellRenderer myUsageViewTreeCellRenderer; // accessed in EDT only, created in initInEDT
   private @Nullable Action myRerunAction;
   private final CoroutineDispatcherBackedExecutor updateRequests;
   private final List<ExcludeListener> myExcludeListeners = ContainerUtil.createConcurrentList();
@@ -304,6 +310,65 @@ public class UsageViewImpl implements UsageViewEx {
     }
   };
 
+  // nodes just changed: parent node -> changed child
+  // this collection is needed for firing javax.swing.tree.DefaultTreeModel.nodesChanged() events in batch
+  // has to be linked because events for child nodes should be fired after events for parent nodes
+  private final MultiMap<Node, Node> fireTreeNodesChangedMap = MultiMap.createLinked(); // guarded by fireTreeNodesChangedMap
+
+  private final Consumer<Node> edtFireTreeNodesChangedQueue = node -> {
+    if (!getPresentation().isDetachedMode()) {
+      synchronized (fireTreeNodesChangedMap) {
+        Node parent = (Node)node.getParent();
+        if (parent != null) {
+          fireTreeNodesChangedMap.putValue(parent, node);
+        }
+      }
+    }
+  };
+
+  /**
+   * Set of node changes coming from the model to be applied to the Swing elements
+   */
+  private final Set<NodeChange> modelToSwingNodeChanges = new LinkedHashSet<>(); //guarded by modelToSwingNodeChanges
+
+  private final Consumer<NodeChange> edtModelToSwingNodeChangesQueue = (@NotNull NodeChange parent) -> {
+    if (!getPresentation().isDetachedMode()) {
+      synchronized (modelToSwingNodeChanges) {
+        modelToSwingNodeChanges.add(parent);
+      }
+    }
+  };
+
+  protected final TreeExpander treeExpander = new TreeExpander() {
+    @Override
+    public void expandAll() {
+      UsageViewImpl.this.expandAll();
+      getUsageViewSettings().setExpanded(true);
+    }
+
+    @Override
+    public boolean canExpand() {
+      return true;
+    }
+
+    @Override
+    public void collapseAll() {
+      UsageViewImpl.this.collapseAll(3);
+      getUsageViewSettings().setExpanded(false);
+    }
+
+    @Override
+    public boolean canCollapse() {
+      return true;
+    }
+  };
+
+  private boolean rulesChanged; // accessed in EDT only
+
+  /**
+   * Must not create any Swing components: this constructor can be invoked on a background thread (IJPL-205703).
+   * Swing initialization goes to {@link #initInEDT()}.
+   */
   @ApiStatus.Internal
   public UsageViewImpl(@NotNull Project project,
                        @NotNull CoroutineScope coroutineScope,
@@ -322,8 +387,6 @@ public class UsageViewImpl implements UsageViewEx {
     myUsageSearcherFactory = usageSearcherFactory;
     myProject = project;
 
-    myButtonPanel = new ButtonPanel();
-
     myModel = new UsageViewTreeModelBuilder(myPresentation, targets);
     myRoot = (GroupNode)myModel.getRoot();
 
@@ -331,10 +394,6 @@ public class UsageViewImpl implements UsageViewEx {
     myBuilder = new UsageNodeTreeBuilder(myTargets, myGroupingRules, getActiveFilteringRules(myProject), myRoot, myProject);
     myProject.getMessageBus().connect(this).subscribe(UsageFilteringRuleProvider.RULES_CHANGED, () -> rulesChanged());
 
-    myUsageViewTreeCellRenderer = new UsageViewTreeCellRenderer(this);
-    if (!myPresentation.isDetachedMode()) {
-      UIUtil.invokeLaterIfNeeded(() -> WriteIntentReadAction.run(() -> initInEDT()));
-    }
     myExclusionHandler = new ExclusionHandlerEx<>() {
       @Override
       @RequiresEdt
@@ -439,6 +498,33 @@ public class UsageViewImpl implements UsageViewEx {
           updateImmediately();
         }
       });
+    scheduleUpdateTargetNodes();
+
+    // Must stay last: when this constructor is invoked on EDT, invokeLaterIfNeeded() runs initInEDT()
+    // synchronously, so everything it may touch has to be assigned by now.
+    if (!myPresentation.isDetachedMode()) {
+      UIUtil.invokeLaterIfNeeded(() -> WriteIntentReadAction.run(() -> initInEDT()));
+    }
+  }
+
+  @ApiStatus.Internal
+  public int getFilteredOutNodeCount() {
+    return myBuilder.getFilteredUsagesCount();
+  }
+
+  @ApiStatus.Internal
+  public void setFilteringRules(UsageFilteringRule @NotNull [] rules) {
+    myFilteringRules = rules;
+    myBuilder.setFilteringRules(rules);
+    rulesChanged();
+  }
+
+  private void scheduleUpdateTargetNodes() {
+    addUpdateRequest(() -> {
+      ReadAction.runBlocking(() -> {
+        myModel.updateTargetNodes(edtFireTreeNodesChangedQueue);
+      });
+    });
   }
 
   @Override
@@ -460,6 +546,13 @@ public class UsageViewImpl implements UsageViewEx {
     if (isDisposed()) {
       return;
     }
+
+    // These three must be created before myTree is assigned below: callers that only check
+    // "myTree != null" go on to dereference them (see checkNodeValidity, addButtonToLowerPane).
+    myButtonPanel = new ButtonPanel();
+    myAdditionalComponent = new JPanel(new BorderLayout());
+    myUsageViewTreeCellRenderer = new UsageViewTreeCellRenderer(this);
+
     myTree = new MyTree(myModel);
     myTree.setName("UsageViewTree");
     myTree.getAccessibleContext().setAccessibleName(UsageViewBundle.message("usages.tree.accessible.name"));
@@ -531,25 +624,14 @@ public class UsageViewImpl implements UsageViewEx {
   }
 
   @ApiStatus.Internal
+  public @NotNull Set<String> getActiveFilteringRuleIds() {
+    return myFilteringRulesState.getActiveRuleIds();
+  }
+
+  @ApiStatus.Internal
   public @NotNull UsageViewSettings getUsageViewSettings() {
     return UsageViewSettings.getInstance();
   }
-
-  // nodes just changed: parent node -> changed child
-  // this collection is needed for firing javax.swing.tree.DefaultTreeModel.nodesChanged() events in batch
-  // has to be linked because events for child nodes should be fired after events for parent nodes
-  private final MultiMap<Node, Node> fireTreeNodesChangedMap = MultiMap.createLinked(); // guarded by fireTreeNodesChangedMap
-
-  private final Consumer<Node> edtFireTreeNodesChangedQueue = node -> {
-    if (!getPresentation().isDetachedMode()) {
-      synchronized (fireTreeNodesChangedMap) {
-        Node parent = (Node)node.getParent();
-        if (parent != null) {
-          fireTreeNodesChangedMap.putValue(parent, node);
-        }
-      }
-    }
-  };
 
   /**
    * Type of change that occurs in the GroupNode.myChildren
@@ -574,19 +656,6 @@ public class UsageViewImpl implements UsageViewEx {
      */
     @Nullable Node childNode
   ) {}
-
-  /**
-   * Set of node changes coming from the model to be applied to the Swing elements
-   */
-  private final Set<NodeChange> modelToSwingNodeChanges = new LinkedHashSet<>(); //guarded by modelToSwingNodeChanges
-
-  private final Consumer<NodeChange> edtModelToSwingNodeChangesQueue = (@NotNull NodeChange parent) -> {
-    if (!getPresentation().isDetachedMode()) {
-      synchronized (modelToSwingNodeChanges) {
-        modelToSwingNodeChanges.add(parent);
-      }
-    }
-  };
 
 
   /**
@@ -1001,30 +1070,6 @@ public class UsageViewImpl implements UsageViewEx {
     }
   }
 
-  protected final TreeExpander treeExpander = new TreeExpander() {
-    @Override
-    public void expandAll() {
-      UsageViewImpl.this.expandAll();
-      getUsageViewSettings().setExpanded(true);
-    }
-
-    @Override
-    public boolean canExpand() {
-      return true;
-    }
-
-    @Override
-    public void collapseAll() {
-      UsageViewImpl.this.collapseAll(3);
-      getUsageViewSettings().setExpanded(false);
-    }
-
-    @Override
-    public boolean canCollapse() {
-      return true;
-    }
-  };
-
   @RequiresEdt
   protected AnAction @NotNull [] createActions() {
     ThreadingAssertions.assertEventDispatchThread();
@@ -1165,8 +1210,6 @@ public class UsageViewImpl implements UsageViewEx {
     return myPresentation.isDetachedMode() || myTree.isShowing();
   }
 
-  private boolean rulesChanged; // accessed in EDT only
-
   private void rulesChanged() {
     try (AccessToken ignore = SlowOperations.knownIssue("IJPL-164976")) {
       ReadAction.runBlocking(() -> {
@@ -1249,27 +1292,18 @@ public class UsageViewImpl implements UsageViewEx {
     ThreadingAssertions.assertEventDispatchThread();
     //always expand the last level group
     DefaultMutableTreeNode root = (DefaultMutableTreeNode)myTree.getModel().getRoot();
-    try {
-      if (myTree != null) {
-        myTree.suspendExpandCollapseAccessibilityAnnouncements();
-      }
-      for (int i = root.getChildCount() - 1; i >= 0; i--) {
-        DefaultMutableTreeNode child = (DefaultMutableTreeNode)root.getChildAt(i);
-        if (child instanceof GroupNode) {
-          TreePath treePath = new TreePath(child.getPath());
-          myTree.expandPath(treePath);
-        }
-      }
-      myTree.getSelectionModel().clearSelection();
-      for (UsageState usageState : states) {
-        usageState.restore(this);
+    var treeState = new UsageTreeState(root.getChildCount() + states.size());
+    for (int i = root.getChildCount() - 1; i >= 0; i--) {
+      DefaultMutableTreeNode child = (DefaultMutableTreeNode)root.getChildAt(i);
+      if (child instanceof GroupNode) {
+        TreePath treePath = new CachingTreePath(child.getPath());
+        treeState.addExpandedPath(treePath);
       }
     }
-    finally {
-      if (myTree != null) {
-        myTree.resumeExpandCollapseAccessibilityAnnouncements();
-      }
+    for (UsageState usageState : states) {
+      usageState.restore(this, treeState);
     }
+    treeState.applyTo(myTree);
   }
 
   public void expandAll() {
@@ -1422,6 +1456,7 @@ public class UsageViewImpl implements UsageViewEx {
     synchronized (modelToSwingNodeChanges) {
       modelToSwingNodeChanges.clear();
     }
+    scheduleUpdateTargetNodes();
   }
 
   @ApiStatus.Internal
@@ -1887,6 +1922,13 @@ public class UsageViewImpl implements UsageViewEx {
   @RequiresEdt
   public void addButtonToLowerPane(@NotNull Action action) {
     ThreadingAssertions.assertEventDispatchThread();
+    if (myButtonPanel == null) {
+      // Either detached mode, which has no Swing UI at all, or disposed before initInEDT() had a chance to run.
+      if (!isDisposed()) {
+        LOG.error("addButtonToLowerPane() needs a UI, but the presentation is in detached mode");
+      }
+      return;
+    }
     int index = myButtonPanel.getComponentCount();
     if (!SystemInfo.isMac && index > 0 && myPresentation.isShowCancelButton()) index--;
     myButtonPanel.addButtonAction(index, action);
@@ -1917,6 +1959,13 @@ public class UsageViewImpl implements UsageViewEx {
   @Override
   @RequiresEdt
   public void setAdditionalComponent(@Nullable JComponent comp) {
+    if (myAdditionalComponent == null) {
+      // Either detached mode, which has no Swing UI at all, or disposed before initInEDT() had a chance to run.
+      if (!isDisposed()) {
+        LOG.error("setAdditionalComponent() needs a UI, but the presentation is in detached mode");
+      }
+      return;
+    }
     BorderLayout layout = (BorderLayout)myAdditionalComponent.getLayout();
     Component prev = layout.getLayoutComponent(myAdditionalComponent, BorderLayout.CENTER);
     if (prev == comp) {
@@ -2359,7 +2408,7 @@ public class UsageViewImpl implements UsageViewEx {
           if (action != null) {
             if (myNeedUpdateButtons) {
               Boolean isDumbAware = (Boolean)action.getValue(DUMB_AWARE_KEY);
-              button.setEnabled(!isSearchInProgress && action.isEnabled() && (!isDumb || isDumbAware));
+              button.setEnabled(!isSearchInProgress && action.isEnabled() && (!isDumb || Boolean.TRUE.equals(isDumbAware)));
             }
             Object name = action.getValue(Action.NAME);
             if (name instanceof String string) {
@@ -2377,7 +2426,7 @@ public class UsageViewImpl implements UsageViewEx {
 
   private record UsageState(@NotNull Usage usage, boolean isSelected) {
     @RequiresEdt
-    private void restore(@NotNull UsageViewImpl usageView) {
+    private void restore(@NotNull UsageViewImpl usageView, @NotNull UsageTreeState usageTreeState) {
       ThreadingAssertions.assertEventDispatchThread();
       UsageNode node = usageView.myUsageNodes.get(usage);
       if (node == NULL_NODE || node == null) {
@@ -2385,12 +2434,36 @@ public class UsageViewImpl implements UsageViewEx {
       }
       DefaultMutableTreeNode parentGroupingNode = (DefaultMutableTreeNode)node.getParent();
       if (parentGroupingNode != null) {
-        TreePath treePath = new TreePath(parentGroupingNode.getPath());
-        usageView.myTree.expandPath(treePath);
+        TreePath treePath = new CachingTreePath(parentGroupingNode.getPath());
+        usageTreeState.addExpandedPath(treePath);
         if (isSelected) {
-          usageView.myTree.addSelectionPath(treePath.pathByAddingChild(node));
+          usageTreeState.addSelectedPath(treePath.pathByAddingChild(node));
         }
       }
+    }
+  }
+  
+  private static class UsageTreeState {
+    private final List<TreePath> expandedPaths;
+    private final List<TreePath> selectedPaths;
+    
+    UsageTreeState(int expandedPathCount) {
+      expandedPaths = new ArrayList<>(expandedPathCount);
+      selectedPaths = new ArrayList<>(1); // typically there's only one or none
+    }
+
+    void addExpandedPath(@NotNull TreePath path) {
+      expandedPaths.add(path);
+    }
+
+    void addSelectedPath(@NotNull TreePath path) {
+      selectedPaths.add(path);
+    }
+    
+    void applyTo(@NotNull Tree tree) {
+      tree.getSelectionModel().clearSelection();
+      tree.expandPaths(expandedPaths);
+      tree.setSelectionPaths(selectedPaths.toArray(new TreePath[0]));
     }
   }
 

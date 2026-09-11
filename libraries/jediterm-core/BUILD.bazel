@@ -1,7 +1,7 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
 ### auto-generated section `build intellij.libraries.jediterm.core` start
-
 jvm_library(
     name = "jediterm-core",
     srcs = glob(
@@ -16,6 +16,11 @@ jvm_library(
     visibility = ["//visibility:public"],
     exports = ["@lib//:jediterm-core"],
     runtime_deps = ["@lib//:jediterm-core"],
+)
+
+content_module_jar(
+    libraries = ["@lib//:jediterm-core"],
+    module = ":jediterm-core",
 )
 
 jvm_library(
@@ -37,6 +42,8 @@ jvm_library(
 exports_files(
     [
         "intellij.libraries.jediterm.core.iml",
+        "resources/intellij.libraries.jediterm.core.xml",
+        "module-content.yaml",
     ],
     visibility = ["//visibility:public"],
 )

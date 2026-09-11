@@ -953,6 +953,8 @@ public @interface NotNull {
 
     fun testConvertParameterToReceiverForMemberConflict() = doTestConflict { receiverParameterInfo = newParameters[0] }
 
+    fun testConvertParameterToReceiverForMemberDispatchReceiver() = doTest { receiverParameterInfo = newParameters[0] }
+
     fun testConvertReceiverToParameterForMember1() = doTest { receiverParameterInfo = null }
 
     fun testAddNewReceiver() = doTestAndIgnoreConflicts {
@@ -1101,6 +1103,12 @@ public @interface NotNull {
     fun testOverrideInAnonymousObjectWithTypeParameters() = doTest { newName = "bar" }
 
     fun testRenameFunction() = doTest { newName = "after" }
+
+    fun testRenameExplicitContextArgument() = doTest { newParameters[0].name = "s" }
+
+    fun testRenameExplicitContextArgument2() = doTest { newParameters[0].name = "s" }
+
+    fun testRenameExplicitContextArgument3() = doTest { newParameters[1].name = "str" }
 
     //--------------------reorder----------------------------
 

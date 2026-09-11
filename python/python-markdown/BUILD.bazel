@@ -1,8 +1,8 @@
 load("@community//build:tests-options.bzl", "jps_test")
 load("@rules_jvm//:jvm.bzl", "jvm_library")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
 ### auto-generated section `build intellij.python.markdown` start
-
 jvm_library(
     name = "markdown",
     srcs = glob(
@@ -32,6 +32,8 @@ jvm_library(
     ],
 )
 
+content_module_jar(module = ":markdown")
+
 jvm_library(
     name = "markdown_test_lib",
     testonly = True,
@@ -59,13 +61,13 @@ jvm_library(
 exports_files(
     [
         "intellij.python.markdown.iml",
+        "resources/intellij.python.markdown.xml",
     ],
     visibility = ["//visibility:public"],
 )
 ### auto-generated section `iml intellij.python.markdown` end
 
 ### auto-generated section `build intellij.python.markdown.tests` start
-
 jvm_library(
     name = "markdown-tests",
     srcs = glob(
@@ -119,6 +121,8 @@ jvm_library(
         "//python:python-community-tests_test_lib",
         "//platform/testFramework",
         "//platform/testFramework:testFramework_test_lib",
+        "//libraries/junit4",
+        "//libraries/junit4:junit4_test_lib",
     ],
 )
 ### auto-generated section `build intellij.python.markdown.tests` end
@@ -133,7 +137,6 @@ exports_files(
 ### auto-generated section `iml intellij.python.markdown.tests` end
 
 ### auto-generated section `test intellij.python.markdown.tests` start
-
 jps_test(
     name = "markdown-tests_test",
     runtime_deps = [":markdown-tests_test_lib"],

@@ -1,7 +1,7 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
 ### auto-generated section `build intellij.kotlin.base.externalSystem` start
-
 jvm_library(
     name = "kotlin-base-externalSystem",
     srcs = glob(
@@ -29,9 +29,11 @@ jvm_library(
         "//platform/util",
         "//platform/execution",
         "//platform/external-system-api:externalSystem",
-        "@lib//:kotlin-tooling-core",
+        "//libraries/kotlin/tooling-core:libraries-kotlin-tooling-core",
     ],
 )
+
+content_module_jar(module = ":kotlin-base-externalSystem")
 
 jvm_library(
     name = "kotlin-base-externalSystem_test_lib",
@@ -53,6 +55,7 @@ jvm_library(
         "//platform/util:util_test_lib",
         "//platform/execution:execution_test_lib",
         "//platform/external-system-api:externalSystem_test_lib",
+        "//libraries/kotlin/tooling-core:libraries-kotlin-tooling-core_test_lib",
     ],
 )
 ### auto-generated section `build intellij.kotlin.base.externalSystem` end
@@ -61,6 +64,7 @@ jvm_library(
 exports_files(
     [
         "intellij.kotlin.base.externalSystem.iml",
+        "resources/intellij.kotlin.base.externalSystem.xml",
     ],
     visibility = ["//visibility:public"],
 )

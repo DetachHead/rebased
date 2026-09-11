@@ -7,7 +7,6 @@ import com.intellij.lang.Language
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.EDT
 import com.intellij.openapi.application.ModalityState
-import com.intellij.openapi.application.ReadAction
 import com.intellij.openapi.application.asContextElement
 import com.intellij.openapi.application.readAction
 import com.intellij.openapi.components.ComponentManagerEx
@@ -31,16 +30,13 @@ import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.options.advanced.AdvancedSettings
 import com.intellij.openapi.options.advanced.AdvancedSettingsChangeListener
 import com.intellij.openapi.project.Project
-import com.intellij.openapi.util.ThrowableComputable
 import com.intellij.openapi.util.registry.Registry
-import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.psi.PsiDocumentListener
 import com.intellij.psi.codeStyle.CodeStyleConstraints
 import com.intellij.psi.codeStyle.CodeStyleSettings
 import com.intellij.psi.codeStyle.CodeStyleSettingsListener
 import com.intellij.psi.codeStyle.CodeStyleSettingsManager
 import com.intellij.util.PatternUtil
-import com.intellij.util.SlowOperations
 import com.intellij.util.cancelOnDispose
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
@@ -88,7 +84,7 @@ class EditorSettingsState(private val editor: EditorImpl?,
   // Use for code-style-derived properties: their defaults depend on backend-side data (e.g. .clang-format, .editorconfig)
   // that the frontend in Remote Development cannot compute independently, so they must always be transferred.
   private inline fun <reified T> codeStyleProperty(noinline defaultValueCalculator: () -> T): StateProperty<T> =
-    property(alwaysTransfer = true, defaultValueCalculator = defaultValueCalculator)
+    property(defaultValueCalculator(), SyncDefaultValueCalculator(defaultValueCalculator), alwaysTransfer = true)
 
   // This group of settings does not have a UI
   var myAdditionalLinesCount: Int by property(Registry.intValue("editor.virtual.lines", 5))
@@ -99,22 +95,19 @@ class EditorSettingsState(private val editor: EditorImpl?,
   var myAutoCodeFoldingEnabled: Boolean by property(true)
   var myAreLineNumbersAfterIcons: Boolean by property { false }
 
-  // These come from CodeStyleSettings.
+  // [SettingsImpl] manages this property directly, like [tabSize]. The per-file value needs the PSI, and
+  // therefore the RW lock, so it must not run here. An editor can be built on `Dispatchers.UI`, which
+  // forbids that lock (IJPL-243574). [SettingsImpl] computes the per-file value in a background read action
+  // and then assigns it here, which overrides this default.
+  //
+  // The default is the project setting, and not the global one. It is what the Remote Development frontend
+  // reads until the backend pushes the computed value, and this value selects the character an indent writes.
+  // The project setting needs no lock, and it is right for every file that no `FileIndentOptionsProvider`
+  // overrides. [SettingsImpl] seeds its own computable from the same expression.
   var myUseTabCharacter: Boolean by codeStyleProperty {
-    ReadAction.computeBlocking(ThrowableComputable {
-      val file = getVirtualFile()
-
-      if (file == null || project == null) {
-        CodeStyle.getProjectOrDefaultSettings(project).getIndentOptions(null).USE_TAB_CHARACTER
-      }
-      else {
-        val settings = editor?.getUserData(CODE_STYLE_SETTINGS) ?: CodeStyle.getSettings(project, file)
-        SlowOperations.knownIssue("IDEA-333523, EA-914853").use {
-          settings.getIndentOptionsByFile(project, file, null).USE_TAB_CHARACTER
-        }
-      }
-    })
+    CodeStyle.getProjectOrDefaultSettings(project).indentOptions.USE_TAB_CHARACTER
   }
+  // These come from CodeStyleSettings.
   var myWrapWhenTypingReachesRightMargin: Boolean by codeStyleProperty {
     val settings = if (editor == null) {
       CodeStyle.getDefaultSettings()
@@ -245,7 +238,6 @@ class EditorSettingsState(private val editor: EditorImpl?,
       CodeStyleSettingsManager.getInstance(project).subscribe(CodeStyleSettingsListener {
         if (it.project != project ||
             it.virtualFile != null && it.virtualFile != editor.virtualFile) return@CodeStyleSettingsListener
-        refresh(::myUseTabCharacter)
         refresh(::myWrapWhenTypingReachesRightMargin)
         refresh(::softMargins)
         refresh(::rightMargin)
@@ -341,10 +333,6 @@ class EditorSettingsState(private val editor: EditorImpl?,
     }
   }
 
-  private fun getVirtualFile(): VirtualFile? {
-    return (editor ?: return null).virtualFile ?: FileDocumentManager.getInstance().getFile(editor.document)
-  }
-
   private fun recalculateLanguage() {
     if (ApplicationManager.getApplication().isUnitTestMode) {
       runCatching {
@@ -383,6 +371,7 @@ class EditorSettingsState(private val editor: EditorImpl?,
     refresh(::softMargins)
     refresh(::rightMargin)
     refresh(::myStickyLinesShownForLanguage)
+    refresh(::myWrapWhenTypingReachesRightMargin)
     editor?.putUserData(EDITOR_LANGUAGE, language)
   }
 }

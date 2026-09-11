@@ -14,15 +14,17 @@ import com.intellij.ui.dsl.builder.RightGap
 import com.intellij.ui.dsl.builder.bindSelected
 import com.intellij.ui.dsl.builder.selected
 import com.intellij.util.PlatformUtils
-import org.jetbrains.annotations.ApiStatus
 
-@ApiStatus.Internal
-class CommandCompletionConfigurableProvider : ConfigurableProvider() {
+internal class CommandCompletionConfigurableProvider : ConfigurableProvider() {
 
   override fun createConfigurable(): Configurable? {
     //now, only for intellij
     if (!PlatformUtils.isIntelliJ()) return null
     return CommandCompletionConfigurable()
+  }
+
+  override fun getConfigurableType(): Class<*> {
+    return CommandCompletionConfigurable::class.java
   }
 
   class CommandCompletionConfigurable : UiDslUnnamedConfigurable.Simple(), Configurable {
@@ -41,7 +43,7 @@ class CommandCompletionConfigurableProvider : ConfigurableProvider() {
                           { r -> settings.state.setEnabled(r) })
             .contextHelp(CodeInsightBundle.message("options.command.completion.display.comment"))
         }
-        if (GroupedCompletionContributor.isGroupEnabledInApp()) {
+        if (GroupedCompletionContributor.isGroupEnabled(null)) {
           indent {
             row {
               checkBox(CodeInsightBundle.message("options.command.completion.show.group"))

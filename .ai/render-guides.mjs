@@ -1,4 +1,5 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+import {Buffer} from "node:buffer"
 import {access, copyFile, mkdir, readdir, readFile, rm, writeFile} from "node:fs/promises"
 import {dirname, join, relative, resolve, sep} from "node:path"
 import process from "node:process"
@@ -23,7 +24,6 @@ const validEditions = new Set(["ULTIMATE", "COMMUNITY"]);
  * @property {string} [template]
  * @property {string} [templatePath]
  * @property {string} output
- * @property {string} [forbiddenToolsSuffix]
  * @property {string} [generatedHeader]
  * @property {string} [generatedHeaderPosition]
  * @property {string} [edition]
@@ -37,7 +37,6 @@ const outputs = [
     tool: "CODEX",
     template: "guide.md",
     output: "AGENTS.md",
-    forbiddenToolsSuffix: "",
     generatedHeader: generatedGuideHeader,
     generatedHeaderPosition: "after-frontmatter",
   },
@@ -46,7 +45,6 @@ const outputs = [
     tool: "CODEX",
     template: "guide.md",
     output: "community/AGENTS.md",
-    forbiddenToolsSuffix: "",
     generatedHeader: generatedGuideHeader,
     generatedHeaderPosition: "after-frontmatter",
     edition: "COMMUNITY",
@@ -57,7 +55,6 @@ const outputs = [
     tool: "CLAUDE",
     template: "guide.md",
     output: "CLAUDE.md",
-    forbiddenToolsSuffix: "",
     generatedHeader: generatedGuideHeader,
     generatedHeaderPosition: "after-frontmatter",
     edition: "ULTIMATE",
@@ -68,7 +65,6 @@ const outputs = [
     tool: "JUNIE",
     template: "guide.md",
     output: ".junie/AGENTS.md",
-    forbiddenToolsSuffix: "",
     generatedHeader: generatedGuideHeader,
     generatedHeaderPosition: "after-frontmatter",
   },
@@ -126,9 +122,9 @@ function rewriteLinkTarget(rawTarget, sourcePath, outputPath) {
   }
   const absolutePath = resolve(dirname(sourcePath), path);
   const outputDir = dirname(outputPath);
-  let relativePath = relative(outputDir, absolutePath);
+  let relativePath = toPosixPath(relative(outputDir, absolutePath));
   relativePath = ensureDotSlash(relativePath);
-  return toPosixPath(relativePath) + suffix;
+  return relativePath + suffix;
 }
 
 const inlineLinkPattern = /(!?\[[^\]]*])\(([^)\s]+)(\s+[^)]+)?\)/g;
@@ -232,18 +228,115 @@ function applyToolBlocks(text, tool) {
 }
 
 const editionBlockPattern = /<!--\s*IF_EDITION:([A-Z0-9_-]+)\s*-->([\s\S]*?)<!--\s*\/IF_EDITION:\1\s*-->/gi;
+const wholeLineEditionBlockPattern =
+  /^[ \t]*<!--\s*IF_EDITION:([A-Z0-9_-]+)\s*-->([^\n]*?)<!--\s*\/IF_EDITION:\1\s*-->[ \t]*\n/gim;
 const unresolvedToolDirectivePattern = /<!--\s*\/?IF_TOOL:[^>]+-->/i;
 const unresolvedEditionDirectivePattern = /<!--\s*\/?IF_EDITION:[^>]+-->/i;
 const unresolvedTemplateCommentPattern = /<!--\s*\/?TEMPLATE:COMMENT\s*-->/i;
 
-function applyEditionBlocks(text, edition) {
-  const normalizedEdition = (edition ?? "").toUpperCase();
-  return text.replace(editionBlockPattern, (match, blockEdition, content) => {
-    if (blockEdition.toUpperCase() === normalizedEdition) {
-      return content;
-    }
-    return "";
+/**
+ * Removes a line that holds one edition block for another edition, the newline included. The block
+ * replacement alone leaves an empty line there, and an empty line ends the Markdown list the bullet
+ * was in. Two lines never match: a line that pairs two editions, because the pair keeps one of the
+ * two, and a block that spans lines, which the caller must write in an edition-only partial.
+ */
+function dropWholeLineEditionBlocks(text, normalizedEdition) {
+  return text.replace(wholeLineEditionBlockPattern, (match, blockEdition) => {
+    return blockEdition.toUpperCase() === normalizedEdition ? match : "";
   });
+}
+
+export function applyEditionBlocks(text, edition) {
+  const normalizedEdition = (edition ?? "").toUpperCase();
+  return dropWholeLineEditionBlocks(text, normalizedEdition).replace(
+    editionBlockPattern,
+    (match, blockEdition, content) => {
+      if (blockEdition.toUpperCase() === normalizedEdition) {
+        return content;
+      }
+      return "";
+    },
+  );
+}
+
+const editionRootByEdition = new Map([
+  ["ULTIMATE", repoRoot],
+  ["COMMUNITY", join(repoRoot, "community")],
+]);
+
+/**
+ * Paths that `.gitignore` covers. A checkout has one only after the developer writes it, so the
+ * reference check must not ask for it.
+ */
+const perDeveloperReferencePaths = new Set([".ai/local.md", ".claude/local.md", ".claude/CLAUDE.md"]);
+
+const backtickedTokenPattern = /`([^`\n]+)`/g;
+
+/**
+ * Tells whether a backticked word names something the checkout must hold. A word qualifies when it
+ * has a slash, which separates a path and a Bazel label from a class name, a flag, and prose.
+ */
+function isReferenceCandidate(word) {
+  if (!word.includes("/")) {
+    return false;
+  }
+  // A URL, an external Bazel repository, a glob, and a placeholder all name nothing in this checkout.
+  return !/^(?:https?:|@)/.test(word) && !word.includes("*") && !word.includes("<") && !word.includes(">");
+}
+
+/**
+ * Maps a backticked word to the checkout path it must resolve to, relative to the edition root.
+ * A Bazel label maps to the `BUILD.bazel` file of its package. Returns undefined for a word that
+ * names nothing, such as `//:format.check` in the root package.
+ */
+function referencePathOf(word) {
+  if (word.startsWith("//")) {
+    const packagePath = word.slice(2).split(":")[0].replace(/\/\.\.\.$/, "").replace(/\/$/, "");
+    return packagePath === "" ? "BUILD.bazel" : `${packagePath}/BUILD.bazel`;
+  }
+  const path = word.replace(/^\.\//, "").replace(/^\//, "").replace(/\/$/, "");
+  return path === "" ? undefined : path;
+}
+
+/**
+ * Fails when a rendered guide names a path the edition that ships it does not have. The community
+ * guide is the usual victim: it drops `plugins/` trees the monorepo has, so an ultimate-only path
+ * copied into a shared source reads as a live instruction and points at nothing.
+ */
+export async function assertReferencesResolve(text, targetName, edition) {
+  const editionRoot = editionRootByEdition.get(normalizeEdition(edition));
+  if (editionRoot === undefined) {
+    throw new Error(`No edition root configured for edition "${edition}".`);
+  }
+
+  const candidates = new Set();
+  for (const [, token] of text.matchAll(backtickedTokenPattern)) {
+    for (const word of token.split(/\s+/)) {
+      if (isReferenceCandidate(word)) {
+        candidates.add(word);
+      }
+    }
+  }
+
+  const missing = [];
+  for (const word of candidates) {
+    const path = referencePathOf(word);
+    if (path === undefined || perDeveloperReferencePaths.has(path)) {
+      continue;
+    }
+    try {
+      await access(join(editionRoot, path));
+    } catch {
+      missing.push(word);
+    }
+  }
+
+  if (missing.length !== 0) {
+    throw new Error(
+      `${targetName} names ${missing.length} path(s) the ${normalizeEdition(edition)} checkout does not have: ` +
+      `${missing.sort().join(", ")}. Guard the line with IF_EDITION, or write the prefix as {{COMMUNITY_DIR}}.`,
+    );
+  }
 }
 
 function assertNoUnresolvedTemplateDirectives(text, targetName) {
@@ -266,6 +359,43 @@ function normalizeEdition(value) {
   return normalized;
 }
 
+const toolsDirByEdition = new Map([
+  ["ULTIMATE", "./community/tools"],
+  ["COMMUNITY", "./tools"],
+]);
+
+/**
+ * Resolves the `{{TOOLS_DIR}}` placeholder: the `fd.cmd`/`rg.cmd` directory relative to the
+ * workspace root the rendered guide lives in. Keeping it a placeholder instead of paired
+ * IF_EDITION blocks means a search rule is written once and cannot drift between editions.
+ */
+export function resolveToolsDir(edition) {
+  const toolsDir = toolsDirByEdition.get(normalizeEdition(edition));
+  if (toolsDir === undefined) {
+    throw new Error(`No tools directory configured for edition "${edition}".`);
+  }
+  return toolsDir;
+}
+
+const communityDirByEdition = new Map([
+  ["ULTIMATE", "community/"],
+  ["COMMUNITY", ""],
+]);
+
+/**
+ * Resolves the `{{COMMUNITY_DIR}}` placeholder: the prefix that reaches the community sources from
+ * the workspace root the rendered guide lives in. It is `community/` in the monorepo and empty in
+ * the community repository. A path written once with this prefix cannot drift between the editions,
+ * which paired IF_EDITION blocks let it do.
+ */
+export function resolveCommunityDir(edition) {
+  const communityDir = communityDirByEdition.get(normalizeEdition(edition));
+  if (communityDir === undefined) {
+    throw new Error(`No community directory configured for edition "${edition}".`);
+  }
+  return communityDir;
+}
+
 async function detectEdition() {
   const envEdition = process.env["AI_GUIDE_EDITION"] ?? process.env["RENDER_EDITION"];
   if (envEdition) {
@@ -280,8 +410,10 @@ async function detectEdition() {
 }
 
 const mcpConfigPath = join(repoRoot, ".mcp.json");
+const toolPermissionsPath = join(templatesDir, "tool-permissions.json");
+const claudeSettingsOutput = ".claude/settings.json";
+const codexRulesOutput = ".codex/rules/default.rules";
 const opencodeConfigPath = join(repoRoot, "opencode.json");
-const codexSkillsDir = join(repoRoot, ".codex", "skills");
 const opencodeSkillsDir = join(repoRoot, ".opencode", "skill");
 const communitySkillsSourceDir = join(repoRoot, "community", ".agents", "skills");
 const agentsSkillsDir = join(repoRoot, ".agents", "skills");
@@ -289,10 +421,17 @@ const claudeSkillsDir = join(repoRoot, ".claude", "skills");
 const junieSkillsDir = join(repoRoot, ".junie", "skills");
 const communityClaudeSkillsDir = join(repoRoot, "community", ".claude", "skills");
 const generatedSkillMarker = "<!-- Generated by community/.ai/render-guides.mjs";
+/** The hand-written catalogue of the skills a developer installs, beside the index of the skills the repository holds. */
+const OPTIONAL_SKILLS_FILE = "OPTIONAL.md";
+const skillIndexHeader =
+  "<!-- Generated by community/.ai/render-guides.mjs; edit the SKILL.md files beside this index -->";
+const skillDescriptionMaxBytes = 160;
+const skillDescriptionsMaxBytes = 6 * 1024;
+const descriptionHeadroomWarningRatio = 0.1;
 const opencodeJetBrainsMcpName = "jetbrains";
 const opencodeJetBrainsMcpConfig = {
   type: "remote",
-  url: "http://127.0.0.1:64344/sse",
+  url: "{env:JETBRAINS_MCP_URL}",
   headers: {},
   enabled: true
 };
@@ -374,7 +513,6 @@ async function renderOpenCodeConfig() {
   }
   const opencodeConfig = {
     "$schema": "https://opencode.ai/config.json",
-    model: "openai/gpt-5.2-codex",
     provider: {
       openai: {
         models: {
@@ -392,6 +530,125 @@ async function renderOpenCodeConfig() {
   await writeFile(opencodeConfigPath, content, "utf8");
 }
 
+/**
+ * Reads the shared tool-permission list with `{{TOOLS_DIR}}` resolved for `edition`.
+ *
+ * Substitution happens on the parsed entries rather than on the file text, so the explanatory
+ * `$comment` blocks can talk about the placeholder without being rewritten.
+ */
+export async function loadToolPermissions(edition, path = toolPermissionsPath) {
+  const parsed = JSON.parse(await readFile(path, "utf8"));
+  const toolsDir = resolveToolsDir(edition);
+  const permissions = {
+    allow: resolvePermissionEntries(parsed.allow, toolsDir, "allow"),
+    deny: resolvePermissionEntries(parsed.deny, toolsDir, "deny"),
+    denyTools: parsed.denyTools ?? [],
+  };
+  if (permissions.allow.length === 0) {
+    throw new Error(`${path} has no allow entries.`);
+  }
+  return permissions;
+}
+
+function resolvePermissionEntries(entries, toolsDir, section) {
+  if (!Array.isArray(entries)) {
+    throw new Error(`Tool permissions section "${section}" must be an array of argv arrays.`);
+  }
+  return entries.map(argv => {
+    if (!Array.isArray(argv) || argv.length === 0 || argv.some(token => typeof token !== "string" || token === "")) {
+      throw new Error(`Tool permissions section "${section}" has an entry that is not a non-empty argv array.`);
+    }
+    return argv.map(token => {
+      const resolved = replaceAll(token, "{{TOOLS_DIR}}", toolsDir);
+      if (resolved.includes("{{")) {
+        throw new Error(`Tool permissions entry "${token}" still has an unresolved placeholder.`);
+      }
+      return resolved;
+    });
+  });
+}
+
+/**
+ * Both harnesses match rules against literal text, so a `./x` entry has to be emitted in the bare
+ * spelling as well. Other spellings of the same file (`../../x`, an absolute path) fall through to
+ * a prompt; recovering them would need a leading `*` pattern, which would also match `sudo x`.
+ */
+function toRuleSpellings(argv) {
+  if (!argv[0].startsWith("./")) {
+    return [argv];
+  }
+  return [argv, [argv[0].slice(2), ...argv.slice(1)]];
+}
+
+function toClaudeBashRules(entries) {
+  return entries.flatMap(argv => toRuleSpellings(argv).map(spelling => `Bash(${spelling.join(" ")}:*)`));
+}
+
+/**
+ * Rewrites the permission arrays of a committed `.claude/settings.json` from the shared list.
+ *
+ * Only the rules the list owns are replaced: every `Bash(...)` entry in `permissions.allow` and the
+ * whole of `permissions.deny`. MCP, Skill and WebSearch allows stay where they are, and `hooks`,
+ * `defaultMode` and the rest of the file are untouched -- settings.json remains the hand-edited
+ * home for everything that is not a shell-command rule.
+ */
+export function applyClaudePermissions(settingsText, permissions) {
+  const settings = JSON.parse(settingsText);
+  const claudePermissions = settings.permissions;
+  if (!claudePermissions || typeof claudePermissions !== "object") {
+    throw new Error(`${claudeSettingsOutput} has no permissions object.`);
+  }
+  const keptAllowRules = (claudePermissions.allow ?? []).filter(rule => !rule.startsWith("Bash("));
+  // Assigning to existing keys keeps their position, so the file's shape does not churn.
+  claudePermissions.allow = [...keptAllowRules, ...toClaudeBashRules(permissions.allow)];
+  claudePermissions.deny = [...permissions.denyTools, ...toClaudeBashRules(permissions.deny)];
+  return `${JSON.stringify(settings, null, 2)}\n`;
+}
+
+/**
+ * Renders `.codex/rules/default.rules`, which governs execution outside the Codex sandbox.
+ * `forbidden` wins over `allow` there, so the denied entries are emitted first for readability.
+ */
+export function buildCodexRules(permissions) {
+  const lines = [
+    "# Generated from community/.ai/tool-permissions.json by community/.ai/render-guides.mjs.",
+    "# Edit the source list and rerun the renderer; do not edit this file by hand.",
+    "#",
+    "# These govern execution *outside* the Codex sandbox. `forbidden` wins over `allow`, and Codex",
+    "# matches every stage of a pipeline, so a forbidden entry is refused in any position.",
+    "",
+  ];
+  for (const [section, decision] of [[permissions.deny, "forbidden"], [permissions.allow, "allow"]]) {
+    for (const argv of section) {
+      for (const spelling of toRuleSpellings(argv)) {
+        const pattern = spelling.map(token => JSON.stringify(token)).join(", ");
+        lines.push(`prefix_rule(pattern=[${pattern}], decision="${decision}")`);
+      }
+    }
+  }
+  return `${lines.join("\n")}\n`;
+}
+
+/**
+ * Renders the harness permission files without writing them, so generation and the freshness check
+ * share one implementation (the same contract as {@link renderGuideOutputs}).
+ *
+ * Only the ultimate workspace has a `.claude/settings.json` and a `.codex/` directory to render
+ * into; a community checkout gets an empty map rather than two invented files.
+ */
+export async function renderAgentPermissionOutputs(edition) {
+  const normalizedEdition = edition === undefined ? await detectEdition() : normalizeEdition(edition);
+  if (normalizedEdition !== "ULTIMATE") {
+    return new Map();
+  }
+  const permissions = await loadToolPermissions(normalizedEdition);
+  const settingsText = await readFile(join(repoRoot, claudeSettingsOutput), "utf8");
+  return new Map([
+    [claudeSettingsOutput, applyClaudePermissions(settingsText, permissions)],
+    [codexRulesOutput, buildCodexRules(permissions)],
+  ]);
+}
+
 async function copyDirectory(sourceDir, targetDir) {
   await mkdir(targetDir, {recursive: true});
   const entries = await readdir(sourceDir, {withFileTypes: true});
@@ -404,37 +661,64 @@ async function copyDirectory(sourceDir, targetDir) {
       await copyFile(sourcePath, targetPath);
     }
   }
+  await pruneStaleCopies(targetDir, new Set(entries.map((entry) => entry.name)));
 }
 
-async function renderOpenCodeSkills() {
+/**
+ * Delete target entries the source no longer has.
+ *
+ * Copying alone makes these trees append-only: a renamed or deleted bundled script stays behind in
+ * every harness copy forever, and an agent reading one gets code that no longer exists. That is not
+ * cosmetic drift — it sent a session searching through a pre-rename copy of a whole controller.
+ */
+async function pruneStaleCopies(targetDir, keepNames) {
   let entries;
   try {
-    entries = await readdir(codexSkillsDir, {withFileTypes: true});
+    entries = await readdir(targetDir, {withFileTypes: true});
   } catch (error) {
     if (error && error.code === "ENOENT") {
       return;
     }
     throw error;
   }
-
-  await mkdir(opencodeSkillsDir, {recursive: true});
-  const sourceSkillNames = new Set(entries.filter(entry => entry.isDirectory()).map(entry => entry.name));
-
-  const targetEntries = await readdir(opencodeSkillsDir, {withFileTypes: true});
-  for (const entry of targetEntries) {
-    if (!sourceSkillNames.has(entry.name)) {
-      await rm(join(opencodeSkillsDir, entry.name), {recursive: true, force: true});
-    }
-  }
-
   for (const entry of entries) {
-    if (!entry.isDirectory()) {
+    if (keepNames.has(entry.name)) {
       continue;
     }
-    const sourcePath = join(codexSkillsDir, entry.name);
-    const targetPath = join(opencodeSkillsDir, entry.name);
-    await rm(targetPath, {recursive: true, force: true});
-    await copyDirectory(sourcePath, targetPath);
+    await rm(join(targetDir, entry.name), {recursive: true, force: true});
+  }
+}
+
+export async function renderOpenCodeSkills(options = {}) {
+  const {
+    communitySourceDir = communitySkillsSourceDir,
+    agentsDir = agentsSkillsDir,
+    opencodeDir = opencodeSkillsDir,
+    edition,
+  } = options;
+  const normalizedEdition = edition === undefined ? await detectEdition() : normalizeEdition(edition);
+  const {communitySkills, ultimateOnlySkills} = await collectCanonicalSkillSources(
+    communitySourceDir,
+    agentsDir,
+    normalizedEdition,
+  );
+  const skillSources = normalizedEdition === "ULTIMATE"
+    ? new Map([...communitySkills, ...ultimateOnlySkills])
+    : communitySkills;
+  const expectedSkillNames = new Set(skillSources.keys());
+
+  await mkdir(opencodeDir, {recursive: true});
+  const targetEntries = await readdir(opencodeDir, {withFileTypes: true});
+  for (const entry of targetEntries) {
+    if (!entry.isDirectory() || expectedSkillNames.has(entry.name)) {
+      continue;
+    }
+    await rm(join(opencodeDir, entry.name), {recursive: true, force: true});
+  }
+
+  for (const [dirName, {skillPath, content}] of skillSources) {
+    await rm(join(opencodeDir, dirName), {recursive: true, force: true});
+    await writeSkillStub(opencodeDir, dirName, content, skillPath);
   }
 }
 
@@ -477,6 +761,111 @@ async function collectSkillSources(dir) {
     });
   }
   return skills;
+}
+
+async function collectCanonicalSkillSources(communitySourceDir, agentsDir, edition) {
+  const communitySkills = await collectSkillSources(communitySourceDir);
+  const agentsSkills = await collectSkillSources(agentsDir);
+  const ultimateOnlySkills = new Map();
+
+  for (const [dirName, {skillPath, content, frontmatter, isGenerated}] of agentsSkills) {
+    // Manual .agents/skills files are authoritative ultimate-only sources.
+    // Name collisions with community source skills must fail fast to prevent overwrites.
+    if (communitySkills.has(dirName)) {
+      if (!isGenerated) {
+        throw new Error(
+          `Skill name collision for '${dirName}': community source and manual .agents/skills source both exist (${skillPath}).`,
+        );
+      }
+      continue;
+    }
+    if (isGenerated) {
+      continue;
+    }
+    if (!frontmatter) {
+      throw new Error(`Invalid ultimate skill source ${skillPath}: missing YAML frontmatter.`);
+    }
+    ultimateOnlySkills.set(dirName, {content, frontmatter, skillPath});
+  }
+
+  for (const {skillPath, frontmatter} of communitySkills.values()) {
+    if (!frontmatter) {
+      throw new Error(`Invalid community skill source ${skillPath}: missing YAML frontmatter.`);
+    }
+  }
+
+  const descriptionBytes = validateSkillDescriptions(communitySkills, ultimateOnlySkills, edition);
+  return {communitySkills, ultimateOnlySkills, descriptionBytes};
+}
+
+/** Returns the total description size in bytes for `edition`, so callers can report the remaining headroom. */
+function validateSkillDescriptions(communitySkills, ultimateOnlySkills, edition) {
+  const skills = edition === "ULTIMATE"
+    ? new Map([...communitySkills, ...ultimateOnlySkills])
+    : communitySkills;
+  const violations = [];
+  let totalBytes = 0;
+
+  for (const [name, {frontmatter, skillPath}] of skills) {
+    const description = extractSingleLineDescription(frontmatter);
+    if (description === null) {
+      violations.push(`${skillPath}: description must be a non-empty single-line YAML value.`);
+      continue;
+    }
+
+    const descriptionBytes = Buffer.byteLength(description, "utf8");
+    totalBytes += descriptionBytes;
+    if (descriptionBytes > skillDescriptionMaxBytes) {
+      violations.push(
+        `${skillPath}: description for '${name}' is ${descriptionBytes} bytes; maximum is ${skillDescriptionMaxBytes}.`,
+      );
+    }
+  }
+
+  if (totalBytes > skillDescriptionsMaxBytes) {
+    violations.push(
+      `Skill descriptions use ${totalBytes} bytes; maximum is ${skillDescriptionsMaxBytes} for edition ${edition}.`,
+    );
+  }
+  if (violations.length > 0) {
+    throw new Error(`Invalid skill descriptions:\n${violations.join("\n")}`);
+  }
+  return totalBytes;
+}
+
+function extractSingleLineDescription(frontmatter) {
+  const lines = frontmatter.split("\n");
+  const descriptionLineIndex = lines.findIndex(line => line.startsWith("description:"));
+  if (descriptionLineIndex === -1) {
+    return null;
+  }
+  const rawDescription = lines[descriptionLineIndex].slice("description:".length).trim();
+  if (
+    !rawDescription ||
+    rawDescription.startsWith(">") ||
+    rawDescription.startsWith("|") ||
+    rawDescription === "~" ||
+    rawDescription.toLowerCase() === "null"
+  ) {
+    return null;
+  }
+  const quote = rawDescription[0];
+  const isQuoted = quote === "\"" || quote === "'";
+  if (
+    (isQuoted && (rawDescription.length < 2 || !rawDescription.endsWith(quote))) ||
+    (!isQuoted && /(^|[ \t])#/.test(rawDescription))
+  ) {
+    return null;
+  }
+  const nextContentLine = lines.slice(descriptionLineIndex + 1).find(line => line.length > 0);
+  if (nextContentLine !== undefined && /^[ \t]/.test(nextContentLine)) {
+    return null;
+  }
+  if (isQuoted) {
+    const description = rawDescription.slice(1, -1);
+    return description.trim().length === 0 ? null : description;
+  }
+  return rawDescription;
 }
 
 /**
@@ -536,6 +925,8 @@ async function writeSkillStub(targetDir, skillDirName, sourceContent, sourcePath
         await copyFile(entrySource, entryTarget);
       }
     }
+    // SKILL.md is written below rather than copied, so it must survive the prune.
+    await pruneStaleCopies(skillDir, new Set([...sourceEntries.map((entry) => entry.name), "SKILL.md"]));
   }
 
   const targetPath = join(skillDir, "SKILL.md");
@@ -593,39 +984,12 @@ export async function renderSkills(options = {}) {
     edition,
   } = options;
   const normalizedEdition = edition === undefined ? await detectEdition() : normalizeEdition(edition);
-
-  const communitySkills = await collectSkillSources(communitySourceDir);
   const communityTargets = [agentsDir, claudeDir, junieDir, communityClaudeDir];
-
-  // Collect Ultimate-only skills before pass 1 overwrites generated stubs in .agents/skills.
-  const agentsSkills = await collectSkillSources(agentsDir);
-  const ultimateOnlySkills = new Map();
-  for (const [dirName, {skillPath, content, frontmatter, isGenerated}] of agentsSkills) {
-
-    // Manual .agents/skills files are authoritative ultimate-only sources.
-    // Name collisions with community source skills must fail fast to prevent overwrites.
-    if (communitySkills.has(dirName)) {
-      if (!isGenerated) {
-        throw new Error(
-          `Skill name collision for '${dirName}': community source and manual .agents/skills source both exist (${skillPath}).`,
-        );
-      }
-      continue;
-    }
-    if (isGenerated) {
-      continue;
-    }
-    if (!frontmatter) {
-      throw new Error(`Invalid ultimate skill source ${skillPath}: missing YAML frontmatter.`);
-    }
-    ultimateOnlySkills.set(dirName, {content, frontmatter, skillPath});
-  }
-
-  for (const {skillPath, frontmatter} of communitySkills.values()) {
-    if (!frontmatter) {
-      throw new Error(`Invalid community skill source ${skillPath}: missing YAML frontmatter.`);
-    }
-  }
+  const {communitySkills, ultimateOnlySkills, descriptionBytes} = await collectCanonicalSkillSources(
+    communitySourceDir,
+    agentsDir,
+    normalizedEdition,
+  );
 
   const communitySkillNames = new Set(communitySkills.keys());
   const claudeExpectedSkillNames = normalizedEdition === "ULTIMATE"
@@ -653,10 +1017,94 @@ export async function renderSkills(options = {}) {
       await writeSkillStub(junieDir, dirName, content, skillPath);
     }
   }
+
+  // Pass 3: the name → description index beside each canonical source tree. `agentsDir` holds the
+  // full set an agent working from this root can reach; `communitySourceDir` holds the community set.
+  await writeSkillIndex(agentsDir, new Map([...communitySkills, ...(
+    normalizedEdition === "ULTIMATE" ? ultimateOnlySkills : new Map()
+  )]));
+  await writeSkillIndex(communitySourceDir, communitySkills);
+
+  return {edition: normalizedEdition, descriptionBytes};
 }
 
-async function main() {
-  const {basePartials, defaultEdition} = await loadRenderContext();
+/**
+ * The description budget is a hard ceiling that only announces itself once a commit crosses it, and every
+ * new skill spends from it. Report the remaining headroom on each render so it is visible while there is
+ * still room to act, and warn once less than `descriptionHeadroomWarningRatio` of the budget is left.
+ */
+function reportSkillDescriptionBudget({edition, descriptionBytes}) {
+  const remaining = skillDescriptionsMaxBytes - descriptionBytes;
+  console.log(
+    `Skill descriptions for edition ${edition}: ${descriptionBytes}/${skillDescriptionsMaxBytes} bytes, ${remaining} remaining.`,
+  );
+  if (remaining < skillDescriptionsMaxBytes * descriptionHeadroomWarningRatio) {
+    console.warn(
+      `Warning: only ${remaining} bytes of skill description budget remain. Shorten canonical descriptions ` +
+      "before adding more skills; see the skill description budget section of community/.ai/README.md.",
+    );
+  }
+}
+
+/**
+ * Builds the skill index for a set of canonical sources.
+ *
+ * A harness injects the available skills as bare *names*, without their descriptions, so a name alone
+ * carries no signal about what the skill does. The index makes the descriptions readable in one file,
+ * and the guides point at it (see the "Skills" section in `community/.ai/guide.md`).
+ */
+export function buildSkillIndex(skills, hasOptionalCatalogue = false) {
+  const rows = Array.from(skills.entries())
+    .sort(([leftName], [rightName]) => leftName.localeCompare(rightName))
+    .map(([name, {frontmatter}]) => {
+      const description = extractSingleLineDescription(frontmatter) ?? "";
+      return `| [${name}](${name}/SKILL.md) | ${description.split("|").join("\\|")} |`;
+    });
+  const optionalNote = hasOptionalCatalogue
+    ? ["Some skills are not in this directory. [OPTIONAL.md](OPTIONAL.md) gives the install command for " +
+       "each one, and the way to hide a skill for yourself alone.\n"]
+    : [];
+  return [
+    `${skillIndexHeader}\n`,
+    "# Skills\n",
+    "One row per skill in this directory. `SKILL.md` holds the full instructions.\n",
+    ...optionalNote,
+    "| skill | description |",
+    "| --- | --- |",
+    ...rows,
+    "",
+  ].join("\n");
+}
+
+/**
+ * Writes the index, and points at the optional-skill catalogue when the directory has one.
+ *
+ * The pointer belongs here rather than in the guide. A guide line reaches each session, and the
+ * root `AGENTS.md` chain has little room left. An agent reads this index when it looks for a skill,
+ * which is the moment the catalogue matters.
+ */
+async function writeSkillIndex(dir, skills) {
+  if (skills.size === 0) {
+    return;
+  }
+  let hasOptionalCatalogue = true;
+  try {
+    await access(join(dir, OPTIONAL_SKILLS_FILE));
+  } catch {
+    hasOptionalCatalogue = false;
+  }
+  await writeFile(join(dir, "INDEX.md"), buildSkillIndex(skills, hasOptionalCatalogue), "utf8");
+}
+
+/**
+ * Renders guide files without writing them so generation and freshness checks share the same implementation.
+ */
+export async function renderGuideOutputs() {
+  return renderGuideOutputsWithContext(await loadRenderContext());
+}
+
+async function renderGuideOutputsWithContext({basePartials, defaultEdition}) {
+  const renderedOutputs = new Map();
 
   for (const target of outputs) {
     if (!shouldRenderTarget(target, defaultEdition)) {
@@ -676,16 +1124,17 @@ async function main() {
       throw new Error(`${target.name} rendered output still has {{PARTIAL:...}} placeholders.`);
     }
 
-    const withForbiddenTools = replaceAll(
-      withPartials,
-      "{{FORBIDDEN_TOOLS_SUFFIX}}",
-      target.forbiddenToolsSuffix,
-    );
-    if (withForbiddenTools.includes("{{FORBIDDEN_TOOLS_SUFFIX}}")) {
-      throw new Error(`${target.name} rendered output still has {{FORBIDDEN_TOOLS_SUFFIX}} placeholder.`);
+    const withToolsDir = replaceAll(withPartials, "{{TOOLS_DIR}}", resolveToolsDir(edition));
+    if (withToolsDir.includes("{{TOOLS_DIR}}")) {
+      throw new Error(`${target.name} rendered output still has {{TOOLS_DIR}} placeholder.`);
     }
 
-    const withToolBlocks = applyToolBlocks(withForbiddenTools, target.tool);
+    const withCommunityDir = replaceAll(withToolsDir, "{{COMMUNITY_DIR}}", resolveCommunityDir(edition));
+    if (withCommunityDir.includes("{{COMMUNITY_DIR}}")) {
+      throw new Error(`${target.name} rendered output still has {{COMMUNITY_DIR}} placeholder.`);
+    }
+
+    const withToolBlocks = applyToolBlocks(withCommunityDir, target.tool);
     const withEditionBlocks = applyEditionBlocks(withToolBlocks, edition);
     const withoutTemplateBlocks = stripTemplateBlocks(withEditionBlocks);
     assertNoUnresolvedTemplateDirectives(withoutTemplateBlocks, target.name);
@@ -707,12 +1156,38 @@ async function main() {
       }
     }
 
-    await writeFile(outputPath, normalize(finalText), "utf8");
+    await assertReferencesResolve(finalText, target.name, edition);
+
+    renderedOutputs.set(target.output, normalize(finalText));
+  }
+
+  return renderedOutputs;
+}
+
+/**
+ * Renders every output into the checkout. Exported for `//.ai:render-guides`, which imports
+ * this module rather than executing it, so the entry guard at the bottom does not fire.
+ */
+export async function main() {
+  const renderContext = await loadRenderContext();
+  await collectCanonicalSkillSources(
+    communitySkillsSourceDir,
+    agentsSkillsDir,
+    renderContext.defaultEdition,
+  );
+  const renderedOutputs = await renderGuideOutputsWithContext(renderContext);
+  for (const [output, content] of renderedOutputs) {
+    await writeFile(join(repoRoot, output), content, "utf8");
+  }
+
+  const permissionOutputs = await renderAgentPermissionOutputs(renderContext.defaultEdition);
+  for (const [output, content] of permissionOutputs) {
+    await writeFile(join(repoRoot, output), content, "utf8");
   }
 
   await renderOpenCodeConfig();
   await renderOpenCodeSkills();
-  await renderSkills({edition: defaultEdition});
+  reportSkillDescriptionBudget(await renderSkills({edition: renderContext.defaultEdition}));
 }
 
 function shouldRenderTarget(target, edition) {

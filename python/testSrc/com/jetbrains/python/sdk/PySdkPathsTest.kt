@@ -5,6 +5,7 @@ import com.jetbrains.python.allure.Layers
 import com.jetbrains.python.allure.Subsystems
 
 import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.application.PathManager
 import com.intellij.openapi.application.WriteAction
 import com.intellij.openapi.application.runWriteActionAndWait
 import com.intellij.openapi.module.Module
@@ -19,6 +20,7 @@ import com.intellij.openapi.util.registry.Registry
 import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.openapi.vfs.VfsUtil
 import com.intellij.openapi.vfs.VirtualFile
+import com.intellij.python.venv.sdk.flavors.VirtualEnvSdkFlavor
 import com.intellij.testFramework.ApplicationRule
 import com.intellij.testFramework.IndexingTestUtil
 import com.intellij.testFramework.PlatformTestUtil
@@ -26,10 +28,13 @@ import com.intellij.testFramework.VfsTestUtil
 import com.intellij.testFramework.assertions.Assertions.assertThat
 import com.intellij.testFramework.replaceService
 import com.intellij.testFramework.rules.ProjectModelRule
-import com.jetbrains.python.PythonMockSdk
+import com.jetbrains.python.tools.sdkTools.PythonMockSdk
 import com.jetbrains.python.PythonPluginDisposable
 import com.jetbrains.python.psi.LanguageLevel
 import com.jetbrains.python.psi.PyUtil
+import com.jetbrains.python.sdk.flavors.PyFlavorAndData
+import com.jetbrains.python.sdk.flavors.PyFlavorData
+import com.jetbrains.python.sdk.legacy.PythonSdkUtil
 import org.jdom.Element
 import org.jetbrains.annotations.NotNull
 import org.junit.Assume.assumeTrue
@@ -39,7 +44,7 @@ import org.junit.Test
 
 @Subsystems.Interpreters
 @Layers.Functional
-internal class PySdkPathsTest {
+class PySdkPathsTest {
 
   companion object {
     @JvmField
@@ -90,7 +95,17 @@ internal class PySdkPathsTest {
       module.pythonSdk = it
     }
 
-    runWriteActionAndWait { sdk.pySdkAdditionalData }.apply { setAddedPathsFromVirtualFiles(setOf(moduleRoot)) }
+    // Associated like its sibling `sysPathEntryIsModuleRoot`, because `updateSdkPaths` classifies a path against the
+    // roots of the module the SDK names, and a mock SDK names none.
+    sdk.associateWith(moduleRoot)
+    // Committed through the modificator, so the next commit of this SDK keeps the path. Written in place it was
+    // dropped by whichever commit came first, and this test then passed because nothing was left to classify.
+    runWriteActionAndWait {
+      sdk.sdkModificator.apply {
+        (sdkAdditionalData as PythonSdkAdditionalData).setAddedPathsFromVirtualFiles(setOf(moduleRoot))
+        commitChanges()
+      }
+    }
 
     updateSdkPaths(sdk)
 
@@ -109,6 +124,7 @@ internal class PySdkPathsTest {
     sdk.putUserData(PythonSdkType.MOCK_SYS_PATH_KEY, listOf(sdk.homePath, moduleRoot.path))
 
     mockPythonPluginDisposable()
+    sdk.associateWith(moduleRoot)
     updateSdkPaths(sdk)
 
     checkRoots(sdk, module, listOf(moduleRoot), emptyList())
@@ -134,7 +150,10 @@ internal class PySdkPathsTest {
       sdk.pySdkAdditionalData
 
       sdk.sdkModificator.apply {
-        (sdkAdditionalData as PythonSdkAdditionalData).setAddedPathsFromVirtualFiles(setOf(userAddedPath))
+        (sdkAdditionalData as PythonSdkAdditionalData).apply {
+          associatedModulePath = moduleRoot.path
+          setAddedPathsFromVirtualFiles(setOf(userAddedPath))
+        }
         commitChanges()
       }
     }
@@ -168,6 +187,7 @@ internal class PySdkPathsTest {
     sdk.putUserData(PythonSdkType.MOCK_SYS_PATH_KEY, listOf(sdk.homePath, entryPath.path))
 
     mockPythonPluginDisposable()
+    sdk.associateWith(moduleRoot)
     updateSdkPaths(sdk)
     checkRoots(sdk, module, listOf(moduleRoot, entryPath), emptyList())
 
@@ -249,6 +269,7 @@ internal class PySdkPathsTest {
     sdk.putUserData(PythonSdkType.MOCK_SYS_PATH_KEY, listOf(sdk.homePath, entryPath1.path, entryPath2.path))
 
     mockPythonPluginDisposable()
+    sdk.associateWith(moduleRoot1)
     updateSdkPaths(sdk)
 
     checkRoots(sdk, module1, listOf(moduleRoot1, entryPath1), emptyList())
@@ -306,7 +327,10 @@ internal class PySdkPathsTest {
           // Simulate an old SDK that had remote additional data from a previous IDE version that doesn't exist anymore
           // and one of non-local home paths
           homePath = remotePath
-          sdkAdditionalData = PythonSdkAdditionalData()
+          sdkAdditionalData = PythonSdkAdditionalData(
+            PyFlavorAndData(PyFlavorData.Empty, VirtualEnvSdkFlavor.getInstance()),
+            projectModel.projectRootDir
+          )
           commitChanges()
         }
       }
@@ -320,9 +344,84 @@ internal class PySdkPathsTest {
     }
   }
 
+  /**
+   * PY-90400: the SDK's own binary skeletons (and bundled typeshed) live under `~/.cache`. When the
+   * project's content root is an ancestor of that cache — e.g. in remote dev, where the whole home
+   * directory is opened as the project — those SDK-owned roots sit under a module content root but
+   * outside the interpreter's venv. The PY-86494 "project-local path" safety net must not drop them.
+   */
+  @Test
+  fun skeletonsUnderContentRootAreKept() {
+    mockPythonPluginDisposable()
+
+    val sdk = PythonMockSdk.create().also { registerSdk(it) }
+
+    // The SDK's binary skeletons live at <systemPath>/python_stubs/<hash>. Open the enclosing
+    // python_stubs directory as the module's content root so the skeletons dir sits under it, while
+    // the interpreter home (MockSdk test data) stays outside it — reproducing the reported topology.
+    val skeletonsRoot = runWriteActionAndWait {
+      VfsUtil.createDirectoryIfMissing(PythonSdkUtil.getSkeletonsRootPath(PathManager.getSystemPath()))
+    }!!
+
+    val module = projectModel.createModule("home")
+    ModuleRootManager.getInstance(module).modifiableModel.apply {
+      addContentEntry(skeletonsRoot)
+      runWriteActionAndWait { commit() }
+    }
+    IndexingTestUtil.waitUntilIndexesAreReady(projectModel.project)
+    module.pythonSdk = sdk
+
+    updateSdkPaths(sdk)
+
+    val skeletonsDir = LocalFileSystem.getInstance().refreshAndFindFileByPath(PythonSdkUtil.getSkeletonsPath(sdk)!!)
+    assertThat(skeletonsDir).describedAs("SDK skeletons directory should exist after the update").isNotNull
+    assertThat(sdk.rootProvider.getFiles(OrderRootType.CLASSES))
+      .describedAs("SDK-owned skeletons root under a content root must not be dropped (PY-90400)")
+      .contains(skeletonsDir)
+  }
+
+  /**
+   * PY-86494: with the update triggered by a `null` project (the synchronous creation/headless path), the updater
+   * must classify the owner's project-local entry via the SDK's own `associatedModulePath` — not the triggering
+   * project — and, since the owning project is open, transfer it as a source root instead of committing it as an
+   * SDK CLASSES (library) root (which moved the library root off `.venv` onto the project folder). Mirrors
+   * [sysPathEntryInModuleAndSdkInModuleButEntryNotInSdk], but triggered with no project.
+   */
+  @Test
+  fun projectLocalSysPathEntryIsResolvedViaAssociationWithoutTriggeringProject() {
+    val (module, moduleRoot) = createModule()
+
+    val sdkPath = createVenvStructureInModule(moduleRoot).path
+    val entryPath = createSubdir(moduleRoot)
+
+    val sdk = PythonMockSdk.create(sdkPath).also {
+      registerSdk(it)
+      module.pythonSdk = it
+    }
+    sdk.putUserData(PythonSdkType.MOCK_SYS_PATH_KEY, listOf(sdk.homePath, entryPath.path))
+
+    mockPythonPluginDisposable()
+    sdk.associateWith(moduleRoot)
+
+    PythonSdkUpdater.updateVersionAndPathsSynchronouslyAndScheduleRemaining(sdk, null)
+    ApplicationManager.getApplication().invokeAndWait { PlatformTestUtil.dispatchAllInvocationEventsInIdeEventQueue() }
+
+    checkRoots(sdk, module, moduleRoots = listOf(moduleRoot, entryPath), sdkRoots = emptyList())
+  }
+
   private fun registerSdk(it: Sdk) {
     WriteAction.runAndWait<RuntimeException> {
       ProjectJdkTable.getInstance().addJdk(it, projectModel.disposableRule.disposable)
+    }
+  }
+
+  /** Associates the SDK with a module directory, as venv/uv SDK creation does; the updater keys project-local classification off it. */
+  private fun Sdk.associateWith(moduleDir: VirtualFile) {
+    runWriteActionAndWait {
+      sdkModificator.apply {
+        (sdkAdditionalData as PythonSdkAdditionalData).associatedModulePath = moduleDir.path
+        commitChanges()
+      }
     }
   }
 
@@ -348,7 +447,7 @@ internal class PySdkPathsTest {
     return runWriteActionAndWait {
       val venv = moduleRoot.createChildDirectory(this, "venv")
 
-      venv.createChildData(this, "pyvenv.cfg")  // see PythonEnvironment.Venv detection
+      venv.createChildData(this, "pyvenv.cfg")  // the marker the venv environment provider looks for
 
       val bin = venv.createChildDirectory(this, "bin")
       // PythonEnvironment.detectPythonEnvironment requires an executable binary.

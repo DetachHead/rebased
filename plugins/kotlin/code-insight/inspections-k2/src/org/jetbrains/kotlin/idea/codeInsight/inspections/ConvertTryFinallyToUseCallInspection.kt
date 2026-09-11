@@ -7,10 +7,15 @@ import com.intellij.modcommand.ModPsiUpdater
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.TextRange
 import org.jetbrains.kotlin.analysis.api.KaSession
-import org.jetbrains.kotlin.analysis.api.resolution.KaCallableMemberCall
-import org.jetbrains.kotlin.analysis.api.resolution.singleCallOrNull
+import org.jetbrains.kotlin.analysis.api.resolution.simple
+import org.jetbrains.kotlin.analysis.api.resolution.single
 import org.jetbrains.kotlin.analysis.api.resolution.symbol
+import org.jetbrains.kotlin.analysis.api.resolution.tryResolveCall
 import org.jetbrains.kotlin.analysis.api.symbols.KaClassSymbol
+import org.jetbrains.kotlin.analysis.api.symbols.allOverriddenSymbols
+import org.jetbrains.kotlin.analysis.api.symbols.containingSymbol
+import org.jetbrains.kotlin.analysis.api.symbols.findClass
+import org.jetbrains.kotlin.analysis.api.symbols.isSubClassOf
 import org.jetbrains.kotlin.analysis.api.symbols.name
 import org.jetbrains.kotlin.idea.base.resources.KotlinBundle
 import org.jetbrains.kotlin.idea.codeinsight.api.applicable.inspections.KotlinApplicableInspectionBase
@@ -62,18 +67,18 @@ internal class ConvertTryFinallyToUseCallInspection :
         return true
     }
 
-    override fun KaSession.prepareContext(element: KtTryExpression): Context? {
+    context(session: KaSession)
+    override fun prepareContext(element: KtTryExpression): Context? {
         val finallySection = element.finallyBlock ?: return null
         val stmt = finallySection.finalExpression.statements.singleOrNull() ?: return null
         val call = (stmt as? KtQualifiedExpression)?.selectorExpression as? KtCallExpression ?: (stmt as? KtCallExpression) ?: return null
 
         // Must be a member call with no value args
         if (call.valueArguments.isNotEmpty()) return null
-        val resolved = call.resolveToCall()?.singleCallOrNull<KaCallableMemberCall<*, *>>() ?: return null
+        val resolved = call.tryResolveCall()?.single?.simple ?: return null
 
         // Check that it's Closeable.close or AutoCloseable.close
-        val partiallyAppliedSymbol = resolved.partiallyAppliedSymbol
-        val callableSymbol = partiallyAppliedSymbol.symbol
+        val callableSymbol = resolved.symbol
         if (callableSymbol.name?.asString() != "close") return null
         val classSymbol = callableSymbol.containingSymbol as? KaClassSymbol ?: return null
         val closeableClass = findClass(ClassId.fromString("java.io/Closeable")) ?: return null

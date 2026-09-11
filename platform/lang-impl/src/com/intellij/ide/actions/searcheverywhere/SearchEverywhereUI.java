@@ -80,6 +80,7 @@ import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.util.text.Strings;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.openapi.wm.ToolWindowManager;
+import com.intellij.platform.ide.productMode.IdeProductMode;
 import com.intellij.pom.Navigatable;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.codeStyle.MinusculeMatcher;
@@ -198,7 +199,10 @@ import static com.intellij.ide.actions.searcheverywhere.statistics.SearchEverywh
 /**
  * @author Konstantin Bulenkov
  * @author Mikhail.Sokolov
+ * @deprecated The old Search Everywhere is being sunset in favor of the new (Split) Search Everywhere
+ * ({@code com.intellij.platform.searchEverywhere}). This functionality is obsolete.
  */
+@Deprecated
 public final class SearchEverywhereUI extends BigPopupUI implements UiDataProvider, QuickSearchComponent, SearchEverywherePopupInstance {
 
   public static final Topic<SearchListener> SEARCH_EVENTS = Topic.create("Search events", SearchListener.class);
@@ -332,7 +336,7 @@ public final class SearchEverywhereUI extends BigPopupUI implements UiDataProvid
   }
 
   @Override
-  @ApiStatus.Experimental
+  @ApiStatus.Internal
   public void addSplitSearchListener(@NotNull SplitSearchListener listener) {
     addSearchListener(listener.toSearchListener());
   }
@@ -497,6 +501,7 @@ public final class SearchEverywhereUI extends BigPopupUI implements UiDataProvid
   @RequiresReadLock
   private @Nullable Pair<@Nls String, @Nls String> getLoadingTextAndTooltip(List<SearchEverywhereContributor<?>> contributors) {
     if (myProject == null) return null;
+    if (IdeProductMode.isLight()) return null;
 
     boolean isDumb = DumbService.isDumb(myProject);
     boolean isIncomplete = !myProject.getService(IncompleteDependenciesService.class).getState().isComplete();
@@ -945,14 +950,16 @@ public final class SearchEverywhereUI extends BigPopupUI implements UiDataProvid
       contributors = DumbService.getInstance(myProject).filterByDumbAwareness(contributorsMap.keySet());
       if (contributors.isEmpty() && DumbService.isDumb(myProject)) {
         DumbModeBlockedFunctionalityCollector.INSTANCE.logFunctionalityBlocked(myProject, DumbModeBlockedFunctionality.SearchEverywhere);
-        myResultsList.setEmptyText(IdeBundle.message("searcheverywhere.indexing.mode.not.supported",
-                                                     myHeader.getSelectedTab().getName()));
+        myResultsList.setEmptyText(IdeBundle.dumbModeMessage("searcheverywhere.indexing.mode.not.supported",
+                                                             "searcheverywhere.light.mode.not.supported",
+                                                             myHeader.getSelectedTab().getName()));
         myListModel.clear();
         return;
       }
       if (contributors.size() != contributorsMap.size()) {
-        myResultsList.setEmptyText(IdeBundle.message("searcheverywhere.indexing.incomplete.results",
-                                                     myHeader.getSelectedTab().getName()));
+        myResultsList.setEmptyText(IdeBundle.dumbModeMessage("searcheverywhere.indexing.incomplete.results",
+                                                             "searcheverywhere.light.mode.incomplete.results",
+                                                             myHeader.getSelectedTab().getName()));
       }
     }
 
@@ -960,9 +967,6 @@ public final class SearchEverywhereUI extends BigPopupUI implements UiDataProvid
 
     myListModel.expireResults();
     contributors.forEach(contributor -> myListModel.setHasMore(contributor, false));
-
-    List<SearchEverywhereFoundElementInfo> completionElements = AutoCompletionProvider.getCompletionElements(contributors, mySearchField);
-    myListModel.addElements(completionElements);
 
     String commandPrefix = SearchTopHitProvider.getTopHitAccelerator();
     if (rawPattern.startsWith(commandPrefix)) {

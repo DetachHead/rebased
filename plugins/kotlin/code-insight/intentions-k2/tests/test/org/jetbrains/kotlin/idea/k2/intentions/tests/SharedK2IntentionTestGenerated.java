@@ -1867,14 +1867,24 @@ public abstract class SharedK2IntentionTestGenerated extends AbstractSharedK2Int
             runTest("testData/intentions/operatorToFunction/arrayAccessOneIndex.kt");
         }
 
+        @TestMetadata("arrayAccessWIthAssignment_caretOnEquals.kt")
+        public void testArrayAccessWIthAssignment_caretOnEquals() throws Exception {
+            runTest("testData/intentions/operatorToFunction/arrayAccessWIthAssignment_caretOnEquals.kt");
+        }
+
+        @TestMetadata("arrayAccessWIthAssignment_caretOnValue.kt")
+        public void testArrayAccessWIthAssignment_caretOnValue() throws Exception {
+            runTest("testData/intentions/operatorToFunction/arrayAccessWIthAssignment_caretOnValue.kt");
+        }
+
+        @TestMetadata("arrayAccessWithAssignment_caretOnAccess.kt")
+        public void testArrayAccessWithAssignment_caretOnAccess() throws Exception {
+            runTest("testData/intentions/operatorToFunction/arrayAccessWithAssignment_caretOnAccess.kt");
+        }
+
         @TestMetadata("arrayAssignmentMultipleIndex.kt")
         public void testArrayAssignmentMultipleIndex() throws Exception {
             runTest("testData/intentions/operatorToFunction/arrayAssignmentMultipleIndex.kt");
-        }
-
-        @TestMetadata("assignment.kt")
-        public void testAssignment() throws Exception {
-            runTest("testData/intentions/operatorToFunction/assignment.kt");
         }
 
         @TestMetadata("binarayNotEqNullable.kt")
@@ -2331,6 +2341,11 @@ public abstract class SharedK2IntentionTestGenerated extends AbstractSharedK2Int
             runTest("testData/intentions/removeBraces/doWhileWithLocalClass.kt");
         }
 
+        @TestMetadata("doWhileWithLocalFunction.kt")
+        public void testDoWhileWithLocalFunction() throws Exception {
+            runTest("testData/intentions/removeBraces/doWhileWithLocalFunction.kt");
+        }
+
         @TestMetadata("doWhileWithLocalVariable.kt")
         public void testDoWhileWithLocalVariable() throws Exception {
             runTest("testData/intentions/removeBraces/doWhileWithLocalVariable.kt");
@@ -2369,6 +2384,11 @@ public abstract class SharedK2IntentionTestGenerated extends AbstractSharedK2Int
         @TestMetadata("for.kt")
         public void testFor() throws Exception {
             runTest("testData/intentions/removeBraces/for.kt");
+        }
+
+        @TestMetadata("forWithDestructuringDeclarations.kt")
+        public void testForWithDestructuringDeclarations() throws Exception {
+            runTest("testData/intentions/removeBraces/forWithDestructuringDeclarations.kt");
         }
 
         @TestMetadata("forWithLocalClass.kt")
@@ -2549,6 +2569,11 @@ public abstract class SharedK2IntentionTestGenerated extends AbstractSharedK2Int
         @TestMetadata("whenWithComment3.kt")
         public void testWhenWithComment3() throws Exception {
             runTest("testData/intentions/removeBraces/whenWithComment3.kt");
+        }
+
+        @TestMetadata("whenWithDestructuringDeclaration.kt")
+        public void testWhenWithDestructuringDeclaration() throws Exception {
+            runTest("testData/intentions/removeBraces/whenWithDestructuringDeclaration.kt");
         }
 
         @TestMetadata("while.kt")
@@ -2905,6 +2930,11 @@ public abstract class SharedK2IntentionTestGenerated extends AbstractSharedK2Int
             runTest("testData/intentions/specifyAllRemainingArgumentsByName/noExplicitContextArguments.kt");
         }
 
+        @TestMetadata("noExplicitContextArguments2.kt")
+        public void testNoExplicitContextArguments2() throws Exception {
+            runTest("testData/intentions/specifyAllRemainingArgumentsByName/noExplicitContextArguments2.kt");
+        }
+
         @TestMetadata("noNameProvided.kt")
         public void testNoNameProvided() throws Exception {
             runTest("testData/intentions/specifyAllRemainingArgumentsByName/noNameProvided.kt");
@@ -3013,11 +3043,6 @@ public abstract class SharedK2IntentionTestGenerated extends AbstractSharedK2Int
             runTest("testData/intentions/specifyRemainingRequiredArgumentsByName/allArgumentsRequired.kt");
         }
 
-        @TestMetadata("conflictingSignatures.kt")
-        public void testConflictingSignatures() throws Exception {
-            runTest("testData/intentions/specifyRemainingRequiredArgumentsByName/conflictingSignatures.kt");
-        }
-
         @TestMetadata("contextParameterAlreadySpecified.kt")
         public void testContextParameterAlreadySpecified() throws Exception {
             runTest("testData/intentions/specifyRemainingRequiredArgumentsByName/contextParameterAlreadySpecified.kt");
@@ -3033,14 +3058,14 @@ public abstract class SharedK2IntentionTestGenerated extends AbstractSharedK2Int
             runTest("testData/intentions/specifyRemainingRequiredArgumentsByName/functionOverloadsWithDefaults.kt");
         }
 
+        @TestMetadata("implicitContext.kt")
+        public void testImplicitContext() throws Exception {
+            runTest("testData/intentions/specifyRemainingRequiredArgumentsByName/implicitContext.kt");
+        }
+
         @TestMetadata("multipleOptionalArguments.kt")
         public void testMultipleOptionalArguments() throws Exception {
             runTest("testData/intentions/specifyRemainingRequiredArgumentsByName/multipleOptionalArguments.kt");
-        }
-
-        @TestMetadata("simpleFunctionOverload.kt")
-        public void testSimpleFunctionOverload() throws Exception {
-            runTest("testData/intentions/specifyRemainingRequiredArgumentsByName/simpleFunctionOverload.kt");
         }
 
         @TestMetadata("singleArgument.kt")
@@ -4121,6 +4146,11 @@ public abstract class SharedK2IntentionTestGenerated extends AbstractSharedK2Int
         @TestMetadata("annotations.kt")
         public void testAnnotations() throws Exception {
             runTest("testData/intentions/valToObject/annotations.kt");
+        }
+
+        @TestMetadata("backtickedName.kt")
+        public void testBacktickedName() throws Exception {
+            runTest("testData/intentions/valToObject/backtickedName.kt");
         }
 
         @TestMetadata("callableReference.kt")

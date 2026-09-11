@@ -1,7 +1,7 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
 ### auto-generated section `build intellij.libraries.maven.resolver.provider` start
-
 jvm_library(
     name = "maven-resolver-provider",
     srcs = glob(
@@ -20,6 +20,11 @@ jvm_library(
         "@lib//:maven-resolver-provider",
         "//libraries/plexus-utils",
     ],
+)
+
+content_module_jar(
+    libraries = ["@lib//:maven-resolver-provider"],
+    module = ":maven-resolver-provider",
 )
 
 jvm_library(
@@ -45,6 +50,8 @@ jvm_library(
 exports_files(
     [
         "intellij.libraries.maven.resolver.provider.iml",
+        "resources/intellij.libraries.maven.resolver.provider.xml",
+        "module-content.yaml",
     ],
     visibility = ["//visibility:public"],
 )

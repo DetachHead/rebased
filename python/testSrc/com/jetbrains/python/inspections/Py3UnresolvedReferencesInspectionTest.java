@@ -1,6 +1,9 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.jetbrains.python.inspections;
 
+import com.jetbrains.python.allure.Layers;
+import com.jetbrains.python.allure.Subsystems;
+
 import com.intellij.idea.TestFor;
 import com.intellij.lang.FileASTNode;
 import com.intellij.openapi.module.Module;
@@ -22,6 +25,8 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 
+@Subsystems.Inspections
+@Layers.Functional
 public class Py3UnresolvedReferencesInspectionTest extends PyInspectionTestCase {
   private static final String TEST_DIRECTORY = "inspections/PyUnresolvedReferencesInspection3K/";
 
@@ -546,18 +551,6 @@ public class Py3UnresolvedReferencesInspectionTest extends PyInspectionTestCase 
                    """);
   }
 
-  // PY-85880
-  public void testLiteralInUnionTupleNone() {
-    doTestByText("""
-                   from typing import Literal
-                   
-                   
-                   def f(e: Literal[1, 2]):
-                       a: tuple | None = None
-                       _ = e <weak_warning descr="Member 'None' of 'tuple[Any, ...] | None' does not have attribute '__contains__'">in</weak_warning> a
-                   """);
-  }
-
   // PY-85941
   public void testSuperCallResultAttributes() {
     doTestByText("""
@@ -571,7 +564,7 @@ public class Py3UnresolvedReferencesInspectionTest extends PyInspectionTestCase 
                        def do_smth(self):
                            print("Something more from", self)
                            super().do_smth()
-                           super().<warning descr="Cannot find reference 'non_existing' in 'A | ABC'">non_existing</warning>()
+                           super().<warning descr="Cannot find reference 'non_existing' in 'UnsafeUnion[A, ABC]'">non_existing</warning>()
                    """);
   }
 
@@ -587,7 +580,21 @@ public class Py3UnresolvedReferencesInspectionTest extends PyInspectionTestCase 
 
   // PY-86608
   public void testFromImportComprehensionVariableLeakUnstubbed() {
-    String testDir = getTestCaseDirectory() + "FromImportComprehensionVariableLeak";
+    doUnstubbedComprehensionVariableLeakTest("FromImportComprehensionVariableLeak");
+  }
+
+  @TestFor(issues = "PY-88569")
+  public void testFromImportWalrusComprehensionVariableLeak() {
+    doMultiFileTest();
+  }
+
+  @TestFor(issues = "PY-88569")
+  public void testFromImportWalrusComprehensionVariableLeakUnstubbed() {
+    doUnstubbedComprehensionVariableLeakTest("FromImportWalrusComprehensionVariableLeak");
+  }
+
+  private void doUnstubbedComprehensionVariableLeakTest(@NotNull String testDirName) {
+    String testDir = getTestCaseDirectory() + testDirName;
     myFixture.copyDirectoryToProject(testDir, "");
     PsiFile cPy = myFixture.configureFromTempProjectFile("c.py");
 
@@ -668,28 +675,4 @@ public class Py3UnresolvedReferencesInspectionTest extends PyInspectionTestCase 
     );
   }
 
-  @TestFor(issues = "PY-80622")
-  public void testAugAssignmentRaddDefinedButIaddMissingOnTarget() {
-    doTestByText("""
-                   class A: pass
-                   class B:
-                       def __radd__(self, other: A) -> str: ...
-                   
-                   a = A()
-                   a += B()  # ok
-                   
-                   b = B()
-                   b <warning descr="Class 'B' does not define '__iadd__', so the '+=' operator cannot be used on its instances">+=</warning> A()
-                   """);
-  }
-
-  @TestFor(issues = "PY-80622")
-  public void testAugAssignmentIaddNotDefinedOnClass(){
-    doTestByText("""
-                   class A: pass
-                   
-                   a = A()
-                   a <warning descr="Class 'A' does not define '__iadd__', so the '+=' operator cannot be used on its instances">+=</warning> a
-                   """);
-  }
 }

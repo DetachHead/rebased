@@ -28,6 +28,12 @@ public class MermaidClassHeaderImpl extends ASTWrapperPsiElement implements Merm
   }
 
   @Override
+  @Nullable
+  public MermaidAnnotation getAnnotation() {
+    return findChildByClass(MermaidAnnotation.class);
+  }
+
+  @Override
   @NotNull
   public MermaidClassDiagramIdentifier getClassDiagramIdentifier() {
     return findNotNullChildByClass(MermaidClassDiagramIdentifier.class);

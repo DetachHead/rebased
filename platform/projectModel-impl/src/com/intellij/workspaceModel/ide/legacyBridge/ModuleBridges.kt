@@ -1,4 +1,4 @@
-// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 @file:JvmName("ModuleBridges")
 
 package com.intellij.workspaceModel.ide.legacyBridge
@@ -8,6 +8,8 @@ import com.intellij.platform.backend.workspace.workspaceModel
 import com.intellij.platform.workspace.jps.entities.ModuleEntity
 import com.intellij.platform.workspace.storage.EntityStorage
 import com.intellij.workspaceModel.ide.impl.legacyBridge.module.ModuleManagerBridgeImpl.Companion.moduleMap
+import com.intellij.workspaceModel.ide.impl.legacyBridge.module.moduleEntityNotResolved
+import com.intellij.workspaceModel.ide.impl.legacyBridge.module.throwModuleDisposedException
 import org.jetbrains.annotations.ApiStatus.Internal
 import org.jetbrains.annotations.ApiStatus.Obsolete
 
@@ -22,19 +24,35 @@ fun Module.findSnapshotModuleEntity(): ModuleEntity? {
 }
 
 /**
+ * In most cases prefer [findModuleEntityIfNotDisposed]
  * @return corresponding [ModuleEntity] or null if module isn't associated with entity yet
  */
 @Internal
 fun Module.findModuleEntity(): ModuleEntity? {
-  return findModuleEntity((this as ModuleBridge).diff ?: project.workspaceModel.currentSnapshot)
+  return findModuleEntity(findEntityStorage())
+}
+
+/**
+ * For disposed modules throws [com.intellij.serviceContainer.AlreadyDisposedException] that stops current activity.
+ * Returns [ModuleEntity] otherwise.
+ */
+@Internal
+fun Module.findModuleEntityIfNotDisposed(): ModuleEntity {
+  val storage = findEntityStorage()
+  // Current storage might still be relevant: for deleted modules `isDisposed` might still be false
+  // see PY-91832
+  val entity = findModuleEntityImpl(storage, (this as ModuleBridge).entityStorage.current) ?: moduleEntityNotResolved(storage)
+  if (isDisposed) {
+    // IJPL-253130: for a deleted module entity `AlreadyDisposedException` must be thrown.
+    throwModuleDisposedException(this)
+  }
+  return entity
 }
 
 /**
  * @return corresponding [ModuleEntity] or null if module isn't associated with entity yet
  */
-fun Module.findModuleEntity(entityStorage: EntityStorage): ModuleEntity? {
-  return entityStorage.moduleMap.getEntities(this as ModuleBridge).firstOrNull() as ModuleEntity?
-}
+fun Module.findModuleEntity(entityStorage: EntityStorage): ModuleEntity? = findModuleEntityImpl(entityStorage)
 
 /**
  * Consider rewriting your code to use [ModuleEntity] directly. This method was introduced to simplify the first
@@ -46,3 +64,8 @@ fun Module.findModuleEntity(entityStorage: EntityStorage): ModuleEntity? {
 fun ModuleEntity.findModule(snapshot: EntityStorage): Module? {
   return snapshot.moduleMap.getDataByEntity(this)
 }
+
+private fun Module.findEntityStorage() = (this as ModuleBridge).diff ?: project.workspaceModel.currentSnapshot
+
+private fun Module.findModuleEntityImpl(vararg storages: EntityStorage): ModuleEntity? =
+  storages.firstNotNullOfOrNull { it.moduleMap.getEntities(this as ModuleBridge).firstOrNull() as ModuleEntity? }

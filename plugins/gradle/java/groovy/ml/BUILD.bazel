@@ -1,7 +1,7 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
 ### auto-generated section `build intellij.gradle.java.groovy.ml` start
-
 jvm_library(
     name = "ml",
     srcs = glob(
@@ -21,7 +21,7 @@ jvm_library(
     deps = [
         # do not sort,
         "@lib//:kotlin-stdlib",
-        "@lib//:jetbrains-annotations",
+        "//libraries/jetbrains/annotations",
         "//plugins/gradle/java",
         "//platform/analysis-api:analysis",
         "//platform/lang-api:lang",
@@ -33,6 +33,8 @@ jvm_library(
         "//plugins/gradle/java/groovy",
     ],
 )
+
+content_module_jar(module = ":ml")
 
 jvm_library(
     name = "ml_test_lib",
@@ -46,6 +48,7 @@ jvm_library(
     runtime_deps = [
         # do not sort,
         ":ml",
+        "//libraries/jetbrains/annotations:annotations_test_lib",
         "//plugins/gradle/java:java_test_lib",
         "//platform/analysis-api:analysis_test_lib",
         "//platform/lang-api:lang_test_lib",
@@ -63,6 +66,7 @@ jvm_library(
 exports_files(
     [
         "intellij.gradle.java.groovy.ml.iml",
+        "resources/intellij.gradle.java.groovy.ml.xml",
     ],
     visibility = ["//visibility:public"],
 )

@@ -6,9 +6,12 @@ import com.intellij.codeWithMe.ClientId
 import com.intellij.codeWithMe.ClientId.Companion.currentOrNull
 import com.intellij.codeWithMe.ClientId.Companion.withExplicitClientId
 import com.intellij.concurrency.ContextAwareRunnable
+import com.intellij.concurrency.ExecutionInitiator
+import com.intellij.concurrency.ExecutionInitiatorElement
 import com.intellij.concurrency.ExternalIntelliJContextElement
 import com.intellij.concurrency.captureThreadContext
 import com.intellij.concurrency.currentThreadContext
+import com.intellij.concurrency.currentThreadContextOrNull
 import com.intellij.concurrency.installThreadContext
 import com.intellij.concurrency.resetThreadContext
 import com.intellij.diagnostic.EventWatcher
@@ -39,8 +42,6 @@ import com.intellij.openapi.diagnostic.ControlFlowException
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.diagnostic.debug
 import com.intellij.openapi.diagnostic.logger
-import com.intellij.openapi.editor.impl.ad.isRhizomeAdRebornEnabled
-import com.intellij.openapi.editor.impl.ad.util.ThreadLocalRhizomeDB
 import com.intellij.openapi.extensions.ExtensionPointName
 import com.intellij.openapi.keymap.impl.IdeKeyEventDispatcher
 import com.intellij.openapi.keymap.impl.IdeMouseEventDispatcher
@@ -59,11 +60,11 @@ import com.intellij.openapi.wm.ex.WindowManagerEx
 import com.intellij.openapi.wm.impl.FocusManagerImpl
 import com.intellij.platform.ide.bootstrap.StartupErrorReporter
 import com.intellij.platform.ide.menu.WinAltKeyProcessor
-import com.intellij.platform.locking.impl.getGlobalThreadingSupport
 import com.intellij.ui.ComponentUtil
 import com.intellij.ui.awt.RelativePoint
 import com.intellij.ui.speedSearch.SpeedSearchSupply
 import com.intellij.util.SmartList
+import com.intellij.util.SystemProperties
 import com.intellij.util.concurrency.annotations.RequiresEdt
 import com.intellij.util.concurrency.unwrapContextRunnable
 import com.intellij.util.containers.ContainerUtil
@@ -79,7 +80,6 @@ import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.annotations.ApiStatus.Internal
 import org.jetbrains.annotations.TestOnly
 import org.jetbrains.annotations.VisibleForTesting
-import sun.awt.AppContext
 import sun.awt.PeerEvent
 import sun.awt.SunToolkit
 import java.awt.AWTEvent
@@ -124,6 +124,22 @@ import kotlin.coroutines.CoroutineContext
 import kotlin.coroutines.EmptyCoroutineContext
 import kotlin.coroutines.cancellation.CancellationException
 
+private val initiatorAttributionEnabled =
+  SystemProperties.getBooleanProperty("ide.initiator.attribution", true)
+
+private fun userInitiatorContextOrNull(event: AWTEvent): CoroutineContext? {
+  if (!initiatorAttributionEnabled || event !is InputEvent) return null
+  val ambient = currentThreadContextOrNull()
+  if (ambient?.get(ExecutionInitiatorElement) != null) return null
+  return (ambient ?: EmptyCoroutineContext) + ExecutionInitiator.USER.contextElement
+}
+
+private inline fun <T> withUserInitiatorContext(event: AWTEvent, crossinline action: () -> T): T {
+  val context = userInitiatorContextOrNull(event) ?: return action()
+  @Suppress("DEPRECATION")
+  return installThreadContext(context, replace = true).use { action() }
+}
+
 @Suppress("FunctionName")
 class IdeEventQueue private constructor() : EventQueue() {
   /**
@@ -133,7 +149,7 @@ class IdeEventQueue private constructor() : EventQueue() {
   private val activityListeners = ContainerUtil.createLockFreeCopyOnWriteList<Runnable>()
 
   @Internal
-  val threadingSupport: ThreadingSupport = getGlobalThreadingSupport()
+  val threadingSupport: ThreadingSupport = ThreadingSupportHolder.threadingSupport
   val keyEventDispatcher: IdeKeyEventDispatcher = IdeKeyEventDispatcher(this)
   val mouseEventDispatcher: IdeMouseEventDispatcher = IdeMouseEventDispatcher()
   val popupManager: IdePopupManager = IdePopupManager()
@@ -196,7 +212,7 @@ class IdeEventQueue private constructor() : EventQueue() {
     LaterInvocator.initializeNonBlockingFlushQueue(threadingSupport)
     systemEventQueue.push(this)
     EDT.updateEdt()
-    replaceDefaultKeyboardFocusManager()
+    replaceDefaultKeyboardFocusManager(threadingSupport)
     addDispatcher(WindowsAltSuppressor(), null)
     if (SystemInfoRt.isWindows && java.lang.Boolean.parseBoolean(System.getProperty("keymap.windows.up.to.maximize.dialogs", "true"))) {
       // 'Windows+Up' shortcut would maximize the active dialog under Win 7+
@@ -376,35 +392,37 @@ class IdeEventQueue private constructor() : EventQueue() {
       val nakedRunnable = runnable is NakedRunnable
       val processEventRunnable = Runnable {
         withAttachedClientId(finalEvent).use {
-          val progressManager = ProgressManager.getInstanceOrNull()
-          try {
-            runCustomProcessors(finalEvent, preProcessors)
-            performActivity(finalEvent) {
-              if (progressManager == null || (runnable != null && InvocationUtil.isFlushNow(runnable))) {
-                _dispatchEvent(finalEvent)
-              }
-              else {
-                progressManager.computePrioritized(ThrowableComputable {
+          withUserInitiatorContext(finalEvent) {
+            val progressManager = ProgressManager.getInstanceOrNull()
+            try {
+              runCustomProcessors(finalEvent, preProcessors)
+              performActivity(finalEvent) {
+                if (progressManager == null || (runnable != null && InvocationUtil.isFlushNow(runnable))) {
                   _dispatchEvent(finalEvent)
-                  null
-                })
+                }
+                else {
+                  progressManager.computePrioritized(ThrowableComputable {
+                    _dispatchEvent(finalEvent)
+                    null
+                  })
+                }
               }
             }
-          }
-          catch (t: Throwable) {
-            processException(t)
-          }
-          finally {
-            trueCurrentEvent = oldEvent
-            SequencedEventNestedFieldHolder.eventDispatched(finalEvent)
-            runCustomProcessors(finalEvent, postProcessors)
-            if (finalEvent is KeyEvent) {
-              maybeReady()
+            catch (t: Throwable) {
+              processException(t)
             }
-            if (eventWatcher != null && runnable != null && !InvocationUtil.isFlushNow(runnable)) {
-              eventWatcher.logTimeMillis(if (runnableClass == Runnable::class.java) finalEvent.toString() else runnableClass.name,
-                                         startedAt,
-                                         runnableClass)
+            finally {
+              trueCurrentEvent = oldEvent
+              SequencedEventNestedFieldHolder.eventDispatched(finalEvent)
+              runCustomProcessors(finalEvent, postProcessors)
+              if (finalEvent is KeyEvent) {
+                maybeReady()
+              }
+              if (eventWatcher != null && runnable != null && !InvocationUtil.isFlushNow(runnable)) {
+                eventWatcher.logTimeMillis(if (runnableClass == Runnable::class.java) finalEvent.toString() else runnableClass.name,
+                                           startedAt,
+                                           runnableClass)
+              }
             }
           }
         }
@@ -996,8 +1014,6 @@ class IdeEventQueue private constructor() : EventQueue() {
 
   fun getReturnedEventCount(): Long = eventsReturned.get()
 
-  fun getPostedSystemEventCount(): Long = (AppContext.getAppContext()?.get("jb.postedSystemEventCount") as? AtomicLong)?.get() ?: -1
-
   fun flushNativeEventQueue() {
     SunToolkit.flushPendingEvents()
   }
@@ -1112,8 +1128,6 @@ internal fun performActivity(e: AWTEvent, runnable: () -> Unit) {
       com.intellij.ide.transactionGuard = transactionGuard
     }
   }
-
-  setImplicitThreadLocalRhizomeIfEnabled()
 
   if (transactionGuard == null) {
     runnable()
@@ -1379,23 +1393,23 @@ private fun abracadabraDaberBoreh(eventQueue: IdeEventQueue) {
   // - replace `PostEventQueue` value in `AppContext` with this new `PostEventQueue`
   // After that, the control flow goes like this:
   //   PostEventQueue.flush() -> IdeEventQueue.postEvent() -> we intercepted the event and incremented counters.
-  val aClass = Class.forName("sun.awt.PostEventQueue")
-  val constructor = MethodHandles.privateLookupIn(aClass, MethodHandles.lookup())
-    .findConstructor(aClass, MethodType.methodType(Void.TYPE, EventQueue::class.java))
+  val postEventClass = Class.forName("sun.awt.PostEventQueue")
+  val constructor = MethodHandles.privateLookupIn(postEventClass, MethodHandles.lookup())
+    .findConstructor(postEventClass, MethodType.methodType(Void.TYPE, EventQueue::class.java))
   val postEventQueue = constructor.invoke(eventQueue)
-  AppContext.getAppContext().put("PostEventQueue", postEventQueue)
-}
-
-private fun setImplicitThreadLocalRhizomeIfEnabled() {
-  if (isRhizomeAdRebornEnabled) {
-    // It is a workaround on tricky `updateDbInTheEventDispatchThread()` where
-    // the thread local DB is reset by `fleet.kernel.DbSource.ContextElement.restoreThreadContext`
-    try {
-      ThreadLocalRhizomeDB.setThreadLocalDb(ThreadLocalRhizomeDB.lastKnownDb())
-    }
-    catch (e: Exception) {
-      Logs.LOG.error(e)
-    }
+  try {
+    // JDK < 27
+    val appContextClass = Class.forName("sun.awt.AppContext")
+    val appContext = appContextClass.getMethod("getAppContext").invoke(null)
+    appContextClass.getMethod("put", Any::class.java, Any::class.java).invoke(appContext, "PostEventQueue", postEventQueue)
+  } catch (e: ReflectiveOperationException) {
+    // JDK >= 27
+    // `sun.awt.AppContext` is removed starting JDK 27, try to use other way of replacing `PostEventQueue`
+    // TODO: Change the order of attempts when JDK >= 27 becomes the happy path
+    val sunToolkitClass = Class.forName("sun.awt.SunToolkit")
+    MethodHandles.privateLookupIn(sunToolkitClass, MethodHandles.lookup())
+      .findStaticSetter(sunToolkitClass, "postEventQueue", postEventClass)
+      .invoke(postEventQueue)
   }
 }
 

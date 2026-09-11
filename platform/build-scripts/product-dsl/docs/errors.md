@@ -17,6 +17,9 @@ Complete reference of validation errors, their causes, and fixes.
 | [Structural Violations](#structural-loading-violations) | Error | Yes* | Loading mode constraint violations |
 | [MissingContentModulePluginDep](#missing-content-module-plugin-dependency) | Error | No | Content module missing plugin dep |
 | [MissingTestPluginPluginDep](#missing-test-plugin-plugin-dependency) | Error | No | Test plugin missing plugin dep |
+| [ContentModuleDependencyDeclarationError](#content-module-dependency-declaration) | Error | No | A `<dependencies>` entry of a content module has the wrong form |
+| [MissingLibraryLicenseError](#missing-library-license) | Error | No | Library in a distribution has no license entry |
+| [ModuleInMultiplePluginsError](#module-in-multiple-plugins) | Error | No | Two plugin layouts pack one JPS module |
 | [DSL Constraint Errors](#dsl-constraint-errors) | Error | No | Invalid DSL usage |
 | [Suppressible Errors](#suppressible-errors) | Warning | Yes | Errors detected during generation |
 
@@ -31,7 +34,7 @@ File diff detected: community/platform/platform-resources/generated/META-INF/int
   Change type: MODIFY
 ```
 
-**Cause**: Running "Generate Product Layouts" detected changes that need to be applied.
+**Cause**: A generator run detected changes that need to be applied.
 
 **Fix**: The generator auto-applies diffs. Commit the changes or run the generator again.
 
@@ -343,7 +346,83 @@ Module intellij.platform.ide.impl has testing libraries in production scope:
 Run 'Generate Product Layouts' to fix automatically.
 ```
 
-**Auto-Fix**: Run "Generate Product Layouts" to move test libraries to TEST scope.
+**Auto-Fix**: Run `bazel run //platform/buildScripts:plugin-model-tool` to move test libraries to TEST scope. The "Generate Product Layouts" run configuration does the same.
+
+---
+
+## Missing Library License
+
+Emitted by `LibraryLicenseValidator` (ruleName `LibraryLicenseValidation`) and by
+`CommunityLibraryLicenseValidator` (ruleName `CommunityLibraryLicenseValidation`). Both use the category
+`MISSING_LIBRARY_LICENSE`. The `Scope` line and the fix line separate the two reports.
+
+```
+Libraries without a license entry
+
+Every library that an installation packages needs a license entry.
+The entry gives the license name and the library origin for the legal report.
+Scope: the plugin graph
+
+  * some-library-1.2.3
+    Coordinates: com.example:some-library:1.2.3
+    Module: intellij.platform.ide.impl
+
+Fix:
+1. Add the license entry to CommunityLibraryLicenses.kt or UltimateLibraryLicenses.kt.
+2. Change the dependency scope to TEST if only tests use the library.
+3. Change the dependency scope to PROVIDED if only compilation uses the library.
+
+[Rule: LibraryLicenseValidation]
+```
+
+**Cause**: A third-party library reaches a distribution, and no `*LibraryLicenses.kt` file holds an entry for it.
+
+**Fixes**:
+1. **Add the license entry** to `CommunityLibraryLicenses.kt` or `UltimateLibraryLicenses.kt`
+2. **Change the dependency scope to TEST** when only tests use the library
+3. **Change the dependency scope to PROVIDED** when only compilation uses the library
+
+**Auto-Fix**: No. The error is a hard failure. No suppression and no allowlist exist.
+
+**Spec**: [validators/library-license.md](validators/library-license.md)
+
+---
+
+## Module In Multiple Plugins
+
+Emitted by `collectModulesInMultiplePlugins` (ruleName `ModuleInMultiplePluginsValidation`, category `MODULE_IN_MULTIPLE_PLUGINS`).
+
+```
+Two plugin layouts pack one module
+
+Each plugin holds its own copy of the classes, so the copies grow the distribution.
+A third plugin that depends on both plugins loads one class from two classloaders.
+Many products share one plugin layout registry, so the report names no product.
+
+  * intellij.javaee.jax.ws.utils
+      - intellij.javaee.jax.rs
+      - intellij.javaee.jax.ws
+
+Fix:
+1. Move the module to the platform, so that every plugin reads the one copy.
+2. Or extract a new plugin that holds the module, and let each plugin depend on it.
+3. Or grandfather the name: add it to KNOWN_MODULES_IN_MULTIPLE_PLUGINS in platform/buildScripts/src/productLayout/ultimateGenerator.kt.
+
+[Rule: ModuleInMultiplePluginsValidation]
+```
+
+**Cause**: Two plugin layouts pack one JPS module through `spec.withModule`, so each plugin holds a private copy of the classes.
+
+The rule reads the other direction too. An allowlist entry that no plugin layout registry duplicates any more is stale, and the report names that entry.
+
+**Fixes**:
+1. **Move the module to the platform**, so that every plugin reads the one copy
+2. **Extract a new plugin** that holds the module, and let each plugin depend on it
+3. **Grandfather the name** in `KNOWN_MODULES_IN_MULTIPLE_PLUGINS` in `platform/buildScripts/src/productLayout/ultimateGenerator.kt`
+
+**Auto-Fix**: No. The error is a hard failure. The allowlist is the whole suppression mechanism, and `suppressions.json` holds no entry for this rule.
+
+**Spec**: [validators/module-in-multiple-plugins.md](validators/module-in-multiple-plugins.md)
 
 ---
 
@@ -406,6 +485,42 @@ missing from the test classpath.
 
 ---
 
+## Content Module Dependency Declaration
+
+```
+Content module 'intellij.foo.impl' declares a dependency in a wrong form
+
+  plugins/foo/impl/resources/intellij.foo.impl.xml
+
+  * the plugin dependency 'com.intellij.modules.java' uses the old alias of the Java plugin
+      <plugin id="com.intellij.java"/>
+  * no plugin defines the plugin id 'com.example.gone'
+      fix the id, or add it to validationExceptions of 'intellij.foo.impl' in suppressions.json
+
+Why this matters: the runtime drops a content module that declares an unknown dependency.
+So the plugin loses the feature of that module without a message.
+
+[Rule: ContentModuleDependencyDeclaration]
+```
+
+**Cause**: A `<dependencies>` entry of the content module descriptor has the wrong form. The validator reports six
+problems: the old Java alias, a redundant `com.intellij.modules.platform` element, an unresolved plugin id, a
+duplicated plugin id, a `<module>` element that names a plugin main module, and an `internal` module that is used from
+another namespace.
+
+**Runtime impact**: The runtime drops a content module with an unknown dependency, so the plugin loses that feature
+without a message.
+
+**Fixes**:
+1. **Fix the element**: each problem prints the element to use.
+2. **Suppress an unresolved id**: add it to `contentModules.<module>.suppressPlugins` or to
+   `validationExceptions.<module>.allowMissingPlugins` in `platform/buildScripts/suppressions.json`. Use this only for
+   a plugin that lives outside the monorepo.
+
+**Spec**: [validators/content-module-dependency-declaration.md](validators/content-module-dependency-declaration.md)
+
+---
+
 ## Suppressible Errors
 
 These errors are detected during generation and can be suppressed via `suppressedErrors` in `suppressions.json`.
@@ -449,44 +564,27 @@ The dependency generator expects `<idea-plugin>` as the root element. Descriptor
 
 ## Investigation Tools
 
-Use Plugin Model Analyzer MCP to debug dependency issues:
+Use the Plugin Model Analyzer skill to debug dependency issues. It calls the Product DSL analyzer directly through Bazel:
 
-```kotlin
-// Find dependency path between modules
-mcp__PluginModelAnalyzer__find_dependency_path(
-  fromModule = "intellij.platform.vcs.impl",
-  toModule = "intellij.c.core"
-)
-
-// Check which module sets contain a dependency
-mcp__PluginModelAnalyzer__suggest_module_set_for_modules(
-  moduleNames = ["intellij.c.core"]
-)
-
-// Check module reachability within a module set
-mcp__PluginModelAnalyzer__check_module_reachability(
-  moduleName = "intellij.platform.kernel",
-  moduleSetName = "core.platform"
-)
-
-// Get module info including products/sets
-mcp__PluginModelAnalyzer__get_module_info(
-  moduleName = "intellij.fullLine.cpp"
-)
+```bash
+bazel run --ui_event_filters=-info --noshow_progress //platform/buildScripts:plugin-model-tool -- --json='{"filter":"dependencyPath","fromModule":"intellij.platform.vcs.impl","toModule":"intellij.c.core","includeScopes":true}'
+bazel run --ui_event_filters=-info --noshow_progress //platform/buildScripts:plugin-model-tool -- --json='{"filter":"suggestModuleSetsForModules","modules":["intellij.c.core"]}'
+bazel run --ui_event_filters=-info --noshow_progress //platform/buildScripts:plugin-model-tool -- --json='{"filter":"moduleReachability","module":"intellij.platform.kernel","moduleSet":"core.platform"}'
+bazel run --ui_event_filters=-info --noshow_progress //platform/buildScripts:plugin-model-tool -- --json='{"filter":"moduleInfo","module":"intellij.fullLine.cpp"}'
 ```
 
 ---
 
 ## Investigation Strategy
 
-1. **Identify dependency chain**: Use `find_dependency_path` to understand why dep is needed
+1. **Identify dependency chain**: Use the `dependencyPath` JSON filter to understand why dep is needed
 2. **Check if cross-plugin**: Is missing module in non-bundled plugin? Check source module's loading
 3. **Find right fix level**:
    - Missing module set → add nested set
    - Product missing set → add to product
    - Cross-plugin with non-critical loading → add to `knownPlugins`
    - Missing infrastructure → add to module set
-4. **Verify**: Run "Generate Product Layouts" again
+4. **Verify**: Run `bazel run //platform/buildScripts:plugin-model-tool` again, or the "Generate Product Layouts" run configuration
 
 ---
 

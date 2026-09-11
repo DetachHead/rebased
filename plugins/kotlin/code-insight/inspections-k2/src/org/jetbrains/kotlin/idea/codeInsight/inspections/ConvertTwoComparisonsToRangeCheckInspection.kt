@@ -9,14 +9,21 @@ import com.intellij.psi.SmartPsiElementPointer
 import com.intellij.psi.createSmartPointer
 import com.intellij.util.applyIf
 import org.jetbrains.kotlin.analysis.api.KaSession
-import org.jetbrains.kotlin.analysis.api.analyze
 import org.jetbrains.kotlin.analysis.api.base.KaConstantValue
-import org.jetbrains.kotlin.analysis.api.components.evaluate
-import org.jetbrains.kotlin.analysis.api.components.expressionType
-import org.jetbrains.kotlin.analysis.api.components.isCharType
-import org.jetbrains.kotlin.analysis.api.resolution.singleFunctionCallOrNull
+import org.jetbrains.kotlin.analysis.api.evaluation.evaluate
+import org.jetbrains.kotlin.analysis.api.expressions.expressionType
+import org.jetbrains.kotlin.analysis.api.resolution.function
+import org.jetbrains.kotlin.analysis.api.resolution.single
 import org.jetbrains.kotlin.analysis.api.resolution.symbol
+import org.jetbrains.kotlin.analysis.api.resolution.tryResolveCall
+import org.jetbrains.kotlin.analysis.api.session.analyze
+import org.jetbrains.kotlin.analysis.api.symbols.symbol
+import org.jetbrains.kotlin.analysis.api.types.KaStandardTypeClassIds
 import org.jetbrains.kotlin.analysis.api.types.KaType
+import org.jetbrains.kotlin.analysis.api.types.classId
+import org.jetbrains.kotlin.analysis.api.types.isSubtypeOf
+import org.jetbrains.kotlin.analysis.api.types.lowerBoundIfFlexible
+import org.jetbrains.kotlin.analysis.api.types.semanticallyEquals
 import org.jetbrains.kotlin.idea.base.psi.copied
 import org.jetbrains.kotlin.idea.base.psi.getSingleUnwrappedStatementOrThis
 import org.jetbrains.kotlin.idea.base.resources.KotlinBundle
@@ -192,7 +199,7 @@ internal class ConvertTwoComparisonsToRangeCheckInspection : KotlinApplicableIns
     context(_: KaSession)
     private fun KtExpression.adjustLowerBoundForExclusive(): String? {
         val type = expressionType ?: return null
-        if (!type.isIntegralType && !type.isCharType) return null
+        if (!type.isIntegralType && type.classId != KaStandardTypeClassIds.CHAR) return null
 
         // Try to render an incremented constant value.
         renderConstantPlusOne(type)?.let { return it }
@@ -210,7 +217,8 @@ internal class ConvertTwoComparisonsToRangeCheckInspection : KotlinApplicableIns
         return KtPsiFactory(project).createExpression(constantVal.toDouble().toString())
     }
 
-    override fun KaSession.prepareContext(element: KtBinaryExpression): Context? {
+    context(session: KaSession)
+    override fun prepareContext(element: KtBinaryExpression): Context? {
         val psiContext = element.getPsiContext() ?: return null
 
         val valueType = psiContext.value.expressionType?.lowerBoundIfFlexible() ?: return null
@@ -255,7 +263,7 @@ internal class ConvertTwoComparisonsToRangeCheckInspection : KotlinApplicableIns
         val minText: String =
             // If we're using an exclusive comparison, the lower bound has to be increased by 1.
             if (psiContext.minExclusive) {
-                if (!valueType.isIntegralType && !valueType.isCharType) return null
+                if (!valueType.isIntegralType && valueType.classId != KaStandardTypeClassIds.CHAR) return null
                 min.adjustLowerBoundForExclusive() ?: return null
             } else {
                 min.text
@@ -265,7 +273,7 @@ internal class ConvertTwoComparisonsToRangeCheckInspection : KotlinApplicableIns
         val rangeOp = when {
             !psiContext.maxExclusive -> ".."
             element.canUseRangeUntil() -> "..<"
-            valueType.isIntegralType || valueType.isCharType -> " until "
+            valueType.isIntegralType || valueType.classId == KaStandardTypeClassIds.CHAR -> " until "
             else -> return null
         }
 
@@ -288,9 +296,7 @@ internal class ConvertTwoComparisonsToRangeCheckInspection : KotlinApplicableIns
                 KtPsiFactory(containingFunction.project).createExpressionCodeFragment(replacementExpression.text, element)
             val fragmentExpression = fragment.getContentElement() as? KtBinaryExpression ?: return null
             analyze(fragment) {
-                val resolvedSymbol =
-                    fragmentExpression.operationReference.resolveToCall()?.singleFunctionCallOrNull()?.symbol
-                        ?: return null
+                val resolvedSymbol = fragmentExpression.operationReference.tryResolveCall()?.single?.function?.symbol ?: return null
 
                 if (resolvedSymbol == containingFunction.symbol) {
                     return null

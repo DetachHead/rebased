@@ -1,7 +1,7 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
 ### auto-generated section `build intellij.searchEverywhereLucene.common` start
-
 jvm_library(
     name = "common",
     srcs = glob(
@@ -21,9 +21,11 @@ jvm_library(
     deps = [
         # do not sort,
         "@lib//:kotlin-stdlib",
-        "@lib//:jetbrains-annotations",
+        "//libraries/jetbrains/annotations",
     ],
 )
+
+content_module_jar(module = ":common")
 
 jvm_library(
     name = "common_test_lib",
@@ -34,7 +36,11 @@ jvm_library(
     ),
     module_name = "intellij.searchEverywhereLucene.common",
     visibility = ["//visibility:public"],
-    runtime_deps = [":common"],
+    runtime_deps = [
+        # do not sort,
+        ":common",
+        "//libraries/jetbrains/annotations:annotations_test_lib",
+    ],
 )
 ### auto-generated section `build intellij.searchEverywhereLucene.common` end
 
@@ -42,6 +48,7 @@ jvm_library(
 exports_files(
     [
         "intellij.searchEverywhereLucene.common.iml",
+        "resources/intellij.searchEverywhereLucene.common.xml",
     ],
     visibility = ["//visibility:public"],
 )

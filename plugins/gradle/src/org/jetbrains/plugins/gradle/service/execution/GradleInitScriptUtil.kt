@@ -4,6 +4,7 @@
 package org.jetbrains.plugins.gradle.service.execution
 
 import com.amazon.ion.IonType
+import com.esotericsoftware.kryo.kryo5.Kryo
 import com.google.common.collect.Multimap
 import com.google.gson.GsonBuilder
 import com.intellij.gradle.toolingExtension.GradleToolingExtensionClass
@@ -98,7 +99,8 @@ val GRADLE_TOOLING_EXTENSION_PROXY_CLASSES: Set<Class<*>> = GRADLE_TOOLING_EXTEN
   Gradle::class.java, // gradle-api jar
   LoggerFactory::class.java, JDK14LoggerFactory::class.java, // logging jars
   Main::class.java, // gradle tooling proxy module
-  MissingMethodException::class.java // groovy runtime for serialization
+  MissingMethodException::class.java, // groovy runtime for serialization
+  Kryo::class.java, // kryo
 )
 
 @ApiStatus.Internal
@@ -316,8 +318,6 @@ fun loadHotswapDetectionInitScript(
 private val JUNIT_3_COMPARISON_FAILURE = listOf("junit.framework.ComparisonFailure")
 private val JUNIT_4_COMPARISON_FAILURE = listOf("org.junit.ComparisonFailure")
 private val ASSERTION_FAILED_ERROR = listOf("org.opentest4j.AssertionFailedError")
-private val FILE_COMPARISON_FAILURE = listOf("com.intellij.rt.execution.junit.FileComparisonFailure",
-                                             "junit.framework.ComparisonFailure")
 
 @ApiStatus.Internal
 fun loadIjTestLoggerInitScript(): String {
@@ -328,19 +328,8 @@ fun loadIjTestLoggerInitScript(): String {
     loadEnhanceGradleDaemonClasspathInit(listOf(
       JUNIT_3_COMPARISON_FAILURE,
       JUNIT_4_COMPARISON_FAILURE,
-      ASSERTION_FAILED_ERROR,
-      FILE_COMPARISON_FAILURE
+      ASSERTION_FAILED_ERROR
     ))
-  )
-}
-
-@ApiStatus.Internal
-fun loadFileComparisonTestLoggerInitScript(): String {
-  return joinInitScripts(
-    loadInitScript("/org/jetbrains/plugins/gradle/tooling/internal/init/TestEventLogger.gradle"),
-    loadInitScript("/org/jetbrains/plugins/gradle/tooling/internal/init/FileComparisonTestEventLogger.gradle"),
-    loadInitScript("/org/jetbrains/plugins/gradle/tooling/internal/init/FileComparisonTestEventLoggerInit.gradle"),
-    loadEnhanceGradleDaemonClasspathInit(listOf(FILE_COMPARISON_FAILURE))
   )
 }
 

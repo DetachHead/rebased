@@ -6,13 +6,12 @@ import com.intellij.modcommand.ActionContext
 import com.intellij.modcommand.ModPsiUpdater
 import com.intellij.psi.util.PsiTreeUtil
 import org.jetbrains.kotlin.analysis.api.KaSession
-import org.jetbrains.kotlin.analysis.api.analyze
 import org.jetbrains.kotlin.analysis.api.annotations.KaAnnotation
 import org.jetbrains.kotlin.analysis.api.annotations.KaAnnotationValue
-import org.jetbrains.kotlin.analysis.api.resolution.KaAnnotationCall
-import org.jetbrains.kotlin.analysis.api.resolution.successfulCallOrNull
-import org.jetbrains.kotlin.analysis.api.resolution.symbol
+import org.jetbrains.kotlin.analysis.api.resolution.resolveSuccessfulSymbol
+import org.jetbrains.kotlin.analysis.api.session.analyze
 import org.jetbrains.kotlin.analysis.api.symbols.KaClassSymbol
+import org.jetbrains.kotlin.analysis.api.symbols.containingSymbol
 import org.jetbrains.kotlin.descriptors.annotations.AnnotationUseSiteTarget
 import org.jetbrains.kotlin.idea.base.analysis.api.utils.isApplicableTargetSet
 import org.jetbrains.kotlin.idea.base.psi.mustHaveOnlyPropertiesInPrimaryConstructor
@@ -45,8 +44,9 @@ class MovePropertyToClassBodyIntention : KotlinApplicableModCommandAction<KtPara
     ) {
         val parentClass = PsiTreeUtil.getParentOfType(element, KtClass::class.java) ?: return
 
+        val parameterName = element.nameIdentifier?.text ?: return
         val propertyDeclaration = KtPsiFactory(element.project)
-            .createProperty("${element.valOrVarKeyword?.text} ${element.name} = ${element.name}")
+            .createProperty("${element.valOrVarKeyword?.text} $parameterName = $parameterName")
 
         val firstProperty = parentClass.getProperties().firstOrNull()
         parentClass.addDeclarationBefore(propertyDeclaration, firstProperty).apply {
@@ -118,7 +118,7 @@ class MovePropertyToClassBodyIntention : KotlinApplicableModCommandAction<KtPara
     private fun KtAnnotationEntry.isApplicableToConstructorParameter(): Boolean {
         analyze(this) {
             // Find all meta-annotations for this annotation to check if the annotation targets the constructor parameter
-            val annotationClassSymbol = resolveToCall()?.successfulCallOrNull<KaAnnotationCall>()?.symbol?.containingSymbol as? KaClassSymbol ?: return false
+            val annotationClassSymbol = this.resolveSuccessfulSymbol()?.containingSymbol as? KaClassSymbol ?: return false
             val targetAnnotations = annotationClassSymbol.annotations.filter { it.classId == StandardClassIds.Annotations.Target }
             // Without target annotation, it targets the constructor parameter by default
             if (targetAnnotations.isEmpty()) return true
@@ -135,7 +135,8 @@ class MovePropertyToClassBodyIntention : KotlinApplicableModCommandAction<KtPara
         delete()
     }
 
-    override fun KaSession.prepareContext(element: KtParameter): Unit? {
+    context(session: KaSession)
+    override fun prepareContext(element: KtParameter): Unit? {
         if (!element.isPropertyParameter()) return null
         val containingClass = element.containingClass() ?: return null
         return Unit.takeIf { !containingClass.mustHaveOnlyPropertiesInPrimaryConstructor() }

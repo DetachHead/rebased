@@ -4,7 +4,7 @@ package org.jetbrains.kotlin.idea.core.script.shared.definition
 import com.intellij.diagnostic.PluginException
 import com.intellij.execution.wsl.WslPath.Companion.isWslUncPath
 import com.intellij.ide.plugins.PluginManager
-import com.intellij.openapi.diagnostic.ControlFlowException
+import com.intellij.openapi.diagnostic.rethrowControlFlowException
 import com.intellij.openapi.util.io.FileUtil
 import com.intellij.openapi.util.io.findOrCreateDirectory
 import com.intellij.openapi.util.io.toCanonicalPath
@@ -18,7 +18,6 @@ import org.jetbrains.kotlin.idea.core.script.v1.scriptingInfoLog
 import org.jetbrains.kotlin.idea.core.script.v1.scriptingWarnLog
 import org.jetbrains.kotlin.scripting.definitions.ScriptCompilationConfigurationFromLegacyTemplate
 import org.jetbrains.kotlin.scripting.definitions.ScriptDefinition
-import org.jetbrains.kotlin.scripting.definitions.ScriptDefinitionsSource
 import org.jetbrains.kotlin.scripting.definitions.ScriptEvaluationConfigurationFromHostConfiguration
 import org.jetbrains.kotlin.utils.addToStdlib.firstIsInstanceOrNull
 import java.io.File
@@ -51,7 +50,7 @@ fun loadDefinitionsFromTemplates(
     val classpath = adjustClasspath(templateClasspath + additionalResolverClasspath)
     scriptingInfoLog("Loading script definitions: classes=$templateClassNames, classpath=$classpath")
 
-    val baseLoader = ScriptDefinitionsSource::class.java.classLoader
+    val baseLoader = ScriptDefinition::class.java.classLoader
     val loader = if (classpath.isEmpty()) baseLoader
     else UrlClassLoader.build().files(classpath).parent(baseLoader).get()
 
@@ -101,7 +100,7 @@ fun loadDefinitionsFromTemplates(
             // so, it only results in warning, while other errors are severe misconfigurations, resulting it user-visible error
             scriptingWarnLog("Cannot load script definition class $templateClassName", e)
         } catch (e: Throwable) {
-            if (e is ControlFlowException) throw e
+            rethrowControlFlowException(e)
 
             val message = "Cannot load script definition class $templateClassName"
             val pluginException =

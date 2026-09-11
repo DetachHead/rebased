@@ -382,6 +382,10 @@ public class MermaidVisitor extends PsiElementVisitor {
     visitPsiElement(o);
   }
 
+  public void visitEdgeId(@NotNull MermaidEdgeId o) {
+    visitPsiElement(o);
+  }
+
   public void visitElementBlock(@NotNull MermaidElementBlock o) {
     visitDiagramBlock(o);
   }
@@ -436,6 +440,22 @@ public class MermaidVisitor extends PsiElementVisitor {
 
   public void visitErRelationStatement(@NotNull MermaidErRelationStatement o) {
     visitPsiElement(o);
+  }
+
+  public void visitErStyleClass(@NotNull MermaidErStyleClass o) {
+    visitPsiElement(o);
+  }
+
+  public void visitErSubgraphBlock(@NotNull MermaidErSubgraphBlock o) {
+    visitDiagramBlock(o);
+  }
+
+  public void visitErSubgraphHeader(@NotNull MermaidErSubgraphHeader o) {
+    visitPsiElement(o);
+  }
+
+  public void visitErSubgraphStatement(@NotNull MermaidErSubgraphStatement o) {
+    visitFoldableElement(o);
   }
 
   public void visitFlowchartBody(@NotNull MermaidFlowchartBody o) {
@@ -526,7 +546,23 @@ public class MermaidVisitor extends PsiElementVisitor {
     visitPsiElement(o);
   }
 
+  public void visitGanttWeekendStatement(@NotNull MermaidGanttWeekendStatement o) {
+    visitPsiElement(o);
+  }
+
   public void visitGeneric(@NotNull MermaidGeneric o) {
+    visitPsiElement(o);
+  }
+
+  public void visitGenericBody(@NotNull MermaidGenericBody o) {
+    visitDiagramBlock(o);
+  }
+
+  public void visitGenericContent(@NotNull MermaidGenericContent o) {
+    visitPsiElement(o);
+  }
+
+  public void visitGenericHeader(@NotNull MermaidGenericHeader o) {
     visitPsiElement(o);
   }
 
@@ -650,6 +686,18 @@ public class MermaidVisitor extends PsiElementVisitor {
     visitGitGraphBranchIdentifierHolder(o);
   }
 
+  public void visitMetadata(@NotNull MermaidMetadata o) {
+    visitPsiElement(o);
+  }
+
+  public void visitMetadataEntry(@NotNull MermaidMetadataEntry o) {
+    visitPsiElement(o);
+  }
+
+  public void visitMetadataEntryValue(@NotNull MermaidMetadataEntryValue o) {
+    visitPsiElement(o);
+  }
+
   public void visitMindmapBody(@NotNull MermaidMindmapBody o) {
     visitDiagramBlock(o);
   }
@@ -683,6 +731,10 @@ public class MermaidVisitor extends PsiElementVisitor {
   }
 
   public void visitNamespaceIdentifier(@NotNull MermaidNamespaceIdentifier o) {
+    visitPsiElement(o);
+  }
+
+  public void visitNamespaceLabel(@NotNull MermaidNamespaceLabel o) {
     visitPsiElement(o);
   }
 
@@ -758,7 +810,15 @@ public class MermaidVisitor extends PsiElementVisitor {
     visitPsiElement(o);
   }
 
+  public void visitPlotPoint(@NotNull MermaidPlotPoint o) {
+    visitPsiElement(o);
+  }
+
   public void visitPoint(@NotNull MermaidPoint o) {
+    visitPsiElement(o);
+  }
+
+  public void visitPointRadius(@NotNull MermaidPointRadius o) {
     visitPsiElement(o);
   }
 
@@ -975,6 +1035,10 @@ public class MermaidVisitor extends PsiElementVisitor {
   }
 
   public void visitString(@NotNull MermaidString o) {
+    visitPsiElement(o);
+  }
+
+  public void visitStyleDeclaration(@NotNull MermaidStyleDeclaration o) {
     visitPsiElement(o);
   }
 

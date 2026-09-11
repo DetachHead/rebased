@@ -8,7 +8,10 @@ import com.intellij.openapi.application.PathManager;
 import com.intellij.openapi.diagnostic.Attachment;
 import com.intellij.openapi.diagnostic.ExceptionWithAttachments;
 import com.intellij.openapi.diagnostic.Logger;
+import com.intellij.openapi.progress.Cancellation;
 import com.intellij.openapi.util.Pair;
+import com.intellij.util.concurrency.annotations.RequiresBackgroundThread;
+import com.intellij.util.concurrency.annotations.RequiresReadLockAbsence;
 import com.intellij.util.system.LowLevelLocalMachineAccess;
 import com.intellij.util.system.OS;
 import org.jetbrains.annotations.ApiStatus;
@@ -34,6 +37,8 @@ import java.util.concurrent.TimeUnit;
 @ApiStatus.Experimental
 @LowLevelLocalMachineAccess
 public final class ShellEnvironmentReader {
+  private static final long ALLOWED_TIMEOUT_THRESHOLD = 10;
+
   private static final Logger LOG = Logger.getInstance(ShellEnvironmentReader.class);
 
   private static final String OUTPUT_PLACEHOLDER = "__OUTPUT_PLACEHOLDER__";
@@ -177,8 +182,9 @@ public final class ShellEnvironmentReader {
       innerScriptlet, javaExePath(), readEnvClasspath(), ReadEnv.class.getName(), OUTPUT_PLACEHOLDER
     );
 
-    var shellName = PathEnvironmentVariableUtil.findExecutableInWindowsPath("pwsh", "powershell.exe");  // PS7 with a falback to PS5
-    var processBuilder = new ProcessBuilder(shellName, "-ExecutionPolicy", "Bypass", "-NonInteractive", "-Command", scriptlet);
+    var ps7 = PathEnvironmentVariableUtil.findFirst("pwsh");
+    var ps7or5 = ps7 != null ? ps7.toString() : "powershell.exe";
+    var processBuilder = new ProcessBuilder(ps7or5, "-ExecutionPolicy", "Bypass", "-NonInteractive", "-Command", scriptlet);
     setWorkingDir(psFile, processBuilder);
     return processBuilder;
   }
@@ -202,10 +208,16 @@ public final class ShellEnvironmentReader {
 
   /// Runs the given command.
   /// Returns the loaded environment and the command output (stdout/stderr combined).
+  @RequiresBackgroundThread(generateAssertion = false)
+  @RequiresReadLockAbsence(generateAssertion = false)
   public static @NotNull Pair<@NotNull Map<String, String>, @NotNull String> readEnvironment(
     @NotNull ProcessBuilder command,
     long timeoutMillis
   ) throws IOException {
+    if (timeoutMillis > ALLOWED_TIMEOUT_THRESHOLD) { // same as OSProcessHandler.ALLOWED_TIMEOUT_THRESHOLD
+      SlowOperations.assertNonCancelableSlowOperationsAreAllowed();
+    }
+
     if (timeoutMillis <= 0) timeoutMillis = DEFAULT_TIMEOUT_MILLIS;
 
     var tmpDir = Files.createDirectories(Path.of(System.getProperty("java.io.tmpdir")));
@@ -275,15 +287,23 @@ public final class ShellEnvironmentReader {
     if (exitCode != null) return exitCode;
 
     LOG.warn("shell env loader is timed out");
-    OSProcessUtil.terminateProcessGracefully(process);
-    exitCode = waitFor(process, 1000L);
-    if (exitCode != null) return exitCode;
-    OSProcessUtil.killProcessTree(process);
-    exitCode = waitFor(process, 1000L);
-    if (exitCode != null) return exitCode;
-    LOG.warn("failed to kill shell env loader");
 
-    return -1;
+    try(var _ = Cancellation.withNonCancelableSection()) {
+      try {
+        OSProcessUtil.terminateProcessGracefully(process);
+        exitCode = waitFor(process, 1000L);
+        if (exitCode != null) return exitCode;
+      }
+      catch (UnsupportedOperationException _) {
+        // ignore, try force-kill if graceful shutdown is not supported
+      }
+      OSProcessUtil.killProcessTree(process);
+      exitCode = waitFor(process, 1000L);
+      if (exitCode != null) return exitCode;
+      LOG.warn("failed to kill shell env loader");
+
+      return -1;
+    }
   }
 
   private static @Nullable Integer waitFor(Process process, long timeoutMillis) {

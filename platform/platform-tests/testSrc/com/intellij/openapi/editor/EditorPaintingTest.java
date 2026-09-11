@@ -2,6 +2,7 @@
 package com.intellij.openapi.editor;
 
 import com.intellij.codeInsight.daemon.impl.indentGuide.IndentGuidePass;
+import com.intellij.codeInsight.daemon.impl.indentGuide.IndentGuideRenderer;
 import com.intellij.openapi.actionSystem.IdeActions;
 import com.intellij.openapi.actionSystem.ex.ActionUtil;
 import com.intellij.openapi.command.WriteCommandAction;
@@ -10,6 +11,7 @@ import com.intellij.openapi.editor.event.DocumentEvent;
 import com.intellij.openapi.editor.event.DocumentListener;
 import com.intellij.openapi.editor.ex.DocumentEx;
 import com.intellij.openapi.editor.ex.EditorEx;
+import com.intellij.openapi.editor.impl.FoldingKeys;
 import com.intellij.openapi.editor.markup.EffectType;
 import com.intellij.openapi.editor.markup.GutterIconRenderer;
 import com.intellij.openapi.editor.markup.HighlighterLayer;
@@ -31,6 +33,7 @@ import java.awt.Graphics;
 import java.awt.Graphics2D;
 import java.awt.Rectangle;
 import java.awt.geom.Rectangle2D;
+import java.awt.image.BufferedImage;
 import java.util.Collections;
 
 @TestDataPath("$CONTENT_ROOT/testData/editor/painting")
@@ -106,6 +109,45 @@ public class EditorPaintingTest extends EditorPaintingTestCase {
     checkResult();
   }
 
+  public void testFoldedRegionCanHidePlaceholderBackground() throws Exception {
+    initText("abc\ndef\nghi");
+    getEditor().getColorsScheme().setAttributes(
+      HighlighterColors.TEXT,
+      new TextAttributes(Color.black, Color.white, null, null, Font.PLAIN)
+    );
+    getEditor().getColorsScheme().setAttributes(
+      EditorColors.FOLDED_TEXT_ATTRIBUTES,
+      new TextAttributes(null, Color.red, null, null, Font.PLAIN)
+    );
+    getEditor().getColorsScheme().setColor(EditorColors.CARET_ROW_COLOR, Color.green);
+    FoldRegion previousRegion = addCollapsedFoldRegion(0, 3, ".");
+    FoldRegion caretRegion = addCollapsedFoldRegion(4, 7, ".");
+    FoldRegion nextRegion = addCollapsedFoldRegion(8, 11, ".");
+    assertTrue(containsRed(paintEditor(false, null, null)));
+
+    previousRegion.putUserData(FoldingKeys.HIDE_PLACEHOLDER_BACKGROUND, true);
+    caretRegion.putUserData(FoldingKeys.HIDE_PLACEHOLDER_BACKGROUND, true);
+    nextRegion.putUserData(FoldingKeys.HIDE_PLACEHOLDER_BACKGROUND, true);
+    getEditor().getCaretModel().moveToOffset(7);
+
+    BufferedImage image = paintEditor(false, null, null);
+    assertFalse(containsRed(image));
+    assertFoldBackground(image, 0, Color.white);
+    assertFoldBackground(image, 4, Color.green);
+    assertFoldBackground(image, 8, Color.white);
+  }
+
+  public void testIndentGuideStartingAtInlineFold() throws Exception {
+    initText("  - parent\n    child\n    child\n  next");
+    getEditor().getColorsScheme().setColor(EditorColors.INDENT_GUIDE_COLOR, Color.red);
+    addCollapsedFoldRegion(2, 3, "•");
+    int guideEnd = getEditor().getDocument().getLineStartOffset(3);
+    RangeHighlighter guide = addRangeHighlighter(0, guideEnd, 0, null);
+    guide.setCustomRenderer(new IndentGuideRenderer());
+
+    assertTrue(containsRed(paintEditor(false, null, null)));
+  }
+
   public void testEraseMarker() throws Exception {
     initText("abc");
     setUniformEditorHighlighter(new TextAttributes(null, null, null, null, Font.BOLD));
@@ -116,6 +158,16 @@ public class EditorPaintingTest extends EditorPaintingTestCase {
   public void testInlayAtEmptyLine() throws Exception {
     initText("\n");
     getEditor().getInlayModel().addInlineElement(0, new MyInlayRenderer());
+    checkResult();
+  }
+
+  /** An inline inlay reads exactly where the hint does, so the line goes to the inlay and the hint is not painted at all. */
+  public void testInlineInlaySuppressesPlaceholder() throws Exception {
+    initText("");
+    EditorEx editor = (EditorEx)getEditor();
+    editor.setPlaceholder("placeholder");
+    editor.setShowPlaceholderWhenFocused(true);
+    editor.getInlayModel().addInlineElement(0, new MyInlayRenderer());
     checkResult();
   }
 
@@ -229,6 +281,22 @@ public class EditorPaintingTest extends EditorPaintingTestCase {
       for (int i = 0; i < 2; i++) {
         executeAction(IdeActions.ACTION_EDITOR_MOVE_CARET_RIGHT_WITH_SELECTION);
       }
+      checkResult();
+    } finally {
+      restoreSelectionState(state);
+    }
+  }
+
+  public void testNewSelectionStaysMergedAfterInlayShift() throws Exception {
+    var state = setNewSelectionEnabled(true);
+    try {
+      initText("aaaa\naaaa\naaaa\naaaa\naaaa\naaaa\naaaa\naaaa\naaaa\naaaa");
+      setNewSelectionEnabled(true);
+
+      executeAction(IdeActions.ACTION_SELECT_ALL);
+      paintEditor(false, null, null);
+
+      addBlockInlay(getEditor().getDocument().getLineStartOffset(4), true, 0, 5);
       checkResult();
     } finally {
       restoreSelectionState(state);
@@ -422,6 +490,21 @@ public class EditorPaintingTest extends EditorPaintingTestCase {
   private void addCustomLinesFolding(int startLine, int endLine) {
     FoldingModel foldingModel = getEditor().getFoldingModel();
     foldingModel.runBatchFoldingOperation(() -> foldingModel.addCustomLinesFolding(startLine, endLine, new OurCustomFoldRegionRenderer()));
+  }
+
+  private static boolean containsRed(BufferedImage image) {
+    int rgb = Color.red.getRGB();
+    for (int x = 0; x < image.getWidth(); x++) {
+      for (int y = 0; y < image.getHeight(); y++) {
+        if (image.getRGB(x, y) == rgb) return true;
+      }
+    }
+    return false;
+  }
+
+  private void assertFoldBackground(BufferedImage image, int offset, Color color) {
+    var foldStart = getEditor().offsetToXY(offset);
+    assertEquals(color.getRGB(), image.getRGB(foldStart.x + 1, foldStart.y + 1));
   }
 
   private void runIndentsPass() {

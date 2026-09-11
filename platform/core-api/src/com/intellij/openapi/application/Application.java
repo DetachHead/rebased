@@ -1,4 +1,4 @@
-// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.openapi.application;
 
 import com.intellij.openapi.Disposable;
@@ -16,7 +16,6 @@ import com.intellij.util.concurrency.annotations.RequiresReadLockAbsence;
 import com.intellij.util.concurrency.annotations.RequiresWriteLock;
 import com.intellij.util.messages.MessageBus;
 import kotlin.coroutines.CoroutineContext;
-import kotlin.jvm.functions.Function0;
 import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.Contract;
 import org.jetbrains.annotations.NonNls;
@@ -367,6 +366,11 @@ public interface Application extends ComponentManager {
 
   /**
    * Checks if the write access is currently allowed.
+   * <p>
+   * A nested read action (see {@link #runReadAction}) started from inside a write action does
+   * <b>not</b> revoke write access: this method keeps returning {@code true} for its duration, since the
+   * Write lock remains held by the current thread. This method reflects Write lock ownership, not whether
+   * the innermost requested action is a read action.
    *
    * @return {@code true} if the write access is currently allowed, {@code false} otherwise.
    * @see #assertWriteAccessAllowed()
@@ -386,9 +390,9 @@ public interface Application extends ComponentManager {
   boolean isReadAccessAllowed();
 
   /**
-   * Checks if the current thread is the event dispatch thread and has IW lock acquired.
+   * Checks if the current thread is the event dispatch thread.
    *
-   * @return {@code true} if the current thread is EDT with IW lock, {@code false} otherwise.
+   * @return {@code true} if the current thread is EDT, {@code false} otherwise.
    * @see #isWriteIntentLockAcquired()
    */
   @Contract(pure = true)
@@ -719,7 +723,5 @@ public interface Application extends ComponentManager {
   }
 
   @ApiStatus.Internal
-  default @Nullable ThreadingSupport getThreadingSupport() {
-    return null;
-  }
+  @NotNull ThreadingSupport getThreadingSupport();
 }

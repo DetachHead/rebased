@@ -1,4 +1,4 @@
-// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.psi;
 
 import com.intellij.codeInsight.multiverse.CodeInsightContext;
@@ -45,7 +45,7 @@ public abstract class PsiManager extends UserDataHolderBase {
    * @return the PSI file, or {@code null} if {@code file} is a directory, an invalid virtual file,
    * or the current project is a dummy or default project.
    */
-  @RequiresReadLock
+  @RequiresReadLock(generateAssertion = false)
   @RequiresBackgroundThread(generateAssertion = false)
   public abstract @Nullable PsiFile findFile(@NotNull VirtualFile file);
 
@@ -80,6 +80,7 @@ public abstract class PsiManager extends UserDataHolderBase {
    * @return the PSI directory, or {@code null} if there is no PSI for the specified directory in this project.
    */
   @RequiresBackgroundThread(generateAssertion = false)
+  @RequiresReadLock
   public abstract @Nullable PsiDirectory findDirectory(@NotNull VirtualFile file);
 
   /**

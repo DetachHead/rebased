@@ -1,65 +1,78 @@
 // Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.jetbrains.python.packaging.pipenv
 
+import com.intellij.openapi.diagnostic.thisLogger
 import com.intellij.openapi.module.Module
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.projectRoots.Sdk
 import com.jetbrains.python.errorProcessing.PyResult
+import com.jetbrains.python.orLogException
+import com.jetbrains.python.packaging.PyPackageName
 import com.jetbrains.python.packaging.common.PythonOutdatedPackage
 import com.jetbrains.python.packaging.common.PythonPackage
 import com.jetbrains.python.packaging.common.PythonRepositoryPackageSpecification
 import com.jetbrains.python.packaging.common.toPythonPackages
+import com.intellij.python.pyproject.PyDependencyGroup
 import com.jetbrains.python.packaging.management.PyWorkspaceMember
 import com.jetbrains.python.packaging.management.PythonPackageInstallRequest
 import com.jetbrains.python.packaging.management.PythonPackageManager
 import com.jetbrains.python.packaging.management.PythonRepositoryManager
+import com.jetbrains.python.packaging.packageRequirements.CachedDependencyTreeProvider
+import com.jetbrains.python.packaging.packageRequirements.DependencyTreeProvider
+import com.jetbrains.python.packaging.packageRequirements.PackageTreeNode
 import com.jetbrains.python.packaging.pip.PipRepositoryManager
-import com.jetbrains.python.sdk.associatedModulePath
-import com.jetbrains.python.sdk.pipenv.PIP_FILE_LOCK
-import com.jetbrains.python.sdk.pipenv.runPipEnv
-import org.jetbrains.annotations.ApiStatus
+import com.jetbrains.python.sdk.pipenv.PIP_FILE
+import com.jetbrains.python.sdk.pipenv.runPipEnvWithSdk
 import java.nio.file.Path
 import com.jetbrains.python.sdk.pipenv.PipEnvParser as SdkPipEnvParser
 
-@ApiStatus.Internal
 internal class PipEnvPackageManager(project: Project, sdk: Sdk) : PythonPackageManager(project, sdk) {
-  private val modulePath: Path?
-    get() = sdk.associatedModulePath?.let { Path.of(it) }
-
   override val repositoryManager: PythonRepositoryManager = PipRepositoryManager.getInstance(project)
 
+  override val treeProvider: DependencyTreeProvider = CachedDependencyTreeProvider(
+    fetchOutput = { runPipEnvWithSdk(sdk, "graph", "--json").orLogException(thisLogger()) },
+    parse = { json -> PipEnvParser.parsePipEnvGraph(json).map { it.toTreeNode() } },
+  )
+
   override suspend fun syncLockedCommand(): PyResult<Unit> {
-    return runPipEnv(modulePath, "install", "--dev").mapSuccess { }
+    return runPipEnvWithSdk(sdk, "install", "--dev").mapSuccess { }
   }
 
   suspend fun lock(): PyResult<Unit> {
-    return runPipEnv(modulePath, "lock").mapSuccess { }
+    return runPipEnvWithSdk(sdk, "lock").mapSuccess { }
   }
 
-  override suspend fun installPackageCommand(installRequest: PythonPackageInstallRequest, options: List<String>, module: Module?): PyResult<Unit> {
+  override suspend fun installPackageCommand(installRequest: PythonPackageInstallRequest, options: List<String>, module: Module?, dependencyGroup: PyDependencyGroup?): PyResult<Unit> {
     return when (installRequest) {
       is PythonPackageInstallRequest.ByLocation -> TODO("Not yet implemented")
       is PythonPackageInstallRequest.ByRepositoryPythonPackageSpecifications -> {
 
-        val args = listOf("install") + installRequest.specifications.map { it.nameWithVersionSpec } + options
-        runPipEnv(modulePath, *args.toTypedArray()).mapSuccess { }
+        val args = buildList {
+          addAll(listOf("install"))
+          installRequest.specifications.mapTo(this) { it.nameWithVersionSpecs }
+          addAll(options)
+        }
+        runPipEnvWithSdk(sdk, *args.toTypedArray()).mapSuccess { }
       }
     }
   }
 
   override suspend fun updatePackageCommand(vararg specifications: PythonRepositoryPackageSpecification): PyResult<Unit> {
-    val args = listOf("install") + specifications.map { it.nameWithVersionSpec }
-    return runPipEnv(modulePath, *args.toTypedArray()).mapSuccess { }
+    val args = buildList {
+      addAll(listOf("install"))
+      specifications.mapTo(this) { it.nameWithVersionSpecs }
+    }
+    return runPipEnvWithSdk(sdk, *args.toTypedArray()).mapSuccess { }
   }
 
-  override suspend fun uninstallPackageCommand(vararg pythonPackages: String, workspaceMember: PyWorkspaceMember?): PyResult<Unit> {
+  override suspend fun uninstallPackageCommand(vararg pythonPackages: String, workspaceMember: PyWorkspaceMember?, dependencyGroup: PyDependencyGroup?): PyResult<Unit> {
     val args = listOf("uninstall") + pythonPackages.toList()
-    return runPipEnv(modulePath, *args.toTypedArray()).mapSuccess { }
+    return runPipEnvWithSdk(sdk, *args.toTypedArray()).mapSuccess { }
 
   }
 
   override suspend fun loadPackagesCommand(): PyResult<List<PythonPackage>> {
-    val output = runPipEnv(modulePath, "graph", "--json")
+    val output = runPipEnvWithSdk(sdk, "graph", "--json")
     output.getOr {
       return it
     }
@@ -73,9 +86,10 @@ internal class PipEnvPackageManager(project: Project, sdk: Sdk) : PythonPackageM
   }
 
   override suspend fun loadOutdatedPackagesCommand(): PyResult<List<PythonOutdatedPackage>> {
-    //There is no normal way to get outdated packages
-    //https://github.com/pypa/pipenv/issues/1490
-    return PyResult.success(emptyList())
+    val output = runPipEnvWithSdk(sdk, "update", "--dry-run").getOr { return it }
+    val outdated = PipEnvParser.parseOutdatedPackagesOutput(output)
+
+    return PyResult.success(outdated)
   }
 
   override suspend fun listDeclaredPackages(): PyResult<List<PythonPackage>>? {
@@ -85,7 +99,13 @@ internal class PipEnvPackageManager(project: Project, sdk: Sdk) : PythonPackageM
   }
 
   override val dependenciesFilesRelativePaths: List<Path>
-    get() = listOf(
-      Path.of(PIP_FILE_LOCK),
-    )
+    get() =
+      listOf(Path.of(PIP_FILE))
 }
+
+private fun PipEnvParser.GraphEntry.toTreeNode(): PackageTreeNode =
+  PackageTreeNode(
+    PyPackageName.from(pkg.packageName),
+    dependencies.mapTo(mutableListOf()) { PackageTreeNode(PyPackageName.from(it.packageName), version = it.installedVersion) },
+    version = pkg.installedVersion,
+  )

@@ -291,6 +291,8 @@ public final class FindPopupPanel extends JBPanel<FindPopupPanel> implements Fin
   // Owns the search-results loading chain
   private FindPopupResultsAutoloadHandler myResultsAutoloadHandler;
 
+  private final FindAndReplaceExecutor myFindAndReplaceExecutor;
+
   FindPopupPanel(@NotNull FindUIHelper helper) {
     myHelper = helper;
     myProject = myHelper.getProject();
@@ -314,6 +316,8 @@ public final class FindPopupPanel extends JBPanel<FindPopupPanel> implements Fin
       if (mySearchRescheduleOnCancellationsAlarm != null) Disposer.dispose(mySearchRescheduleOnCancellationsAlarm);
       if (myUsagePreviewPanel != null) Disposer.dispose(myUsagePreviewPanel);
     });
+
+    myFindAndReplaceExecutor = FindAndReplaceService.getInstance(myProject).createExecutor(myDisposable, myScopeUI);
 
     initComponents();
     updatePreviewRunnable = this::updatePreview;
@@ -405,7 +409,8 @@ public final class FindPopupPanel extends JBPanel<FindPopupPanel> implements Fin
 
         @Override
         protected void dispose() {
-          FindAndReplaceExecutor.getInstance().cancelActivities();
+          myFindAndReplaceExecutor.cancelActivities();
+          myScopeUI.cancelActivities();
           saveSettings();
           super.dispose();
         }
@@ -427,7 +432,7 @@ public final class FindPopupPanel extends JBPanel<FindPopupPanel> implements Fin
       };
       myDialog.setUndecorated(true);
       if (WindowRoundedCornersManager.isAvailable()) {
-        WindowRoundedCornersManager.setRoundedCorners(myDialog.getWindow());
+        WindowRoundedCornersManager.configure(myDialog);
       }
       ApplicationManager.getApplication().getMessageBus().connect(myDialog.getDisposable()).subscribe(ProjectCloseListener.TOPIC, new ProjectCloseListener() {
         @Override
@@ -561,7 +566,9 @@ public final class FindPopupPanel extends JBPanel<FindPopupPanel> implements Fin
     DimensionService.getInstance().setSize(SERVICE_KEY, myDialog.getSize(), myHelper.getProject() );
     DimensionService.getInstance().setLocation(SERVICE_KEY, window.getLocationOnScreen(), myHelper.getProject() );
     FindSettings findSettings = FindSettings.getInstance();
-    myScopeUI.applyTo(findSettings, mySelectedScope);
+    if (!WelcomeScreenFindScope.isApplicable(myProject)) {
+      myScopeUI.applyTo(findSettings, mySelectedScope);
+    }
     myHelper.updateFindSettings();
     FindModel model = FindManager.getInstance(myProject).getFindInProjectModel();
     applyTo(model);
@@ -587,7 +594,7 @@ public final class FindPopupPanel extends JBPanel<FindPopupPanel> implements Fin
 
   private void initComponents() {
     AnAction myShowFilterPopupAction = new MyShowFilterPopupAction();
-    myResultsAutoloadHandler = new FindPopupResultsAutoloadHandler(new MySearchAutoloadHost());
+    myResultsAutoloadHandler = new FindPopupResultsAutoloadHandler(new MySearchAutoloadHost(), myFindAndReplaceExecutor);
     myFilterContextButton =
       new ActionButton(myShowFilterPopupAction, null, ActionPlaces.UNKNOWN,
                        ActionToolbar.DEFAULT_MINIMUM_BUTTON_SIZE) {
@@ -998,6 +1005,8 @@ public final class FindPopupPanel extends JBPanel<FindPopupPanel> implements Fin
 
     add(wrapTextAreaComponent(mySearchTextArea), "pushx, growx, wrap");
     add(wrapTextAreaComponent(myReplaceTextArea), "pushx, growx, wrap");
+    // The welcome screen has one fixed scope, so the row has nothing to offer. See WelcomeScreenFindScope.
+    scopesPanel.setVisible(!WelcomeScreenFindScope.isApplicable(myProject));
     add(scopesPanel, "pushx, growx, ax left, wrap");
     add(myPreviewSplitter, "pushx, growx, growy, pushy, wrap");
     add(bottomPanel, "pushx, growx, dock south");
@@ -1598,7 +1607,13 @@ public final class FindPopupPanel extends JBPanel<FindPopupPanel> implements Fin
     model.setCustomScope(null);
     model.setCustomScopeId(null);
     model.setCustomScope(false);
-    myScopeUI.applyTo(model, mySelectedScope);
+    if (WelcomeScreenFindScope.isApplicable(myProject)) {
+      // The scope row is hidden there, so it cannot say what the scope is.
+      WelcomeScreenFindScope.applyTo(myProject, model);
+    }
+    else {
+      myScopeUI.applyTo(model, mySelectedScope);
+    }
 
     model.setFindAll(false);
 
@@ -1814,7 +1829,7 @@ public final class FindPopupPanel extends JBPanel<FindPopupPanel> implements Fin
 
     @Override
     public void refreshTableRenderer() {
-      TableCellRenderer renderer = FindAndReplaceExecutor.getInstance().createTableCellRenderer();
+      TableCellRenderer renderer = myFindAndReplaceExecutor.createTableCellRenderer();
       if (renderer == null) renderer = new UsageTableCellRenderer();
       myResultsPreviewTable.getColumnModel().getColumn(0).setCellRenderer(renderer);
     }
@@ -1963,7 +1978,7 @@ public final class FindPopupPanel extends JBPanel<FindPopupPanel> implements Fin
         return getValidationInfo();
       }
       setNewModel(validatedModel);
-      FindAndReplaceExecutor.getInstance().validateModel(validatedModel, (isDirectoryExists) -> {
+      myFindAndReplaceExecutor.validateModel(validatedModel, (isDirectoryExists) -> {
         FindModel currentModel = myHelper.getModel();
         if (couldSkipValidation() || isNecessaryToRevalidate(validatedModel, currentModel)) return null;
         setDirectoryExists(isDirectoryExists);
@@ -2278,7 +2293,8 @@ public final class FindPopupPanel extends JBPanel<FindPopupPanel> implements Fin
       myFileAndLineNumber.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column);
       setBackground(getBackgroundColor(table, value));
       setSelectionColor(isSelected ? RenderingUtil.getBackground(table, true) : null);
-      getAccessibleContext().setAccessibleName(FindBundle.message("find.popup.found.element.accesible.name", myUsageRenderer.getAccessibleContext().getAccessibleName(), myFileAndLineNumber.getAccessibleContext().getAccessibleName()));
+      putClientProperty(AccessibleContext.ACCESSIBLE_NAME_PROPERTY,
+                        FindBundle.message("find.popup.found.element.accesible.name", myUsageRenderer.getAccessibleContext().getAccessibleName(), myFileAndLineNumber.getAccessibleContext().getAccessibleName()));
       return this;
     }
 

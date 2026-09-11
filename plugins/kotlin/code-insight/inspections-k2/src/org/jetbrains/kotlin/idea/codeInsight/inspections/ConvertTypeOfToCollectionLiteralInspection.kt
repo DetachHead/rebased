@@ -8,23 +8,26 @@ import com.intellij.modcommand.ModPsiUpdater
 import com.intellij.openapi.project.Project
 import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiFile
-import org.jetbrains.kotlin.analysis.api.KaExperimentalApi
 import org.jetbrains.kotlin.analysis.api.KaSession
+import org.jetbrains.kotlin.analysis.api.expressions.expressionType
+import org.jetbrains.kotlin.analysis.api.renderer.render
 import org.jetbrains.kotlin.analysis.api.renderer.types.impl.KaTypeRendererForSource
-import org.jetbrains.kotlin.analysis.api.resolution.successfulFunctionCallOrNull
+import org.jetbrains.kotlin.analysis.api.resolution.resolveSuccessfulCall
 import org.jetbrains.kotlin.analysis.api.resolution.symbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaNamedFunctionSymbol
 import org.jetbrains.kotlin.analysis.api.types.KaType
+import org.jetbrains.kotlin.analysis.api.types.semanticallyEquals
+import org.jetbrains.kotlin.analysis.api.types.type
 import org.jetbrains.kotlin.config.LanguageFeature
 import org.jetbrains.kotlin.idea.base.projectStructure.languageVersionSettings
 import org.jetbrains.kotlin.idea.base.resources.KotlinBundle
+import org.jetbrains.kotlin.idea.codeInsight.inspections.utils.isCollectionLiteralSafeAsArgument
+import org.jetbrains.kotlin.idea.codeInsight.inspections.utils.toCollectionLiteralString
 import org.jetbrains.kotlin.idea.codeinsight.api.applicable.inspections.KotlinApplicableInspectionBase
 import org.jetbrains.kotlin.idea.codeinsight.api.applicable.inspections.KotlinModCommandQuickFix
 import org.jetbrains.kotlin.idea.codeinsight.api.applicators.ApplicabilityRange
 import org.jetbrains.kotlin.idea.codeinsight.utils.getTopmostParenthesizedExpressionOrSelf
 import org.jetbrains.kotlin.idea.codeinsight.utils.setTypeReference
-import org.jetbrains.kotlin.idea.codeInsight.inspections.utils.isCollectionLiteralSafeAsArgument
-import org.jetbrains.kotlin.idea.codeInsight.inspections.utils.toCollectionLiteralString
 import org.jetbrains.kotlin.psi.KtCallExpression
 import org.jetbrains.kotlin.psi.KtCallableDeclaration
 import org.jetbrains.kotlin.psi.KtCollectionLiteralExpression
@@ -69,16 +72,15 @@ internal class ConvertTypeOfToCollectionLiteralInspection :
 
     override fun getApplicableRanges(element: KtDotQualifiedExpression) = ApplicabilityRange.self(element)
 
-    @OptIn(KaExperimentalApi::class)
-    override fun KaSession.prepareContext(element: KtDotQualifiedExpression): Context? {
+    context(session: KaSession)
+    override fun prepareContext(element: KtDotQualifiedExpression): Context? {
         val callExpr = element.selectorExpression as? KtCallExpression ?: return null
-        val call = callExpr.resolveToCall()?.successfulFunctionCallOrNull() ?: return null
-        val functionSymbol = call.symbol as? KaNamedFunctionSymbol ?: return null
+        val functionSymbol = callExpr.resolveSuccessfulCall()?.symbol as? KaNamedFunctionSymbol ?: return null
 
         if (functionSymbol.name.asString() != "of" || !functionSymbol.isOperator) return null
         val expressionType = element.expressionType ?: return null
         val parent = element.getTopmostParenthesizedExpressionOrSelf().parent
-        if (parent is KtValueArgument && !isCollectionLiteralSafeAsArgument(callExpr, expressionType)) return null
+        if (parent is KtValueArgument && !isCollectionLiteralSafeAsArgument(element, expressionType)) return null
         if (isTypeChanged(parent, expressionType)) return null
         val typeText = expressionType.render(KaTypeRendererForSource.WITH_SHORT_NAMES, Variance.OUT_VARIANCE)
 
@@ -108,7 +110,8 @@ internal class ConvertTypeOfToCollectionLiteralInspection :
         }
     }
 
-    private fun KaSession.isTypeChanged(element: PsiElement, expressionType: KaType): Boolean =
+    context(session: KaSession)
+    private fun isTypeChanged(element: PsiElement, expressionType: KaType): Boolean =
         (element as? KtCallableDeclaration)
             ?.typeReference
             ?.type

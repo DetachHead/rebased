@@ -1,11 +1,29 @@
 load("@bazel_skylib//rules:native_binary.bzl", "native_binary")
+load("@protobuf//bazel/toolchains:proto_lang_toolchain.bzl", "proto_lang_toolchain")
 load("@rules_java//java:defs.bzl", "java_binary", "java_import", "java_test")
 load("@rules_java//toolchains:default_java_toolchain.bzl", "default_java_toolchain")
-load("@rules_kotlin//kotlin:core.bzl", "kt_compiler_plugin")
+load("@rules_kotlin//kotlin:core.bzl", "kt_compiler_plugin", "kt_kotlinc_options")
 load("@rules_kotlin//kotlin:jvm.bzl", "kt_jvm_library")
 
 exports_files(
     ["intellij.platform.buildScripts.bazel.iml"],
+    visibility = ["//visibility:public"],
+)
+
+java_import(
+    name = "protobuf_java",
+    jars = ["@protobuf-java_http//file"],
+)
+
+# Java toolchain for `java_proto_library` with the prebuilt runtime jar above.
+# Without it, resolution falls back to `@protobuf//java/core:toolchain`, which
+# compiles the runtime from source. Registered in MODULE.bazel.
+proto_lang_toolchain(
+    name = "protoc_java_toolchain",
+    command_line = "--java_out=%s",
+    progress_message = "Generating Java proto_library %{label}",
+    runtime = ":protobuf_java",
+    toolchain_type = "@protobuf//bazel/private:java_toolchain_type",
     visibility = ["//visibility:public"],
 )
 
@@ -44,12 +62,19 @@ kt_jvm_library(
     ],
 )
 
+kt_kotlinc_options(
+    name = "jps_to_bazel_kotlinc_options",
+    jvm_target = "17",
+)
+
 kt_jvm_library(
     name = "jps_to_bazel-lib",
     srcs = glob(["src/**/*.kt"]),
+    kotlinc_opts = ":jps_to_bazel_kotlinc_options",
     runtime_deps = [],
     deps = [
         ":kotlin_serialization",
+        "@j2b_maven//:com_charleskorn_kaml_kaml_jvm",
         "@j2b_maven//:com_intellij_platform_kotlinx_coroutines_core_jvm",
         "@j2b_maven//:com_jetbrains_intellij_platform_build_scripts_downloader",
         "@j2b_maven//:com_jetbrains_intellij_platform_jps_model",
@@ -70,7 +95,12 @@ kt_jvm_library(
     name = "bazel-generator-integration-tests-lib",
     srcs = glob(["test/**/*.kt"]),
     associates = [":jps_to_bazel-lib"],
+    kotlinc_opts = ":jps_to_bazel_kotlinc_options",
     deps = [
+        # A report fixture is serialized through `recipeYaml` rather than hand-written, so a test cannot drift from the
+        # reader's own schema. That needs the same two libraries the reader uses.
+        ":kotlin_serialization",
+        "@j2b_maven//:com_charleskorn_kaml_kaml_jvm",
         "@j2b_maven//:junit_junit",
         "@j2b_maven//:net_bytebuddy_byte_buddy",
         "@j2b_maven//:org_assertj_assertj_core",
@@ -108,6 +138,69 @@ java_test(
         "BAZEL_GENERATOR_KOTLINC_DEFAULTS_TEST_DATA_MARKER": "$(rlocationpath testData/kotlinc-defaults/marker.txt)",
     },
     test_class = "org.jetbrains.intellij.build.bazel.KotlincProjectDefaultsTest",
+    runtime_deps = [":bazel-generator-integration-tests-lib"],
+)
+
+java_test(
+    name = "plugin-content-module-jar-tests",
+    size = "small",
+    test_class = "org.jetbrains.intellij.build.bazel.PluginContentModuleJarTest",
+    runtime_deps = [":bazel-generator-integration-tests-lib"],
+)
+
+java_test(
+    name = "plugin-descriptor-load-path-tests",
+    size = "small",
+    test_class = "org.jetbrains.intellij.build.bazel.PluginDescriptorLoadPathTest",
+    runtime_deps = [":bazel-generator-integration-tests-lib"],
+)
+
+java_test(
+    name = "plugin-content-report-zip-tests",
+    size = "small",
+    test_class = "org.jetbrains.intellij.build.bazel.PluginContentReportZipTest",
+    runtime_deps = [":bazel-generator-integration-tests-lib"],
+)
+
+java_test(
+    name = "bazel-file-updater-load-symbols-tests",
+    size = "small",
+    test_class = "org.jetbrains.intellij.build.bazel.BazelFileUpdaterLoadSymbolsTest",
+    runtime_deps = [":bazel-generator-integration-tests-lib"],
+)
+
+java_test(
+    name = "bazel-load-statement-manager-tests",
+    size = "small",
+    test_class = "org.jetbrains.intellij.build.bazel.BazelLoadStatementManagerTest",
+    runtime_deps = [":bazel-generator-integration-tests-lib"],
+)
+
+java_test(
+    name = "dev-dist-plugin-model-tables-tests",
+    size = "small",
+    test_class = "org.jetbrains.intellij.build.bazel.DevDistPluginModelTablesTest",
+    runtime_deps = [":bazel-generator-integration-tests-lib"],
+)
+
+java_test(
+    name = "dev-dist-plugin-jar-plan-tests",
+    size = "small",
+    test_class = "org.jetbrains.intellij.build.bazel.DevDistPluginJarPlanTest",
+    runtime_deps = [":bazel-generator-integration-tests-lib"],
+)
+
+java_test(
+    name = "dev-dist-residue-direction-tests",
+    size = "small",
+    test_class = "org.jetbrains.intellij.build.bazel.DevDistResidueDirectionTest",
+    runtime_deps = [":bazel-generator-integration-tests-lib"],
+)
+
+java_test(
+    name = "dev-dist-content-residue-fold-tests",
+    size = "small",
+    test_class = "org.jetbrains.intellij.build.bazel.DevDistContentResidueFoldTest",
     runtime_deps = [":bazel-generator-integration-tests-lib"],
 )
 

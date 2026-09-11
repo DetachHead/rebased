@@ -24,12 +24,17 @@
 
   <dependencies>
     <module name="intellij.java.backend"/>
+    <!-- region Generated dependencies - run `Generate Product Layouts` to regenerate -->
+    <module name="intellij.platform.ide.impl"/>
+    <!-- endregion -->
   </dependencies>
 
   <content namespace="jetbrains">
     <module name="intellij.devkit.core"/>
     <module name="intellij.devkit.compose"/>
+    <module name="intellij.devkit.experiments"/>
     <module name="intellij.devkit.gradle"/>
+    <module name="intellij.devkit.gradle.tooling"/>
     <module name="intellij.devkit.i18n"/>
     <module name="intellij.devkit.intelliLang"/>
     <module name="intellij.devkit.themes"/>
@@ -46,11 +51,19 @@
     <module name="intellij.devkit.scaffolding"/>
     <module name="intellij.devkit.modules"/>
     <module name="intellij.devkit.mcp"/>
+    <module name="intellij.devkit.mcp.inspections"/>
     <module name="intellij.devkit.qodana"/>
     <module name="intellij.devkit.threading"/>
     <module name="intellij.devkit.smartupdate"/>
 
     <module name="intellij.platform.jewel.samples.showcase"/>
+  </content>
+
+  <!-- Not embedded: intellij.devkit.workspaceModel is a regular content module, and CodegenJarLoader gives the
+       downloaded codegen-impl jar that module's own classloader as a parent, which has the wrapper as a parent.
+       No 'namespace' attribute, so this is a private copy for this plugin only. -->
+  <content>
+    <module name="intellij.libraries.workspace.model.codegen"/>
   </content>
 
   <extensions defaultExtensionNs="com.intellij">

@@ -13,18 +13,19 @@ import com.intellij.openapi.util.TextRange
 import com.intellij.psi.SmartPsiElementPointer
 import com.intellij.psi.createSmartPointer
 import com.intellij.psi.search.searches.ReferencesSearch
-import org.jetbrains.kotlin.analysis.api.KaExperimentalApi
 import org.jetbrains.kotlin.analysis.api.KaSession
-import org.jetbrains.kotlin.analysis.api.resolution.singleFunctionCallOrNull
-import org.jetbrains.kotlin.analysis.api.resolution.symbol
-import org.jetbrains.kotlin.analysis.api.resolution.successfulVariableAccessCall
+import org.jetbrains.kotlin.analysis.api.resolution.variable
+import org.jetbrains.kotlin.analysis.api.scopes.declarationScope
+import org.jetbrains.kotlin.analysis.api.scopes.scope
+import org.jetbrains.kotlin.analysis.api.symbols.KaCallableSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaVariableSymbol
 import org.jetbrains.kotlin.analysis.api.types.KaType
+import org.jetbrains.kotlin.analysis.api.types.isArrayOrPrimitiveArray
+import org.jetbrains.kotlin.analysis.api.types.isSubtypeOf
 import org.jetbrains.kotlin.idea.base.codeInsight.KotlinDeclarationNameValidator
 import org.jetbrains.kotlin.idea.base.codeInsight.KotlinNameSuggester
 import org.jetbrains.kotlin.idea.base.codeInsight.KotlinNameSuggestionProvider
 import org.jetbrains.kotlin.idea.base.psi.isAssignmentLHS
-import org.jetbrains.kotlin.idea.references.mainReference
 import org.jetbrains.kotlin.idea.base.psi.replaced
 import org.jetbrains.kotlin.idea.base.psi.safeDeparenthesize
 import org.jetbrains.kotlin.idea.base.resources.KotlinBundle
@@ -35,7 +36,6 @@ import org.jetbrains.kotlin.idea.codeinsight.api.applicable.inspections.KotlinAp
 import org.jetbrains.kotlin.idea.codeinsight.api.applicable.inspections.KotlinModCommandQuickFix
 import org.jetbrains.kotlin.idea.codeinsight.utils.ImplicitReceiverInfo
 import org.jetbrains.kotlin.idea.codeinsight.utils.LoopToCollectionTransformUtils.findGetCallAccess
-import org.jetbrains.kotlin.idea.codeinsight.utils.getImplicitReceiverInfo
 import org.jetbrains.kotlin.idea.codeinsight.utils.LoopToCollectionTransformUtils.transformLoop
 import org.jetbrains.kotlin.idea.codeinsight.utils.LoopToCollectionTransformUtils.transformLoopWithIndex
 import org.jetbrains.kotlin.idea.codeinsight.utils.RangeKtExpressionType
@@ -43,11 +43,16 @@ import org.jetbrains.kotlin.idea.codeinsight.utils.RangeKtExpressionType.DOWN_TO
 import org.jetbrains.kotlin.idea.codeinsight.utils.RangeKtExpressionType.RANGE_TO
 import org.jetbrains.kotlin.idea.codeinsight.utils.RangeKtExpressionType.RANGE_UNTIL
 import org.jetbrains.kotlin.idea.codeinsight.utils.RangeKtExpressionType.UNTIL
+import org.jetbrains.kotlin.idea.codeinsight.utils.getImplicitReceiverInfo
+import org.jetbrains.kotlin.idea.references.mainReference
+import org.jetbrains.kotlin.idea.util.resolveSuccessfulExpressionCall
+import org.jetbrains.kotlin.idea.util.resolveSuccessfulExpressionSymbol
 import org.jetbrains.kotlin.lexer.KtTokens
 import org.jetbrains.kotlin.name.CallableId
 import org.jetbrains.kotlin.name.ClassId
 import org.jetbrains.kotlin.name.Name
 import org.jetbrains.kotlin.name.StandardClassIds
+import org.jetbrains.kotlin.name.render
 import org.jetbrains.kotlin.psi.KtArrayAccessExpression
 import org.jetbrains.kotlin.psi.KtBinaryExpression
 import org.jetbrains.kotlin.psi.KtConstantExpression
@@ -66,7 +71,6 @@ import org.jetbrains.kotlin.psi.KtVisitorVoid
 import org.jetbrains.kotlin.psi.createExpressionByPattern
 import org.jetbrains.kotlin.psi.psiUtil.getStrictParentOfType
 import org.jetbrains.kotlin.psi.psiUtil.parents
-import org.jetbrains.kotlin.renderer.render
 import org.jetbrains.kotlin.util.match
 
 /**
@@ -134,7 +138,8 @@ class ReplaceManualRangeWithIndicesCallsInspection : KotlinApplicableInspectionB
         return extractTargetExpression(range.type, right) != null
     }
 
-    override fun KaSession.prepareContext(element: KtExpression): Context? {
+    context(session: KaSession)
+    override fun prepareContext(element: KtExpression): Context? {
         val range = rangeExpressionByAnalyze(element) ?: return null
         return prepareContextForRange(range)
     }
@@ -143,9 +148,10 @@ class ReplaceManualRangeWithIndicesCallsInspection : KotlinApplicableInspectionB
      * Returns a [RangeExpression] only if it resolves to a Kotlin stdlib range function.
      * This prevents false positives when custom `until`/`rangeTo` functions are defined.
      */
-    private fun KaSession.rangeExpressionByAnalyze(expression: KtExpression): RangeExpression? =
+    context(session: KaSession)
+    private fun rangeExpressionByAnalyze(expression: KtExpression): RangeExpression? =
         rangeExpressionByPsi(expression)?.takeIf {
-            val callableId = expression.resolveToCall()?.singleFunctionCallOrNull()?.symbol?.callableId
+            val callableId = (expression.resolveSuccessfulExpressionSymbol() as? KaCallableSymbol)?.callableId
             callableId != null && isStdlibRangeFunction(callableId)
         }
 
@@ -162,7 +168,8 @@ class ReplaceManualRangeWithIndicesCallsInspection : KotlinApplicableInspectionB
         return false
     }
 
-    private fun KaSession.prepareContextForRange(range: RangeExpression): Context? {
+    context(session: KaSession)
+    private fun prepareContextForRange(range: RangeExpression): Context? {
         val (_, right) = range.arguments
 
         val sizeCall = right?.let { rightBound(range.type, it) } ?: return null
@@ -189,7 +196,8 @@ class ReplaceManualRangeWithIndicesCallsInspection : KotlinApplicableInspectionB
         )
     }
 
-    private fun KaSession.rightBound(type: RangeKtExpressionType, expression: KtExpression): KtExpression? {
+    context(session: KaSession)
+    private fun rightBound(type: RangeKtExpressionType, expression: KtExpression): KtExpression? {
         val target = extractTargetExpression(type, expression) ?: return null
         val selector = (target as? KtDotQualifiedExpression)?.selectorExpression ?: target
         val receiverType = resolveReceiverType(target) ?: return null
@@ -234,32 +242,37 @@ class ReplaceManualRangeWithIndicesCallsInspection : KotlinApplicableInspectionB
         return (this as? KtConstantExpression)?.text?.toIntOrNull() == value
     }
 
-    private fun KaSession.resolveReceiverType(expression: KtExpression): KaType? {
-        val variableCall = expression.resolveToCall()?.successfulVariableAccessCall() ?: return null
+    context(session: KaSession)
+    private fun resolveReceiverType(expression: KtExpression): KaType? {
+        val variableCall = expression.resolveSuccessfulExpressionCall()?.variable ?: return null
 
         // For member properties, use dispatchReceiver
         // For extension properties (like lastIndex), use extensionReceiver
         return variableCall.dispatchReceiver?.type ?: variableCall.extensionReceiver?.type
     }
 
-    @OptIn(KaExperimentalApi::class)
-    private fun KaSession.hasPropertyOfType(type: KaType, propertyName: String, expectedReturnType: ClassId): Boolean {
+    context(session: KaSession)
+    private fun hasPropertyOfType(type: KaType, propertyName: String, expectedReturnType: ClassId): Boolean {
         val typeScope = type.scope?.declarationScope ?: return false
         return typeScope.callables(Name.identifier(propertyName)).any { callable ->
             callable is KaVariableSymbol && callable.returnType.isSubtypeOf(expectedReturnType)
         }
     }
 
-    private fun KaSession.isArrayOrCollection(type: KaType): Boolean =
+    context(session: KaSession)
+    private fun isArrayOrCollection(type: KaType): Boolean =
         type.isArrayOrPrimitiveArray || type.isSubtypeOf(StandardClassIds.Collection)
 
-    private fun KaSession.hasSizeProperty(type: KaType): Boolean =
+    context(session: KaSession)
+    private fun hasSizeProperty(type: KaType): Boolean =
         isArrayOrCollection(type) || hasPropertyOfType(type, "size", StandardClassIds.Int)
 
-    private fun KaSession.hasLastIndexProperty(type: KaType): Boolean =
+    context(session: KaSession)
+    private fun hasLastIndexProperty(type: KaType): Boolean =
         isArrayOrCollection(type) || type.isSubtypeOf(StandardClassIds.CharSequence) || hasPropertyOfType(type, "lastIndex", StandardClassIds.Int)
 
-    private fun KaSession.hasIndicesProperty(type: KaType): Boolean =
+    context(session: KaSession)
+    private fun hasIndicesProperty(type: KaType): Boolean =
         isArrayOrCollection(type) || type.isSubtypeOf(StandardClassIds.CharSequence) || hasPropertyOfType(type, "indices", StandardClassIds.IntRange)
 
     /**

@@ -7,22 +7,25 @@ import com.intellij.modcommand.ModPsiUpdater
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.TextRange
 import com.intellij.psi.PsiFile
-import org.jetbrains.kotlin.analysis.api.KaExperimentalApi
 import org.jetbrains.kotlin.analysis.api.KaSession
-import org.jetbrains.kotlin.analysis.api.resolution.successfulFunctionCallOrNull
+import org.jetbrains.kotlin.analysis.api.expressions.expectedType
+import org.jetbrains.kotlin.analysis.api.expressions.expressionType
+import org.jetbrains.kotlin.analysis.api.renderer.render
+import org.jetbrains.kotlin.analysis.api.resolution.resolveSuccessfulCall
 import org.jetbrains.kotlin.analysis.api.resolution.symbol
 import org.jetbrains.kotlin.analysis.api.types.KaClassType
+import org.jetbrains.kotlin.analysis.api.types.semanticallyEquals
 import org.jetbrains.kotlin.config.LanguageFeature
 import org.jetbrains.kotlin.idea.base.projectStructure.languageVersionSettings
 import org.jetbrains.kotlin.idea.base.resources.KotlinBundle
+import org.jetbrains.kotlin.idea.codeInsight.inspections.utils.TARGET_FUNCTION_FQ_NAMES
+import org.jetbrains.kotlin.idea.codeInsight.inspections.utils.isCollectionLiteralSafeAsArgument
+import org.jetbrains.kotlin.idea.codeInsight.inspections.utils.toCollectionLiteralString
 import org.jetbrains.kotlin.idea.codeinsight.api.applicable.inspections.KotlinApplicableInspectionBase
 import org.jetbrains.kotlin.idea.codeinsight.api.applicable.inspections.KotlinModCommandQuickFix
 import org.jetbrains.kotlin.idea.codeinsight.api.applicators.ApplicabilityRange
 import org.jetbrains.kotlin.idea.codeinsight.utils.getTopmostParenthesizedExpressionOrSelf
 import org.jetbrains.kotlin.idea.codeinsight.utils.setTypeReference
-import org.jetbrains.kotlin.idea.codeInsight.inspections.utils.TARGET_FUNCTION_FQ_NAMES
-import org.jetbrains.kotlin.idea.codeInsight.inspections.utils.isCollectionLiteralSafeAsArgument
-import org.jetbrains.kotlin.idea.codeInsight.inspections.utils.toCollectionLiteralString
 import org.jetbrains.kotlin.name.FqName
 import org.jetbrains.kotlin.name.Name
 import org.jetbrains.kotlin.psi.KtBinaryExpression
@@ -70,9 +73,9 @@ internal class ConvertToCollectionLiteralsInspection :
         return true
     }
 
-    override fun KaSession.prepareContext(element: KtCallExpression): Context? {
-        val callSymbol = element.resolveToCall()?.successfulFunctionCallOrNull() ?: return null
-        val fqName = callSymbol.symbol.callableId?.asSingleFqName() ?: return null
+    context(session: KaSession)
+    override fun prepareContext(element: KtCallExpression): Context? {
+        val fqName = element.resolveSuccessfulCall()?.symbol?.callableId?.asSingleFqName() ?: return null
         if (fqName !in TARGET_FUNCTION_FQ_NAMES) return null
 
         val expressionType = element.expressionType ?: return null
@@ -116,8 +119,8 @@ internal class ConvertToCollectionLiteralsInspection :
         return Context(renderedType)
     }
 
-    @OptIn(KaExperimentalApi::class)
-    private fun KaSession.renderExplicitTypeIfNeeded(element: KtCallExpression, fqName: FqName): String? {
+    context(session: KaSession)
+    private fun renderExplicitTypeIfNeeded(element: KtCallExpression, fqName: FqName): String? {
         if (fqName != LIST_LITERAL || element.typeArguments.isNotEmpty()) {
             return element.expressionType!!.render(position = Variance.OUT_VARIANCE)
         }

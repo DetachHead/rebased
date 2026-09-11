@@ -1,8 +1,23 @@
+load("@community//build:bazel_targets_json.bzl", "current_bazel_targets_json")
 load("@community//build:tests-options.bzl", "jps_test")
 load("@rules_jvm//:jvm.bzl", "jvm_library")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
+
+BAZEL_TARGETS_JSON = current_bazel_targets_json()
+
+jps_test(
+    name = "vcs-gitlab-yaml-tests_test",
+    timeout = "moderate",
+    data = [BAZEL_TARGETS_JSON],
+    jvm_flags = [
+        "-Dintellij.build.bazel.targets.json.file=$(rlocationpath %s)" % BAZEL_TARGETS_JSON,
+    ],
+    tags = ["community-aggregator"],
+    runtime_deps = [":vcs-gitlab-yaml-tests_test_lib"],
+)
+### skip generation section `test intellij.vcs.gitlab.yaml.tests`
 
 ### auto-generated section `build intellij.vcs.gitlab.yaml` start
-
 jvm_library(
     name = "vcs-gitlab-yaml",
     srcs = glob(
@@ -21,7 +36,7 @@ jvm_library(
     visibility = ["//visibility:public"],
     deps = [
         # do not sort,
-        "//plugins/gitlab/gitlab-core:vcs-gitlab",
+        "//plugins/gitlab/shared",
         "//plugins/yaml/backend",
         "@lib//:kotlin-stdlib",
         "//platform/util",
@@ -35,6 +50,8 @@ jvm_library(
     ],
 )
 
+content_module_jar(module = ":vcs-gitlab-yaml")
+
 jvm_library(
     name = "vcs-gitlab-yaml_test_lib",
     testonly = True,
@@ -47,7 +64,7 @@ jvm_library(
     runtime_deps = [
         # do not sort,
         ":vcs-gitlab-yaml",
-        "//plugins/gitlab/gitlab-core:vcs-gitlab_test_lib",
+        "//plugins/gitlab/shared:shared_test_lib",
         "//plugins/yaml/backend:backend_test_lib",
         "//platform/util:util_test_lib",
         "//platform/util/base:base_test_lib",
@@ -65,13 +82,13 @@ jvm_library(
 exports_files(
     [
         "intellij.vcs.gitlab.yaml.iml",
+        "resources/intellij.vcs.gitlab.yaml.xml",
     ],
     visibility = ["//visibility:public"],
 )
 ### auto-generated section `iml intellij.vcs.gitlab.yaml` end
 
 ### auto-generated section `build intellij.vcs.gitlab.yaml.tests` start
-
 jvm_library(
     name = "vcs-gitlab-yaml-tests",
     srcs = glob(
@@ -80,6 +97,7 @@ jvm_library(
     ),
     module_name = "intellij.vcs.gitlab.yaml.tests",
     visibility = ["//visibility:public"],
+    runtime_deps = ["//libraries/lucene.common"],
 )
 
 jvm_library(
@@ -98,15 +116,19 @@ jvm_library(
         "//plugins/gitlab/gitlab-yaml:vcs-gitlab-yaml_test_lib",
     ],
     visibility = ["//visibility:public"],
-    runtime_deps = [":vcs-gitlab-yaml-tests"],
+    runtime_deps = [
+        # do not sort,
+        ":vcs-gitlab-yaml-tests",
+        "//libraries/lucene.common:lucene.common_test_lib",
+    ],
     deps = [
         # do not sort,
         "//platform/analysis-api:analysis",
         "//platform/analysis-api:analysis_test_lib",
         "//platform/core-api:core",
         "//platform/core-api:core_test_lib",
-        "//plugins/gitlab/gitlab-core:vcs-gitlab",
-        "//plugins/gitlab/gitlab-core:vcs-gitlab_test_lib",
+        "//plugins/gitlab",
+        "//plugins/gitlab:gitlab_test_lib",
         "//plugins/yaml/backend",
         "//plugins/yaml/backend:backend_test_lib",
         "@lib//:kotlin-stdlib",
@@ -124,6 +146,32 @@ jvm_library(
         "//platform/testFramework/junit5:junit5_test_lib",
         "//platform/statistics",
         "//platform/statistics:statistics_test_lib",
+        "//libraries/junit4",
+        "//libraries/junit4:junit4_test_lib",
+        "//libraries/junit5",
+        "//libraries/junit5:junit5_test_lib",
+        "//platform/structure-view-impl:structureView",
+        "//platform/structure-view-impl:structureView_test_lib",
+        "//platform/structure-view-impl/plugin",
+        "//platform/structure-view-impl/plugin:plugin_test_lib",
+        "//platform/searchEverywhere/shared:searchEverywhere",
+        "//platform/searchEverywhere/shared:searchEverywhere_test_lib",
+        "//platform/searchEverywhere/backend",
+        "//platform/searchEverywhere/backend:backend_test_lib",
+        "//json",
+        "//json:json_test_lib",
+        "//json/backend",
+        "//json/backend:backend_test_lib",
+        "//json/networknt.wrapper",
+        "//json/networknt.wrapper:networknt.wrapper_test_lib",
+        "//spellchecker",
+        "//spellchecker:spellchecker_test_lib",
+        "//libraries/misc/plugin",
+        "//libraries/misc/plugin:plugin_test_lib",
+        "//platform/vcs/plugin",
+        "//platform/vcs/plugin:plugin_test_lib",
+        "//plugins/git4idea:vcs-git",
+        "//plugins/git4idea:vcs-git_test_lib",
     ],
 )
 ### auto-generated section `build intellij.vcs.gitlab.yaml.tests` end
@@ -136,11 +184,3 @@ exports_files(
     visibility = ["//visibility:public"],
 )
 ### auto-generated section `iml intellij.vcs.gitlab.yaml.tests` end
-
-### auto-generated section `test intellij.vcs.gitlab.yaml.tests` start
-
-jps_test(
-    name = "vcs-gitlab-yaml-tests_test",
-    runtime_deps = [":vcs-gitlab-yaml-tests_test_lib"],
-)
-### auto-generated section `test intellij.vcs.gitlab.yaml.tests` end

@@ -5,11 +5,13 @@ import com.intellij.codeWithMe.ClientId
 import com.intellij.diff.chains.DiffRequestProducer
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.ListSelection
+import com.intellij.openapi.application.runInEdt
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.vcs.FilePath
 import com.intellij.openapi.vcs.changes.Change
+import com.intellij.openapi.vcs.changes.ChangeListAdapter
+import com.intellij.openapi.vcs.changes.ChangeListListener
 import com.intellij.openapi.vcs.changes.ChangeViewDiffRequestProcessor
-import com.intellij.openapi.vcs.changes.ChangesViewDiffAction
 import com.intellij.openapi.vcs.changes.ChangesViewSplitComponentBinding
 import com.intellij.openapi.vcs.changes.CommitChangesViewWithToolbarPanel
 import com.intellij.openapi.vcs.changes.InclusionModel
@@ -34,7 +36,7 @@ import javax.swing.JComponent
 abstract class ChangesViewProxy(val project: Project, val scope: CoroutineScope) : Disposable {
   abstract val inclusionChanged: SharedFlow<Unit>
 
-  abstract val diffRequests: SharedFlow<Pair<ChangesViewDiffAction, ClientId>>
+  abstract val diffRequests: SharedFlow<ClientId>
 
   /**
    * [initPanel] should be called before [panel] is accessed
@@ -85,6 +87,38 @@ abstract class ChangesViewProxy(val project: Project, val scope: CoroutineScope)
       val model =
         if (RdLocalChanges.isEnabled()) RpcChangesViewProxy(project, scope)
         else LocalChangesViewProxy(BackendCommitChangesViewWithToolbarPanel(LocalChangesListView(project), scope), scope)
+
+      project.messageBus.connect(scope).subscribe(ChangeListListener.TOPIC, object : ChangeListAdapter() {
+        override fun changeListsChanged() {
+          model.scheduleDelayedRefresh()
+        }
+
+        override fun changedFileStatusChanged() {
+          model.scheduleDelayedRefresh()
+        }
+
+        override fun unchangedFileStatusChanged() {
+          model.scheduleDelayedRefresh()
+        }
+
+        override fun changeListUpdateRunning() {
+          model.scheduleDelayedRefresh()
+        }
+
+        override fun changeListUpdateDone() {
+          model.scheduleDelayedRefresh()
+        }
+
+        override fun changeListAvailabilityChanged() {
+          model.scheduleDelayedRefresh()
+        }
+
+        override fun changeListsInvalidated() {
+          runInEdt {
+            model.resetViewImmediatelyAndRefreshLater()
+          }
+        }
+      })
 
       return model
     }

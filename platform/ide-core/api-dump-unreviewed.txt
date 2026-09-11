@@ -692,11 +692,10 @@ a:com.intellij.openapi.fileTypes.FileTypeManager
 - a:getKnownFileTypeOrAssociate(com.intellij.openapi.vfs.VirtualFile,com.intellij.openapi.project.Project):com.intellij.openapi.fileTypes.FileType
 - f:removeAssociatedExtension(com.intellij.openapi.fileTypes.FileType,java.lang.String):V
 - a:removeAssociation(com.intellij.openapi.fileTypes.FileType,com.intellij.openapi.fileTypes.FileNameMatcher):V
-c:com.intellij.openapi.fileTypes.FileTypes
+Fc:com.intellij.openapi.fileTypes.FileTypes
 - sf:ARCHIVE:com.intellij.openapi.fileTypes.FileType
 - sf:PLAIN_TEXT:com.intellij.openapi.fileTypes.LanguageFileType
 - sf:UNKNOWN:com.intellij.openapi.fileTypes.FileType
-- p:<init>():V
 f:com.intellij.openapi.fileTypes.MockLanguageFileType
 - com.intellij.openapi.fileTypes.LanguageFileType
 - sf:INSTANCE:com.intellij.openapi.fileTypes.LanguageFileType
@@ -812,11 +811,6 @@ c:com.intellij.openapi.options.ExtendableSettingsEditor
 - p:createEditor():javax.swing.JComponent
 - p:resetEditorFrom(java.lang.Object):V
 com.intellij.openapi.options.ExtensionSettingsEditor
-f:com.intellij.openapi.options.OptionsBundle
-- sf:BUNDLE:java.lang.String
-- sf:INSTANCE:com.intellij.openapi.options.OptionsBundle
-- s:message(java.lang.String,java.lang.Object[]):java.lang.String
-- s:messagePointer(java.lang.String,java.lang.Object[]):java.util.function.Supplier
 c:com.intellij.openapi.options.SearchableConfigurable$Delegate
 - apply():V
 - createComponent():javax.swing.JComponent
@@ -1039,7 +1033,6 @@ c:com.intellij.openapi.vcs.UrlFilePath
 - <init>(java.lang.String,Z):V
 - p:findFile(java.lang.String):com.intellij.openapi.vfs.VirtualFile
 - p:getPath(com.intellij.openapi.vfs.VirtualFile):java.lang.String
-f:com.intellij.openapi.vfs.FilePermissionsKt
 a:com.intellij.openapi.vfs.JarFileSystem
 - sf:JAR_SEPARATOR:java.lang.String
 - sf:PROTOCOL:java.lang.String
@@ -1176,7 +1169,6 @@ a:com.intellij.openapi.wm.WindowManager
 - a:requestUserAttention(com.intellij.openapi.wm.IdeFrame,Z):V
 - a:setAlphaModeEnabled(java.awt.Window,Z):V
 - a:setAlphaModeRatio(java.awt.Window,F):V
-f:com.intellij.platform.ide.core.permissions.PermissionsKt
 c:com.intellij.projectImport.ProjectAttachProcessor
 - sf:Companion:com.intellij.projectImport.ProjectAttachProcessor$Companion
 - sf:EP_NAME:com.intellij.openapi.extensions.ExtensionPointName

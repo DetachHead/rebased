@@ -3,7 +3,6 @@ load("@rules_jvm//:jvm.bzl", "jvm_library")
 load("//build:compiler-options.bzl", "create_kotlinc_options")
 
 ### auto-generated section `build intellij.platform.durability` start
-
 create_kotlinc_options(
     name = "custom_durability",
     opt_in = ["org.jetbrains.kotlin.utils.addToStdlib.UnsafeCastFunction"],
@@ -62,7 +61,8 @@ jvm_library(
         "//libraries/kotlinx/serialization/core:core_test_lib",
         "//libraries/kotlinx/serialization/json",
         "//libraries/kotlinx/serialization/json:json_test_lib",
-        "@lib//:kotlinc-kotlinx-serialization-compiler-plugin",
+        "//libraries/kotlinc/kotlinx-serialization-compiler-plugin:libraries-kotlinc-kotlinx-serialization-compiler-plugin",
+        "//libraries/kotlinc/kotlinx-serialization-compiler-plugin:libraries-kotlinc-kotlinx-serialization-compiler-plugin_test_lib",
         "//libraries/kotlin/reflect",
         "//libraries/kotlin/reflect:reflect_test_lib",
         "//platform/util",
@@ -85,7 +85,6 @@ exports_files(
 ### auto-generated section `iml intellij.platform.durability` end
 
 ### auto-generated section `test intellij.platform.durability` start
-
 jps_test(
     name = "durability_test",
     runtime_deps = [":durability_test_lib"],

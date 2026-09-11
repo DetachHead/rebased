@@ -22,6 +22,7 @@ import com.intellij.openapi.application.backgroundWriteAction
 import com.intellij.openapi.application.edtWriteAction
 import com.intellij.openapi.application.ex.ApplicationManagerEx
 import com.intellij.openapi.application.installSuvorovProgress
+import com.intellij.openapi.application.invokeAndWaitIfNeeded
 import com.intellij.openapi.application.invokeLater
 import com.intellij.openapi.application.readAction
 import com.intellij.openapi.application.runReadAction
@@ -39,7 +40,6 @@ import com.intellij.openapi.progress.util.ProgressIndicatorUtils
 import com.intellij.openapi.project.DumbAware
 import com.intellij.openapi.ui.DialogWrapper
 import com.intellij.openapi.util.Disposer
-import com.intellij.platform.locking.impl.getGlobalThreadingSupport
 import com.intellij.platform.util.progress.reportProgress
 import com.intellij.testFramework.LoggedErrorProcessor
 import com.intellij.testFramework.common.timeoutRunBlocking
@@ -49,6 +49,7 @@ import com.intellij.util.cancelOnDispose
 import com.intellij.util.ref.DebugReflectionUtil
 import com.intellij.util.ui.EDT
 import com.intellij.util.ui.UIUtil
+import io.ktor.utils.io.CancellationException
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.GlobalScope
@@ -97,6 +98,16 @@ class PlatformUtilitiesTest {
         assertThat(application.isWriteIntentLockAcquired).isFalse()
         assertThat(TransactionGuard.getInstance().isWritingAllowed).isTrue()
       }, ModalityState.nonModal())
+  }
+
+  @Test
+  fun `invokeAndWaitIfNeeded rethrows PCE from runnable`(): Unit = timeoutRunBlocking(context = Dispatchers.Default) {
+    assertThrows<ProcessCanceledException> {
+      invokeAndWaitIfNeeded {
+        assertThat(EDT.isCurrentThreadEdt()).isTrue
+        throw ProcessCanceledException()
+      }
+    }
   }
 
   @Test
@@ -302,7 +313,30 @@ class PlatformUtilitiesTest {
         }
       }
       assertThat(exception.message).isEqualTo("custom message")
+      assertThat(exception.suppressed.single()).hasMessageContaining("breaks atomicity")
     }
+  }
+
+  @Test
+  fun `cancellation of a background WA with transferred write action rethrows exceptions`(): Unit = concurrencyTest {
+    val waJob = launch {
+      backgroundWriteAction {
+        InternalThreading.invokeAndWaitWithTransferredWriteAction {
+          checkpoint(1)
+          while (true) {
+            try {
+              Cancellation.ensureActive()
+            } catch (e: CancellationException) {
+              Thread.sleep(2)
+              throw e
+            }
+          }
+        }
+      }
+    }
+    checkpoint(2)
+    waJob.cancel(CancellationException("test cancellation"))
+    waJob.join()
   }
 
   class MyElement : AbstractCoroutineContextElement(MyElement) {
@@ -543,7 +577,7 @@ class PlatformUtilitiesTest {
 
   @Test
   fun `parallelization of write-intent lock removes write-intent access`(): Unit = timeoutRunBlocking(context = Dispatchers.EDT) {
-    val (lockContext, lockCleanup) = getGlobalThreadingSupport().parallelizeLock()
+    val (lockContext, lockCleanup) = application.threadingSupport.parallelizeLock(true)
     installThreadContext(lockContext).use {
       try {
         assertThat(application.isWriteIntentLockAcquired).isFalse

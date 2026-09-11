@@ -1,14 +1,28 @@
 load("@community//build:tests-options.bzl", "jps_test")
-load("@rules_jvm//:jvm.bzl", "jvm_library", "resourcegroup")
+load("@community//platform/build-scripts/bazel-rules:dev_dist_plugin.bzl", "dev_dist_plugin")
+load("@rules_jvm//:jvm.bzl", "jvm_library", "jvm_provided_library", "resourcegroup")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
+
+jps_test(
+    name = "vcs-github-tests_test",
+    timeout = "moderate",
+    tags = ["community-aggregator"],
+    runtime_deps = [":vcs-github-tests_test_lib"],
+)
+### skip generation section `test intellij.vcs.github.tests`
 
 ### auto-generated section `build intellij.vcs.github` start
-
 resourcegroup(
     name = "vcs-github_resources",
     srcs = glob(
         ["gen-resources/**/*"],
     ),
     strip_prefix = "gen-resources",
+)
+
+jvm_provided_library(
+    name = "libraries_kotlinc_libraries-kotlinc-kotlinx-serialization-compiler-plugin_provided",
+    lib = "//libraries/kotlinc/kotlinx-serialization-compiler-plugin:libraries-kotlinc-kotlinx-serialization-compiler-plugin",
 )
 
 jvm_library(
@@ -51,7 +65,6 @@ jvm_library(
         "//libraries/jackson/jackson",
         "//platform/dvcs-impl:vcs-dvcs-impl",
         "//platform/dvcs-api:vcs-dvcs",
-        "//xml/impl",
         "//platform/vcs-log/api:vcs-log",
         "//platform/vcs-log/impl",
         "//platform/util/progress",
@@ -81,7 +94,6 @@ jvm_library(
         "//libraries/markdown",
         "//libraries/kotlinx/serialization/core",
         "//libraries/kotlinx/serialization/json",
-        "@lib//:kotlinc-kotlinx-serialization-compiler-plugin-provided",
         "//platform/util/coroutines",
         "//platform/util:util-ui",
         "//platform/util-ex",
@@ -94,8 +106,13 @@ jvm_library(
         "//platform/vcs-impl/shared",
         "//platform/lang-api:lang",
         "//platform/util/concurrency",
+        "//platform/eel-provider",
+        "//platform/eel",
+        ":libraries_kotlinc_libraries-kotlinc-kotlinx-serialization-compiler-plugin_provided",
     ],
 )
+
+content_module_jar(module = ":vcs-github")
 
 jvm_library(
     name = "vcs-github_test_lib",
@@ -130,7 +147,6 @@ jvm_library(
         "//platform/dvcs-api:vcs-dvcs_test_lib",
         "//platform/testFramework",
         "//platform/testFramework:testFramework_test_lib",
-        "//xml/impl:impl_test_lib",
         "//platform/vcs-log/api:vcs-log_test_lib",
         "//platform/vcs-log/impl:impl_test_lib",
         "//platform/util/progress:progress_test_lib",
@@ -166,11 +182,13 @@ jvm_library(
         "//platform/util/jdom:jdom_test_lib",
         "//libraries/kotlinx/serialization/core:core_test_lib",
         "//libraries/kotlinx/serialization/json:json_test_lib",
-        "@lib//:kotlinc-kotlinx-serialization-compiler-plugin-provided",
+        "//libraries/kotlinc/kotlinx-serialization-compiler-plugin:libraries-kotlinc-kotlinx-serialization-compiler-plugin",
+        "//libraries/kotlinc/kotlinx-serialization-compiler-plugin:libraries-kotlinc-kotlinx-serialization-compiler-plugin_test_lib",
         "//platform/util/coroutines:coroutines_test_lib",
         "//platform/util:util-ui_test_lib",
         "//platform/util-ex:util-ex_test_lib",
-        "@lib//:junit4",
+        "//libraries/junit4",
+        "//libraries/junit4:junit4_test_lib",
         "//libraries/kotlinx/coroutines/test",
         "//libraries/kotlinx/coroutines/test:test_test_lib",
         "//libraries/mockk",
@@ -195,6 +213,8 @@ jvm_library(
         "//platform/testFramework/junit5:junit5_test_lib",
         "//platform/lang-api:lang_test_lib",
         "//platform/util/concurrency:concurrency_test_lib",
+        "//platform/eel-provider:eel-provider_test_lib",
+        "//platform/eel:eel_test_lib",
     ],
 )
 ### auto-generated section `build intellij.vcs.github` end
@@ -203,13 +223,27 @@ jvm_library(
 exports_files(
     [
         "intellij.vcs.github.iml",
+        "resources/META-INF/plugin.xml",
+        "resources/intellij.vcs.github.xml",
     ],
     visibility = ["//visibility:public"],
 )
 ### auto-generated section `iml intellij.vcs.github` end
 
-### auto-generated section `build intellij.vcs.github.tests` start
+### auto-generated section `dev intellij.vcs.github` start
+dev_dist_plugin(
+    descriptor_module = ":vcs-github",
+    libraries = ["@lib//:vcs-github-apollographql-apollo-ast-jvm"],
+    prepacked_content_modules = [
+        "//plugins/github/github-git:vcs-github-git_content_module_jar",
+        "//plugins/github/github-json:vcs-github-json_content_module_jar",
+        "//plugins/github/github-tracker:vcs-github-tracker_content_module_jar",
+        "//plugins/github/ultimate-promo:ultimate-promo_content_module_jar",
+    ],
+)
+### auto-generated section `dev intellij.vcs.github` end
 
+### auto-generated section `build intellij.vcs.github.tests` start
 jvm_library(
     name = "vcs-github-tests",
     srcs = glob(
@@ -351,12 +385,14 @@ jvm_library(
         "//libraries/kotlinx/serialization/core:core_test_lib",
         "//libraries/kotlinx/serialization/json",
         "//libraries/kotlinx/serialization/json:json_test_lib",
-        "@lib//:kotlinc-kotlinx-serialization-compiler-plugin-provided",
+        "//libraries/kotlinc/kotlinx-serialization-compiler-plugin:libraries-kotlinc-kotlinx-serialization-compiler-plugin",
+        "//libraries/kotlinc/kotlinx-serialization-compiler-plugin:libraries-kotlinc-kotlinx-serialization-compiler-plugin_test_lib",
         "//platform/util/coroutines",
         "//platform/util/coroutines:coroutines_test_lib",
         "//platform/util:util-ui",
         "//platform/util:util-ui_test_lib",
-        "@lib//:junit4",
+        "//libraries/junit4",
+        "//libraries/junit4:junit4_test_lib",
         "//libraries/kotlinx/coroutines/test",
         "//libraries/kotlinx/coroutines/test:test_test_lib",
         "//libraries/mockk",
@@ -392,6 +428,10 @@ jvm_library(
         "//platform/testFramework/junit5/codeInsight",
         "//platform/testFramework/junit5/codeInsight:codeInsight_test_lib",
         "@lib//:app-cash-turbine-jvm",
+        "//libraries/junit5",
+        "//libraries/junit5:junit5_test_lib",
+        "//libraries/junit5-params",
+        "//libraries/junit5-params:junit5-params_test_lib",
     ],
 )
 ### auto-generated section `build intellij.vcs.github.tests` end
@@ -404,11 +444,3 @@ exports_files(
     visibility = ["//visibility:public"],
 )
 ### auto-generated section `iml intellij.vcs.github.tests` end
-
-### auto-generated section `test intellij.vcs.github.tests` start
-
-jps_test(
-    name = "vcs-github-tests_test",
-    runtime_deps = [":vcs-github-tests_test_lib"],
-)
-### auto-generated section `test intellij.vcs.github.tests` end

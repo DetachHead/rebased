@@ -1,7 +1,6 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
 
 ### auto-generated section `build intellij.platform.navbar.testFramework` start
-
 jvm_library(
     name = "testFramework",
     srcs = glob(
@@ -64,6 +63,7 @@ jvm_library(
 exports_files(
     [
         "intellij.platform.navbar.testFramework.iml",
+        "resources/intellij.platform.navbar.testFramework.xml",
     ],
     visibility = ["//visibility:public"],
 )

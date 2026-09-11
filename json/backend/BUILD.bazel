@@ -1,8 +1,7 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
-load("//build:compiler-options.bzl", "create_kotlinc_options")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
 ### auto-generated section `build intellij.json.backend` start
-
 jvm_library(
     name = "backend",
     srcs = glob(
@@ -73,6 +72,8 @@ jvm_library(
         "//libraries/opentelemetry",
     ],
 )
+
+content_module_jar(module = ":backend")
 
 jvm_library(
     name = "backend_test_lib",
@@ -149,6 +150,8 @@ jvm_library(
 exports_files(
     [
         "intellij.json.backend.iml",
+        "resources/intellij.json.backend.xml",
+        "resources/jsonSchema/build.xml",
     ],
     visibility = ["//visibility:public"],
 )

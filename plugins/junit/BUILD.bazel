@@ -1,7 +1,8 @@
+load("@community//platform/build-scripts/bazel-rules:dev_dist_plugin.bzl", "dev_dist_plugin")
 load("@rules_jvm//:jvm.bzl", "jvm_library")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "dev_dist_plugin_jar")
 
 ### auto-generated section `build intellij.junit` start
-
 jvm_library(
     name = "junit",
     srcs = glob(
@@ -28,7 +29,6 @@ jvm_library(
         "//java/java-psi-api:psi",
         "//java/java-runtime:rt",
         "//platform/analysis-api:analysis",
-        "//platform/code-style-api:codeStyle",
         "//platform/util/concurrency",
         "//platform/core-api:core",
         "//platform/lang-api:lang",
@@ -60,7 +60,6 @@ jvm_library(
         "//java/java-impl-refactorings:impl-refactorings",
         "//platform/util/jdom",
         "//platform/util:util-ui",
-        "//plugins/properties/properties-psi-impl:backend-psi",
         "//platform/core-ui",
         "//platform/core-impl",
         "//platform/execution",
@@ -68,6 +67,7 @@ jvm_library(
         "//platform/forms_rt:java-guiForms-rt",
         "//java/java-frontback-psi-api:frontback-psi",
         "//libraries/kotlinx/collections-immutable:libraries-kotlinx-collections-immutable",
+        "//java/java-backend:backend",
     ],
 )
 
@@ -95,7 +95,6 @@ jvm_library(
         "//java/java-psi-api:psi_test_lib",
         "//java/java-runtime:rt_test_lib",
         "//platform/analysis-api:analysis_test_lib",
-        "//platform/code-style-api:codeStyle_test_lib",
         "//platform/util/concurrency:concurrency_test_lib",
         "//platform/core-api:core_test_lib",
         "//platform/lang-api:lang_test_lib",
@@ -127,7 +126,6 @@ jvm_library(
         "//java/java-impl-refactorings:impl-refactorings_test_lib",
         "//platform/util/jdom:jdom_test_lib",
         "//platform/util:util-ui_test_lib",
-        "//plugins/properties/properties-psi-impl:backend-psi_test_lib",
         "//platform/core-ui:core-ui_test_lib",
         "//platform/core-impl:core-impl_test_lib",
         "//platform/execution:execution_test_lib",
@@ -135,6 +133,7 @@ jvm_library(
         "//platform/forms_rt:java-guiForms-rt_test_lib",
         "//java/java-frontback-psi-api:frontback-psi_test_lib",
         "//libraries/kotlinx/collections-immutable:libraries-kotlinx-collections-immutable_test_lib",
+        "//java/java-backend:backend_test_lib",
     ],
 )
 ### auto-generated section `build intellij.junit` end
@@ -143,7 +142,54 @@ jvm_library(
 exports_files(
     [
         "intellij.junit.iml",
+        "resources/META-INF/plugin.xml",
+        "resources/com/intellij/execution/junit2/refactoring/JUnit4__5.xml",
     ],
     visibility = ["//visibility:public"],
 )
 ### auto-generated section `iml intellij.junit` end
+
+### auto-generated section `dev intellij.junit` start
+dev_dist_plugin(
+    content_modules = [
+        "//libraries/hamcrest",
+        "//libraries/junit4",
+    ],
+    descriptor = "resources/META-INF/plugin.xml",
+    descriptor_module = ":junit",
+    descriptors = {
+        "@community//libraries/hamcrest:resources/intellij.libraries.hamcrest.xml": "intellij.libraries.hamcrest.xml",
+        "@community//libraries/junit4:resources/intellij.libraries.junit4.xml": "intellij.libraries.junit4.xml",
+        "@community//plugins/junit/properties:resources/intellij.junit.properties.xml": "intellij.junit.properties.xml",
+    },
+    libraries = [
+        "@lib//:libraries-hamcrest-hamcrest",
+        "@lib//:libraries-junit4-_j_unit4",
+    ],
+    main_module = "intellij.junit",
+    prepacked_content_modules = ["//plugins/junit/properties:properties_content_module_jar"],
+    prepacked_layout_jars = [
+        ":junit-rt_dev_dist_plugin_jar",
+        ":junit5-rt_dev_dist_plugin_jar",
+        ":junit6-rt_dev_dist_plugin_jar",
+    ],
+)
+
+dev_dist_plugin_jar(
+    modules = ["//plugins/junit_rt:junit-rt"],
+    plugin_main_module = "intellij.junit",
+    relative_output_file = "junit-rt.jar",
+)
+
+dev_dist_plugin_jar(
+    modules = ["//plugins/junit5_rt:junit-v5-rt"],
+    plugin_main_module = "intellij.junit",
+    relative_output_file = "junit5-rt.jar",
+)
+
+dev_dist_plugin_jar(
+    modules = ["//plugins/junit6_rt:junit-v6-rt"],
+    plugin_main_module = "intellij.junit",
+    relative_output_file = "junit6-rt.jar",
+)
+### auto-generated section `dev intellij.junit` end

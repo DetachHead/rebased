@@ -3,13 +3,12 @@ package org.jetbrains.uast.kotlin.internal
 
 import com.intellij.psi.PsiEnumConstant
 import com.intellij.psi.PsiVariable
-import org.jetbrains.kotlin.analysis.api.KaExperimentalApi
 import org.jetbrains.kotlin.analysis.api.KaSession
 import org.jetbrains.kotlin.analysis.api.base.KaConstantValue
-import org.jetbrains.kotlin.analysis.api.components.resolveToCall
-import org.jetbrains.kotlin.analysis.api.resolution.successfulVariableAccessCall
-import org.jetbrains.kotlin.analysis.api.resolution.symbol
+import org.jetbrains.kotlin.analysis.api.evaluation.evaluate
+import org.jetbrains.kotlin.analysis.api.resolution.resolveSuccessfulSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaPropertySymbol
+import org.jetbrains.kotlin.analysis.api.symbols.KaVariableSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.psiSafe
 import org.jetbrains.kotlin.psi.KtExpression
 import org.jetbrains.kotlin.psi.KtNameReferenceExpression
@@ -37,11 +36,10 @@ internal object FirKotlinUastConstantEvaluator {
         }
     }
 
-    @OptIn(KaExperimentalApi::class)
     context(_: KaSession)
     private fun KtExpression.unwrapKotlinValPropertyReference(): KtExpression? {
         if (this !is KtNameReferenceExpression) return this
-        val variableSymbol = resolveToCall()?.successfulVariableAccessCall()?.symbol ?: return this
+        val variableSymbol = this.resolveSuccessfulSymbol() as? KaVariableSymbol ?: return this
         if (!variableSymbol.isVal) {
             // can't evaluate non-final variables
             return null

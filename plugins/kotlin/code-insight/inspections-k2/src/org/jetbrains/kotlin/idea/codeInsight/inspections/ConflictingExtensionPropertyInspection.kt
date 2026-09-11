@@ -14,16 +14,15 @@ import com.intellij.modcommand.ModPsiUpdater
 import com.intellij.modcommand.Presentation
 import com.intellij.modcommand.PsiUpdateModCommandAction
 import com.intellij.openapi.util.TextRange
-import org.jetbrains.kotlin.analysis.api.KaExperimentalApi
 import org.jetbrains.kotlin.analysis.api.KaSession
-import org.jetbrains.kotlin.analysis.api.components.KaDeprecationLevel
-import org.jetbrains.kotlin.analysis.api.components.resolveToCall
-import org.jetbrains.kotlin.analysis.api.components.syntheticJavaPropertiesScope
-import org.jetbrains.kotlin.analysis.api.components.type
-import org.jetbrains.kotlin.analysis.api.resolution.successfulFunctionCallOrNull
-import org.jetbrains.kotlin.analysis.api.resolution.symbol
+import org.jetbrains.kotlin.analysis.api.resolution.resolveSuccessfulSymbol
+import org.jetbrains.kotlin.analysis.api.scopes.syntheticJavaPropertiesScope
 import org.jetbrains.kotlin.analysis.api.symbols.KaCallableSymbol
+import org.jetbrains.kotlin.analysis.api.symbols.KaDeprecationLevel
 import org.jetbrains.kotlin.analysis.api.symbols.KaSyntheticJavaPropertySymbol
+import org.jetbrains.kotlin.analysis.api.symbols.deprecation
+import org.jetbrains.kotlin.analysis.api.symbols.symbol
+import org.jetbrains.kotlin.analysis.api.types.type
 import org.jetbrains.kotlin.idea.base.analysis.api.utils.hasOrOverridesCallableId
 import org.jetbrains.kotlin.idea.base.resources.KotlinBundle
 import org.jetbrains.kotlin.idea.codeinsight.api.applicable.inspections.KotlinApplicableInspectionBase
@@ -45,7 +44,6 @@ import org.jetbrains.kotlin.psi.KtThisExpression
 import org.jetbrains.kotlin.psi.KtVisitor
 import org.jetbrains.kotlin.psi.propertyVisitor
 
-@OptIn(KaExperimentalApi::class)
 class ConflictingExtensionPropertyInspection : KotlinApplicableInspectionBase<KtProperty, Boolean>() {
     override fun buildVisitor(holder: ProblemsHolder, isOnTheFly: Boolean): KtVisitor<*, *> = propertyVisitor {
         visitTargetElement(it, holder, isOnTheFly)
@@ -57,7 +55,8 @@ class ConflictingExtensionPropertyInspection : KotlinApplicableInspectionBase<Kt
     override fun getApplicableRanges(element: KtProperty): List<TextRange> =
         ApplicabilityRanges.declarationName(element)
 
-    override fun KaSession.prepareContext(element: KtProperty): Boolean? {
+    context(session: KaSession)
+    override fun prepareContext(element: KtProperty): Boolean? {
         if (element.symbol.deprecation?.level == KaDeprecationLevel.HIDDEN) return null
         val conflictingExtension = element.conflictingSyntheticExtension() ?: return null
         return element.isSameAsSynthetic(conflictingExtension)
@@ -132,7 +131,7 @@ class ConflictingExtensionPropertyInspection : KotlinApplicableInspectionBase<Kt
 
     context(_: KaSession)
     private fun KtExpression?.isMethodCall(method: KaCallableSymbol): Boolean = when (this) {
-        is KtCallExpression -> resolveToCall()?.successfulFunctionCallOrNull()?.symbol?.matches(method) == true
+        is KtCallExpression -> resolveSuccessfulSymbol()?.matches(method) == true
         is KtQualifiedExpression -> {
             val receiver = receiverExpression
             receiver is KtThisExpression && receiver.labelQualifier == null && selectorExpression.isMethodCall(method)
@@ -146,7 +145,7 @@ class ConflictingExtensionPropertyInspection : KotlinApplicableInspectionBase<Kt
         is KtCallExpression -> {
             val argumentExpression = valueArguments.singleOrNull()?.getArgumentExpression() as? KtSimpleNameExpression
             argumentExpression?.getReferencedNameAsName() == valueParameterName &&
-                    resolveToCall()?.successfulFunctionCallOrNull()?.symbol?.matches(method) == true
+                    resolveSuccessfulSymbol()?.matches(method) == true
         }
 
         is KtQualifiedExpression -> {

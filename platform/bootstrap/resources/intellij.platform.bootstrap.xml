@@ -5,9 +5,13 @@
     <module name="intellij.libraries.kotlinx.coroutines.core"/>
     <module name="intellij.platform.core"/>
     <module name="intellij.platform.core.impl"/>
+    <module name="intellij.platform.diagnostic.telemetry.impl"/>
+    <module name="intellij.platform.ide.bootstrap"/>
+    <module name="intellij.platform.ide.core.impl"/>
     <module name="intellij.platform.ide.impl"/>
     <module name="intellij.platform.projectModel"/>
     <module name="intellij.platform.runtime.product"/>
+    <module name="intellij.platform.serviceContainer"/>
     <module name="intellij.platform.util.ui"/>
   </dependencies>
   <!-- endregion -->

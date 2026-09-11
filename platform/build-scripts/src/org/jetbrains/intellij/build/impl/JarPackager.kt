@@ -1,23 +1,20 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
-@file:Suppress("ReplaceGetOrSet", "ReplacePutWithAssignment")
+@file:Suppress("ReplaceGetOrSet", "ReplacePutWithAssignment", "ReplaceJavaStaticMethodWithKotlinAnalog")
 
 package org.jetbrains.intellij.build.impl
 
 import com.dynatrace.hash4j.hashing.HashFunnel
 import com.dynatrace.hash4j.hashing.HashStream64
 import com.dynatrace.hash4j.hashing.Hashing
-import com.intellij.util.PathUtilRt
-import com.intellij.util.io.URLUtil
 import com.jetbrains.util.filetype.FileType
 import com.jetbrains.util.filetype.FileTypeDetector.DetectFileType
 import io.opentelemetry.api.common.AttributeKey
 import it.unimi.dsi.fastutil.objects.ObjectLinkedOpenHashSet
 import it.unimi.dsi.fastutil.objects.Reference2ObjectLinkedOpenHashMap
 import kotlinx.coroutines.CoroutineName
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import org.jetbrains.annotations.ApiStatus
+import org.jetbrains.annotations.VisibleForTesting
 import org.jetbrains.intellij.build.BuildContext
 import org.jetbrains.intellij.build.BuildOptions
 import org.jetbrains.intellij.build.BuildPaths
@@ -28,21 +25,23 @@ import org.jetbrains.intellij.build.JarPackagerDependencyHelper
 import org.jetbrains.intellij.build.LazySource
 import org.jetbrains.intellij.build.MAVEN_REPO
 import org.jetbrains.intellij.build.NativeFileHandler
+import org.jetbrains.intellij.build.PLUGIN_XML_RELATIVE_PATH
 import org.jetbrains.intellij.build.SearchableOptionSetDescriptor
 import org.jetbrains.intellij.build.SignNativeFileMode
 import org.jetbrains.intellij.build.Source
 import org.jetbrains.intellij.build.USER_HOME
-import org.jetbrains.intellij.build.UTIL_8_JAR
-import org.jetbrains.intellij.build.UTIL_JAR
 import org.jetbrains.intellij.build.ZipSource
 import org.jetbrains.intellij.build.buildJar
 import org.jetbrains.intellij.build.checkForNoDiskSpace
 import org.jetbrains.intellij.build.computeHashForModuleOutput
 import org.jetbrains.intellij.build.computeModuleSourcesByContent
-import org.jetbrains.intellij.build.defaultLibrarySourcesNamesFilter
+import org.jetbrains.intellij.build.dev.AssembledPrepackedPluginContentJar
+import org.jetbrains.intellij.build.dev.DevDistRecipe
+import org.jetbrains.intellij.build.dev.PrepackedPluginContentJar
+import org.jetbrains.intellij.build.dev.PrepackedPluginContentKey
 import org.jetbrains.intellij.build.findFileInModuleSources
+import org.jetbrains.intellij.build.getLibraryFileName
 import org.jetbrains.intellij.build.getLibraryRoots
-import org.jetbrains.intellij.build.impl.PlatformJarNames.PRODUCT_BACKEND_JAR
 import org.jetbrains.intellij.build.impl.projectStructureMapping.CustomAssetEntry
 import org.jetbrains.intellij.build.impl.projectStructureMapping.DistributionFileEntry
 import org.jetbrains.intellij.build.impl.projectStructureMapping.ModuleLibraryFileEntry
@@ -50,13 +49,16 @@ import org.jetbrains.intellij.build.impl.projectStructureMapping.ModuleOutputEnt
 import org.jetbrains.intellij.build.impl.projectStructureMapping.ProjectLibraryEntry
 import org.jetbrains.intellij.build.inferModuleSources
 import org.jetbrains.intellij.build.io.WRITE_OPEN_OPTION
+import org.jetbrains.intellij.build.io.defaultLibrarySourcesNamesFilter
 import org.jetbrains.intellij.build.io.writeToFileChannelFully
 import org.jetbrains.intellij.build.jarCache.JarCacheManager
 import org.jetbrains.intellij.build.jarCache.NonCachingJarCacheManager
 import org.jetbrains.intellij.build.jarCache.SourceBuilder
 import org.jetbrains.intellij.build.mapConcurrent
+import org.jetbrains.intellij.build.productLayout.LIB_MODULE_PREFIX
 import org.jetbrains.intellij.build.telemetry.TraceManager.spanBuilder
 import org.jetbrains.intellij.build.telemetry.use
+import org.jetbrains.intellij.build.taskScope
 import org.jetbrains.jps.model.library.JpsLibrary
 import org.jetbrains.jps.model.library.JpsOrderRootType
 import org.jetbrains.jps.model.module.JpsModule
@@ -70,46 +72,50 @@ import java.nio.file.Path
 import java.nio.file.PathMatcher
 import java.nio.file.attribute.BasicFileAttributes
 import java.util.TreeMap
+import java.util.TreeSet
 import kotlin.io.path.invariantSeparatorsPathString
-
-private val libsUsedInJps = setOf(
-  "netty-codec-protobuf",
-  "Log4J",
-  "slf4j-api",
-  "slf4j-jdk14",
-  // see getBuildProcessApplicationClasspath - used in JPS
-  "jna",
-  // see ArtifactRepositoryManager.getClassesFromDependencies
-  "kotlin-stdlib",
-)
-
-private val predefinedMergeRules = listOf<Pair<String, (String) -> Boolean>>(
-  "groovy.jar" to { it.startsWith("org.codehaus.groovy:") },
-  "jsch-agent.jar" to { it.startsWith("jsch-agent") },
-  PRODUCT_BACKEND_JAR to { name -> name.startsWith("License") || name.startsWith("jetbrains.codeWithMe.lobby.server.") },
-  // see ClassPathUtil.getUtilClassPath
-  UTIL_8_JAR to { libsUsedInJps.contains(it) || (it.startsWith("kotlinx-")) },
-
-  // used in an external process - see `ConsoleProcessListFetcher.getConsoleProcessCount`
-  UTIL_JAR to { it == "pty4j" || it == "jvm-native-trusted-roots" },
-)
-
-internal fun getLibraryFileName(library: JpsLibrary): String {
-  val name = library.name
-  if (!name.startsWith('#')) {
-    return name
-  }
-
-  val roots = library.getRoots(JpsOrderRootType.COMPILED)
-  check(roots.size == 1) {
-    "Non-single entry module library $name: ${roots.joinToString { it.url }}"
-  }
-  return PathUtilRt.getFileName(roots.first().url.removeSuffix(URLUtil.JAR_SEPARATOR))
-}
 
 private fun isJarPreSigned(file: Path, context: BuildContext): Boolean {
   return context.productProperties.presignedNativeLibs.containsKey(getLibNameBySourceFile(file))
 }
+
+/**
+ * Selects the jars an assembly actually writes, out of everything the layout put in them.
+ *
+ * A split dev-distribution fragment lays the whole layout out - that part is metadata, and cheap - and then packs only
+ * the jars it owns, so that reading and zipping is what the split divides. Ownership is decided per jar name against
+ * an explicit generated set (see `org.jetbrains.intellij.build.dev.PlatformJarSelector`): a name is all a filter sees,
+ * because a jar as a whole belongs to one producer regardless of what the layout put into it.
+ */
+@ApiStatus.Internal
+fun interface DistributionAssetFilter {
+  fun accept(relativeOutputFile: String): Boolean
+}
+
+/**
+ * Project libraries that plugin modules still get implicitly, only because such a dependency was packaged this way before
+ * the implicit collection was restricted to library modules (see [computeSourcesForModuleLibs]).
+ *
+ * Each entry must be converted to a library module (`intellij.libraries.*`) and removed from this list - IJPL-252908.
+ * Do not add new entries: a project library must be provided by the platform, by a library module,
+ * or declared explicitly in the plugin layout.
+ */
+private val IMPLICIT_PLUGIN_PROJECT_LIBRARY_ALLOWLIST: Set<String> = java.util.Set.of(
+  // declared by the platform layout of the ultimate-family products only, so a plugin of another product needs its own copy
+  "LicenseDecoder",
+  "LicenseServerAPI",
+  "agentclientprotocol.acp.jvm",
+  "agentclientprotocol.acp.ktor",
+  // used by `intellij.rider.test.cases.rdct`, whose plugin is built by an auto layout
+  "intellij-plugin-structure",
+  "kotlin-metadata",
+  "layoutlib",
+  "okhttp",
+  "openai.java",
+  "org.apache.ivy",
+  "org.scilab.forge:jlatexmath",
+  "squareup.okio.jvm",
+)
 
 class JarPackager private constructor(
   private val outDir: Path,
@@ -117,13 +123,21 @@ class JarPackager private constructor(
   private val platformLayout: PlatformLayout?,
   private val isRootDir: Boolean,
   @JvmField internal val moduleOutputPatcher: ModuleOutputPatcher,
+  private val prepackedPluginContent: Map<PrepackedPluginContentKey, PrepackedPluginContentJar> = emptyMap(),
 ) {
   private val assets = LinkedHashMap<Path, AssetDescriptor>()
 
-  private val libToMetadata = HashMap<JpsLibrary, ProjectLibraryData>()
   private val copiedFiles = LibraryFileCopyTracker()
 
+  /** project library name to the names of the plugin modules that depend on it, but do not get it packaged - see [checkImplicitProjectLibraries] */
+  private val implicitProjectLibraryViolations = TreeMap<String, MutableSet<String>>()
+
   private val helper = (context as BuildContextImpl).jarPackagerDependencyHelper
+
+  private val prepackedContentJars = ArrayList<AssembledPrepackedPluginContentJar>()
+
+  /** The members each taken relation was offered, in offer order; see [validatePrepackedPluginContent]. */
+  private val claimedPrepackedMembers = LinkedHashMap<PrepackedPluginContentKey, MutableList<String>>()
 
   companion object {
     suspend fun pack(includedModules: Collection<ModuleItem>, outputDir: Path, context: BuildContext) {
@@ -152,45 +166,55 @@ class JarPackager private constructor(
       dryRun: Boolean,
       searchableOptionSet: SearchableOptionSetDescriptor? = null,
       descriptorCache: ScopedCachedDescriptorContainer? = null,
+      assetFilter: DistributionAssetFilter? = null,
+      prepackedPluginContent: Map<PrepackedPluginContentKey, PrepackedPluginContentJar> = emptyMap(),
+      prepackedPluginContentJars: MutableCollection<AssembledPrepackedPluginContentJar>? = null,
       context: BuildContext,
     ): Collection<DistributionFileEntry> {
-      val packager = JarPackager(outDir = outputDir, context = context, platformLayout = platformLayout, isRootDir = isRootDir, moduleOutputPatcher = moduleOutputPatcher)
+      val packager = JarPackager(
+        outDir = outputDir,
+        context = context,
+        platformLayout = platformLayout,
+        isRootDir = isRootDir,
+        moduleOutputPatcher = moduleOutputPatcher,
+        prepackedPluginContent = prepackedPluginContent,
+      )
       packager.computeModuleSources(
         includedModules = includedModules,
         layout = layout,
         searchableOptionSet = searchableOptionSet,
         cachedDescriptorWriterProvider = descriptorCache
       )
-      packager.computeModuleCustomLibrarySources(layout)
+      packager.computeModuleCustomLibrarySources(layout, assetFilter)
 
-      val libraryToMerge = packager.computeProjectLibrariesSources(
+      packager.computeProjectLibrariesSources(
         outDir = outputDir,
         layout = layout,
         copiedFiles = packager.copiedFiles,
+        assetFilter = assetFilter,
       )
-      if (isRootDir) {
-        for ((jarName, predicate) in predefinedMergeRules) {
-          packager.mergeLibsByPredicate(
-            jarName = jarName,
-            libraryToMerge = libraryToMerge,
-            outputDir = outputDir,
-            predicate = predicate,
-          )
-        }
-
-        if (!libraryToMerge.isEmpty()) {
-          packager.projectLibsToSourceWithMappings(uberJarFile = outputDir.resolve(PlatformJarNames.LIB_JAR), libraryToMerge = libraryToMerge)
-        }
+      // An asset filter drops assets after the ordinals were counted against all of them, so every recorded position
+      // would drift. Only a platform payload passes a filter and only a `PluginLayout` hands a jar over, so the two
+      // never meet - and this is what keeps that true rather than leaving it to be rediscovered from a reordered
+      // `plugin-classpath.txt`. See [AssembledPrepackedPluginContentJar.assetOrdinal].
+      check(assetFilter == null || packager.prepackedContentJars.isEmpty()) {
+        "$layout hands ${packager.prepackedContentJars.size} jar(s) over under an asset filter, which drops assets the" +
+        " recorded ordinals were counted against"
       }
-      else if (!libraryToMerge.isEmpty()) {
-        val mainJarName = (layout as PluginLayout).getMainJarName()
-        check(includedModules.any { it.relativeOutputFile == mainJarName })
-        packager.projectLibsToSourceWithMappings(uberJarFile = outputDir.resolve(mainJarName), libraryToMerge = libraryToMerge)
+      prepackedPluginContentJars?.addAll(packager.prepackedContentJars)
+
+      // The whole layout is computed above, but only the owned jars are packed and reported: everything downstream -
+      // the built files, the distribution entries, the classpath - must see one consistent subset.
+      val assets = if (assetFilter == null) {
+        packager.assets.values
+      }
+      else {
+        packager.assets.values.filter { assetFilter.accept(it.relativePath) }
       }
 
       val cacheManager = if (dryRun || context !is BuildContextImpl) NonCachingJarCacheManager else context.jarCacheManager
       val buildAssetResult = buildJars(
-        assets = packager.assets.values,
+        assets = assets,
         cache = cacheManager,
         isCodesignEnabled = isCodesignEnabled,
         useCacheAsTargetFile = !dryRun && context.options.isUnpackedDist,
@@ -200,21 +224,19 @@ class JarPackager private constructor(
         context = context,
       )
 
-      return coroutineScope {
+      return taskScope {
         if (buildAssetResult.sourceToNativeFiles.isNotEmpty()) {
-          launch(CoroutineName("pack native presigned files")) {
-            packNativePresignedFiles(
-              nativeFiles = buildAssetResult.sourceToNativeFiles,
-              dryRun = dryRun,
-              context = context,
-              toRelativePath = { libName, fileName -> "lib/${context.productProperties.presignedNativeLibs.getOrDefault(libName, libName)}/$fileName" },
-            )
-          }
+          packNativePresignedFiles(
+            nativeFiles = buildAssetResult.sourceToNativeFiles,
+            dryRun = dryRun,
+            context = context,
+            toRelativePath = { libName, fileName -> "lib/${context.productProperties.presignedNativeLibs.getOrDefault(libName, libName)}/$fileName" },
+          )
         }
 
         val list = mutableListOf<DistributionFileEntry>()
         val hasher = Hashing.xxh3_64().hashStream()
-        for (item in packager.assets.values) {
+        for (item in assets) {
           computeDistributionFileEntries(asset = item, hasher = hasher, list = list, dryRun = dryRun, buildAssetResult = buildAssetResult)
         }
         list
@@ -261,28 +283,148 @@ class JarPackager private constructor(
         continue
       }
 
+      // The second hand-off site. A jar the plugin's layout names itself holds members this loop packs, and the
+      // `<content>` loop above never sees them. `tomee-specifics.jar` and `junit-rt.jar` are two such jars. So a
+      // relation for one of them reaches the assembly only here. The one function serves both loops, so both offer a
+      // member on the same terms.
+      if (layout is PluginLayout &&
+          handOffPluginJarMember(
+            pluginLayout = layout,
+            moduleName = item.moduleName,
+            relativeOutputFile = item.relativeOutputFile,
+            searchableOptionSet = searchableOptionSet,
+          )) {
+        // Added exactly as a packed module is. `inferModuleSources` packs every module of an `auto` layout that this set
+        // does not hold, so a handed-off module missing from it would be packed a second time from its raw output.
+        addedModules.add(item.moduleName)
+        continue
+      }
+
       computeSourcesForModule(item, layout, searchableOptionSet)
       addedModules.add(item.moduleName)
     }
 
-    if (layout !is PluginLayout || !layout.auto) {
-      return
+    if (layout is PluginLayout && layout.auto) {
+      inferModuleSources(
+        layout = layout,
+        addedModules = addedModules,
+        platformLayout = platformLayout!!,
+        helper = helper,
+        jarPackager = this,
+        searchableOptionSet = searchableOptionSet,
+        context = context,
+      )
     }
 
-    inferModuleSources(
-      layout = layout,
-      addedModules = addedModules,
-      platformLayout = platformLayout!!,
-      helper = helper,
-      jarPackager = this,
-      searchableOptionSet = searchableOptionSet,
-      context = context,
+    if (layout is PluginLayout) {
+      validatePrepackedPluginContent(layout)
+    }
+
+    checkImplicitProjectLibraries(layout)
+  }
+
+  /**
+   * Offers one module of one destination to a relation, and answers whether the relation took it.
+   *
+   * Both member loops call it: the `<content>` loop of `computeModuleSourcesByContent`, and the `includedModules` loop
+   * above. A relation names the whole member list of its jar, so a jar of several members is offered once per member and
+   * the assembly stops packing every one of them.
+   */
+  internal fun handOffPluginJarMember(
+    pluginLayout: PluginLayout,
+    moduleName: String,
+    relativeOutputFile: String,
+    searchableOptionSet: SearchableOptionSetDescriptor?,
+  ): Boolean {
+    // The destination the layout picked, so a relation is offered the jar it named and no other. A relation the layout
+    // sends somewhere else is not found here, and `validatePrepackedPluginContent` then fails the build over it: the
+    // relation stays in `expected` and reaches `actual` through nothing.
+    val key = PrepackedPluginContentKey(pluginMainModule = pluginLayout.mainModule, relativeOutputFile = relativeOutputFile)
+    val expected = prepackedPluginContent.get(key) ?: return false
+    val module = context.outputProvider.findRequiredModule(moduleName)
+    validatePrepackedPluginContentHandoff(
+      expected = expected,
+      actualContentModule = moduleName,
+      hasModuleExclusions = !pluginLayout.moduleExcludes.get(moduleName).isNullOrEmpty(),
+      hasPatchedOutput = moduleOutputPatcher.patchCount(moduleName) != 0,
+      // The plugin's descriptor lands in the jar of the main module, which is the layout's main jar. Both patch
+      // channels count: a produced descriptor is a file patch and a computed one is a byte patch, and the hand-off
+      // drops either.
+      hasPatchedDescriptor = relativeOutputFile == pluginLayout.getMainJarName() &&
+                             moduleOutputPatcher.hasPatch(pluginLayout.mainModule, PLUGIN_XML_RELATIVE_PATH),
+      hasGeneratedSearchableOptions = !searchableOptionSet?.createSourceByModule(moduleName).isNullOrEmpty(),
+      // The JPS model's declared paths, not the resolved jars. `isSeparateLibraryJar` is a pure name predicate and this
+      // is a guard, so a name is all it needs - and the two agree: a Maven library's Bazel jar target is named
+      // `<artifact>-<version>.jar`, which is the file name of its Maven path too, and a local library's jar keeps its
+      // own name on both sides. Resolving instead made a *guard* declare the library jars of every handed-off module as
+      // fragment inputs, which is how `slf4j-api` became an input of the Kotlin plugin fragment.
+      hasSeparateLibraryJar = helper.getLibraryDependencies(module, withTests = false).any { dependency ->
+        val library = dependency.library ?: return@any false
+        library.getPaths(JpsOrderRootType.COMPILED).any { isSeparateLibraryJar(it.fileName.toString()) }
+      },
+      hasLayoutPlacedModuleLibrary = pluginLayout.includedModuleLibraries.any { it.moduleName == moduleName },
+      isTestPluginModule = helper.isTestPluginModule(moduleName, module),
     )
+    val claimed = claimedPrepackedMembers.get(key)
+    if (claimed == null) {
+      // `assets.size` is the index `getJarAsset` would have given this jar. `computeSourcesForModule` never runs for a
+      // handed-off module, and that function creates this jar's asset first. The passes that would create a *second*
+      // asset are all refused above, `hasSeparateLibraryJar` among them, so no later hand-off's ordinal shifts.
+      //
+      // Recorded at the *first* member of the jar and at no later one. One jar is one asset, whichever member the
+      // assembly offers next, so a second record would both place the jar twice and shift every ordinal after it. See
+      // [AssembledPrepackedPluginContentJar].
+      prepackedContentJars.add(AssembledPrepackedPluginContentJar(jar = expected, assetOrdinal = assets.size))
+      claimedPrepackedMembers.put(key, mutableListOf(moduleName))
+    }
+    else {
+      claimed.add(moduleName)
+    }
+    return true
+  }
+
+  private fun validatePrepackedPluginContent(layout: PluginLayout) {
+    validatePrepackedPluginContentClaims(
+      pluginMainModule = layout.mainModule,
+      expected = prepackedPluginContent.filterKeys { it.pluginMainModule == layout.mainModule },
+      claimed = prepackedContentJars.associate { it.jar.key to claimedPrepackedMembers.getValue(it.jar.key) },
+    )
+  }
+
+  /**
+   * A project library referenced by a plugin module, but neither provided by the platform nor by a library module,
+   * would be silently missing from the distribution - fail the build instead, listing everything to be converted.
+   */
+  private fun checkImplicitProjectLibraries(layout: BaseLayout?) {
+    check(implicitProjectLibraryViolations.isEmpty()) {
+      "Project libraries used by modules of $layout must be converted to content modules:\n" +
+      implicitProjectLibraryViolations.entries.joinToString(separator = "\n") { (libraryName, moduleNames) ->
+        "  '$libraryName' used by " + moduleNames.joinToString { "'$it'" }
+      }
+    }
+  }
+
+  /**
+   * `true` if [libName] reaches [module] without being packaged for it: the platform provides it (as a library or as a library module),
+   * the plugin declares it explicitly, another module of the same group brings it (the same check the collection above does),
+   * or a library module for it exists, so `LibraryModuleValidator` is the one to make this module depend on that module.
+   */
+  private fun isProjectLibraryProvided(libName: String, layout: BaseLayout, module: JpsModule, withTests: Boolean): Boolean {
+    return platformLayout == null ||
+           platformLayout.hasLibrary(libName, module.name) ||
+           layout.hasLibrary(libName) ||
+           context.outputProvider.getProjectLibraryToModuleMap().containsKey(libName) ||
+           helper.hasLibraryInDependencyChainOfModuleDependencies(
+             dependentModule = module,
+             libraryName = libName,
+             siblings = layout.includedModules,
+             withTests = withTests,
+           )
   }
 
   internal suspend fun computeSourcesForModule(item: ModuleItem, layout: BaseLayout?, searchableOptionSet: SearchableOptionSetDescriptor?) {
     val moduleName = item.moduleName
-    val patchedContent = moduleOutputPatcher.getPatchedContent(moduleName)
+    val patchedSources = moduleOutputPatcher.getPatchedSources(moduleName)
 
     val module = context.outputProvider.findRequiredModule(moduleName)
     val useTestModuleOutput = helper.isTestPluginModule(moduleName, module)
@@ -293,7 +435,11 @@ class JarPackager private constructor(
     val packToDir = context.options.isUnpackedDist &&
                     !item.relativeOutputFile.contains('/') &&
                     !item.isProductModule() &&
-                    (patchedContent.isEmpty() || (patchedContent.size == 1 && patchedContent.containsKey("META-INF/plugin.xml"))) &&
+                    // Over both patch channels. A produced plugin descriptor is a file patch, and this asks how many
+                    // paths the jar carries that the module output does not hold, which is the same question either way.
+                    (moduleOutputPatcher.patchCount(moduleName) == 0 ||
+                     (moduleOutputPatcher.patchCount(moduleName) == 1 &&
+                      moduleOutputPatcher.hasPatch(moduleName, PLUGIN_XML_RELATIVE_PATH))) &&
                     extraExcludes.isEmpty() &&
                     moduleOutputRoots.isNotEmpty()
 
@@ -311,11 +457,14 @@ class JarPackager private constructor(
 
     val moduleSources = asset.includedModules.computeIfAbsent(item) { mutableListOf() }
 
-    for ((relativePath, data) in patchedContent) {
+    // One loop over both kinds of patch, in the order the patcher recorded them. That order reaches the jar, so a loop
+    // per kind re-orders a module which states both and changes the jar's `__index__` while every entry stays
+    // byte-identical.
+    for ((relativePath, source) in patchedSources) {
       if (layout is PluginLayout && moduleName != layout.mainModule && relativePath == "META-INF/plugin.xml") {
         continue
       }
-      moduleSources.add(InMemoryContentSource(relativePath, data))
+      moduleSources.add(source)
     }
 
     val jarAsset = lazy(LazyThreadSafetyMode.NONE) {
@@ -358,7 +507,7 @@ class JarPackager private constructor(
     }
   }
 
-  private suspend fun handleCustomAssets(layout: PluginLayout, jarAsset: Lazy<AssetDescriptor>) {
+  private fun handleCustomAssets(layout: PluginLayout, jarAsset: Lazy<AssetDescriptor>) {
     for (customAsset in layout.customAssets) {
       if (customAsset.platformSpecific != null) {
         continue
@@ -380,7 +529,7 @@ class JarPackager private constructor(
     }
   }
 
-  private suspend fun addSearchableOptionSources(
+  private fun addSearchableOptionSources(
     layout: BaseLayout?,
     moduleName: String,
     module: JpsModule,
@@ -417,49 +566,54 @@ class JarPackager private constructor(
     withTests: Boolean,
   ) {
     val moduleName = module.name
-    val includeProjectLib = if (layout is PluginLayout) layout.auto else item.isProductModule()
+    // `auto` used to mean "collect every project library of every module of this plugin" - now only a library module does it,
+    // everything else must be provided by the platform, by a library module, or declared explicitly in the plugin layout
+    val isAutoPlugin = layout is PluginLayout && layout.auto
+    val includeProjectLib = if (layout is PluginLayout) isAutoPlugin && moduleName.startsWith(LIB_MODULE_PREFIX) else item.isProductModule()
 
-    val excluded = if (layout is PluginLayout) (layout.excludedLibraries.get(moduleName) ?: emptyList()) + (layout.excludedLibraries.get(null) ?: emptyList()) else emptySet()
+    val excludedModuleLibraries = if (layout is PluginLayout) layout.excludedModuleLibraries.get(moduleName) ?: emptyList() else emptyList()
+    val excludedProjectLibraries = if (layout is PluginLayout) layout.excludedProjectLibraries else emptySet()
     for (element in helper.getLibraryDependencies(module, withTests = withTests)) {
-      var projectLibraryData: ProjectLibraryData? = null
       val libRef = element.libraryReference
-      if (libRef.parentReference !is JpsModuleReference) {
+      val isProjectLibrary = libRef.parentReference !is JpsModuleReference
+      val projectLibraryData: ProjectLibraryData?
+      if (isProjectLibrary) {
         val libName = libRef.libraryName
-        if (includeProjectLib) {
-          if (platformLayout!!.hasLibrary(libName, moduleName) || layout.hasLibrary(libName)) {
-            continue
-          }
-
-          if (helper.hasLibraryInDependencyChainOfModuleDependencies(dependentModule = module, libraryName = libName, siblings = layout.includedModules, withTests = withTests)) {
-            continue
-          }
-
-          if (layout !is PluginLayout && item.isProductModule()) {
-            projectLibraryData = ProjectLibraryData(libraryName = libName, owner = item, reason = null)
-          }
-          else {
-            projectLibraryData = ProjectLibraryData(libraryName = libName, reason = "<- $moduleName", owner = item)
-          }
-        }
-        else if (platformLayout != null && platformLayout.isLibraryAlwaysPackedIntoPlugin(libName)) {
-          platformLayout.findProjectLibrary(libName)?.let {
-            throw IllegalStateException("Library $libName must not be included into platform layout: $it")
-          }
-
-          if (layout.hasLibrary(libName)) {
-            continue
-          }
-
-          projectLibraryData = ProjectLibraryData(libraryName = libName, reason = "<- $moduleName (always packed into plugin)", owner = item)
-        }
-        else {
+        if (excludedProjectLibraries.contains(libName)) {
           continue
         }
+
+        if (!includeProjectLib && !(isAutoPlugin && IMPLICIT_PLUGIN_PROJECT_LIBRARY_ALLOWLIST.contains(libName))) {
+          if (isAutoPlugin &&
+              !isProjectLibraryProvided(libName = libName, layout = layout, module = module, withTests = withTests)) {
+            implicitProjectLibraryViolations.computeIfAbsent(libName) { TreeSet() }.add(moduleName)
+          }
+          continue
+        }
+
+        if (platformLayout!!.hasLibrary(libName, moduleName) || layout.hasLibrary(libName)) {
+          continue
+        }
+
+        if (helper.hasLibraryInDependencyChainOfModuleDependencies(dependentModule = module, libraryName = libName, siblings = layout.includedModules, withTests = withTests)) {
+          continue
+        }
+
+        projectLibraryData = if (layout !is PluginLayout && item.isProductModule()) {
+          ProjectLibraryData(libraryName = libName, owner = item, reason = null)
+        }
+        else {
+          ProjectLibraryData(libraryName = libName, reason = "<- $moduleName", owner = item)
+        }
+      }
+      else {
+        projectLibraryData = null
       }
 
       val library = requireNotNull(element.library) { "cannot find $libRef" }
       val libraryName = getLibraryFileName(library)
-      if (excluded.contains(libraryName) || layout.includedModuleLibraries.any { it.libraryName == libraryName && !it.extraCopy }) {
+      if ((!isProjectLibrary && excludedModuleLibraries.contains(libraryName)) ||
+          layout.includedModuleLibraries.any { it.libraryName == libraryName && !it.extraCopy }) {
         continue
       }
 
@@ -524,7 +678,7 @@ class JarPackager private constructor(
     projectLibraryData: ProjectLibraryData?,
     library: JpsLibrary,
   ) {
-    val libraryName = getLibraryFilename(library)
+    val libraryName = getLibraryFileName(library)
     val mavenPaths = library.getPaths(JpsOrderRootType.COMPILED).map { toCanonicalReportPath(it, context.paths) }
     for (file in files) {
       val canonicalPath = getCanonicalPath(mavenPaths, file)
@@ -544,6 +698,7 @@ class JarPackager private constructor(
                 hash = hash,
                 relativeOutputFile = item.relativeOutputFile,
                 owner = item,
+                distributionPath = asset.file,
               )
             }
             else {
@@ -555,6 +710,7 @@ class JarPackager private constructor(
                 hash = hash,
                 size = size,
                 relativeOutputFile = item.relativeOutputFile,
+                distributionPath = asset.file,
               )
             }
           },
@@ -566,11 +722,8 @@ class JarPackager private constructor(
     }
   }
 
-  private fun computeModuleCustomLibrarySources(layout: BaseLayout) {
+  private fun computeModuleCustomLibrarySources(layout: BaseLayout, assetFilter: DistributionAssetFilter?) {
     for (item in layout.includedModuleLibraries) {
-      val library = context.outputProvider.findRequiredModule(item.moduleName).libraryCollection.libraries.find { getLibraryFileName(it) == item.libraryName }
-                    ?: throw IllegalArgumentException("Cannot find library ${item.libraryName} in '${item.moduleName}' module")
-
       var relativePath = item.relativeOutputPath
       val targetFile: Path
       if (relativePath.endsWith(".jar")) {
@@ -590,38 +743,12 @@ class JarPackager private constructor(
         }
       }
 
+      if (assetFilter != null && !assetFilter.accept(relativePath)) continue
+      val library = context.outputProvider.findRequiredModule(item.moduleName).libraryCollection.libraries.find { getLibraryFileName(it) == item.libraryName }
+                    ?: throw IllegalArgumentException("Cannot find library ${item.libraryName} in '${item.moduleName}' module")
       val asset = getJarAsset(targetFile, relativePath)
       val files = copiedFiles.getLibraryFiles(library = library, targetFile = targetFile, outputProvider = context.outputProvider)
       filesToSourceWithMapping(asset = asset, files = files, library = library, relativeOutputFile = relativePath, projectLibraryData = null)
-    }
-  }
-
-  private fun mergeLibsByPredicate(
-    jarName: String,
-    libraryToMerge: MutableMap<JpsLibrary, List<Path>>,
-    outputDir: Path,
-    predicate: (String) -> Boolean,
-  ) {
-    val result = LinkedHashMap<JpsLibrary, List<Path>>()
-    val iterator = libraryToMerge.entries.iterator()
-    while (iterator.hasNext()) {
-      val (key, value) = iterator.next()
-      if (predicate(key.name)) {
-        iterator.remove()
-        result.put(key, value)
-      }
-    }
-    if (result.isEmpty()) {
-      return
-    }
-    projectLibsToSourceWithMappings(uberJarFile = outputDir.resolve(jarName), libraryToMerge = result)
-  }
-
-  private fun projectLibsToSourceWithMappings(uberJarFile: Path, libraryToMerge: Map<JpsLibrary, List<Path>>) {
-    val descriptor = getJarAsset(targetFile = uberJarFile, relativeOutputFile = "")
-    for ((library, files) in libraryToMerge) {
-      val projectLibraryData = libToMetadata.get(library) ?: throw IllegalStateException("Metadata not found for ${library.name}")
-      filesToSourceWithMapping(asset = descriptor, files = files, library = library, relativeOutputFile = null, projectLibraryData = projectLibraryData)
     }
   }
 
@@ -629,39 +756,24 @@ class JarPackager private constructor(
     outDir: Path,
     layout: BaseLayout,
     copiedFiles: LibraryFileCopyTracker,
-  ): MutableMap<JpsLibrary, List<Path>> {
+    assetFilter: DistributionAssetFilter?,
+  ) {
     if (layout.includedProjectLibraries.isEmpty()) {
-      return LinkedHashMap()
+      return
     }
 
     val outputProvider = context.outputProvider
     val projectLibs = layout.includedProjectLibraries.sortedBy { it.libraryName }
-    val toMerge = LinkedHashMap<JpsLibrary, List<Path>>()
     for (libraryData in projectLibs) {
       val library = context.project.libraryCollection.findLibrary(libraryData.libraryName)
                     ?: throw IllegalArgumentException("Cannot find library ${libraryData.libraryName} in the project")
-      libToMetadata.put(library, libraryData)
       val libName = library.name
-      var packMode = libraryData.packMode
-      if (packMode == LibraryPackMode.MERGED) {
-        if (layout is PluginLayout) {
-          throw IllegalStateException("PackMode.MERGED is deprecated for plugins, please check why the library is marked as MERGED (libName=$libName, plugin=${layout.mainModule})")
-        }
-        else if (!predefinedMergeRules.any { it.second(libName) } && !isLibraryMergeable(libName)) {
-          packMode = LibraryPackMode.STANDALONE_MERGED
-        }
-      }
-
       val outPath = libraryData.outPath
-      if (packMode == LibraryPackMode.MERGED && outPath == null) {
-        toMerge.put(library, copiedFiles.getLibraryFiles(library = library, targetFile = null, outputProvider = outputProvider))
-        continue
-      }
-
       var libOutputDir = outDir
       if (outPath != null) {
         if (outPath.endsWith(".jar")) {
           val targetFile = outDir.resolve(outPath)
+          if (assetFilter != null && !assetFilter.accept(outPath)) continue
           val asset = getJarAsset(targetFile, outPath)
           val files = copiedFiles.getLibraryFiles(library = library, targetFile = targetFile, outputProvider = outputProvider)
           filesToSourceWithMapping(asset, files, library, outPath, libraryData)
@@ -676,9 +788,10 @@ class JarPackager private constructor(
         filesToSourceWithMapping(asset = asset, files = files, library = library, relativeOutputFile = relativeOutputFile, projectLibraryData = libraryData)
       }
 
-      if (packMode == LibraryPackMode.STANDALONE_MERGED) {
+      if (libraryData.packMode == LibraryPackMode.STANDALONE_MERGED) {
         val targetFile = libOutputDir.resolve(nameToJarFileName(libName))
-        val relativeOutputFile = if (outDir == libOutputDir) "" else outDir.relativize(targetFile).invariantSeparatorsPathString
+        val relativeOutputFile = outDir.relativize(targetFile).invariantSeparatorsPathString
+        if (assetFilter != null && !assetFilter.accept(relativeOutputFile)) continue
         addLibrary(
           targetFile = targetFile,
           relativeOutputFile = relativeOutputFile,
@@ -686,19 +799,14 @@ class JarPackager private constructor(
         )
       }
       else {
+        if (assetFilter != null && !assetFilter.accept(nameToJarFileName(libName))) continue
         for (file in getLibraryRoots(library, outputProvider)) {
-          var fileName = file.fileName.toString()
-          if (packMode == LibraryPackMode.STANDALONE_SEPARATE_WITHOUT_VERSION_NAME) {
-            fileName = removeVersionFromJar(fileName)
-          }
-
-          val targetFile = libOutputDir.resolve(fileName)
-          val relativeOutputFile = if (outDir == libOutputDir) "" else outDir.relativize(targetFile).invariantSeparatorsPathString
+          val targetFile = libOutputDir.resolve(file.fileName.toString())
+          val relativeOutputFile = outDir.relativize(targetFile).invariantSeparatorsPathString
           addLibrary(targetFile = targetFile, relativeOutputFile = relativeOutputFile, files = listOf(file))
         }
       }
     }
-    return toMerge
   }
 
   private fun filesToSourceWithMapping(
@@ -734,19 +842,21 @@ class JarPackager private constructor(
                 hash = hash,
                 size = size,
                 relativeOutputFile = relativeOutputFile,
+                distributionPath = asset.file,
               )
             }
             else {
               ModuleLibraryFileEntry(
                 path = targetFile,
                 moduleName = moduleName,
-                libraryName = getLibraryFilename(library),
+                libraryName = getLibraryFileName(library),
                 libraryFile = file,
                 canonicalLibraryPath = canonicalPath,
                 size = size,
                 hash = hash,
                 relativeOutputFile = relativeOutputFile,
                 owner = ModuleItem(moduleName, relativeOutputFile = targetFile.fileName.toString(), reason = null),
+                distributionPath = asset.file,
               )
             }
           },
@@ -762,6 +872,100 @@ class JarPackager private constructor(
       AssetDescriptor(isDir = false, file = targetFile, relativePath = relativeOutputFile)
     }
   }
+}
+
+/**
+ * Fails the assembly when one plugin's relations and the jars its layout really offered do not match.
+ *
+ * The other half of the hand-off, and the half only a whole layout can answer. [validatePrepackedPluginContentHandoff]
+ * runs at every offer and sees one member, so it refuses the wrong module at a destination. This runs once the layout
+ * has offered everything, so it is the only place a *missing* member shows up.
+ *
+ * Two failures, and each one ships a wrong distribution. A key the layout never reached is a relation whose jar the
+ * composer places and no layout jar matches, which is how a stale destination reads. A member the layout never offered
+ * is a member the packing target merged and the fragment packs somewhere else, so the distribution holds it twice.
+ *
+ * [claimed] holds the members the layout offered for each jar a relation took, in offer order.
+ */
+@VisibleForTesting
+internal fun validatePrepackedPluginContentClaims(
+  pluginMainModule: String,
+  expected: Map<PrepackedPluginContentKey, PrepackedPluginContentJar>,
+  claimed: Map<PrepackedPluginContentKey, List<String>>,
+) {
+  check(claimed.keys == expected.keys) {
+    "Prepacked plugin content of $pluginMainModule does not match its descriptor/layout:" +
+    " missing ${(expected.keys - claimed.keys).sortedBy(PrepackedPluginContentKey::relativeOutputFile)}," +
+    " unexpected ${(claimed.keys - expected.keys).sortedBy(PrepackedPluginContentKey::relativeOutputFile)}"
+  }
+  for ((key, jar) in expected) {
+    val members = claimed.getValue(key)
+    check(members.toSet() == jar.contentModules.toSet()) {
+      "Prepacked plugin content ${key.pluginMainModule}/${key.relativeOutputFile} packs ${jar.contentModules.sorted()}," +
+      " and the layout offered ${members.sorted()}"
+    }
+  }
+}
+
+/**
+ * Taking a prepacked jar means [JarPackager.computeSourcesForModule] never runs for that module, so everything that function
+ * would have done is silently dropped, not merely done elsewhere. The generator that picks the relation cannot see any of these facts,
+ * hence the assembler - the one place that knows both sides - refuses the handoff instead of shipping a quietly different plugin.
+ */
+@VisibleForTesting
+internal fun validatePrepackedPluginContentHandoff(
+  expected: PrepackedPluginContentJar,
+  actualContentModule: String,
+  hasModuleExclusions: Boolean,
+  hasPatchedOutput: Boolean,
+  hasPatchedDescriptor: Boolean,
+  hasGeneratedSearchableOptions: Boolean,
+  hasSeparateLibraryJar: Boolean,
+  hasLayoutPlacedModuleLibrary: Boolean,
+  isTestPluginModule: Boolean,
+) {
+  val relation = "${expected.pluginMainModule}/${expected.relativeOutputFile}"
+  // The relation is found by its destination, so the destination always agrees. What can disagree is the member: the
+  // layout can send another module of the same plugin to this destination, and the packed jar holds the members the
+  // relation names. Such a hand-off would drop one module and pack another one twice.
+  //
+  // Membership and not equality, because one jar holds several members and the assembly offers them one at a time.
+  // `validatePrepackedPluginContent` is what then asserts that every member of the relation was offered.
+  check(expected.contentModules.contains(actualContentModule)) {
+    "Prepacked plugin content $relation packs ${expected.contentModules}, but JarPackager offered '$actualContentModule'"
+  }
+  check(!hasModuleExclusions) { "Prepacked plugin content $relation has module exclusions" }
+  check(!hasPatchedOutput) { "Prepacked plugin content $relation has patched module output" }
+  // The plugin's `META-INF/plugin.xml` reaches the jar through `computeSourcesForModule`, and a hand-off is exactly the
+  // case where that function never runs. So a handed-off jar would ship without its descriptor whichever patch channel
+  // holds it, and no byte gate would see it: `dev-dist.cmd jars` compares the action's output against the `JarPackager`
+  // jar, and neither holds the descriptor. The failure surfaces at IDE start.
+  //
+  // `hasPatchedOutput` asks about one module. This clause asks about the jar, because a relation keyed by a jar can name
+  // a jar whose descriptor comes from another module of the same plugin.
+  //
+  // A produced descriptor is a file, so a packing action *could* hold it. Lifting this refusal for that case is a
+  // change to what the packing action declares, and it needs its own gate. It is not a consequence of the channel.
+  check(!hasPatchedDescriptor) {
+    "Prepacked plugin content $relation would replace a jar which receives a patched $PLUGIN_XML_RELATIVE_PATH"
+  }
+  check(!hasGeneratedSearchableOptions) { "Prepacked plugin content $relation has generated searchable options" }
+  // `computeSourcesForModuleLibs` lifts every `isSeparateLibraryJar` file out of the module jar into its own `lib/<name>.jar`. That call
+  // sits inside `computeSourcesForModule`, so for a handed-off module the sibling jar is never written at all - while the module jar it
+  // would have been lifted out of stays byte-identical, which is why no comparison of the jar can notice. The file name is the signal here,
+  // not the dependency: a COMPILE-scope library is the norm rather than a symptom - `kotlin-stdlib` is in
+  // `LAYOUT_PACKED_PROJECT_LIBRARIES`, the platform packs it and it contributes nothing to this jar - and vetoing on any library dependency
+  // at all would refuse 12.9 % of the relations the generator legitimately selects.
+  check(!hasSeparateLibraryJar) { "Prepacked plugin content $relation has a library jar packed beside the module jar" }
+  // `withModuleLibrary` makes the plugin layout, not the module, decide where one of this module's libraries lands. With `extraCopy` it is
+  // packed into the module jar *as well as* beside it - a copy a prepacked jar simply does not have. Without it,
+  // `computeSourcesForModuleLibs` is what keeps the library out of the module jar, so the jar's contents hinge on a layout entry the
+  // generator never reads. Both are refused rather than told apart: the entries are hand-written per module, and which of the two a given
+  // one is says nothing about whether a Bazel-packed jar may stand in for it.
+  check(!hasLayoutPlacedModuleLibrary) { "Prepacked plugin content $relation has a module library placed by the plugin layout" }
+  // A test plugin module is packed from its *test* output and with directory entries; `PackContentModuleJar` merges the production jar
+  // and has no such flag, so the handed-off bytes would be wrong rather than just differently placed.
+  check(!isTestPluginModule) { "Prepacked plugin content $relation is a test plugin module" }
 }
 
 private fun getCanonicalPath(mavenPaths: List<String>, file: Path): String {
@@ -800,26 +1004,6 @@ private data class AssetDescriptor(
   val includedModules = Reference2ObjectLinkedOpenHashMap<ModuleItem, MutableList<Source>>()
 }
 
-@Suppress("SpellCheckingInspection", "RedundantSuppression")
-private val excludedFromMergeLibs = setOf(
-  "async-profiler",
-  "dexlib2", // android-only lib
-  "intellij-test-discovery", // used as an agent
-  "protobuf", // https://youtrack.jetbrains.com/issue/IDEA-268753
-)
-
-private fun isLibraryMergeable(libName: String): Boolean {
-  return !excludedFromMergeLibs.contains(libName) &&
-         !(libName.startsWith("kotlin-") && !libName.startsWith("kotlin-test-")) &&
-         !libName.startsWith("kotlinc.") &&
-         !libName.contains("-agent-") &&
-         !libName.startsWith("rd-") &&
-         !libName.contains("annotations", ignoreCase = true) &&
-         !libName.startsWith("junit", ignoreCase = true) &&
-         !libName.startsWith("cucumber-", ignoreCase = true) &&
-         !libName.contains("groovy", ignoreCase = true)
-}
-
 internal val commonModuleExcludes: List<PathMatcher> = FileSystems.getDefault().let { fs ->
   listOf(
     fs.getPathMatcher("glob:**/icon-robots.txt"),
@@ -855,7 +1039,7 @@ private suspend fun buildJars(
     return emptyBuildJarsResult()
   }
 
-  val list = assets.mapConcurrent(workerDispatcher = Dispatchers.IO) { asset ->
+  val list = assets.mapConcurrent { asset ->
     withContext(CoroutineName("build jar for ${asset.relativePath}")) {
       buildAsset(
         asset = asset,
@@ -944,6 +1128,13 @@ private suspend fun buildAsset(
 ): BuildAssetResult {
   val includedModules = asset.includedModules
   if (asset.isDir) {
+    DevDistRecipe.record(
+      outputFile = asset.file,
+      isDir = true,
+      sources = includedModules.values.flatten(),
+      includedModules = includedModules.keys,
+      layout = layout,
+    )
     val sourceToMetadata = HashMap<Source, SizeAndHash>()
     for (sources in includedModules.values) {
       for (source in sources) {
@@ -985,6 +1176,17 @@ private suspend fun buildAsset(
     sources
   }
 
+  // The merged list, not the two collections it came from: this is the order the jar writer and the jar cache use, so
+  // it is the only order a recipe of this run can state. Recorded before the early return below, because an output with
+  // no sources is a fact about the run too.
+  DevDistRecipe.record(
+    outputFile = asset.file,
+    isDir = false,
+    sources = sources,
+    includedModules = includedModules.keys,
+    layout = layout,
+  )
+
   if (sources.isEmpty()) {
     return emptyBuildJarsResult()
   }
@@ -995,8 +1197,13 @@ private suspend fun buildAsset(
   val file = asset.file
   spanBuilder("build jar")
     .setAttribute("jar", file.toString())
-    .setAttribute(AttributeKey.stringArrayKey("sources"), sources.map(Source::toString))
     .use { span ->
+      // Behind `isRecording`, because a builder argument is evaluated whatever the tracer does with it. A packaging
+      // suite installs a no-op tracer and still builds every jar, so this list would be formatted and dropped more
+      // than 14 000 times per run.
+      if (span.isRecording) {
+        span.setAttribute(AttributeKey.stringArrayKey("sources"), sources.map(Source::toString))
+      }
       asset.effectiveFile = cache.computeIfAbsent(
         sources = sources,
         targetFile = file,
@@ -1113,7 +1320,7 @@ private class NativeFileHandlerImpl(private val context: BuildContext) : NativeF
   }
 }
 
-suspend fun buildJar(targetFile: Path, moduleNames: List<String>, context: CompilationContext, dryRun: Boolean = false) {
+suspend fun buildJar(targetFile: Path, moduleNames: List<String>, context: CompilationContext, dryRun: Boolean = false, forTests: Boolean = false) {
   if (dryRun) {
     return
   }
@@ -1123,7 +1330,7 @@ suspend fun buildJar(targetFile: Path, moduleNames: List<String>, context: Compi
       targetFile = targetFile,
       sources = moduleNames.flatMap { moduleName ->
         val module = context.outputProvider.findRequiredModule(moduleName)
-        context.outputProvider.getModuleOutputRoots(module).mapNotNull { output ->
+        context.outputProvider.getModuleOutputRoots(module, forTests).mapNotNull { output ->
           createModuleSource(module = module, outputDir = output, excludes = commonModuleExcludes)
         }
       },
@@ -1183,6 +1390,7 @@ private fun computeDistributionFileEntries(
         hash = hash,
         relativeOutputFile = module.relativeOutputFile,
         reason = module.reason,
+        distributionPath = asset.file,
       )
     )
   }
@@ -1192,7 +1400,7 @@ private fun computeDistributionFileEntries(
       source.distributionFileEntryProducer?.consume(size = 0, hash = 0, targetFile = asset.effectiveFile)?.let(list::add)
     }
     else if (source is LazySource) {
-      list.add(CustomAssetEntry(path = asset.effectiveFile, hash = 0))
+      list.add(CustomAssetEntry(path = asset.effectiveFile, hash = 0, distributionPath = asset.file))
     }
   }
 }

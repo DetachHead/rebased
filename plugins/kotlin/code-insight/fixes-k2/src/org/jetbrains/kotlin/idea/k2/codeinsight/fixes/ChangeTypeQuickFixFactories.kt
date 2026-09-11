@@ -9,35 +9,45 @@ import com.intellij.modcommand.ModPsiUpdater
 import com.intellij.modcommand.Presentation
 import com.intellij.psi.util.parentOfType
 import com.intellij.util.containers.addIfNotNull
-import org.jetbrains.kotlin.analysis.api.KaExperimentalApi
 import org.jetbrains.kotlin.analysis.api.KaSession
-import org.jetbrains.kotlin.analysis.api.analyze
 import org.jetbrains.kotlin.analysis.api.components.KaDiagnosticCheckerFilter
-import org.jetbrains.kotlin.analysis.api.components.allOverriddenSymbols
-import org.jetbrains.kotlin.analysis.api.components.commonSupertype
-import org.jetbrains.kotlin.analysis.api.components.expressionType
-import org.jetbrains.kotlin.analysis.api.components.isUnitType
-import org.jetbrains.kotlin.analysis.api.components.resolveSymbol
-import org.jetbrains.kotlin.analysis.api.components.typeCreator
+import org.jetbrains.kotlin.analysis.api.components.directDiagnostics
+import org.jetbrains.kotlin.analysis.api.components.returnType
 import org.jetbrains.kotlin.analysis.api.diagnostics.KaDiagnosticWithPsi
+import org.jetbrains.kotlin.analysis.api.expressions.expressionType
 import org.jetbrains.kotlin.analysis.api.fir.diagnostics.KaFirDiagnostic
+import org.jetbrains.kotlin.analysis.api.renderer.render
 import org.jetbrains.kotlin.analysis.api.renderer.types.impl.KaTypeRendererForSource
-import org.jetbrains.kotlin.analysis.api.resolution.KaCallInfo
-import org.jetbrains.kotlin.analysis.api.resolution.successfulFunctionCallOrNull
-import org.jetbrains.kotlin.analysis.api.resolution.successfulVariableAccessCall
+import org.jetbrains.kotlin.analysis.api.resolution.KaSimpleOrMultiCall
+import org.jetbrains.kotlin.analysis.api.resolution.function
+import org.jetbrains.kotlin.analysis.api.resolution.resolveSuccessfulCall
+import org.jetbrains.kotlin.analysis.api.resolution.resolveSuccessfulSymbol
 import org.jetbrains.kotlin.analysis.api.resolution.symbol
+import org.jetbrains.kotlin.analysis.api.resolution.variable
+import org.jetbrains.kotlin.analysis.api.scopes.memberScope
+import org.jetbrains.kotlin.analysis.api.session.analyze
 import org.jetbrains.kotlin.analysis.api.symbols.KaCallableSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaConstructorSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaNamedFunctionSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaPropertySymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaSamConstructorSymbol
+import org.jetbrains.kotlin.analysis.api.symbols.allOverriddenSymbols
 import org.jetbrains.kotlin.analysis.api.symbols.markers.KaDeclarationContainerSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.psiSafe
 import org.jetbrains.kotlin.analysis.api.symbols.symbol
 import org.jetbrains.kotlin.analysis.api.types.KaClassType
 import org.jetbrains.kotlin.analysis.api.types.KaErrorType
 import org.jetbrains.kotlin.analysis.api.types.KaFunctionType
+import org.jetbrains.kotlin.analysis.api.types.KaStandardTypeClassIds
 import org.jetbrains.kotlin.analysis.api.types.KaType
+import org.jetbrains.kotlin.analysis.api.types.approximateToDenotableSupertypeOrSelf
+import org.jetbrains.kotlin.analysis.api.types.builtinTypes
+import org.jetbrains.kotlin.analysis.api.types.classId
+import org.jetbrains.kotlin.analysis.api.types.commonSupertype
+import org.jetbrains.kotlin.analysis.api.types.restore
+import org.jetbrains.kotlin.analysis.api.types.semanticallyEquals
+import org.jetbrains.kotlin.analysis.api.types.typeCreation.typeCreator
+import org.jetbrains.kotlin.analysis.api.types.withNullability
 import org.jetbrains.kotlin.config.LanguageVersion
 import org.jetbrains.kotlin.idea.base.projectStructure.languageVersionSettings
 import org.jetbrains.kotlin.idea.base.resources.KotlinBundle
@@ -51,6 +61,7 @@ import org.jetbrains.kotlin.idea.quickfix.ChangeTypeFixUtils
 import org.jetbrains.kotlin.idea.quickfix.NumberConversionFix
 import org.jetbrains.kotlin.idea.references.mainReference
 import org.jetbrains.kotlin.name.Name
+import org.jetbrains.kotlin.name.StandardClassIds
 import org.jetbrains.kotlin.psi.KtBinaryExpression
 import org.jetbrains.kotlin.psi.KtCallableDeclaration
 import org.jetbrains.kotlin.psi.KtClassOrObject
@@ -76,6 +87,7 @@ import org.jetbrains.kotlin.psi.KtReturnExpression
 import org.jetbrains.kotlin.psi.psiUtil.collectDescendantsOfType
 import org.jetbrains.kotlin.psi.psiUtil.getParentOfType
 import org.jetbrains.kotlin.psi.psiUtil.isNull
+import org.jetbrains.kotlin.resolution.KtResolvableCall
 import org.jetbrains.kotlin.types.Variance
 
 internal object ChangeTypeQuickFixFactories {
@@ -125,15 +137,13 @@ internal object ChangeTypeQuickFixFactories {
         getSuperCallableSymbol = { it.superVariable as KaPropertySymbol },
     )
 
-    @OptIn(KaExperimentalApi::class)
     context(session: KaSession)
     private fun getActualType(ktType: KaType, position: KtElement): KaType {
-        return ktType.toFunctionType() ?: with(session) { ktType.approximateToDenotableSupertypeOrSelf(position) } ?: ktType
+        return ktType.toFunctionType() ?: ktType.approximateToDenotableSupertypeOrSelf(position)
     }
 
-    @OptIn(KaExperimentalApi::class)
     context(_: KaSession)
-    private fun KtElement.returnType(candidateType: KaType): KaType {
+    private fun KtElement.returnTypeWithCandidate(candidateType: KaType): KaType {
         val (initializers, functionOrGetter) = when (this) {
             is KtNamedFunction -> listOfNotNull(this.initializer) to this
             is KtProperty -> listOfNotNull(this.initializer, this.getter?.initializer) to this.getter
@@ -143,7 +153,7 @@ internal object ChangeTypeQuickFixFactories {
         val returnedExpressions = if (functionOrGetter != null) {
             val declarationSymbol = functionOrGetter.symbol
             functionOrGetter
-                .collectDescendantsOfType<KtReturnExpression> { it.resolveSymbol() == declarationSymbol }
+                .collectDescendantsOfType<KtReturnExpression> { it.resolveSuccessfulSymbol() == declarationSymbol }
                 .mapNotNull { it.returnedExpression }
                 .plus(initializers)
         } else {
@@ -158,17 +168,16 @@ internal object ChangeTypeQuickFixFactories {
         val returnTypes = buildList {
             addAll(returnedExpressions.mapNotNull { returnExpr ->
                 val propertyInitializerType = property?.getPropertyInitializerType()
-                (propertyInitializerType ?: returnExpr.expressionType)?.let { getActualType(it, this@returnType) }
+                (propertyInitializerType ?: returnExpr.expressionType)?.let { getActualType(it, this@returnTypeWithCandidate) }
                     ?.takeUnless { it is KaErrorType }
             })
-            if (!candidateType.isUnitType) {
+            if (candidateType.classId != KaStandardTypeClassIds.UNIT) {
                 add(candidateType)
             }
         }.distinct()
         return if (returnTypes.isNotEmpty()) returnTypes.commonSupertype else candidateType
     }
 
-    @OptIn(KaExperimentalApi::class)
     context(session: KaSession)
     private fun KtProperty.getPropertyInitializerType(): KaType? {
         val initializer = initializer
@@ -180,9 +189,7 @@ internal object ChangeTypeQuickFixFactories {
             // converting a type to a pointer and back can be used
 
             val typePointer = analyze(newExpression) { newExpression.expressionType?.createPointer() }
-            with(session) {
-                typePointer?.restore()
-            }
+            typePointer?.restore()
         } else null
     }
 
@@ -204,7 +211,7 @@ internal object ChangeTypeQuickFixFactories {
                         UpdateTypeQuickFix(
                             declaration,
                             if (element is KtPropertyAccessor) TargetType.VARIABLE else TargetType.ENCLOSING_DECLARATION,
-                            createTypeInfo(element.returnType(getActualType(actualType, declaration)))
+                            createTypeInfo(element.returnTypeWithCandidate(getActualType(actualType, declaration)))
                         )
                     )
                 }
@@ -238,11 +245,8 @@ internal object ChangeTypeQuickFixFactories {
             return null
 
         val candidateType = getActualType(newExpressionType, enclosingDeclaration)
-        val ktType = enclosingDeclaration.returnType(candidateType)
-        val typeInfo =
-            with(session) {
-                createTypeInfo(ktType)
-            }
+        val ktType = enclosingDeclaration.returnTypeWithCandidate(candidateType)
+        val typeInfo = createTypeInfo(ktType)
 
         val target =
             if (lambdaDeclarationIsProperty) enclosingDeclaration.property else enclosingDeclaration as KtCallableDeclaration
@@ -253,12 +257,13 @@ internal object ChangeTypeQuickFixFactories {
         return UpdateTypeQuickFix(target, targetType, typeInfo)
     }
 
-    internal fun KaSession.createTypeFixesForCalledDeclaration(
+    context(session: KaSession)
+    internal fun createTypeFixesForCalledDeclaration(
         expression: KtExpression,
         expectedType: KaType,
         actualType: KaType
     ): List<ModCommandAction> {
-        val resolvedCall = expression.resolveToCall() ?: return emptyList()
+        val resolvedCall = (expression as? KtResolvableCall)?.resolveSuccessfulCall() ?: return emptyList()
 
         if (!isResolvableInScope(expectedType, expression, mutableSetOf())) return emptyList()
         return buildList {
@@ -273,19 +278,19 @@ internal object ChangeTypeQuickFixFactories {
         return this.allOverriddenSymbols.toSet().size <= 1
     }
 
-    private fun KaSession.createUpdateTypeFixForCalledFunction(
-        resolvedCall: KaCallInfo,
+    context(session: KaSession)
+    private fun createUpdateTypeFixForCalledFunction(
+        resolvedCall: KaSimpleOrMultiCall,
         expectedType: KaType
     ): UpdateTypeQuickFix<KtCallableDeclaration>? {
-        val callable = resolvedCall.successfulFunctionCallOrNull()?.symbol ?: return null
+        val functionSymbol = resolvedCall.function?.symbol ?: return null
         // We can't change the constructor type
-        if (callable is KaConstructorSymbol || callable is KaSamConstructorSymbol) return null
-        if (!callable.isSafeForChangeTypeFix()) return null
-        val calledFunction = callable.psi as? KtCallableDeclaration ?: return null
+        if (functionSymbol is KaConstructorSymbol || functionSymbol is KaSamConstructorSymbol) return null
+        if (!functionSymbol.isSafeForChangeTypeFix()) return null
+        val calledFunction = functionSymbol.psi as? KtCallableDeclaration ?: return null
         return UpdateTypeQuickFix(calledFunction, TargetType.CALLED_FUNCTION, createTypeInfo(expectedType))
     }
 
-    @OptIn(KaExperimentalApi::class)
     context(session: KaSession)
     private fun KaFunctionType.changeReturnType(newReturnType: KaType) : KaFunctionType {
         val type = this
@@ -300,24 +305,24 @@ internal object ChangeTypeQuickFixFactories {
     }
 
 
-    private fun KaSession.createUpdateTypeFixesForCalledVariable(
-        resolvedCall: KaCallInfo,
+    context(session: KaSession)
+    private fun createUpdateTypeFixesForCalledVariable(
+        resolvedCall: KaSimpleOrMultiCall,
         expression: KtExpression,
         actualType: KaType,
         expectedType: KaType
     ): List<ModCommandAction> {
-        val callable = resolvedCall.successfulVariableAccessCall()?.symbol ?: return emptyList()
-        if (!callable.isSafeForChangeTypeFix()) return emptyList()
-        val calledVariable = callable.psi as? KtProperty ?: return emptyList()
+        val variableSymbol = resolvedCall.variable?.symbol ?: return emptyList()
+        if (!variableSymbol.isSafeForChangeTypeFix()) return emptyList()
+        val calledVariable = variableSymbol.psi as? KtProperty ?: return emptyList()
         return registerVariableTypeFixes(calledVariable, getActualType(actualType, expression), expectedType)
     }
 
-    @OptIn(KaExperimentalApi::class)
     val returnTypeNullableTypeMismatch =
         KotlinQuickFixFactory.ModCommandBased { diagnostic: KaFirDiagnostic.NullForNonnullType ->
             val returnExpr = diagnostic.psi.parentOfType<KtReturnExpression>()
                 ?: return@ModCommandBased emptyList()
-            val declaration = returnExpr.resolveSymbol()?.psi as? KtCallableDeclaration
+            val declaration = returnExpr.resolveSuccessfulSymbol()?.psi as? KtCallableDeclaration
                 ?: return@ModCommandBased emptyList()
 
             val withNullability = diagnostic.expectedType.withNullability(isMarkedNullable = true)
@@ -325,7 +330,7 @@ internal object ChangeTypeQuickFixFactories {
                 UpdateTypeQuickFix(
                     declaration,
                     TargetType.ENCLOSING_DECLARATION,
-                    createTypeInfo(declaration.returnType(withNullability))
+                    createTypeInfo(declaration.returnTypeWithCandidate(withNullability))
                 )
             )
         }
@@ -345,9 +350,9 @@ internal object ChangeTypeQuickFixFactories {
             createRequireReturnTypeFix(diagnostic.psi)
         }
 
-    @OptIn(KaExperimentalApi::class)
-    private fun KaSession.createRequireReturnTypeFix(returnExpr: KtReturnExpression): List<ModCommandAction> {
-        val psi = returnExpr.resolveSymbol()?.psi
+    context(session: KaSession)
+    private fun createRequireReturnTypeFix(returnExpr: KtReturnExpression): List<ModCommandAction> {
+        val psi = returnExpr.resolveSuccessfulSymbol()?.psi
         val declaration = psi as? KtCallableDeclaration ?: (psi as? KtPropertyAccessor)?.property
             ?: return emptyList()
 
@@ -356,7 +361,7 @@ internal object ChangeTypeQuickFixFactories {
             UpdateTypeQuickFix(
                 declaration,
                 TargetType.ENCLOSING_DECLARATION,
-                createTypeInfo(declaration.returnType(expressionType))
+                createTypeInfo(declaration.returnTypeWithCandidate(expressionType))
             )
         )
     }
@@ -393,7 +398,7 @@ internal object ChangeTypeQuickFixFactories {
             val type = if (declaration.initializer?.isNull() == true) actualType.withNullability(isMarkedNullable = true) else actualType
             buildList {
                 if (declaration.typeReference == null) {
-                    add(UpdateTypeQuickFix(declaration, TargetType.VARIABLE, createTypeInfo(declaration.returnType(type))))
+                    add(UpdateTypeQuickFix(declaration, TargetType.VARIABLE, createTypeInfo(declaration.returnTypeWithCandidate(type))))
                 }
                 val expectedType = diagnostic.expectedType
                 if (!expectedType.semanticallyEquals(actualType)) {
@@ -416,7 +421,8 @@ internal object ChangeTypeQuickFixFactories {
             registerVariableTypeFixes(property, actualType, expectedType)
         }
 
-    private fun KaSession.registerVariableTypeFixes(
+    context(session: KaSession)
+    private fun registerVariableTypeFixes(
         declaration: KtProperty,
         actualType: KaType,
         expectedTypeFromDiagnostics: KaType
@@ -426,7 +432,7 @@ internal object ChangeTypeQuickFixFactories {
         val expression = declaration.initializer ?: return emptyList()
         return buildList {
             val typeToCreateTypeInfoFrom = if (!expectedTypeFromDeclaration.semanticallyEquals(actualType)) {
-                declaration.returnType(actualType)
+                declaration.returnTypeWithCandidate(actualType)
             } else {
                 expectedTypeFromDiagnostics
             }
@@ -447,8 +453,8 @@ internal object ChangeTypeQuickFixFactories {
             }
         }
 
-    @OptIn(KaExperimentalApi::class)
-    private fun KaSession.registerExpressionTypeFixes(
+    context(session: KaSession)
+    private fun registerExpressionTypeFixes(
         expression: KtExpression,
         expectedType: KaType,
         actualType: KaType,
@@ -456,7 +462,7 @@ internal object ChangeTypeQuickFixFactories {
         return buildList {
             var wrongPrimitiveLiteralFix: WrongPrimitiveLiteralFix? = null
             if (expression is KtConstantExpression && isNumberOrUNumberType(expectedType) && isNumberOrUNumberType(actualType)) {
-                wrongPrimitiveLiteralFix = WrongPrimitiveLiteralFix.createIfAvailable(expression, expectedType, useSiteSession)
+                wrongPrimitiveLiteralFix = WrongPrimitiveLiteralFix.createIfAvailable(expression, expectedType)
                 addIfNotNull(wrongPrimitiveLiteralFix)
             }
 
@@ -475,7 +481,7 @@ internal object ChangeTypeQuickFixFactories {
             }
             // Fixing overloaded operators
             if (expression is KtOperationExpression) {
-                val resolvedCall = expression.resolveToCall()
+                val resolvedCall = (expression as? KtResolvableCall)?.resolveSuccessfulCall()
                 resolvedCall?.let { addIfNotNull(createUpdateTypeFixForCalledFunction(it, expectedType)) }
             }
         }
@@ -517,7 +523,8 @@ internal object ChangeTypeQuickFixFactories {
         )
     }
 
-    private fun <PSI : KtCallableDeclaration> KaSession.createChangeCurrentDeclarationQuickFix(
+    context(session: KaSession)
+    private fun <PSI : KtCallableDeclaration> createChangeCurrentDeclarationQuickFix(
         superCallable: KaCallableSymbol,
         declaration: PSI
     ): UpdateTypeQuickFix<PSI> = UpdateTypeQuickFix(
@@ -526,7 +533,8 @@ internal object ChangeTypeQuickFixFactories {
         createTypeInfo(superCallable.returnType)
     )
 
-    private fun KaSession.createChangeOverriddenFunctionQuickFix(
+    context(session: KaSession)
+    private fun createChangeOverriddenFunctionQuickFix(
         callable: KaCallableSymbol,
         superCallable: KaCallableSymbol,
     ): UpdateTypeQuickFix<KtCallableDeclaration>? {
@@ -536,7 +544,8 @@ internal object ChangeTypeQuickFixFactories {
         return UpdateTypeQuickFix(singleMatchingOverriddenFunctionPsi, TargetType.BASE_DECLARATION, createTypeInfo(type))
     }
 
-    private fun KaSession.createTypeInfo(ktType: KaType): CallableReturnTypeUpdaterUtils.TypeInfo =
+    context(session: KaSession)
+    private fun createTypeInfo(ktType: KaType): CallableReturnTypeUpdaterUtils.TypeInfo =
         with(CallableReturnTypeUpdaterUtils.TypeInfo) {
             createByKtTypes(ktType)
         }
@@ -626,22 +635,40 @@ internal object ChangeTypeQuickFixFactories {
     }
 }
 
-@OptIn(KaExperimentalApi::class)
-private fun KaSession.isValReassignment(assignment: KtBinaryExpression): Boolean {
+context(session: KaSession)
+private fun isValReassignment(assignment: KtBinaryExpression): Boolean {
     val left = assignment.left ?: return false
     return left.directDiagnostics(KaDiagnosticCheckerFilter.ONLY_COMMON_CHECKERS).any {
         it is KaFirDiagnostic.ValReassignment
     }
 }
 
-fun KaSession.isNumberOrUNumberType(type: KaType): Boolean = isNumberType(type) || isUNumberType(type)
-fun KaSession.isNumberType(type: KaType): Boolean = with(type) { isPrimitive && !isBooleanType && !isCharType }
-fun KaSession.isUNumberType(type: KaType): Boolean = with(type) { isUByteType || isUShortType || isUIntType || isULongType }
+context(session: KaSession)
+fun isNumberOrUNumberType(type: KaType): Boolean = isNumberType(type) || isUNumberType(type)
+context(session: KaSession)
+fun isNumberType(type: KaType): Boolean =
+    with(type.classId) {
+        this in KaStandardTypeClassIds.PRIMITIVES && this != KaStandardTypeClassIds.BOOLEAN && this != KaStandardTypeClassIds.CHAR
+    }
+context(session: KaSession)
+fun isUNumberType(type: KaType): Boolean =
+    with(type.classId) {
+        this == StandardClassIds.UByte || this == StandardClassIds.UShort || this == StandardClassIds.UInt || this == StandardClassIds.ULong
+    }
 
-private fun KaSession.isRoundNumberFixAvailable(expression: KtExpression, type: KaType): Boolean {
+context(session: KaSession)
+private fun isRoundNumberFixAvailable(expression: KtExpression, type: KaType): Boolean {
     val expressionType = expression.expressionType ?: return false
     return isLongOrInt(type) && isDoubleOrFloat(expressionType)
 }
 
-private fun KaSession.isLongOrInt(type: KaType): Boolean = type.isLongType || type.isIntType
-private fun KaSession.isDoubleOrFloat(type: KaType): Boolean = type.isDoubleType || type.isFloatType
+context(session: KaSession)
+private fun isLongOrInt(type: KaType): Boolean =
+    with(type.classId) {
+        this == KaStandardTypeClassIds.LONG || this == KaStandardTypeClassIds.INT
+    }
+context(session: KaSession)
+private fun isDoubleOrFloat(type: KaType): Boolean =
+    with(type.classId) {
+        this == KaStandardTypeClassIds.DOUBLE || this == KaStandardTypeClassIds.FLOAT
+    }

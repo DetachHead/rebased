@@ -1,7 +1,7 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
 ### auto-generated section `build intellij.libraries.opentelemetry.exporter.otlp.common` start
-
 jvm_library(
     name = "opentelemetry-exporter-otlp-common",
     srcs = glob(
@@ -27,6 +27,11 @@ jvm_library(
         "//libraries/opentelemetry-sdk-autoconfigure-spi",
         "//libraries/opentelemetry-exporter-sender-jdk",
     ],
+)
+
+content_module_jar(
+    libraries = ["@lib//:libraries-opentelemetry-exporter-otlp-common-opentelemetry-exporter-otlp-common"],
+    module = ":opentelemetry-exporter-otlp-common",
 )
 
 jvm_library(
@@ -61,6 +66,8 @@ jvm_library(
 exports_files(
     [
         "intellij.libraries.opentelemetry.exporter.otlp.common.iml",
+        "resources/intellij.libraries.opentelemetry.exporter.otlp.common.xml",
+        "module-content.yaml",
     ],
     visibility = ["//visibility:public"],
 )

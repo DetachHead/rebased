@@ -1,7 +1,7 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
 ### auto-generated section `build intellij.grid.csv.core.impl` start
-
 jvm_library(
     name = "csv-core-impl",
     srcs = glob(
@@ -18,9 +18,10 @@ jvm_library(
         ["resources/**/*"],
     ),
     visibility = ["//visibility:public"],
+    runtime_deps = ["//platform/ide-core"],
     deps = [
         # do not sort,
-        "@lib//:jetbrains-annotations",
+        "//libraries/jetbrains/annotations",
         "//platform/util",
         "//platform/util/jdom",
         "//platform/util/base",
@@ -32,6 +33,8 @@ jvm_library(
         "//libraries/kotlinx/collections-immutable:libraries-kotlinx-collections-immutable",
     ],
 )
+
+content_module_jar(module = ":csv-core-impl")
 
 jvm_library(
     name = "csv-core-impl_test_lib",
@@ -45,6 +48,7 @@ jvm_library(
     runtime_deps = [
         # do not sort,
         ":csv-core-impl",
+        "//libraries/jetbrains/annotations:annotations_test_lib",
         "//platform/util:util_test_lib",
         "//platform/util/jdom:jdom_test_lib",
         "//platform/util/base:base_test_lib",
@@ -54,6 +58,7 @@ jvm_library(
         "//platform/projectModel-api:projectModel_test_lib",
         "//libraries/automaton:automaton_test_lib",
         "//libraries/kotlinx/collections-immutable:libraries-kotlinx-collections-immutable_test_lib",
+        "//platform/ide-core:ide-core_test_lib",
     ],
 )
 ### auto-generated section `build intellij.grid.csv.core.impl` end
@@ -62,6 +67,8 @@ jvm_library(
 exports_files(
     [
         "intellij.grid.csv.core.impl.iml",
+        "resources/intellij.grid.csv.core.impl.xml",
+        "module-content.yaml",
     ],
     visibility = ["//visibility:public"],
 )

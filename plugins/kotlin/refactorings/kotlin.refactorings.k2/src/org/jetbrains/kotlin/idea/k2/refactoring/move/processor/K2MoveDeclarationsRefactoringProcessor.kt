@@ -21,14 +21,17 @@ import com.intellij.usageView.UsageInfo
 import com.intellij.usageView.UsageViewDescriptor
 import com.intellij.usageView.UsageViewUtil
 import com.intellij.util.containers.MultiMap
-import org.jetbrains.kotlin.analysis.api.KaExperimentalApi
-import org.jetbrains.kotlin.analysis.api.analyze
 import org.jetbrains.kotlin.analysis.api.permissions.KaAllowAnalysisFromWriteAction
 import org.jetbrains.kotlin.analysis.api.permissions.KaAllowAnalysisOnEdt
 import org.jetbrains.kotlin.analysis.api.permissions.allowAnalysisFromWriteAction
 import org.jetbrains.kotlin.analysis.api.permissions.allowAnalysisOnEdt
+import org.jetbrains.kotlin.analysis.api.renderer.render
 import org.jetbrains.kotlin.analysis.api.renderer.types.impl.KaTypeRendererForSource
+import org.jetbrains.kotlin.analysis.api.session.analyze
 import org.jetbrains.kotlin.analysis.api.symbols.KaClassSymbol
+import org.jetbrains.kotlin.analysis.api.symbols.classSymbol
+import org.jetbrains.kotlin.analysis.api.symbols.symbol
+import org.jetbrains.kotlin.analysis.api.types.defaultType
 import org.jetbrains.kotlin.asJava.toLightClass
 import org.jetbrains.kotlin.asJava.unwrapped
 import org.jetbrains.kotlin.idea.base.analysis.api.utils.shortenReferences
@@ -222,7 +225,7 @@ open class K2MoveDeclarationsRefactoringProcessor(
                         listeners[original]?.elementMoved(new)
                     }
                     publisher.afterMove(moveDescriptor)
-                    oldToNewMap.values.map { it.createSmartPointer() }
+                    oldToNewMap.values.filter { it.isValid }.map { it.createSmartPointer() }
                 }
             }
         }
@@ -395,7 +398,6 @@ open class K2MoveDeclarationsRefactoringProcessor(
      * This function is used to preprocess the [originalDeclaration] before the move happens.
      * For example, we add a parameter for the outer instance here before moving the declaration.
      */
-    @OptIn(KaExperimentalApi::class)
     private fun preprocessDeclaration(
         originalDeclaration: KtNamedDeclaration
     ) {

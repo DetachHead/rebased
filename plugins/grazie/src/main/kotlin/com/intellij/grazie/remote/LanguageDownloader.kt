@@ -59,11 +59,10 @@ internal object LanguageDownloader {
         performDownload(languages)
       }
       catch (exception: Throwable) {
-        val installedSuccessfully = withContext(Dispatchers.EDT + ModalityState.any().asContextElement()) {
+        withContext(Dispatchers.EDT + ModalityState.any().asContextElement()) {
           promptToSelectLanguageBundleManually(languages)
         }
         thisLogger().warn(exception)
-        if (!installedSuccessfully) throw exception
       }
     }
     performGrazieUpdate(languages)
@@ -107,6 +106,9 @@ internal object LanguageDownloader {
         val outputDir = GrazieDynamic.dynamicFolder.resolve(descriptor.storageName)
         Files.createDirectories(outputDir)
         ZipUtil.extract(jarPath, outputDir, HunspellDescriptor.filenameFilter())
+        check(descriptor.contentChecksum == GrazieRemote.checksum(outputDir)) {
+          "Language bundle's content checksum became invalid right before loading it: $it"
+        }
         NioFiles.deleteRecursively(jarPath)
       }
     reloadGrazie()

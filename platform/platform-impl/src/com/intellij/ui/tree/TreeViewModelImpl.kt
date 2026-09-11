@@ -6,6 +6,7 @@ package com.intellij.ui.tree
 import com.intellij.openapi.diagnostic.debug
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.diagnostic.trace
+import com.intellij.openapi.editor.colors.TextAttributesKey
 import com.intellij.platform.util.coroutines.childScope
 import com.intellij.ui.SimpleTextAttributes
 import com.intellij.ui.treeStructure.TreeDomainModel
@@ -38,6 +39,8 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.last
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
+import org.jetbrains.annotations.ApiStatus
+import java.awt.Color
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
@@ -393,7 +396,8 @@ private class TreeNodeViewModelImpl(
   }
 
   private suspend fun emitStates(isExpanded: Boolean?) {
-    val builder = TreeNodePresentationBuilderImpl(domainModel.computeIsLeaf())
+    val builder = TreeNodePresentationBuilderImpl()
+    builder.setLeaf(domainModel.computeIsLeaf())
     val lastState = lastComputedState.get()
     // The flow provided by the domain model may cause flickering,
     // as it's supposed to start from "simple" presentations and then add "heavy" parts.
@@ -472,12 +476,31 @@ private class FakeRootDomainModel(private val treeModel: TreeDomainModel) : Tree
   }
 }
 
-internal class TreeNodePresentationBuilderImpl(val isLeaf: Boolean) : TreeNodePresentationBuilder {
+@ApiStatus.Internal
+class TreeNodePresentationBuilderImpl : TreeNodePresentationBuilder {
+  private var isLeafValue: Boolean = false
   // these "Value" suffixes to avoid signature clashes with the setters
   private var iconValue: Icon? = null
   private var mainTextValue: String? = null
+  private var backgroundValue: Color? = null
   private var fullTextValue: MutableList<TreeNodeTextFragment>? = null
   private var toolTipValue: String? = null
+  private var textAttributesKeyValue: TextAttributesKey? = null
+
+  override fun setPresentation(presentation: TreeNodePresentation) {
+    presentation as TreeNodePresentationImpl
+    isLeafValue = presentation.isLeaf
+    iconValue = presentation.icon
+    mainTextValue = presentation.mainText
+    backgroundValue = presentation.background
+    fullTextValue = presentation.fullText.toMutableList()
+    toolTipValue = presentation.toolTip
+    textAttributesKeyValue = presentation.textAttributesKey
+  }
+
+  override fun setLeaf(isLeaf: Boolean) {
+    this.isLeafValue = isLeaf
+  }
 
   override fun setIcon(icon: Icon?) {
     this.iconValue = icon
@@ -485,6 +508,10 @@ internal class TreeNodePresentationBuilderImpl(val isLeaf: Boolean) : TreeNodePr
 
   override fun setMainText(text: String) {
     this.mainTextValue = text
+  }
+
+  override fun setBackground(background: Color?) {
+    this.backgroundValue = background
   }
 
   override fun appendTextFragment(text: String, attributes: SimpleTextAttributes) {
@@ -495,6 +522,10 @@ internal class TreeNodePresentationBuilderImpl(val isLeaf: Boolean) : TreeNodePr
 
   override fun setToolTipText(toolTip: String?) {
     this.toolTipValue = toolTip
+  }
+
+  override fun setTextAttributesKey(textAttributesKey: TextAttributesKey?) {
+    this.textAttributesKeyValue = textAttributesKey
   }
 
   override fun build(): TreeNodePresentationImpl {
@@ -522,11 +553,13 @@ internal class TreeNodePresentationBuilderImpl(val isLeaf: Boolean) : TreeNodePr
       }
     }
     return TreeNodePresentationImpl(
-      isLeaf = isLeaf,
+      isLeaf = isLeafValue,
       icon = iconValue,
       mainText = mainText,
       fullText = fullText,
+      background = backgroundValue,
       toolTip = toolTipValue,
+      textAttributesKey = textAttributesKeyValue,
     )
   }
 

@@ -50,6 +50,14 @@ public class MarkdownEnterHandlerTest extends BasePlatformTestCase {
     doTest();
   }
 
+  public void testIndentedCodeFence() {
+    doTest();
+  }
+
+  public void testCodeFenceInListWithoutNewline() {
+    doTest();
+  }
+
   public void testQuoteInListMiddleWithSpace() {
     doTest();
   }

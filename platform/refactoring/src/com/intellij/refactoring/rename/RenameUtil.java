@@ -3,6 +3,7 @@ package com.intellij.refactoring.rename;
 
 import com.intellij.codeInsight.CodeInsightUtilCore;
 import com.intellij.find.findUsages.FindUsagesHelper;
+import com.intellij.find.findUsages.TextOccurrenceReference;
 import com.intellij.ide.actions.FqnUtil;
 import com.intellij.injected.editor.DocumentWindow;
 import com.intellij.lang.Language;
@@ -140,6 +141,7 @@ public final class RenameUtil {
           LOG.error("null reference from processor " + elementProcessor);
           continue;
         }
+        if (!searchForTextOccurrences && ref instanceof TextOccurrenceReference) continue;
         PsiElement referenceElement = ref.getElement();
         if (!processor.process(elementProcessor.createUsageInfo(element, ref, referenceElement))) return false;
       }

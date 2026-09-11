@@ -1,12 +1,16 @@
 load("@community//build:tests-options.bzl", "jps_test")
 load("@rules_jvm//:jvm.bzl", "jvm_library")
 load("//build:compiler-options.bzl", "create_kotlinc_options")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
 ### auto-generated section `build intellij.kotlin.codeInsight.lineMarkers` start
-
 create_kotlinc_options(
     name = "custom_line-markers",
-    opt_in = ["org.jetbrains.kotlin.utils.addToStdlib.UnsafeCastFunction"],
+    opt_in = [
+        "org.jetbrains.kotlin.utils.addToStdlib.UnsafeCastFunction",
+        "org.jetbrains.kotlin.analysis.api.KaExperimentalApi",
+        "org.jetbrains.kotlin.analysis.api.KaIdeApi",
+    ],
     x_context_parameters = True,
 )
 
@@ -31,15 +35,16 @@ jvm_library(
         # do not sort,
         "@lib//:kotlin-stdlib",
         "//plugins/kotlin/references",
-        "@lib//:kotlinc-kotlin-compiler-common",
-        "@lib//:kotlinc-analysis-api",
+        "//libraries/kotlinc/kotlin-compiler-common:libraries-kotlinc-kotlin-compiler-common",
+        "//libraries/kotlinc/analysis-api:libraries-kotlinc-analysis-api",
+        "//libraries/kotlinc/symbol-light-classes:libraries-kotlinc-symbol-light-classes",
         "//platform/analysis-api:analysis",
         "//platform/core-api:core",
         "//platform/editor-ui-api:editor-ui",
         "//platform/indexing-api:indexing",
         "//plugins/kotlin/base/util",
         "//plugins/kotlin/base/fir/project-structure",
-        "@lib//:kotlinc-kotlin-jps-common",
+        "//libraries/kotlinc/kotlin-jps-common:libraries-kotlinc-kotlin-jps-common",
         "//plugins/kotlin/base/psi",
         "//plugins/kotlin/base/platforms",
         "//platform/core-impl",
@@ -68,6 +73,8 @@ jvm_library(
     ],
 )
 
+content_module_jar(module = ":line-markers")
+
 jvm_library(
     name = "line-markers_test_lib",
     testonly = True,
@@ -82,12 +89,16 @@ jvm_library(
         # do not sort,
         ":line-markers",
         "//plugins/kotlin/references:references_test_lib",
+        "//libraries/kotlinc/kotlin-compiler-common:libraries-kotlinc-kotlin-compiler-common_test_lib",
+        "//libraries/kotlinc/analysis-api:libraries-kotlinc-analysis-api_test_lib",
+        "//libraries/kotlinc/symbol-light-classes:libraries-kotlinc-symbol-light-classes_test_lib",
         "//platform/analysis-api:analysis_test_lib",
         "//platform/core-api:core_test_lib",
         "//platform/editor-ui-api:editor-ui_test_lib",
         "//platform/indexing-api:indexing_test_lib",
         "//plugins/kotlin/base/util:util_test_lib",
         "//plugins/kotlin/base/fir/project-structure:project-structure_test_lib",
+        "//libraries/kotlinc/kotlin-jps-common:libraries-kotlinc-kotlin-jps-common_test_lib",
         "//plugins/kotlin/base/psi:psi_test_lib",
         "//plugins/kotlin/base/platforms:platforms_test_lib",
         "//platform/core-impl:core-impl_test_lib",
@@ -121,16 +132,20 @@ jvm_library(
 exports_files(
     [
         "intellij.kotlin.codeInsight.lineMarkers.iml",
+        "resources/intellij.kotlin.codeInsight.lineMarkers.xml",
     ],
     visibility = ["//visibility:public"],
 )
 ### auto-generated section `iml intellij.kotlin.codeInsight.lineMarkers` end
 
 ### auto-generated section `build intellij.kotlin.codeInsight.lineMarkers.tests` start
-
 create_kotlinc_options(
     name = "custom_kotlin-codeInsight-lineMarkers-tests",
-    opt_in = ["org.jetbrains.kotlin.utils.addToStdlib.UnsafeCastFunction"],
+    opt_in = [
+        "org.jetbrains.kotlin.utils.addToStdlib.UnsafeCastFunction",
+        "org.jetbrains.kotlin.analysis.api.KaExperimentalApi",
+        "org.jetbrains.kotlin.analysis.api.KaIdeApi",
+    ],
     x_context_parameters = True,
 )
 
@@ -142,6 +157,7 @@ jvm_library(
     ),
     module_name = "intellij.kotlin.codeInsight.lineMarkers.tests",
     visibility = ["//visibility:public"],
+    runtime_deps = ["//plugins/kotlin:kotlin-plugin-community-main"],
 )
 
 jvm_library(
@@ -164,15 +180,19 @@ jvm_library(
     runtime_deps = [
         # do not sort,
         ":kotlin-codeInsight-lineMarkers-tests",
+        "//plugins/kotlin:kotlin-plugin-community-main_test_lib",
         "//platform/platform-impl:ide-impl_test_lib",
     ],
     deps = [
         # do not sort,
         "@lib//:kotlin-stdlib",
-        "@lib//:kotlinc-kotlin-compiler-common",
-        "@lib//:kotlinc-analysis-api",
+        "//libraries/kotlinc/kotlin-compiler-common:libraries-kotlinc-kotlin-compiler-common",
+        "//libraries/kotlinc/kotlin-compiler-common:libraries-kotlinc-kotlin-compiler-common_test_lib",
+        "//libraries/kotlinc/analysis-api:libraries-kotlinc-analysis-api",
+        "//libraries/kotlinc/analysis-api:libraries-kotlinc-analysis-api_test_lib",
         "@lib//:kotlinc-kotlin-compiler-tests",
-        "@lib//:junit4",
+        "//libraries/junit4",
+        "//libraries/junit4:junit4_test_lib",
         "//platform/analysis-api:analysis",
         "//platform/analysis-api:analysis_test_lib",
         "//platform/core-api:core",
@@ -181,8 +201,6 @@ jvm_library(
         "//platform/editor-ui-api:editor-ui_test_lib",
         "//platform/indexing-api:indexing",
         "//platform/indexing-api:indexing_test_lib",
-        "//plugins/kotlin/plugin/k2",
-        "//plugins/kotlin/plugin/k2:k2_test_lib",
         "//plugins/kotlin/base/util",
         "//plugins/kotlin/base/util:util_test_lib",
         "//plugins/kotlin/base/psi",
@@ -248,7 +266,6 @@ exports_files(
 ### auto-generated section `iml intellij.kotlin.codeInsight.lineMarkers.tests` end
 
 ### auto-generated section `test intellij.kotlin.codeInsight.lineMarkers.tests` start
-
 jps_test(
     name = "kotlin-codeInsight-lineMarkers-tests_test",
     runtime_deps = [":kotlin-codeInsight-lineMarkers-tests_test_lib"],

@@ -1,9 +1,8 @@
 plugins {
-    id("com.android.application")
-    kotlin("android")
+    {{android_application_plugin_id}}
 }
 
-{{default_android_block}}
+{{android_application_block}}
 
 dependencies {
     implementation(project(":kmmLib"))

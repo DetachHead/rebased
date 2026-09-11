@@ -2,6 +2,7 @@
 
 package com.intellij.mcpserver.toolsets.general
 
+import com.intellij.mcpserver.McpExpectedError
 import com.intellij.mcpserver.McpServerBundle
 import com.intellij.mcpserver.McpToolset
 import com.intellij.mcpserver.annotations.McpDescription
@@ -12,13 +13,24 @@ import com.intellij.mcpserver.mcpFail
 import com.intellij.mcpserver.project
 import com.intellij.mcpserver.reportToolActivity
 import com.intellij.mcpserver.statistics.McpServerCounterUsagesCollector
+import com.intellij.mcpserver.statistics.reportableResultSize
+import com.intellij.mcpserver.launchOriginOf
+import com.intellij.mcpserver.statistics.McpDispatchRejectReason
+import com.intellij.mcpserver.statistics.McpToolCallInvocationMode
+import com.intellij.mcpserver.statistics.McpToolCallOutcome
+import com.intellij.openapi.diagnostic.fileLogger
+import com.intellij.openapi.diagnostic.logger
+import com.intellij.openapi.diagnostic.trace
 import com.intellij.openapi.progress.coroutineToIndicator
 import com.intellij.platform.ide.progress.withBackgroundProgress
 import com.intellij.platform.util.progress.reportProgressScope
 import com.intellij.platform.util.progress.withProgressText
 import com.intellij.util.execution.ParametersListUtil
+import kotlin.coroutines.cancellation.CancellationException
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.JsonArray
@@ -33,7 +45,15 @@ import com.intellij.mcpserver.McpTool as McpToolDef
 
 private const val FLAG_PREFIX = "--"
 
+private val LOG = fileLogger()
+
+/** The name of the router tool, for the places that have to recognise a call to it rather than to an ordinary tool. */
+internal val ROUTER_TOOL_NAME: String = UniversalToolset::execute_tool.name
+
 class UniversalToolset : McpToolset {
+  override fun displayName(): String = McpServerBundle.message("toolset.display.name.universal")
+
+  override fun displayDescription(toolName: String): String? = McpServerBundle.message("tool.description.$toolName")
 
   //@McpTool
   //@McpDescription(
@@ -94,11 +114,12 @@ class UniversalToolset : McpToolset {
       currentCoroutineContext().reportToolActivity(
         McpServerBundle.message("tool.activity.executing.universal.tool", command))
 
-      val parsedCommand = parseCommand(command).also { dispatchEvent.recordParsed(it.toolName, it.argsCount) }
+      val parsedCommand = parseCommand(command, dispatchEvent).also { dispatchEvent.recordParsed(it.argsCount) }
 
-      val tool = findTool(parsedCommand.toolName, resolveRouterTools()).also { dispatchEvent.recordFound() }
+      val tool = findTool(parsedCommand.toolName, resolveRouterTools(), dispatchEvent)
+        .also { dispatchEvent.recordFound(it.descriptor.name) }
 
-      val jsonArgs = buildArguments(tool, parsedCommand.args)
+      val jsonArgs = buildArguments(tool, parsedCommand.args, dispatchEvent)
       val result = invokeTool(tool, jsonArgs)
 
       dispatchEvent.recordSuccess()
@@ -111,9 +132,12 @@ class UniversalToolset : McpToolset {
 
   private data class ParsedCommand(val toolName: String, val args: List<String>, val argsCount: Int)
 
-  private fun parseCommand(command: String): ParsedCommand {
+  private fun parseCommand(command: String, dispatchEvent: ExecuteToolDispatchEvent): ParsedCommand {
     val parts = ParametersListUtil.parse(command, false, true)
-    if (parts.isEmpty()) mcpFail("Command is empty")
+    if (parts.isEmpty()) {
+      dispatchEvent.recordReject(McpDispatchRejectReason.EMPTY_COMMAND)
+      mcpFail("Command is empty")
+    }
     val args = parts.drop(1)
     return ParsedCommand(
       toolName = parts[0],
@@ -125,27 +149,86 @@ class UniversalToolset : McpToolset {
   private suspend fun resolveRouterTools(): List<McpToolDef> {
     val sessionHandler = currentCoroutineContext().mcpCallInfo.sessionHandler
                          ?: mcpFail("Session handler not available")
-    val routerToolsProvider = sessionHandler.routerToolsProvider
-                              ?: mcpFail("Router tools provider not available")
-    return routerToolsProvider.mcpTools.value
+    val directTools = sessionHandler.toolsProvider.mcpTools.value
+    val routerTools = sessionHandler.routerToolsProvider.mcpTools.value
+    return (directTools + routerTools).distinctBy { it.descriptor.name }
   }
 
-  private fun findTool(name: String, all: List<McpToolDef>): McpToolDef {
-    return all.find { it.descriptor.name == name }
-           ?: mcpFail("Tool '$name' not found. Available tools: ${all.map { it.descriptor.name }.sorted().joinToString(", ")}")
+  private fun findTool(name: String, all: List<McpToolDef>, dispatchEvent: ExecuteToolDispatchEvent): McpToolDef {
+    LOG.trace { "Available tools: ${all.map { it.descriptor.name }.sorted().joinToString(", ")}" }
+    val tool = all.find { it.descriptor.name == name }
+    if (tool == null) {
+      dispatchEvent.recordReject(McpDispatchRejectReason.UNKNOWN_TOOL)
+      mcpFail("Tool '$name' not found")
+    }
+    return tool
   }
 
-  private fun buildArguments(tool: McpToolDef, rawArgs: List<String>): JsonObject {
-    val jsonArgs = parseArgsToJson(rawArgs, tool.descriptor.inputSchema.propertiesSchema)
+  private fun buildArguments(tool: McpToolDef, rawArgs: List<String>, dispatchEvent: ExecuteToolDispatchEvent): JsonObject {
+    val jsonArgs = try {
+      parseArgsToJson(rawArgs, tool.descriptor.inputSchema.propertiesSchema)
+    }
+    catch (e: Throwable) {
+      dispatchEvent.recordReject(McpDispatchRejectReason.ARGUMENTS_NOT_PARSEABLE)
+      throw e
+    }
     val missing = tool.descriptor.inputSchema.requiredProperties.filter { it !in jsonArgs }
-    if (missing.isNotEmpty()) mcpFail("Missing required parameters: ${missing.joinToString(", ")}")
+    if (missing.isNotEmpty()) {
+      dispatchEvent.recordReject(McpDispatchRejectReason.MISSING_REQUIRED_PARAMETERS)
+      mcpFail("Missing required parameters: ${missing.joinToString(", ")}")
+    }
     return jsonArgs
   }
 
+  /**
+   * Calls the dispatched tool and reports it as a tool call in its own right. The call goes straight to
+   * [McpToolDef.call], bypassing the wrapper in `McpSessionHandler` that reports `mcp.tool.call`, so without this a
+   * routed call produced a dispatch row and no call row.
+   */
   private suspend fun invokeTool(tool: McpToolDef, jsonArgs: JsonObject): String {
-    val result = tool.call(jsonArgs)
-    if (result.isError) mcpFail("Tool execution failed: $result")
-    return result.toString()
+    val callMark = TimeSource.Monotonic.markNow()
+    var outcome = McpToolCallOutcome.SUCCESS
+    var resultBytes: Int? = null
+    try {
+      val result = tool.call(jsonArgs)
+      resultBytes = result.reportableResultSize()
+      if (result.isError) {
+        outcome = McpToolCallOutcome.RESULT_ERROR
+        mcpFail("Tool execution failed: $result")
+      }
+      return result.toString()
+    }
+    catch (e: McpExpectedError) {
+      if (outcome == McpToolCallOutcome.SUCCESS) outcome = McpToolCallOutcome.EXPECTED_ERROR
+      throw e
+    }
+    catch (e: CancellationException) {
+      outcome = McpToolCallOutcome.CANCELLED
+      throw e
+    }
+    catch (e: Throwable) {
+      outcome = McpToolCallOutcome.FAILURE
+      throw e
+    }
+    finally {
+      // The call can end by cancellation, so report from a non-cancellable context. A cancelled context would
+      // fail the context read and drop the row.
+      withContext(NonCancellable) {
+        val callInfo = currentCoroutineContext().mcpCallInfo
+        McpServerCounterUsagesCollector.logMcpToolCall(
+          descriptor = tool.descriptor,
+          outcome = outcome,
+          durationMs = callMark.elapsedNow().inWholeMilliseconds,
+          invocationMode = McpToolCallInvocationMode.VIA_ROUTER,
+          launchOrigin = launchOriginOf(callInfo.mcpSessionOptions),
+          clientName = callInfo.clientInfo.name,
+          transportType = null,
+          argumentBytes = jsonArgs.toString().length,
+          // Absent when the call threw: there is no result to size, which is not the same as a result of size zero.
+          resultBytes = resultBytes,
+        )
+      }
+    }
   }
 
   @VisibleForTesting
@@ -181,7 +264,7 @@ class UniversalToolset : McpToolset {
         }
       }
       "array" -> parseAsStructuredJson(paramName, value, "array") { it is JsonArray }
-      "object" -> parseAsStructuredJson(paramName, value, "object") { it is JsonObject }
+      "object" -> parseAsStructuredJson(paramName, value, "object") { it is JsonObject || it is JsonArray }
       else -> JsonPrimitive(value)
     }
   }
@@ -213,18 +296,24 @@ class UniversalToolset : McpToolset {
    */
   private class ExecuteToolDispatchEvent {
     private val mark = TimeSource.Monotonic.markNow()
-    private var toolName: String = ""
+    private var toolName: String? = null
     private var argCount: Int = 0
     private var found: Boolean = false
     private var success: Boolean = false
+    private var rejectReason: McpDispatchRejectReason = McpDispatchRejectReason.NONE
 
-    fun recordParsed(toolName: String, argCount: Int) {
-      this.toolName = toolName
+    fun recordParsed(argCount: Int) {
       this.argCount = argCount
     }
 
-    fun recordFound() {
+    /** Called once the name resolved to a tool that exists, so the field never carries what the agent typed. */
+    fun recordFound(toolName: String) {
+      this.toolName = toolName
       found = true
+    }
+
+    fun recordReject(reason: McpDispatchRejectReason) {
+      rejectReason = reason
     }
 
     fun recordSuccess() {
@@ -237,6 +326,7 @@ class UniversalToolset : McpToolset {
         argCount = argCount,
         found = found,
         success = success,
+        rejectReason = rejectReason,
         durationMs = mark.elapsedNow().inWholeMilliseconds,
       )
     }

@@ -7,13 +7,13 @@ import com.intellij.codeInspection.util.IntentionFamilyName
 import com.intellij.modcommand.ModPsiUpdater
 import com.intellij.openapi.project.Project
 import org.jetbrains.kotlin.analysis.api.KaSession
+import org.jetbrains.kotlin.analysis.api.resolution.resolveSuccessfulSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaPropertySymbol
 import org.jetbrains.kotlin.idea.base.codeInsight.ShortenReferencesFacility
 import org.jetbrains.kotlin.idea.base.psi.replaced
 import org.jetbrains.kotlin.idea.base.resources.KotlinBundle
 import org.jetbrains.kotlin.idea.codeinsight.api.applicable.inspections.KotlinApplicableInspectionBase
 import org.jetbrains.kotlin.idea.codeinsight.api.applicable.inspections.KotlinModCommandQuickFix
-import org.jetbrains.kotlin.idea.references.mainReference
 import org.jetbrains.kotlin.name.CallableId
 import org.jetbrains.kotlin.name.FqName
 import org.jetbrains.kotlin.name.Name
@@ -42,7 +42,8 @@ internal class PreferCurrentCoroutineContextToCoroutineContextInspection : Kotli
         visitTargetElement(expression, holder, isOnTheFly)
     }
 
-    override fun KaSession.prepareContext(element: KtExpression): Unit? {
+    context(session: KaSession)
+    override fun prepareContext(element: KtExpression): Unit? {
         val nameReferenceExpression = when (element) {
             is KtNameReferenceExpression if (element.getQualifiedExpressionForSelector() == null) -> element
             is KtDotQualifiedExpression -> element.selectorExpression as? KtNameReferenceExpression
@@ -64,12 +65,14 @@ internal class PreferCurrentCoroutineContextToCoroutineContextInspection : Kotli
         return Unit
     }
 
-    private fun KaSession.isCoroutineContextFunctionAccess(reference: KtNameReferenceExpression): Boolean {
+    context(session: KaSession)
+    private fun isCoroutineContextFunctionAccess(reference: KtNameReferenceExpression): Boolean {
         return reference.getReferencedNameAsName() == KOTLIN_COROUTINES_CONTEXT_ID.callableName &&
-                (reference.mainReference.resolveToSymbol() as? KaPropertySymbol)?.callableId == KOTLIN_COROUTINES_CONTEXT_ID
+                (reference.resolveSuccessfulSymbol() as? KaPropertySymbol)?.callableId == KOTLIN_COROUTINES_CONTEXT_ID
     }
 
-    private fun KaSession.isCurrentCoroutineContextFunctionPresent(): Boolean {
+    context(session: KaSession)
+    private fun isCurrentCoroutineContextFunctionPresent(): Boolean {
         return CoroutinesIds.currentCoroutineContext.canBeResolved()
     }
 

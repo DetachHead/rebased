@@ -1,8 +1,8 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
 load("//build:compiler-options.bzl", "create_kotlinc_options")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
-### auto-generated section `build intellij.python.common` start
-
+### auto-generated section `build intellij.python.community.common` start
 create_kotlinc_options(
     name = "custom_common",
     x_context_parameters = True,
@@ -19,7 +19,7 @@ jvm_library(
         allow_empty = True,
     ),
     kotlinc_opts = ":custom_common",
-    module_name = "intellij.python.common",
+    module_name = "intellij.python.community.common",
     resource_strip_prefix = "resources",
     resources = glob(
         ["resources/**/*"],
@@ -35,8 +35,11 @@ jvm_library(
         "//libraries/kotlinx/serialization/core",
         "//platform/platform-api:ide",
         "//platform/ide-core",
+        "//platform/ide-core-impl",
     ],
 )
+
+content_module_jar(module = ":common")
 
 jvm_library(
     name = "common_test_lib",
@@ -46,7 +49,7 @@ jvm_library(
         allow_empty = True,
     ),
     kotlinc_opts = ":custom_common",
-    module_name = "intellij.python.common",
+    module_name = "intellij.python.community.common",
     visibility = ["//visibility:public"],
     runtime_deps = [
         # do not sort,
@@ -58,15 +61,17 @@ jvm_library(
         "//libraries/kotlinx/serialization/core:core_test_lib",
         "//platform/platform-api:ide_test_lib",
         "//platform/ide-core:ide-core_test_lib",
+        "//platform/ide-core-impl:ide-core-impl_test_lib",
     ],
 )
-### auto-generated section `build intellij.python.common` end
+### auto-generated section `build intellij.python.community.common` end
 
-### auto-generated section `iml intellij.python.common` start
+### auto-generated section `iml intellij.python.community.common` start
 exports_files(
     [
-        "intellij.python.common.iml",
+        "intellij.python.community.common.iml",
+        "resources/intellij.python.community.common.xml",
     ],
     visibility = ["//visibility:public"],
 )
-### auto-generated section `iml intellij.python.common` end
+### auto-generated section `iml intellij.python.community.common` end

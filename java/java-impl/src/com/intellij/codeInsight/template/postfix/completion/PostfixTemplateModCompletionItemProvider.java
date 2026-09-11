@@ -12,6 +12,7 @@ import com.intellij.codeInsight.template.CustomTemplateCallback;
 import com.intellij.codeInsight.template.postfix.settings.PostfixTemplatesSettings;
 import com.intellij.codeInsight.template.postfix.templates.LanguagePostfixTemplate;
 import com.intellij.codeInsight.template.postfix.templates.PostfixLiveTemplate;
+import com.intellij.codeInsight.template.postfix.templates.PostfixModExpander;
 import com.intellij.codeInsight.template.postfix.templates.PostfixTemplate;
 import com.intellij.codeInsight.template.postfix.templates.PostfixTemplateProvider;
 import com.intellij.codeInsight.template.postfix.templates.PostfixTemplatesUtils;
@@ -57,11 +58,11 @@ public final class PostfixTemplateModCompletionItemProvider implements ModComple
 
     for (PostfixTemplateProvider provider : LanguagePostfixTemplate.LANG_EP.allForLanguage(language)) {
       ProgressManager.checkCanceled();
-      String key = PostfixLiveTemplate.computeTemplateKeyWithoutContextChecking(provider, file.getFileDocument().getCharsSequence(), offset);
+      CharSequence fileContent = file.getFileDocument().getCharsSequence();
+      String key = PostfixLiveTemplate.computeTemplateKeyWithoutContextChecking(provider, context.getProject(), language, fileContent, offset);
       if (key == null) continue;
 
       int newOffset = offset - key.length();
-      CharSequence fileContent = file.getFileDocument().getCharsSequence();
       StringBuilder contentWithoutKey = new StringBuilder();
       contentWithoutKey.append(fileContent.subSequence(0, newOffset));
       contentWithoutKey.append(fileContent.subSequence(offset, fileContent.length()));
@@ -74,6 +75,8 @@ public final class PostfixTemplateModCompletionItemProvider implements ModComple
       for (PostfixTemplate template : PostfixTemplatesUtils.getAvailableTemplates(provider)) {
         ProgressManager.checkCanceled();
         if (!isDumbEnough(template, copyContext)) continue;
+        //doesn't support `..`
+        //so no mod command postfix for `..`
         if (!template.getKey().startsWith(key)) continue;
         if (!template.isEnabled(provider)) continue;
         if (!template.isApplicable(copyContext, copyDocument, newOffset)) continue;
@@ -130,25 +133,33 @@ public final class PostfixTemplateModCompletionItemProvider implements ModComple
         .withDetailText(MarkupText.plainText(myTemplate.getExample()));
     }
 
+    /**
+     * The completion engine builds the context from the top-level file, so switch to the injected fragment
+     * as a whole via {@link ActionContext#mapToInjected()}: the key range and the expansion must be computed
+     * in the same coordinate space as {@link ActionContext#offset()} and {@link ActionContext#selection()}.
+     */
+    private @NotNull ModCommand expand(@NotNull ActionContext ctx, @NotNull String key) {
+      PostfixModExpander expander = myTemplate.createModExpander();
+      if (expander == null) return ModCommand.nop();
+      ActionContext context = ctx.mapToInjected();
+      TextRange keyRange = PostfixTemplatesUtils.computeKeyRange(context, key, myTemplate.getKey());
+      return expander.expand(context, myProvider, keyRange);
+    }
+
     @Override
     public @NotNull ModCommand perform(@NotNull ActionContext actionContext, @NotNull InsertionContext insertionContext) {
-      TextRange keyRange = PostfixTemplatesUtils.computeKeyRange(actionContext, myKey, myTemplate.getKey());
-      var expander = myTemplate.createModExpander();
-      return expander != null ? expander.expand(actionContext, myProvider, keyRange) : ModCommand.nop();
+      return expand(actionContext, myKey);
     }
 
     @Override
     public @NotNull IntentionPreviewInfo preview(@NotNull ActionContext ctx) {
-      if (myTemplate.isApplicableForModCommand()) {
-        String key = PostfixLiveTemplate.computeTemplateKeyWithoutContextChecking(
-        myProvider, ctx.file().getFileDocument().getCharsSequence(), ctx.offset());
-        if (key == null) return IntentionPreviewInfo.EMPTY;
-        TextRange keyRange = PostfixTemplatesUtils.computeKeyRange(ctx, key, myTemplate.getKey());
-        var expander = myTemplate.createModExpander();
-        ModCommand command = expander != null ? expander.expand(ctx, myProvider, keyRange) : ModCommand.nop();
-        return IntentionPreviewUtils.getModCommandPreview(command, ctx);
-      }
-      return IntentionPreviewInfo.EMPTY;
+      if (!myTemplate.isApplicableForModCommand()) return IntentionPreviewInfo.EMPTY;
+      PsiFile file = ctx.file();
+      CharSequence sequence = file.getFileDocument().getCharsSequence();
+      String key = PostfixLiveTemplate.computeTemplateKeyWithoutContextChecking(
+        myProvider, file.getProject(), file.getLanguage(), sequence, ctx.offset());
+      if (key == null) return IntentionPreviewInfo.EMPTY;
+      return IntentionPreviewUtils.getModCommandPreview(expand(ctx, key), ctx);
     }
   }
 

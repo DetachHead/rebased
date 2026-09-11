@@ -3,7 +3,7 @@ package org.intellij.plugins.markdown.service
 
 import com.intellij.ide.vfs.VirtualFileId
 import com.intellij.platform.project.ProjectId
-import com.intellij.platform.rpc.RemoteApiProviderService
+import com.intellij.platform.rpc.lite.LiteRemoteApiProviderService
 import fleet.rpc.RemoteApi
 import fleet.rpc.Rpc
 import fleet.rpc.remoteApiDescriptor
@@ -14,10 +14,12 @@ import org.jetbrains.annotations.ApiStatus
 interface VirtualFileAccessor : RemoteApi<Unit> {
   suspend fun tryToLoadFileContent(resourceName: String, virtualFileId: VirtualFileId, projectId: ProjectId): ByteArray?
 
+  suspend fun tryToFindFileByUrl(url: String): VirtualFileId?
+
   companion object {
     @JvmStatic
-    suspend fun getInstance(): VirtualFileAccessor {
-      return RemoteApiProviderService.resolve(remoteApiDescriptor<VirtualFileAccessor>())
+    fun tryGetInstance(): VirtualFileAccessor? {
+      return LiteRemoteApiProviderService.tryResolve(remoteApiDescriptor<VirtualFileAccessor>())
     }
   }
 }

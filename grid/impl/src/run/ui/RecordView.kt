@@ -15,14 +15,18 @@ import com.intellij.database.datagrid.color.ColorLayer
 import com.intellij.database.datagrid.color.MutationsColorLayer
 import com.intellij.database.datagrid.overrideValue
 import com.intellij.database.datagrid.request
+import com.intellij.database.remote.jdbc.LobInfo
 import com.intellij.database.run.ui.grid.editors.GridCellEditorFactoryProvider
 import com.intellij.database.run.ui.treetable.TreeTableResultView
 import com.intellij.icons.AllIcons
+import com.intellij.ide.setToolTipText
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.editor.EditorBundle
 import com.intellij.openapi.observable.util.addMouseHoverListener
 import com.intellij.openapi.observable.util.whenTextChangedFromUi
+import com.intellij.openapi.util.NlsContexts
 import com.intellij.openapi.util.NlsSafe
+import com.intellij.openapi.util.text.HtmlChunk
 import com.intellij.profile.codeInspection.ui.addScrollPaneIfNecessary
 import com.intellij.ui.components.JBPanel
 import com.intellij.ui.components.JBPanelWithEmptyText
@@ -41,6 +45,7 @@ import java.awt.event.FocusEvent
 import java.awt.event.KeyAdapter
 import java.awt.event.KeyEvent
 import javax.swing.GroupLayout
+import javax.swing.Icon
 import javax.swing.JComponent
 import javax.swing.JLabel
 import javax.swing.LayoutFocusTraversalPolicy
@@ -49,8 +54,10 @@ class RecordView(
   private val grid: DataGrid,
   private val openValueEditorTab: () -> Unit
 ) : CellViewer, Disposable {
-  @Volatile var isTwoColumnsLayout = false
-  @Volatile var isValidPanel = true
+  @Volatile
+  internal var isTwoColumnsLayout = false
+  @Volatile
+  internal var isValidPanel = true
 
   private val dataModel = grid.getDataModel(DataAccessType.DATA_WITH_MUTATIONS)
 
@@ -103,6 +110,11 @@ class RecordView(
       val column = dataModel.getColumn(columnIdx) ?: return@mapNotNull null
       ColumnInfo(columnIdx, column.name, column)
     }
+  }
+
+  private class GridEditState(val gridEditable: Boolean, reason: @NlsContexts.Tooltip String?) {
+    val readOnlyTooltip: @NlsContexts.Tooltip String =
+      if (reason.isNullOrEmpty()) EditorBundle.message("editing.viewer.hint") else reason
   }
 
   data class ColumnInfo(
@@ -163,7 +175,6 @@ class RecordView(
       val vGroupColumn1 = layout.createSequentialGroup()
 
       uiElements.forEach { (field, nameLabel) ->
-
         val hGroupNameRow = layout.createSequentialGroup()
         hGroupNameRow.addGap(JBUIScale.scale(12))
         hGroupNameRow.addComponent(nameLabel)
@@ -175,11 +186,13 @@ class RecordView(
         hGroupValueRow.addComponent(field, GroupLayout.DEFAULT_SIZE, GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE.toInt())
         hGroupValueRow.addGap(JBUIScale.scale(9))
         hGroup.addGroup(hGroupValueRow)
+        val namePreferredHeight = nameLabel.preferredSize.height
         val fieldPreferredHeight = field.preferredSize.height
 
         vGroupColumn1.addContainerGap()
-        vGroupColumn1.addComponent(nameLabel, fieldPreferredHeight, fieldPreferredHeight, fieldPreferredHeight)
+        vGroupColumn1.addComponent(nameLabel, namePreferredHeight, namePreferredHeight, namePreferredHeight)
         vGroupColumn1.addComponent(field, fieldPreferredHeight, fieldPreferredHeight, fieldPreferredHeight)
+        vGroupColumn1.addGap(JBUIScale.scale(10))
       }
 
       vGroup.addGroup(vGroupColumn1)
@@ -197,11 +210,48 @@ class RecordView(
     var isSelected = false
 
     private var hovered = false
+
+    /** Shows a preview instead of the value: a text component measures its whole content on every caret move. */
+    var isTruncated: Boolean = false
+      private set
+
     private val extension: ExtendableTextComponent.Extension =
       ExtendableTextComponent.Extension.create(
       AllIcons.General.ExpandComponent, AllIcons.General.ExpandComponentHover,
       DataGridBundle.message("EditMaximized.Record.to.value.editor.control")
     ) { openValueEditorTab() }
+
+    private val truncatedExtension: ExtendableTextComponent.Extension =
+      ExtendableTextComponent.Extension.create(
+      AllIcons.General.ExpandComponent, AllIcons.General.ExpandComponentHover,
+      TRUNCATED_MESSAGE, true
+    ) { openValueEditorTab() }
+
+    /** Shows [value], as a preview when it is too large for a text component to handle or [valueTruncated] already. */
+    fun setValue(
+      value: String,
+      editable: Boolean,
+      readOnlyTooltip: @NlsContexts.Tooltip String?,
+      valueTruncated: Boolean = false,
+    ) {
+      val tooLong = value.length > MAX_INLINE_VALUE_LENGTH
+      isTruncated = tooLong || valueTruncated
+      text = if (tooLong) value.preview() + Typography.ellipsis else value
+      isEditable = editable && !isTruncated
+      // A preview wins over the read-only reason: it is the hint one can act on, and it says why the field is locked.
+      val tooltip = if (isTruncated) TRUNCATED_MESSAGE else if (!editable) readOnlyTooltip else null
+      // The read-only reason is already HTML, so escaping it would print its markup.
+      setToolTipText(tooltip?.let(HtmlChunk::raw))
+      getAccessibleContext().accessibleDescription = tooltip
+      caretPosition = 0
+      updateExtension()
+    }
+
+    /** Cuts at [MAX_INLINE_VALUE_LENGTH], never between the halves of a surrogate pair. */
+    private fun String.preview(): String {
+      val end = if (this[MAX_INLINE_VALUE_LENGTH - 1].isHighSurrogate()) MAX_INLINE_VALUE_LENGTH - 1 else MAX_INLINE_VALUE_LENGTH
+      return substring(0, end)
+    }
 
     init {
       addMouseHoverListener(null, object : HoverStateListener() {
@@ -213,12 +263,16 @@ class RecordView(
     }
 
     fun updateExtension() {
-      val shouldShow = isSelected || hovered
-      if (shouldShow) {
-        addExtension(extension)
+      removeExtension(extension)
+      removeExtension(truncatedExtension)
+      removeExtension(READ_ONLY_EXTENSION)
+      // A truncated value always advertises the value editor: it is the only place the whole value can be seen.
+      if (isTruncated) {
+        addExtension(READ_ONLY_EXTENSION)
+        addExtension(truncatedExtension)
       }
-      else {
-        removeExtension(extension)
+      else if (isSelected || hovered) {
+        addExtension(extension)
       }
       repaint()
     }
@@ -237,6 +291,18 @@ class RecordView(
 
     override fun getPreferredSize(): Dimension {
       return Dimension(JBUIScale.scale(100), super.getMinimumSize().height)
+    }
+
+    private companion object {
+      val TRUNCATED_MESSAGE: @NlsContexts.Tooltip String = DataGridBundle.message("EditMaximized.Record.value.truncated")
+
+      /** Marks a field as showing a preview it cannot edit, next to the text rather than only in a tooltip. */
+      val READ_ONLY_EXTENSION: ExtendableTextComponent.Extension = object : ExtendableTextComponent.Extension {
+        override fun getIcon(hovered: Boolean): Icon = AllIcons.Ide.Readonly
+        override fun isIconBeforeText(): Boolean = true
+        override fun getTooltip(): String = TRUNCATED_MESSAGE
+        override fun getIconGap(): Int = JBUIScale.scale(3)
+      }
     }
   }
 
@@ -266,7 +332,10 @@ class RecordView(
           val icon = helper.getColumnIcon(grid, columnInfo.column, true)
           val tooltip = helper.getColumnTooltipHtml(grid, columnInfo.idx)
 
-          val field = MyTextField(openValueEditorTab, COLUMNS_SHORT).apply {
+          val field = MyTextField({
+            if (selectedColumnIdx != columnInfo.idx) setSelectionInGrid(columnInfo.idx)
+            openValueEditorTab()
+          }, COLUMNS_SHORT).apply {
             whenTextChangedFromUi { setTextInGrid(columnInfo.idx) }
 
             addKeyListener(object : KeyAdapter() {
@@ -291,17 +360,6 @@ class RecordView(
               }
             })
 
-            isEditable = isCellEditable(grid.request(rowIdx, columnInfo.idx))
-
-            if (!isEditable) {
-              val reason = GridEditGuard.get(grid)?.getReasonText(grid)
-              if (reason != null && reason.isNotEmpty()) {
-                toolTipText = reason
-              }
-              else {
-                toolTipText = EditorBundle.message("editing.viewer.hint")
-              }
-            }
           }
           val label = JLabel(columnInfo.name).apply {
             this.icon = icon; toolTipText = tooltip
@@ -310,9 +368,10 @@ class RecordView(
           textFields[columnInfo.idx] = field
           componentGroups.add(PanelComponents(field, label))
         }
+        val editState = gridEditState()
         for (kv in textFields) {
           updateConvertor(kv.key)
-          updateText(kv.key)
+          updateText(kv.key, editState)
           updateColor(kv.key)
           updateSelection(kv.key)
         }
@@ -331,12 +390,22 @@ class RecordView(
 
     }
 
-    fun updateColor(columnIdx: ModelIndex<GridColumn>) = textFields[columnIdx]?.let { textField ->
+    private fun updateColor(columnIdx: ModelIndex<GridColumn>) = textFields[columnIdx]?.let { textField ->
       textField.background = colorLayer.getCellBackground(rowIdx, columnIdx, grid, null) ?: textField.originalBackground
     }
-    fun updateText(columnIdx: ModelIndex<GridColumn>) = textFields[columnIdx]?.let { textField ->
-      textField.text = textConvertors[columnIdx]?.toText(dataModel.getValueAt(rowIdx, columnIdx))!!
-      textField.caretPosition = 0
+    private fun updateText(columnIdx: ModelIndex<GridColumn>, editState: GridEditState) = textFields[columnIdx]?.let { textField ->
+      val rawValue = dataModel.getValueAt(rowIdx, columnIdx)
+      val value = textConvertors[columnIdx]?.toText(rawValue)!!
+      val editable = editState.gridEditable && isCellEditable(grid.request(rowIdx, columnIdx))
+      // Only a prefix of the value was loaded, so it is a preview however short it came out. The table view marks it too.
+      val valueTruncated = (rawValue as? LobInfo<*>)?.isTruncated == true
+      textField.setValue(value, editable, if (editable) null else editState.readOnlyTooltip, valueTruncated)
+    }
+
+    /** Scanning the edit guards is too costly to repeat for every column, so the grid-wide answer is taken once. */
+    private fun gridEditState(): GridEditState {
+      val gridEditable = grid.isEditable
+      return GridEditState(gridEditable, if (gridEditable) null else GridEditGuard.get(grid)?.getReasonText(grid))
     }
     fun updateSelection(columnIdx: ModelIndex<GridColumn>) = textFields[columnIdx]?.let { textField ->
       val isCurrentSelected = columnIdx == selectedColumnIdx
@@ -346,13 +415,15 @@ class RecordView(
         (textField.parent as JComponent?)?.scrollRectToVisible(textField.bounds)
       }
     }
-    fun updateConvertor(columnIdx: ModelIndex<GridColumn>) {
+    private fun updateConvertor(columnIdx: ModelIndex<GridColumn>) {
       val currentConvertor = textConvertors[columnIdx]
       if (currentConvertor == null || currentConvertor.request.rowIdx != rowIdx || currentConvertor.request.columnIdx != columnIdx) {
         textConvertors[columnIdx] = Convertor(grid.request(rowIdx, columnIdx))
       }
     }
     fun setTextInGrid(columnIdx: ModelIndex<GridColumn>) = textFields[columnIdx]?.let { textField ->
+      // The field holds a preview of the value, not the value: writing it back would replace the value with the preview.
+      if (textField.isTruncated) return@let
       val parsed: Any? = textConvertors[columnIdx]?.fromText(textField.text)
       grid.resultView.setValueAt(
         parsed, rowIdx, columnIdx, false,
@@ -363,7 +434,7 @@ class RecordView(
         }
       )
     }
-    fun setSelectionInGrid(columnIdx: ModelIndex<GridColumn>) = textFields[columnIdx]?.let { textField ->
+    private fun setSelectionInGrid(columnIdx: ModelIndex<GridColumn>) = textFields[columnIdx]?.let { textField ->
       val resultView = grid.resultView
       if (resultView is TreeTableResultView) {
         resultView.tryExpand(rowIdx)
@@ -387,9 +458,10 @@ class RecordView(
       isValidRow = rowIdx.isValid(grid)
 
       if (oldRowIdx != rowIdx) {
+        val editState = gridEditState()
         for (kv in textFields) {
           updateConvertor(kv.key)
-          updateText(kv.key)
+          updateText(kv.key, editState)
           updateColor(kv.key)
         }
       }
@@ -403,8 +475,9 @@ class RecordView(
       return true
     }
     fun updateTextFields() {
+      val editState = gridEditState()
       textFields.keys.forEach { columnIdx ->
-        updateText(columnIdx)
+        updateText(columnIdx, editState)
         updateColor(columnIdx)
       }
     }
@@ -422,12 +495,12 @@ class RecordView(
   }
 
   companion object {
+    /** Longest value shown in a record field; beyond it the value editor is the only place to see and edit it. */
+    private const val MAX_INLINE_VALUE_LENGTH = 10_000
 
+    /** Cell-level editability only; the grid-wide answer comes from [PanelController.gridEditState]. */
     @JvmStatic
     private fun isCellEditable(request: GridCellRequest<GridRow, GridColumn>): Boolean {
-      if (!request.grid.isEditable) {
-        return false
-      }
       val factory = GridCellEditorFactoryProvider.provideEditorFactory(request) ?: return false
       return factory.isEditableChecker.isEditable(request.getValue(), request.grid, request.columnIdx)
     }

@@ -9,11 +9,11 @@ import com.intellij.openapi.ui.validation.DialogValidationRequestor
 import com.intellij.openapi.vfs.VfsUtilCore
 import com.intellij.platform.eel.provider.localEel
 import com.intellij.platform.util.progress.withProgressText
-import com.intellij.python.hatch.HatchConfiguration
+import com.intellij.python.hatch.HatchPyTool
+import com.intellij.python.pytools.PyTool
 import com.intellij.python.hatch.HatchVirtualEnvironment
 import com.intellij.python.hatch.getHatchService
 import com.intellij.ui.dsl.builder.Panel
-import com.jetbrains.python.PyBundle
 import com.jetbrains.python.PyBundle.message
 import com.jetbrains.python.Result
 import com.jetbrains.python.errorProcessing.ErrorSink
@@ -26,7 +26,7 @@ import com.jetbrains.python.sdk.add.v2.PythonMutableTargetAddInterpreterModel
 import com.jetbrains.python.sdk.add.v2.ToolValidator
 import com.jetbrains.python.sdk.add.v2.ValidatedPath
 import com.jetbrains.python.sdk.add.v2.getOrInstallBasePython
-import com.jetbrains.python.sdk.add.v2.savePathForEelOnly
+import com.jetbrains.python.sdk.add.v2.persistCustomToolPath
 import com.jetbrains.python.sdk.add.v2.toFileSystem
 import com.jetbrains.python.statistics.InterpreterType
 import kotlinx.coroutines.CoroutineScope
@@ -35,13 +35,14 @@ import java.nio.file.Path
 internal class HatchNewEnvironmentCreator<P : PathHolder>(
   override val model: PythonMutableTargetAddInterpreterModel<P>,
   errorSink: ErrorSink,
-) : CustomNewEnvironmentCreator<P>("hatch", model, errorSink) {
+) : CustomNewEnvironmentCreator<P>(model, errorSink) {
   override val interpreterType: InterpreterType = InterpreterType.HATCH
+  override val pyTool: PyTool = HatchPyTool.getInstance()
   override val toolValidator: ToolValidator<P> = model.hatchViewModel.toolValidator
   private lateinit var hatchFormFields: HatchFormFields<P>
   override val toolExecutable: ObservableProperty<ValidatedPath.Executable<P>?> = model.hatchViewModel.hatchExecutable
   override val toolExecutablePersister: suspend (P) -> Unit = { pathHolder ->
-    savePathForEelOnly(pathHolder) { path -> HatchConfiguration.persistPathForTarget(hatchExecutablePath = path) }
+    model.fileSystem.persistCustomToolPath(pathHolder, pyTool)
   }
 
   override fun setupUI(panel: Panel, validationRequestor: DialogValidationRequestor) {
@@ -61,12 +62,18 @@ internal class HatchNewEnvironmentCreator<P : PathHolder>(
   }
 
   override suspend fun createPythonModuleStructure(module: Module): PyResult<Unit> {
-    val hatchExecutablePath = (model.hatchViewModel.hatchExecutable.get()?.pathHolder as? PathHolder.Eel)?.path
-                              ?: return Result.failure(HatchUIError.HatchExecutablePathIsNotValid(null))
+    val hatchExecutablePath = when (val pathHolder = model.hatchViewModel.hatchExecutable.get()?.pathHolder) {
+      is PathHolder.Eel -> pathHolder.path
+      is PathHolder.Target -> return PyResult.localizedError(message("target.is.not.supported", pathHolder))
+      null -> return Result.failure(HatchUIError.HatchExecutablePathIsNotValid(null))
+    }
 
-    val hatchService = module.getHatchService(localEel.toFileSystem(), hatchExecutablePath).getOr { return it }
+    val hatchService = module.getHatchService(
+      fileSystem = localEel.toFileSystem(),
+      hatchExecutablePath = hatchExecutablePath,
+    ).getOr { return it }
 
-    val projectStructure = hatchService.createNewProject(PyPackageName.normalizeProjectName(module.project.name)).getOr { return it }
+    val projectStructure = hatchService.createNewProjectLocally(PyPackageName.normalizeProjectName(module.project.name)).getOr { return it }
     ModuleRootModificationUtil.updateModel(module) { moduleRootModel ->
       val contentEntry = moduleRootModel.contentEntries.firstOrNull() ?: return@updateModel
 
@@ -82,27 +89,27 @@ internal class HatchNewEnvironmentCreator<P : PathHolder>(
 
   override suspend fun setupEnvSdk(moduleBasePath: Path): PyResult<Sdk> {
     val basePythonBinaryPath = model.getOrInstallBasePython()
+                               ?: return Result.failure(HatchUIError.BasePythonExecutableIsNotAvailable())
 
     val hatchEnv = model.hatchViewModel.selectedEnvFromAvailable.get()?.hatchEnvironment
                    ?: return Result.failure(HatchUIError.HatchEnvironmentIsNotSelected())
-    val basePythonBinaryEelPath = when (basePythonBinaryPath) {
-      is PathHolder.Eel -> basePythonBinaryPath.path
-      else -> return PyResult.localizedError(PyBundle.message("target.is.not.supported", basePythonBinaryPath))
-    }
-    val hatchExecutablePath = when (val hatchBinary = model.hatchViewModel.hatchExecutable.get()?.pathHolder) {
-      is PathHolder.Eel -> hatchBinary.path
-      else -> null
-    }
-    val hatchService = moduleBasePath.getHatchService(fileSystem = localEel.toFileSystem(), hatchExecutablePath = hatchExecutablePath).getOr { return it }
+    val hatchExecutablePath = model.hatchViewModel.hatchExecutable.get()?.pathHolder
+                              ?: return Result.failure(HatchUIError.HatchExecutablePathIsNotValid(null))
+    val hatchService =
+      moduleBasePath.getHatchService(fileSystem = model.fileSystem, hatchExecutablePath = hatchExecutablePath).getOr { return it }
 
     val virtualEnvironment = withProgressText(message("python.sdk.progress.hatch.creating")) {
       hatchService.createVirtualEnvironment(
-        basePythonBinaryPath = basePythonBinaryEelPath,
+        basePythonBinaryPath = basePythonBinaryPath,
         envName = hatchEnv.name
       )
     }.getOr { return it }
 
     val hatchVirtualEnv = HatchVirtualEnvironment(hatchEnv, virtualEnvironment)
-    return hatchVirtualEnv.createSdk(hatchService.getWorkingDirectoryPath())
+    return hatchVirtualEnv.createSdk(
+      workingDirectoryPath = hatchService.getWorkingDirectoryPath(),
+      fileSystem = model.fileSystem,
+      targetPanelExtension = model.state.targetPanelExtension.get(),
+    )
   }
 }

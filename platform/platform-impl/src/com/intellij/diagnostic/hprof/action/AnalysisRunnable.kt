@@ -16,14 +16,16 @@
 package com.intellij.diagnostic.hprof.action
 
 import com.intellij.diagnostic.DiagnosticBundle
+import com.intellij.diagnostic.DiagnosticDispatchers
 import com.intellij.diagnostic.ExceptionAutoReportUtil
 import com.intellij.diagnostic.HeapDumpAnalysisSupport
-import com.intellij.diagnostic.ITNProxyCoroutineScopeHolder
 import com.intellij.diagnostic.hprof.analysis.HProfAnalysis
 import com.intellij.diagnostic.hprof.analysis.analyzeGraph
 import com.intellij.diagnostic.hprof.util.HeapDumpAnalysisNotificationGroup
 import com.intellij.diagnostic.hprof.util.HeapReportUtils.sectionHeader
+import com.intellij.diagnostic.hprof.util.HeapReportUtils.toShortStringAsSize
 import com.intellij.diagnostic.report.HeapReportProperties
+import com.intellij.featureStatistics.fusCollectors.LifecycleUsageTriggerCollector
 import com.intellij.ide.BrowserUtil
 import com.intellij.ide.actions.ShowLogAction
 import com.intellij.notification.Notification
@@ -32,7 +34,9 @@ import com.intellij.notification.NotificationType
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.application.ApplicationInfo
 import com.intellij.openapi.application.ApplicationNamesInfo
+import com.intellij.openapi.application.EDT
 import com.intellij.openapi.application.impl.ApplicationInfoImpl
+import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.thisLogger
 import com.intellij.openapi.progress.ProgressIndicator
@@ -45,7 +49,10 @@ import com.intellij.ui.JBColor
 import com.intellij.ui.components.JBScrollPane
 import com.intellij.util.ui.SwingHelper
 import com.intellij.util.ui.UIUtil
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.awt.BorderLayout
 import java.nio.channels.FileChannel
 import java.nio.file.Files
@@ -55,6 +62,7 @@ import java.nio.file.StandardOpenOption
 import java.util.concurrent.CompletableFuture
 import javax.swing.Action
 import javax.swing.JComponent
+import javax.swing.JFrame
 import javax.swing.JLabel
 import javax.swing.JPanel
 import javax.swing.JTextArea
@@ -110,10 +118,13 @@ internal class AnalysisRunnable(
         deleteHprofFileAsync()
       }
 
+      HeapDumpAnalysisSupport.getInstance().analysisComplete(heapProperties)
+
       val notification = HeapDumpAnalysisNotificationGroup.GROUP.createNotification(
         title = DiagnosticBundle.message("heap.dump.analysis.notification.title"),
         content = DiagnosticBundle.message("heap.dump.analysis.notification.ready.content"),
         type = NotificationType.INFORMATION)
+      notification.setDisplayId("memory.analysis.complete")
       notification.isImportant = true
       notification.setSuggestionType(true)
       notification.addAction(ReviewReportAction(reportText, heapProperties))
@@ -124,12 +135,8 @@ internal class AnalysisRunnable(
 
       val parentComponent = WindowManager.getInstance().getFrame(guessProject)
       if (parentComponent != null) {
-        service<ITNProxyCoroutineScopeHolder>().coroutineScope.launch {
-          // even if users forget to report explicitly, we still report it based on consent
-          if (ExceptionAutoReportUtil.isAutoReportEnabled()) {
-            HeapDumpAnalysisSupport.getInstance().uploadReport(reportText, heapProperties, parentComponent)
-          }
-        }
+        // even if users forget to report explicitly, we still report it based on consent
+        service<SubmitHeapAnalysisService>().submit(reportText, heapProperties, parentComponent)
       }
     }
   }
@@ -144,14 +151,14 @@ internal class AnalysisRunnable(
         return
       }
 
+      LifecycleUsageTriggerCollector.onMemoryReportReview()
+
       reportShown = true
       UIUtil.invokeLaterIfNeeded {
         notification.expire()
 
         val reportDialog = ShowReportDialog(reportText, heapProperties)
         val userAgreedToSendReport = reportDialog.showAndGet()
-
-        HeapDumpAnalysisSupport.getInstance().analysisComplete(heapProperties)
 
         if (userAgreedToSendReport) {
           HeapDumpAnalysisSupport.getInstance().uploadReport(reportText, heapProperties, parentComponent)
@@ -181,12 +188,14 @@ internal fun getHeapDumpReportText(reportText: String, heapProperties: HeapRepor
 }
 
 internal class ShowReportDialog(reportText: String, heapProperties: HeapReportProperties) : DialogWrapper(false) {
-  private val textArea: JTextArea = JTextArea(30, 130)
+  private val textArea: JTextArea = JTextArea(25, 130)
+  private val suspectReport: String?
 
   init {
     textArea.text = getHeapDumpReportText(reportText, heapProperties)
     textArea.isEditable = false
     textArea.caretPosition = 0
+    suspectReport = createSuspectReport(reportText, heapProperties)
     init()
     title = DiagnosticBundle.message("heap.dump.analysis.report.dialog.title")
     isModal = true
@@ -197,7 +206,7 @@ internal class ShowReportDialog(reportText: String, heapProperties: HeapReportPr
     val productName = ApplicationNamesInfo.getInstance().fullProductName
     val vendorName = ApplicationInfoImpl.getShadowInstance().shortCompanyName
 
-    val header = JLabel(DiagnosticBundle.message("heap.dump.analysis.report.dialog.header", productName, vendorName))
+    val header = JLabel(DiagnosticBundle.message("heap.dump.analysis.report.dialog.header", productName, suspectReport ?: "", vendorName))
 
     pane.add(header, BorderLayout.PAGE_START)
     pane.add(JBScrollPane(textArea), BorderLayout.CENTER)
@@ -226,10 +235,46 @@ internal class ShowReportDialog(reportText: String, heapProperties: HeapReportPr
     okAction.putValue(Action.NAME, DiagnosticBundle.message("heap.dump.analysis.report.dialog.action.send"))
     cancelAction.putValue(Action.NAME, DiagnosticBundle.message("heap.dump.analysis.report.dialog.action.dont.send"))
   }
+
+  private fun createSuspectReport(reportText: String, heapProperties: HeapReportProperties): String? {
+    if (!LargestObjectWithOwner.isOomReport(reportText)) return null
+
+    val suspect = LargestObjectWithOwner.find(reportText)
+    if (suspect == null || !suspect.isWorthReportingToUser()) return null
+
+    val heapSize = heapProperties.heapStats.lines().firstOrNull()?.substringAfter("Maximum heap size:", "")?.trim()
+    return buildString {
+      append("<br>")
+      append(DiagnosticBundle.message("heap.dump.analysis.report.dialog.header.dominating.object", suspect.largestObject.className))
+      append(DiagnosticBundle.message("heap.dump.analysis.report.dialog.header.deep.size", toShortStringAsSize(suspect.largestObject.sizeInBytes)))
+      if (heapSize?.isNotBlank() ?: false) {
+        append(DiagnosticBundle.message("heap.dump.analysis.report.dialog.header.of.max.heap", heapSize))
+      }
+      if (suspect.descriptor != null) {
+        append(DiagnosticBundle.message("heap.dump.analysis.report.dialog.header.responsible.plugin", suspect.descriptor.name,suspect.descriptor.pluginId.idString))
+      }
+      append("<br><br>")
+    }
+  }
 }
 
 class SystemTempFilenameSupplier : HProfAnalysis.TempFilenameSupplier {
   override fun getTempFilePath(type: String): Path {
     return Files.createTempFile("heap-dump-analysis-", "-$type.tmp")
+  }
+}
+
+@Service
+internal class SubmitHeapAnalysisService(val coroutineScope: CoroutineScope) {
+  fun submit(reportText: String, heapProperties: HeapReportProperties, parentComponent: JFrame) {
+    coroutineScope.launch(DiagnosticDispatchers.Default) {
+      if (ExceptionAutoReportUtil.isAutoReportEnabled()) {
+        thisLogger().info("Reporting memory leak report automatically")
+
+        withContext(Dispatchers.EDT) {
+          HeapDumpAnalysisSupport.getInstance().uploadReport(reportText, heapProperties, parentComponent, automaticReport = true)
+        }
+      }
+    }
   }
 }

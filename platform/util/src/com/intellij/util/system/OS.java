@@ -3,12 +3,9 @@ package com.intellij.util.system;
 
 import com.intellij.ReviseWhenPortedToJDK;
 import com.intellij.execution.Platform;
-import com.intellij.jna.JnaLoader;
 import com.intellij.openapi.util.Version;
 import com.intellij.openapi.util.WinBuildNumber;
 import com.intellij.util.ArrayUtil;
-import com.sun.jna.Library;
-import com.sun.jna.Native;
 import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -24,24 +21,16 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 public enum OS {
-  Windows, macOS, Linux, FreeBSD, Other;
+  Windows, macOS, Linux, FreeBSD, HarmonyOS, Other;
 
   /// Represents an operating system this JVM is running on.
   ///
-  /// In most cases you do not need this method, see `EelShowCaseTest`.
-  ///  ```kotlin
-  ///   suspend fun getOs(p:Project) {
-  ///     val d = p.getEelDescriptor()
-  ///     d.osFamily
-  ///     d.toEelApi().exec.environmentVariables().eelIt().await()
-  ///   }
-  ///   fun getOs(p:Path) {
-  ///     p.getEelDescriptor().osFamily
-  ///   }
-  ///  ```
+  /// For project files, prefer the Eel API instead (see `EelProviderProjectUtilKt.getEelDescriptor(Project)`
+  /// and `EelPathDescriptorKt#getEelDescriptor(Path)`).
+  ///
   /// @see LowLevelLocalMachineAccess
   @LowLevelLocalMachineAccess
-  public static final OS CURRENT = fromString(System.getProperty("os.name"));
+  public static final @NotNull OS CURRENT = fromString(System.getProperty("os.name"));
 
   /// @deprecated use [#version()] instead
   @Deprecated
@@ -77,12 +66,12 @@ public enum OS {
 
   /// Returns an instance of [OsInfo] for the current OS.
   public final @NotNull OsInfo getOsInfo() {
-    return (
+    return
       this == Windows ? WindowsInfo.INSTANCE :
       this == macOS ? MacOsInfo.INSTANCE :
       this == Linux ? LinuxInfo.INSTANCE :
-      UnixInfo.INSTANCE
-    );
+      this == HarmonyOS ? HarmonyOSInfo.INSTANCE :
+      UnixInfo.INSTANCE;
   }
 
   public @NotNull Platform getPlatform() {
@@ -96,6 +85,7 @@ public enum OS {
       if (os.startsWith("mac")) return macOS;
       if (os.startsWith("linux")) return Linux;
       if (os.startsWith("freebsd")) return FreeBSD;
+      if (os.startsWith("harmonyos")) return HarmonyOS;
     }
     return Other;
   }
@@ -190,7 +180,6 @@ public enum OS {
     private static final LinuxInfo INSTANCE = new LinuxInfo();
 
     private volatile Boolean isUnderWsl = null;
-    private volatile String glibcVersion = "not-initialized";
 
     private LinuxInfo() { }
 
@@ -206,36 +195,10 @@ public enum OS {
       }
       return isUnderWsl;
     }
+  }
+  public static final class HarmonyOSInfo extends UnixInfo {
+    private static final HarmonyOSInfo INSTANCE = new HarmonyOSInfo();
 
-    @ApiStatus.Internal
-    public @Nullable String getGlibcVersion() {
-      if ("not-initialized".equals(glibcVersion)) {
-        String version = null;
-        if (JnaLoader.isLoaded()) {
-          try {
-            byte[] buf = new byte[64];
-            long res = LibC.INSTANCE.confstr(LibC._CS_GNU_LIBC_VERSION, buf, buf.length);
-            if (res > 6) {
-              String str = new String(buf, 0, (int)res - 1, StandardCharsets.US_ASCII);
-              if (str.startsWith("glibc ")) {
-                version = str.substring(6);
-              }
-            }
-          }
-          catch (Throwable ignored) { }
-        }
-        glibcVersion = version;
-      }
-      return glibcVersion;
-    }
-
-    private interface LibC extends Library {
-      LibC INSTANCE = Native.load(LibC.class);
-
-      int _CS_GNU_LIBC_VERSION = 2;
-
-      @SuppressWarnings("SpellCheckingInspection")
-      long confstr(int name, byte[] buf, long size);
-    }
+    private HarmonyOSInfo() { }
   }
 }

@@ -1,4 +1,9 @@
-from .display_ import *
-from .display_log import debug, SHOW_DEBUG_INFO
+from .display_log import debug
 
-__all__ = display_.__all__
+
+def display(data):
+    from . import display_
+    return display_.display(data)
+
+
+__all__ = ["display"]

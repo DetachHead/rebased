@@ -1,4 +1,4 @@
-// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.ui.mac.screenmenu;
 
 import com.intellij.CommonBundle;
@@ -16,6 +16,7 @@ import com.intellij.ui.mac.MacMenuSettings;
 import com.intellij.ui.mac.foundation.Foundation;
 import com.intellij.ui.mac.foundation.ID;
 import com.intellij.util.ArrayUtilRt;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
@@ -30,19 +31,20 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.function.Consumer;
 
 @SuppressWarnings({"NonPrivateFieldAccessedInSynchronizedContext", "unused"})
 public class Menu extends MenuItem {
   private static final boolean USE_STUB = Boolean.getBoolean("jbScreenMenuBar.useStubItem"); // just for tests/experiments
   private static final int CLOSE_DELAY = Integer.getInteger("jbScreenMenuBar.closeDelay", 500); // in milliseconds
-  private static Boolean IS_ENABLED = null;
+  private static volatile Boolean IS_ENABLED = null;
   private static Menu ourAppMenu = null;
   private final List<MenuItem> myItems = new ArrayList<>();
-  private final List<MenuItem> myBuffer = new ArrayList<>();
-  private Runnable myOnOpen;
+  private final List<MenuItem> myBuffer = new ArrayList<>(); // serves the menu bar fill only; an open menu fill uses FillSession
+  private Consumer<FillSession> myOnOpen;
   private Runnable myOnClose; // we assume that can run it only on EDT (to change swing components)
   private Component myComponent;
-  private long myOpenTimeMs = 0; // used to collect statistic
+  private volatile long myOpenTimeNs = 0; // used to collect statistic
   private volatile boolean myIsOpened = false;
 
   long[] myCachedPeers;
@@ -63,7 +65,10 @@ public class Menu extends MenuItem {
   public boolean isOpened() {
     return myIsOpened;
   }
-  public long getOpenTimeMs() { return myOpenTimeMs; }
+
+  public long getOpenTimeNs() {
+    return myOpenTimeNs;
+  }
 
   private Menu() { }
 
@@ -141,7 +146,7 @@ public class Menu extends MenuItem {
     nativeRenameAppMenuItems(ArrayUtilRt.toStringArray(replace));
   }
 
-  public void setOnOpen(@NotNull Component component, @NotNull Runnable fillMenuProcedure) {
+  public void setOnOpen(@NotNull Component component, @NotNull Consumer<FillSession> fillMenuProcedure) {
     this.myOnOpen = fillMenuProcedure;
     this.myComponent = component;
   }
@@ -210,6 +215,9 @@ public class Menu extends MenuItem {
 
   @Override
   public synchronized void dispose() {
+    // invalidate the open state, so a queued fill retry and a late session apply stop
+    myIsOpened = false;
+    myOpenTimeNs = 0;
     disposeChildren(0);
     myCachedPeers = null;
     super.dispose();
@@ -229,21 +237,50 @@ public class Menu extends MenuItem {
     return item;
   }
 
-  public synchronized void endFill(boolean onAppKit) {
-    disposeChildren(0);
+  /**
+   * Installs the session items when the open that created the session is still the active one,
+   * and disposes them otherwise. The check and the install run together on the AppKit thread, where
+   * {@link #menuNeedsUpdate()} starts a new open, so a close or a reopen cannot race the install.
+   */
+  public void applySession(@NotNull FillSession session) {
+    Foundation.executeOnMainThread(true, false, () -> applyImpl(session));
+  }
 
-    if (myBuffer.isEmpty()) {
-      return;
+  // Runs on AppKit only.
+  private synchronized void applyImpl(FillSession session) {
+    if (!myIsOpened || myOpenTimeNs != session.openTimeNs || session.items.isEmpty()) {
+      // a completed fill always holds at least one item, EMPTY_MENU_FILLER for a valid empty group;
+      // an empty session means an aborted fill, so keep the current items
+      session.disposeItems();
     }
+    else {
+      installItems(session.items);
+      session.items.clear();
+      refillImpl(false);
+    }
+  }
 
-    myCachedPeers = new long[myBuffer.size()];
-    //System.err.println("refill with " + newItemsPeers.length + " items");
-    for (int c = 0; c < myBuffer.size(); ++c) {
-      MenuItem menuItem = myBuffer.get(c);
+  // Disposes the installed items, then installs the new ones and rebuilds the native peer cache.
+  private boolean publishBuffer() {
+    if (myBuffer.isEmpty()) {
+      disposeChildren(0);
+      return false;
+    }
+    else {
+      installItems(myBuffer);
+      myBuffer.clear();
+      return true;
+    }
+  }
+
+  private synchronized void installItems(List<MenuItem> newItems) {
+    disposeChildren(0);
+    myCachedPeers = new long[newItems.size()];
+    for (int c = 0; c < newItems.size(); ++c) {
+      MenuItem menuItem = newItems.get(c);
       if (menuItem != null) {
         menuItem.ensureNativePeer();
         myCachedPeers[c] = menuItem.nativePeer;
-        //System.err.printf("\t0x%X\n", newItemsPeers[c]);
         myItems.add(menuItem);
         menuItem.isInHierarchy = true;
       }
@@ -251,9 +288,6 @@ public class Menu extends MenuItem {
         myCachedPeers[c] = 0;
       }
     }
-    myBuffer.clear();
-
-    refillImpl(onAppKit);
   }
 
   synchronized void refillImpl(boolean onAppKit) {
@@ -264,7 +298,10 @@ public class Menu extends MenuItem {
   }
 
   public synchronized void endFill() {
-    endFill(true);
+    if (!publishBuffer()) {
+      return;
+    }
+    refillImpl(true);
   }
 
   public synchronized void add(MenuItem item, int position, boolean onAppKit) {
@@ -291,7 +328,8 @@ public class Menu extends MenuItem {
       return;
     }
 
-    myOpenTimeMs = System.currentTimeMillis();
+    myOpenTimeNs = System.nanoTime();
+    FillSession session = new FillSession(myOpenTimeNs);
     if (USE_STUB) {
       // NOTE: must add stub item when the menu opens (otherwise AppKit considers it as empty, and we can't fill it later)
       MenuItem stub = new MenuItem();
@@ -303,15 +341,19 @@ public class Menu extends MenuItem {
       nativeAddItem(nativePeer, stub.nativePeer, false/*already on AppKit thread*/);
 
       ApplicationManager.getApplication().invokeLater(() -> {
-        beginFill();
-        myOnOpen.run();
-        endFill(true);
+        try {
+          myOnOpen.accept(session);
+        }
+        finally {
+          applySession(session);
+        }
       });
     }
     else {
-      beginFill();
-      invokeWithLWCToolkit(myOnOpen, myComponent, true);
-      endFill(false/*already on AppKit thread*/);
+      // the fill writes only to the session, so a fill retry never races another attempt;
+      // a retry apply is queued to AppKit and so always lands after this inline apply
+      invokeWithLWCToolkit(() -> myOnOpen.accept(session), myComponent, true);
+      applyImpl(session)/*already on AppKit thread*/;
     }
   }
 
@@ -389,12 +431,21 @@ public class Menu extends MenuItem {
   //
 
   public static boolean isJbScreenMenuEnabled() {
-    if (IS_ENABLED != null) {
-      return IS_ENABLED;
+    Boolean enabled = IS_ENABLED;
+    if (enabled != null) {
+      return enabled;
     }
+    synchronized (Menu.class) {
+      enabled = IS_ENABLED;
+      if (enabled == null) {
+        enabled = computeJbScreenMenuEnabled();
+        IS_ENABLED = enabled;
+      }
+      return enabled;
+    }
+  }
 
-    IS_ENABLED = false;
-
+  private static boolean computeJbScreenMenuEnabled() {
     if (!MacMenuSettings.isJbSystemMenu) {
       return false;
     }
@@ -420,7 +471,6 @@ public class Menu extends MenuItem {
       return false;
     }
 
-    IS_ENABLED = true;
     getLogger().info("use new ScreenMenuBar implementation");
     return true;
   }
@@ -503,6 +553,31 @@ public class Menu extends MenuItem {
       Foundation.invoke(nativePool, "release");
     }
     return bundleName;
+  }
+
+  @ApiStatus.Internal
+  public static final class FillSession {
+    public final long openTimeNs;
+    public final List<MenuItem> items = new ArrayList<>();
+
+    FillSession(long openTimeNs) {
+      this.openTimeNs = openTimeNs;
+    }
+
+    /** A fresh buffer for a retry that serves the same open. */
+    public @NotNull FillSession nextAttempt() {
+      return new FillSession(openTimeNs);
+    }
+
+    /** Disposes the items that were not installed. */
+    public void disposeItems() {
+      for (MenuItem item : items) {
+        if (item != null) {
+          Disposer.dispose(item);
+        }
+      }
+      items.clear();
+    }
   }
 }
 

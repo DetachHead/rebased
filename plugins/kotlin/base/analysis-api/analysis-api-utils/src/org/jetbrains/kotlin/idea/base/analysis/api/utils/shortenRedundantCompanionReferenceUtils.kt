@@ -4,20 +4,17 @@ package org.jetbrains.kotlin.idea.base.analysis.api.utils
 import com.intellij.openapi.util.TextRange
 import com.intellij.psi.util.descendantsOfType
 import org.jetbrains.annotations.ApiStatus
-import org.jetbrains.kotlin.analysis.api.KaExperimentalApi
 import org.jetbrains.kotlin.analysis.api.KaSession
-import org.jetbrains.kotlin.analysis.api.analyze
-import org.jetbrains.kotlin.analysis.api.components.resolveCall
-import org.jetbrains.kotlin.analysis.api.components.resolveToSymbol
-import org.jetbrains.kotlin.analysis.api.resolution.KaSingleCall
+import org.jetbrains.kotlin.analysis.api.resolution.resolveSuccessfulCall
+import org.jetbrains.kotlin.analysis.api.resolution.resolveSuccessfulSymbol
+import org.jetbrains.kotlin.analysis.api.resolution.simple
 import org.jetbrains.kotlin.analysis.api.resolution.symbol
+import org.jetbrains.kotlin.analysis.api.session.analyze
 import org.jetbrains.kotlin.analysis.api.symbols.KaClassKind
 import org.jetbrains.kotlin.analysis.api.symbols.KaNamedClassSymbol
 import org.jetbrains.kotlin.idea.base.codeInsight.ShortenOptionsForIde
-import org.jetbrains.kotlin.idea.references.mainReference
 import org.jetbrains.kotlin.psi.KtDotQualifiedExpression
 import org.jetbrains.kotlin.psi.KtElement
-import org.jetbrains.kotlin.psi.KtExperimentalApi
 import org.jetbrains.kotlin.psi.KtFile
 import org.jetbrains.kotlin.psi.KtImportDirective
 import org.jetbrains.kotlin.psi.KtNameReferenceExpression
@@ -93,7 +90,6 @@ fun KtSimpleNameExpression.canBeRedundantCompanionReference(): Boolean {
  *
  * For that, it is required to do resolve to ensure that the semantics of the code do not change.
  */
-@OptIn(KtExperimentalApi::class, KaExperimentalApi::class)
 @ApiStatus.Internal
 context(_: KaSession)
 fun KtSimpleNameExpression.isRedundantCompanionReference(): Boolean {
@@ -101,7 +97,7 @@ fun KtSimpleNameExpression.isRedundantCompanionReference(): Boolean {
 
     val referenceName = this.text
 
-    val symbol = this.mainReference.resolveToSymbol()
+    val symbol = resolveSuccessfulSymbol()
     val objectDeclaration =
         if (symbol is KaNamedClassSymbol && symbol.classKind == KaClassKind.COMPANION_OBJECT) {
             // Try to get the PSI for the companion object
@@ -129,7 +125,7 @@ fun KtSimpleNameExpression.isRedundantCompanionReference(): Boolean {
         parent.selectorExpression to parent.selectorExpression!!.text
     }
 
-    val oldTarget = ((oldTargetExpression as? KtResolvableCall)?.resolveCall() as? KaSingleCall<*, *>)?.symbol?.psi ?: return false
+    val oldTarget = (oldTargetExpression as? KtResolvableCall)?.resolveSuccessfulCall()?.simple?.symbol?.psi ?: return false
     val fragment = KtPsiFactory(this.project).createExpressionCodeFragment(
         simplifiedText,
         this
@@ -137,7 +133,7 @@ fun KtSimpleNameExpression.isRedundantCompanionReference(): Boolean {
 
     val q = fragment.getContentElement() ?: return false
     return oldTarget == analyze(q) {
-        ((q as? KtResolvableCall)?.resolveCall() as? KaSingleCall<*, *>)?.symbol?.psi
+        (q as? KtResolvableCall)?.resolveSuccessfulCall()?.simple?.symbol?.psi
     }
 }
 

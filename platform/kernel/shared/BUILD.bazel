@@ -1,7 +1,7 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
 ### auto-generated section `build intellij.platform.kernel` start
-
 jvm_library(
     name = "kernel",
     srcs = glob(
@@ -18,15 +18,10 @@ jvm_library(
         ["resources/**/*"],
     ),
     visibility = ["//visibility:public"],
-    exports = [
-        # do not sort,
-        "//platform/kernel/rpc",
-        "//fleet/kernel",
-    ],
+    exports = ["//fleet/kernel"],
     deps = [
         # do not sort,
         "@lib//:kotlin-stdlib",
-        "//platform/kernel/rpc",
         "//fleet/kernel",
         "//libraries/kotlinx/coroutines/core",
         "//libraries/kotlinx/collections-immutable:libraries-kotlinx-collections-immutable",
@@ -36,6 +31,11 @@ jvm_library(
         "//platform/kernel/pasta",
         "//fleet/rhizomedb",
     ],
+)
+
+content_module_jar(
+    module = ":kernel",
+    modules_after = ["//platform/kernel/pasta"],
 )
 
 jvm_library(
@@ -49,15 +49,12 @@ jvm_library(
     visibility = ["//visibility:public"],
     exports = [
         # do not sort,
-        "//platform/kernel/rpc",
-        "//platform/kernel/rpc:rpc_test_lib",
         "//fleet/kernel",
         "//fleet/kernel:kernel_test_lib",
     ],
     runtime_deps = [
         # do not sort,
         ":kernel",
-        "//platform/kernel/rpc:rpc_test_lib",
         "//fleet/kernel:kernel_test_lib",
         "//libraries/kotlinx/coroutines/core:core_test_lib",
         "//libraries/kotlinx/collections-immutable:libraries-kotlinx-collections-immutable_test_lib",
@@ -74,6 +71,8 @@ jvm_library(
 exports_files(
     [
         "intellij.platform.kernel.iml",
+        "resources/intellij.platform.kernel.xml",
+        "module-content.yaml",
     ],
     visibility = ["//visibility:public"],
 )

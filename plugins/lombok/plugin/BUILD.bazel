@@ -1,0 +1,62 @@
+load("@community//platform/build-scripts/bazel-rules:dev_dist_plugin.bzl", "dev_dist_plugin")
+load("@rules_jvm//:jvm.bzl", "jvm_library")
+
+### auto-generated section `build intellij.lombok.plugin` start
+jvm_library(
+    name = "plugin",
+    srcs = glob(
+        [],
+        allow_empty = True,
+    ),
+    module_name = "intellij.lombok.plugin",
+    resource_strip_prefix = "resources",
+    resources = glob(
+        ["resources/**/*"],
+    ),
+    visibility = ["//visibility:public"],
+    runtime_deps = ["//platform/platform-impl:ide-impl"],
+)
+
+jvm_library(
+    name = "plugin_test_lib",
+    testonly = True,
+    srcs = glob(
+        [],
+        allow_empty = True,
+    ),
+    module_name = "intellij.lombok.plugin",
+    visibility = ["//visibility:public"],
+    runtime_deps = [
+        # do not sort,
+        ":plugin",
+        "//platform/platform-impl:ide-impl_test_lib",
+    ],
+)
+### auto-generated section `build intellij.lombok.plugin` end
+
+### auto-generated section `iml intellij.lombok.plugin` start
+exports_files(
+    [
+        "intellij.lombok.plugin.iml",
+        "resources/META-INF/plugin.xml",
+    ],
+    visibility = ["//visibility:public"],
+)
+### auto-generated section `iml intellij.lombok.plugin` end
+
+### auto-generated section `dev intellij.lombok.plugin` start
+dev_dist_plugin(
+    descriptor = "resources/META-INF/plugin.xml",
+    descriptor_module = ":plugin",
+    descriptors = {
+        "@community//plugins/lombok/generated:resources/intellij.lombok.generated.xml": "intellij.lombok.generated.xml",
+        "@community//plugins/lombok:src/main/resources/intellij.lombok.xml": "intellij.lombok.xml",
+    },
+    directory_name = "lombok",
+    main_module = "intellij.lombok.plugin",
+    prepacked_content_modules = [
+        "//plugins/lombok/generated:generated_content_module_jar",
+        "//plugins/lombok:lombok_content_module_jar",
+    ],
+)
+### auto-generated section `dev intellij.lombok.plugin` end

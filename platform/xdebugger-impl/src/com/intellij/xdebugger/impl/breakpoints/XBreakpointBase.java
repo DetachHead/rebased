@@ -5,7 +5,6 @@ import com.intellij.configurationStore.XmlSerializer;
 import com.intellij.featureStatistics.FeatureUsageTracker;
 import com.intellij.openapi.actionSystem.AnAction;
 import com.intellij.openapi.application.ApplicationManager;
-import com.intellij.openapi.editor.markup.GutterIconRenderer;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.JDOMUtil;
 import com.intellij.openapi.util.NlsSafe;
@@ -189,6 +188,18 @@ public class XBreakpointBase<Self extends XBreakpoint<P>, P extends XBreakpointP
 
   public void setEnabled(long requestId, boolean enabled) {
     updateStateIfNeededAndNotify(requestId, enabled, myState::isEnabled, myState::setEnabled);
+  }
+
+  public boolean isTemporary() {
+    return withStateLock(() -> myState.isTemporary());
+  }
+
+  public void setTemporary(boolean temporary) {
+    setTemporary(-1, temporary);
+  }
+
+  public void setTemporary(long requestId, boolean temporary) {
+    updateStateIfNeededAndNotify(requestId, temporary, this::isTemporary, myState::setTemporary);
   }
 
   @Override
@@ -578,11 +589,6 @@ public class XBreakpointBase<Self extends XBreakpoint<P>, P extends XBreakpointP
     myCustomizedPresentation = presentation;
     // Don't call fireBreakpointChanged() here, since it should be queued outside
     // See XBreakpointManagerImpl.updateBreakpointPresentation()
-  }
-
-  // TODO IJPL-185322
-  public @NotNull GutterIconRenderer createGutterIconRenderer() {
-    return new BreakpointGutterIconRenderer(asProxy(this));
   }
 
   public void clearIcon() {

@@ -56,12 +56,12 @@ import static java.util.Objects.requireNonNullElse;
 ///
 /// Example:
 ///
-/// <pre>
+/// ```java
 ///   try (var client = PlatformHttpClient.client()) {
 ///     var request = PlatformHttpClient.request(uri);
 ///     var content = PlatformHttpClient.send(client, request, HttpResponse.BodyHandlers.ofString());
 ///   }
-/// </pre>
+/// ```
 ///
 /// Notable differences with [HttpRequests]:
 /// - No default read timeout. Clients should use [HttpClient#sendAsync] instead.
@@ -127,9 +127,22 @@ public final class PlatformHttpClient {
   public static <T> T send(
     @NotNull HttpClient client,
     @NotNull HttpRequest request,
-    @NotNull HttpResponse.BodyHandler<T> bodyHandler
+    HttpResponse.@NotNull BodyHandler<T> bodyHandler
   ) throws IOException, InterruptedException {
+    return response(client, request, bodyHandler).body();
+  }
+
+  /// Throws [HttpStatusException] if a response status code is not in the `[200, 300)` range, and returns the response object.
+  ///
+  /// **Note:** It is important to use this method instead of [HttpClient#send], because it handles I/O exceptions from JRE internals
+  /// and detects proxy misconfiguration issues.
+  public static <T> @NotNull HttpResponse<T> response(
+    @NotNull HttpClient client,
+    @NotNull HttpRequest request,
+    HttpResponse.@NotNull BodyHandler<T> bodyHandler
+  ) throws InterruptedException, IOException {
     HttpResponse<T> response;
+
     try {
       response = client.send(request, bodyHandler);
     }
@@ -156,12 +169,7 @@ public final class PlatformHttpClient {
       }
       throw e;
     }
-    return checkResponse(response).body();
-  }
 
-  /// @deprecated does not detect misconfigured proxy situations; use [#send] instead.
-  @Deprecated(forRemoval = true)
-  public static <T> HttpResponse<T> checkResponse(@NotNull HttpResponse<T> response) throws HttpStatusException {
     var statusCode = response.statusCode();
     if (statusCode < 200 || statusCode >= 300) {
       if (statusCode == HttpURLConnection.HTTP_PROXY_AUTH) {
@@ -181,6 +189,7 @@ public final class PlatformHttpClient {
       }
       throw new HttpStatusException(message, statusCode, response.uri().toString());
     }
+
     return response;
   }
 
@@ -525,7 +534,7 @@ public final class PlatformHttpClient {
   }
 
   private static final class FileHttpRequest extends HttpRequest {
-    private static final HttpHeaders EMPTY_HEADERS = HttpHeaders.of(Map.of(), (name, value) -> true);
+    private static final HttpHeaders EMPTY_HEADERS = HttpHeaders.of(Map.of(), (_, _) -> true);
 
     private final URI uri;
 

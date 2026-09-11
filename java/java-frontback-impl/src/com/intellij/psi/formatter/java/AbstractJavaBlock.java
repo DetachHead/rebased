@@ -368,9 +368,10 @@ public abstract class AbstractJavaBlock extends AbstractBlock implements JavaBlo
         return Indent.getNoneIndent();
       }
 
-      if (JavaFormatterConditionalExpressionUtil.isInsideConditionalExpression(parent) &&
-          (settings.ALIGN_MULTILINE_BINARY_OPERATION && JavaFormatterConditionalExpressionUtil.isInsideBinaryExpression(child)) &&
-          !(childNodeType == JavaTokenType.QUEST || childNodeType == JavaTokenType.COLON)) {
+      if (settings.ALIGN_MULTILINE_BINARY_OPERATION &&
+          !(childNodeType == JavaTokenType.QUEST || childNodeType == JavaTokenType.COLON) &&
+          JavaFormatterConditionalExpressionUtil.isInsideConditionalExpression(parent) &&
+          JavaFormatterConditionalExpressionUtil.isInsideBinaryExpression(child)) {
         return Indent.getSpaceIndent(0, true);
       }
     }
@@ -861,8 +862,8 @@ public abstract class AbstractJavaBlock extends AbstractBlock implements JavaBlo
     if (nodes.isEmpty()) {
       return new LeafBlock(node, blockWrap, alignment, indent);
     }
-    boolean enforceSpaceIndent = JavaFormatterConditionalExpressionUtil.isInsideConditionalExpression(node)
-                                 && mySettings.ALIGN_MULTILINE_CHAINED_METHODS;
+    boolean enforceSpaceIndent = mySettings.ALIGN_MULTILINE_CHAINED_METHODS
+                                 && JavaFormatterConditionalExpressionUtil.isInsideConditionalExpression(node);
     return new ChainMethodCallsBlockBuilder(alignment, blockWrap, indent, mySettings, myJavaSettings, myFormattingMode, enforceSpaceIndent)
       .build(nodes);
   }

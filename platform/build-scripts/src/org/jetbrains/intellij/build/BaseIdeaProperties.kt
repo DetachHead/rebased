@@ -34,7 +34,6 @@ val IDEA_BUNDLED_PLUGINS: PersistentList<String> = REBASED_BUNDLED_PLUGINS + per
   "intellij.json",
   "intellij.yaml",
   "intellij.html.tools",
-  "intellij.repository.search",
   "intellij.maven.plugin",
   "intellij.gradle.plugin",
   "intellij.android.gradle.declarative.lang.ide",
@@ -55,7 +54,7 @@ val IDEA_BUNDLED_PLUGINS: PersistentList<String> = REBASED_BUNDLED_PLUGINS + per
   "intellij.sh.plugin",
   "intellij.markdown",
   "intellij.mermaid",
-  "intellij.mcpserver",
+  "intellij.mcpserver.plugin",
   "intellij.webp",
   "intellij.grazie",
   "intellij.toml",
@@ -71,7 +70,7 @@ val CE_CLASS_VERSIONS: Map<String, String> = mapOf(
   "" to "25",
   "lib/idea_rt.jar" to "1.8",
   "lib/forms_rt.jar" to "1.8",
-  "lib/annotations.jar" to "1.8",
+  "lib/intellij.libraries.jetbrains.annotations.jar" to "1.8",
   "lib/util_rt.jar" to "1.8",
   "lib/util-8.jar" to "1.8",
   "lib/external-system-rt.jar" to "1.8",
@@ -80,27 +79,13 @@ val CE_CLASS_VERSIONS: Map<String, String> = mapOf(
 fun configurePropertiesForAllEditionsOfIntelliJIdea(properties: JetBrainsProductProperties) {
   properties.productLayout.addPlatformSpec { layout, _ ->
     layout.withModule("intellij.java.ide.resources")
-    layout.withModule("intellij.jsp.base")
 
     //todo currently intellij.platform.testFramework included into idea.jar depends on this jar so it cannot be moved to java plugin
     layout.withModule("intellij.java.rt", "idea_rt.jar")
-    // for compatibility with user projects which refer to IDEA_HOME/lib/annotations.jar
-    layout.withProjectLibrary("jetbrains-annotations", "annotations.jar")
-
     layout.withoutProjectLibrary("Ant")
-    // there is a patched version of the org.gradle.api.JavaVersion class placed into the Gradle plugin classpath as "rt" jar
-    // to avoid class linkage conflicts "Gradle" library is placed into the 'lib' directory of the Gradle plugin layout so we need to exclude it from the platform layout explicitly
-    // TODO should be used as regular project library when the issue will be fixed at the Gradle tooling api side https://github.com/gradle/gradle/issues/8431 and the patched class will be removed
-    layout.withoutProjectLibrary("Gradle")
-
     // this library is placed into a subdirectory of the 'lib' directory in the Android plugin layout, so we need to exclude it from the platform layout explicitly
     layout.withoutProjectLibrary("layoutlib")
 
-    layout.withoutProjectLibrary("jetbrains.qodana.cloud.kotlin.client")
-    layout.withoutProjectLibrary("jetbrains.qodana.publisher")
-    layout.withoutProjectLibrary("jetbrains.qodana.sarif.converter")
-    layout.withoutProjectLibrary("jetbrains.qodana.web.ui")
-    layout.withoutProjectLibrary("qodana-sarif")
     layout.withoutProjectLibrary("hamcrest")
   }
 

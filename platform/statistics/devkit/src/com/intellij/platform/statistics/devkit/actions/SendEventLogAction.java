@@ -103,7 +103,7 @@ final class SendEventLogAction extends AnAction {
 
   private static final class EventLogTestSettingsClient extends EventLogUploadSettingsClient {
     private EventLogTestSettingsClient(@NotNull String recorderId) {
-      super(recorderId, new EventLogTestApplication(), TimeUnit.MINUTES.toMillis(10));
+      super(recorderId, new EventLogTestApplication(), Registry.is("feature.usage.event.snapshot.filtering.disabled", false), TimeUnit.MINUTES.toMillis(10));
     }
 
     @Override
@@ -111,7 +111,7 @@ final class SendEventLogAction extends AnAction {
       LogEventFilter filter = super.provideEventFilter(base, type);
       if (filter instanceof LogEventCompositeFilter) {
         LogEventFilter[] withoutSnapshot = Arrays.stream(((LogEventCompositeFilter)filter).getFilters())
-          .filter(f -> f != LogEventSnapshotBuildFilter.INSTANCE)
+          .filter(f -> !(f instanceof LogEventSnapshotBuildFilter))
           .toArray(LogEventFilter[]::new);
         return new LogEventCompositeFilter(withoutSnapshot);
       }

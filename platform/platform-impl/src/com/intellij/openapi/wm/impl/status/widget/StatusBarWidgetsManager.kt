@@ -34,7 +34,6 @@ import com.intellij.openapi.wm.impl.status.IdeStatusBarImpl
 import com.intellij.openapi.wm.impl.status.createComponentByWidgetPresentation
 import com.intellij.platform.util.coroutines.attachAsChildTo
 import com.intellij.platform.util.coroutines.childScope
-import com.intellij.util.application
 import com.intellij.util.asSafely
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -95,7 +94,9 @@ class StatusBarWidgetsManager(
 
   @JvmOverloads
   fun updateWidget(factory: StatusBarWidgetFactory, coroutineContext: CoroutineContext = Dispatchers.EDT) {
-    if ((factory.isConfigurable && !StatusBarWidgetSettings.getInstance().isEnabled(factory)) || !factory.isAvailable(project)) {
+    if ((factory.isConfigurable && !StatusBarWidgetSettings.getInstance().isEnabled(factory)) ||
+        !factory.isAvailable(project) ||
+        !factory.isAllowedByInternalMode()) {
       disableWidget(factory)
       return
     }
@@ -150,7 +151,9 @@ class StatusBarWidgetsManager(
   fun getWidgetFactories(): Set<StatusBarWidgetFactory> {
     val isLightEditProject = LightEdit.owns(project)
     val result = LinkedHashSet<StatusBarWidgetFactory>()
-    StatusBarWidgetFactory.EP_NAME.lazySequence().filterTo(result) { !isLightEditProject || it is LightEditCompatible }
+    StatusBarWidgetFactory.EP_NAME.lazySequence().filterTo(result) {
+      (!isLightEditProject || it is LightEditCompatible) && it.isAllowedByInternalMode()
+    }
     synchronized(widgetFactories) {
       @Suppress("removal", "DEPRECATION")
       StatusBarWidgetProvider.EP_NAME.extensionList.mapNotNullTo(result) { provider ->
@@ -171,7 +174,10 @@ class StatusBarWidgetsManager(
   }
 
   fun canBeEnabledOnStatusBar(factory: StatusBarWidgetFactory, statusBar: StatusBar): Boolean {
-    return factory.isAvailable(project) && factory.isConfigurable && factory.canBeEnabledOn(statusBar)
+    return factory.isAvailable(project) &&
+           factory.isAllowedByInternalMode() &&
+           factory.isConfigurable &&
+           factory.canBeEnabledOn(statusBar)
   }
 
   internal fun init(frame: IdeFrame): List<Pair<StatusBarWidget, LoadingOrder>> {
@@ -203,7 +209,9 @@ class StatusBarWidgetsManager(
     }
 
     pendingFactories.removeAll { (factory, _) ->
-      (factory.isConfigurable && !statusBarWidgetSettings.isEnabled(factory)) || !factory.isAvailable(project)
+      (factory.isConfigurable && !statusBarWidgetSettings.isEnabled(factory)) ||
+      !factory.isAvailable(project) ||
+      !factory.isAllowedByInternalMode()
     }
 
     val widgets = synchronized(widgetFactories) {
@@ -260,6 +268,14 @@ class StatusBarWidgetsManager(
   }
 }
 
+/**
+ * Tells if the current mode of the application allows the widget of the factory.
+ * An internal widget needs the internal mode.
+ */
+internal fun StatusBarWidgetFactory.isAllowedByInternalMode(): Boolean {
+  return !isInternal || ApplicationManager.getApplication().isInternal
+}
+
 private fun createWidget(
   factory: StatusBarWidgetFactory,
   dataContext: WidgetPresentationDataContext,
@@ -292,6 +308,9 @@ internal class WidgetPresentationWrapper(
   private val dataContext: WidgetPresentationDataContext,
   private val scope: CoroutineScope,
 ) : StatusBarWidget, CustomStatusBarWidget, ChildStatusBarWidget {
+  internal val factoryClass: Class<out WidgetPresentationFactory>
+    get() = factory.javaClass
+
   override fun ID(): String = id
 
   override fun install(statusBar: StatusBar) {}

@@ -9,7 +9,7 @@
 # Limit the server memory usage as per:
 # https://youtrack.jetbrains.com/issue/IJI-3103#focus=Comments-27-12862178.0-0
 # https://youtrack.jetbrains.com/issue/MRI-4425/Check-Bazel-9.1.0-server-memory-consumption#focus=Comments-27-13796597.0-0
-startup --host_jvm_args=-Xmx10g
+startup --host_jvm_args=-Xmx12g
 
 # Disable implicit imports, remove when migrated to Bazel 9
 # see https://blog.bazel.build/2026/01/20/bazel-9.html
@@ -62,6 +62,11 @@ common:windows --disk_cache=~/AppData/Local/Temp/JetBrains/monorepo-bazel-cache
 
 common --@rules_jvm//:default-javac-opts=@community//:default-javac-opts
 common --@rules_jvm//:default-kotlinc-opts=@community//:k25
+
+# rules_jvm / rules_kotlin compilation backend switch (see rules_jvm backend_config.bzl). Default = JPS / rules_jvm.
+# Use --config=bta to compile with the rules_kotlin (BTA) backend instead.
+common:jps --repo_env=IJ_JVM_USE_RULES_KOTLIN_BACKEND=0
+common:bta --repo_env=IJ_JVM_USE_RULES_KOTLIN_BACKEND=1 --extra_toolchains=@rules_jvm//:kotlin_toolchain
 
 # configure resources
 common --local_resources=memory=HOST_RAM*.77 --local_resources=cpu=HOST_CPUS*2
@@ -140,8 +145,8 @@ common --incompatible_strict_action_env=true
 common --experimental_platform_in_output_dir
 
 # Do not depend on external environment
-common --action_env BAZEL_DO_NOT_DETECT_CPP_TOOLCHAIN=1
-common --action_env BAZEL_NO_APPLE_CPP_TOOLCHAIN=1
+common --repo_env BAZEL_DO_NOT_DETECT_CPP_TOOLCHAIN=1
+common --repo_env BAZEL_NO_APPLE_CPP_TOOLCHAIN=1
 startup --noautodetect_server_javabase
 
 # Clear PATH environment variable to enable remote cache hits on Windows
@@ -192,8 +197,28 @@ test --test_output=streamed
 # https://bazel.build/reference/command-line-reference#flag--test_timeout
 test --test_timeout=60,300,900,14400
 
+# https://bazel.build/reference/command-line-reference#flag--cache_test_results
+test --cache_test_results=auto
+
+# Limit concurrent local test actions on CI to avoid OOM from multiple heavy test JVMs.
+test:ci --local_test_jobs=1
+
+# Build only the test targets to skip compiling what no test needs on CI
+# Bazel ignores other targets specified on the command line, and builds only what is necessary to run the *_test and test_suite rules not filtered by their tags, timeout etc.
+test:ci --build_tests_only
+
+# Aliases for flags used by ij_plugin rule
+build --flag_alias=ide_build_number=@community//platform/build-scripts/bazel-rules/ij-ide-build-settings:ide_build_number
+build --flag_alias=ide_stability_level=@community//platform/build-scripts/bazel-rules/ij-ide-build-settings:ide_stability_level
+build --flag_alias=ij_plugin_version=@community//platform/build-scripts/bazel-rules/ij-ide-build-settings:ij_plugin_version
+build --flag_alias=ij_plugin_force_exact_build_compatibility=@community//platform/build-scripts/bazel-rules/ij-ide-build-settings:ij_plugin_force_exact_build_compatibility
+
 # A workaround for https://github.com/bazelbuild/rules_kotlin/issues/1352
 common --repo_env=ANDROID_HOME=
+
+# Forward NETRC so both Bazel's downloader and Coursier (maven_install use_credentials_from_home_netrc_file)
+# can authenticate to packages.jetbrains.team, e.g. on CI where NETRC points to a file outside $HOME.
+common --repo_env=NETRC
 
 # Use prebuilt protoc instead of building from source, https://protobuf.dev/news/2026-01-16/
 common --incompatible_enable_proto_toolchain_resolution
@@ -202,13 +227,74 @@ common --@protobuf//bazel/toolchains:prefer_prebuilt_protoc=true
 # need to use Python from rules_python in rules_pkg in pkg_zip target
 common --@rules_python//python/config_settings:bootstrap_impl=script
 
-# Retry downloads up to 5 times
+# Retry downloads up to 5 times.
+# Please note that this is not applicable to Coursier which requires its own configuration.
 common --experimental_repository_downloader_retries=5
+
+# rules_jvm_external 6.10 bundles Coursier v2.1.24, which does NOT retry HTTP 5xx (only SSL/AccessDenied),
+# so transient 502s from Space Packages during the resolve fail immediately. Pin a newer Coursier that
+# retries 5xx (Coursier PR #3515, first in v2.1.25-M20); combined with the per-install
+# additional_coursier_options=["--retry-count","5"] this retries 502s. Requires the rules_jvm_external
+# coursier-optional-file-field patch (newer Coursier omits the "file" key for pom-only entries).
+common --repo_env=COURSIER_URL=https://github.com/coursier/coursier/releases/download/v2.1.25-M26/coursier.jar
+common --repo_env=COURSIER_SHA256=97647d0378b877db2552a29caec075de1bae86375f0343ba82cf52d69193eb5e
+
+# Coursier's default retry backoff is 10ms x 2^n over 5 attempts (~150ms total) - far too short to outlast a
+# transient Space Packages 502. Stretch the initial delay (via a JVM system property forwarded through COURSIER_OPTS).
+# Keep this to a single -D: bazelrc splits the flag value on spaces, so multiple -D tokens would not parse.
+common --repo_env=COURSIER_OPTS=-Dcoursier.exception-retry-backoff-initial-delay=5s
 
 # Scale HTTP timeouts by 2x
 common --http_timeout_scaling=2.0
 
-# Prevents `ld.lld: error: unable to find library -lgcc_s` in `//fleet/native/filewatcher_jni:filewatcher_jni_aarch64-unknown-linux-gnu`
-common --@llvm//config:experimental_stub_libgcc_s
-
 common --repo_env=BAZEL_MSVC_RUNTIME_VISUAL_STUDIO_EULA=1
+
+# `--worker_max_multiplex_instances` is how many WorkRequests a multiplex worker may be given *in parallel*, and its
+# fallback is far below `--jobs=HOST_CPUS*2`. Left unset, the packer would be a worker pool of a handful while 2 524
+# actions queue behind it - which is what the JVM worker this replaced was doing.
+common --worker_max_multiplex_instances=PackContentModuleJar=HOST_CPUS*2
+
+# The same for the plugin jars, which `dev_dist_plugin_jar` packs under a mnemonic of its own. The figure is the
+# sibling's, and it is inherited rather than re-measured: nothing has measured a pool size over the plugin jars, whose
+# median is larger. `no-cache` is deliberately **not** inherited, because only a measurement over this population can
+# settle it, and `build/dev-dist-measurements-history.md` holds the one that says the cache stays.
+common --worker_max_multiplex_instances=PackPluginJar=HOST_CPUS*2
+
+
+# Do not cache a packing action. Measured over all 2 524 jars on one laptop, warm tree, one genuine packer change per
+# row so that every row is a real cold pack and no row pays for an analysis-cache discard:
+#
+#   | what the action is allowed to do        | wall clock |
+#   | nothing cached, packs every jar         |     6.7 s  |
+#   | disk cache only                         |     9.3 s  |
+#   | disk cache and the remote cache         |    26.0 s  |
+#   | served from the disk cache, packs none  |     5.3 s  |
+#
+# The remote leg is 16.7 s of that, for an action that does about a millisecond of work: `--remote_cache_async=false`
+# (above) makes the lookup block a jobs slot, and the cache is a WAN host. This is why the scrubbing
+# route was not taken - making the key platform-independent would have turned those misses into *hits*, and the hit path
+# is a round trip plus the download of a 0.25-1 MB jar, which cannot beat merging one locally.
+#
+# The disk leg is the closer call, and it is a loss too: populating it costs 2.6 s and writes 3.3 GB into a 32 GB shared
+# cache on every cold pack, to save the 1.4 s that a hit is worth. It only ever wins on a fresh output base holding this
+# exact packer and these exact module jars, because every other case is already answered - for free - by Bazel's own
+# action cache, which `no-cache` does not touch: verified, the second identical build packs nothing. And 3.3 GB of jars
+# per cold pack evicts entries for actions that do pay a cache back, such as compilation.
+#
+# It also stops CI uploading those 3.3 GB per build for results nobody should take.
+#
+# Revisit if `--remote_download_outputs=minimal` is ever adopted (see the note above): with outputs
+# left remote, a hit costs no download and the arithmetic changes.
+common --modify_execution_info=PackContentModuleJar=+no-cache
+
+# C/C++ warnings are errors. Each external dependency disables exactly the diagnostics it emits.
+build --copt=-Werror
+build --per_file_copt=external/[+]http_archive[+]dmg_hfsplus/@-Wno-alloc-size,-Wno-sometimes-uninitialized,-Wno-uninitialized,-Wno-unused-but-set-variable,-Wno-unused-variable
+build --per_file_copt=external/[+]http_archive[+]msix_packaging/@-Wno-c++20-compat,-Wno-c++98-compat,-Wno-c++98-compat-extra-semi,-Wno-c++98-compat-local-type-template-args,-Wno-c++98-compat-pedantic,-Wno-cast-align,-Wno-cast-qual,-Wno-char-subscripts,-Wno-conditional-uninitialized,-Wno-deprecated-declarations,-Wno-exit-time-destructors,-Wno-extra-semi,-Wno-extra-semi-stmt,-Wno-global-constructors,-Wno-ignored-qualifiers,-Wno-implicit-int-conversion,-Wno-inconsistent-missing-destructor-override,-Wno-language-extension-token,-Wno-macro-redefined,-Wno-memset-transposed-args,-Wno-misleading-indentation,-Wno-missing-braces,-Wno-missing-field-initializers,-Wno-missing-prototypes,-Wno-missing-variable-declarations,-Wno-newline-eof,-Wno-non-virtual-dtor,-Wno-nonportable-system-include-path,-Wno-old-style-cast,-Wno-padded,-Wno-pessimizing-move,-Wno-pre-c++14-compat,-Wno-reorder-ctor,-Wno-reserved-macro-identifier,-Wno-self-move,-Wno-shadow,-Wno-shadow-header,-Wno-shadow-uncaptured-local,-Wno-sign-compare,-Wno-sign-conversion,-Wno-suggest-destructor-override,-Wno-suggest-override,-Wno-switch-default,-Wno-switch-enum,-Wno-tautological-value-range-compare,-Wno-thread-safety-analysis,-Wno-undef,-Wno-unique-object-duplication,-Wno-unreachable-code,-Wno-unreachable-code-break,-Wno-unsafe-buffer-usage,-Wno-unsafe-buffer-usage-in-libc-call,-Wno-unused-but-set-variable,-Wno-unused-function,-Wno-unused-parameter,-Wno-unused-template,-Wno-unused-variable,-Wno-zero-as-null-pointer-constant
+build --per_file_copt=external/jemalloc[+]/@-Wno-non-literal-null-conversion,-Wno-undef
+build --per_file_copt=external/libwebp[+]/@-Wno-bad-function-cast,-Wno-cast-align,-Wno-cast-qual,-Wno-conditional-uninitialized,-Wno-covered-switch-default,-Wno-disabled-macro-expansion,-Wno-double-promotion,-Wno-float-equal,-Wno-implicit-fallthrough,-Wno-implicit-int-conversion,-Wno-implicit-int-conversion-on-negation,-Wno-implicit-int-enum-cast,-Wno-implicit-int-float-conversion,-Wno-padded,-Wno-reserved-identifier,-Wno-sign-compare,-Wno-sign-conversion,-Wno-switch-default,-Wno-switch-enum,-Wno-undef,-Wno-unsafe-buffer-usage,-Wno-unused-macros
+build --per_file_copt=external/libx11[+]/@-Wno-constant-conversion,-Wno-logical-not-parentheses,-Wno-macro-redefined,-Wno-parentheses-equality,-Wno-unused-but-set-variable
+build --per_file_copt=external/libxcb[+]/@-Wno-alloc-size,-Wno-unused-but-set-variable
+build --per_file_copt=external/xz[+]/@-Wno-c++-keyword,-Wno-cast-function-type-strict,-Wno-cast-qual,-Wno-covered-switch-default,-Wno-declaration-after-statement,-Wno-disabled-macro-expansion,-Wno-extra-semi-stmt,-Wno-implicit-fallthrough,-Wno-implicit-int-conversion,-Wno-implicit-int-enum-cast,-Wno-implicit-void-ptr-cast,-Wno-microsoft-include,-Wno-missing-noreturn,-Wno-nonportable-system-include-path,-Wno-padded,-Wno-reserved-macro-identifier,-Wno-shadow-header,-Wno-shorten-64-to-32,-Wno-sign-conversion,-Wno-switch-default,-Wno-switch-enum,-Wno-unsafe-buffer-usage,-Wno-unused-function,-Wno-unused-parameter
+build --per_file_copt=external/zlib[+]/@-Wno-c++-keyword,-Wno-c++98-compat-pedantic,-Wno-cast-align,-Wno-cast-qual,-Wno-comma,-Wno-covered-switch-default,-Wno-extra-semi-stmt,-Wno-format-nonliteral,-Wno-implicit-fallthrough,-Wno-implicit-void-ptr-cast,-Wno-missing-format-attribute,-Wno-padded,-Wno-reserved-identifier,-Wno-reserved-macro-identifier,-Wno-shadow-header,-Wno-shorten-64-to-32,-Wno-sign-conversion,-Wno-switch-default,-Wno-switch-enum,-Wno-undef,-Wno-unsafe-buffer-usage
+build --per_file_copt=external/zstd[+]/@-Wno-bad-function-cast,-Wno-comma,-Wno-covered-switch-default,-Wno-disabled-macro-expansion,-Wno-documentation-unknown-command,-Wno-extra-semi-stmt,-Wno-format-signedness,-Wno-missing-variable-declarations,-Wno-nonportable-system-include-path,-Wno-nrvo,-Wno-padded,-Wno-pre-c11-compat,-Wno-reserved-identifier,-Wno-reserved-macro-identifier,-Wno-sign-conversion,-Wno-switch-default,-Wno-unreachable-code,-Wno-unreachable-code-return,-Wno-unsafe-buffer-usage,-Wno-unused-function,-Wno-unused-macros,-Wno-used-but-marked-unused

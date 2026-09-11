@@ -14,6 +14,8 @@
 - getLanguage():com.intellij.lang.Language
 - getLanguageDomainId():java.lang.String
 - getPropertyDescription(java.lang.String):java.lang.String
+*:com.intellij.build.BuildProgressObservable
+- a:addListener(com.intellij.build.BuildProgressListener,com.intellij.openapi.Disposable):V
 *:com.intellij.build.BuildViewSettingsProvider
 - a:isExecutionViewHidden():Z
 *:com.intellij.build.BuildWorkspaceConfiguration
@@ -21,6 +23,7 @@
 - a:isShowFirstErrorInEditor():Z
 *:com.intellij.build.eventBuilders.BuildIssueEventBuilder
 - a:build():com.intellij.build.events.BuildIssueEvent
+- a:withFilePosition(com.intellij.build.FilePosition):com.intellij.build.eventBuilders.BuildIssueEventBuilder
 - a:withHint(java.lang.String):com.intellij.build.eventBuilders.BuildIssueEventBuilder
 - a:withId(java.lang.Object):com.intellij.build.eventBuilders.BuildIssueEventBuilder
 - a:withParentId(java.lang.Object):com.intellij.build.eventBuilders.BuildIssueEventBuilder
@@ -48,6 +51,7 @@ com.intellij.build.eventBuilders.StartBuildEventBuilder
 - a:createDefaultResult():com.intellij.build.events.EventResult
 - a:createFailureResult():com.intellij.build.events.FailureResult
 *:com.intellij.build.events.DuplicateMessageAware
+- com.intellij.build.events.MessageEvent
 *:com.intellij.build.events.PresentableBuildEvent
 - com.intellij.build.events.BuildEvent
 - s:builder(java.lang.String,com.intellij.build.events.BuildEventPresentationData):com.intellij.build.eventBuilders.PresentableBuildEventBuilder
@@ -63,12 +67,16 @@ com.intellij.build.events.StartBuildEvent
 - runQuickFix(com.intellij.openapi.project.Project,com.intellij.openapi.actionSystem.DataContext):java.util.concurrent.CompletableFuture
 *:com.intellij.codeInsight.AnActionWithPreview
 - a:getPreview():com.intellij.codeInsight.intention.preview.IntentionPreviewInfo
+f:com.intellij.codeInsight.CodeInsightBundle
+- *s:dumbModeMessage(java.lang.String,java.lang.String,java.lang.Object[]):java.lang.String
 *:com.intellij.codeInsight.codeVision.settings.CodeVisionSettingsDefaults
 - *sf:Companion:com.intellij.codeInsight.codeVision.settings.CodeVisionSettingsDefaults$Companion
 - getDefaultEnablementForProviderId():java.util.Map
 - getDefaultPosition():com.intellij.codeInsight.codeVision.CodeVisionAnchorKind
 *f:com.intellij.codeInsight.codeVision.settings.CodeVisionSettingsDefaults$Companion
 - f:getInstance():com.intellij.codeInsight.codeVision.settings.CodeVisionSettingsDefaults
+f:com.intellij.codeInsight.daemon.DaemonBundle
+- *s:dumbModeMessage(java.lang.String,java.lang.String,java.lang.Object[]):java.lang.String
 *:com.intellij.codeInsight.hints.AbstractSettingsKey
 - a:getFullId(com.intellij.lang.Language):java.lang.String
 *f:com.intellij.codeInsight.hints.BlockConstrainedPresentation
@@ -588,7 +596,6 @@ com.intellij.ide.bookmark.BookmarksManager
 - f:setFrameworkVersion(java.lang.String):V
 com.intellij.openapi.roots.ModifiableModelsProvider
 - *a:getGlobalLibraryTableModifiableModel(com.intellij.openapi.project.Project):com.intellij.openapi.roots.libraries.LibraryTable$ModifiableModel
-*:com.intellij.openapi.roots.SkipAddingToWatchedRoots
 c:com.intellij.openapi.roots.ui.configuration.ProjectSettingsService
 - *:canOpenLibrarySettings(com.intellij.platform.workspace.jps.entities.LibraryEntity):Z
 *a:com.intellij.platform.lang.lsWidget.LanguageServiceWidgetItem

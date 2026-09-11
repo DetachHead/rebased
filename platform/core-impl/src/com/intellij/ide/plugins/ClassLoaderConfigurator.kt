@@ -52,17 +52,6 @@ class ClassLoaderConfigurator(
     }
   }
 
-  fun configureDescriptorDynamic(subDescriptor: ContentModuleDescriptor): Boolean {
-    val mainDescriptor = subDescriptor.getMainDescriptor()
-    val pluginId = mainDescriptor.pluginId
-    assert(pluginId == subDescriptor.pluginId) { "pluginId '$pluginId' != moduleDescriptor.pluginId '${subDescriptor.pluginId}'"}
-    // class cast fails in case IU is running from sources, IDEA-318252
-    (mainDescriptor.pluginClassLoader as? PluginClassLoader)?.let {
-      mainToClassPath.put(pluginId, MainPluginDescriptorClassPathInfo(classLoader = it))
-    }
-    return configureModule(subDescriptor)
-  }
-
   fun configure() {
     for (module in pluginSet.getModulesOrderedForClassLoaderConfiguration()) {
       configureModule(module)
@@ -145,8 +134,7 @@ class ClassLoaderConfigurator(
     }
     else {
       val mimicJarUrlConnection = module.vendor == PluginManagerCore.VENDOR_JETBRAINS
-                                  && (module.moduleId.name == "intellij.rider.test.cases"
-                                      || module.moduleId.name == "intellij.rider.plugins.android.test.cases"
+                                  && (module.moduleId.name == "intellij.rider.plugins.android.test.cases"
                                       || module.moduleId.name == "intellij.rider.plugins.efCore.test.cases"
                                       || module.moduleId.name == "intellij.rider.plugins.for.tea.test.cases"
                                       || module.moduleId.name == "intellij.rider.plugins.fsharp.test.cases"
@@ -186,7 +174,7 @@ class ClassLoaderConfigurator(
         }
       }
       for (descriptor in sequence { yieldAllDependsSubDescriptors(module) }) {
-        if (!descriptor.isEnabled) {
+        if (!pluginSet.resolvedPluginSet.isResolved(descriptor)) {
           continue
         }
         contributeDependencies(pluginSet.getSortedDependencies(descriptor))

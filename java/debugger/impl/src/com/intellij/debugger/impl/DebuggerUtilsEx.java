@@ -1212,18 +1212,27 @@ public abstract class DebuggerUtilsEx extends DebuggerUtils {
                                                        @NotNull String className,
                                                        @NotNull String methodName,
                                                        int line) {
-    ReferenceType classType = ContainerUtil.getFirstItem(virtualMachine.classesByName(className));
-    if (classType == null) {
-      classType = new GeneratedReferenceType(virtualMachine, className);
-    }
-    else if (line >= 0) {
-      for (Method method : declaredMethodsByName(classType, methodName)) {
-        List<Location> locations = locationsOfLine(method, line);
-        if (!locations.isEmpty()) {
-          return locations.get(0);
+    GeneratedLocation generatedLocation = null;
+    for (ReferenceType classType : virtualMachine.classesByName(className)) {
+      try {
+        if (line >= 0) {
+          for (Method method : declaredMethodsByName(classType, methodName)) {
+            List<Location> locations = locationsOfLine(method, line);
+            if (!locations.isEmpty()) {
+              return locations.getFirst();
+            }
+          }
+        }
+        if (generatedLocation == null) {
+          generatedLocation = new GeneratedLocation(classType, methodName, line);
         }
       }
+      catch (ObjectCollectedException ignored) {
+      }
     }
-    return new GeneratedLocation(classType, methodName, line);
+    if (generatedLocation != null) {
+      return generatedLocation;
+    }
+    return new GeneratedLocation(new GeneratedReferenceType(virtualMachine, className), methodName, line);
   }
 }

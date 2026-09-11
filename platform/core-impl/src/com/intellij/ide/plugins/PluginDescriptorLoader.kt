@@ -48,6 +48,7 @@ import java.io.IOException
 import java.io.InputStream
 import java.net.URL
 import java.nio.file.Files
+import java.nio.file.InvalidPathException
 import java.nio.file.NoSuchFileException
 import java.nio.file.NotDirectoryException
 import java.nio.file.Path
@@ -450,7 +451,7 @@ private fun CoroutineScope.loadThirdPartyBundledPluginDescriptors(loadingContext
 suspend fun loadDescriptors(
   zipPoolDeferred: Deferred<ZipEntryResolverPool>,
   mainClassLoaderDeferred: Deferred<ClassLoader>?,
-): Pair<PluginDescriptorLoadingContext, PluginsDiscoveryResult> {
+): PluginsDiscoveryResult {
   val isUnitTestMode = PluginManagerCore.isUnitTestMode
   val isRunningFromSources = PluginManagerCore.isRunningFromSources()
   val isInDevServerMode = AppMode.isRunningFromDevBuild()
@@ -459,7 +460,7 @@ suspend fun loadDescriptors(
     isMissingSubDescriptorIgnored = true,
     checkOptionalConfigFileUniqueness = isUnitTestMode || isRunningFromSources,
   )
-  val discoveredPlugins = loadingContext.use {
+  return loadingContext.use {
     loadDescriptors(
       loadingContext = loadingContext,
       isUnitTestMode = isUnitTestMode,
@@ -469,7 +470,6 @@ suspend fun loadDescriptors(
       mainClassLoaderDeferred = mainClassLoaderDeferred,
     )
   }
-  return loadingContext to discoveredPlugins
 }
 
 internal fun CoroutineScope.scheduleLoading(
@@ -482,84 +482,30 @@ internal fun CoroutineScope.scheduleLoading(
     loadDescriptors(zipPoolDeferred, mainClassLoaderDeferred)
   }
   val pluginSetDeferred = async {
-    val (loadingContext, discoveredPlugins) = resultDeferred.await()
-    val pluginsState = PluginManagerCore.initializeAndSetPlugins(
-      descriptorLoadingErrors = loadingContext.copyDescriptorLoadingErrors(),
+    val discoveredPlugins = resultDeferred.await()
+    val reportingPolicy = PluginLoadingErrorReportingPolicy.forCurrentProduct()
+    val pluginSet = PluginManagerCore.initializeAndSetPlugins(
       initContext = initContext,
       discoveredPlugins = discoveredPlugins,
     )
-    val pluginSet = pluginsState.pluginSet
     this@scheduleLoading.launch {
       // logging is not as a part of a plugin set job for performance reasons
-      logPlugins(plugins = pluginSet.allPlugins, initContext = initContext, incompletePlugins = pluginsState.incompletePluginsForLogging, log = {
-        // make sure that logger is ready to use (not a console logger)
-        (logDeferred?.await() ?: LOG).info(it)
-      })
+      val logger = logDeferred?.await() ?: LOG
+      PluginInitializationDiagnosticUtils.logExclusionTree(logger, pluginSet)
+      PluginInitializationDiagnosticUtils.logPluginLists(
+        logger = logger,
+        initContext = initContext,
+        plugins = pluginSet.allPlugins,
+      )
+      PluginInitializationDiagnosticUtils.logMajorPluginLoadingProblems(
+        logger = logger,
+        pluginSet = pluginSet,
+        reportingPolicy = reportingPolicy,
+      )
     }
     pluginSet
   }
   return pluginSetDeferred
-}
-
-private suspend fun logPlugins(
-  plugins: Collection<IdeaPluginDescriptorImpl>,
-  initContext: PluginInitializationContext,
-  incompletePlugins: List<PluginMainDescriptor>,
-  log: suspend (String) -> Unit,
-) {
-  if (AppMode.isDisableNonBundledPlugins()) {
-    log("Running with disableThirdPartyPlugins argument, third-party plugins will be disabled")
-  }
-
-  val bundled = StringBuilder()
-  val disabled = StringBuilder()
-  val custom = StringBuilder()
-  val disabledPlugins = HashSet<PluginId>()
-  for (descriptor in plugins) {
-    val pluginId = descriptor.pluginId
-    val target = if (!PluginManagerCore.isLoaded(descriptor)) {
-      if (!initContext.isPluginDisabled(pluginId)) {
-        // the plugin will be logged as part of "Problems found loading plugins"
-        continue
-      }
-      disabledPlugins.add(pluginId)
-      disabled
-    }
-    else if (descriptor.isBundled || PluginManagerCore.SPECIAL_IDEA_PLUGIN_ID == pluginId) {
-      bundled
-    }
-    else {
-      custom
-    }
-    appendPlugin(descriptor, target)
-  }
-
-  for (descriptor in incompletePlugins) {
-    val pluginId = descriptor.pluginId
-    // log only explicitly disabled plugins
-    if (initContext.isPluginDisabled(pluginId) && !disabledPlugins.contains(pluginId)) {
-      appendPlugin(descriptor, disabled)
-    }
-  }
-
-  log("Loaded bundled plugins: $bundled")
-  if (custom.isNotEmpty()) {
-    log("Loaded custom plugins: $custom")
-  }
-  if (disabled.isNotEmpty()) {
-    log("Disabled plugins: $disabled")
-  }
-}
-
-private fun appendPlugin(descriptor: IdeaPluginDescriptor, target: StringBuilder) {
-  if (target.isNotEmpty()) {
-    target.append(", ")
-  }
-  target.append(descriptor.name)
-  val version = descriptor.version
-  if (version != null) {
-    target.append(" (").append(version).append(')')
-  }
 }
 
 private suspend fun loadDescriptors(
@@ -588,7 +534,10 @@ private suspend fun loadDescriptors(
     val pluginsFromPropertyDeferred = loadDescriptorsFromProperty(loadingContext, zipPool)
     pluginsDeferred.await() + listOfNotNull(thirdPartyBundledPluginsDeferred.await(), pluginsFromPropertyDeferred.await())
   }
-  return PluginsDiscoveryResult.build(discoveredPlugins)
+  return PluginsDiscoveryResult.build(
+    discoveredPluginLists = discoveredPlugins,
+    descriptorLoadingErrors = loadingContext.copyDescriptorLoadingErrors(),
+  )
 }
 
 internal fun CoroutineScope.loadPluginDescriptorsForPathBasedLoader(
@@ -602,7 +551,7 @@ internal fun CoroutineScope.loadPluginDescriptorsForPathBasedLoader(
   bundledPluginDir: Path?,
 ): Deferred<List<DiscoveredPluginsList>> {
   val platformPrefix = PlatformUtils.getPlatformPrefix()
-  val jarFileForModule: (PluginModuleId, Path) -> Path? = { moduleId, moduleDir -> moduleDir.resolve("${moduleId.name}.jar") }
+  val jarFileForModule = createPathBasedProductModuleJarResolver(mainClassLoader)
 
   if (isUnitTestMode && !isInDevServerMode) {
     return loadPluginDescriptorsInDeprecatedUnitTestMode(
@@ -681,6 +630,48 @@ internal fun CoroutineScope.loadPluginDescriptorsForPathBasedLoader(
       )
     }
   }
+}
+
+private fun createPathBasedProductModuleJarResolver(mainClassLoader: ClassLoader): (PluginModuleId, Path) -> Path? {
+  if (PlatformUtils.isGateway()) {
+    val gatewayModuleJars = collectGatewayProductContentModuleJars()
+    return { moduleId, moduleDir ->
+      gatewayModuleJars[moduleId.name]
+      ?: moduleDir.resolve("${moduleId.name}.jar")
+    }
+  }
+  else {
+    return { moduleId, moduleDir -> moduleDir.resolve("${moduleId.name}.jar") }
+  }
+}
+
+/**
+ * 'isDeprecatedLoader' does not handle the case when the 'Core' plugin references a module that is located outside the 'lib' directory.
+ * These modules are located in the 'plugins/gateway-plugin/lib' directory and need to be specified explicitly.
+ *
+ * If not used, the default of 'Core' plugin will be used, that may cause the same class being loaded twice.
+ */
+private fun collectGatewayProductContentModuleJars(): Map<String, Path> {
+  val path = System.getProperty("standalone.gateway.modules.classpath") ?: return emptyMap()
+  try {
+    val modulesFolder = Paths.get(path)
+    val modules = Files.newDirectoryStream(modulesFolder).use { stream ->
+      stream.filterTo(ArrayList()) {
+        it.fileName.toString().endsWith(".jar", ignoreCase = true)
+      }
+    }
+    return modules.associateBy {
+      val fileName = it.fileName.toString()
+      fileName.substring(0, fileName.length - ".jar".length)
+    }
+  }
+  catch (e: IOException) {
+    LOG.warn("Cannot load ${path}", e)
+  }
+  catch (e: InvalidPathException) {
+    LOG.warn("Cannot load ${path}", e)
+  }
+  return emptyMap()
 }
 
 private fun CoroutineScope.loadFromPluginClasspathDescriptor(
@@ -1024,12 +1015,10 @@ private fun loadProductModule(
   xIncludeLoader: XIncludeLoader,
   containerDescriptor: PluginMainDescriptor,
 ): Boolean {
-  val moduleId = module.moduleId
   val moduleRaw: PluginDescriptorBuilder = if (jarFile == null) {
     // do not log - the severity of the error is determined by the loadingStrategy, the default strategy does not return null at all
     PluginDescriptorBuilder.builder().apply {
       visibility = ModuleVisibilityValue.PUBLIC
-      `package` = "unresolved.${moduleId.name}"
     }
   }
   else {
@@ -1152,7 +1141,10 @@ fun loadDescriptorsFromOtherIde(
     loadingContext.close()
     pool.close()
   }
-  return PluginsDiscoveryResult.build(discoveredPlugins)
+  return PluginsDiscoveryResult.build(
+    discoveredPluginLists = discoveredPlugins,
+    descriptorLoadingErrors = loadingContext.copyDescriptorLoadingErrors(),
+  )
 }
 
 suspend fun loadDescriptorsFromCustomPluginDir(customPluginDir: Path, ignoreCompatibility: Boolean = false): DiscoveredPluginsList {
@@ -1391,7 +1383,7 @@ private fun loadPluginDependencyDescriptors(
       dependency.setSubDescriptor(subDescriptor)
     }
     finally {
-      visitedFiles.removeLast()
+      visitedFiles.removeAt(visitedFiles.lastIndex)
     }
   }
 }

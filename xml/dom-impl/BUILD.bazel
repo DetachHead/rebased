@@ -1,7 +1,7 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
 ### auto-generated section `build intellij.xml.dom.impl` start
-
 jvm_library(
     name = "dom-impl",
     srcs = glob(
@@ -52,6 +52,8 @@ jvm_library(
         "//platform/util:util-ui",
     ],
 )
+
+content_module_jar(module = ":dom-impl")
 
 jvm_library(
     name = "dom-impl_test_lib",
@@ -107,6 +109,8 @@ jvm_library(
 exports_files(
     [
         "intellij.xml.dom.impl.iml",
+        "resources/intellij.xml.dom.impl.xml",
+        "module-content.yaml",
     ],
     visibility = ["//visibility:public"],
 )

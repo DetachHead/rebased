@@ -6,8 +6,8 @@ import com.intellij.codeInspection.util.InspectionMessage
 import com.intellij.codeInspection.util.IntentionFamilyName
 import com.intellij.modcommand.ModPsiUpdater
 import com.intellij.openapi.project.Project
-import org.jetbrains.kotlin.analysis.api.KaExperimentalApi
 import org.jetbrains.kotlin.analysis.api.KaSession
+import org.jetbrains.kotlin.analysis.api.resolution.resolveSuccessfulSymbol
 import org.jetbrains.kotlin.idea.base.resources.KotlinBundle
 import org.jetbrains.kotlin.idea.codeinsight.api.applicable.inspections.KotlinApplicableInspectionBase
 import org.jetbrains.kotlin.idea.codeinsight.api.applicable.inspections.KotlinModCommandQuickFix
@@ -53,13 +53,13 @@ class ReplaceWithIgnoreCaseEqualsInspection : KotlinApplicableInspectionBase.Sim
     return caseConversionFunctionFqNames[leftCalleeText] != null
   }
 
-  @OptIn(KaExperimentalApi::class)
-  override fun KaSession.prepareContext(element: KtBinaryExpression): Unit? {
+  context(session: KaSession)
+  override fun prepareContext(element: KtBinaryExpression): Unit? {
     val leftCall = element.left?.getCallExpressionIfCaseConversion() ?: return null
     val rightCall = element.right?.getCallExpressionIfCaseConversion() ?: return null
 
-    val leftCallFqName = leftCall.resolveSymbol()?.callableId?.asSingleFqName() ?: return null
-    val rightCallFqName = rightCall.resolveSymbol()?.callableId?.asSingleFqName() ?: return null
+    val leftCallFqName = leftCall.resolveSuccessfulSymbol()?.callableId?.asSingleFqName() ?: return null
+    val rightCallFqName = rightCall.resolveSuccessfulSymbol()?.callableId?.asSingleFqName() ?: return null
 
     if (leftCallFqName != rightCallFqName) return null
     if (leftCallFqName !in caseConversionFunctionFqNames.values) return null

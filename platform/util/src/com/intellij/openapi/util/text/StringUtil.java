@@ -69,8 +69,8 @@ public class StringUtil {
 
   private static final class Splitters {
     private static final Pattern EOL_SPLIT_KEEP_SEPARATORS = Pattern.compile("(?<=(\r\n|\n))|(?<=\r)(?=[^\n])");
-    private static final Pattern EOL_SPLIT_PATTERN = Pattern.compile(" *(\r|\n|\r\n)+ *");
-    private static final Pattern EOL_SPLIT_PATTERN_WITH_EMPTY = Pattern.compile(" *(\r|\n|\r\n) *");
+    private static final Pattern EOL_SPLIT_PATTERN = Pattern.compile(" *[\r\n]+ *");
+    private static final Pattern EOL_SPLIT_PATTERN_WITH_EMPTY = Pattern.compile(" *(?>\r\n|\r|\n) *");
     private static final Pattern EOL_SPLIT_DONT_TRIM_PATTERN = Pattern.compile("(\r|\n|\r\n)+");
   }
 
@@ -1678,6 +1678,42 @@ public class StringUtil {
     return s.substring(start, end);
   }
 
+  /// Variant of [#trimLeading(String)] that doesn't remove spaces from non-empty lines
+  @Contract(pure = true)
+  public static @NotNull String trimLeadingLines(@NotNull String input) {
+    int lineStartIndex = -1;
+
+    for (int index = 0; index < input.length(); index++) {
+      char c = input.charAt(index);
+      if (c == '\n') {
+        lineStartIndex = index;
+        continue;
+      }
+      if (!isWhiteSpace(c)) {
+        return input.substring(lineStartIndex + 1);
+      }
+    }
+    return input;
+  }
+
+  /// Variant of [#trimTrailing(String)] that doesn't remove spaces from non-empty lines
+  @Contract(pure = true)
+  public static @NotNull String trimTrailingLines(@NotNull String input) {
+    int lineStopIndex = input.length();
+
+    for (int index = input.length() - 1; index >= 0; index--) {
+      char c = input.charAt(index);
+      if (c == '\n') {
+        lineStopIndex = index;
+        continue;
+      }
+      if (!isWhiteSpace(c)) {
+        return input.substring(0, lineStopIndex);
+      }
+    }
+    return input;
+  }
+
   @Contract(pure = true)
   public static @Unmodifiable @NotNull List<String> findMatches(@NotNull String s, @NotNull Pattern pattern) {
     return findMatches(s, pattern, 1);
@@ -3018,7 +3054,7 @@ public class StringUtil {
     return false;
   }
 
-  @Contract(pure = true)
+  @Contract(value = "!null -> !null; null -> null", pure = true)
   @SuppressWarnings("AssignmentToForLoopParameter")
   public static String replaceUnicodeEscapeSequences(String text) {
     if (text == null) return null;

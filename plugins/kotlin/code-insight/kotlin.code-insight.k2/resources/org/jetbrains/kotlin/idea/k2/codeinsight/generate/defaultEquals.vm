@@ -1,5 +1,5 @@
 #set($paramName = $helper.getUniqueLocalVarName($baseParamName, $fields, $settings))
-override fun equals(${paramName}: Any?): Boolean{
+override fun equals(${paramName}: Any?): Boolean {
 #addEqualsPrologue()
 #if ($fields.size() > 0)
 

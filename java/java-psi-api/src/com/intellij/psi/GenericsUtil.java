@@ -1,4 +1,4 @@
-// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.psi;
 
 import com.intellij.codeInsight.TypeNullability;
@@ -66,7 +66,10 @@ public final class GenericsUtil {
     if (TypeConversionUtil.isPrimitiveAndNotNull(type1) || TypeConversionUtil.isPrimitiveAndNotNull(type2)) return null;
     if (TypeConversionUtil.isNullType(type1)) return type2.withNullability(TypeNullability.NULLABLE_MANDATED);
     if (TypeConversionUtil.isNullType(type2)) return type1.withNullability(TypeNullability.NULLABLE_MANDATED);
-    if (Comparing.equal(type1, type2)) return type1;
+    if (Comparing.equal(type1, type2)) {
+      TypeNullability nullability = type1.getNullability().join(type2.getNullability());
+      return nullability.equals(type1.getNullability()) ? type1 : type1.withNullability(nullability);
+    }
     return getLeastUpperBound(type1, type2, new LinkedHashSet<>(), manager);
   }
 
@@ -358,15 +361,19 @@ public final class GenericsUtil {
         if (bound != null) {
 
           if (wildcardType.isSuper() && bound instanceof PsiIntersectionType) {
-            return PsiWildcardType.createUnbounded(manager);
+            return wildcardType.unbounded();
           }
 
           final PsiType acceptedBound = bound.accept(this);
           if (acceptedBound instanceof PsiWildcardType) {
-            if (((PsiWildcardType)acceptedBound).isExtends() != wildcardType.isExtends()) return PsiWildcardType.createUnbounded(manager);
+            if (((PsiWildcardType)acceptedBound).isExtends() != wildcardType.isExtends()) {
+              return wildcardType.unbounded();
+            }
             return acceptedBound;
           }
-          if (wildcardType.isExtends() && acceptedBound.equalsToText(CommonClassNames.JAVA_LANG_OBJECT)) return PsiWildcardType.createUnbounded(manager);
+          if (wildcardType.isExtends() && acceptedBound.equalsToText(CommonClassNames.JAVA_LANG_OBJECT)) {
+            return wildcardType.unbounded();
+          }
           if (acceptedBound.equals(bound)) return wildcardType;
           return wildcardType.isExtends()
                  ? PsiWildcardType.createExtends(manager, acceptedBound)

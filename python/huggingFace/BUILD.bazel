@@ -1,7 +1,7 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
 ### auto-generated section `build intellij.python.community.impl.huggingFace` start
-
 jvm_library(
     name = "huggingFace",
     srcs = glob(
@@ -23,7 +23,7 @@ jvm_library(
     deps = [
         # do not sort,
         "@lib//:kotlin-stdlib",
-        "@lib//:gradle",
+        "//libraries/gradle",
         "//libraries/jackson/jackson",
         "//libraries/jackson/databind",
         "//libraries/jackson/module-kotlin:libraries-jackson-module-kotlin",
@@ -42,9 +42,11 @@ jvm_library(
         "//platform/markdown-utils",
         "//platform/statistics",
         "//json/backend",
-        "//python/python-sdk:sdk",
+        "//python/python-sdk/backend",
     ],
 )
+
+content_module_jar(module = ":huggingFace")
 
 jvm_library(
     name = "huggingFace_test_lib",
@@ -58,6 +60,7 @@ jvm_library(
     runtime_deps = [
         # do not sort,
         ":huggingFace",
+        "//libraries/gradle:gradle_test_lib",
         "//libraries/jackson/jackson:jackson_test_lib",
         "//libraries/jackson/databind:databind_test_lib",
         "//libraries/jackson/module-kotlin:libraries-jackson-module-kotlin_test_lib",
@@ -76,7 +79,7 @@ jvm_library(
         "//platform/markdown-utils:markdown-utils_test_lib",
         "//platform/statistics:statistics_test_lib",
         "//json/backend:backend_test_lib",
-        "//python/python-sdk:sdk_test_lib",
+        "//python/python-sdk/backend:backend_test_lib",
     ],
 )
 ### auto-generated section `build intellij.python.community.impl.huggingFace` end
@@ -85,6 +88,7 @@ jvm_library(
 exports_files(
     [
         "intellij.python.community.impl.huggingFace.iml",
+        "resources/intellij.python.community.impl.huggingFace.xml",
     ],
     visibility = ["//visibility:public"],
 )

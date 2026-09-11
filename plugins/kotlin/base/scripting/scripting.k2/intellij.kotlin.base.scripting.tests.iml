@@ -7,18 +7,18 @@
     </content>
     <orderEntry type="inheritedJdk" />
     <orderEntry type="sourceFolder" forTests="false" />
-    <orderEntry type="module" module-name="kotlin.plugin.k2" scope="TEST" />
+    <orderEntry type="module" module-name="intellij.kotlin.plugin.community.main" scope="RUNTIME" />
     <orderEntry type="module" module-name="intellij.platform.core" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.projectModel" scope="TEST" />
     <orderEntry type="library" scope="TEST" name="kotlin-stdlib" level="project" />
-    <orderEntry type="library" scope="TEST" name="kotlinc.kotlin-compiler-common" level="project" />
-    <orderEntry type="library" scope="TEST" name="kotlinc.kotlin-jps-common" level="project" />
-    <orderEntry type="library" scope="TEST" name="kotlinc.analysis-api" level="project" />
-    <orderEntry type="library" scope="TEST" name="kotlinc.analysis-api-platform-interface" level="project" />
-    <orderEntry type="library" scope="TEST" name="kotlinc.kotlin-script-runtime" level="project" />
-    <orderEntry type="library" scope="TEST" name="kotlinc.kotlin-scripting-common" level="project" />
-    <orderEntry type="library" scope="TEST" name="kotlinc.kotlin-scripting-jvm" level="project" />
-    <orderEntry type="library" scope="TEST" name="kotlinc.kotlin-scripting-compiler-impl" level="project" />
+    <orderEntry type="module" module-name="intellij.libraries.kotlinc.kotlin.compiler.common" scope="TEST" />
+    <orderEntry type="module" module-name="intellij.libraries.kotlinc.kotlin.jps.common" scope="TEST" />
+    <orderEntry type="module" module-name="intellij.libraries.kotlinc.analysis.api" scope="TEST" />
+    <orderEntry type="module" module-name="intellij.libraries.kotlinc.analysis.api.platform.interface" scope="TEST" />
+    <orderEntry type="module" module-name="intellij.libraries.kotlinc.kotlin.script.runtime" scope="TEST" />
+    <orderEntry type="module" module-name="intellij.libraries.kotlinc.kotlin.scripting.common" scope="TEST" />
+    <orderEntry type="module" module-name="intellij.libraries.kotlinc.kotlin.scripting.jvm" scope="TEST" />
+    <orderEntry type="module" module-name="intellij.libraries.kotlinc.kotlin.scripting.compiler.impl" scope="TEST" />
     <orderEntry type="module" module-name="intellij.libraries.kotlinx.coroutines.core" scope="TEST" />
     <orderEntry type="module" module-name="intellij.libraries.junit5" scope="TEST" />
     <orderEntry type="module" module-name="intellij.kotlin.base.compilerConfiguration" scope="TEST" />
@@ -52,7 +52,7 @@
     <orderEntry type="module" module-name="intellij.platform.workspace.jps" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.externalSystem.impl" scope="TEST" />
     <orderEntry type="module" module-name="intellij.java.ui" scope="TEST" />
-    <orderEntry type="library" scope="TEST" name="kotlinc.kotlin-scripting-dependencies" level="project" />
+    <orderEntry type="module" module-name="intellij.libraries.kotlinc.kotlin.scripting.dependencies" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.ide.observable" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.jps.model" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.refactoring" scope="TEST" />
@@ -77,7 +77,14 @@
     <orderEntry type="module" module-name="intellij.kotlin.common.tests" scope="TEST" />
     <orderEntry type="library" scope="TEST" name="kotlinc.kotlin-compiler-tests" level="project" />
     <orderEntry type="module" module-name="kotlin.scripting" scope="TEST" />
+    <orderEntry type="module" module-name="intellij.platform.statistics" scope="TEST" />
+    <orderEntry type="module" module-name="intellij.platform.statistics.testFramework" scope="TEST" />
     <orderEntry type="module" module-name="intellij.kotlin.base.facet.tests" scope="TEST" />
+    <orderEntry type="module" module-name="intellij.libraries.junit4" scope="TEST" />
+    <orderEntry type="module" module-name="intellij.kotlin.runConfigurations.jvm" scope="TEST" />
+    <orderEntry type="module" module-name="intellij.java.execution.impl" scope="TEST" />
+    <orderEntry type="module" module-name="intellij.platform.execution.impl" scope="TEST" />
+    <orderEntry type="module" module-name="intellij.platform.ide.util.io" scope="TEST" />
   </component>
   <component name="TestModuleProperties" production-module="intellij.kotlin.base.scripting" />
 </module>

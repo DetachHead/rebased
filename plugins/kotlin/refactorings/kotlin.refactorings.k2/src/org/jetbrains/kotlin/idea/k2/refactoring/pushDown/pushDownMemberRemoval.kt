@@ -1,11 +1,11 @@
 // Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.kotlin.idea.k2.refactoring.pushDown
 
-import org.jetbrains.kotlin.analysis.api.KaExperimentalApi
 import org.jetbrains.kotlin.analysis.api.KaSession
 import org.jetbrains.kotlin.analysis.api.symbols.KaCallableSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaClassSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaSymbolModality
+import org.jetbrains.kotlin.analysis.api.symbols.symbol
 import org.jetbrains.kotlin.analysis.api.types.KaSubstitutor
 import org.jetbrains.kotlin.idea.base.analysis.api.utils.shortenReferences
 import org.jetbrains.kotlin.idea.k2.refactoring.pullUp.computeAndRenderReturnType
@@ -20,8 +20,8 @@ import org.jetbrains.kotlin.psi.KtNamedFunction
 import org.jetbrains.kotlin.psi.KtProperty
 import org.jetbrains.kotlin.psi.KtPsiFactory
 
-@OptIn(KaExperimentalApi::class)
-internal fun KaSession.createRemoveOriginalMemberAction(
+context(session: KaSession)
+internal fun createRemoveOriginalMemberAction(
     sourceClass: KtClass,
     memberInfo: KotlinMemberInfo,
     substitutor: KaSubstitutor,
@@ -31,8 +31,8 @@ internal fun KaSession.createRemoveOriginalMemberAction(
     else -> null
 }
 
-@OptIn(KaExperimentalApi::class)
-private fun KaSession.createRemoveCallableMemberAction(
+context(session: KaSession)
+private fun createRemoveCallableMemberAction(
     memberInfo: KotlinMemberInfo,
     sourceClass: KtClass,
     substitutor: KaSubstitutor,
@@ -60,7 +60,8 @@ private fun KaSession.createRemoveCallableMemberAction(
     return RemovalAction { member.delete() }
 }
 
-private fun KaSession.createRemoveClassLikeMemberAction(
+context(session: KaSession)
+private fun createRemoveClassLikeMemberAction(
     memberInfo: KotlinMemberInfo,
     sourceClass: KtClass,
 ): RemovalAction? {

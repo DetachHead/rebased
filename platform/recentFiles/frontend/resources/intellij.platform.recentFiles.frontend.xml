@@ -11,10 +11,12 @@
     <module name="intellij.platform.frontend"/>
     <module name="intellij.platform.ide"/>
     <module name="intellij.platform.ide.core"/>
+    <module name="intellij.platform.ide.core.impl"/>
     <module name="intellij.platform.ide.impl"/>
     <module name="intellij.platform.kernel"/>
     <module name="intellij.platform.lang"/>
     <module name="intellij.platform.lang.impl"/>
+    <module name="intellij.platform.project"/>
     <module name="intellij.platform.projectModel"/>
     <module name="intellij.platform.recentFiles"/>
     <module name="intellij.platform.rpc"/>
@@ -30,9 +32,6 @@
                     dynamic="true"/>
     <extensionPoint interface="com.intellij.platform.recentFiles.frontend.RecentFilesNavigator"
                     qualifiedName="com.intellij.recentFiles.navigator"
-                    dynamic="true"/>
-    <extensionPoint interface="com.intellij.platform.recentFiles.frontend.RecentFilesExcluder"
-                    qualifiedName="com.intellij.recentFiles.excluder"
                     dynamic="true"/>
   </extensionPoints>
   <extensions defaultExtensionNs="com.intellij">

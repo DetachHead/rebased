@@ -16,16 +16,17 @@ import com.intellij.refactoring.ui.VisibilityPanelBase
 import com.intellij.ui.treeStructure.Tree
 import com.intellij.util.Consumer
 import org.jetbrains.annotations.Nls
-import org.jetbrains.kotlin.analysis.api.KaExperimentalApi
 import org.jetbrains.kotlin.analysis.api.KaSession
-import org.jetbrains.kotlin.analysis.api.analyze
-import org.jetbrains.kotlin.analysis.api.components.render
+import org.jetbrains.kotlin.analysis.api.components.returnType
 import org.jetbrains.kotlin.analysis.api.permissions.KaAllowAnalysisOnEdt
 import org.jetbrains.kotlin.analysis.api.permissions.allowAnalysisOnEdt
+import org.jetbrains.kotlin.analysis.api.renderer.render
 import org.jetbrains.kotlin.analysis.api.renderer.types.impl.KaTypeRendererForSource
+import org.jetbrains.kotlin.analysis.api.session.analyze
 import org.jetbrains.kotlin.analysis.api.symbols.KaSymbolVisibility
 import org.jetbrains.kotlin.analysis.api.types.KaErrorType
 import org.jetbrains.kotlin.analysis.api.types.KaType
+import org.jetbrains.kotlin.analysis.api.types.type
 import org.jetbrains.kotlin.config.LanguageFeature
 import org.jetbrains.kotlin.idea.base.analysis.api.utils.analyzeInModalWindow
 import org.jetbrains.kotlin.idea.base.projectStructure.languageVersionSettings
@@ -51,6 +52,7 @@ import org.jetbrains.kotlin.psi.KtPsiUtil
 import org.jetbrains.kotlin.psi.KtTypeCodeFragment
 import org.jetbrains.kotlin.psi.KtVariableDeclaration
 import org.jetbrains.kotlin.types.Variance
+import java.util.Locale.getDefault
 
 @OptIn(KaAllowAnalysisOnEdt::class)
 internal class KotlinChangeSignatureDialog(
@@ -72,7 +74,7 @@ internal class KotlinChangeSignatureDialog(
         return allowAnalysisOnEdt {
             analyze(typeRef) {
                 val ktType = typeRef.type
-                return ktType !is KaErrorType
+                ktType !is KaErrorType
             }
         }
     }
@@ -249,7 +251,7 @@ internal class KotlinChangeSignatureDialog(
             buffer.append(newName)
 
             if (isCustomizedVisibility) {
-                buffer.append(' ').append(visibility).append(" constructor ")
+                buffer.append(' ').append(visibility?.name?.lowercase(getDefault())).append(" constructor ")
             }
         } else {
             val contextParameters = getNonReceiverParameters().filter { it.isContextParameter }
@@ -260,7 +262,7 @@ internal class KotlinChangeSignatureDialog(
             }
 
             if (!KtPsiUtil.isLocal(methodDescriptor.method) && isCustomizedVisibility) {
-                buffer.append(visibility).append(' ')
+                buffer.append(visibility?.name?.lowercase(getDefault())).append(' ')
             }
 
             buffer.append(if (methodDescriptor.kind == Kind.SECONDARY_CONSTRUCTOR) KtTokens.CONSTRUCTOR_KEYWORD else KtTokens.FUN_KEYWORD).append(' ')
@@ -300,11 +302,11 @@ internal class KotlinChangeSignatureDialog(
             KaSymbolVisibility.PRIVATE,
             KaSymbolVisibility.PROTECTED,
             KaSymbolVisibility.PUBLIC
-        )
+        ),
+        arrayOf("internal", "private", "protected", "public")
     )
 }
 
-@OptIn(KaExperimentalApi::class)
 internal fun KtTypeCodeFragment.getCanonicalText(forPreview: Boolean): String {
     val contextElement = getContentElement()
     if (contextElement != null && !forPreview) {
@@ -316,6 +318,5 @@ internal fun KtTypeCodeFragment.getCanonicalText(forPreview: Boolean): String {
     }
 }
 
-@OptIn(KaExperimentalApi::class)
 context(_: KaSession)
 private fun KaType.getPresentableText(): String = render(KaTypeRendererForSource.WITH_SHORT_NAMES, position = Variance.INVARIANT)

@@ -1,6 +1,12 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
+load("//build:compiler-options.bzl", "create_kotlinc_options")
 
 ### auto-generated section `build intellij.pycharm.community.ide.impl.promotion` start
+create_kotlinc_options(
+    name = "custom_pycharm-community-ide-impl-promotion",
+    warn = "error",
+    x_warning_level = ["DEPRECATION:warning"],
+)
 
 jvm_library(
     name = "pycharm-community-ide-impl-promotion",
@@ -12,6 +18,7 @@ jvm_library(
         ],
         allow_empty = True,
     ),
+    kotlinc_opts = ":custom_pycharm-community-ide-impl-promotion",
     module_name = "intellij.pycharm.community.ide.impl.promotion",
     resource_strip_prefix = "resources",
     resources = glob(
@@ -46,6 +53,7 @@ jvm_library(
         [],
         allow_empty = True,
     ),
+    kotlinc_opts = ":custom_pycharm-community-ide-impl-promotion",
     module_name = "intellij.pycharm.community.ide.impl.promotion",
     visibility = ["//visibility:public"],
     runtime_deps = [
@@ -74,6 +82,7 @@ jvm_library(
 exports_files(
     [
         "intellij.pycharm.community.ide.impl.promotion.iml",
+        "resources/intellij.pycharm.community.ide.impl.promotion.xml",
     ],
     visibility = ["//visibility:public"],
 )

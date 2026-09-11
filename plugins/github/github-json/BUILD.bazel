@@ -1,7 +1,7 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
 ### auto-generated section `build intellij.vcs.github.json` start
-
 jvm_library(
     name = "vcs-github-json",
     srcs = glob(
@@ -29,6 +29,8 @@ jvm_library(
     ],
 )
 
+content_module_jar(module = ":vcs-github-json")
+
 jvm_library(
     name = "vcs-github-json_test_lib",
     testonly = True,
@@ -54,6 +56,7 @@ jvm_library(
 exports_files(
     [
         "intellij.vcs.github.json.iml",
+        "resources/intellij.vcs.github.json.xml",
     ],
     visibility = ["//visibility:public"],
 )

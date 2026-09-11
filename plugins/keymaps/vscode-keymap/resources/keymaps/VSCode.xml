@@ -203,6 +203,7 @@
     <keyboard-shortcut first-keystroke="ctrl open_bracket" />
     <keyboard-shortcut first-keystroke="shift tab" />
   </action>
+  <action id="EditorUnSelectWord" />
   <action id="EditorUpWithSelection">
     <keyboard-shortcut first-keystroke="shift up" />
     <keyboard-shortcut first-keystroke="shift ctrl up" />
@@ -321,7 +322,6 @@
     <keyboard-shortcut first-keystroke="ctrl k" second-keystroke="ctrl q" />
   </action>
   <action id="JumpToLastWindow" />
-  <action id="KotlinShellExecute" />
   <action id="Maven.ExpandAll">
     <keyboard-shortcut first-keystroke="ctrl add" />
   </action>
@@ -438,6 +438,7 @@
     <keyboard-shortcut first-keystroke="ctrl up" />
   </action>
   <action id="SearchEverywhere">
+    <keyboard-gesture-shortcut keystroke="shift SHIFT" modifier="dblClick"/>
     <keyboard-shortcut first-keystroke="f1" />
     <keyboard-shortcut first-keystroke="shift ctrl a" />
   </action>

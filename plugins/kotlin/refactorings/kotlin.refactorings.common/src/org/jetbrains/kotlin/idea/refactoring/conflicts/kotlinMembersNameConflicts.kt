@@ -14,15 +14,16 @@ import com.intellij.usageView.UsageInfo
 import com.intellij.usageView.UsageViewUtil
 import org.jetbrains.kotlin.analysis.api.KaExperimentalApi
 import org.jetbrains.kotlin.analysis.api.KaSession
-import org.jetbrains.kotlin.analysis.api.analyze
 import org.jetbrains.kotlin.analysis.api.base.KaContextReceiver
-import org.jetbrains.kotlin.analysis.api.components.combinedDeclaredMemberScope
-import org.jetbrains.kotlin.analysis.api.components.combinedMemberScope
-import org.jetbrains.kotlin.analysis.api.components.containingDeclaration
-import org.jetbrains.kotlin.analysis.api.components.declaredMemberScope
-import org.jetbrains.kotlin.analysis.api.components.packageScope
-import org.jetbrains.kotlin.analysis.api.components.semanticallyEquals
+import org.jetbrains.kotlin.analysis.api.components.compositeScope
+import org.jetbrains.kotlin.analysis.api.components.importingScopeContext
 import org.jetbrains.kotlin.analysis.api.scopes.KaScope
+import org.jetbrains.kotlin.analysis.api.scopes.combinedDeclaredMemberScope
+import org.jetbrains.kotlin.analysis.api.scopes.combinedMemberScope
+import org.jetbrains.kotlin.analysis.api.scopes.declaredMemberScope
+import org.jetbrains.kotlin.analysis.api.scopes.memberScope
+import org.jetbrains.kotlin.analysis.api.scopes.packageScope
+import org.jetbrains.kotlin.analysis.api.session.analyze
 import org.jetbrains.kotlin.analysis.api.symbols.KaClassSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaClassifierSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaConstructorSymbol
@@ -38,12 +39,15 @@ import org.jetbrains.kotlin.analysis.api.symbols.KaSymbolLocation
 import org.jetbrains.kotlin.analysis.api.symbols.KaSymbolVisibility
 import org.jetbrains.kotlin.analysis.api.symbols.KaTypeParameterSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaValueParameterSymbol
+import org.jetbrains.kotlin.analysis.api.symbols.containingDeclaration
 import org.jetbrains.kotlin.analysis.api.symbols.findPackage
+import org.jetbrains.kotlin.analysis.api.symbols.namedClassSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.receiverType
 import org.jetbrains.kotlin.analysis.api.symbols.symbol
 import org.jetbrains.kotlin.analysis.api.symbols.typeParameters
 import org.jetbrains.kotlin.analysis.api.types.KaFunctionType
 import org.jetbrains.kotlin.analysis.api.types.KaType
+import org.jetbrains.kotlin.analysis.api.types.semanticallyEquals
 import org.jetbrains.kotlin.asJava.accessorNameByPropertyName
 import org.jetbrains.kotlin.asJava.elements.KtLightMethod
 import org.jetbrains.kotlin.asJava.toLightClass
@@ -57,6 +61,7 @@ import org.jetbrains.kotlin.psi.KtBlockExpression
 import org.jetbrains.kotlin.psi.KtClass
 import org.jetbrains.kotlin.psi.KtClassOrObject
 import org.jetbrains.kotlin.psi.KtDeclaration
+import org.jetbrains.kotlin.psi.KtDestructuringDeclaration
 import org.jetbrains.kotlin.psi.KtDestructuringDeclarationEntry
 import org.jetbrains.kotlin.psi.KtElement
 import org.jetbrains.kotlin.psi.KtFunction
@@ -139,7 +144,6 @@ fun checkDeclarationNewNameConflicts(
     result: MutableList<UsageInfo>,
     filterCandidate: (KaDeclarationSymbol) -> Boolean
 ) {
-    @OptIn(KaExperimentalApi::class)
     fun getPotentialConflictCandidates(symbol: KaDeclarationSymbol, declaration: KtNamedDeclaration, newName: Name): Sequence<KaDeclarationSymbol> {
         val containingSymbol = symbol.containingDeclaration ?: findPackage(declaration.containingKtFile.packageFqName)
 
@@ -147,17 +151,25 @@ fun checkDeclarationNewNameConflicts(
             val functionLikeSymbol = containingSymbol as? KaFunctionSymbol ?: return emptySequence()
             val functionPsi = functionLikeSymbol.psi
 
-            val locals = functionPsi?.descendantsOfType<KtVariableDeclaration>()
+            val block = if (declaration is KtParameter) {
+                functionPsi
+            } else {
+                ((declaration.parent as? KtDestructuringDeclaration) ?: declaration).parent as? KtBlockExpression
+            }
+
+            val locals = block?.descendantsOfType<KtVariableDeclaration>()
                 ?.filter { it.nameAsName == newName }
                 ?.map { it.symbol } ?: emptySequence()
-            val destructuringEntries = functionPsi?.descendantsOfType<KtDestructuringDeclarationEntry>()
+            val destructuringEntries = block?.descendantsOfType<KtDestructuringDeclarationEntry>()
                 ?.filter { it.nameAsName == newName }
                 ?.map { it.symbol } ?: emptySequence()
-            return functionLikeSymbol.valueParameters.filter { it.name == newName }.asSequence() + locals + destructuringEntries
+            val parameters =
+                if (declaration is KtParameter || block?.parent == functionPsi) functionLikeSymbol.valueParameters.filter { it.name == newName }.asSequence()
+                else emptySequence()
+            return parameters + locals + destructuringEntries
         }
 
         if (symbol is KaTypeParameterSymbol) {
-            @OptIn(KaExperimentalApi::class)
             val typeParameters = (containingSymbol as? KaDeclarationSymbol)?.typeParameters?.filter { it.name == newName }?.asSequence() ?: return emptySequence()
 
             val outerTypeParameters = generateSequence<KtClassOrObject>(declaration.getStrictParentOfType()) {
@@ -261,13 +273,11 @@ fun registerAlreadyDeclaredConflict(candidateSymbol: KaDeclarationSymbol, result
     result += BasicUnresolvableCollisionUsageInfo(candidate, candidate, message)
 }
 
-@OptIn(KaExperimentalApi::class)
 context(_: KaSession)
 private fun areSameSignatures(candidateSymbol: KaFunctionSymbol, symbol: KaFunctionSymbol) : Boolean {
     return areSameSignatures(candidateSymbol.receiverType, symbol.receiverType, candidateSymbol.valueParameters.map { it.returnType }, symbol.valueParameters.map { it.returnType }, candidateSymbol.contextReceivers, symbol.contextReceivers)
 }
 
-@OptIn(KaExperimentalApi::class)
 context(_: KaSession)
 private fun areSameSignatures(candidateSymbol: KaPropertySymbol, symbol: KaFunctionSymbol) : Boolean {
     val type = candidateSymbol.returnType

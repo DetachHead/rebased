@@ -1,7 +1,7 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
 ### auto-generated section `build intellij.platform.frontend` start
-
 jvm_library(
     name = "frontend",
     srcs = glob(
@@ -21,10 +21,12 @@ jvm_library(
     deps = [
         # do not sort,
         "@lib//:kotlin-stdlib",
-        "@lib//:jetbrains-annotations",
+        "//libraries/jetbrains/annotations",
         "//platform/platform-impl:ide-impl",
     ],
 )
+
+content_module_jar(module = ":frontend")
 
 jvm_library(
     name = "frontend_test_lib",
@@ -38,6 +40,7 @@ jvm_library(
     runtime_deps = [
         # do not sort,
         ":frontend",
+        "//libraries/jetbrains/annotations:annotations_test_lib",
         "//platform/platform-impl:ide-impl_test_lib",
     ],
 )
@@ -47,6 +50,8 @@ jvm_library(
 exports_files(
     [
         "intellij.platform.frontend.iml",
+        "resources/intellij.platform.frontend.xml",
+        "module-content.yaml",
     ],
     visibility = ["//visibility:public"],
 )

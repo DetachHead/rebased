@@ -8,6 +8,9 @@ import com.intellij.psi.PsiElement;
 public interface MermaidErIdentifierAlias extends MermaidPsiElement {
 
   @Nullable
+  MermaidComplexLabel getComplexLabel();
+
+  @Nullable
   MermaidString getString();
 
 }

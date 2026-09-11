@@ -1,4 +1,4 @@
-// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.codeInsight.template.postfix.completion;
 
 import com.intellij.codeInsight.intention.preview.IntentionPreviewInfo;
@@ -8,8 +8,8 @@ import com.intellij.codeInsight.lookup.LookupElementPresentation;
 import com.intellij.codeInsight.template.CustomTemplateCallback;
 import com.intellij.codeInsight.template.impl.CustomLiveTemplateLookupElement;
 import com.intellij.codeInsight.template.postfix.templates.PostfixLiveTemplate;
-import com.intellij.codeInsight.template.postfix.templates.PostfixTemplate;
 import com.intellij.codeInsight.template.postfix.templates.PostfixModExpander;
+import com.intellij.codeInsight.template.postfix.templates.PostfixTemplate;
 import com.intellij.codeInsight.template.postfix.templates.PostfixTemplateProvider;
 import com.intellij.codeInsight.template.postfix.templates.PostfixTemplatesUtils;
 import com.intellij.modcommand.ActionContext;
@@ -62,12 +62,17 @@ public class PostfixTemplateLookupElement extends CustomLiveTemplateLookupElemen
   public @NotNull IntentionPreviewInfo preview(@NotNull ActionContext ctx) {
     PostfixModExpander expander = myTemplate.createModExpander();
     if (myTemplate.isApplicableForModCommand() && expander != null) {
-      String key = PostfixLiveTemplate.computeTemplateKeyWithoutContextChecking(
-        myProvider, ctx.file().getFileDocument().getCharsSequence(), ctx.offset());
+      PsiFile file = ctx.file();
+      CharSequence sequence = file.getFileDocument().getCharsSequence();
+      int offset = ctx.offset();
+      String key = PostfixLiveTemplate.computeTemplateKeyWithoutContextChecking(myProvider, file.getProject(), file.getLanguage(), sequence, offset);
       if (key == null) return IntentionPreviewInfo.EMPTY;
-      TextRange keyRange = PostfixTemplatesUtils.computeKeyRange(ctx, key, myTemplate.getKey());
-      var command = expander.expand(ctx, myProvider, keyRange);
-      return IntentionPreviewUtils.getModCommandPreview(command, ctx);
+      // Switch to the injected fragment as a whole, so that the key range and the expansion are computed
+      // in the same coordinate space as ctx.offset() and ctx.selection(); a no-op if there is no injection.
+      ActionContext context = ctx.mapToInjected();
+      TextRange keyRange = PostfixTemplatesUtils.computeKeyRange(context, key, myTemplate.getKey());
+      var command = expander.expand(context, myProvider, keyRange);
+      return IntentionPreviewUtils.getModCommandPreview(command, context);
     }
     return IntentionPreviewInfo.EMPTY;
   }

@@ -9,15 +9,15 @@ import com.intellij.modcommand.ModPsiUpdater
 import com.intellij.modcommand.PsiUpdateModCommandQuickFix
 import com.intellij.openapi.project.Project
 import com.intellij.psi.PsiElement
-import org.jetbrains.kotlin.analysis.api.KaExperimentalApi
 import org.jetbrains.kotlin.analysis.api.KaSession
-import org.jetbrains.kotlin.analysis.api.analyze
-import org.jetbrains.kotlin.analysis.api.components.allOverriddenSymbols
+import org.jetbrains.kotlin.analysis.api.evaluation.evaluate
 import org.jetbrains.kotlin.analysis.api.resolution.KaFunctionCall
-import org.jetbrains.kotlin.analysis.api.resolution.successfulFunctionCallOrNull
+import org.jetbrains.kotlin.analysis.api.resolution.resolveSuccessfulCall
 import org.jetbrains.kotlin.analysis.api.resolution.symbol
+import org.jetbrains.kotlin.analysis.api.session.analyze
 import org.jetbrains.kotlin.analysis.api.symbols.KaNamedFunctionSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaValueParameterSymbol
+import org.jetbrains.kotlin.analysis.api.symbols.allOverriddenSymbols
 import org.jetbrains.kotlin.analysis.api.symbols.sourcePsiSafe
 import org.jetbrains.kotlin.idea.base.resources.KotlinBundle
 import org.jetbrains.kotlin.idea.codeinsight.api.classic.inspections.AbstractKotlinInspection
@@ -30,10 +30,8 @@ import org.jetbrains.kotlin.psi.KtValueArgument
 import org.jetbrains.kotlin.psi.KtValueArgumentList
 import org.jetbrains.kotlin.psi.psiUtil.getStrictParentOfType
 import org.jetbrains.kotlin.psi.valueArgumentVisitor
-import kotlin.collections.iterator
 
 internal class RedundantValueArgumentInspection : AbstractKotlinInspection(), CleanupLocalInspectionTool {
-    @OptIn(KaExperimentalApi::class)
     override fun buildVisitor(holder: ProblemsHolder, isOnTheFly: Boolean) = valueArgumentVisitor(fun(argument: KtValueArgument) {
         val argumentExpression = argument.getArgumentExpression() ?: return
         val argumentList = argument.getStrictParentOfType<KtValueArgumentList>() ?: return
@@ -44,7 +42,7 @@ internal class RedundantValueArgumentInspection : AbstractKotlinInspection(), Cl
 
         analyze(argument) {
             val argumentConstantValue = argumentExpression.evaluate() ?: return
-            val call = callElement.resolveToCall()?.successfulFunctionCallOrNull() ?: return
+            val call = callElement.resolveSuccessfulCall() ?: return
             val parameterSymbol = findTargetParameter(argumentExpression, call) ?: return
 
             if (parameterSymbol.hasDeclaredDefaultValue) {
@@ -59,7 +57,7 @@ internal class RedundantValueArgumentInspection : AbstractKotlinInspection(), Cl
                 for ((followingArgumentIndex, followingArgument) in followingArguments) {
                     if (!followingArgument.isNamed()) {
                         val followingArgumentExpression = followingArgument.getArgumentExpression() ?: return
-                        val followingParameterSymbol = call.argumentMapping[followingArgumentExpression]?.symbol ?: return
+                        val followingParameterSymbol = call.valueArgumentMapping[followingArgumentExpression]?.symbol ?: return
                         if (followingParameterSymbol.isVararg) {
                             return
                         }
@@ -82,9 +80,9 @@ internal class RedundantValueArgumentInspection : AbstractKotlinInspection(), Cl
 
     context(_: KaSession)
     private fun findTargetParameter(argumentExpression: KtExpression, call: KaFunctionCall<*>): KaValueParameterSymbol? {
-        val targetParameterSymbol = call.argumentMapping[argumentExpression]?.symbol ?: return null
+        val targetParameterSymbol = call.valueArgumentMapping[argumentExpression]?.symbol ?: return null
 
-        val targetFunctionSymbol = call.partiallyAppliedSymbol.symbol
+        val targetFunctionSymbol = call.symbol
         if (targetFunctionSymbol is KaNamedFunctionSymbol && targetFunctionSymbol.isOverride) {
             for (baseFunctionSymbol in targetFunctionSymbol.allOverriddenSymbols) {
                 if (baseFunctionSymbol is KaNamedFunctionSymbol && !baseFunctionSymbol.isOverride) {

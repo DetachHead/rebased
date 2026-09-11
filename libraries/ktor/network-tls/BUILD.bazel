@@ -1,7 +1,7 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
 ### auto-generated section `build intellij.libraries.ktor.network.tls` start
-
 jvm_library(
     name = "libraries-ktor-network-tls",
     srcs = glob(
@@ -20,6 +20,11 @@ jvm_library(
         "@lib//:ktor-network-tls",
         "//libraries/io",
     ],
+)
+
+content_module_jar(
+    libraries = ["@lib//:ktor-network-tls"],
+    module = ":libraries-ktor-network-tls",
 )
 
 jvm_library(
@@ -45,6 +50,8 @@ jvm_library(
 exports_files(
     [
         "intellij.libraries.ktor.network.tls.iml",
+        "resources/intellij.libraries.ktor.network.tls.xml",
+        "module-content.yaml",
     ],
     visibility = ["//visibility:public"],
 )

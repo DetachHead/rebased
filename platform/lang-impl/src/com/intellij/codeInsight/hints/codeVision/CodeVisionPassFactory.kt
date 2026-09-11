@@ -5,8 +5,10 @@ import com.intellij.codeHighlighting.TextEditorHighlightingPass
 import com.intellij.codeHighlighting.TextEditorHighlightingPassFactory
 import com.intellij.codeHighlighting.TextEditorHighlightingPassFactoryRegistrar
 import com.intellij.codeHighlighting.TextEditorHighlightingPassRegistrar
+import com.intellij.ide.trustedProjects.TrustedFiles
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.editor.EditorFactory
+import com.intellij.openapi.project.DumbAware
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Key
 import com.intellij.openapi.util.registry.Registry
@@ -17,13 +19,19 @@ private val isCodeVisionEnabled: Boolean
 
 private val PSI_MODIFICATION_STAMP = Key.create<Long>("code.vision.psi.modification.stamp")
 
-internal class CodeVisionPassFactory : TextEditorHighlightingPassFactory, TextEditorHighlightingPassFactoryRegistrar {
+internal class CodeVisionPassFactory : TextEditorHighlightingPassFactory, TextEditorHighlightingPassFactoryRegistrar, DumbAware {
   override fun registerHighlightingPassFactory(registrar: TextEditorHighlightingPassRegistrar, project: Project) {
     registrar.registerTextEditorHighlightingPass(this, null, null, false, -1)
   }
 
   override fun createHighlightingPass(psiFile: PsiFile, editor: Editor): TextEditorHighlightingPass? {
     if (!isCodeVisionEnabled) {
+      return null
+    }
+
+    // code vision ignores the highlighting level, so files opened in the safe mode need an explicit gate
+    val virtualFile = psiFile.virtualFile
+    if (virtualFile != null && !TrustedFiles.isTrusted(virtualFile, psiFile.project)) {
       return null
     }
 

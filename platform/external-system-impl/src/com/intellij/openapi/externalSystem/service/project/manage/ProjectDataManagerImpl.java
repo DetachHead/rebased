@@ -194,12 +194,12 @@ public final class ProjectDataManagerImpl implements ProjectDataManager {
                      postImportTasks, onSuccessImportTasks, onFailureImportTasks);
       }
 
-      ProjectDataImportExtension.EP_NAME.forEachExtensionSafe(listener -> listener.finalizeImportData(projectData, modelsProvider));
       ExternalSystemTelemetryUtil.runWithSpan(projectSystemId, "postImportTasks", span -> {
         for (Runnable postImportTask : postImportTasks) {
           postImportTask.run();
         }
       });
+      ProjectDataImportExtension.EP_NAME.forEachExtensionSafe(listener -> listener.finalizeImportData(projectData, modelsProvider));
 
       commit(modelsProvider, project, true, "Imported data", activityId, projectSystemId);
       if (indicator != null) {
@@ -312,7 +312,9 @@ public final class ProjectDataManagerImpl implements ProjectDataManager {
 
     ensureTheDataIsReadyToUse(toImport);
 
-    @NotNull List<ProjectDataService<?, ?>> services = findService(key);
+    @NotNull List<ProjectDataService<?, ?>> services = ContainerUtil.filter(findService(key), service ->
+      ProjectDataImportExtension.EP_NAME.findFirstSafe(listener -> listener.ignoreDataService(service, projectSystemId)) == null
+    );
     @NotNull List<WorkspaceDataService<?>> workspaceServices = findWorkspaceService(key);
     if (services.isEmpty() && workspaceServices.isEmpty()) {
       LOG.debug(String.format("No data service is registered for %s", key));

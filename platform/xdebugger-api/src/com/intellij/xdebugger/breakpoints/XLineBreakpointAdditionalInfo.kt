@@ -1,6 +1,7 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.xdebugger.breakpoints
 
+import com.intellij.xdebugger.XExpression
 import org.jetbrains.annotations.ApiStatus
 
 /**
@@ -16,9 +17,9 @@ import org.jetbrains.annotations.ApiStatus
  */
 @ApiStatus.Experimental
 class XLineBreakpointAdditionalInfo private constructor(
-  val verticalPlacement: XLineBreakpointVerticalPlacement,
+  @ApiStatus.Internal val verticalPlacement: XLineBreakpointVerticalPlacement,
   val suspendPolicy: SuspendPolicy?,
-  val logExpressionIfEnabled: String?,
+  val logExpressionIfEnabled: XExpression?,
   val isTemporary: Boolean,
 ) {
 
@@ -26,13 +27,14 @@ class XLineBreakpointAdditionalInfo private constructor(
   class Builder {
     private var verticalPlacement: XLineBreakpointVerticalPlacement = XLineBreakpointVerticalPlacement.ON_LINE
     private var suspendPolicy: SuspendPolicy? = null
-    private var logExpressionIfEnabled: String? = null
+    private var logExpressionIfEnabled: XExpression? = null
     private var isTemporary: Boolean = false
 
     fun build(): XLineBreakpointAdditionalInfo {
       return XLineBreakpointAdditionalInfo(verticalPlacement, suspendPolicy, logExpressionIfEnabled, isTemporary)
     }
 
+    @ApiStatus.Internal
     fun setVerticalPlacement(verticalPlacement: XLineBreakpointVerticalPlacement): Builder {
       this@Builder.verticalPlacement = verticalPlacement
       return this
@@ -43,7 +45,7 @@ class XLineBreakpointAdditionalInfo private constructor(
       return this
     }
 
-    fun setLogExpressionIfEnabled(logExpressionIfEnabled: String?): Builder {
+    fun setLogExpressionIfEnabled(logExpressionIfEnabled: XExpression?): Builder {
       this@Builder.logExpressionIfEnabled = logExpressionIfEnabled
       return this
     }

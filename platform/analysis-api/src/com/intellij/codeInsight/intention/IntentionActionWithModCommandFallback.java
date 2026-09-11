@@ -15,7 +15,10 @@ import org.jetbrains.annotations.Nullable;
 /**
  * A classic intention action that has an alternative {@link ModCommand}-based implementation.
  * It's still preferred to use this action in IntelliJ platform IDEs, but it could be useful to
- * use ModCommand in other contexts, like headless applications. 
+ * use ModCommand in other contexts, like headless applications.
+ * <p>
+ * Before using this interface, please consider rewriting the action to {@link ModCommandAction} 
+ * completely. Use this interface only if the action cannot be rewritten for some reason.
  */
 @ApiStatus.Experimental
 public interface IntentionActionWithModCommandFallback extends IntentionAction {
@@ -40,15 +43,9 @@ public interface IntentionActionWithModCommandFallback extends IntentionAction {
    * @return the fallback {@link ModCommandAction} if available, otherwise null
    */
   static @Nullable ModCommandAction getFallbackModCommandActionFor(@NotNull IntentionAction action) {
-    while (true) {
-      if (action instanceof IntentionActionWithModCommandFallback actionWithModCommandFallback) {
-        return actionWithModCommandFallback.getFallbackModCommandAction();
-      }
-      if (action instanceof IntentionActionDelegate delegate) {
-        action = delegate.getDelegate();
-      } else {
-        return null;
-      }
+    if (IntentionActionDelegate.unwrap(action) instanceof IntentionActionWithModCommandFallback actionWithModCommandFallback) {
+      return actionWithModCommandFallback.getFallbackModCommandAction();
     }
+    return null;
   }
 }

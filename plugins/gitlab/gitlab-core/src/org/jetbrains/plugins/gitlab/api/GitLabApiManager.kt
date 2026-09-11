@@ -3,6 +3,8 @@ package org.jetbrains.plugins.gitlab.api
 
 import com.intellij.openapi.components.service
 import org.jetbrains.plugins.gitlab.GitLabServersManager
+import org.jetbrains.plugins.gitlab.authentication.accounts.GitLabAccount
+import org.jetbrains.plugins.gitlab.authentication.accounts.GitLabAccountManager
 
 /**
  * Manages the creation of [GitLabApi] clients.
@@ -18,8 +20,10 @@ abstract class GitLabApiManager {
    *
    * For a more robust client, use the overloaded version with a token supplier.
    */
-  fun getClient(server: GitLabServerPath,
-                token: String): GitLabApi =
+  fun getClient(
+    server: GitLabServerPath,
+    token: String,
+  ): GitLabApi =
     getClient(server) { token }
 
   /**
@@ -36,6 +40,18 @@ abstract class GitLabApiManager {
     GitLabApiImpl(serversManager, server, tokenSupplier)
 
   /**
+   * Gets a client that acquires the account credentials before each API call.
+   *
+   * The requests performed by the client may throw additional exceptions if something goes wrong when acquiring the credentials:
+   * * [org.jetbrains.plugins.gitlab.authentication.accounts.GitLabMissingCredentialsException] - if the client could not acquire any credentials from the store
+   * * [org.jetbrains.plugins.gitlab.authentication.accounts.GitLabCredentialsRefreshException] - if the credentials are expired, and the client has failed to refresh them
+   */
+  fun getClient(account: GitLabAccount): GitLabApi =
+    getClient(account.server) {
+      service<GitLabAccountManager>().getAndRefreshCredentials(account).accessToken
+    }
+
+  /**
    * Gets an unauthenticated API Client that can be used for requests that are sure
    * to need no authentication. For any other requests, please use [getClient].
    */
@@ -43,6 +59,6 @@ abstract class GitLabApiManager {
     GitLabApiImpl(serversManager, server)
 }
 
-class GitLabApiManagerImpl : GitLabApiManager() {
+internal class GitLabApiManagerImpl : GitLabApiManager() {
   override val serversManager: GitLabServersManager by lazy { service<GitLabServersManager>() }
 }

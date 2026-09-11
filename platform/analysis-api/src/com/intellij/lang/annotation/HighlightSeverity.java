@@ -8,6 +8,7 @@ import com.intellij.openapi.util.JDOMExternalizerUtil;
 import com.intellij.openapi.util.NlsSafe;
 import com.intellij.openapi.util.WriteExternalException;
 import org.jdom.Element;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
@@ -39,7 +40,7 @@ public final class HighlightSeverity implements Comparable<HighlightSeverity> {
    * The standard severity level for information annotations.
    */
   @SuppressWarnings("UnresolvedPropertyKey")
-  public static final HighlightSeverity INFORMATION =
+  public static final @NotNull HighlightSeverity INFORMATION =
     new HighlightSeverity(
       "INFORMATION",
       10,
@@ -47,8 +48,8 @@ public final class HighlightSeverity implements Comparable<HighlightSeverity> {
       InspectionsBundle.messagePointer("information.severity.capitalized"),
       InspectionsBundle.messagePointer("information.severity.count.message"));
   
-  @SuppressWarnings("UnresolvedPropertyKey") 
-  public static final HighlightSeverity TEXT_ATTRIBUTES =
+  @SuppressWarnings("UnresolvedPropertyKey")
+  public static final @NotNull HighlightSeverity TEXT_ATTRIBUTES =
     new HighlightSeverity(
       "TEXT ATTRIBUTES",
       11,
@@ -60,7 +61,7 @@ public final class HighlightSeverity implements Comparable<HighlightSeverity> {
    * The severity level for errors or warnings obtained from server.
    */
   @SuppressWarnings("UnresolvedPropertyKey")
-  public static final HighlightSeverity GENERIC_SERVER_ERROR_OR_WARNING =
+  public static final @NotNull HighlightSeverity GENERIC_SERVER_ERROR_OR_WARNING =
     new HighlightSeverity(
       "SERVER PROBLEM",
       100,
@@ -72,7 +73,7 @@ public final class HighlightSeverity implements Comparable<HighlightSeverity> {
   /** @deprecated use {@link #WEAK_WARNING} */
   @Deprecated
   @SuppressWarnings("UnresolvedPropertyKey")
-  public static final HighlightSeverity INFO =
+  public static final @NotNull HighlightSeverity INFO =
     new HighlightSeverity(
       "INFO",
       200,
@@ -82,7 +83,7 @@ public final class HighlightSeverity implements Comparable<HighlightSeverity> {
     );
 
   @SuppressWarnings("UnresolvedPropertyKey")
-  public static final HighlightSeverity WEAK_WARNING =
+  public static final @NotNull HighlightSeverity WEAK_WARNING =
     new HighlightSeverity(
       "WEAK WARNING",
       200,
@@ -95,7 +96,7 @@ public final class HighlightSeverity implements Comparable<HighlightSeverity> {
    * The standard severity level for warning annotations.
    */
   @SuppressWarnings("UnresolvedPropertyKey")
-  public static final HighlightSeverity WARNING =
+  public static final @NotNull HighlightSeverity WARNING =
     new HighlightSeverity(
       "WARNING",
       300,
@@ -108,7 +109,7 @@ public final class HighlightSeverity implements Comparable<HighlightSeverity> {
    * The standard severity level for error annotations.
    */
   @SuppressWarnings("UnresolvedPropertyKey")
-  public static final HighlightSeverity ERROR =
+  public static final @NotNull HighlightSeverity ERROR =
     new HighlightSeverity(
       "ERROR",
       400,
@@ -120,7 +121,7 @@ public final class HighlightSeverity implements Comparable<HighlightSeverity> {
   /**
    * Standard severity levels.
    */
-  public static final HighlightSeverity[] DEFAULT_SEVERITIES =
+  public static final @NotNull HighlightSeverity @NotNull [] DEFAULT_SEVERITIES =
     {INFORMATION, TEXT_ATTRIBUTES, GENERIC_SERVER_ERROR_OR_WARNING, INFO, WEAK_WARNING, WARNING, ERROR};
 
   /**
@@ -175,6 +176,11 @@ public final class HighlightSeverity implements Comparable<HighlightSeverity> {
   public @Nls @NotNull String getCountMessage(int count) {
     if (myCountMessageTemplate != null) return BundleBase.format(myCountMessageTemplate.get(), count);
     return InspectionsBundle.message("custom.severity.count.message", count, myName);
+  }
+
+  @ApiStatus.Internal
+  public @Nullable Supplier<@Nls String> getCountMessageTemplate() {
+    return myCountMessageTemplate;
   }
 
   private @NotNull @Nls String getBundleMessage(@Nullable Supplier<@Nls String> messageSupplier) {

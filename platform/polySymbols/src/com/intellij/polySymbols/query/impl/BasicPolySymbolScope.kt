@@ -9,6 +9,7 @@ import com.intellij.polySymbols.PolySymbolQualifiedName
 import com.intellij.polySymbols.completion.PolySymbolCodeCompletionItem
 import com.intellij.polySymbols.impl.SearchMap
 import com.intellij.polySymbols.impl.checkNoPsiCapture
+import com.intellij.polySymbols.impl.filterByQueryParams
 import com.intellij.polySymbols.polySymbol
 import com.intellij.polySymbols.query.PolySymbolCodeCompletionQueryParams
 import com.intellij.polySymbols.utils.ReferencingPolySymbol
@@ -91,7 +92,7 @@ internal class BasicPolySymbolScope(
     if (!provides(kind)) return emptyList()
     val mapCache = this.mapCache
     return if (mapCache == null)
-      symbols.filter { it.kind == kind }
+      symbols.asSequence().filter { it.kind == kind }.filterByQueryParams(params).toList()
     else
       getMap(mapCache, params.queryExecutor.namesProvider).getSymbols(kind, params).toList()
   }
@@ -141,6 +142,25 @@ internal class BasicPolySymbolScope(
         symbols.forEach { map.add(it) }
       }
     }
+
+  override fun equals(other: Any?): Boolean =
+    other === this || other is BasicPolySymbolScope
+    && other.providesKinds == providesKinds
+    && other.requiresResolveValue == requiresResolveValue
+    && other.exclusiveForKinds == exclusiveForKinds
+    && other.exclusiveForPredicate == exclusiveForPredicate
+    && other.codeCompletionFilter == codeCompletionFilter
+    && other.nameMatchFilter == nameMatchFilter
+
+  override fun hashCode(): Int {
+    val result = providesKinds.hashCode()
+    result * 31 + requiresResolveValue.hashCode()
+    result * 31 + exclusiveForKinds.hashCode()
+    result * 31 + exclusiveForPredicate.hashCode()
+    result * 31 + codeCompletionFilter.hashCode()
+    result * 31 + nameMatchFilter.hashCode()
+    return result
+  }
 
   private class BasicSearchMap(namesProvider: PolySymbolNamesProvider) : SearchMap<PolySymbol>(namesProvider) {
     override fun Sequence<PolySymbol>.mapAndFilter(params: PolySymbolQueryParams): Sequence<PolySymbol> = this

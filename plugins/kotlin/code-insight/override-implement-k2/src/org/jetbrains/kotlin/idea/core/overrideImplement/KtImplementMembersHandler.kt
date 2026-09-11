@@ -8,24 +8,25 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.NlsSafe
 import com.intellij.psi.PsiFile
 import org.jetbrains.annotations.ApiStatus
-import org.jetbrains.kotlin.analysis.api.KaExperimentalApi
 import org.jetbrains.kotlin.analysis.api.KaSession
-import org.jetbrains.kotlin.analysis.api.analyze
-import org.jetbrains.kotlin.analysis.api.components.KaCallableImplementationState
-import org.jetbrains.kotlin.analysis.api.components.containingSymbol
-import org.jetbrains.kotlin.analysis.api.components.fakeOverrideOriginal
-import org.jetbrains.kotlin.analysis.api.components.implementationState
-import org.jetbrains.kotlin.analysis.api.components.intersectionOverriddenSymbols
-import org.jetbrains.kotlin.analysis.api.components.isVisibleInClass
-import org.jetbrains.kotlin.analysis.api.components.memberScope
 import org.jetbrains.kotlin.analysis.api.fir.diagnostics.KaFirDiagnostic
+import org.jetbrains.kotlin.analysis.api.fir.diagnostics.KaUnstableDiagnosticApi
+import org.jetbrains.kotlin.analysis.api.scopes.memberScope
+import org.jetbrains.kotlin.analysis.api.session.analyze
+import org.jetbrains.kotlin.analysis.api.symbols.KaCallableImplementationState
 import org.jetbrains.kotlin.analysis.api.symbols.KaCallableSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaClassKind
 import org.jetbrains.kotlin.analysis.api.symbols.KaClassSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaPropertySymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaSymbolModality
 import org.jetbrains.kotlin.analysis.api.symbols.classSymbol
-import org.jetbrains.kotlin.analysis.api.symbols.contextParameters
+import org.jetbrains.kotlin.analysis.api.symbols.containingSymbol
+import org.jetbrains.kotlin.analysis.api.symbols.directlyOverriddenSymbols
+import org.jetbrains.kotlin.analysis.api.symbols.fakeOverrideOriginal
+import org.jetbrains.kotlin.analysis.api.symbols.implementationState
+import org.jetbrains.kotlin.analysis.api.symbols.intersectionOverriddenSymbols
+import org.jetbrains.kotlin.analysis.api.symbols.pointers.restoreSymbol
+import org.jetbrains.kotlin.analysis.api.visibility.isVisibleInClass
 import org.jetbrains.kotlin.idea.KotlinIconProvider
 import org.jetbrains.kotlin.idea.codeinsight.api.applicators.fixes.KotlinQuickFixFactory
 import org.jetbrains.kotlin.idea.core.util.KotlinIdeaCoreBundle
@@ -49,7 +50,6 @@ open class KtImplementMembersHandler : KtGenerateMembersHandler(true) {
         }
     }
 
-    @OptIn(KaExperimentalApi::class)
     fun collectMembersToAddOverride(classOrObject: KtClassOrObject): List<KtCallableDeclaration> {
         analyze(classOrObject) {
             val classSymbol = classOrObject.classSymbol
@@ -103,6 +103,7 @@ internal class KtImplementAsConstructorParameterQuickfix(private val members: Co
     }
 }
 
+@OptIn(KaUnstableDiagnosticApi::class)
 object MemberNotImplementedQuickfixFactories {
 
     val abstractMemberNotImplemented: KotlinQuickFixFactory.IntentionBased<KaFirDiagnostic.AbstractMemberNotImplemented> =
@@ -132,7 +133,6 @@ object MemberNotImplementedQuickfixFactories {
             listOf(KtImplementMembersQuickfix(missingDeclarations.map { KtClassMemberInfo.create(it) }))
         }
 
-    @OptIn(KaExperimentalApi::class)
     context(session: KaSession)
     private fun getUnimplementedMemberFixes(
         classWithUnimplementedMembers: KtClassOrObject,
@@ -163,7 +163,6 @@ object MemberNotImplementedQuickfixFactories {
     }
 }
 
-@OptIn(KaExperimentalApi::class)
 context(_: KaSession)
 private fun List<KaCallableSymbol>.mapToKtClassMemberInfo(): List<KtClassMemberInfo> {
     return map { unimplementedMemberSymbol ->
@@ -204,7 +203,6 @@ fun getUnimplementedMembers(classWithUnimplementedMembers: KtClassOrObject): Lis
     classWithUnimplementedMembers.classSymbol?.let { getUnimplementedMemberSymbols(it) }.orEmpty()
         .mapToKtClassMemberInfo()
 
-@OptIn(KaExperimentalApi::class)
 context(_: KaSession)
 internal fun getUnimplementedMemberSymbols(classWithUnimplementedMembers: KaClassSymbol): List<KaCallableSymbol> {
     return buildList {

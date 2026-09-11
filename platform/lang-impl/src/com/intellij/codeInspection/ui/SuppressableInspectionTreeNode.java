@@ -68,15 +68,12 @@ public abstract class SuppressableInspectionTreeNode extends InspectionTreeNode 
     }
   }
 
-  public synchronized @NotNull Set<SuppressIntentionAction> getAvailableSuppressActions() {
-    if (myAvailableSuppressActions == null) {
-      updateAvailableSuppressActions();
+  public @NotNull Set<SuppressIntentionAction> getAvailableSuppressActions() {
+    Set<SuppressIntentionAction> availableSuppressActions = myAvailableSuppressActions;
+    if (availableSuppressActions == null) {
+      myAvailableSuppressActions = availableSuppressActions = calculateAvailableSuppressActions();
     }
-    return myAvailableSuppressActions;
-  }
-
-  public void updateAvailableSuppressActions() {
-    myAvailableSuppressActions = calculateAvailableSuppressActions();
+    return availableSuppressActions;
   }
 
   public void removeSuppressActionFromAvailable(@NotNull SuppressIntentionAction action) {
@@ -86,21 +83,19 @@ public abstract class SuppressableInspectionTreeNode extends InspectionTreeNode 
   public abstract @Nullable RefEntity getElement();
 
   @Override
-  public final synchronized boolean isValid() {
+  public final boolean isValid() {
     Boolean valid = myValid;
     if (valid == null) {
-      valid = ReadAction.computeBlocking(() -> calculateIsValid());
-      myValid = valid;
+      myValid = valid = ReadAction.computeBlocking(() -> calculateIsValid());
     }
     return valid;
   }
 
   @Override
-  public final synchronized String getPresentableText() {
+  public final String getPresentableText() {
     String name = myPresentableName;
     if (name == null) {
-      name = ReadAction.computeBlocking(() -> calculatePresentableName());
-      myPresentableName = name;
+      myPresentableName = name = ReadAction.computeBlocking(() -> calculatePresentableName());
     }
     return name;
   }
@@ -126,13 +121,13 @@ public abstract class SuppressableInspectionTreeNode extends InspectionTreeNode 
 
   private @NotNull Set<SuppressIntentionAction> calculateAvailableSuppressActions(@NotNull Project project) {
     if (myPresentation.isDummy()) return Collections.emptySet();
-    final Pair<PsiElement, CommonProblemDescriptor> suppressContent = getSuppressContent();
+    Pair<PsiElement, CommonProblemDescriptor> suppressContent = getSuppressContent();
     PsiElement element = suppressContent.getFirst();
     if (element == null) return Collections.emptySet();
     InspectionResultsView view = myPresentation.getContext().getView();
     if (view == null) return Collections.emptySet();
     InspectionViewSuppressActionHolder suppressActionHolder = view.getSuppressActionHolder();
-    final SuppressIntentionAction[] actions = suppressActionHolder.getSuppressActions(myPresentation.getToolWrapper(), element);
+    SuppressIntentionAction[] actions = suppressActionHolder.getSuppressActions(myPresentation.getToolWrapper(), element);
     if (actions.length == 0) return Collections.emptySet();
     return suppressActionHolder.internSuppressActions(Arrays.stream(actions)
       .filter(action -> action.isAvailable(project, null, element))
@@ -158,8 +153,8 @@ public abstract class SuppressableInspectionTreeNode extends InspectionTreeNode 
     });
 
     for (InspectionTreeNode child : getChildren()) {
-      if (child instanceof SuppressableInspectionTreeNode) {
-        ((SuppressableInspectionTreeNode)child).doDropCache();
+      if (child instanceof SuppressableInspectionTreeNode suppressable) {
+        suppressable.doDropCache();
       }
     }
   }
@@ -168,7 +163,7 @@ public abstract class SuppressableInspectionTreeNode extends InspectionTreeNode 
     private static final Interner<NodeState> INTERNER = Interner.createInterner();
   }
 
-  private NodeState calculateState() {
+  private @NotNull NodeState calculateState() {
     NodeState state = new NodeState(isValid(), isAlreadySuppressedFromView(), isQuickFixAppliedFromView(), isExcluded());
     synchronized (NodeState.INTERNER) {
       return NodeState.INTERNER.intern(state);

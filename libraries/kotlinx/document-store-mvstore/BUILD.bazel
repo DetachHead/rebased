@@ -1,7 +1,7 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
 ### auto-generated section `build intellij.libraries.kotlinx.document.store.mvstore` start
-
 jvm_library(
     name = "libraries-kotlinx-document-store-mvstore",
     srcs = glob(
@@ -16,6 +16,11 @@ jvm_library(
     visibility = ["//visibility:public"],
     exports = ["@lib//:libraries-kotlinx-document-store-mvstore-kotlinx-document-store-mvstore"],
     runtime_deps = ["@lib//:libraries-kotlinx-document-store-mvstore-kotlinx-document-store-mvstore"],
+)
+
+content_module_jar(
+    libraries = ["@lib//:libraries-kotlinx-document-store-mvstore-kotlinx-document-store-mvstore"],
+    module = ":libraries-kotlinx-document-store-mvstore",
 )
 
 jvm_library(
@@ -37,6 +42,8 @@ jvm_library(
 exports_files(
     [
         "intellij.libraries.kotlinx.document.store.mvstore.iml",
+        "resources/intellij.libraries.kotlinx.document.store.mvstore.xml",
+        "module-content.yaml",
     ],
     visibility = ["//visibility:public"],
 )

@@ -16,8 +16,10 @@
     <module name="intellij.platform.lang.impl"/>
     <module name="intellij.platform.lvcs"/>
     <module name="intellij.platform.projectModel"/>
+    <module name="intellij.platform.refactoring"/>
     <module name="intellij.platform.usageView"/>
     <module name="intellij.platform.util.ui"/>
+    <module name="intellij.regexp"/>
     <module name="intellij.xml.impl"/>
     <module name="intellij.xml.parser"/>
     <module name="intellij.xml.psi"/>

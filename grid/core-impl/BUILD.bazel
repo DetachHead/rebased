@@ -1,7 +1,7 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
 ### auto-generated section `build intellij.grid.core.impl` start
-
 jvm_library(
     name = "core-impl",
     srcs = glob(
@@ -45,6 +45,8 @@ jvm_library(
     ],
 )
 
+content_module_jar(module = ":core-impl")
+
 jvm_library(
     name = "core-impl_test_lib",
     testonly = True,
@@ -84,6 +86,8 @@ jvm_library(
 exports_files(
     [
         "intellij.grid.core.impl.iml",
+        "resources/intellij.grid.core.impl.xml",
+        "module-content.yaml",
     ],
     visibility = ["//visibility:public"],
 )

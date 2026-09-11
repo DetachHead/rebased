@@ -4,18 +4,23 @@ package com.intellij.platform.lsp.util
 import com.intellij.injected.editor.DocumentWindow
 import com.intellij.openapi.diagnostic.fileLogger
 import com.intellij.openapi.editor.Document
+import com.intellij.openapi.util.NlsSafe
 import com.intellij.openapi.util.TextRange
 import com.intellij.openapi.util.text.StringUtilRt
+import org.eclipse.lsp4j.Diagnostic
+import org.eclipse.lsp4j.MarkupContent
 import org.eclipse.lsp4j.Position
 import org.eclipse.lsp4j.Range
+import org.eclipse.lsp4j.SnippetTextEdit
 import org.eclipse.lsp4j.TextEdit
+import org.eclipse.lsp4j.jsonrpc.messages.Either
 import kotlin.math.min
 
 fun getLsp4jPosition(document: Document, offset: Int): Position {
   if (document is DocumentWindow) {
     // It's very likely that the caller uses DocumentWindow not only when calling this function but also somewhere else.
     // The error helps to find the problematic place earlier.
-    fileLogger().error("DocumentWindow is not expected here. Make sure to use DocumentWindow.delegate when working with the LSP server.")
+    fileLogger().error("DocumentWindow is not expected here. Make sure to use DocumentWindow.delegate when working with LspClient.")
     return getLsp4jPosition(document.delegate, document.injectedToHost(offset))
   }
 
@@ -50,7 +55,7 @@ fun getOffsetInDocument(document: Document, position: Position): Int? {
     // (https://youtrack.jetbrains.com/issue/IDEA-332939#focus=Comments-27-8189497.0-0)
     // Secondly, we use this code with textDocument/foldingRange, that by spec may omit character.
     // We intermittently use `Int.MAX_VALUE` and expect to clamp it here to the EOL.
-    // See [com.intellij.platform.lsp.impl.folding.LspFoldingRangeCache.foldingRangeToLsp4jRange]
+    // See [com.intellij.platform.lsp.impl.features.folding.LspFoldingRangeCache.foldingRangeToLsp4jRange]
     val nextLineStartOffset = document.getLineStartOffset(line + 1)
     character = min(character, nextLineStartOffset - 1 - lineStartOffset)
   }
@@ -70,6 +75,31 @@ fun getRangeInDocument(document: Document, range: Range): TextRange? {
   val end = getOffsetInDocument(document, range.end) ?: return null
   if (!TextRange.isProperRange(start, end)) return null
   return TextRange(start, end)
+}
+
+/**
+ * Applies the `edits` of one `TextDocumentEdit`.
+ *
+ * This function applies the [TextEdit] side only. It does not apply a [SnippetTextEdit],
+ * a snippet needs an `Editor` to expand its placeholders, which this signature cannot supply.
+ *
+ * By default, the IDE does not request `snippetEditSupport`, so a server must not send a [SnippetTextEdit].
+ * This function logs such an edit and returns `false`.
+ *
+ * @return `true` if all `edits` were applied successfully;
+ * or `false` as soon as some edit failed to get applied to the `document`
+ */
+fun applySimpleTextEdits(document: Document, edits: List<Either<TextEdit, SnippetTextEdit>>): Boolean {
+  val textEdits = ArrayList<TextEdit>(edits.size)
+  for (edit in edits) {
+    val textEdit = edit.left
+    if (textEdit == null) {
+      fileLogger().warn("Ignoring SnippetTextEdit, the IDE does not support it: ${edit.right}")
+      return false
+    }
+    textEdits.add(textEdit)
+  }
+  return applyTextEdits(document, textEdits)
 }
 
 /**
@@ -113,3 +143,14 @@ fun applyTextEdit(document: Document, textEdit: TextEdit): Boolean {
   document.replaceString(startOffset, endOffset, newText)
   return true
 }
+
+/**
+ * The message of the [Diagnostic], when the server sent it as a string.
+ *
+ * LSP 3.18 also permits a [MarkupContent] message, but only when the client sets the
+ * `textDocument.diagnostic.markupMessageSupport` capability. The IDE does not set it, so a server must
+ * send a string. This property gives an empty string for a markup message. It does not flatten the markup
+ * to its raw value, because that loses the [MarkupContent.kind].
+ */
+val Diagnostic.messageIfStringOrEmpty: @NlsSafe String
+  get() = message.map({ it }, { "" })

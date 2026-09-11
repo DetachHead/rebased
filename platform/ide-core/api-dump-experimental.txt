@@ -1,5 +1,17 @@
 com.intellij.ide.dnd.DnDEvent$DropTargetHighlightingType
 - *sf:BOTTOM:I
+*f:com.intellij.ide.settings.SettingsComponentDescriptor
+- com.intellij.openapi.extensions.PluginAware
+- *sf:Companion:com.intellij.ide.settings.SettingsComponentDescriptor$Companion
+- implementationClass:java.lang.String
+- <init>():V
+- f:getImplementationClass():java.lang.String
+- f:getPluginDescriptor():com.intellij.openapi.extensions.PluginDescriptor
+- f:setImplementationClass(java.lang.String):V
+- setPluginDescriptor(com.intellij.openapi.extensions.PluginDescriptor):V
+*f:com.intellij.ide.settings.SettingsComponentDescriptor$Companion
+- f:getAPPLICATION_EP_NAME():com.intellij.openapi.extensions.ExtensionPointName
+- f:getPROJECT_EP_NAME():com.intellij.openapi.extensions.ExtensionPointName
 c:com.intellij.notification.Notification
 - *s:isDoNotAskFor(com.intellij.openapi.project.Project,java.lang.String):Z
 - *:setDoNotAskFor(com.intellij.openapi.project.Project):com.intellij.notification.Notification
@@ -23,8 +35,16 @@ c:com.intellij.notification.Notification
 - f:getLocation(java.lang.String):com.intellij.notification.NotificationLocation
 f:com.intellij.notification.Notifications$Bus
 - *s:notifyAndHide(com.intellij.notification.Notification,com.intellij.openapi.project.Project):V
+a:com.intellij.openapi.fileEditor.UniqueVFilePathBuilder
+- *:withProject(com.intellij.openapi.project.Project):com.intellij.openapi.fileEditor.UniqueVFileProjectPathBuilder
+*:com.intellij.openapi.fileEditor.UniqueVFileProjectPathBuilder
+- a:getUniqueVirtualFilePath(com.intellij.openapi.vfs.VirtualFile):java.lang.String
+- a:getUniqueVirtualFilePath(com.intellij.openapi.vfs.VirtualFile,com.intellij.psi.search.GlobalSearchScope):java.lang.String
+- a:getUniqueVirtualFilePathWithinOpenedFileEditors(com.intellij.openapi.vfs.VirtualFile):java.lang.String
 *:com.intellij.openapi.options.Configurable$InnerWithModifiableParent
 - a:getModifiableParents():java.util.List
+*:com.intellij.openapi.options.Configurable$NewOptions
+- com.intellij.openapi.options.Configurable
 c:com.intellij.openapi.options.ConfigurableEP
 - com.intellij.openapi.extensions.PluginAware
 - *:searchableInActions:Z
@@ -47,11 +67,6 @@ f:com.intellij.openapi.project.ProjectUtil
 - f:focusedButton(java.lang.String):com.intellij.openapi.ui.MessageDialogBuilder$Message
 - f:show(com.intellij.openapi.project.Project,java.awt.Component):java.lang.String
 - bs:show$default(com.intellij.openapi.ui.MessageDialogBuilder$Message,com.intellij.openapi.project.Project,java.awt.Component,I,java.lang.Object):java.lang.String
-f:com.intellij.openapi.vfs.FilePermissionsKt
-- *sf:getProjectFilesRead():com.intellij.platform.ide.core.permissions.Permission
-- *sf:getProjectFilesWrite():com.intellij.platform.ide.core.permissions.Permission
-- *sf:readFilePermission(com.intellij.openapi.vfs.VirtualFile):com.intellij.platform.ide.core.permissions.Permission
-- *sf:writeFilePermission(com.intellij.openapi.vfs.VirtualFile):com.intellij.platform.ide.core.permissions.Permission
 *:com.intellij.openapi.wm.IconWidgetPresentation
 - com.intellij.openapi.wm.WidgetPresentation
 - a:icon():kotlinx.coroutines.flow.Flow
@@ -72,17 +87,6 @@ com.intellij.openapi.wm.ToolWindow
 - a:getProject():com.intellij.openapi.project.Project
 *:com.intellij.openapi.wm.WidgetPresentationFactory
 - a:createPresentation(com.intellij.openapi.wm.WidgetPresentationDataContext,kotlinx.coroutines.CoroutineScope):com.intellij.openapi.wm.WidgetPresentation
-*:com.intellij.platform.ide.core.permissions.Permission
-- a:getId():java.lang.String
-- a:isGranted():Z
-*f:com.intellij.platform.ide.core.permissions.PermissionDeniedException
-- java.lang.IllegalStateException
-- <init>(java.util.List):V
-- f:getPermissions():java.util.List
-f:com.intellij.platform.ide.core.permissions.PermissionsKt
-- *sf:checkPermissionsGranted(com.intellij.platform.ide.core.permissions.Permission[]):V
-*:com.intellij.platform.ide.core.permissions.RequiresPermissions
-- a:getRequiredPermissions():java.util.Collection
 c:com.intellij.projectImport.ProjectAttachProcessor
 - *:attachToProjectAsync(com.intellij.openapi.project.Project,java.nio.file.Path,com.intellij.projectImport.ProjectOpenedCallback,kotlin.jvm.functions.Function2,kotlin.coroutines.Continuation):java.lang.Object
 - *bs:attachToProjectAsync$default(com.intellij.projectImport.ProjectAttachProcessor,com.intellij.openapi.project.Project,java.nio.file.Path,com.intellij.projectImport.ProjectOpenedCallback,kotlin.jvm.functions.Function2,kotlin.coroutines.Continuation,I,java.lang.Object):java.lang.Object
@@ -92,6 +96,11 @@ c:com.intellij.ui.AnimatedIcon
 c:com.intellij.ui.UserActivityWatcher
 - com.intellij.ui.ComponentTreeWatcher
 - *sf:DO_NOT_WATCH:com.intellij.openapi.util.Key
+com.intellij.ui.content.ContentManager
+- com.intellij.openapi.Disposable
+- com.intellij.openapi.util.BusyObject
+- *:addRecursiveContentManagerListener(com.intellij.ui.content.ContentManagerListener):V
+- *:removeRecursiveContentManagerListener(com.intellij.ui.content.ContentManagerListener):V
 f:com.intellij.util.ui.ShowingScopeKt
 - *sf:showingScope(java.awt.Component,java.lang.String,kotlin.coroutines.CoroutineContext,kotlin.jvm.functions.Function1,kotlin.jvm.functions.Function3):kotlinx.coroutines.Job
 - *sf:showingScope(java.awt.Component,java.lang.String,kotlin.coroutines.CoroutineContext,kotlin.jvm.functions.Function2):kotlinx.coroutines.Job
@@ -132,6 +141,7 @@ f:com.intellij.util.ui.update.UiNotifyConnector$Companion
 *:com.intellij.util.ui.update.UpdateQueue
 - a:awaitAllExecuted(kotlin.coroutines.Continuation):java.lang.Object
 - a:cancelOnDispose(com.intellij.openapi.Disposable):com.intellij.util.ui.update.UpdateQueue
+- a:cancelPending():V
 - a:isAllExecuted():Z
 - a:queue(java.lang.Object):V
 - a:waitForAllExecuted(J):V

@@ -4,23 +4,29 @@ package org.jetbrains.kotlin.idea.codeinsight.utils
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.psi.util.parentOfType
 import org.jetbrains.annotations.ApiStatus
-import org.jetbrains.kotlin.analysis.api.KaExperimentalApi
 import org.jetbrains.kotlin.analysis.api.KaSession
 import org.jetbrains.kotlin.analysis.api.resolution.KaFunctionCall
-import org.jetbrains.kotlin.analysis.api.resolution.successfulFunctionCallOrNull
+import org.jetbrains.kotlin.analysis.api.resolution.collectCallCandidates
+import org.jetbrains.kotlin.analysis.api.resolution.function
+import org.jetbrains.kotlin.analysis.api.resolution.resolveSuccessfulCall
 import org.jetbrains.kotlin.analysis.api.resolution.symbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaConstructorSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaFunctionSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaNamedFunctionSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaValueParameterSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.receiverType
+import org.jetbrains.kotlin.analysis.api.symbols.symbol
 import org.jetbrains.kotlin.analysis.api.types.KaClassType
+import org.jetbrains.kotlin.analysis.api.types.KaStandardTypeClassIds
+import org.jetbrains.kotlin.analysis.api.types.classId
+import org.jetbrains.kotlin.analysis.api.types.isFunctionType
+import org.jetbrains.kotlin.analysis.api.types.isMarkedNullable
+import org.jetbrains.kotlin.analysis.api.types.isSuspendFunctionType
 import org.jetbrains.kotlin.builtins.StandardNames
 import org.jetbrains.kotlin.idea.base.psi.getContainingValueArgument
 import org.jetbrains.kotlin.name.StandardClassIds
 import org.jetbrains.kotlin.psi.KtCallExpression
 import org.jetbrains.kotlin.psi.KtCallableReferenceExpression
-import org.jetbrains.kotlin.psi.KtExperimentalApi
 import org.jetbrains.kotlin.psi.KtExpression
 import org.jetbrains.kotlin.psi.KtFunction
 import org.jetbrains.kotlin.psi.KtFunctionLiteral
@@ -31,11 +37,13 @@ import org.jetbrains.kotlin.psi.KtPsiUtil
 import org.jetbrains.kotlin.resolution.KtResolvableCall
 
 @ApiStatus.Internal
-fun KaSession.isInlinedArgument(argument: KtFunction, allowCrossinline: Boolean = true): Boolean =
+context(session: KaSession)
+fun isInlinedArgument(argument: KtFunction, allowCrossinline: Boolean = true): Boolean =
     getInlineArgumentSymbol(argument, allowCrossinline) != null
 
 @ApiStatus.Internal
-fun KaSession.getInlineArgumentSymbol(argument: KtExpression, allowCrossinline: Boolean = true): KaValueParameterSymbol? {
+context(session: KaSession)
+fun getInlineArgumentSymbol(argument: KtExpression, allowCrossinline: Boolean = true): KaValueParameterSymbol? {
     if (argument !is KtFunctionLiteral && argument !is KtNamedFunction && argument !is KtCallableReferenceExpression) return null
 
     val (symbol, argumentSymbol) = getCallExpressionSymbol(argument)
@@ -57,10 +65,12 @@ fun KaSession.getInlineArgumentSymbol(argument: KtExpression, allowCrossinline: 
 
 
 @ApiStatus.Internal
-fun KaSession.getFunctionSymbol(argument: KtExpression): KaFunctionSymbol? = getCallExpressionSymbol(argument)?.first
+context(session: KaSession)
+fun getFunctionSymbol(argument: KtExpression): KaFunctionSymbol? = getCallExpressionSymbol(argument)?.first
     ?: getDefaultArgumentSymbol(argument)?.first
 
-private fun KaSession.getDefaultArgumentSymbol(argument: KtExpression): Pair<KaFunctionSymbol, KaValueParameterSymbol>? {
+context(session: KaSession)
+private fun getDefaultArgumentSymbol(argument: KtExpression): Pair<KaFunctionSymbol, KaValueParameterSymbol>? {
     if (argument !is KtFunction && argument !is KtCallableReferenceExpression) return null
     val parameter = argument.parentOfType<KtParameter>() ?: return null
     val lambdaExpression = argument.parent as? KtLambdaExpression ?: return null
@@ -72,30 +82,32 @@ private fun KaSession.getDefaultArgumentSymbol(argument: KtExpression): Pair<KaF
 }
 
 @ApiStatus.Internal
-fun KaSession.getCallExpressionSymbol(argument: KtExpression): Pair<KaFunctionSymbol, KaValueParameterSymbol>? {
+context(session: KaSession)
+fun getCallExpressionSymbol(argument: KtExpression): Pair<KaFunctionSymbol, KaValueParameterSymbol>? {
     if (argument !is KtFunction && argument !is KtCallableReferenceExpression) return null
     val parentCallExpression = KtPsiUtil.getParentCallIfPresent(argument) as? KtCallExpression ?: return null
     val parentCall = resolveFunctionCall(parentCallExpression) ?: return null
-    val symbol = parentCall.partiallyAppliedSymbol.symbol
+    val symbol = parentCall.symbol
     val valueArgument = parentCallExpression.getContainingValueArgument(argument) ?: return null
-    val argumentSymbol = parentCall.argumentMapping[valueArgument.getArgumentExpression()]?.symbol ?: return null
+    val argumentSymbol = parentCall.valueArgumentMapping[valueArgument.getArgumentExpression()]?.symbol ?: return null
     return symbol to argumentSymbol
 }
 
-@OptIn(KaExperimentalApi::class, KtExperimentalApi::class)
 @ApiStatus.Internal
-fun KaSession.resolveFunctionCall(expression: KtExpression): KaFunctionCall<*>? {
-    val successfulCall = expression.resolveToCall()?.successfulFunctionCallOrNull()
-    if (successfulCall != null) return successfulCall
+context(session: KaSession)
+fun resolveFunctionCall(expression: KtExpression): KaFunctionCall<*>? {
+    val resolvableCall = expression as? KtResolvableCall ?: return null
+    resolvableCall.resolveSuccessfulCall()?.function?.let { return it }
     if (!ApplicationManager.getApplication().isUnitTestMode) return null
     // Functions with context receivers are not resolved in K2 tests for some reason
-    return (expression as? KtResolvableCall)?.collectCallCandidates()?.firstOrNull()?.candidate as? KaFunctionCall<*>
+    return resolvableCall.collectCallCandidates().firstOrNull()?.candidate?.function
 }
 
-private fun KaSession.isArrayGeneratorConstructorCall(symbol: KaFunctionSymbol): Boolean {
+context(session: KaSession)
+private fun isArrayGeneratorConstructorCall(symbol: KaFunctionSymbol): Boolean {
     fun checkParameters(symbol: KaFunctionSymbol): Boolean {
         return symbol.valueParameters.size == 2
-                && symbol.valueParameters[0].returnType.isIntType
+                && symbol.valueParameters[0].returnType.classId == KaStandardTypeClassIds.INT
                 && symbol.valueParameters[1].returnType.isFunctionType
     }
 

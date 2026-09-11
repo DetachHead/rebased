@@ -21,7 +21,20 @@ class OfficialExamplesParsingTest {
   private val fixture: CodeInsightTestFixture
     get() = fixtureExtension.fixture
 
-  private val ignoredTests = listOf<String>()
+  /**
+   * Upstream documentation examples our grammar does not yet accept, for the mermaid version pinned in
+   * gradle.properties. This list is the measured gap and is meant to shrink: when a change fixes a
+   * family, delete its entries and the test starts guarding them.
+   *
+   * Refresh the examples themselves with ./updateMermaidExamples.sh after bumping mermaidVersion.
+   */
+  private val ignoredTests = listOf(
+    // quadrantChart (1) -- `radius: N` alone now parses, but this example also uses the multi-property
+    // form (`color: #ff3300, radius: 10`) together with a `:::class` style class. The quadrant body has a
+    // single catch-all text token whose character class includes the comma, so separating properties needs
+    // that token split up first.
+    "quadrantChart-2",
+  )
 
   @TestTemplate
   @ExtendWith(OfficialDocumentationExamplesContext::class)
@@ -31,7 +44,14 @@ class OfficialExamplesParsingTest {
       val localFile = copyFileToProject(file)
       fixture.configureFromExistingVirtualFile(localFile)
     }
-    fixture.checkHighlighting(true, true, true, true)
+    // ignoreExtraHighlighting = false: the examples carry no expected-highlighting markup, so anything
+    // the editor reports on them is a gap in our grammar. With `true` (as this test used to pass) every
+    // unexpected error is ignored and the assertion is vacuous -- a fully red file still passes.
+    //
+    // checkInfos = false: INFORMATION-level highlights are not gaps. Frontmatter and directives inject
+    // YAML and JSON, and every injected fragment reports an INJECTED_FRAGMENT highlight that would
+    // otherwise be counted as unexpected.
+    fixture.checkHighlighting(true, false, true, false)
   }
 
   @RequiresWriteLock

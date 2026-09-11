@@ -2,6 +2,7 @@
 
 package com.intellij.platform.ijent.community.ui.actions.unavailable
 
+import com.intellij.diagnostic.PerformanceWatcher
 import com.intellij.icons.AllIcons
 import com.intellij.ide.impl.ProjectUtil
 import com.intellij.openapi.application.ApplicationManager
@@ -11,6 +12,7 @@ import com.intellij.openapi.application.WriteIntentReadAction
 import com.intellij.openapi.application.asContextElement
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
+import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.ProjectManager
 import com.intellij.openapi.ui.DialogBuilder
@@ -22,43 +24,50 @@ import com.intellij.platform.eel.fs.stat
 import com.intellij.platform.eel.provider.getEelDescriptor
 import com.intellij.platform.eel.provider.getResolvedEelMachine
 import com.intellij.platform.ijent.IjentCallerContext
-import com.intellij.platform.ijent.IjentEventBus
 import com.intellij.platform.ijent.IjentMachine
 import com.intellij.platform.ijent.community.impl.nio.IjentUnavailableHandler
 import com.intellij.platform.ijent.community.impl.nio.IjentUnavailableHandlerResult
 import com.intellij.platform.ijent.community.impl.nio.IjentUnavailableHandlerResult.ProjectCloseDecision
-import com.intellij.platform.ijent.community.impl.nio.IjentUnavailableHandlerResult.UnrelatedIjent
+import com.intellij.platform.ijent.community.impl.nio.ReconnectUiDialogImpl
+import com.intellij.platform.ijent.community.impl.nio.ReconnectUiHandleImpl
 import com.intellij.platform.ijent.community.ui.actions.IjentImplBundle
-import com.intellij.platform.ijent.community.ui.actions.dashboard.IjentStatCounter
 import com.intellij.platform.ijent.community.ui.actions.dashboard.IjentStatDashboard
+import com.intellij.platform.ijent.community.ui.actions.dashboard.printTable
 import com.intellij.ui.dsl.builder.AlignY
 import com.intellij.ui.dsl.builder.Panel
 import com.intellij.ui.dsl.builder.panel
 import com.intellij.ui.dsl.gridLayout.UnscaledGaps
+import com.intellij.util.application
 import com.intellij.util.asSafely
 import com.intellij.util.concurrency.AppExecutorUtil
 import com.intellij.util.io.computeDetached
-import kotlinx.coroutines.DelicateCoroutinesApi
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.launchOnShow
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.DelicateCoroutinesApi
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.MainCoroutineDispatcher
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
-import kotlinx.coroutines.runBlocking
-import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
+import org.jetbrains.annotations.NonNls
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 import javax.swing.JComponent
 import kotlin.coroutines.ContinuationInterceptor
 import kotlin.coroutines.CoroutineContext
 import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
+import kotlin.time.Duration.Companion.seconds
 
-private class EdtOnceTask : OnceTask<ProjectCloseDecision>() {
+private class EdtOnceTask : OnceTask<IjentUnavailableHandlerResult, ReconnectUiDialogImpl>() {
   override suspend fun <R> executeUnderLockIfNotAlreadyAcquired(f: suspend () -> R): R {
-    return if (IjentCallerContext.getSaved()?.isDispatchThread == true) {
+    return if (checkNotNull(IjentCallerContext.getSaved()).isDispatchThread) {
       check(ApplicationManager.getApplication().isDispatchThread)
       f()
     }
@@ -75,21 +84,34 @@ private class EdtOnceTask : OnceTask<ProjectCloseDecision>() {
   }
 }
 
+/**
+ * Reuses the same [EdtOnceTask] mutex for a generation of projects, replacing it only after
+ * that generation is closed and new projects are opened on the same IJent.
+ */
 @Service
-internal class NotRespondingFilesystemDialogService {
-  private val pendingRequests = ConcurrentHashMap<EelDescriptor, Pair<List<Project>, OnceTask<ProjectCloseDecision>>>()
-  suspend fun doOnceOrWait(ijentId: EelDescriptor, projects: List<Project>, f: suspend () -> ProjectCloseDecision): ProjectCloseDecision {
+private class NotRespondingFilesystemDialogService {
+  private val pendingRequests = ConcurrentHashMap<EelDescriptor, Pair<List<Project>, EdtOnceTask>>()
+  suspend fun doOnceOrWait(ijentId: EelDescriptor, dialogParams: IjentUnavailableDialogHandler.DialogParams, onComputing: (Deferred<ReconnectUiDialogImpl>) -> Unit, f: suspend (CompletableDeferred<ReconnectUiDialogImpl>) -> IjentUnavailableHandlerResult): IjentUnavailableHandlerResult {
     val onceTask = pendingRequests.compute(ijentId) { _, v ->
-      when {
-        v == null -> projects to EdtOnceTask()
-        v.first.containsAll(projects) -> v
-        v.second.computedValue() != null -> projects to EdtOnceTask()
-        else -> (v.first + projects).distinct() to v.second
+      when (dialogParams) {
+        is IjentUnavailableDialogHandler.DialogParams.ProjectIjent -> {
+          when {
+            v == null -> dialogParams.projects to EdtOnceTask()
+            v.first.containsAll(dialogParams.projects) -> v
+            v.second.computedValue() != null -> dialogParams.projects to EdtOnceTask()
+            else -> (v.first + dialogParams.projects).distinct() to v.second
+          }
+        }
+        is IjentUnavailableDialogHandler.DialogParams.UnrelatedIjent -> {
+          when {
+            v == null -> dialogParams.projectList to EdtOnceTask()
+            v.second.computedValue() != null -> dialogParams.projectList to EdtOnceTask()
+            else -> v
+          }
+        }
       }
     }!!.second
-    return onceTask.getOrCompute {
-      f()
-    }
+    return onceTask.getOrCompute(onComputing, f)
   }
 
   companion object {
@@ -98,37 +120,76 @@ internal class NotRespondingFilesystemDialogService {
 }
 
 internal class IjentUnavailableDialogHandler : IjentUnavailableHandler {
-  override suspend fun showModalDialog(eelDescriptor: EelDescriptor): IjentUnavailableHandlerResult {
+  override suspend fun showModalDialog(eelDescriptor: EelDescriptor, uiHandle: ReconnectUiHandleImpl): IjentUnavailableHandlerResult {
     val activeProject = ProjectUtil.getActiveProject()
-    val projectsToClose = ProjectManager.getInstance().openProjects.filter {
+    val dialogParams = ProjectManager.getInstance().openProjects.filter {
       it.getEelDescriptor() == eelDescriptor
     }.sortedByDescending {
       activeProject == it
-    }
-    if (projectsToClose.isEmpty()) {
-      eelDescriptor.getResolvedEelMachine().asSafely<IjentMachine>()?.getCachedIjentSession()?.close()
-      return UnrelatedIjent(eelDescriptor)
-    }
-    return NotRespondingFilesystemDialogService.getInstance().doOnceOrWait(eelDescriptor, projectsToClose) {
-      showCloseProjectDialog(eelDescriptor, projectsToClose).also {
-        eelDescriptor.getResolvedEelMachine().asSafely<IjentMachine>()?.getCachedIjentSession()?.close()
+    }.takeIf {
+      it.isNotEmpty()
+    }?.let {
+      DialogParams.ProjectIjent(eelDescriptor, it)
+    } ?: DialogParams.UnrelatedIjent(eelDescriptor, ProjectManager.getInstance().defaultProject)
+    LOG.warn("Ijent is unavailable. Modal dialog will be shown.")
+    return NotRespondingFilesystemDialogService.getInstance().doOnceOrWait(eelDescriptor, dialogParams, uiHandle::setDialogSession) { dialogSession ->
+      coroutineScope {
+        val logJob = launch(Dispatchers.IO) {
+          val ijentSession = eelDescriptor.getResolvedEelMachine().asSafely<IjentMachine>()?.getCachedIjentSession()
+          var backOff = 2.seconds
+          while (true) {
+            val statTable = ijentSession?.eventBus?.counter?.snapshot()?.printTable()
+            val path = PerformanceWatcher.getInstance().dumpThreads("ijent", true, true)
+            LOG.warn("Ijent is unavailable. Thread dump saved to $path.")
+            if (statTable != null) {
+              LOG.warn("Calls statistics:\n\n$statTable")
+            }
+            delay(backOff)
+            backOff *= 2
+          }
+        }
+        try {
+          showCloseProjectDialog(dialogSession, dialogParams)
+        }
+        finally {
+          logJob.cancel()
+        }
       }
     }
   }
 
-  private suspend fun showCloseProjectDialog(eelDescriptor: EelDescriptor, projects: List<Project>): ProjectCloseDecision {
+  sealed class DialogParams {
+    abstract val eelDescriptor: EelDescriptor
+    val projectList: List<Project>
+      get() = when (this) {
+        is ProjectIjent -> projects
+        is UnrelatedIjent -> listOf(defaultProject)
+      }
+    class ProjectIjent(override val eelDescriptor: EelDescriptor, val projects: List<Project>) : DialogParams()
+    class UnrelatedIjent(override val eelDescriptor: EelDescriptor, val defaultProject: Project) : DialogParams()
+  }
+
+  private suspend fun showCloseProjectDialog(dialogSession: CompletableDeferred<ReconnectUiDialogImpl>, dialogParams: DialogParams): IjentUnavailableHandlerResult {
     val coroutineContext = currentCoroutineContext()
     val closeDecision = suspendCancellableCoroutine { cont ->
-      val builder = DialogBuilder(projects.first()).apply {
+      val builder = DialogBuilder(dialogParams.projectList.first()).apply {
         setTitle(IjentImplBundle.message("dialog.title.ijent.unavailable"))
-        setCenterPanel(createCenterPanel(eelDescriptor, projects))
-        addCancelAction().setText(IjentImplBundle.message("action.close.projects.text", projects.size))
+        setCenterPanel(createCenterPanel(dialogParams))
+        DialogBuilder.CancelActionDescriptor().getAction(dialogWrapper).isEnabled = false
+        when (dialogParams) {
+          is DialogParams.ProjectIjent -> {
+            addOkAction().setText(IjentImplBundle.message("action.close.projects.text", dialogParams.projects.size))
+          }
+          is DialogParams.UnrelatedIjent -> {
+            addOkAction().setText(IjentImplBundle.message("action.stop.ijent.text"))
+          }
+        }
         dialogWrapper.setShouldUseWriteIntentReadAction(false)
       }
 
       cont.invokeOnCancellation {
         ApplicationManager.getApplication().invokeLater(
-          { builder.dialogWrapper.close(DialogWrapper.OK_EXIT_CODE) },
+          { builder.dialogWrapper.close(DialogWrapper.CANCEL_EXIT_CODE) },
           ModalityState.any(),
         )
       }
@@ -136,78 +197,114 @@ internal class IjentUnavailableDialogHandler : IjentUnavailableHandler {
       // It's crucial here to pump coroutine event loop while the dialog is shown
       // because otherwise canceling the dialog would not even be dispatched,
       // and the dialog (created to visualize the freeze) becomes a cause of the freeze to continue.
+      builder.dialogWrapper.registerWhenShowing(dialogSession)
       val exitCode = builder.showWithPump(coroutineContext)
 
-      if (exitCode == DialogWrapper.CANCEL_EXIT_CODE) {
-        ApplicationManager.getApplication().invokeLater {
-          WriteIntentReadAction.run {
-            for (projectToClose in projects) {
-              ProjectManager.getInstance().closeAndDispose(projectToClose)
+      if (exitCode == DialogWrapper.OK_EXIT_CODE) {
+        when (dialogParams) {
+          is DialogParams.ProjectIjent -> {
+            ApplicationManager.getApplication().invokeLater {
+              WriteIntentReadAction.run {
+                for (projectToClose in dialogParams.projectList) {
+                  ProjectManager.getInstance().closeAndDispose(projectToClose)
+                }
+              }
+              WelcomeFrame.showIfNoProjectOpened()
             }
+            dialogParams.eelDescriptor.getResolvedEelMachine().asSafely<IjentMachine>()?.getCachedIjentSession()?.close()
+            cont.resume(ProjectCloseDecision(dialogParams.eelDescriptor))
           }
-          WelcomeFrame.showIfNoProjectOpened()
+          is DialogParams.UnrelatedIjent -> {
+            dialogParams.eelDescriptor.getResolvedEelMachine().asSafely<IjentMachine>()?.getCachedIjentSession()?.close()
+            cont.resume(IjentUnavailableHandlerResult.UnrelatedIjent(dialogParams.eelDescriptor))
+          }
         }
-        cont.resume(ProjectCloseDecision(eelDescriptor))
       }
       else {
-        cont.resume(null)
+        cont.resumeWithException(IllegalStateException("Unexpected exit code: $exitCode"))
       }
     }
-    return checkNotNull(closeDecision)
+    return closeDecision
   }
 
-  private fun Panel.createDefaultPanel(projects: List<Project>) {
+  private fun Panel.createDefaultPanel(dialogParams: DialogParams) {
     row {
       icon(AllIcons.General.WarningDialog)
         .align(AlignY.TOP)
         .customize(UnscaledGaps(right = 12))
       panel {
-        row {
-          text(IjentImplBundle.message("label.projects.below.should.be.closed"))
-            .customize(UnscaledGaps(bottom = 12))
-        }
-        for (project in projects) {
-          row {
-            icon(AllIcons.Nodes.Project)
-              .customize(UnscaledGaps(right = 4))
-            label(project.name).bold()
+        when (dialogParams) {
+          is DialogParams.ProjectIjent -> {
+            row {
+              text(IjentImplBundle.message("label.projects.below.should.be.closed"))
+                .customize(UnscaledGaps(bottom = 12))
+            }
+            for (project in dialogParams.projects) {
+              row {
+                icon(AllIcons.Nodes.Project)
+                  .customize(UnscaledGaps(right = 4))
+                label(project.name).bold()
+              }
+            }
+          }
+          is DialogParams.UnrelatedIjent -> {
+            row {
+              text(IjentImplBundle.message("label.ijent.should.be.stopped"))
+                .customize(UnscaledGaps(bottom = 12))
+            }
+            row {
+              @NonNls val ijentName = dialogParams.eelDescriptor.name
+              label(ijentName).bold()
+            }
           }
         }
       }.align(AlignY.TOP)
     }
   }
 
-  private fun createCenterPanel(eelDescriptor: EelDescriptor, projects: List<Project>): JComponent {
+  private fun createCenterPanel(dialogParams: DialogParams): JComponent {
+    val session = dialogParams.eelDescriptor.getResolvedEelMachine().asSafely<IjentMachine>()?.getCachedIjentSession()
+    val statTab = session?.let { IjentStatDashboard(session.eventBus.counter) }
+    val preferredWidth = maxOf(480, statTab?.component?.preferredSize?.width ?: 0)
     return panel {
-      createDefaultPanel(projects)
-      val session = eelDescriptor.getResolvedEelMachine().asSafely<IjentMachine>()?.getCachedIjentSession()
-      if (session != null) {
-        createStatPanel(session.eventBus, session.getIjentInstance(eelDescriptor))
+      createDefaultPanel(dialogParams)
+      if (statTab != null) {
+        createStatPanel(statTab, session.getIjentInstance(dialogParams.eelDescriptor))
       }
     }
       .withBorder(JBUI.Borders.empty(16, 12, 8, 12))
-      .withPreferredWidth(480)
-      .withMinimumWidth(480)
-      .withMaximumWidth(480)
+      .withPreferredWidth(preferredWidth)
+      .withMinimumWidth(200)
   }
 
-  private fun Panel.createStatPanel(eventBus: IjentEventBus, eelApi: EelApi) {
-    val stat = IjentStatCounter()
-    val statTab = IjentStatDashboard(stat).launchOnShow()
-    statTab.launchOnShow("ijent stats") {
-      stat.process(eventBus) {
-        launch { makePingRequest(eelApi) }
-        awaitCancellation()
-      }
+  private fun Panel.createStatPanel(statDashboard: IjentStatDashboard, eelApi: EelApi) {
+    statDashboard.component.launchOnShow("ping request") {
+      makePingRequest(eelApi)
     }
-    row {
-      cell(statTab)
+    collapsibleGroup(IjentImplBundle.message("tab.title.ijent.dashboard.stat")) {
+      row {
+        cell(statDashboard.component)
+      }
     }
   }
 
   private suspend fun makePingRequest(eelApi: EelApi) {
     eelApi.fs.stat(eelApi.userInfo.home).eelIt()
   }
+}
+
+private fun DialogWrapper.registerWhenShowing(dialogSession: CompletableDeferred<ReconnectUiDialogImpl>) {
+  application.invokeLater(
+    {
+      if (contentPane.isShowing) {
+        dialogSession.complete(ReconnectUiDialogImpl(ModalityState.stateForComponent(contentPane), contentPane))
+      }
+      else if (dialogSession.isActive && !isDisposed) {
+        registerWhenShowing(dialogSession)
+      }
+    },
+    ModalityState.any(),
+  )
 }
 
 private fun DialogBuilder.showWithPump(coroutineContext: CoroutineContext): Int {
@@ -218,7 +315,7 @@ private fun DialogBuilder.showWithPump(coroutineContext: CoroutineContext): Int 
       // Use active waiting since it's the simplest way. Listening for dispatched events is more complex.
       val future = AppExecutorUtil.getAppScheduledExecutorService().scheduleWithFixedDelay(
         {
-          ApplicationManager.getApplication().invokeLater(
+          application.invokeLater(
             {
               @Suppress("RAW_RUN_BLOCKING")
               runBlocking(loop) { }
@@ -239,3 +336,5 @@ private fun DialogBuilder.showWithPump(coroutineContext: CoroutineContext): Int 
     else -> error("Unknown loop type: $loop")
   }
 }
+
+private val LOG = logger<IjentUnavailableDialogHandler>()

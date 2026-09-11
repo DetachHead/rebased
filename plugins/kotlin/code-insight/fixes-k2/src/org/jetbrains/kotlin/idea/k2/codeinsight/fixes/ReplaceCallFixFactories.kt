@@ -3,19 +3,29 @@ package org.jetbrains.kotlin.idea.k2.codeinsight.fixes
 
 import com.intellij.psi.PsiElement
 import org.jetbrains.kotlin.analysis.api.KaSession
-import org.jetbrains.kotlin.analysis.api.components.expandedSymbol
-import org.jetbrains.kotlin.analysis.api.components.isSubClassOf
-import org.jetbrains.kotlin.analysis.api.components.resolveToCall
+import org.jetbrains.kotlin.analysis.api.expressions.expectedType
+import org.jetbrains.kotlin.analysis.api.expressions.expressionType
 import org.jetbrains.kotlin.analysis.api.fir.diagnostics.KaFirDiagnostic
-import org.jetbrains.kotlin.analysis.api.resolution.KaCallableMemberCall
-import org.jetbrains.kotlin.analysis.api.resolution.singleCallOrNull
-import org.jetbrains.kotlin.analysis.api.resolution.singleFunctionCallOrNull
-import org.jetbrains.kotlin.analysis.api.resolution.singleVariableAccessCall
+import org.jetbrains.kotlin.analysis.api.resolution.KaApplicableCallCandidate
+import org.jetbrains.kotlin.analysis.api.resolution.KaFunctionCall
+import org.jetbrains.kotlin.analysis.api.resolution.function
+import org.jetbrains.kotlin.analysis.api.resolution.simple
+import org.jetbrains.kotlin.analysis.api.resolution.single
 import org.jetbrains.kotlin.analysis.api.resolution.symbol
+import org.jetbrains.kotlin.analysis.api.resolution.tryResolveCall
+import org.jetbrains.kotlin.analysis.api.resolution.variable
 import org.jetbrains.kotlin.analysis.api.symbols.findClass
+import org.jetbrains.kotlin.analysis.api.symbols.isSubClassOf
 import org.jetbrains.kotlin.analysis.api.symbols.symbol
 import org.jetbrains.kotlin.analysis.api.types.KaClassType
+import org.jetbrains.kotlin.analysis.api.types.KaStandardTypeClassIds
 import org.jetbrains.kotlin.analysis.api.types.KaType
+import org.jetbrains.kotlin.analysis.api.types.classId
+import org.jetbrains.kotlin.analysis.api.types.expandedSymbol
+import org.jetbrains.kotlin.analysis.api.types.isMarkedNullable
+import org.jetbrains.kotlin.analysis.api.types.isSubtypeOf
+import org.jetbrains.kotlin.analysis.api.types.withNullability
+import org.jetbrains.kotlin.idea.base.analysis.api.utils.collectCallCandidates
 import org.jetbrains.kotlin.idea.base.analysis.api.utils.getImplicitReceivers
 import org.jetbrains.kotlin.idea.codeinsight.api.applicators.fixes.KotlinQuickFixFactory
 import org.jetbrains.kotlin.idea.quickfix.RemoveRedundantCallsOfConversionMethodsFix
@@ -24,10 +34,12 @@ import org.jetbrains.kotlin.idea.quickfix.ReplaceInfixOrOperatorCallFix
 import org.jetbrains.kotlin.idea.quickfix.ReplaceWithSafeCallFix
 import org.jetbrains.kotlin.idea.quickfix.ReplaceWithSafeCallForScopeFunctionFix
 import org.jetbrains.kotlin.idea.references.mainReference
+import org.jetbrains.kotlin.idea.util.tryResolveExpressionCall
 import org.jetbrains.kotlin.lexer.KtTokens
 import org.jetbrains.kotlin.name.StandardClassIds
 import org.jetbrains.kotlin.psi.KtArrayAccessExpression
 import org.jetbrains.kotlin.psi.KtBinaryExpression
+import org.jetbrains.kotlin.psi.KtCallElement
 import org.jetbrains.kotlin.psi.KtCallExpression
 import org.jetbrains.kotlin.psi.KtDotQualifiedExpression
 import org.jetbrains.kotlin.psi.KtElement
@@ -37,10 +49,12 @@ import org.jetbrains.kotlin.psi.KtNameReferenceExpression
 import org.jetbrains.kotlin.psi.KtOperationReferenceExpression
 import org.jetbrains.kotlin.psi.KtQualifiedExpression
 import org.jetbrains.kotlin.psi.KtThisExpression
+import org.jetbrains.kotlin.psi.KtValueArgument
 import org.jetbrains.kotlin.psi.psiUtil.getNonStrictParentOfType
 import org.jetbrains.kotlin.psi.psiUtil.getParentOfType
 import org.jetbrains.kotlin.psi.psiUtil.getStrictParentOfType
 import org.jetbrains.kotlin.psi.psiUtil.unwrapParenthesesLabelsAndAnnotations
+import org.jetbrains.kotlin.resolution.KtResolvableCall
 import org.jetbrains.kotlin.types.expressions.OperatorConventions
 import org.jetbrains.kotlin.utils.addToStdlib.safeAs
 
@@ -135,11 +149,31 @@ object ReplaceCallFixFactories {
             } else emptyList()
         }
 
-    private fun KaSession.shouldHaveNotNullType(expression: KtExpression): Boolean {
+    context(session: KaSession)
+    private fun shouldHaveNotNullType(expression: KtExpression): Boolean {
         // This function is used to determine if we may need to add an elvis operator after the safe call. For example, to replace
         // `s.length` in `val x: Int = s.length` with a safe call, it should be replaced with `s.length ?: <caret>`.
+        val nullableExpressionType = expression.expressionType?.withNullability(isMarkedNullable = true)
+        if (nullableExpressionType != null && nullableTypeIsAcceptableForValueArgument(expression, nullableExpressionType)) return false
+
         val expectedType = expression.expectedType ?: return false
-        return !expectedType.isMarkedNullable && !expectedType.isUnitType
+        return nullableExpressionType?.isSubtypeOf(expectedType) != true && !expectedType.isMarkedNullable && expectedType.classId != KaStandardTypeClassIds.UNIT
+    }
+
+    context(session: KaSession)
+    private fun nullableTypeIsAcceptableForValueArgument(expression: KtExpression, nullableExpressionType: KaType): Boolean {
+        val argument = expression.getStrictParentOfType<KtValueArgument>() ?: return false
+        val argumentExpression = argument.getArgumentExpression() ?: return false
+        if (argumentExpression.unwrapParenthesesLabelsAndAnnotations() != expression) return false
+
+        val callElement = argument.parent?.parent as? KtCallElement ?: return false
+        return collectCallCandidates(callElement).any { candidateInfo ->
+            if (candidateInfo !is KaApplicableCallCandidate) return@any false
+            val functionCall = candidateInfo.candidate as? KaFunctionCall<*> ?: return@any false
+            val parameterType = (functionCall.valueArgumentMapping[argumentExpression] ?: functionCall.valueArgumentMapping[expression])?.returnType
+                ?: return@any false
+            nullableExpressionType.isSubtypeOf(parameterType)
+        }
     }
 
     context(_: KaSession)
@@ -161,9 +195,10 @@ object ReplaceCallFixFactories {
         val scopeFunctionKind = scopeCallExpression.scopeFunctionKind() ?: return null
 
         val internalReceiver = (psi as? KtDotQualifiedExpression)?.receiverExpression
-        val internalReceiverSymbol = internalReceiver?.resolveToCall()?.singleVariableAccessCall()?.symbol
-        val internalResolvedCall = (psi.getParentOfType<KtElement>(strict = false))?.resolveToCall()?.singleCallOrNull<KaCallableMemberCall<*, *>>()
-            ?: return null
+        val internalReceiverSymbol = internalReceiver?.tryResolveExpressionCall()?.single?.variable?.symbol
+        val internalResolvedCall =
+            (psi.getParentOfType<KtElement>(strict = false) as? KtResolvableCall)?.tryResolveCall()?.single?.simple
+                ?: return null
 
         when (scopeFunctionKind) {
             ScopeFunctionKind.WITH_PARAMETER -> {
@@ -181,12 +216,12 @@ object ReplaceCallFixFactories {
             }
         }
 
-        return ReplaceWithSafeCallForScopeFunctionFix(scopeDotQualifiedExpression, session.shouldHaveNotNullType(scopeCallExpression))
+        return ReplaceWithSafeCallForScopeFunctionFix(scopeDotQualifiedExpression, shouldHaveNotNullType(scopeCallExpression))
     }
 
     context(_: KaSession)
     private fun KtCallExpression.scopeFunctionKind(): ScopeFunctionKind? {
-        val methodName = resolveToCall()?.singleFunctionCallOrNull()?.symbol?.callableId?.asSingleFqName()
+        val methodName = tryResolveCall()?.single?.function?.symbol?.callableId?.asSingleFqName()
         return ScopeFunctionKind.entries.firstOrNull { kind -> kind.names.contains(methodName?.asString()) }
     }
 

@@ -1,8 +1,16 @@
 load("@community//build:tests-options.bzl", "jps_test")
 load("@rules_jvm//:jvm.bzl", "jvm_library")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
+
+jps_test(
+    name = "lvcs-impl-tests_test",
+    timeout = "moderate",
+    tags = ["community-aggregator"],
+    runtime_deps = [":lvcs-impl-tests_test_lib"],
+)
+### skip generation section `test intellij.platform.lvcs.impl.tests`
 
 ### auto-generated section `build intellij.platform.lvcs.impl` start
-
 jvm_library(
     name = "lvcs-impl",
     srcs = glob(
@@ -47,11 +55,13 @@ jvm_library(
         "//platform/statistics",
         "//platform/util",
         "//platform/vcs-impl/shared",
-        "@lib//:jetbrains-annotations",
+        "//libraries/jetbrains/annotations",
         "//platform/projectModel-impl",
         "//platform/util:util-ui",
     ],
 )
+
+content_module_jar(module = ":lvcs-impl")
 
 jvm_library(
     name = "lvcs-impl_test_lib",
@@ -97,6 +107,7 @@ jvm_library(
         "//tools/intellij.tools.ide.metrics.benchmark:ide-metrics-benchmark",
         "//tools/intellij.tools.ide.metrics.benchmark:ide-metrics-benchmark_test_lib",
         "//platform/vcs-impl/shared:shared_test_lib",
+        "//libraries/jetbrains/annotations:annotations_test_lib",
         "//platform/projectModel-impl:projectModel-impl_test_lib",
         "//platform/lang-core",
         "//platform/lang-core:lang-core_test_lib",
@@ -109,13 +120,14 @@ jvm_library(
 exports_files(
     [
         "intellij.platform.lvcs.impl.iml",
+        "resources/intellij.platform.lvcs.impl.xml",
+        "module-content.yaml",
     ],
     visibility = ["//visibility:public"],
 )
 ### auto-generated section `iml intellij.platform.lvcs.impl` end
 
 ### auto-generated section `build intellij.platform.lvcs.impl.tests` start
-
 jvm_library(
     name = "lvcs-impl-tests",
     srcs = glob(
@@ -173,6 +185,8 @@ jvm_library(
         "//platform/vcs-api:vcs_test_lib",
         "//platform/vcs-impl",
         "//platform/vcs-impl:vcs-impl_test_lib",
+        "//platform/vcs/plugin",
+        "//platform/vcs/plugin:plugin_test_lib",
         "//platform/lvcs-api:lvcs",
         "//platform/lvcs-api:lvcs_test_lib",
         "//platform/lang-api:lang",
@@ -209,12 +223,19 @@ jvm_library(
         "//tools/intellij.tools.ide.metrics.benchmark:ide-metrics-benchmark_test_lib",
         "//platform/vcs-impl/shared",
         "//platform/vcs-impl/shared:shared_test_lib",
-        "@lib//:jetbrains-annotations",
+        "//libraries/jetbrains/annotations",
+        "//libraries/jetbrains/annotations:annotations_test_lib",
         "//platform/projectModel-impl",
         "//platform/projectModel-impl:projectModel-impl_test_lib",
         "//platform/lang-core",
         "//platform/lang-core:lang-core_test_lib",
         "//platform/progress/shared:ide-progress",
+        "//libraries/junit4",
+        "//libraries/junit4:junit4_test_lib",
+        "//libraries/junit5",
+        "//libraries/junit5:junit5_test_lib",
+        "//libraries/junit5-params",
+        "//libraries/junit5-params:junit5-params_test_lib",
     ],
 )
 ### auto-generated section `build intellij.platform.lvcs.impl.tests` end
@@ -227,11 +248,3 @@ exports_files(
     visibility = ["//visibility:public"],
 )
 ### auto-generated section `iml intellij.platform.lvcs.impl.tests` end
-
-### auto-generated section `test intellij.platform.lvcs.impl.tests` start
-
-jps_test(
-    name = "lvcs-impl-tests_test",
-    runtime_deps = [":lvcs-impl-tests_test_lib"],
-)
-### auto-generated section `test intellij.platform.lvcs.impl.tests` end

@@ -1,4 +1,4 @@
-// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.debugger.actions;
 
 import com.intellij.debugger.SourcePosition;
@@ -14,7 +14,6 @@ import com.intellij.debugger.impl.DebuggerContextImpl;
 import com.intellij.debugger.impl.DebuggerSession;
 import com.intellij.debugger.impl.DebuggerUtilsEx;
 import com.intellij.debugger.impl.DebuggerUtilsImpl;
-import com.intellij.debugger.jdi.MethodBytecodeUtil;
 import com.intellij.debugger.jdi.StackFrameProxyImpl;
 import com.intellij.debugger.jdi.VirtualMachineProxyImpl;
 import com.intellij.debugger.settings.DebuggerSettings;
@@ -45,30 +44,22 @@ import com.intellij.psi.PsiLambdaExpression;
 import com.intellij.psi.PsiMethod;
 import com.intellij.psi.PsiMethodCallExpression;
 import com.intellij.psi.PsiMethodReferenceExpression;
+import com.intellij.psi.PsiModifier;
 import com.intellij.psi.PsiNewExpression;
 import com.intellij.psi.PsiParameter;
 import com.intellij.psi.PsiStatement;
 import com.intellij.psi.util.PsiTreeUtil;
+import com.intellij.psi.util.PsiUtil;
 import com.intellij.util.DocumentUtil;
 import com.intellij.util.Range;
 import com.intellij.util.ThreeState;
-import com.intellij.util.containers.ContainerUtil;
 import com.sun.jdi.Location;
-import com.sun.jdi.Method;
-import com.sun.jdi.ReferenceType;
-import it.unimi.dsi.fastutil.objects.Object2IntMap;
-import it.unimi.dsi.fastutil.objects.Object2IntOpenHashMap;
 import one.util.streamex.StreamEx;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.concurrency.AsyncPromise;
 import org.jetbrains.concurrency.Promise;
 import org.jetbrains.concurrency.Promises;
-import org.jetbrains.org.objectweb.asm.Label;
-import org.jetbrains.org.objectweb.asm.MethodVisitor;
-import org.jetbrains.org.objectweb.asm.Opcodes;
-import org.jetbrains.org.objectweb.asm.Type;
-
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Deque;
@@ -207,7 +198,9 @@ public class JavaSmartStepIntoHandler extends JvmSmartStepIntoHandler {
           argumentList.accept(this);
         }
         for (PsiMethod psiMethod : aClass.getMethods()) {
-          targets.add(0, new MethodSmartStepTarget(psiMethod, getCurrentParamName(), psiMethod.getBody(), true, null));
+          if (isSteppableMethod(psiMethod)) {
+            targets.addFirst(new MethodSmartStepTarget(psiMethod, getCurrentParamName(), psiMethod.getBody(), true, null));
+          }
         }
       }
 
@@ -228,8 +221,8 @@ public class JavaSmartStepIntoHandler extends JvmSmartStepIntoHandler {
         PsiElement element = expression.resolve();
         if (matchLine(expression) && element instanceof PsiMethod) {
           PsiElement navMethod = element.getNavigationElement();
-          if (navMethod instanceof PsiMethod) {
-            targets.add(0, new MethodSmartStepTarget(((PsiMethod)navMethod), null, expression, true, null));
+          if (navMethod instanceof PsiMethod method && isSteppableMethod(method)) {
+            targets.addFirst(new MethodSmartStepTarget(method, null, expression, true, null));
           }
         }
       }
@@ -371,7 +364,7 @@ public class JavaSmartStepIntoHandler extends JvmSmartStepIntoHandler {
                                       : expression instanceof PsiNewExpression newExpr
                                         ? newExpr.getClassOrAnonymousClassReference()
                                         : expression;
-          if (psiMethod != null && (callExpression == null || matchLine(callExpression))) {
+          if (psiMethod != null && isSteppableMethod(psiMethod) && (callExpression == null || matchLine(callExpression))) {
             MethodSmartStepTarget target = new MethodSmartStepTarget(
               psiMethod,
               null,
@@ -445,111 +438,13 @@ public class JavaSmartStepIntoHandler extends JvmSmartStepIntoHandler {
     try {
       DebugProcessImpl debugProcess = suspendContext.getDebugProcess();
       Location location = frameProxy.location();
-      long currentBytecodeOffset = location.codeIndex();
 
       ArrayList<SmartStepTarget> all = new ArrayList<>(targets);
 
-      final List<SmartStepTarget> targetsWithCollisions = new ArrayList<>();
-      // collect bytecode offsets of the calls
-      final Set<Integer> finalLines = lines;
-      class BytecodeVisitor extends MethodVisitor implements MethodBytecodeUtil.InstructionOffsetReader {
-        private boolean myLineMatch = false;
-        private int myOffset = -1;
-        private int endOfBasicBlock = Integer.MAX_VALUE;
-        private final Object2IntMap<String> myCounter = new Object2IntOpenHashMap<>();
-
-        final Set<SmartStepTarget> foundTargets = new HashSet<>();
-        final Set<SmartStepTarget> alreadyExecutedTargets = new HashSet<>();
-        final Set<SmartStepTarget> anotherBasicBlockTargets = new HashSet<>();
-
-        BytecodeVisitor() {
-          super(Opcodes.API_VERSION);
-        }
-
-        @Override
-        public void readBytecodeInstructionOffset(int bytecodeOffset) {
-          myOffset = bytecodeOffset;
-        }
-
-        @Override
-        public void visitLineNumber(int line, Label start) {
-          myLineMatch = finalLines.contains(line - 1);
-        }
-
-        @Override
-        public void visitJumpInsn(int opcode, Label label) {
-          if (myLineMatch) {
-            assert myOffset != -1;
-            int oldValue = endOfBasicBlock;
-            if (currentBytecodeOffset <= myOffset && myOffset < oldValue) {
-              assert oldValue == Integer.MAX_VALUE; // it should be set only once, because bytecode is iterated linearly
-              endOfBasicBlock = myOffset;
-            }
-          }
-        }
-
-        @Override
-        public void visitMethodInsn(int opcode, String owner, String name, String desc, boolean itf) {
-          if (myLineMatch) {
-            assert myOffset != -1;
-            String key = owner + "." + name + desc;
-            int currentCount = myCounter.mergeInt(key, 1, Math::addExact) - 1;
-            if (name.startsWith("access$")) { // bridge method
-              ReferenceType cls =
-                ContainerUtil.getFirstItem(location.virtualMachine().classesByName(Type.getObjectType(owner).getClassName()));
-              if (cls != null) {
-                Method method = DebuggerUtils.findMethod(cls, name, desc);
-                if (method != null) {
-                  MethodBytecodeUtil.visit(method, new MethodVisitor(Opcodes.API_VERSION) {
-                    @Override
-                    public void visitMethodInsn(int opcode, String owner, String name, String desc, boolean itf) {
-                      if ("java/lang/AbstractMethodError".equals(owner)) {
-                        return;
-                      }
-                      visitMethodInstInt(owner, name, desc, currentCount, myOffset);
-                    }
-                  }, false);
-                }
-              }
-            }
-            else {
-              visitMethodInstInt(owner, name, desc, currentCount, myOffset);
-            }
-          }
-        }
-
-        private void visitMethodInstInt(String owner, String name, String desc, int ordinal, int bcOffs) {
-          for (SmartStepTarget t : targets) {
-            if (t instanceof MethodSmartStepTarget mt && mt.getOrdinal() == ordinal) {
-              PsiMethod method = mt.getMethod();
-              if (DebuggerUtilsEx.methodMatches(method, owner.replace("/", "."), name, desc, debugProcess)) {
-                if (foundTargets.contains(mt)) {
-                  targetsWithCollisions.add(mt);
-                }
-                else {
-                  foundTargets.add(mt);
-                  if (bcOffs < currentBytecodeOffset) {
-                    alreadyExecutedTargets.add(mt);
-                  }
-                  if (bcOffs > endOfBasicBlock) {
-                    anotherBasicBlockTargets.add(mt);
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
-      BytecodeVisitor bytecodeVisitor = new BytecodeVisitor();
-      MethodBytecodeUtil.visit(location.method(), bytecodeVisitor, true);
-
-      // sanity check
-      List<SmartStepTarget> notFoundTargets = new ArrayList<>();
-      for (SmartStepTarget t : targets) {
-        if (isImmediateMethodCall(t) && !bytecodeVisitor.foundTargets.contains(t)) {
-          notFoundTargets.add(t);
-        }
-      }
+      JavaSmartStepIntoBytecodeMatcher.Result bytecodeMatch =
+        new JavaSmartStepIntoBytecodeMatcher(location, debugProcess, lines, targets, !smart).match();
+      List<SmartStepTarget> targetsWithCollisions = bytecodeMatch.getCollidingTargets();
+      List<SmartStepTarget> notFoundTargets = bytecodeMatch.getNotFoundTargets();
 
       StringBuilder errorMessage = new StringBuilder();
       if (!targetsWithCollisions.isEmpty()) {
@@ -569,17 +464,17 @@ public class JavaSmartStepIntoHandler extends JvmSmartStepIntoHandler {
       }
 
       // remove already executed
-      targets.removeAll(bytecodeVisitor.alreadyExecutedTargets);
+      targets.removeAll(bytecodeMatch.getAlreadyExecutedTargets());
 
-      if (!smart && !targets.isEmpty() && !bytecodeVisitor.anotherBasicBlockTargets.isEmpty()) {
-        // remove after jumps
+      Set<SmartStepTarget> conditionallyExecutedTargets = bytecodeMatch.getConditionallyExecutedTargets();
+      if (!smart && !targets.isEmpty() && !conditionallyExecutedTargets.isEmpty()) {
         int oldSize = targets.size();
-        targets.removeAll(bytecodeVisitor.anotherBasicBlockTargets);
-        assert oldSize == targets.size() + bytecodeVisitor.anotherBasicBlockTargets.size(); // this allows us easy fallback below
+        targets.removeAll(conditionallyExecutedTargets);
+        assert oldSize == targets.size() + conditionallyExecutedTargets.size(); // this allows us easy fallback below
 
         // check if anything real left, otherwise fallback to the previous state
         if (!targets.isEmpty() && immediateMethodCalls(targets).findAny().isEmpty()) {
-          targets.addAll(bytecodeVisitor.anotherBasicBlockTargets);
+          targets.addAll(conditionallyExecutedTargets);
         }
       }
 
@@ -587,7 +482,7 @@ public class JavaSmartStepIntoHandler extends JvmSmartStepIntoHandler {
       ArrayList<SmartStepTarget> removed = new ArrayList<>(all);
       removed.removeAll(targets);
       for (SmartStepTarget m : removed) {
-        MethodSmartStepTarget target = (MethodSmartStepTarget)m;
+        if (!(m instanceof MethodSmartStepTarget target)) continue;
         existingMethodCalls(all, target.getMethod())
           .forEach(t -> {
             int ordinal = t.getOrdinal();
@@ -622,6 +517,10 @@ public class JavaSmartStepIntoHandler extends JvmSmartStepIntoHandler {
 
   private static boolean isInsideLambda(@NotNull PsiElement element) {
     return PsiTreeUtil.getParentOfType(element, PsiLambdaExpression.class) != null;
+  }
+
+  private static boolean isSteppableMethod(@NotNull PsiMethod method) {
+    return !method.hasModifierProperty(PsiModifier.NATIVE) || PsiUtil.canBeOverridden(method);
   }
 
   private static boolean isImmediateMethodCall(SmartStepTarget target) {

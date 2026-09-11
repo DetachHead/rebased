@@ -1,4 +1,4 @@
-// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.openapi.vcs
 
 import com.intellij.openapi.util.Disposer
@@ -7,6 +7,7 @@ import com.intellij.openapi.vcs.ex.ExclusionState
 import com.intellij.openapi.vcs.ex.PartialLocalLineStatusTracker
 import com.intellij.openapi.vcs.ex.RangeExclusionState
 import com.intellij.openapi.vcs.impl.PartialChangesUtil
+import com.intellij.testFramework.PlatformTestUtil
 import com.intellij.util.containers.HashingStrategy
 
 abstract class BasePartiallyExcludedChangesTest : BaseLineStatusTrackerManagerTest() {
@@ -46,7 +47,14 @@ abstract class BasePartiallyExcludedChangesTest : BaseLineStatusTrackerManagerTe
     }
 
     fun waitExclusionStateUpdate() {
-      updateQueue.flush()
+      // Drain any pending EDT events first so async listeners
+      // have a chance to enqueue an update before we observe isAllExecuted
+      PlatformTestUtil.dispatchAllInvocationEventsInIdeEventQueue()
+      PlatformTestUtil.waitWithEventsDispatching(
+        "Timed out waiting for exclusion state update",
+        { updateQueue.isAllExecuted },
+        10
+      )
     }
   }
 
@@ -81,6 +89,8 @@ abstract class BasePartiallyExcludedChangesTest : BaseLineStatusTrackerManagerTe
     assertSameElements(actual.map { it.name }, expected.map { it.name })
     assertSameElements(actual, expected)
   }
+
+  protected fun getIncludedSet(): Set<FilePath> = stateHolder.getIncludedSet()
 
   protected fun PartialLocalLineStatusTracker.assertExcluded(index: Int, expected: Boolean) {
     val range = this.getRanges()!![index]

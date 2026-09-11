@@ -14,7 +14,7 @@ class MermaidHighlighter : SyntaxHighlighterBase() {
     return MermaidLexer()
   }
 
-  override fun getTokenHighlights(tokenType: IElementType): Array<TextAttributesKey> {
+  override fun getTokenHighlights(tokenType: IElementType): Array<out TextAttributesKey> {
     val highlight = highlights[tokenType] ?: HighlighterColors.TEXT
     return arrayOf(highlight)
   }
@@ -42,10 +42,18 @@ class MermaidHighlighter : SyntaxHighlighterBase() {
       addSankeyHighlights(holder)
       addXYChartHighlights(holder)
       addBlockHighlights(holder)
+      addGenericHighlights(holder)
       return holder
     }
 
     //region Details
+    // Only the header of an unmodelled diagram family is coloured. GENERIC_TEXT is deliberately left
+    // unmapped so it renders as plain text: the body has no parsed structure, and colouring it uniformly
+    // would suggest a meaning we have not established.
+    private fun addGenericHighlights(holder: MutableMap<IElementType, TextAttributesKey>) {
+      holder[MermaidTokens.Generic.GENERIC_DIAGRAM] = MermaidTextAttributes.diagram_name
+    }
+
     private fun addPieHighlights(holder: MutableMap<IElementType, TextAttributesKey>) {
       holder[MermaidTokens.Pie.PIE] = MermaidTextAttributes.diagram_name
       holder[MermaidTokens.Pie.SHOW_DATA] = MermaidTextAttributes.keyword
@@ -64,6 +72,18 @@ class MermaidHighlighter : SyntaxHighlighterBase() {
         MermaidTokens.CLASS_DEF
       )
       holder[MermaidTokens.Flowchart.LINK_TEXT] = MermaidTextAttributes.note
+
+      // `A@{ shape: rect }` metadata. Keys read as constants and the delimiters as operators, matching
+      // how the frontmatter and directive mappings are coloured.
+      holder[MermaidTokens.Flowchart.METADATA_KEY] = MermaidTextAttributes.constant
+      holder[MermaidTokens.Flowchart.METADATA_VALUE] = MermaidTextAttributes.identifier
+      fillMap(
+        holder,
+        MermaidTextAttributes.operator,
+        MermaidTokens.Flowchart.METADATA_START,
+        MermaidTokens.Flowchart.METADATA_END,
+        MermaidTokens.Flowchart.EDGE_ID_MARKER
+      )
     }
 
     private fun addSequenceHighlights(holder: MutableMap<IElementType, TextAttributesKey>) {

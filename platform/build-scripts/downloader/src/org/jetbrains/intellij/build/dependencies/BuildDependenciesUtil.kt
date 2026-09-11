@@ -19,6 +19,7 @@ import java.nio.file.Path
 import java.nio.file.StandardCopyOption
 import java.nio.file.attribute.PosixFilePermissions
 import java.util.Properties
+import java.util.logging.Level
 import java.util.logging.Logger
 import javax.xml.parsers.DocumentBuilder
 import javax.xml.parsers.DocumentBuilderFactory
@@ -135,6 +136,21 @@ object BuildDependenciesUtil {
     }
     catch (t: Throwable) {
       throw IllegalStateException("Unable to load maven-id from " + libraryXml + ": " + t.message, t)
+    }
+  }
+
+  fun getModuleLibraryMavenId(iml: Path, libraryName: String): String {
+    return try {
+      val documentBuilder = createDocumentBuilder()
+      val document = Files.newInputStream(iml).use(documentBuilder::parse)
+      val libraryElement = document.documentElement.getLibraryElement(libraryName, iml)
+      val propertiesElement = libraryElement.getSingleChildElement("properties")
+      val mavenId = propertiesElement.getAttribute("maven-id")
+      check(!mavenId.isBlank()) { "Invalid maven-id" }
+      mavenId
+    }
+    catch (t: Throwable) {
+      throw IllegalStateException("Unable to load maven-id for module library '$libraryName' from $iml: ${t.message}", t)
     }
   }
 
@@ -291,7 +307,27 @@ object BuildDependenciesUtil {
   }
 
   fun deleteFileOrFolder(file: Path) {
-    file.deleteRecursively()
+    repeatIfFails {
+      file.deleteRecursively()
+    }
+  }
+
+  private fun <T> repeatIfFails(times: Int = 10, block: () -> T): T {
+    var i = 0
+    while (true) {
+      try {
+        return block()
+      }
+      catch (e: Throwable) {
+        i++
+        if (i >= times) {
+          throw e
+        }
+        else {
+          LOG.log(Level.WARNING, "Ignoring exception: ${e.message}")
+        }
+      }
+    }
   }
 
   fun cleanDirectory(directory: Path) {

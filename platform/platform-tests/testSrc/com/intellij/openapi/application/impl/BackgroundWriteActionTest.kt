@@ -1,4 +1,4 @@
-// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.openapi.application.impl
 
 import com.intellij.concurrency.currentThreadContext
@@ -15,17 +15,19 @@ import com.intellij.openapi.application.ex.ApplicationManagerEx
 import com.intellij.openapi.application.readAction
 import com.intellij.openapi.application.readAndBackgroundWriteAction
 import com.intellij.openapi.application.runReadAction
+import com.intellij.openapi.application.runReadActionBlocking
+import com.intellij.openapi.application.runWriteAction
 import com.intellij.openapi.application.rw.PlatformReadWriteActionSupport
 import com.intellij.openapi.application.useBackgroundWriteAction
 import com.intellij.openapi.application.useTrueSuspensionForWriteAction
 import com.intellij.openapi.components.service
 import com.intellij.openapi.progress.Cancellation
+import com.intellij.openapi.progress.ProcessCanceledException
 import com.intellij.openapi.progress.ProgressManager
 import com.intellij.openapi.progress.runBlockingCancellable
 import com.intellij.openapi.progress.util.ProgressIndicatorUtils
 import com.intellij.platform.ide.progress.ModalTaskOwner
 import com.intellij.platform.ide.progress.runWithModalProgressBlocking
-import com.intellij.platform.locking.impl.getGlobalThreadingSupport
 import com.intellij.testFramework.common.timeoutRunBlocking
 import com.intellij.testFramework.junit5.TestApplication
 import com.intellij.util.application
@@ -506,7 +508,7 @@ class BackgroundWriteActionTest {
   @Test
   fun `prevention of WA is thread-local`(): Unit = concurrencyTest {
     launch {
-      val cleanup = getGlobalThreadingSupport().prohibitWriteActionsInside()
+      val cleanup = application.threadingSupport.prohibitWriteActionsInside()
       try {
         checkpoint(1)
         checkpoint(4)
@@ -557,6 +559,55 @@ class BackgroundWriteActionTest {
 
     }
   }
+
+  /**
+   * Regression test for a missed write-action-priority cancellation during a suspending write action.
+   *
+   * A suspending write action ([com.intellij.openapi.application.ThreadingSupport.executeSuspendingWriteAction])
+   * temporarily downgrades the outer write action to a write-intent lock and advances the write-stack base past it. A
+   * write action that becomes pending inside that window is the outermost write action relative to the base, so it must
+   * fire `beforeWriteActionStart` -- the event [com.intellij.openapi.progress.util.ProgressIndicatorUtilService] uses to
+   * cancel read actions running with write-action priority.
+   *
+   * The firing used to be gated on a literally-empty write-action stack, which is never empty during the window (the
+   * downgraded outer write action is still on the stack). As a result the write-priority read was never canceled and the
+   * pending write upgrade waited forever on the never-draining read -- observed in the wild as an IDE freeze where a
+   * "Scanning" thread kept calling [ProgressManager.checkCanceled] under `runInReadActionWithWriteActionPriority` while
+   * the EDT was stuck trying to start a write action.
+   */
+  @Suppress("DEPRECATION")
+  @Test
+  fun `write action pending inside a suspending write action cancels a write-priority read`(): Unit =
+    timeoutRunBlocking(context = Dispatchers.Default, timeout = 30.seconds) {
+      val readStarted = Job()
+      val readCanceled = AtomicBoolean(false)
+      edtWriteAction {
+        // downgrades the outer (EDT) write action to a write-intent lock and advances the write-stack base past it
+        application.threadingSupport.executeSuspendingWriteAction {
+          launch(Dispatchers.Default) {
+            ProgressIndicatorUtils.runInReadActionWithWriteActionPriority({
+              readStarted.complete()
+              // spin with write-action priority; a pending write action must cancel this read.
+              // bounded so that on the buggy code path the test fails with a clear assertion instead of hanging.
+              val deadlineNs = System.nanoTime() + 15.seconds.inWholeNanoseconds
+              try {
+                while (System.nanoTime() < deadlineNs) {
+                  ProgressManager.checkCanceled()
+                }
+              }
+              catch (_: ProcessCanceledException) {
+                readCanceled.set(true)
+              }
+            }, null)
+          }
+          // make sure the read holds a read permit and registered its write-action-priority cancellation
+          readStarted.asCompletableFuture().join()
+          // this write action becomes pending during the downgrade window; it must cancel the read above
+          runWriteAction { }
+        }
+      }
+      assertTrue(readCanceled.get(), "the write-priority read must be canceled by the write action pending inside the suspending write action")
+    }
 
   /**
    * This test is not set in stone; if you feel that the platform is ready to block same-level read actions, the feel free to adjust the test.
@@ -644,7 +695,7 @@ class BackgroundWriteActionTest {
   fun `runWhenWriteActionIsCompleted executes immediately when no write action`() {
     val executed = AtomicBoolean(false)
 
-    getGlobalThreadingSupport().runWhenWriteActionIsCompleted {
+    application.threadingSupport.runWhenWriteActionIsCompleted {
       executed.set(true)
     }
 
@@ -664,7 +715,7 @@ class BackgroundWriteActionTest {
       }
     }
     delay(100)
-    getGlobalThreadingSupport().runWhenWriteActionIsCompleted {
+    application.threadingSupport.runWhenWriteActionIsCompleted {
       executed.set(true)
     }
     assertThat(executed.get()).isFalse
@@ -689,7 +740,7 @@ class BackgroundWriteActionTest {
       }
     }
     delay(50)
-    getGlobalThreadingSupport().runWhenWriteActionIsCompleted {
+    application.threadingSupport.runWhenWriteActionIsCompleted {
       executed.set(true)
     }
     assertThat(executed.get()).isFalse
@@ -731,11 +782,11 @@ class BackgroundWriteActionTest {
       }
     }
     Thread.sleep(50)
-    getGlobalThreadingSupport().runWhenWriteActionIsCompleted {
+    application.threadingSupport.runWhenWriteActionIsCompleted {
       executed.set(true)
     }
     assertThat(executed.get()).isFalse
-    val clenanup = getGlobalThreadingSupport().parallelizeLock().second
+    val clenanup = application.threadingSupport.parallelizeLock(true).second
     try {
       assertThat(executed.get()).isTrue
     } finally {
@@ -770,7 +821,7 @@ class BackgroundWriteActionTest {
 
   @Test
   fun `invokeAndWait works in post-write-action listener`() = timeoutRunBlocking {
-    val threadingSupport = getGlobalThreadingSupport()
+    val threadingSupport = application.threadingSupport
     val listener = object : WriteActionListener {
       override fun afterWriteActionFinished(action: Class<*>) {
         application.invokeAndWait { }
@@ -882,7 +933,7 @@ class BackgroundWriteActionTest {
       }
 
       launch(Dispatchers.Default) {
-        service.signalWriteActionNeedsToBeRetried()
+        service.signalBackgroundWriteActionNeedsToBeRetried()
       }
     }
 
@@ -951,6 +1002,45 @@ class BackgroundWriteActionTest {
       }
     }
 
+  }
+
+  @Test
+  fun `newly added write action listeners are still invoked for pending background write action`(): Unit = concurrencyTest {
+    launch {
+      runReadActionBlocking {
+        checkpoint(1)
+        checkpoint(7)
+      }
+    }
+    launch {
+      checkpoint(2)
+      runWriteAction {
+        checkpoint(10)
+      }
+    }
+    checkpoint(3)
+    delay(100.milliseconds)
+    checkpoint(4)
+    application.threadingSupport!!.addWriteActionListener(object : WriteActionListener {
+      override fun beforeWriteActionStart(action: Class<*>) {
+        checkpoint(5)
+      }
+
+      override fun writeActionStarted(action: Class<*>) {
+        checkpoint(9)
+      }
+
+      override fun writeActionFinished(action: Class<*>) {
+        checkpoint(11)
+      }
+
+      override fun afterWriteActionFinished(action: Class<*>) {
+        checkpoint(12)
+      }
+    })
+    checkpoint(6)
+    checkpoint(8)
+    checkpoint(13)
   }
 
 }

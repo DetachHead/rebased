@@ -3,9 +3,10 @@ package org.jetbrains.kotlin.idea.searching.kmp
 
 import com.intellij.openapi.application.runReadAction
 import com.intellij.openapi.module.Module
-import org.jetbrains.kotlin.analysis.api.KaExperimentalApi
-import org.jetbrains.kotlin.analysis.api.analyze
+import org.jetbrains.kotlin.analysis.api.session.analyze
 import org.jetbrains.kotlin.analysis.api.symbols.KaDeclarationSymbol
+import org.jetbrains.kotlin.analysis.api.symbols.getExpectsForActual
+import org.jetbrains.kotlin.analysis.api.symbols.symbol
 import org.jetbrains.kotlin.idea.base.psi.isEffectivelyActual
 import org.jetbrains.kotlin.idea.search.ExpectActualSupport
 import org.jetbrains.kotlin.psi.KtCallableDeclaration
@@ -24,7 +25,6 @@ class KotlinK2ExpectActualSupport: ExpectActualSupport {
         return declaration.findAllActualForExpect( runReadAction { module?.moduleWithDependentsScope ?: declaration.useScope } ).mapNotNull { it.element }.toSet()
     }
 
-    @OptIn(KaExperimentalApi::class)
     override fun expectDeclarationIfAny(declaration: KtDeclaration): KtDeclaration? {
         if (declaration.isExpectDeclaration()) return declaration
         if (!declaration.isEffectivelyActual()) return null

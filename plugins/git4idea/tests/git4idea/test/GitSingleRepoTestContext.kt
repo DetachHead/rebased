@@ -12,6 +12,7 @@ import com.intellij.vcs.log.util.VcsLogUtil
 import com.intellij.vcs.test.updateChangeListManager
 import git4idea.GitUtil
 import git4idea.repo.GitRepository
+import org.assertj.core.api.Assertions.assertThat
 import java.nio.file.Files
 import kotlin.test.DefaultAsserter.assertTrue
 
@@ -22,11 +23,13 @@ interface GitSingleRepoContext : GitPlatformTestContext {
 fun TestFixture<GitPlatformTestContext>.gitSingleRepoFixture(makeInitialCommit: Boolean): TestFixture<GitSingleRepoContext> = testFixture {
   val gitPlatformContext = init()
   val repo = createRepository(gitPlatformContext.project, gitPlatformContext.projectNioRoot, makeInitialCommit)
-  val result = object : GitSingleRepoContext, GitPlatformTestContext by gitPlatformContext {
+  initialized(gitPlatformContext.withRepo(repo)) {}
+}
+
+private fun GitPlatformTestContext.withRepo(repo: GitRepository): GitSingleRepoContext =
+  object : GitSingleRepoContext, GitPlatformTestContext by this {
     override val repo = repo
   }
-  initialized(result) {}
-}
 
 fun GitSingleRepoContext.build(f: RepoBuilder.() -> Unit) = build(repo, f)
 
@@ -64,4 +67,20 @@ fun GitSingleRepoContext.renameFile(file: VirtualFile, newName: String) {
 fun GitSingleRepoContext.assertUnversioned(file: VirtualFile) {
   assertTrue("File should be unversioned! All changes: " + GitUtil.getLogString(projectPath, changeListManager.allChanges),
              changeListManager.isUnversioned(file))
+}
+
+internal fun GitSingleRepoContext.`do nothing on merge`() {
+  vcsHelper.onMerge {}
+}
+
+internal fun GitSingleRepoContext.`mark as resolved on merge`() {
+  vcsHelper.onMerge { git("add -u .") }
+}
+
+internal fun GitSingleRepoContext.`assert merge dialog was shown`() {
+  assertThat(vcsHelper.mergeDialogWasShown()).describedAs("Merge dialog was not shown").isTrue()
+}
+
+internal fun GitSingleRepoContext.`assert commit dialog was shown`() {
+  assertThat(vcsHelper.commitDialogWasShown()).describedAs("Commit dialog was not shown").isTrue()
 }

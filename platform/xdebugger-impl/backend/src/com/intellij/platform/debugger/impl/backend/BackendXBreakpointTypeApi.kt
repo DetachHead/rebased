@@ -22,7 +22,6 @@ import com.intellij.platform.debugger.impl.rpc.InlineBreakpointVariantWithMatchi
 import com.intellij.platform.debugger.impl.rpc.InlineBreakpointVariantsOnLine
 import com.intellij.platform.debugger.impl.rpc.TimeoutSafeResult
 import com.intellij.platform.debugger.impl.rpc.VariantSelectedResponse
-import com.intellij.platform.debugger.impl.rpc.XBreakpointDto
 import com.intellij.platform.debugger.impl.rpc.XBreakpointId
 import com.intellij.platform.debugger.impl.rpc.XBreakpointTypeApi
 import com.intellij.platform.debugger.impl.rpc.XBreakpointTypeDto
@@ -42,8 +41,8 @@ import com.intellij.platform.debugger.impl.rpc.XLineBreakpointVariantDto
 import com.intellij.platform.debugger.impl.rpc.XNoBreakpointPossibleResponse
 import com.intellij.platform.debugger.impl.rpc.XRemoveBreakpointResponse
 import com.intellij.platform.debugger.impl.rpc.XToggleLineBreakpointResponse
+import com.intellij.platform.debugger.impl.rpc.xExpression
 import com.intellij.platform.project.ProjectId
-import com.intellij.platform.project.findProject
 import com.intellij.platform.project.findProjectOrNull
 import com.intellij.util.DocumentUtil
 import com.intellij.util.concurrency.annotations.RequiresReadLock
@@ -55,6 +54,7 @@ import com.intellij.xdebugger.breakpoints.XBreakpointProperties
 import com.intellij.xdebugger.breakpoints.XBreakpointType
 import com.intellij.xdebugger.breakpoints.XLineBreakpointAdditionalInfo
 import com.intellij.xdebugger.breakpoints.XLineBreakpointType
+import com.intellij.xdebugger.breakpoints.XLineBreakpointVerticalPlacement
 import com.intellij.xdebugger.impl.XDebuggerUtilImpl
 import com.intellij.xdebugger.impl.breakpoints.InlineBreakpointsVariantsManager
 import com.intellij.xdebugger.impl.breakpoints.InlineVariantWithMatchingBreakpoint
@@ -78,6 +78,7 @@ import kotlinx.coroutines.channels.ClosedReceiveChannelException
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.buffer
 import kotlinx.coroutines.flow.channelFlow
+import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.launch
 import org.jetbrains.concurrency.asDeferred
 import org.jetbrains.concurrency.await
@@ -89,7 +90,8 @@ internal class BackendXBreakpointTypeApi : XBreakpointTypeApi {
   private val requestCounter = AtomicInteger()
 
   override suspend fun getBreakpointTypeList(project: ProjectId): XBreakpointTypeList {
-    val project = project.findProject()
+    val project = project.findProjectOrNull()
+                  ?: return XBreakpointTypeList(emptyList(), emptyFlow<List<XBreakpointTypeDto>>().toRpc())
     val initialTypes = getCurrentBreakpointTypeDtos(project)
     val typesFlow = channelFlow {
       val channelCs = this@channelFlow
@@ -130,21 +132,20 @@ internal class BackendXBreakpointTypeApi : XBreakpointTypeApi {
       }
     }
     catch (@Suppress("IncorrectCancellationExceptionHandling") e: CancellationException) {
-      @Suppress("IncorrectCancellationExceptionHandling")
       LOG.info("Request getBreakpointsInfo was cancelled: $e")
       return null
     }
   }
 
-  override suspend fun addBreakpointThroughLux(projectId: ProjectId, typeId: XBreakpointTypeId): TimeoutSafeResult<XBreakpointDto?> {
-    val project = projectId.findProjectOrNull() ?: return CompletableDeferred<XBreakpointDto?>(value = null)
-    val type = XBreakpointUtil.findType(typeId.id) ?: return CompletableDeferred<XBreakpointDto?>(value = null)
+  override suspend fun addBreakpointThroughLux(projectId: ProjectId, typeId: XBreakpointTypeId): TimeoutSafeResult<XBreakpointId?> {
+    val project = projectId.findProjectOrNull() ?: return CompletableDeferred(value = null)
+    val type = XBreakpointUtil.findType(typeId.id) ?: return CompletableDeferred(value = null)
     return project.service<BackendXBreakpointTypeApiProjectCoroutineScope>().cs.async(Dispatchers.EDT) {
       val requestId = requestCounter.getAndIncrement()
       val rawBreakpoint = type.addBreakpoint(project, null)
       val xBreakpointBase = rawBreakpoint as? XBreakpointBase<*, *, *>
       LOG.debug { "[$requestId] Adding breakpoint through lux: ${xBreakpointBase?.breakpointId}" }
-      xBreakpointBase?.toRpc()
+      xBreakpointBase?.breakpointId
     }
   }
 
@@ -169,19 +170,19 @@ internal class BackendXBreakpointTypeApi : XBreakpointTypeApi {
       return XNoBreakpointPossibleResponse
     }
 
-    val singleVariant = variants.singleOrNull()
-    if (singleVariant != null) {
-      val variantText = readAction { singleVariant.text }
-      LOG.debug { "[$requestId] Single variant found: $variantText" }
-
-      if (request.hasBreakpoints) {
-        LOG.debug { "[$requestId] Breakpoint exists, returning XRemoveBreakpointResponse" }
-        return XRemoveBreakpointResponse
+    if (request.placement == XLineBreakpointVerticalPlacement.INTER_LINE) {
+      val fullLineVariant = readAction { variants.firstOrNull { !it.isMultiVariant && it.highlightRange == null } }
+      if (fullLineVariant == null) {
+        LOG.debug { "[$requestId] No full-line variant found for inter-line breakpoint, returning XNoBreakpointPossibleResponse" }
+        return XNoBreakpointPossibleResponse
       }
 
-      val breakpoint = createBreakpointByVariant(project, singleVariant, position, request)
-      LOG.debug { "[$requestId] Created breakpoint: $breakpoint, returning XLineBreakpointInstalledResponse" }
-      return XLineBreakpointInstalledResponse(breakpoint.breakpointId)
+      return toggleSingleVariantBreakpoint(fullLineVariant, requestId, request, project, position)
+    }
+
+    val singleVariant = variants.singleOrNull()
+    if (singleVariant != null) {
+      return toggleSingleVariantBreakpoint(singleVariant, requestId, request, project, position)
     }
 
     LOG.debug { "[$requestId] Multiple variants found (${variants.size}), creating selection dialog" }
@@ -217,6 +218,26 @@ internal class BackendXBreakpointTypeApi : XBreakpointTypeApi {
     return XLineBreakpointMultipleVariantResponse(variantDtos, selectionCallback)
   }
 
+  private suspend fun toggleSingleVariantBreakpoint(
+    singleVariant: XLineBreakpointType<XBreakpointProperties<*>>.XLineBreakpointVariant,
+    requestId: Int,
+    request: XLineBreakpointInstallationRequest,
+    project: Project,
+    position: XSourcePosition,
+  ): XToggleLineBreakpointResponse {
+    val variantText = readAction { singleVariant.text }
+    LOG.debug { "[$requestId] Single variant found: $variantText" }
+
+    if (request.hasBreakpoints) {
+      LOG.debug { "[$requestId] Breakpoint exists, returning XRemoveBreakpointResponse" }
+      return XRemoveBreakpointResponse
+    }
+
+    val breakpoint = createBreakpointByVariant(project, singleVariant, position, request)
+    LOG.debug { "[$requestId] Created breakpoint: $breakpoint, returning XLineBreakpointInstalledResponse" }
+    return XLineBreakpointInstalledResponse(breakpoint.breakpointId)
+  }
+
   private suspend fun createBreakpointByVariant(
     project: Project,
     variant: XLineBreakpointType<XBreakpointProperties<*>>.XLineBreakpointVariant,
@@ -230,7 +251,7 @@ internal class BackendXBreakpointTypeApi : XBreakpointTypeApi {
       setVerticalPlacement(placement)
       if (request.isLogging) {
         setSuspendPolicy(SuspendPolicy.NONE)
-        setLogExpressionIfEnabled(request.logExpression)
+        setLogExpressionIfEnabled(request.logExpression?.xExpression())
       }
       setTemporary(request.isTemporary)
     }
@@ -267,7 +288,7 @@ internal class BackendXBreakpointTypeApi : XBreakpointTypeApi {
   }
 
   override suspend fun computeInlineBreakpointVariants(projectId: ProjectId, fileId: VirtualFileId, lines: Set<Int>, documentPatchVersion: DocumentPatchVersion?): List<InlineBreakpointVariantsOnLine>? {
-    val project = projectId.findProject()
+    val project = projectId.findProjectOrNull() ?: return emptyList()
     val file = fileId.virtualFile() ?: return emptyList()
     val document = readAction { file.findDocument() } ?: return emptyList()
     if (!document.awaitIsInSyncAndCommitted(project, documentPatchVersion)) return null
@@ -278,7 +299,7 @@ internal class BackendXBreakpointTypeApi : XBreakpointTypeApi {
   }
 
   override suspend fun createVariantBreakpoint(projectId: ProjectId, fileId: VirtualFileId, line: Int, variantId: XInlineBreakpointVariantId) {
-    val project = projectId.findProject()
+    val project = projectId.findProjectOrNull() ?: return
     val file = fileId.virtualFile() ?: return
     val variant = variantId.findValue() ?: return
     val breakpointManager = getBreakpointManager(project)
@@ -319,6 +340,7 @@ internal class BackendXBreakpointTypeApi : XBreakpointTypeApi {
       enabledIcon = enabledIcon.rpcId(),
       disabledIcon = disabledIcon.rpcId(),
       suspendNoneIcon = suspendNoneIcon.rpcId(),
+      suspendNoneDisabledIcon = suspendNoneDisabledIcon.rpcId(),
       mutedEnabledIcon = mutedEnabledIcon.rpcId(),
       mutedDisabledIcon = mutedDisabledIcon.rpcId(),
       pendingIcon = pendingIcon?.rpcId(),
@@ -327,9 +349,10 @@ internal class BackendXBreakpointTypeApi : XBreakpointTypeApi {
     )
     // TODO: do we need to subscribe on [defaultState] changes?
     return XBreakpointTypeDto(
-      XBreakpointTypeId(id), index, title, isSuspendThreadSupported, lineTypeInfo, defaultState.suspendPolicy,
+      XBreakpointTypeId(id), index, title, isSuspendThreadSupported, isTemporaryBreakpointSupported, lineTypeInfo, defaultState.suspendPolicy,
       standardPanels = visibleStandardPanels.mapTo(mutableSetOf()) { it.toDto() },
       isAddBreakpointButtonVisible,
+      isNewBadgeVisible,
       icons
     )
   }

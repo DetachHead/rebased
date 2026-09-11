@@ -13,7 +13,6 @@ import com.intellij.debugger.ui.tree.DebuggerTreeNode;
 import com.intellij.debugger.ui.tree.NodeDescriptor;
 import com.intellij.debugger.ui.tree.ValueDescriptor;
 import com.intellij.psi.PsiElement;
-import com.intellij.ui.SimpleColoredComponent;
 import com.intellij.xdebugger.impl.ui.XDebuggerUIConstants;
 import com.sun.jdi.ObjectReference;
 import com.sun.jdi.Type;
@@ -24,6 +23,7 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 import java.util.function.Function;
 
 public abstract class NodeRendererImpl implements NodeRenderer {
@@ -161,8 +161,9 @@ public abstract class NodeRendererImpl implements NodeRenderer {
     }
 
     @Override
-    public void customizeRenderer(SimpleColoredComponent renderer) {
-      renderer.append(JavaDebuggerBundle.message("renderer.name", myRenderer.getName()));
+    public @NotNull OverheadProducer.Presentation computePresentation() {
+      return new OverheadProducer.Presentation(
+        JavaDebuggerBundle.message("renderer.name", myRenderer.getName()));
     }
 
     @Override
@@ -180,15 +181,22 @@ public abstract class NodeRendererImpl implements NodeRenderer {
                                  ValueDescriptor descriptor,
                                  EvaluationContext evaluationContext,
                                  DescriptorLabelListener listener) {
-    return renderer.thenApply(r -> {
-      try {
-        return r.calcLabel(descriptor, evaluationContext, listener);
-      }
-      catch (EvaluateException e) {
-        descriptor.setValueLabelFailed(e);
-        listener.labelChanged();
-        return "";
-      }
-    }).getNow(XDebuggerUIConstants.getCollectingDataMessage());
+    // Must be called before we return the temporary label.
+    // The stage can run later, so the update cannot start there.
+    DescriptorLabelListener wrappedListener = ValueDescriptorImpl.startLabelUpdate(descriptor, listener);
+    CompletableFuture<String> label = renderer
+      .thenApply(r -> {
+        try {
+          String text = r.calcLabel(descriptor, evaluationContext, listener);
+          descriptor.setValueLabel(text);
+          return text;
+        }
+        catch (EvaluateException e) {
+          throw new CompletionException(e);
+        }
+      })
+      .exceptionally(throwable -> ValueDescriptorImpl.setValueLabelFailed(descriptor, throwable));
+    label.whenComplete((_, _) -> wrappedListener.labelChanged());
+    return label.getNow(XDebuggerUIConstants.getCollectingDataMessage());
   }
 }

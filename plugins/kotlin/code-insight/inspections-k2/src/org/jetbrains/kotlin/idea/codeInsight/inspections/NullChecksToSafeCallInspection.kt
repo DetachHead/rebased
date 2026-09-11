@@ -6,16 +6,12 @@ import com.intellij.codeInspection.util.InspectionMessage
 import com.intellij.codeInspection.util.IntentionFamilyName
 import com.intellij.modcommand.ModPsiUpdater
 import com.intellij.openapi.project.Project
-import org.jetbrains.kotlin.analysis.api.KaExperimentalApi
 import org.jetbrains.kotlin.analysis.api.KaSession
-import org.jetbrains.kotlin.analysis.api.analyze
-import org.jetbrains.kotlin.analysis.api.components.isMarkedNullable
-import org.jetbrains.kotlin.analysis.api.components.isStableForSmartCasting
-import org.jetbrains.kotlin.analysis.api.components.resolveToCall
-import org.jetbrains.kotlin.analysis.api.resolution.KaCallableMemberCall
-import org.jetbrains.kotlin.analysis.api.resolution.successfulCallOrNull
-import org.jetbrains.kotlin.analysis.api.resolution.symbol
+import org.jetbrains.kotlin.analysis.api.expressions.isStableForSmartCasting
+import org.jetbrains.kotlin.analysis.api.resolution.resolveSuccessfulSymbol
+import org.jetbrains.kotlin.analysis.api.session.analyze
 import org.jetbrains.kotlin.analysis.api.symbols.receiverType
+import org.jetbrains.kotlin.analysis.api.types.isMarkedNullable
 import org.jetbrains.kotlin.idea.base.psi.replaced
 import org.jetbrains.kotlin.idea.base.resources.KotlinBundle
 import org.jetbrains.kotlin.idea.codeinsight.api.applicable.asUnit
@@ -43,7 +39,8 @@ internal class NullChecksToSafeCallInspection : KotlinApplicableInspectionBase.S
     override fun isApplicableByPsi(element: KtBinaryExpression): Boolean =
         collectNullCheckExpressions(element) != null
 
-    override fun KaSession.prepareContext(element: KtBinaryExpression): Unit? =
+    context(session: KaSession)
+    override fun prepareContext(element: KtBinaryExpression): Unit? =
         isNullChecksToSafeCallFixAvailable(element).asUnit
 
     override fun createQuickFix(
@@ -84,8 +81,8 @@ private fun isNullChecksToSafeCallFixAvailable(expression: KtBinaryExpression): 
     val (lte, rte) = collectNullCheckExpressions(expression) ?: return false
     if (!hasStableSmartCast(rte.receiverExpression)) return false
 
-    val resolvedCall = rte.resolveToCall()?.successfulCallOrNull<KaCallableMemberCall<*, *>>() ?: return false
-    val hasNullableExtensionReceiver = resolvedCall.symbol.receiverType?.isMarkedNullable == true
+    val symbol = rte.resolveSuccessfulSymbol() ?: return false
+    val hasNullableExtensionReceiver = symbol.receiverType?.isMarkedNullable == true
 
     return !hasNullableExtensionReceiver && rte.receiverExpression.text.afterIgnoreCalls() == lte.text.afterIgnoreCalls()
 }
@@ -115,7 +112,6 @@ private fun KtBinaryExpression.getNullTestableExpression(expectedOperation: KtTo
     return null
 }
 
-@OptIn(KaExperimentalApi::class)
 context(_: KaSession)
 private fun hasStableSmartCast(expression: KtExpression): Boolean {
     val expressionToCheck = when (expression) {

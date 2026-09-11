@@ -4,7 +4,7 @@ import com.intellij.driver.client.Remote
 import com.intellij.driver.model.RemoteMouseButton
 import java.awt.Point
 
-@Remote("com.jetbrains.performancePlugin.remotedriver.robot.SmoothRobot", plugin = REMOTE_ROBOT_MODULE_ID)
+@Remote("com.jetbrains.performancePlugin.remotedriver.robot.IdeRobot", plugin = REMOTE_ROBOT_MODULE_ID)
 interface Robot {
   fun hasInputFocus(): Boolean
   fun moveMouse(component: Component)
@@ -20,6 +20,7 @@ interface Robot {
   fun click(component: Component, point: Point, button: RemoteMouseButton)
   fun click(component: Component, point: Point, button: RemoteMouseButton, times: Int)
   fun pressAndReleaseKey(keyCode: Int, vararg modifiers: Int)
+  fun dragAndDrop(from: Component, fromPoint: Point, to: Component, toPoint: Point)
   fun pressModifiers(modifierMask: Int)
   /**
    * Performs a strict click in the context of SmoothRobot by repeating the full
@@ -39,6 +40,22 @@ interface Robot {
    * !!! Don't use strictClick if the component should disappear after mouse release.
    */
   fun strictClick(component: Component, point: Point?)
+
+  /**
+   * Enqueues a click addressed to [component] — `times` x (pressed, released, clicked) sourced at the component
+   * itself, at coordinates relative to it ([where] `== null` — its centre) — and returns without waiting.
+   *
+   * For a click whose effect cannot be awaited: a click that opens a modal dialog blocks the dispatching thread
+   * while the dialog is up, so any robot call that waits for its own event to be dispatched deadlocks. Unlike
+   * [click], the recipient is named rather than derived from a screen position, so a popup or balloon appearing in
+   * between cannot take the gesture.
+   *
+   * Nothing beyond `isShowing` and `isEnabled` is guaranteed: delivery is not observed (it happens after this
+   * returns), the aim goes stale if the component moves, a post into a modally blocked window is dropped
+   * silently, and nothing orders it against later driver calls — use `IdeEventQueue.flushQueue` as an explicit
+   * barrier. See the platform-side `IdeRobot.postGesture` KDoc and AT-5091.
+   */
+  fun postGesture(component: Component, where: Point?, button: RemoteMouseButton, times: Int)
 
   fun moveMouseAndPress(component: Component, where: Point?)
   fun pressMouse(mouseButton: RemoteMouseButton)

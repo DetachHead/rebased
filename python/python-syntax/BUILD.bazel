@@ -1,7 +1,7 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
 ### auto-generated section `build intellij.python.syntax` start
-
 jvm_library(
     name = "syntax",
     srcs = glob(
@@ -46,6 +46,8 @@ jvm_library(
     ],
 )
 
+content_module_jar(module = ":syntax")
+
 jvm_library(
     name = "syntax_test_lib",
     testonly = True,
@@ -89,6 +91,7 @@ jvm_library(
 exports_files(
     [
         "intellij.python.syntax.iml",
+        "resources/intellij.python.syntax.xml",
     ],
     visibility = ["//visibility:public"],
 )

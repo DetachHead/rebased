@@ -34,6 +34,12 @@
     <extensionPoint name="psi.referenceContributor" beanClass="com.intellij.psi.impl.source.resolve.reference.PsiReferenceContributorEP" dynamic="true">
       <with attribute="implementation" implements="com.intellij.psi.PsiReferenceContributor"/>
     </extensionPoint>
+    <extensionPoint name="lang.ast.factory" beanClass="com.intellij.lang.LanguageExtensionPoint" dynamic="true">
+      <with attribute="implementationClass" implements="com.intellij.lang.ASTFactory"/>
+    </extensionPoint>
+    <extensionPoint name="lang.treePatcher" beanClass="com.intellij.lang.LanguageExtensionPoint" dynamic="true">
+      <with attribute="implementationClass" implements="com.intellij.psi.templateLanguages.TreePatcher"/>
+    </extensionPoint>
   </extensionPoints>
   <extensions defaultExtensionNs="com.intellij">
     <applicationService serviceInterface="com.intellij.lang.PsiBuilderFactory"
@@ -56,8 +62,6 @@
                     serviceImplementation="com.intellij.psi.impl.file.PsiDirectoryFactoryImpl"/>
     <projectService serviceInterface="com.intellij.psi.PsiFileFactory"
                     serviceImplementation="com.intellij.psi.impl.PsiFileFactoryImpl"/>
-    <applicationService serviceInterface="com.intellij.openapi.vfs.VirtualFileSetFactory"
-                        serviceImplementation="com.intellij.openapi.vfs.CompactVirtualFileSetFactory"/>
     <applicationService serviceInterface="com.intellij.diagnostic.PluginProblemReporter"
                         serviceImplementation="com.intellij.diagnostic.PluginProblemReporterImpl"/>
     <projectService serviceImplementation="com.intellij.psi.impl.source.resolve.ResolveCache"/>

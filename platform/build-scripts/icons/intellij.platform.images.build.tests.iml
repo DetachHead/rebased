@@ -17,7 +17,7 @@
     <orderEntry type="module" module-name="intellij.platform.jps.model.serialization" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.buildScripts.downloader" scope="TEST" />
     <orderEntry type="library" scope="TEST" name="kotlin-stdlib" level="project" />
-    <orderEntry type="library" scope="TEST" name="JUnit4" level="project" />
+    <orderEntry type="module" module-name="intellij.libraries.junit4" scope="TEST" />
     <orderEntry type="module" module-name="intellij.libraries.commons.imaging" scope="RUNTIME" />
     <orderEntry type="module" module-name="intellij.libraries.opentelemetry" scope="TEST" />
     <orderEntry type="module" module-name="intellij.libraries.opentelemetry.semconv" scope="TEST" />
@@ -48,7 +48,7 @@
       </library>
     </orderEntry>
     <orderEntry type="module" module-name="intellij.libraries.hash4j" scope="TEST" />
-    <orderEntry type="library" scope="TEST" name="jetbrains.intellij.deps.eclipse.jgit" level="project" />
+    <orderEntry type="module" module-name="intellij.libraries.jgit" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.images.tests" scope="TEST" />
     <orderEntry type="module" module-name="intellij.regexp.tests" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.debugger.impl.tests" scope="TEST" />

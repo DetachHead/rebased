@@ -26,7 +26,7 @@ import com.intellij.ide.starter.plugins.PluginConfigurator
 import com.intellij.ide.starter.report.AllurePath
 import com.intellij.ide.starter.report.ErrorReporter
 import com.intellij.ide.starter.report.ErrorReporterToCI
-import com.intellij.ide.starter.report.FailureDetailsOnCI
+import com.intellij.ide.starter.report.DetailsOnCI
 import com.intellij.ide.starter.report.publisher.ReportPublisher
 import com.intellij.ide.starter.report.publisher.impl.ConsoleTestResultPublisher
 import com.intellij.ide.starter.runner.CurrentTestMethod
@@ -35,6 +35,8 @@ import com.intellij.ide.starter.runner.IDEProcess
 import com.intellij.ide.starter.runner.LocalIDEProcess
 import com.intellij.ide.starter.runner.NoOpDevBuildServerRunner
 import com.intellij.ide.starter.runner.RemDevTestContainer
+import com.intellij.ide.starter.runner.NoTestAborter
+import com.intellij.ide.starter.runner.TestAborter
 import com.intellij.ide.starter.runner.TestContainer
 import com.intellij.ide.starter.runner.TestContainerImpl
 import com.intellij.ide.starter.runner.targets.LocalOnlyTargetResolver
@@ -67,7 +69,7 @@ private var _di = DI {
   bindSingleton<GlobalPaths> { StarterGlobalPaths() }
   bindSingleton<CIServer> { NoCIServer }
   bindSingleton<ErrorReporter> { ErrorReporterToCI }
-  bindSingleton<FailureDetailsOnCI> { object : FailureDetailsOnCI {} }
+  bindSingleton<DetailsOnCI> { object : DetailsOnCI {} }
   bindFactory<IDETestContext, PluginConfigurator> { testContext: IDETestContext -> PluginConfigurator(testContext) }
   bindSingleton<IdeDownloader> { PublicIdeDownloader() }
   bindSingleton<IdeInstallerFactory> { IdeInstallerFactory() }
@@ -102,6 +104,9 @@ private var _di = DI {
   bindSingleton<ScrambleToolProvider> { object : ScrambleToolProvider {} }
   bindSingleton<DevBuildServerRunner> { NoOpDevBuildServerRunner }
   bindSingleton<CodeOwnerResolver> { NoOpCodeOwnerResolver }
+  bindSingleton<TestAborter> {
+    ServiceLoader.load(TestAborter::class.java, TestAborter::class.java.classLoader).firstOrNull() ?: NoTestAborter
+  }
 
   // Discover and bind all IDE product IdeInfo via ServiceLoader
   val ideProducts = ServiceLoader.load(IdeProductInit::class.java, IdeProductInit::class.java.classLoader).toList()

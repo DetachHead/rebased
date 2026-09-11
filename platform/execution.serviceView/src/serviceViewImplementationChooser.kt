@@ -1,4 +1,4 @@
-// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.platform.execution.serviceView
 
 import com.intellij.openapi.application.ex.ApplicationInfoEx
@@ -13,6 +13,9 @@ import java.util.MissingResourceException
 private val LOG  by lazy {
   fileLogger()
 }
+
+// value of `services.view.split.products` that enables the split implementation in every product
+private const val ALL_PRODUCTS = "*"
 
 @ApiStatus.Internal
 // FIXME: When we consider client services stable enough, all usages of the method must be removed,
@@ -74,8 +77,10 @@ private val shouldEnableLuxedRunToolwindowInServiceViewCachedRegistryValue by la
 // mutating state of current services implementation
 @ApiStatus.Internal
 fun isCurrentProductSupportSplitServiceView(): Boolean {
-  val value = getValueIfExists("services.view.split.products")?.asString() ?: return false
-  val productCodes = value.split(",").toSet()
+  val value = getValueIfExists("services.view.split.products")?.asString()?.trim() ?: return false
+  if (value == ALL_PRODUCTS) return true
+
+  val productCodes = value.split(",").mapTo(mutableSetOf()) { it.trim() }
   val currentProductCode = if (IdeProductMode.isFrontend) {
     ApplicationInfoEx.getInstanceEx().fullIdeProductCode
   }
@@ -90,10 +95,6 @@ fun setServiceViewImplementationForNextIdeRun(shouldEnableSplitImplementation: B
   getValueIfExists("services.view.split.enabled")?.setValue(shouldEnableSplitImplementation)
   getValueIfExists("services.view.split.run.luxing.enabled")?.setValue(shouldEnableSplitImplementation)
 
-  if (shouldEnableSplitImplementation) {
-    // do not disable debugger since it is a separate functionality, only enable it if services are enabled as well
-    getValueIfExists("xdebugger.toolwindow.split.remdev")?.setValue(true)
-  }
   getValueIfExists("docker.split.service.view.enabled")?.setValue(shouldEnableSplitImplementation)
   getValueIfExists("docker.registry.split.service.view.enabled")?.setValue(shouldEnableSplitImplementation)
 }
@@ -103,7 +104,6 @@ fun getServiceViewRegistryFlagsState(): Map<String, Boolean> {
   return mapOf(
     "services.view.split.enabled" to Registry.`is`("services.view.split.enabled", true),
     "services.view.split.run.luxing.enabled" to Registry.`is`("services.view.split.run.luxing.enabled", true),
-    "xdebugger.toolwindow.split.remdev" to Registry.`is`("xdebugger.toolwindow.split.remdev", true),
     "docker.split.service.view.enabled" to Registry.`is`("docker.split.service.view.enabled", true),
     "docker.registry.split.service.view.enabled" to Registry.`is`("docker.registry.split.service.view.enabled", true),
   )

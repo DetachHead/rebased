@@ -1,9 +1,18 @@
 load("@community//build:tests-options.bzl", "jps_test")
 load("@rules_jvm//:jvm.bzl", "jvm_library")
 load("//build:compiler-options.bzl", "create_kotlinc_options")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
+
+jps_test(
+    name = "jewel-markdown-core-tests_test",
+    timeout = "moderate",
+    tags = ["community-aggregator"],
+    runtime_deps = [":jewel-markdown-core-tests_test_lib"],
+)
+
+### skip generation section `test intellij.platform.jewel.markdown.core.tests`
 
 ### auto-generated section `build intellij.platform.jewel.markdown.core` start
-
 create_kotlinc_options(
     name = "custom_core",
     opt_in = [
@@ -38,7 +47,7 @@ jvm_library(
         # do not sort,
         "@lib//:kotlin-stdlib",
         "//libraries/kotlinx/coroutines/core",
-        "@lib//:jetbrains-annotations",
+        "//libraries/jetbrains/annotations",
         "//platform/jewel/ui",
         "@lib//:platform-jewel-markdown-core-org-commonmark-commonmark",
         "//platform/jewel/foundation",
@@ -46,6 +55,11 @@ jvm_library(
         "//libraries/compose-runtime-desktop",
         "//libraries/jsoup",
     ],
+)
+
+content_module_jar(
+    libraries = ["@lib//:platform-jewel-markdown-core-org-commonmark-commonmark"],
+    module = ":core",
 )
 
 jvm_library(
@@ -63,6 +77,7 @@ jvm_library(
         # do not sort,
         ":core",
         "//libraries/kotlinx/coroutines/core:core_test_lib",
+        "//libraries/jetbrains/annotations:annotations_test_lib",
         "//platform/jewel/ui:ui_test_lib",
         "//platform/jewel/foundation:foundation_test_lib",
         "//libraries/compose-foundation-desktop:compose-foundation-desktop_test_lib",
@@ -80,13 +95,14 @@ jvm_library(
 exports_files(
     [
         "intellij.platform.jewel.markdown.core.iml",
+        "src/main/resources/intellij.platform.jewel.markdown.core.xml",
+        "module-content.yaml",
     ],
     visibility = ["//visibility:public"],
 )
 ### auto-generated section `iml intellij.platform.jewel.markdown.core` end
 
 ### auto-generated section `build intellij.platform.jewel.markdown.core.tests` start
-
 create_kotlinc_options(
     name = "custom_jewel-markdown-core-tests",
     opt_in = [
@@ -138,7 +154,8 @@ jvm_library(
         "@lib//:kotlin-stdlib",
         "//libraries/kotlinx/coroutines/core",
         "//libraries/kotlinx/coroutines/core:core_test_lib",
-        "@lib//:jetbrains-annotations",
+        "//libraries/jetbrains/annotations",
+        "//libraries/jetbrains/annotations:annotations_test_lib",
         "//platform/jewel/ui",
         "//platform/jewel/ui:ui_test_lib",
         "@lib//:platform-jewel-markdown-core-tests-org-commonmark-commonmark",
@@ -168,11 +185,3 @@ exports_files(
     visibility = ["//visibility:public"],
 )
 ### auto-generated section `iml intellij.platform.jewel.markdown.core.tests` end
-
-### auto-generated section `test intellij.platform.jewel.markdown.core.tests` start
-
-jps_test(
-    name = "jewel-markdown-core-tests_test",
-    runtime_deps = [":jewel-markdown-core-tests_test_lib"],
-)
-### auto-generated section `test intellij.platform.jewel.markdown.core.tests` end

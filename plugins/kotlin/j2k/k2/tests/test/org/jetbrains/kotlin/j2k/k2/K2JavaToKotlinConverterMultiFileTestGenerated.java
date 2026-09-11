@@ -23,6 +23,11 @@ public class K2JavaToKotlinConverterMultiFileTestGenerated extends AbstractK2Jav
         KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
     }
 
+    @TestMetadata("AllOpenFieldToProperty")
+    public void testAllOpenFieldToProperty() throws Exception {
+        runTest("../../shared/tests/testData/multiFile/AllOpenFieldToProperty/");
+    }
+
     @TestMetadata("AnnotationDoesNotLoseImport")
     public void testAnnotationDoesNotLoseImport() throws Exception {
         runTest("../../shared/tests/testData/multiFile/AnnotationDoesNotLoseImport/");
@@ -68,6 +73,11 @@ public class K2JavaToKotlinConverterMultiFileTestGenerated extends AbstractK2Jav
         runTest("../../shared/tests/testData/multiFile/JavaUsageOfBothFieldAndAccessor/");
     }
 
+    @TestMetadata("Jsr305PackageDefault")
+    public void testJsr305PackageDefault() throws Exception {
+        runTest("../../shared/tests/testData/multiFile/Jsr305PackageDefault/");
+    }
+
     @TestMetadata("KT11952")
     public void testKT11952() throws Exception {
         runTest("../../shared/tests/testData/multiFile/KT11952/");
@@ -81,6 +91,11 @@ public class K2JavaToKotlinConverterMultiFileTestGenerated extends AbstractK2Jav
     @TestMetadata("OverridePropertyAndUseAnotherPropertyOfSupertypeCompanion")
     public void testOverridePropertyAndUseAnotherPropertyOfSupertypeCompanion() throws Exception {
         runTest("../../shared/tests/testData/multiFile/OverridePropertyAndUseAnotherPropertyOfSupertypeCompanion/");
+    }
+
+    @TestMetadata("PackageNullMarked")
+    public void testPackageNullMarked() throws Exception {
+        runTest("../../shared/tests/testData/multiFile/PackageNullMarked/");
     }
 
     @TestMetadata("ProtectedVisibility")

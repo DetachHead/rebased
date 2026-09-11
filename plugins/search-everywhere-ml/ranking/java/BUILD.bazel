@@ -1,7 +1,7 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
 ### auto-generated section `build intellij.searchEverywhereMl.ranking.java` start
-
 jvm_library(
     name = "java",
     srcs = glob(
@@ -30,6 +30,8 @@ jvm_library(
     ],
 )
 
+content_module_jar(module = ":java")
+
 jvm_library(
     name = "java_test_lib",
     testonly = True,
@@ -56,6 +58,7 @@ jvm_library(
 exports_files(
     [
         "intellij.searchEverywhereMl.ranking.java.iml",
+        "resources/intellij.searchEverywhereMl.ranking.java.xml",
     ],
     visibility = ["//visibility:public"],
 )

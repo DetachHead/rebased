@@ -1,7 +1,6 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
 
 ### auto-generated section `build intellij.libraries.androidx.collections` start
-
 jvm_library(
     name = "androidx-collections",
     srcs = glob(
@@ -37,6 +36,7 @@ jvm_library(
 exports_files(
     [
         "intellij.libraries.androidx.collections.iml",
+        "resources/intellij.libraries.androidx.collections.xml",
     ],
     visibility = ["//visibility:public"],
 )

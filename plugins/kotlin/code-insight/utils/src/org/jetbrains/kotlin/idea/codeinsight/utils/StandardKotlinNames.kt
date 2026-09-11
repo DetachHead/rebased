@@ -11,6 +11,7 @@ import org.jetbrains.kotlin.name.JvmStandardClassIds
 import org.jetbrains.kotlin.name.Name
 import org.jetbrains.kotlin.name.StandardClassIds.BASE_COLLECTIONS_PACKAGE
 import org.jetbrains.kotlin.name.StandardClassIds.BASE_ENUMS_PACKAGE
+import org.jetbrains.kotlin.name.StandardClassIds.BASE_KOTLIN_PACKAGE
 import org.jetbrains.kotlin.name.StandardClassIds.BASE_SEQUENCES_PACKAGE
 
 @ApiStatus.Internal
@@ -37,6 +38,7 @@ object StandardKotlinNames {
         @JvmField val flatten: FqName = BASE_COLLECTIONS_PACKAGE + "flatten"
         @JvmField val map: FqName = BASE_COLLECTIONS_PACKAGE + "map"
         @JvmField val mapIndexed: FqName = BASE_COLLECTIONS_PACKAGE + "mapIndexed"
+        @JvmField val mapNotNull: FqName = BASE_COLLECTIONS_PACKAGE + "mapNotNull"
         @JvmField val emptyList: FqName = BASE_COLLECTIONS_PACKAGE + "emptyList"
         @JvmField val emptyMap: FqName = BASE_COLLECTIONS_PACKAGE + "emptyMap"
         @JvmField val emptySet: FqName = BASE_COLLECTIONS_PACKAGE + "emptySet"
@@ -46,6 +48,19 @@ object StandardKotlinNames {
 
         @JvmField val plusAssign: CallableId = CallableId(BASE_COLLECTIONS_PACKAGE, Name.identifier("plusAssign"))
         @JvmField val minusAssign: CallableId = CallableId(BASE_COLLECTIONS_PACKAGE, Name.identifier("minusAssign"))
+
+        @JvmField val mutableFactories: List<CallableId> = listOf(
+            "mutableListOf",
+            "arrayListOf",
+            "mutableSetOf",
+            "hashSetOf",
+            "linkedSetOf",
+            "sortedSetOf",
+            "mutableMapOf",
+            "hashMapOf",
+            "linkedMapOf",
+            "sortedMapOf",
+        ).map { CallableId(BASE_COLLECTIONS_PACKAGE, Name.identifier(it)) }
 
         @JvmField val transformations: List<FqName> =
             collectionTransformationFunctionNames.map { BASE_COLLECTIONS_PACKAGE + it }
@@ -155,6 +170,8 @@ object StandardKotlinNames {
     @JvmField val takeUnless: FqName = BUILT_INS_PACKAGE_FQ_NAME + "takeUnless"
 
     @JvmField val context: FqName = BUILT_INS_PACKAGE_FQ_NAME + "context"
+    @JvmField val WITH_CALLABLE_ID: CallableId = CallableId(BASE_KOTLIN_PACKAGE, Name.identifier("with"))
+    @JvmField val contextCallableId : CallableId = CallableId(BASE_KOTLIN_PACKAGE, Name.identifier("context"))
 
     private val collectionTransformationFunctionNames = listOf(
         "chunked",

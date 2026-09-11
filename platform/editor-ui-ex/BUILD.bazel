@@ -1,7 +1,7 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
 ### auto-generated section `build intellij.platform.editor.ex` start
-
 jvm_library(
     name = "editor-ex",
     srcs = glob(
@@ -38,6 +38,15 @@ jvm_library(
         "//platform/statistics",
         "//libraries/jbr",
         "//libraries/kotlinx/collections-immutable:libraries-kotlinx-collections-immutable",
+    ],
+)
+
+content_module_jar(
+    module = ":editor-ex",
+    modules_after = [
+        # do not sort,
+        "//platform/indexing-impl",
+        "//platform/util/storages",
     ],
 )
 
@@ -79,6 +88,8 @@ jvm_library(
 exports_files(
     [
         "intellij.platform.editor.ex.iml",
+        "resources/intellij.platform.editor.ex.xml",
+        "module-content.yaml",
     ],
     visibility = ["//visibility:public"],
 )

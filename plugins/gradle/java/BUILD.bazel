@@ -1,8 +1,8 @@
 load("@community//build:tests-options.bzl", "jps_test")
 load("@rules_jvm//:jvm.bzl", "jvm_library")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
 ### auto-generated section `build intellij.gradle.java` start
-
 jvm_library(
     name = "java",
     srcs = glob(
@@ -86,8 +86,11 @@ jvm_library(
         "//platform/execution",
         "//platform/testRunner",
         "//plugins/properties/properties-psi-impl:backend-psi",
+        "//plugins/gradle/properties",
     ],
 )
+
+content_module_jar(module = ":java")
 
 jvm_library(
     name = "java_test_lib",
@@ -166,6 +169,7 @@ jvm_library(
         "//platform/execution:execution_test_lib",
         "//platform/testRunner:testRunner_test_lib",
         "//plugins/properties/properties-psi-impl:backend-psi_test_lib",
+        "//plugins/gradle/properties:properties_test_lib",
     ],
 )
 ### auto-generated section `build intellij.gradle.java` end
@@ -174,6 +178,7 @@ jvm_library(
 exports_files(
     [
         "intellij.gradle.java.iml",
+        "resources/intellij.gradle.java.xml",
     ],
     visibility = ["//visibility:public"],
 )

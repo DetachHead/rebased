@@ -4,14 +4,12 @@ package com.intellij.openapi.wm.impl;
 import com.intellij.ide.ui.UISettings;
 import com.intellij.ide.util.PropertiesComponent;
 import com.intellij.openapi.Disposable;
-import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.impl.InternalUICustomization;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.editor.ex.EditorEx;
 import com.intellij.openapi.editor.ex.EditorGutterComponentEx;
 import com.intellij.openapi.editor.impl.EditorComponentImpl;
 import com.intellij.openapi.editor.impl.EditorImpl;
-import com.intellij.openapi.fileEditor.impl.EditorEmptyTextPainter;
 import com.intellij.openapi.fileEditor.impl.EditorsSplitters;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.AbstractPainter;
@@ -64,6 +62,7 @@ import java.awt.image.ImageObserver;
 import java.awt.image.VolatileImage;
 import java.util.function.BiFunction;
 import java.util.function.Predicate;
+import java.util.function.Supplier;
 
 /**
  * @author gregsh
@@ -175,23 +174,6 @@ public final class IdeBackgroundUtil {
   static void initFramePainters(@NotNull IdeGlassPaneImpl glassPane) {
     PainterHelper painters = glassPane.getNamedPainters(FRAME_PROP);
     PainterHelper.initWallpaperPainter(FRAME_PROP, painters);
-
-    painters.addPainter(new AbstractPainter() {
-      EditorEmptyTextPainter p = null;
-
-      @Override
-      public boolean needsRepaint() {
-        return true;
-      }
-
-      @Override
-      public void executePaint(@NotNull Component component, @NotNull Graphics2D g) {
-        if (p == null) {
-          p = ApplicationManager.getApplication().getService(EditorEmptyTextPainter.class);
-        }
-        p.paintEmptyText((JComponent)component, g);
-      }
-    }, null);
   }
 
   public static void resetBackgroundImagePainters() {
@@ -223,8 +205,14 @@ public final class IdeBackgroundUtil {
                                                         Insets insets,
                                                         Disposable disposable) {
     PainterHelper paintersHelper = new PainterHelper(root);
-    paintersHelper.addPainter(PainterHelper.newImagePainter(image, fill, anchor, alpha, insets), root);
+    paintersHelper.addPainter(PainterHelper.newImagePainter(() -> image, fill, anchor, alpha, insets), root);
     createTemporaryBackgroundTransform(root, paintersHelper, disposable);
+  }
+
+  @ApiStatus.Internal
+  public static @NotNull AbstractPainter createImagePainter(@NotNull Supplier<? extends Image> imageProvider,
+                                                            Fill fill, Anchor anchor, float alpha, Insets insets) {
+    return PainterHelper.newImagePainter(imageProvider, fill, anchor, alpha, insets);
   }
 
   /**

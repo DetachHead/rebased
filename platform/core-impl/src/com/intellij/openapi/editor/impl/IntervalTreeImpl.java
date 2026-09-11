@@ -49,8 +49,10 @@ public abstract class IntervalTreeImpl<T extends RangeMarkerEx> extends RedBlack
     protected final List<Supplier<? extends E>> intervals;
     int maxEnd; // max of all intervalEnd()s among all children.
     int delta;  // delta of startOffset. getStartOffset() = myStartOffset + Sum of deltas up to root
-    private byte tasteBeneath; // including this node
-    private byte taste; // combined bits of getTasteFlags() for all intervals
+    private byte flavorBeneath; // including this node
+
+    /// combined bits of [RangeMarkerEx#getFlavorFlags] for all intervals
+    private byte flavor;
 
     private volatile long cachedDeltaUpToRoot;
       // field (packed to long for atomicity) containing deltaUpToRoot, node modCount and allDeltasUpAreNull flag
@@ -163,30 +165,30 @@ public abstract class IntervalTreeImpl<T extends RangeMarkerEx> extends RedBlack
         assert myTree.keySize > 0 : myTree.keySize;
         myTree.keySize--;
       }
-      byte oldTaste = oldInterval == null ? -1 : myTree.getTasteFlags(oldInterval);
-      if (oldTaste != 0) {
-        updateTaste();
+      byte oldFlavor = oldInterval == null ? -1 : oldInterval.getFlavorFlags();
+      if (oldFlavor != 0) {
+        updateFlavor();
       }
-      updateTasteFromChildrenUp();
+      updateFlavorFromChildrenUp();
     }
 
-    private void updateTasteBeneathFromChildren() {
-      tasteBeneath = (byte)(taste | tasteBeneath(getLeft()) | tasteBeneath(getRight()));
+    private void updateFlavorBeneathFromChildren() {
+      flavorBeneath = (byte)(flavor | flavorBeneath(getLeft()) | flavorBeneath(getRight()));
     }
 
-    private void updateTaste() {
-      taste = computeTaste();
+    private void updateFlavor() {
+      flavor = computeFlavor();
     }
 
-    private void updateTasteFromChildrenUp() {
+    private void updateFlavorFromChildrenUp() {
       IntervalNode<E> n = this;
       while (n != null) {
-        n.updateTasteBeneathFromChildren();
+        n.updateFlavorBeneathFromChildren();
         n = n.getParent();
       }
     }
 
-    private byte computeTaste() {
+    private byte computeFlavor() {
       byte r = 0;
       List<Supplier<? extends E>> intervals = this.intervals;
       //noinspection ForLoopReplaceableByForEach
@@ -194,7 +196,7 @@ public abstract class IntervalTreeImpl<T extends RangeMarkerEx> extends RedBlack
         Supplier<? extends E> interval = intervals.get(i);
         E e = interval.get();
         if (e != null) {
-          r |= myTree.getTasteFlags(e);
+          r |= e.getFlavorFlags();
         }
       }
       return r;
@@ -210,15 +212,15 @@ public abstract class IntervalTreeImpl<T extends RangeMarkerEx> extends RedBlack
       }
     }
 
-    protected void addIntervalsFrom(@NotNull IntervalNode<E> otherNode) {
+    protected void addIntervalsFrom(@NotNull IntervalNode<? extends E> otherNode) {
       for (Supplier<? extends E> key : otherNode.intervals) {
         E interval = key.get();
         if (interval != null) {
           addInterval(interval);
         }
       }
-      updateTaste();
-      updateTasteFromChildrenUp();
+      updateFlavor();
+      updateFlavorFromChildrenUp();
     }
 
     int computeDeltaUpToRoot() {
@@ -286,14 +288,14 @@ public abstract class IntervalTreeImpl<T extends RangeMarkerEx> extends RedBlack
 
     void changeDelta(int change) {
       if (change != 0) {
-        setCachedValues(0, false, 0); // deltaUpToRoot is not valid anymore
+        setCachedValues(false, 0); // deltaUpToRoot is not valid anymore
         delta += change;
       }
     }
 
     void clearDelta() {
       if (delta != 0) {
-        setCachedValues(0, false, 0); // deltaUpToRoot is not valid anymore
+        setCachedValues(false, 0); // deltaUpToRoot is not valid anymore
         delta = 0;
       }
     }
@@ -344,15 +346,15 @@ public abstract class IntervalTreeImpl<T extends RangeMarkerEx> extends RedBlack
     private static final VarHandleWrapper
       cachedDeltaHandler = VarHandleWrapper.getFactory().create(IntervalNode.class, "cachedDeltaUpToRoot", long.class);
 
-    private void setCachedValues(int deltaUpToRoot, boolean allDeltaUpToRootAreNull, int modCount) {
-      cachedDeltaUpToRoot = packValues(deltaUpToRoot, allDeltaUpToRootAreNull, modCount);
+    private void setCachedValues(boolean allDeltaUpToRootAreNull, int modCount) {
+      cachedDeltaUpToRoot = packValues(0, allDeltaUpToRootAreNull, modCount);
     }
 
-    // attributes could change the taste
+    // attributes could change the flavor
     protected void attributesChanged() {
       myTree.runUnderWriteLock(() -> {
-        updateTaste();
-        updateTasteFromChildrenUp();
+        updateFlavor();
+        updateFlavorFromChildrenUp();
         return null;
       });
     }
@@ -378,55 +380,17 @@ public abstract class IntervalTreeImpl<T extends RangeMarkerEx> extends RedBlack
       return (int)(packedOffsets >> 33);
     }
 
-    // finds previous in the in-order traversal
-    IntervalNode<E> previous() {
-      IntervalNode<E> left = getLeft();
-      if (left != null) {
-        while (left.getRight() != null) {
-          left = left.getRight();
-        }
-        return left;
-      }
-      IntervalNode<E> parent = getParent();
-      IntervalNode<E> prev = this;
-      while (parent != null) {
-        if (parent.getRight() == prev) break;
-        prev = parent;
-        parent = parent.getParent();
-      }
-      return parent;
-    }
-
-    // finds next node in the in-order traversal
-    IntervalNode<E> next() {
-      IntervalNode<E> right = getRight();
-      if (right != null) {
-        while (right.getLeft() != null) {
-          right = right.getLeft();
-        }
-        return right;
-      }
-      IntervalNode<E> parent = getParent();
-      IntervalNode<E> prev = this;
-      while (parent != null) {
-        if (parent.getLeft() == prev) break;
-        prev = parent;
-        parent = parent.getParent();
-      }
-      return parent;
-    }
-
     @Override
     public @NonNls String toString() {
       return "Node "+TextRangeScalarUtil.create(myRange) + ": "+intervals;
     }
 
     private boolean hasDeliciousIntervalsBeneath(byte tastePreference) {
-      return (tastePreference & tasteBeneath) == tastePreference;
+      return (tastePreference & flavorBeneath) == tastePreference;
     }
 
     private boolean hasDeliciousIntervalsInside(byte tastePreference) {
-      return (tastePreference & taste) == tastePreference;
+      return (tastePreference & flavor) == tastePreference;
     }
   }
 
@@ -813,7 +777,8 @@ public abstract class IntervalTreeImpl<T extends RangeMarkerEx> extends RedBlack
   }
 
   /**
-   * return an iterator containing only intervals marked with some "taste" flags, according to the "tastePreference" bitmask, see {@link #getTasteFlags}
+   * return an iterator containing only intervals marked with some "flavor" flags, according to the "tastePreference" bitmask,
+   * see {@link RangeMarkerEx#getFlavorFlags()}
    */
   @ApiStatus.Internal
   protected MarkupIterator<T> overlappingDeliciousIterator(@NotNull TextRange range, byte tastePreference) {
@@ -868,14 +833,14 @@ public abstract class IntervalTreeImpl<T extends RangeMarkerEx> extends RedBlack
       }
       node.setParent(current);
     }
-    node.setCachedValues(0, true, getModCount());
+    node.setCachedValues(true, getModCount());
     correctMaxUp(node);
     onInsertNode();
     keySize += node.intervals.size();
     insertCase1(node);
     node.setAttachedToTree(true);
-    node.updateTaste();
-    node.updateTasteFromChildrenUp();
+    node.updateFlavor();
+    node.updateFlavorFromChildrenUp();
     verifyProperties();
 
     deleteNodes(gced);
@@ -889,19 +854,6 @@ public abstract class IntervalTreeImpl<T extends RangeMarkerEx> extends RedBlack
         removeNode(node);
       }
     });
-  }
-
-  /**
-   * Some intervals could be marked with one or several "taste" flags,
-   * because some range markers can taste bitter, while others are sweet, err, I mean some range highlighters e.g. should be shown on gutter area, while some others on the error stripe area.
-   * It's assumed the flags are remained constant after the marker is inserted into the tree (meaning this method will return the same value), unless marker attributes are changed.
-   * These flags are maintained during the tree transformations, and allows for faster iteration of these marked intervals, see {@link #overlappingIterator(TextRange, byte)}.
-   * For example, this feature can be used to store highlighters (among all others) that are shown at the error stripe, and iterate them quickly during the editor redraw.
-   * This method must return 0 if the interval has no taste, or one or several flags ORed together, if this interval has these flavors.
-   * See {@link #nextAvailableTasteFlag()} on how to create the flag in the first place.
-   */
-  protected byte getTasteFlags(@NotNull T interval) {
-    return 0;
   }
 
   protected @NotNull IntervalNode<T> addInterval(@NotNull T interval, int start, int end,
@@ -922,10 +874,10 @@ public abstract class IntervalTreeImpl<T extends RangeMarkerEx> extends RedBlack
         // merged
         insertedNode.addInterval(interval);
       }
-      // call getTasteFlags() as late as possible because it could depend on the (not-yet-set?)node attributes
-      byte taste = getTasteFlags(interval);
-      insertedNode.taste |= taste;
-      insertedNode.updateTasteFromChildrenUp();
+      // call getFlavorFlags() as late as possible because it could depend on the (not-yet-set?) node attributes
+      byte flavor = interval.getFlavorFlags();
+      insertedNode.flavor |= flavor;
+      insertedNode.updateFlavorFromChildrenUp();
       checkMax(true);
       checkBelongsToTheTree(interval, true);
       return insertedNode;
@@ -1084,9 +1036,8 @@ public abstract class IntervalTreeImpl<T extends RangeMarkerEx> extends RedBlack
       }
       return false;
     }
-    boolean r = false;
     try {
-      r = runUnderWriteLock(() -> {
+      return runUnderWriteLock(() -> {
         try {
           incModCount();
           boolean ret = false;
@@ -1113,7 +1064,6 @@ public abstract class IntervalTreeImpl<T extends RangeMarkerEx> extends RedBlack
           setNode(interval, null);
         }
       });
-      return r;
     }
     finally {
       fireAfterRemoved(interval);
@@ -1151,9 +1101,9 @@ public abstract class IntervalTreeImpl<T extends RangeMarkerEx> extends RedBlack
     IntervalNode<T> parent = root.getParent();
     assertAllDeltasAreNull(parent);
     int delta = root.delta;
-    root.setCachedValues(0, true, 0);
+    root.setCachedValues(true, 0);
     if (delta == 0) {
-      root.setCachedValues(0, true, getModCount());
+      root.setCachedValues(true, getModCount());
     }
     else {
       root.setRange(TextRangeScalarUtil.shift(root.toScalarRange(), delta, delta));
@@ -1227,24 +1177,24 @@ public abstract class IntervalTreeImpl<T extends RangeMarkerEx> extends RedBlack
     n2.setLeft(l1 == n2 ? n1 : l1);
     if (l1 != null) {
       l1.setParent(n2 == l1 ? p1 : n2);
-      l1.updateTasteBeneathFromChildren();
+      l1.updateFlavorBeneathFromChildren();
     }
     if (r1 != null) {
       r1.setParent(n2);
-      r1.updateTasteBeneathFromChildren();
+      r1.updateFlavorBeneathFromChildren();
     }
     n1.setRight(r2);
     n2.setRight(r1);
     if (l2 != null) {
       l2.setParent(n1);
-      l2.updateTasteBeneathFromChildren();
+      l2.updateFlavorBeneathFromChildren();
     }
     if (r2 != null) {
       r2.setParent(n1);
-      r2.updateTasteBeneathFromChildren();
+      r2.updateFlavorBeneathFromChildren();
     }
-    n1.updateTasteFromChildrenUp();
-    n2.updateTasteFromChildrenUp();
+    n1.updateFlavorFromChildrenUp();
+    n2.updateFlavorFromChildrenUp();
   }
 
   // returns real max endOffset of all intervals below
@@ -1282,8 +1232,8 @@ public abstract class IntervalTreeImpl<T extends RangeMarkerEx> extends RedBlack
     assert delta == 0 : delta;
   }
 
-  private static byte tasteBeneath(@Nullable IntervalNode<?> node) {
-    return node == null ? 0 : node.tasteBeneath;
+  private static byte flavorBeneath(@Nullable IntervalNode<?> node) {
+    return node == null ? 0 : node.flavorBeneath;
   }
 
   @Override
@@ -1311,8 +1261,8 @@ public abstract class IntervalTreeImpl<T extends RangeMarkerEx> extends RedBlack
     assertAllDeltasAreNull(node3);
 
     // node2 is the root now
-    node1.updateTasteBeneathFromChildren();
-    node2.updateTasteBeneathFromChildren();
+    node1.updateFlavorBeneathFromChildren();
+    node2.updateFlavorBeneathFromChildren();
 
     checkMax(false);
   }
@@ -1342,8 +1292,8 @@ public abstract class IntervalTreeImpl<T extends RangeMarkerEx> extends RedBlack
     assertAllDeltasAreNull(node3);
 
     // node3 is the root now
-    node1.updateTasteBeneathFromChildren();
-    node3.updateTasteBeneathFromChildren();
+    node1.updateFlavorBeneathFromChildren();
+    node3.updateFlavorBeneathFromChildren();
 
     checkMax(false);
   }
@@ -1359,9 +1309,9 @@ public abstract class IntervalTreeImpl<T extends RangeMarkerEx> extends RedBlack
     if (newN != null && myNode.isValid()) {
       myChild.changeDelta(myNode.delta);
       //todo correct max up to root??
-      myChild.updateTasteFromChildrenUp();
+      myChild.updateFlavorFromChildrenUp();
     }
-    myNode.updateTasteFromChildrenUp();
+    myNode.updateFlavorFromChildrenUp();
   }
 
   private void assertAllDeltasAreNull(@Nullable IntervalNode<T> node) {
@@ -1407,7 +1357,7 @@ public abstract class IntervalTreeImpl<T extends RangeMarkerEx> extends RedBlack
   }
 
   private boolean isDeliciousInterval(@NotNull T t, byte tastePreference) {
-    return tastePreference == 0 || (tastePreference & getTasteFlags(t)) == tastePreference;
+    return tastePreference == 0 || (tastePreference & t.getFlavorFlags()) == tastePreference;
   }
 
   void changeData(@NotNull T interval, int start, int end,
@@ -1553,67 +1503,6 @@ public abstract class IntervalTreeImpl<T extends RangeMarkerEx> extends RedBlack
     return MarkupIterator.mergeIterators(exact, lines, comparator);
   }
 
-  T findRangeMarkerAfter(@NotNull T marker) {
-    l.readLock().lock();
-    try {
-      IntervalNode<T> node = lookupNode(marker);
-
-      boolean foundMarker = false;
-      while (node != null) {
-        List<Supplier<? extends T>> intervals = node.intervals;
-        //noinspection ForLoopReplaceableByForEach
-        for (int i = 0; i < intervals.size(); i++) {
-          Supplier<? extends T> interval = intervals.get(i);
-          T m = interval.get();
-          if (m == null) continue;
-          if (m == marker) {
-            foundMarker = true;
-          }
-          else if (foundMarker) {
-            // found next to marker
-            return m;
-          }
-        }
-        node = node.next();
-        foundMarker = true; // protection against sudden removal of marker
-      }
-      return null;
-    }
-    finally {
-      l.readLock().unlock();
-    }
-  }
-
-  T findRangeMarkerBefore(@NotNull T marker) {
-    l.readLock().lock();
-    try {
-      IntervalNode<T> node = lookupNode(marker);
-
-      boolean foundMarker = false;
-      while (node != null) {
-        List<Supplier<? extends T>> intervals = node.intervals;
-        for (int i = intervals.size() - 1; i >= 0; i--) {
-          Supplier<? extends T> interval = intervals.get(i);
-          T m = interval.get();
-          if (m == null) continue;
-          if (m == marker) {
-            foundMarker = true;
-          }
-          else if (foundMarker) {
-            // found next to marker
-            return m;
-          }
-        }
-        node = node.previous();
-        foundMarker = true; // protection against sudden removal of marker
-      }
-      return null;
-    }
-    finally {
-      l.readLock().unlock();
-    }
-  }
-
   @ApiStatus.Internal
   public String dumpState() {
     StringBuilder b = new StringBuilder("[\n");
@@ -1628,27 +1517,27 @@ public abstract class IntervalTreeImpl<T extends RangeMarkerEx> extends RedBlack
   protected void verifyProperties() {
     super.verifyProperties();
     if (VERIFY) {
-      verifyTaste((IntervalNode<T>)root);
+      verifyFlavor((IntervalNode<T>)root);
     }
   }
 
-  // return taste of subtree
-  private byte verifyTaste(@Nullable IntervalNode<T> root) {
+  // return flavor of subtree
+  private byte verifyFlavor(@Nullable IntervalNode<T> root) {
     if (root == null) return 0;
-    assert root.taste == root.computeTaste() : "root.taste: "+Integer.toHexString(root.taste)+"; root.computeTaste():"+Integer.toHexString(root.computeTaste())+"; intervals: "+ root.intervals;
-    byte foundInChildren = (byte) (verifyTaste(root.getLeft()) | verifyTaste(root.getRight()));
-    // taste must be a subset of tasteBeneath
-    assert (root.taste & root.tasteBeneath) == root.taste : "root.taste: "+Integer.toHexString(root.taste)+"; root.tasteBeneath:"+Integer.toHexString(root.tasteBeneath)+"; intervals: "+ root.intervals;
-    // tasteBeneath must be same as its children (except for taste bits)
-    assert (root.tasteBeneath & ~root.taste)== (foundInChildren & ~root.taste) : "root.taste: "+Integer.toHexString(root.taste)+"; root.tasteBeneath:"+Integer.toHexString(root.tasteBeneath)+"; foundInChildren:"+Integer.toHexString(foundInChildren)+"; intervals: "+ root.intervals;
-    return root.tasteBeneath;
+    assert root.flavor == root.computeFlavor() : "root.flavor: " + Integer.toHexString(root.flavor) + "; root.computeFlavor():" + Integer.toHexString(root.computeFlavor()) + "; intervals: " + root.intervals;
+    byte foundInChildren = (byte) (verifyFlavor(root.getLeft()) | verifyFlavor(root.getRight()));
+    // flavor must be a subset of flavorBeneath
+    assert (root.flavor & root.flavorBeneath) == root.flavor : "root.flavor: " + Integer.toHexString(root.flavor) + "; root.flavorBeneath:" + Integer.toHexString(root.flavorBeneath) + "; intervals: " + root.intervals;
+    // flavorBeneath must be same as its children (except for flavor bits)
+    assert (root.flavorBeneath & ~root.flavor) == (foundInChildren & ~root.flavor) : "root.flavor: " + Integer.toHexString(root.flavor) + "; root.flavorBeneath:" + Integer.toHexString(root.flavorBeneath) + "; foundInChildren:" + Integer.toHexString(foundInChildren) + "; intervals: " + root.intervals;
+    return root.flavorBeneath;
   }
 
-  private static final AtomicInteger occupiedTasteFlags = new AtomicInteger();
-  protected static byte nextAvailableTasteFlag() {
-    int bits = occupiedTasteFlags.incrementAndGet();
+  private static final AtomicInteger occupiedFlavorFlags = new AtomicInteger();
+  protected static byte nextAvailableFlavorFlag() {
+    int bits = occupiedFlavorFlags.incrementAndGet();
     if (bits > 8) {
-      throw new IncorrectOperationException("No more available flags left: "+occupiedTasteFlags);
+      throw new IncorrectOperationException("No more available flags left: " + occupiedFlavorFlags);
     }
     return (byte)(1 << bits);
   }

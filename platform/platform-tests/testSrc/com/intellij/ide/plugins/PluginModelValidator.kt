@@ -11,7 +11,6 @@ import com.intellij.platform.pluginSystem.parser.impl.elements.DependenciesEleme
 import com.intellij.platform.pluginSystem.parser.impl.elements.ModuleLoadingRuleValue
 import com.intellij.platform.pluginSystem.parser.impl.elements.ModuleVisibilityValue
 import com.intellij.platform.pluginSystem.parser.impl.elements.ServiceElement
-import com.intellij.platform.util.coroutines.forEachConcurrent
 import com.intellij.testFramework.junit5.NamedFailure
 import com.intellij.testFramework.junit5.groupFailures
 import com.intellij.util.io.jackson.array
@@ -19,6 +18,8 @@ import com.intellij.util.io.jackson.createGenerator
 import com.intellij.util.io.jackson.obj
 import com.intellij.util.io.jackson.writeFieldName
 import com.intellij.util.io.jackson.writeStringField
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import org.jetbrains.jps.model.JpsProject
 import org.jetbrains.jps.model.module.JpsModule
 import org.junit.jupiter.api.DynamicContainer
@@ -86,7 +87,10 @@ data class PluginValidationOptions(
    */
   val componentImplementationClassesToIgnore: Set<String> = emptySet(),
 
-  val filesNamedLikeContentModuleDescriptorsButIncludedViaXiInclude: Set<String> = emptySet(),
+  /**
+   * Set of implementation classes of existing module-level services that shouldn't be reported as errors.
+   */
+  val moduleLevelServicesToIgnore: Set<String> = emptySet(),
 
   /**
    * Names of service interfaces that are overridden by plugins which sources are located outside the current project, and therefore need
@@ -169,6 +173,8 @@ internal class PluginModelValidator(
   private val pluginIdToInfo = sourceCodeBasedPluginModel.pluginIdToInfo
   private val pluginAliases = sourceCodeBasedPluginModel.pluginAliases
   private val _errors = CopyOnWriteArrayList<PluginValidationError>()
+  private val existingPluginsToContentModulesWithoutDedicatedJpsModules = HashMap<String, MutableSet<String>>()
+  private val existingPluginsToOptionalDepends = HashMap<String, MutableSet<String>>()
 
   init {
     sourceCodeBasedPluginModel.errors.forEach { reportError(it.message, it.sourceModule, it.params) }
@@ -209,6 +215,7 @@ internal class PluginModelValidator(
     }
 
     for (pluginInfo in allMainModulesOfPlugins) {
+      currentCoroutineContext().ensureActive()
       val descriptor = pluginInfo.descriptor
 
       for (incompatibleWithId in descriptor.incompatibleWith) {
@@ -221,8 +228,6 @@ internal class PluginModelValidator(
 
       val moduleNameToLoadingRule = pluginInfo.descriptor.contentModules
         .associateBy({ it.name }, { it.loadingRule })
-      val moduleNameToNamespace = pluginInfo.descriptor.contentModules
-        .associateBy({ it.name }, { it.namespace })
       checkDependencies(
         dependenciesElements = descriptor.dependencies,
         referencingModuleInfo = pluginInfo,
@@ -231,7 +236,6 @@ internal class PluginModelValidator(
         moduleNameToInfo = moduleNameToInfo,
         sourceModuleNameToPluginFileInfo = sourceModuleNameToPluginFileInfo,
         contentModuleToContainingPlugins = contentModuleToContainingPlugins,
-        isMainModule = true,
         contentModuleNameFromThisPluginToLoadingRule = moduleNameToLoadingRule,
       )
 
@@ -247,19 +251,9 @@ internal class PluginModelValidator(
         )
       }
 
-      pluginInfo.content.forEachConcurrent { contentModuleInfo ->
-        checkDependencies(
-          dependenciesElements = contentModuleInfo.descriptor.dependencies,
-          referencingModuleInfo = contentModuleInfo,
-          referencingPluginInfo = pluginInfo,
-          referencingModuleNamespace = moduleNameToNamespace[contentModuleInfo.name],
-          moduleNameToInfo = moduleNameToInfo,
-          sourceModuleNameToPluginFileInfo = sourceModuleNameToPluginFileInfo,
-          contentModuleToContainingPlugins = contentModuleToContainingPlugins,
-          isMainModule = false,
-          contentModuleNameFromThisPluginToLoadingRule = moduleNameToLoadingRule,
-        )
-
+      // the dependency declarations of a content module are checked by the product-dsl rule
+      // ContentModuleDependencyDeclarationValidator
+      for (contentModuleInfo in pluginInfo.content) {
         if (contentModuleInfo.descriptor.depends.isNotEmpty()) {
           reportError(
             "Old format must be not used for a module but `depends` tag is used",
@@ -292,7 +286,7 @@ internal class PluginModelValidator(
           mapOf("descriptorFile" to moduleInfo.descriptorFile),
         )
       }
-      else if (contentModuleDescriptor.name !in validationOptions.filesNamedLikeContentModuleDescriptorsButIncludedViaXiInclude) {
+      else {
         reportError(
           message = """
                     |File '${contentModuleDescriptor.name}' is named as a content module descriptor, but actually it's included via xi:include tag.
@@ -303,6 +297,31 @@ internal class PluginModelValidator(
           moduleInfo.sourceModule,
           params = mapOf("descriptorFile" to moduleInfo.descriptorFile)
         )
+      }
+    }
+
+    for ((pluginId, moduleNames) in validationOptions.pluginsToContentModulesWithoutDedicatedJpsModules) {
+      val existing = existingPluginsToContentModulesWithoutDedicatedJpsModules[pluginId]
+      if (existing == null) {
+        println("Obsolete entry for plugin $pluginId in existingContentModulesWithoutDedicatedJpsModule")
+      }
+      else {
+        val obsoleteModules = moduleNames - existing
+        if (obsoleteModules.isNotEmpty()) {
+          println("Obsolete entries for plugin $pluginId in existingContentModulesWithoutDedicatedJpsModule: $obsoleteModules")
+        }
+      }
+    }
+    for ((pluginId, dependsIds) in validationOptions.pluginsToOptionalDepends) {
+      val existing = existingPluginsToOptionalDepends[pluginId]
+      if (existing == null) {
+        println("Obsolete entry for plugin $pluginId in existingOptionalDependsTag")
+      }
+      else {
+        val obsoleteDependencies = dependsIds - existing
+        if (obsoleteDependencies.isNotEmpty()) {
+          println("Obsolete entries for plugin $pluginId in existingOptionalDependsTag: $obsoleteDependencies")
+        }
       }
     }
 
@@ -409,19 +428,24 @@ internal class PluginModelValidator(
 
     val allowedExistingOptionalDepends = validationOptions.pluginsToOptionalDepends[descriptor.id!!] ?: emptySet()
     for (dependsElement in descriptor.depends) {
-      if (dependsElement.isOptional && dependsElement.pluginId !in allowedExistingOptionalDepends) {
-        reportError(
-          message = """
-          |New <depends optional="true"> tags aren't allowed in the plugins in the monorepo project, because they complicate validation of 
-          |dependencies and don't allow generating them automatically.
-          |Create a plugin content module with the additional dependency on '${dependsElement.pluginId}' and register it in plugin.xml instead. 
-          """.trimMargin(),
-          sourceModule = pluginInfo.sourceModule,
-          params = mapOf(
-            "descriptorFile" to pluginInfo.descriptorFile,
-            "depends" to dependsElement
+      if (dependsElement.isOptional) {
+        if (dependsElement.pluginId !in allowedExistingOptionalDepends) {
+          reportError(
+            message = """
+            |New <depends optional="true"> tags aren't allowed in the plugins in the monorepo project, because they complicate validation of 
+            |dependencies and don't allow generating them automatically.
+            |Create a plugin content module with the additional dependency on '${dependsElement.pluginId}' and register it in plugin.xml instead. 
+            """.trimMargin(),
+            sourceModule = pluginInfo.sourceModule,
+            params = mapOf(
+              "descriptorFile" to pluginInfo.descriptorFile,
+              "depends" to dependsElement
+            )
           )
-        )
+        }
+        else {
+          existingPluginsToOptionalDepends.getOrPut(descriptor.id!!) { HashSet() }.add(dependsElement.pluginId)
+        }
       }
     }
 
@@ -448,7 +472,6 @@ internal class PluginModelValidator(
     moduleNameToInfo: Map<String, ModuleInfo>,
     sourceModuleNameToPluginFileInfo: Map<String, PluginDescriptorFileInfo>,
     contentModuleToContainingPlugins: HashMap<String, MutableList<ModuleInfo>>,
-    isMainModule: Boolean,
     contentModuleNameFromThisPluginToLoadingRule: Map<String, ModuleLoadingRuleValue>,
   ) {
     val moduleDependenciesCount = dependenciesElements.count {
@@ -543,40 +566,13 @@ internal class PluginModelValidator(
               |""".trimMargin())
             continue
           }
-          val loadingRule = contentModuleNameFromThisPluginToLoadingRule[moduleName]
-          when {
-            isMainModule && loadingRule != null -> {
-              registerError("""
-                        |The main module of plugin '${referencingPluginInfo.pluginId}' declares dependency on a content module '$moduleName' registered 
-                        |in the same plugin. Such dependencies aren't allowed.
-                        |To fix the problem, extract relevant code to a separate content module and move the dependency to it.
-                        |""".trimMargin())
-              continue
-            }
-            !isMainModule && loadingRule == ModuleLoadingRuleValue.OPTIONAL
-            && moduleName != "intellij.platform.backend" -> { // remove this check when IJPL-201428 is fixed
-
-              val thisModuleName = referencingModuleInfo.name ?: error("Module name is not specified for $referencingModuleInfo")
-              val thisLoadingRule = contentModuleNameFromThisPluginToLoadingRule.getValue(thisModuleName)
-              val problemDescription = when (thisLoadingRule) {
-                ModuleLoadingRuleValue.EMBEDDED ->
-                  "Since optional modules have implicit dependencies on the main module, this creates a circular dependency and the plugin won't load."
-                ModuleLoadingRuleValue.REQUIRED ->
-                  "This actually makes '${moduleName}' required as well (the plugin won't load if it's not available)."
-                else -> null
-              }
-              if (problemDescription != null) {
-                registerError("""
-                    |The content module '$thisModuleName' is registered as '${thisLoadingRule.name.lowercase()}', but it depends on the module '$moduleName' which is declared as optional
-                    |in the same plugin '${referencingPluginInfo.pluginId}'.
-                    |$problemDescription
-                    |To fix the problem, you can do one of the following:
-                    | * set 'loading="required"' for '$moduleName',
-                    | * set 'loading="optional"' for '$thisModuleName',
-                    | * remove the dependency on '$moduleName' from '${referencingModuleInfo.descriptorFile.name}', if it's not needed.
-                    |""".trimMargin())
-              }
-            }
+          if (contentModuleNameFromThisPluginToLoadingRule.containsKey(moduleName)) {
+            registerError("""
+                      |The main module of plugin '${referencingPluginInfo.pluginId}' declares dependency on a content module '$moduleName' registered 
+                      |in the same plugin. Such dependencies aren't allowed.
+                      |To fix the problem, extract relevant code to a separate content module and move the dependency to it.
+                      |""".trimMargin())
+            continue
           }
 
           referencingModuleInfo.dependencies.add(Reference(moduleName, isPlugin = false, moduleInfo))
@@ -686,6 +682,9 @@ internal class PluginModelValidator(
             )
           )
         }
+        else {
+          existingPluginsToContentModulesWithoutDedicatedJpsModules.getOrPut(referencingModuleInfo.pluginId!!, { HashSet()}).add(moduleName)
+        }
       }
 
       val moduleDescriptor = moduleDescriptorFileInfo.descriptor
@@ -749,6 +748,16 @@ internal class PluginModelValidator(
           "descriptorFile" to descriptorFile,
         ),
       )
+    }
+    for (moduleService in moduleDescriptor.moduleElementsContainer.services) {
+      if (moduleService.serviceImplementation !in validationOptions.moduleLevelServicesToIgnore) {
+        reportError("""
+                    |Module-level service '${moduleService.serviceImplementation}' is defined in '${sourceModule.name}'.  
+                    |Module-level services are deprecated in intellij monorepo.
+                    |Use application-level or project-level services instead, and pass 'Module' instance as a parameter if needed.
+                    |If you need to store user-defined configuration in *.iml file, use `CustomImlComponentService`.
+                    |""".trimMargin())
+      }
     }
 
     for (extensionPointElement in moduleDescriptor.moduleElementsContainer.extensionPoints) {

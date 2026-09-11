@@ -19,6 +19,7 @@ import java.io.IOException
 import java.nio.file.Files
 import java.nio.file.Path
 import java.text.DateFormat
+import java.util.concurrent.atomic.AtomicLong
 
 private const val VERSION = 7
 private const val STORAGE_FILE: @NonNls String = "changes"
@@ -30,16 +31,16 @@ internal class PersistentChangeListStorage(
   private val unitTestMode: Boolean = ApplicationManager.getApplication().isUnitTestMode(),
 ) : ChangeListStorage {
   //TODO RC: use mmapped storage instead of old-school? Less freezes, and also more reliability
-  private val storage: LocalHistoryStorage
+  private var storage: LocalHistoryStorage
 
   /**
    * Write cache for the storage
    */
   private val pendingChangeSets = ArrayDeque<ChangeSet>()
 
+  private val lastIdRef = AtomicLong()
   @get:VisibleForTesting
-  var lastId: Long = 0
-    private set
+  val lastId: Long get() = lastIdRef.get()
 
   private var isCompletelyBroken = false
 
@@ -83,7 +84,7 @@ internal class PersistentChangeListStorage(
       storage.setFSTimestamp(fsTimestamp)
     }
 
-    lastId = storage.getLastId()
+    lastIdRef.set(storage.getLastId())
     return storage
   }
 
@@ -120,7 +121,7 @@ internal class PersistentChangeListStorage(
     Disposer.dispose(storage)
     try {
       dropStorage()
-      initStorage()
+      storage = initStorage()
     }
     catch (ex: Throwable) {
       LocalHistoryLog.LOG.error("cannot recreate storage", ex)
@@ -161,9 +162,8 @@ internal class PersistentChangeListStorage(
     }
   }
 
-  @Synchronized
   override fun nextId(): Long {
-    return ++lastId
+    return lastIdRef.incrementAndGet()
   }
 
   @Synchronized
@@ -209,7 +209,6 @@ internal class PersistentChangeListStorage(
     }
   }
 
-  @Synchronized
   override fun iterate(): Iterator<ChangeSet> {
     flushPending()
     return object : Iterator<ChangeSet> {

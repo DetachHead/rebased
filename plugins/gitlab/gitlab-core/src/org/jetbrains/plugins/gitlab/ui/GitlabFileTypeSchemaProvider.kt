@@ -5,6 +5,7 @@ import com.intellij.internal.statistic.collectors.fus.fileTypes.FileTypeUsageSch
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Key
 import com.intellij.openapi.vfs.VirtualFile
+import com.intellij.vcs.gitlab.shared.isGitlabCiFile
 
 internal class GitlabFileTypeSchemaProvider : FileTypeUsageSchemaDescriptor {
   private val SCHEMA_KEY: Key<Boolean> = Key.create("GITLAB_CI_SCHEMA")

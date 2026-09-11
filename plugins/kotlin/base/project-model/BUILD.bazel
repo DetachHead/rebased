@@ -1,7 +1,7 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
 ### auto-generated section `build intellij.kotlin.base.projectModel` start
-
 jvm_library(
     name = "project-model",
     srcs = glob(
@@ -14,15 +14,21 @@ jvm_library(
     ),
     kotlinc_opts = "@community//:k8",
     module_name = "intellij.kotlin.base.projectModel",
+    resource_strip_prefix = "resources",
+    resources = glob(
+        ["resources/**/*"],
+    ),
     visibility = ["//visibility:public"],
-    exports = ["@lib//:kotlin-tooling-core"],
+    exports = ["//libraries/kotlin/tooling-core:libraries-kotlin-tooling-core"],
     deps = [
         # do not sort,
         "@lib//:kotlin-stdlib",
-        "@lib//:kotlin-gradle-plugin-idea",
-        "@lib//:kotlin-tooling-core",
+        "//libraries/kotlin/gradle-plugin-idea:libraries-kotlin-gradle-plugin-idea",
+        "//libraries/kotlin/tooling-core:libraries-kotlin-tooling-core",
     ],
 )
+
+content_module_jar(module = ":project-model")
 
 jvm_library(
     name = "project-model_test_lib",
@@ -34,8 +40,17 @@ jvm_library(
     kotlinc_opts = "@community//:k8",
     module_name = "intellij.kotlin.base.projectModel",
     visibility = ["//visibility:public"],
-    exports = ["@lib//:kotlin-tooling-core"],
-    runtime_deps = [":project-model"],
+    exports = [
+        # do not sort,
+        "//libraries/kotlin/tooling-core:libraries-kotlin-tooling-core",
+        "//libraries/kotlin/tooling-core:libraries-kotlin-tooling-core_test_lib",
+    ],
+    runtime_deps = [
+        # do not sort,
+        ":project-model",
+        "//libraries/kotlin/gradle-plugin-idea:libraries-kotlin-gradle-plugin-idea_test_lib",
+        "//libraries/kotlin/tooling-core:libraries-kotlin-tooling-core_test_lib",
+    ],
 )
 ### auto-generated section `build intellij.kotlin.base.projectModel` end
 
@@ -43,6 +58,7 @@ jvm_library(
 exports_files(
     [
         "intellij.kotlin.base.projectModel.iml",
+        "resources/intellij.kotlin.base.projectModel.xml",
     ],
     visibility = ["//visibility:public"],
 )

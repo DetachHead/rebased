@@ -6,10 +6,11 @@ import com.intellij.modcommand.ActionContext
 import com.intellij.modcommand.ModPsiUpdater
 import com.intellij.psi.SmartPsiElementPointer
 import com.intellij.psi.createSmartPointer
-import org.jetbrains.kotlin.analysis.api.KaExperimentalApi
 import org.jetbrains.kotlin.analysis.api.KaSession
-import org.jetbrains.kotlin.analysis.api.components.resolveToCall
-import org.jetbrains.kotlin.analysis.api.resolution.singleFunctionCallOrNull
+import org.jetbrains.kotlin.analysis.api.renderer.render
+import org.jetbrains.kotlin.analysis.api.resolution.function
+import org.jetbrains.kotlin.analysis.api.resolution.single
+import org.jetbrains.kotlin.analysis.api.resolution.tryResolveCall
 import org.jetbrains.kotlin.analysis.api.types.KaErrorType
 import org.jetbrains.kotlin.analysis.api.types.KaType
 import org.jetbrains.kotlin.idea.base.analysis.api.utils.shortenReferences
@@ -32,8 +33,8 @@ internal class ReplaceUnderscoreWithTypeArgumentIntention :
 
     override fun getFamilyName(): String = KotlinBundle.message("replace.with.explicit.type")
 
-    @OptIn(KaExperimentalApi::class)
-    override fun KaSession.prepareContext(element: KtTypeProjection): Context? {
+    context(session: KaSession)
+    override fun prepareContext(element: KtTypeProjection): Context? {
         val newType = element.resolveType() ?: return null
         if (newType is KaErrorType) return null
 
@@ -51,7 +52,7 @@ internal class ReplaceUnderscoreWithTypeArgumentIntention :
     context(_: KaSession)
     private fun KtTypeProjection.resolveType(): KaType? {
         val typeArgumentList = parent as KtTypeArgumentList
-        val call = (typeArgumentList.parent as? KtCallExpression)?.resolveToCall()?.singleFunctionCallOrNull() ?: return null
+        val call = (typeArgumentList.parent as? KtCallExpression)?.tryResolveCall()?.single?.function ?: return null
         val argumentsTypes = call.typeArgumentsMapping.map { it.value }.toTypedArray()
         val resolvedElementIndex = typeArgumentList.arguments.indexOf(this)
         return if (resolvedElementIndex < argumentsTypes.size) argumentsTypes[resolvedElementIndex] else null

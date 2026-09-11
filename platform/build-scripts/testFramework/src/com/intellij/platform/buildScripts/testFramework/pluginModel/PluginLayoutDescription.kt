@@ -2,14 +2,15 @@
 package com.intellij.platform.buildScripts.testFramework.pluginModel
 
 import com.intellij.platform.buildScripts.testFramework.distributionContent.ParsedContentReport
-import com.intellij.platform.distributionContent.testFramework.FileEntry
-import com.intellij.platform.distributionContent.testFramework.PluginContentReport
-import com.intellij.platform.distributionContent.testFramework.deserializeContentData
+import com.intellij.platform.distributionContent.FileEntry
+import com.intellij.platform.distributionContent.PluginContentReport
+import com.intellij.platform.distributionContent.deserializeContentData
+import com.intellij.platform.distributionContent.readDevDistExtraMembers
 import com.intellij.platform.pluginSystem.testFramework.MissingModuleSetDescriptorException
 import com.intellij.platform.pluginSystem.testFramework.buildStalePackagingDataMessage
 import com.intellij.platform.pluginSystem.testFramework.resolveModuleSet
-import kotlinx.coroutines.Dispatchers
 import org.jetbrains.intellij.build.ModuleOutputProvider
+import org.jetbrains.intellij.build.PLUGIN_XML_RELATIVE_PATH
 import org.jetbrains.intellij.build.mapConcurrent
 import org.jetbrains.jps.model.JpsProject
 import org.jetbrains.jps.model.java.JpsJavaExtensionService
@@ -18,6 +19,11 @@ import org.jetbrains.jps.util.JpsPathUtil
 import java.nio.file.Path
 import kotlin.io.path.exists
 import kotlin.io.path.readText
+
+/** The modules the plugin layout merges into the plugin's own jar, from the central merged-member table. */
+private fun readMergedMembers(projectHome: Path, mainModule: JpsModule): List<String> {
+  return readDevDistExtraMembers(projectHome, mainModule.name)
+}
 
 /**
  * Provides information about layout of plugins for [PluginDependenciesValidator].
@@ -39,10 +45,21 @@ data class PluginLayoutDescription(
    * Names of JPS modules which are included in the classpath of the main plugin module.
    */
   val jpsModulesInClasspath: Set<String>,
+  /**
+   * Resolved roots of libraries which are included in the classpath of the main plugin module.
+   */
+  val libraryRootsInClasspath: List<Path> = emptyList(),
 )
 
 /**
- * Creates a description of plugins using data from product and plugins' content.yaml files.
+ * Creates a description of plugins using the product content yaml and the project model.
+ *
+ * @param mainModulesOfUncheckablePlugins plugin main modules this product states no classpath for. The provider
+ * returns `null` for each, so the validator skips the plugin. The caller owns the list, because the reason is a fact
+ * about one product and one plugin. The descriptor check still runs for a member, so a stale product layout is still
+ * an error.
+ * @param mergedMembersToIgnore per plugin main module, the merged members this product's layout does not pack. The
+ * residue beside a plugin names every member any product merges, so a product that merges fewer says so here.
  */
 fun createLayoutProviderByContentYamlFiles(
   contentYamlPath: Path,
@@ -51,6 +68,8 @@ fun createLayoutProviderByContentYamlFiles(
   corePluginDescriptorPath: String,
   nameOfTestWhichGeneratesFiles: String,
   project: JpsProject,
+  mainModulesOfUncheckablePlugins: Set<String> = emptySet(),
+  mergedMembersToIgnore: Map<String, Set<String>> = emptyMap(),
 ): PluginLayoutProvider {
   return YamlFileBasedPluginLayoutProvider(
     contentYamlPath = contentYamlPath,
@@ -59,6 +78,8 @@ fun createLayoutProviderByContentYamlFiles(
     nameOfTestWhichGeneratesFiles = nameOfTestWhichGeneratesFiles,
     project = project,
     projectHome = projectHome,
+    mainModulesOfUncheckablePlugins = mainModulesOfUncheckablePlugins,
+    mergedMembersToIgnore = mergedMembersToIgnore,
   )
 }
 
@@ -72,6 +93,7 @@ suspend fun createLayoutProviderByContentReport(
     content = content,
     mainModuleOfCorePlugin = mainModuleOfCorePlugin,
     corePluginDescriptorPath = corePluginDescriptorPath,
+    outputProvider = outputProvider,
     mainModulesWithPluginDescriptor = collectMainModulesWithPluginDescriptor(content = content, outputProvider = outputProvider),
   )
 }
@@ -85,11 +107,11 @@ private suspend fun collectMainModulesWithPluginDescriptor(
     mainModules.add(item.mainModule)
   }
 
-  return mainModules.mapConcurrent(workerDispatcher = Dispatchers.IO) { mainModule ->
+  return mainModules.mapConcurrent { mainModule ->
     val module = outputProvider.findModule(mainModule) ?: return@mapConcurrent null
     val descriptorContent = outputProvider.readFileContentFromModuleOutput(
       module = module,
-      relativePath = "META-INF/plugin.xml",
+      relativePath = PLUGIN_XML_RELATIVE_PATH,
       forTests = false,
     )
     mainModule.takeIf { descriptorContent != null }
@@ -100,6 +122,7 @@ private class ContentReportBasedPluginLayoutProvider(
   private val content: ParsedContentReport,
   private val mainModuleOfCorePlugin: String,
   private val corePluginDescriptorPath: String,
+  private val outputProvider: ModuleOutputProvider,
   private val mainModulesWithPluginDescriptor: Set<String>,
 ) : PluginLayoutProvider {
   private val mainModulesOfBundledPlugins by lazy {
@@ -133,7 +156,8 @@ private class ContentReportBasedPluginLayoutProvider(
       mainModuleName = mainModuleOfCorePlugin,
       pluginDescriptorPath = corePluginDescriptorPath,
       mainLibDir = "dist.all/lib",
-      jarsToIgnore = setOf("dist.all/lib/testFramework.jar")
+      jarsToIgnore = setOf("dist.all/lib/testFramework.jar"),
+      libraryRootResolver = outputProvider::findLibraryRoots,
     )
   }
 
@@ -143,14 +167,13 @@ private class ContentReportBasedPluginLayoutProvider(
 
   override fun loadPluginLayout(mainModule: JpsModule): PluginLayoutDescription? {
     val pluginContent = mainModuleToPluginContent[mainModule.name] ?: return null
-    val pluginDescriptorPath = "META-INF/plugin.xml"
     if (mainModule.name !in mainModulesWithPluginDescriptor) {
       throw PluginModuleConfigurationError(
         pluginModelModuleName = mainModule.name,
         errorMessage = """
-                '$pluginDescriptorPath' file is not found in production output of module '${mainModule.name}'.
+                '$PLUGIN_XML_RELATIVE_PATH' file is not found in production output of module '${mainModule.name}'.
                 The module is present in the content report; if it is not the main module of a plugin anymore,
-                update the product layout to avoid confusion. 
+                update the product layout to avoid confusion.
               """.trimIndent(),
       )
     }
@@ -158,9 +181,10 @@ private class ContentReportBasedPluginLayoutProvider(
     return toPluginLayoutDescription(
       entries = pluginContent.content,
       mainModuleName = mainModule.name,
-      pluginDescriptorPath = pluginDescriptorPath,
+      pluginDescriptorPath = PLUGIN_XML_RELATIVE_PATH,
       mainLibDir = "lib",
-      jarsToIgnore = emptySet()
+      jarsToIgnore = emptySet(),
+      libraryRootResolver = outputProvider::findLibraryRoots,
     )
   }
 
@@ -176,6 +200,8 @@ private class YamlFileBasedPluginLayoutProvider(
   private val nameOfTestWhichGeneratesFiles: String,
   private val project: JpsProject,
   private val projectHome: Path,
+  private val mainModulesOfUncheckablePlugins: Set<String>,
+  private val mergedMembersToIgnore: Map<String, Set<String>>,
 ) : PluginLayoutProvider {
   private val contentData by lazy {
     deserializeContentData(contentYamlPath.readText())
@@ -266,37 +292,63 @@ private class YamlFileBasedPluginLayoutProvider(
     return mainModulesOfBundledPlugins.toList()
   }
 
+  /**
+   * The layout of one plugin, or `null` when this product states no classpath for it.
+   *
+   * The product content report decides whether [mainModule] is a plugin main module, and the descriptor check follows
+   * from that alone. A module the report names as a plugin, with no `META-INF/plugin.xml`, is a stale product layout.
+   * The check runs before the [mainModulesOfUncheckablePlugins] skip, so that error still reaches a skipped plugin.
+   *
+   * The classpath is the main module, plus the members the plugin layout merges into the plugin's own jar.
+   * [ModuleBasedPluginLayoutProvider] states a plugin's membership from the project model, and this provider now
+   * follows it. The validator adds an embedded content module of the plugin on its own, because it reads the plugin
+   * descriptor. [readMergedMembers] supplies the rest.
+   *
+   * A merged member has to come from the residue, because no other source states it. None of the 17 merged members
+   * of the 8 Rider plugins that have one is a content module, so a descriptor walk finds none of them. Without them
+   * the validator cannot resolve an `xi:include` that a merged member owns, and it reports a compile dependency of
+   * the plugin on a module it says the plugin does not ship. With them the reconstruction reaches the classpath the
+   * validator saw before, for all 119 Rider plugins that stated one.
+   *
+   * The residue is a fact about one plugin and not about one product, so it names every member any product's layout
+   * merges. A product whose layout merges fewer members gets a classpath that is too wide, and
+   * [mergedMembersToIgnore] is where its caller names the members it does not pack.
+   *
+   * `rider-content.yaml` names 147 plugin main modules, and this provider skipped 28 of them. None of the 28 has a
+   * residue today, so nothing states the members of its main jar, and the caller holds 13 of them out by name.
+   * `RiderPluginModuleDependenciesTest` explains which 13, and it passes `minimumNumberOfModulesToBeChecked = 900`.
+   */
   override fun loadPluginLayout(mainModule: JpsModule): PluginLayoutDescription? {
     if (mainModule.name !in mainModulesOfBundledPlugins && mainModule.name !in mainModulesOfNonBundledPlugins) {
       return null
     }
-    val contentRootUrl = mainModule.contentRootsList.urls.firstOrNull() ?: return null
-    val pluginContentPath = "plugin-content.yaml"
-    val contentDataPath = JpsPathUtil.urlToNioPath(contentRootUrl).resolve(pluginContentPath)
-    if (!contentDataPath.exists()) return null
-    val pluginDescriptorPath = "META-INF/plugin.xml"
-    if (JpsJavaExtensionService.getInstance().findSourceFileInProductionRoots(mainModule, pluginDescriptorPath) == null) {
+    if (JpsJavaExtensionService.getInstance().findSourceFileInProductionRoots(mainModule, PLUGIN_XML_RELATIVE_PATH) == null) {
       throw PluginModuleConfigurationError(
         pluginModelModuleName = mainModule.name,
         errorMessage = """
-                '$pluginDescriptorPath' file is not found in source and resource roots of module '"${mainModule.name}', but '$pluginContentPath' is present in it.
-                If '${mainModule.name}' is not the main module of a plugin anymore, delete '$pluginContentPath' to avoid confusion. 
+                '$PLUGIN_XML_RELATIVE_PATH' file is not found in source and resource roots of module '${mainModule.name}'.
+                '${contentYamlPath.fileName}' names the module as the main module of a plugin; if it is not one anymore,
+                update the product layout to avoid confusion.
               """.trimIndent(),
       )
     }
+    if (mainModule.name in mainModulesOfUncheckablePlugins) {
+      return null
+    }
 
-    val contentData = deserializeContentData(contentDataPath.readText())
-    return toPluginLayoutDescription(
-      entries = contentData,
-      mainModuleName = mainModule.name,
-      pluginDescriptorPath = pluginDescriptorPath,
-      mainLibDir = "lib",
-      jarsToIgnore = emptySet()
+    val membersToIgnore = mergedMembersToIgnore[mainModule.name] ?: emptySet()
+    val jpsModulesInClasspath = LinkedHashSet<String>()
+    jpsModulesInClasspath.add(mainModule.name)
+    readMergedMembers(projectHome, mainModule).filterNotTo(jpsModulesInClasspath) { it in membersToIgnore }
+    return PluginLayoutDescription(
+      mainJpsModule = mainModule.name,
+      pluginDescriptorPath = PLUGIN_XML_RELATIVE_PATH,
+      jpsModulesInClasspath = jpsModulesInClasspath,
     )
   }
 
   override val messageDescribingHowToUpdateLayoutData: String
-    get() = "Note that the test uses the data from *content.yaml files, so if you changed the layouts, run '$nameOfTestWhichGeneratesFiles' to make sure that they are up-to-date."
+    get() = "Note that the test uses the plugin list from '${contentYamlPath.fileName}', so if you changed the product layout, run '$nameOfTestWhichGeneratesFiles' to make sure that the file is up-to-date."
 }
 
 internal fun toPluginLayoutDescription(
@@ -305,13 +357,32 @@ internal fun toPluginLayoutDescription(
   pluginDescriptorPath: String,
   mainLibDir: String,
   jarsToIgnore: Set<String>,
+  libraryRootResolver: (libraryName: String, moduleLibraryModuleName: String?) -> List<Path> = { _, _ -> emptyList() },
 ): PluginLayoutDescription {
+  val libEntries = entries
+    .asSequence()
+    .filter { it.name.substringBeforeLast('/', "") == mainLibDir && it.name !in jarsToIgnore }
+    .toList()
+  val projectLibraries = libEntries
+    .asSequence()
+    .flatMap { entry ->
+      val projectLibraryNames = entry.projectLibraries.asSequence().map { it.name }
+      val fileProjectLibraryName = listOfNotNull(entry.library.takeIf { entry.module == null }).asSequence()
+      projectLibraryNames + fileProjectLibraryName
+    }
+    .toCollection(LinkedHashSet())
+  val moduleLibraries = libEntries
+    .asSequence()
+    .flatMap { it.modules + it.contentModules }
+    .flatMap { module -> module.libraries.keys.asSequence().filterNot { it.endsWith(".jar") }.map { it to module.name } }
+    .toCollection(LinkedHashSet())
+
   return PluginLayoutDescription(
     mainJpsModule = mainModuleName,
     pluginDescriptorPath = pluginDescriptorPath,
-    jpsModulesInClasspath = entries
-      .asSequence()
-      .filter { it.name.substringBeforeLast('/', "") == mainLibDir && it.name !in jarsToIgnore }
-      .flatMapTo(LinkedHashSet()) { entry -> entry.modules.map { it.name } }
+    jpsModulesInClasspath = libEntries
+      .flatMapTo(LinkedHashSet()) { entry -> entry.modules.map { it.name } },
+    libraryRootsInClasspath = projectLibraries.flatMap { libraryRootResolver(it, null) } +
+                              moduleLibraries.flatMap { (libraryName, moduleName) -> libraryRootResolver(libraryName, moduleName) },
   )
 }

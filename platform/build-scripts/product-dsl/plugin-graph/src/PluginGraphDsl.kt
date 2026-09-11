@@ -205,7 +205,8 @@ value class GraphScope @PublishedApi internal constructor(
   /** Get module node by ID */
   fun contentModuleWithNamespace(moduleId: PluginModuleId): ContentModuleWithNamespaceNode? {
     val stringId = if (moduleId.namespace != null) "${moduleId.namespace}:${moduleId.name}" else moduleId.name
-    val id = store.nodeId(stringId, NODE_CONTENT_MODULE)
+    // the builder indexes this node under NODE_CONTENT_MODULE_WITH_NAMESPACE, so read that index
+    val id = store.nodeId(stringId, NODE_CONTENT_MODULE_WITH_NAMESPACE)
     return if (id >= 0) ContentModuleWithNamespaceNode(id) else null
   }
 
@@ -277,6 +278,16 @@ value class GraphScope @PublishedApi internal constructor(
   /** Plugin → Content Module (plugin.xml <module> deps) */
   val PluginNode.dependsOnContentModule: EdgeInvoker<ContentModuleNode>
     get() = EdgeInvoker.Companion.create(EDGE_PLUGIN_XML_DEPENDS_ON_CONTENT_MODULE, id)
+
+  /**
+   * Plugin → Plugin (the nodes that carry an alias of this plugin).
+   *
+   * A plugin declares an alias with `<module value="..."/>`. A dependency on that alias points at
+   * an alias node or at a placeholder node, not at this plugin. Take this edge to add the hop.
+   * [dependsOnPlugin] never folds the hop in, so a caller must ask for it.
+   */
+  val PluginNode.declaresAlias: EdgeInvoker<PluginNode>
+    get() = EdgeInvoker.Companion.create(EDGE_PLUGIN_DECLARES_ALIAS, id)
 
   // endregion
 
@@ -490,6 +501,14 @@ value class GraphScope @PublishedApi internal constructor(
   val PluginNode.requiredByPlugin: ReverseEdgeInvoker<PluginNode>
     get() = ReverseEdgeInvoker.Companion.create(EDGE_PLUGIN_XML_DEPENDS_ON_PLUGIN, id)
 
+  /**
+   * Plugin ← Plugin (plugins that declare this node as an alias).
+   *
+   * This node holds an alias ID. The result is the plugins that own the alias.
+   */
+  val PluginNode.aliasDeclaredByPlugin: ReverseEdgeInvoker<PluginNode>
+    get() = ReverseEdgeInvoker.Companion.create(EDGE_PLUGIN_DECLARES_ALIAS, id)
+
   /** Plugin ← Product: Iterate all products bundling this plugin (production + test) */
   inline fun PluginNode.bundledByProducts(action: (ProductNode) -> Unit) {
     bundledByProduct { product -> action(product) }
@@ -527,7 +546,7 @@ value class GraphScope @PublishedApi internal constructor(
   /** Plugin: is this DSL-defined (auto-computed dependencies)? */
   val PluginNode.isDslDefined: Boolean get() = store.isDslDefined(id)
 
-  /** Plugin: is this node a module-set wrapper? */
+  /** Plugin: is this a build-declared module-set wrapper? */
   val PluginNode.isModuleSetWrapper: Boolean get() = store.isModuleSetWrapper(id)
 
   /** Plugin: does this node have a main target backing it? */
@@ -986,7 +1005,7 @@ value class GraphScope @PublishedApi internal constructor(
     val pluginId = store.nodeId(targetName, NODE_PLUGIN)
     if (pluginId >= 0) {
       val resolvedPluginId = store.pluginIdOrNull(pluginId)
-      if (resolvedPluginId != null) {
+      if (resolvedPluginId != null && resolvedPluginId != PluginId.CORE) {
         return DependencyClassification.PluginDep(resolvedPluginId)
       }
       return DependencyClassification.Skip

@@ -1,8 +1,17 @@
 load("@community//build:tests-options.bzl", "jps_test")
+load("@community//platform/build-scripts/bazel-rules:dev_dist_plugin.bzl", "dev_dist_plugin")
 load("@rules_jvm//:jvm.bzl", "jvm_library")
 
-### auto-generated section `build intellij.copyright` start
+jps_test(
+    name = "copyright-tests_test",
+    timeout = "moderate",
+    sandbox = "True",
+    tags = ["community-aggregator"],
+    runtime_deps = [":copyright-tests_test_lib"],
+)
+### skip generation section `test intellij.copyright.tests`
 
+### auto-generated section `build intellij.copyright` start
 jvm_library(
     name = "copyright",
     srcs = glob(
@@ -32,7 +41,7 @@ jvm_library(
         "//platform/lang-api:lang",
         "//platform/lang-impl",
         "//libraries/velocity",
-        "//xml/impl",
+        "//xml/xml-psi-impl:psi-impl",
         "//platform/ide-core-impl",
         "//platform/ide-core",
         "@lib//:kotlin-stdlib",
@@ -45,6 +54,7 @@ jvm_library(
         "//platform/forms_rt:java-guiForms-rt",
         "//libraries/kotlinx/collections-immutable:libraries-kotlinx-collections-immutable",
         "//platform/util:util-ui",
+        "//platform/external-system-impl:externalSystem-impl",
     ],
 )
 
@@ -71,7 +81,7 @@ jvm_library(
         "//platform/lang-api:lang_test_lib",
         "//platform/lang-impl:lang-impl_test_lib",
         "//libraries/velocity:velocity_test_lib",
-        "//xml/impl:impl_test_lib",
+        "//xml/xml-psi-impl:psi-impl_test_lib",
         "//platform/ide-core-impl:ide-core-impl_test_lib",
         "//platform/ide-core:ide-core_test_lib",
         "//libraries/kotlinx/coroutines/core:core_test_lib",
@@ -97,6 +107,7 @@ jvm_library(
         "//platform/forms_rt:java-guiForms-rt_test_lib",
         "//libraries/kotlinx/collections-immutable:libraries-kotlinx-collections-immutable_test_lib",
         "//platform/util:util-ui_test_lib",
+        "//platform/external-system-impl:externalSystem-impl_test_lib",
     ],
 )
 ### auto-generated section `build intellij.copyright` end
@@ -105,13 +116,25 @@ jvm_library(
 exports_files(
     [
         "intellij.copyright.iml",
+        "resources/META-INF/plugin.xml",
     ],
     visibility = ["//visibility:public"],
 )
 ### auto-generated section `iml intellij.copyright` end
 
-### auto-generated section `build intellij.copyright.tests` start
+### auto-generated section `dev intellij.copyright` start
+dev_dist_plugin(
+    content_modules = ["//plugins/copyright/vcs"],
+    descriptor = "resources/META-INF/plugin.xml",
+    descriptor_module = ":copyright",
+    descriptors = {
+        "@community//plugins/copyright/vcs:resources/intellij.copyright.vcs.xml": "intellij.copyright.vcs.xml",
+    },
+    main_module = "intellij.copyright",
+)
+### auto-generated section `dev intellij.copyright` end
 
+### auto-generated section `build intellij.copyright.tests` start
 jvm_library(
     name = "copyright-tests",
     srcs = glob(
@@ -215,11 +238,3 @@ exports_files(
     visibility = ["//visibility:public"],
 )
 ### auto-generated section `iml intellij.copyright.tests` end
-
-### auto-generated section `test intellij.copyright.tests` start
-
-jps_test(
-    name = "copyright-tests_test",
-    runtime_deps = [":copyright-tests_test_lib"],
-)
-### auto-generated section `test intellij.copyright.tests` end

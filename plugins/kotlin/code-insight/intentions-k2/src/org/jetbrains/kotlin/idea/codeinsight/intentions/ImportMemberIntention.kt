@@ -6,15 +6,17 @@ import com.intellij.codeInsight.intention.PriorityAction
 import com.intellij.modcommand.ActionContext
 import com.intellij.modcommand.ModPsiUpdater
 import com.intellij.modcommand.Presentation
-import org.jetbrains.kotlin.analysis.api.KaIdeApi
 import org.jetbrains.kotlin.analysis.api.KaSession
 import org.jetbrains.kotlin.analysis.api.components.ShortenStrategy
-import org.jetbrains.kotlin.analysis.api.components.importableFqName
+import org.jetbrains.kotlin.analysis.api.resolution.resolveSuccessfulSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaCallableSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaClassSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaConstructorSymbol
+import org.jetbrains.kotlin.analysis.api.symbols.KaDeclarationSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaFileSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaSymbol
+import org.jetbrains.kotlin.analysis.api.symbols.containingFile
+import org.jetbrains.kotlin.analysis.api.symbols.importableFqName
 import org.jetbrains.kotlin.analysis.api.symbols.isTopLevel
 import org.jetbrains.kotlin.idea.base.analysis.api.utils.ShortenCommandForIde
 import org.jetbrains.kotlin.idea.base.analysis.api.utils.collectPossibleReferenceShorteningsForIde
@@ -28,6 +30,7 @@ import org.jetbrains.kotlin.psi.KtElement
 import org.jetbrains.kotlin.psi.KtFile
 import org.jetbrains.kotlin.psi.KtUserType
 import org.jetbrains.kotlin.psi.psiUtil.isInImportDirective
+import org.jetbrains.kotlin.resolution.KtResolvable
 
 internal class ImportMemberIntention :
     KotlinApplicableModCommandAction<KtElement, ImportMemberIntention.Context>(KtElement::class) {
@@ -53,19 +56,21 @@ internal class ImportMemberIntention :
     override fun isApplicableByPsi(element: KtElement): Boolean =
         (element is KtDotQualifiedExpression && !element.isInImportDirective()) || element is KtUserType
 
-    override fun KaSession.prepareContext(element: KtElement): Context? {
+    context(session: KaSession)
+    override fun prepareContext(element: KtElement): Context? {
         val reference = element.actualReference ?: return null
 
         val symbol =
             // for implicit companion object references, we want to import the outer class
             reference.resolveCompanionObjectShortReferenceToContainingClassSymbol()
-                ?: reference.resolveToSymbol()
+                ?: (element.elementToImport as? KtResolvable)?.resolveSuccessfulSymbol()
                 ?: return null
         
         val file = element.containingKtFile
-        return computeContext(file, symbol)?.takeUnless {
-            symbol.isTopLevel && symbol.containingFile?.isInSamePackage(file) == true
+        if (symbol is KaDeclarationSymbol && symbol.isTopLevel && symbol.containingFile?.isInSamePackage(file) == true) {
+            return null
         }
+        return computeContext(file, symbol)
     }
 
     override fun invoke(
@@ -74,11 +79,10 @@ internal class ImportMemberIntention :
         elementContext: Context,
         updater: ModPsiUpdater,
     ) {
-        elementContext.shortenCommand.invokeShortening()
+        elementContext.shortenCommand.invokeShortening(results = null)
     }
 }
 
-@OptIn(KaIdeApi::class)
 context(_: KaSession)
 private fun computeContext(file: KtFile, symbol: KaSymbol): ImportMemberIntention.Context? {
     return when (symbol) {

@@ -17,6 +17,7 @@ def _jvm_library(ctx):
     kotlin_cri_storage_file = providers.kt.outputs.kotlin_cri_storage_file
     if kotlin_cri_storage_file:
         files.append(kotlin_cri_storage_file)
+
     return [
         providers.java,
         providers.kt,
@@ -151,9 +152,12 @@ def jvm_library(
     effective_kotlinc_opts = kotlinc_opts if kotlinc_opts != None else Label("//:default-kotlinc-opts")
 
     if use_rules_kotlin_backend:
+        # rules_kotlin's kt_jvm_library only accepts .kt/.java/.srcjar in srcs. IntelliJ GUI
+        # Designer .form files are still allowed in srcs for compatibility with generated
+        # BUILD files, but no backend compiles them, so filter them out here.
         kt_jvm_library(
             name = name,
-            srcs = srcs,
+            srcs = [s for s in srcs if not s.endswith(".form")] if type(srcs) == "list" else srcs,
             deps = deps,
             exports = exports,
             runtime_deps = runtime_deps,

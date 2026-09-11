@@ -8,9 +8,9 @@ import com.intellij.modcommand.ActionContext
 import com.intellij.modcommand.ModPsiUpdater
 import com.intellij.modcommand.Presentation
 import com.intellij.openapi.util.TextRange
-import org.jetbrains.kotlin.analysis.api.KaExperimentalApi
 import org.jetbrains.kotlin.analysis.api.KaSession
-import org.jetbrains.kotlin.analysis.api.analyze
+import org.jetbrains.kotlin.analysis.api.resolution.resolveSuccessfulSymbol
+import org.jetbrains.kotlin.analysis.api.session.analyze
 import org.jetbrains.kotlin.analysis.api.symbols.KaFunctionSymbol
 import org.jetbrains.kotlin.idea.base.resources.KotlinBundle
 import org.jetbrains.kotlin.idea.codeinsight.api.applicable.asUnit
@@ -18,7 +18,6 @@ import org.jetbrains.kotlin.idea.codeinsight.api.applicable.intentions.KotlinApp
 import org.jetbrains.kotlin.idea.codeinsight.api.applicators.ApplicabilityRange
 import org.jetbrains.kotlin.lexer.KtTokens
 import org.jetbrains.kotlin.psi.KtBinaryExpression
-import org.jetbrains.kotlin.psi.KtExperimentalApi
 import org.jetbrains.kotlin.psi.KtPsiFactory
 import org.jetbrains.kotlin.psi.KtQualifiedExpression
 import org.jetbrains.kotlin.psi.createExpressionByPattern
@@ -36,9 +35,9 @@ internal class ReplaceWithOrdinaryAssignmentIntention : KotlinApplicableModComma
     override fun getApplicableRanges(element: KtBinaryExpression): List<TextRange> =
         ApplicabilityRange.single(element) { it.operationReference }
 
-    override fun KaSession.prepareContext(element: KtBinaryExpression): Unit? = isApplicableTo(element).asUnit
+    context(session: KaSession)
+    override fun prepareContext(element: KtBinaryExpression): Unit? = isApplicableTo(element).asUnit
 
-    @OptIn(KaExperimentalApi::class, KtExperimentalApi::class)
     private fun isApplicableTo(element: KtBinaryExpression): Boolean {
         val operationReference = element.operationReference
         if (element.operationToken !in KtTokens.AUGMENTED_ASSIGNMENTS) return false
@@ -47,7 +46,7 @@ internal class ReplaceWithOrdinaryAssignmentIntention : KotlinApplicableModComma
         if (element.right == null) return false
 
         analyze(element) {
-            val resultingSymbol = operationReference.resolveSymbol() as? KaFunctionSymbol ?: return false
+            val resultingSymbol = operationReference.resolveSuccessfulSymbol() as? KaFunctionSymbol ?: return false
             return resultingSymbol.callableId?.callableName !in OperatorNameConventions.ASSIGNMENT_OPERATIONS
         }
     }

@@ -1,7 +1,7 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library", "jvm_provided_library")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
 ### auto-generated section `build intellij.xml.emmet` start
-
 jvm_provided_library(
     name = "platform_core_provided",
     lib = "//platform/core-api:core",
@@ -63,11 +63,6 @@ jvm_provided_library(
 )
 
 jvm_provided_library(
-    name = "xml_ui-common_provided",
-    lib = "//xml/xml-ui-common:ui-common",
-)
-
-jvm_provided_library(
     name = "platform_ide-core_provided",
     lib = "//platform/ide-core",
 )
@@ -122,16 +117,6 @@ jvm_provided_library(
     lib = "//libraries/kotlinx/serialization/core",
 )
 
-jvm_provided_library(
-    name = "fleet_rpc_provided",
-    lib = "//fleet/rpc",
-)
-
-jvm_provided_library(
-    name = "platform_kernel_rpc_provided",
-    lib = "//platform/kernel/rpc",
-)
-
 jvm_library(
     name = "emmet",
     srcs = glob(
@@ -150,9 +135,9 @@ jvm_library(
     visibility = ["//visibility:public"],
     deps = [
         # do not sort,
-        "//platform/kernel/shared:kernel",
-        "@lib//:jetbrains-annotations",
+        "//libraries/jetbrains/annotations",
         "@lib//:kotlin-stdlib-provided",
+        "//xml/xml-ui-common:ui-common",
         "//libraries/kotlinx/collections-immutable:libraries-kotlinx-collections-immutable",
         ":platform_core_provided",
         ":platform_analysis-impl_provided",
@@ -166,7 +151,6 @@ jvm_library(
         ":libraries_xerces_provided",
         ":platform_analysis_provided",
         ":platform_core-impl_provided",
-        ":xml_ui-common_provided",
         ":platform_ide-core_provided",
         ":platform_ide-impl_provided",
         ":platform_editor-ex_provided",
@@ -178,10 +162,10 @@ jvm_library(
         ":platform_remote-topics_rpc-topics_provided",
         ":platform_project_project_provided",
         ":libraries_kotlinx_serialization_core_provided",
-        ":fleet_rpc_provided",
-        ":platform_kernel_rpc_provided",
     ],
 )
+
+content_module_jar(module = ":emmet")
 
 jvm_library(
     name = "emmet_test_lib",
@@ -195,7 +179,7 @@ jvm_library(
     runtime_deps = [
         # do not sort,
         ":emmet",
-        "//platform/kernel/shared:kernel_test_lib",
+        "//libraries/jetbrains/annotations:annotations_test_lib",
         "//platform/core-api:core",
         "//platform/core-api:core_test_lib",
         "//platform/analysis-impl",
@@ -221,7 +205,6 @@ jvm_library(
         "//platform/analysis-api:analysis_test_lib",
         "//platform/core-impl",
         "//platform/core-impl:core-impl_test_lib",
-        "//xml/xml-ui-common:ui-common",
         "//xml/xml-ui-common:ui-common_test_lib",
         "//platform/ide-core",
         "//platform/ide-core:ide-core_test_lib",
@@ -246,10 +229,6 @@ jvm_library(
         "//platform/project/shared:project_test_lib",
         "//libraries/kotlinx/serialization/core",
         "//libraries/kotlinx/serialization/core:core_test_lib",
-        "//fleet/rpc",
-        "//fleet/rpc:rpc_test_lib",
-        "//platform/kernel/rpc",
-        "//platform/kernel/rpc:rpc_test_lib",
     ],
 )
 ### auto-generated section `build intellij.xml.emmet` end
@@ -258,6 +237,11 @@ jvm_library(
 exports_files(
     [
         "intellij.xml.emmet.iml",
+        "resources/intellij.xml.emmet.xml",
+        "resources/liveTemplates/html_xml.xml",
+        "resources/liveTemplates/zen_html.xml",
+        "resources/liveTemplates/zen_xsl.xml",
+        "module-content.yaml",
     ],
     visibility = ["//visibility:public"],
 )

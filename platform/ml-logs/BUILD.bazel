@@ -1,7 +1,6 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
 
 ### auto-generated section `build intellij.platform.ml.logs` start
-
 jvm_library(
     name = "ml-logs",
     srcs = glob(
@@ -18,14 +17,14 @@ jvm_library(
         ["resources/**/*"],
     ),
     visibility = ["//visibility:public"],
-    exports = ["@lib//:jetbrains-mlapi-core"],
+    exports = ["//libraries/mlapi/core"],
     deps = [
         # do not sort,
         "@lib//:kotlin-stdlib",
         "//platform/util",
         "//platform/statistics",
-        "@lib//:jetbrains-annotations",
-        "@lib//:jetbrains-mlapi-core",
+        "//libraries/jetbrains/annotations",
+        "//libraries/mlapi/core",
     ],
 )
 
@@ -38,12 +37,18 @@ jvm_library(
     ),
     module_name = "intellij.platform.ml.logs",
     visibility = ["//visibility:public"],
-    exports = ["@lib//:jetbrains-mlapi-core"],
+    exports = [
+        # do not sort,
+        "//libraries/mlapi/core",
+        "//libraries/mlapi/core:core_test_lib",
+    ],
     runtime_deps = [
         # do not sort,
         ":ml-logs",
         "//platform/util:util_test_lib",
         "//platform/statistics:statistics_test_lib",
+        "//libraries/jetbrains/annotations:annotations_test_lib",
+        "//libraries/mlapi/core:core_test_lib",
     ],
 )
 ### auto-generated section `build intellij.platform.ml.logs` end
@@ -52,6 +57,7 @@ jvm_library(
 exports_files(
     [
         "intellij.platform.ml.logs.iml",
+        "resources/intellij.platform.ml.logs.xml",
     ],
     visibility = ["//visibility:public"],
 )

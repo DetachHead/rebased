@@ -42,9 +42,11 @@ import com.intellij.openapi.actionSystem.PerformWithDocumentsCommitted;
 import com.intellij.openapi.actionSystem.PlatformCoreDataKeys;
 import com.intellij.openapi.actionSystem.ex.ActionUtil;
 import com.intellij.openapi.actionSystem.impl.SimpleDataContext;
+import com.intellij.openapi.application.Application;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.ModalityState;
 import com.intellij.openapi.application.PathManager;
+import com.intellij.openapi.application.ThreadingSupport;
 import com.intellij.openapi.application.impl.LaterInvocator;
 import com.intellij.openapi.application.impl.NonBlockingReadActionImpl;
 import com.intellij.openapi.application.impl.TestOnlyThreading;
@@ -60,6 +62,8 @@ import com.intellij.openapi.fileTypes.FileTypes;
 import com.intellij.openapi.module.ModuleUtilCore;
 import com.intellij.openapi.paths.UrlReference;
 import com.intellij.openapi.paths.WebReference;
+import com.intellij.openapi.progress.ProgressManager;
+import com.intellij.openapi.progress.impl.CoreProgressManager;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.project.ex.ProjectManagerEx;
 import com.intellij.openapi.ui.Queryable;
@@ -84,6 +88,7 @@ import com.intellij.psi.PsiManager;
 import com.intellij.psi.PsiRecursiveElementWalkingVisitor;
 import com.intellij.psi.PsiReference;
 import com.intellij.psi.impl.source.resolve.reference.impl.PsiMultiReference;
+import com.intellij.testFramework.common.DumpKt;
 import com.intellij.testFramework.common.TestApplicationKt;
 import com.intellij.testFramework.fixtures.IdeaTestExecutionPolicy;
 import com.intellij.ui.ClientProperty;
@@ -99,6 +104,7 @@ import com.intellij.util.TimeoutUtil;
 import com.intellij.util.concurrency.AppExecutorUtil;
 import com.intellij.util.concurrency.AppScheduledExecutorService;
 import com.intellij.util.concurrency.ThreadingAssertions;
+import com.intellij.util.concurrency.annotations.RequiresBlockingContext;
 import com.intellij.util.concurrency.annotations.RequiresEdt;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.io.Decompressor;
@@ -107,12 +113,15 @@ import com.intellij.util.ui.EDT;
 import com.intellij.util.ui.UIUtil;
 import com.intellij.util.ui.tree.TreeUtil;
 import junit.framework.AssertionFailedError;
+import kotlin.ReplaceWith;
+import kotlin.Unit;
 import org.jetbrains.annotations.Contract;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.SystemDependent;
 import org.jetbrains.annotations.SystemIndependent;
 import org.jetbrains.annotations.TestOnly;
+import org.jetbrains.annotations.VisibleForTesting;
 import org.jetbrains.concurrency.Promise;
 import org.junit.AssumptionViolatedException;
 
@@ -135,6 +144,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
@@ -143,7 +153,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
@@ -170,17 +179,35 @@ import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
 @SuppressWarnings({"UseOfSystemOutOrSystemErr", "UIUtilDispatchAllInvocationEventsInTests"})
+@TestOnly
 public final class PlatformTestUtil {
   private static final Logger LOG = Logger.getInstance(PlatformTestUtil.class);
 
   public static final boolean COVERAGE_ENABLED_BUILD = "true".equals(System.getProperty("idea.coverage.enabled.build"));
 
-  private static final List<Runnable> ourProjectCleanups = new CopyOnWriteArrayList<>();
-  private static final long MAX_WAIT_TIME = TimeUnit.MINUTES.toMillis(2);
+  private static final long MAX_WAIT_TIME = TimeUnit.MINUTES.toMillis(10);
+  private static final long DISPATCH_ALL_INVOCATION_EVENTS_TIMEOUT_MS =
+    SystemProperties.getLongProperty("idea.test.dispatch.all.invocation.events.timeout.ms", MAX_WAIT_TIME);
 
   public static @NotNull String getTestName(@NotNull String name, boolean lowercaseFirstLetter) {
     name = StringUtil.trimStart(name, "test");
     return name.isEmpty() ? "" : lowercaseFirstLetter(name, lowercaseFirstLetter);
+  }
+
+  /**
+   * @deprecated use {@link LeakHunter#registerProjectCleanup(Runnable)}
+   */
+  @Deprecated(forRemoval = true)
+  public static void registerProjectCleanup(@NotNull Runnable cleanup) {
+    LeakHunter.registerProjectCleanup(cleanup);
+  }
+
+  /**
+   * @deprecated use {@link LeakHunter#cleanupAllProjects()}
+   */
+  @Deprecated(forRemoval = true)
+  public static void cleanupAllProjects() {
+    LeakHunter.cleanupAllProjects();
   }
 
   public static @NotNull String lowercaseFirstLetter(@NotNull String name, boolean lowercaseFirstLetter) {
@@ -225,6 +252,9 @@ public final class PlatformTestUtil {
         return ((AbstractTreeNode<?>)node).getTestPresentation();
       }
     }
+    if (node instanceof Queryable queryable) {
+      return Queryable.Util.print(queryable, printInfo);
+    }
     return String.valueOf(node);
   }
 
@@ -265,8 +295,8 @@ public final class PlatformTestUtil {
     int level,
     boolean withSelection,
     @Nullable Queryable.PrintInfo printInfo,
-    @Nullable Predicate<Pair<Object, String>> nodePrintCondition,
-    @Nullable Function<@NotNull PrintNodeInfo, @NotNull PrintChildrenResult> beforeChildren
+    @Nullable Predicate<? super Pair<Object, String>> nodePrintCondition,
+    @Nullable Function<? super @NotNull PrintNodeInfo, @NotNull PrintChildrenResult> beforeChildren
   ) {
     var pathComponent = path.getLastPathComponent();
     var userObject = TreeUtil.getUserObject(pathComponent);
@@ -408,20 +438,22 @@ public final class PlatformTestUtil {
     return false;
   }
 
+  @RequiresEdt
   public static void waitWhileBusy(@NotNull JTree tree) {
     waitWhileBusy(() -> isBusy(tree, tree.getModel()));
   }
 
+  @RequiresEdt
   public static void waitWhileBusy(@NotNull Supplier<Boolean> busyCondition) {
     assertDispatchThreadWithoutWriteAccess();
     var startTimeMillis = System.currentTimeMillis();
-    while (busyCondition.get()) {
-      assertMaxWaitTimeSince(startTimeMillis);
-      TimeoutUtil.sleep(5);
-      TestOnlyThreading.releaseTheAcquiredWriteIntentLockThenExecuteActionAndTakeWriteIntentLockBack(() -> {
-        UIUtil.dispatchAllInvocationEvents();
-      });
-    }
+    TestOnlyThreading.releaseTheAcquiredWriteIntentLockThenExecuteActionAndTakeWriteIntentLockBack(() -> {
+      while (busyCondition.get()) {
+        assertMaxWaitTimeSince(startTimeMillis);
+        TimeoutUtil.sleep(5);
+          UIUtil.dispatchAllInvocationEvents();
+      }
+    });
   }
 
   public static void waitForCallback(@NotNull ActionCallback callback) {
@@ -449,26 +481,31 @@ public final class PlatformTestUtil {
   private static @Nullable <T> T waitForPromise(Promise<T> promise, long timeoutMillis, boolean assertSucceeded) {
     assertDispatchThreadWithoutWriteAccess();
     var start = System.currentTimeMillis();
-    while (true) {
-      if (promise.getState() == Promise.State.PENDING) {
-        TestOnlyThreading.releaseTheAcquiredWriteIntentLockThenExecuteActionAndTakeWriteIntentLockBack(() -> {
+    Ref<T> result = new Ref<>();
+    TestOnlyThreading.releaseTheAcquiredWriteIntentLockThenExecuteActionAndTakeWriteIntentLockBack(() -> {
+      while (true) {
+        if (promise.getState() == Promise.State.PENDING) {
           UIUtil.dispatchAllInvocationEvents();
-        });
-      }
-      try {
-        return promise.blockingGet(20, TimeUnit.MILLISECONDS);
-      }
-      catch (TimeoutException ignore) { }
-      catch (Exception e) {
-        if (assertSucceeded) {
-          throw new AssertionError(e);
         }
-        else {
-          return null;
+        try {
+          result.set(promise.blockingGet(20, TimeUnit.MILLISECONDS));
+          return;
         }
+        catch (TimeoutException ignore) {
+          UIUtil.dispatchAllInvocationEvents();
+        }
+        catch (Exception e) {
+          if (assertSucceeded) {
+            throw new AssertionError(e);
+          }
+          else {
+            return;
+          }
+        }
+        assertMaxWaitTimeSince(start, timeoutMillis);
       }
-      assertMaxWaitTimeSince(start, timeoutMillis);
-    }
+    });
+    return result.get();
   }
 
   public static <T> T waitForFuture(@NotNull Future<T> future) {
@@ -502,6 +539,7 @@ public final class PlatformTestUtil {
   }
 
   @SuppressWarnings("UsagesOfObsoleteApi")
+  @RequiresEdt
   public static void waitForAlarm(int delay) {
     var app = ApplicationManager.getApplication();
     assertDispatchThreadWithoutWriteAccess();
@@ -568,19 +606,44 @@ public final class PlatformTestUtil {
    * Dispatch all pending invocation events (if any) in the {@link IdeEventQueue}, ignores and removes all other events from the queue.
    * Should only be invoked in Swing thread (asserted inside {@link IdeEventQueue#dispatchEvent(AWTEvent)})
    */
+  @RequiresEdt
+  @RequiresBlockingContext(replaceWith = @ReplaceWith(expression = "yield()", imports = {}))
   public static void dispatchAllInvocationEventsInIdeEventQueue() {
     assertDispatchThreadWithoutWriteAccess();
     var eventQueue = IdeEventQueue.getInstance();
     ThreadContext.resetThreadContext(() -> {
       TestOnlyThreading.releaseTheAcquiredWriteIntentLockThenExecuteActionAndTakeWriteIntentLockBack(() -> {
-        // due to non-blocking acquisition of write-intent, `NonBlockingFlushQueue` can appear in the state
-        // where it has stuck WI runnables. This method is called to ensure that _all_ runnables are dispatched,
-        // so we also want to wait for WI runnables here
-        var canary = new AtomicBoolean(false);
-        ApplicationManager.getApplication().invokeLater(() -> canary.set(true), ModalityState.any());
+        var canary = new Ref<>(false);
+        launchCanary(canary);
+        // The drain finishes once the queue is empty AND the `ModalityState.any()` canary has run. Under the
+        // non-blocking write-intent lock model that `canary` is a write-intent runnable that `NonBlockingFlushQueue` can starve
+        // indefinitely while it stays in UI_ONLY mode and keeps re-posting FLUSH_NOW invocation events. To fail fast and
+        // diagnosably, we never block unboundedly: we pull an event only when `peekEvent()` reports one, otherwise we
+        // wait in short bounded steps, and we abort with a thread/coroutine dump once the deadline elapses.
+        var start = System.currentTimeMillis();
         while (true) {
           var event = eventQueue.peekEvent();
           if (event == null && canary.get()) break;
+          var elapsed = getMillisSince(start);
+          if (elapsed > DISPATCH_ALL_INVOCATION_EVENTS_TIMEOUT_MS) {
+            throw new AssertionError(
+              "dispatchAllInvocationEventsInIdeEventQueue() did not finish draining the IDE event queue within " +
+              DISPATCH_ALL_INVOCATION_EVENTS_TIMEOUT_MS + " ms (canary fired=" + canary.get() + ").\n Suspected " +
+              "`NonBlockingFlushQueue` write-intent livelock: the queued `ModalityState.any()` runnable is starved " +
+              "while FLUSH_NOW invocation events keep being re-posted.\n Failing fast so that a single hung. Override the " +
+              "bound with -Didea.test.dispatch.all.invocation.events.timeout.ms if a slow environment needs longer.\n" +
+              "LaterInvocatorEdtQueue dump:\n" + LaterInvocator.getLaterInvocatorEdtQueue() + "\n" +
+              "Lock state dump: " + getLockDump() + "\n" +
+              "Thread dump:\n" + ThreadDumper.dumpThreadsToString() + "\n" +
+              "Coroutine dump:\n" + CoroutineDumperKt.dumpCoroutines(null, true, true) + "\n"
+            );
+          }
+          if (event == null) {
+            // the queue is momentarily empty, and the canary has not run yet; wait briefly for the flush machinery to
+            // post the next event instead of blocking indefinitely in getNextEvent()
+            TimeoutUtil.sleep(1);
+            continue;
+          }
           event = eventQueue.getNextEvent();
           if (event instanceof InvocationEvent) {
             eventQueue.dispatchEvent(event);
@@ -589,6 +652,35 @@ public final class PlatformTestUtil {
       });
       return null;
     });
+  }
+
+  // due to non-blocking acquisition of write-intent, `NonBlockingFlushQueue` can appear in the state
+  // where it has stuck WI runnables. This method is called to ensure that _all_ runnables are dispatched,
+  // so we also want to wait for WI runnables here
+  // In addition, there can be a suspended EDT write action.
+  // It is likely that the awaited activity depends on currently pending write actions, so we include them into the waiting procedure
+  private static void launchCanary(Ref<Boolean> canary) {
+    Application application = ApplicationManager.getApplication();
+    if (application == null) {
+      canary.set(true);
+      return;
+    }
+    Runnable launcher = () -> application.invokeLater(() -> canary.set(true), ModalityState.any());
+    ThreadingSupport lock = application.getThreadingSupport();
+    lock.runWhenWriteActionIsCompleted(() -> {
+      launcher.run();
+      return Unit.INSTANCE;
+    });
+  }
+
+  private static String getLockDump() {
+    ThreadingSupport lock = ApplicationManager.getApplication().getThreadingSupport();
+    return "Threading support dump: " +
+           "raAllowed=" + lock.isReadAccessAllowed() +
+           ", waAllowed=" + lock.isWriteAccessAllowed() +
+           ", waPending=" + lock.isWriteActionPending() +
+           ", waInProgress=" + lock.isWriteActionInProgress() +
+           ", writeActionFollowups=" + lock.writeActionFollowupsSize();
   }
 
   @TestOnly
@@ -613,14 +705,43 @@ public final class PlatformTestUtil {
 
   /**
    * Dispatch all pending events (if any) in the {@link IdeEventQueue}. Should only be invoked from EDT.
+   * In suspend context, use `yield` on the UI dispatcher
    */
+  @RequiresEdt
+  @RequiresBlockingContext(replaceWith = @ReplaceWith(expression = "yield()", imports = {}))
   public static void dispatchAllEventsInIdeEventQueue() {
-    EdtTestUtilKt.dispatchAllEventsInIdeEventQueue();
+    var canary = new Ref<>(false);
+    launchCanary(canary);
+    while (!canary.get()) {
+      EdtTestUtilKt.dispatchAllEventsInIdeEventQueue();
+    }
+  }
+
+  /**
+   * Dispatches pending events through the canary posted after current write actions.
+   * Returns early if {@code deadlineNs} is reached
+   * BEWARE: deadline = absolute time, not relative timeout.
+   * @return false if deadlineNs is breached before all events were dispatched (=wait timed out)
+   */
+  @RequiresEdt
+  @RequiresBlockingContext(replaceWith = @ReplaceWith(expression = "yield()", imports = {}))
+  @VisibleForTesting
+  public static boolean dispatchAllEventsInIdeEventQueue(long deadlineNs) {
+    var canary = new Ref<>(false);
+    launchCanary(canary);
+    while (!canary.get()) {
+      boolean allEventsDispatchedBeforeDeadline = EdtTestUtilKt.dispatchAllEventsInIdeEventQueue(deadlineNs);
+      if (!allEventsDispatchedBeforeDeadline) {// == deadline was breached
+        return false;
+      }
+    }
+    return true;
   }
 
   /**
    * Dispatch one pending event (if any) in the {@link IdeEventQueue}. Should only be invoked from EDT.
    */
+  @RequiresEdt
   public static AWTEvent dispatchNextEventIfAny() {
     return EdtTestUtilKt.dispatchNextEventIfAny();
   }
@@ -725,8 +846,16 @@ public final class PlatformTestUtil {
     ActionUtil.updateAction(action, event);
     assertTrue(event.getPresentation().isEnabled());
     ActionUtil.performAction(action, event);
+    var project = event.getData(CommonDataKeys.PROJECT);
+    if (project != null) {
+      NavigationTestUtil.awaitPendingNavigationIfEnabled(project);
+    }
   }
 
+  /**
+   * @deprecated Use {@code com.intellij.tools.ide.metrics.benchmark.Benchmark#newBenchmark(String, ThrowableRunnable)} with {@link BenchmarkTestInfo#start()} instead.
+   */
+  @Deprecated(forRemoval = true)
   public static void assertTiming(@NotNull String message, long expectedMillis, long actualMillis) {
     if (COVERAGE_ENABLED_BUILD) return;
 
@@ -765,7 +894,7 @@ public final class PlatformTestUtil {
    * method {@code PerformanceTestInfoImpl#withMetricsCollector}.
    * @see BenchmarkTestInfo#start()
    */
-  @Contract(pure = true) // to warn about not calling .assertTiming() in the end
+  @Contract(pure = true) // to warn about not calling .start() in the end
   public static @NotNull BenchmarkTestInfo newBenchmark(@NotNull String launchName, @NotNull ThrowableRunnable<?> test) {
     return newBenchmarkWithVariableInputSize(launchName, 1, () -> {
       test.run();
@@ -838,11 +967,19 @@ public final class PlatformTestUtil {
     }
   }
 
+  /**
+   * @deprecated Use {@code com.intellij.tools.ide.metrics.benchmark.Benchmark#newBenchmark(String, ThrowableRunnable)} with {@link BenchmarkTestInfo#start()} instead.
+   */
+  @Deprecated(forRemoval = true)
   public static void assertTiming(@NotNull String message, long expectedMillis, @NotNull Runnable actionToMeasure) {
     assertTiming(message, expectedMillis, 4, actionToMeasure);
   }
 
+  /**
+   * @deprecated Use {@code com.intellij.tools.ide.metrics.benchmark.Benchmark#newBenchmark(String, ThrowableRunnable)} with {@link BenchmarkTestInfo#start()} instead.
+   */
   @SuppressWarnings("CallToSystemGC")
+  @Deprecated(forRemoval = true)
   public static void assertTiming(@NotNull String message, long expectedMillis, int attempts, @NotNull Runnable actionToMeasure) {
     while (true) {
       attempts--;
@@ -864,11 +1001,9 @@ public final class PlatformTestUtil {
     }
   }
 
-  private static @NotNull Map<String, VirtualFile> buildNameToFileMap(
-    VirtualFile[] files,
-    @Nullable VirtualFileFilter filter,
-    @Nullable Function<VirtualFile, String> fileNameMapper
-  ) {
+  private static @NotNull Map<String, VirtualFile> buildNameToFileMap(VirtualFile @NotNull [] files,
+                                                                      @Nullable VirtualFileFilter filter,
+                                                                      @Nullable Function<? super VirtualFile, String> fileNameMapper) {
     var map = new HashMap<String, VirtualFile>();
     for (var file : files) {
       if (filter != null && !filter.accept(file)) continue;
@@ -1139,17 +1274,6 @@ public final class PlatformTestUtil {
     throw new AssertionError("given reference should be " + refType + " but " + (reference != null ? reference.getClass() : null) + " was given");
   }
 
-  public static void registerProjectCleanup(@NotNull Runnable cleanup) {
-    ourProjectCleanups.add(cleanup);
-  }
-
-  public static void cleanupAllProjects() {
-    for (var each : ourProjectCleanups) {
-      each.run();
-    }
-    ourProjectCleanups.clear();
-  }
-
   public static <T> void assertComparisonContractNotViolated(
     @NotNull List<? extends T> values,
     @NotNull Comparator<? super T> comparator,
@@ -1400,29 +1524,86 @@ public final class PlatformTestUtil {
     int timeoutInSeconds,
     @Nullable Runnable callback
   ) {
-    var start = System.currentTimeMillis();
-    while (true) {
-      try {
-        if (System.currentTimeMillis() - start > timeoutInSeconds * 1000L) {
-          if (callback != null) {
-            callback.run();
+    var startedNs = System.nanoTime();
+    var timeoutNs = Duration.ofSeconds(timeoutInSeconds).toNanos();
+    var deadlineNs = startedNs + timeoutNs;
+    //Events processing on EDT executed, by default, as ProgressManager.computePrioritized { ... }, i.e., as
+    // high-priority task.
+    // When priority tasks are running -- non-priority tasks are yielding inside checkCancelled(), for details
+    // see sleepIfNeededToGivePriorityToAnotherThread().
+    // This is useful when EDT runs UI user interacts with -- but here we just pump EDT events, no UI, no user
+    // => prioritization is useless. Even worse: it may lead to significant tests slowdowns, up to starvation
+    // in some edge cases => better suppress the EDT prioritization for this method:
+    ((CoreProgressManager)ProgressManager.getInstance()).suppressAllDeprioritizationsDuringLongTestsExecutionIn(() -> {
+      while (true) {
+        try {
+          if (System.nanoTime() >= deadlineNs) {
+            if (callback != null) {
+              callback.run();
+            }
+
+            var dump = ThreadDumper.getThreadDumpInfo(ThreadDumper.getThreadInfos(), true).getRawDump();
+            DumpKt.publishArtifact("waitWithEventsDispatching", "txt", (path) -> {
+              try {
+                Files.writeString(path, dump);
+                return Unit.INSTANCE;
+              }
+              catch (IOException e) {
+                throw new RuntimeException(e);
+              }
+            });
+
+            fail(errorMessageSupplier.get());
           }
-          fail(errorMessageSupplier.get());
-        }
-        if (condition.getAsBoolean()) {
-          if (callback != null) {
-            callback.run();
+          if (condition.getAsBoolean()) {
+            if (callback != null) {
+              callback.run();
+            }
+            break;
           }
-          break;
+          dispatchAllEventsInIdeEventQueue(deadlineNs);
+          //noinspection BusyWait
+          Thread.sleep(10);
         }
-        dispatchAllEventsInIdeEventQueue();
-        //noinspection BusyWait
-        Thread.sleep(10);
+        catch (InterruptedException e) {
+          throw new RuntimeException(e);
+        }
       }
-      catch (InterruptedException e) {
-        throw new RuntimeException(e);
+      return null;
+    });
+  }
+
+  /**
+   * Wait and dispatch events during timeout, like {@link #waitWithEventsDispatching(Supplier, BooleanSupplier, int, Runnable)}.
+   * Unlike that method, this method does not fail the test when the timeout runs out.
+   * It runs {@code onTimeout} instead, then returns {@code false}.
+   *
+   * @return {@code true} if {@code condition} became true before the timeout ran out.
+   */
+  public static boolean tryWaitWithEventsDispatching(@NotNull BooleanSupplier condition,
+                                                      int timeoutInSeconds,
+                                                      @NotNull Runnable onTimeout) {
+    var deadlineNs = System.nanoTime() + Duration.ofSeconds(timeoutInSeconds).toNanos();
+    Boolean conditionMetBeforeTimeout = ((CoreProgressManager)ProgressManager.getInstance()).suppressAllDeprioritizationsDuringLongTestsExecutionIn(() -> {
+      while (true) {
+        try {
+          if (condition.getAsBoolean()) {
+            return true;
+          }
+          if (System.nanoTime() >= deadlineNs) {
+            onTimeout.run();
+            return false;
+          }
+          dispatchAllEventsInIdeEventQueue(deadlineNs);
+          //noinspection BusyWait
+          Thread.sleep(10);
+        }
+        catch (InterruptedException e) {
+          throw new RuntimeException(e);
+        }
       }
-    }
+    });
+    return conditionMetBeforeTimeout;
   }
 
   public static PsiElement findElementBySignature(@NotNull String signature, @NotNull String fileRelativePath, @NotNull Project project) {

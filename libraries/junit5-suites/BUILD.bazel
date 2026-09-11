@@ -1,7 +1,6 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
 
 ### auto-generated section `build intellij.libraries.junit5.suites` start
-
 jvm_library(
     name = "junit5-suites",
     srcs = glob(
@@ -47,6 +46,7 @@ jvm_library(
 exports_files(
     [
         "intellij.libraries.junit5.suites.iml",
+        "resources/intellij.libraries.junit5.suites.xml",
     ],
     visibility = ["//visibility:public"],
 )

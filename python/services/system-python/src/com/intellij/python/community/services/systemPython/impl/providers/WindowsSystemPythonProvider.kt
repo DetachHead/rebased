@@ -1,4 +1,4 @@
-// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.python.community.services.systemPython.impl.providers
 
 import com.intellij.execution.configurations.PathEnvironmentVariableUtil
@@ -12,8 +12,8 @@ import com.jetbrains.python.PythonBinary
 import com.jetbrains.python.errorProcessing.PyResult
 import com.jetbrains.python.sdk.WinRegistryService
 import com.jetbrains.python.sdk.getAppxFiles
-import com.jetbrains.python.sdk.PythonEnvironment
-import com.jetbrains.python.sdk.detectPythonEnvironment
+import com.intellij.python.sdk.backend.SystemPythonEnvironment
+import com.intellij.python.sdk.backend.detectPythonEnvironment
 import com.jetbrains.python.venvReader.tryResolvePath
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -22,7 +22,6 @@ import java.nio.file.Path
 import java.io.IOException
 import java.util.regex.Pattern
 import kotlin.io.path.exists
-
 
 class WindowsSystemPythonProvider(val winRegistryBase: WinRegistryService? = null) : SystemPythonProvider {
   private companion object {
@@ -54,21 +53,8 @@ class WindowsSystemPythonProvider(val winRegistryBase: WinRegistryService? = nul
 
     val pythons = withContext(Dispatchers.IO) {
       val fromPath = names.flatMap { name ->
-        PathEnvironmentVariableUtil.findAllExeFilesInPath(name)
-      }.mapNotNull { file ->
-        try {
-          file.toPath()
-        }
-        catch (e: InvalidPathException) {
-          LOGGER.warn("Invalid path: $file", e)
-          null
-        }
-      }.filter {
-        when (it.detectPythonEnvironment().successOrNull) {
-          is PythonEnvironment.SystemPython -> true
-          is PythonEnvironment.Venv, is PythonEnvironment.Conda, null -> false
-        }
-      }
+        PathEnvironmentVariableUtil.findAll(name)
+      }.filter { it.detectPythonEnvironment().successOrNull is SystemPythonEnvironment }
 
       (fromPath + getPythonsFromStore() + getPythonsFromRegistry()).toSet()
     }

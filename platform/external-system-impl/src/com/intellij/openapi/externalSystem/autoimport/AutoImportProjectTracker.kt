@@ -24,6 +24,7 @@ import com.intellij.openapi.externalSystem.autoimport.ExternalSystemRefreshStatu
 import com.intellij.openapi.externalSystem.autoimport.update.PriorityEatUpdate
 import com.intellij.openapi.externalSystem.model.ProjectSystemId
 import com.intellij.openapi.externalSystem.util.ExternalSystemActivityKey
+import com.intellij.openapi.externalSystem.util.debugTrace
 import com.intellij.openapi.observable.operation.core.AtomicOperationTrace
 import com.intellij.openapi.observable.operation.core.MutableOperationTrace
 import com.intellij.openapi.observable.operation.core.isOperationInProgress
@@ -103,6 +104,15 @@ class AutoImportProjectTracker(
         projectChangeOperation.traceFinish()
     }
 
+  private fun createExternalSystemAutoImportAwareListener() =
+    object : ExternalSystemAutoImportAwareListener {
+      override fun autoImportAwareOperationStarted() =
+        projectChangeOperation.traceStart()
+
+      override fun autoImportAwareOperationCompleted() =
+        projectChangeOperation.traceFinish()
+    }
+
   private fun createProjectReloadListener(projectData: ProjectData) =
     object : ExternalSystemProjectListener {
 
@@ -125,7 +135,7 @@ class AutoImportProjectTracker(
   }
 
   override fun scheduleProjectRefresh() {
-    LOG.debug("Schedule change processing (isExplicitReload=true)", Throwable())
+    LOG.debugTrace("Schedule change processing (isExplicitReload=true)")
 
     schedule(priority = 0, dispatchIterations = 1) {
       processChanges(isExplicitReload = true)
@@ -319,7 +329,7 @@ class AutoImportProjectTracker(
     val projectId = projectAware.projectId
     val activationProperty = AtomicBooleanProperty(false)
     val reloadOperation = AtomicOperationTrace(name = "Reload $projectId")
-    val projectStatus = AutoImportProjectStatus(debugName = projectId.toString())
+    val projectStatus = AutoImportProjectStatus(debugName = "[project-tracker] $projectId")
     val parentDisposable = Disposer.newDisposable(serviceDisposable, projectId.toString())
     val settingsTracker = AutoImportProjectSettingsFilesTracker(project, this, backgroundExecutor, projectAware, parentDisposable)
     val projectData = ProjectData(projectStatus, activationProperty, reloadOperation, projectAware, settingsTracker, parentDisposable)
@@ -330,7 +340,7 @@ class AutoImportProjectTracker(
     settingsTracker.afterApplyChanges(parentDisposable) { reloadOperation.traceFinish() }
 
     activationProperty.whenPropertySet(parentDisposable) {
-      LOG.debug("$projectId is activated")
+      LOG.debugTrace("$projectId: Tracker is activated")
       scheduleChangeProcessing()
     }
     reloadOperation.whenOperationStarted(serviceDisposable) {
@@ -386,10 +396,12 @@ class AutoImportProjectTracker(
     for ((projectId, projectData) in projectDataMap) {
       val (systemId, externalProjectPath) = projectId
       val projectStates = systemStates.computeIfAbsent(systemId.id) { TreeMap() }
-      projectStates[externalProjectPath] = ProjectDataState(
+      val projectState = ProjectDataState(
         projectData.status.isDirty(),
         projectData.settingsTracker.getState()
       )
+      LOG.debug("$projectId: Store State ($projectState)")
+      projectStates[externalProjectPath] = projectState
     }
     return State(systemStates)
   }
@@ -406,6 +418,7 @@ class AutoImportProjectTracker(
 
   private fun loadState(projectId: ExternalSystemProjectId, projectData: ProjectData) {
     val projectState = projectDataStates.remove(projectId)
+    LOG.debug("$projectId: Load State ($projectState)")
     val settingsTrackerState = projectState?.settingsTracker
     if (settingsTrackerState == null || projectState.isDirty || isWorkspaceModelCacheAbsentOrInvalid()) {
       projectData.status.markDirty(Stamp.nextStamp(), EXTERNAL)
@@ -467,6 +480,8 @@ class AutoImportProjectTracker(
       .subscribe(BatchFileChangeListener.TOPIC, createProjectChangesListener())
     project.messageBus.connect(serviceDisposable)
       .subscribe(LookupManagerListener.TOPIC, createProjectCompletionListener())
+    project.messageBus.connect(serviceDisposable)
+      .subscribe(ExternalSystemAutoImportAwareListener.TOPIC, createExternalSystemAutoImportAwareListener())
   }
 
   private data class ProjectData(

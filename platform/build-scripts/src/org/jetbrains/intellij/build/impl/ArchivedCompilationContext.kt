@@ -2,10 +2,6 @@
 package org.jetbrains.intellij.build.impl
 
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.coroutineScope
-import org.jetbrains.annotations.ApiStatus.Experimental
 import org.jetbrains.annotations.ApiStatus.Internal
 import org.jetbrains.intellij.build.BuildMessages
 import org.jetbrains.intellij.build.BuildOptions
@@ -13,6 +9,7 @@ import org.jetbrains.intellij.build.BuildPaths
 import org.jetbrains.intellij.build.CompilationContext
 import org.jetbrains.intellij.build.ModuleOutputProvider
 import org.jetbrains.intellij.build.TestingOptions
+import org.jetbrains.intellij.build.mapConcurrent
 import org.jetbrains.intellij.build.impl.compilation.ArchivedCompilationOutputStorage
 import org.jetbrains.intellij.build.impl.compilation.createArchivedStorage
 import org.jetbrains.jps.model.module.JpsModule
@@ -31,10 +28,8 @@ class ArchivedCompilationContext internal constructor(
 
   override val outputProvider: ModuleOutputProvider = ArchivedModuleOutputProvider(delegateOutputProvider = delegate.outputProvider, storage = storage, scope = outputProviderScope)
 
-    override suspend fun getModuleRuntimeClasspath(module: JpsModule, forTests: Boolean): List<Path> {
-    return coroutineScope {
-      delegate.getModuleRuntimeClasspath(module, forTests).map { async { storage.getArchived(it) } }.awaitAll().filterNotNull()
-    }
+  override suspend fun getModuleRuntimeClasspath(module: JpsModule, forTests: Boolean): List<Path> {
+    return delegate.getModuleRuntimeClasspath(module, forTests).mapConcurrent { storage.getArchived(it) }.filterNotNull()
   }
 
   override fun createCopy(messages: BuildMessages, options: BuildOptions, paths: BuildPaths, scope: CoroutineScope?): CompilationContext {
@@ -66,7 +61,7 @@ private class ArchivedModuleOutputProvider(
     return outputRoots
   }
 
-  override suspend fun readFileContentFromModuleOutput(module: JpsModule, relativePath: String, forTests: Boolean): ByteArray? {
+  override fun readFileContentFromModuleOutput(module: JpsModule, relativePath: String, forTests: Boolean): ByteArray? {
     for (moduleOutput in getModuleOutputRoots(module, forTests)) {
       if (!moduleOutput.startsWith(storage.archivedOutputDirectory)) {
         return delegateOutputProvider.readFileContentFromModuleOutput(module, relativePath, forTests)
@@ -76,7 +71,7 @@ private class ArchivedModuleOutputProvider(
     return null
   }
 
-  override suspend fun findFileInAnyModuleOutput(relativePath: String, moduleNamePrefix: String?, processedModules: MutableSet<String>?): ByteArray? {
+  override fun findFileInAnyModuleOutput(relativePath: String, moduleNamePrefix: String?, processedModules: MutableSet<String>?): ByteArray? {
     for ((unarchivedPath, archivedPath) in storage.getMapping()) {
       val moduleName = unarchivedPath.fileName.toString()
       if (moduleNamePrefix != null && !moduleName.startsWith(moduleNamePrefix)) {
@@ -108,8 +103,12 @@ private class ArchivedModuleOutputProvider(
 val CompilationContext.asArchivedIfNeeded: CompilationContext
   get() = this.toArchivedIfNeeded(scope = null)
 
-@Experimental
-internal fun CompilationContext.toArchivedIfNeeded(scope: CoroutineScope?): CompilationContext {
+/**
+ * Pass the [scope] that owns the read. It enables the zip cache of the module output pool, so a repeated
+ * read of the same archive costs a map lookup instead of a new open.
+ */
+@Internal
+fun CompilationContext.toArchivedIfNeeded(scope: CoroutineScope?): CompilationContext {
   return when {
     this is ArchivedCompilationContext -> this
     TestingOptions().useArchivedCompiledClasses || !System.getProperty("intellij.test.jars.mapping.file", "").isNullOrBlank() -> this.toArchivedContext(scope)

@@ -1,4 +1,4 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.psi;
 
 import com.intellij.codeInsight.TypeNullability;
@@ -27,26 +27,43 @@ public final class PsiWildcardType extends PsiType.Stub implements JvmWildcardTy
   private final boolean myIsExtending;
   private final PsiType myBound;
   private final @Nullable TypeNullability myBaseNullability;
+  private final @Nullable PsiElement myContext;
 
   private PsiWildcardType(@NotNull PsiManager manager, boolean isExtending, @Nullable PsiType bound) {
     this(manager, isExtending, bound, TypeAnnotationProvider.EMPTY);
   }
 
   private PsiWildcardType(@NotNull PsiManager manager, boolean isExtending, @Nullable PsiType bound, @NotNull TypeAnnotationProvider provider) {
-    this(manager, isExtending, bound, provider, null);
+    this(manager, isExtending, bound, provider, null, null);
   }
 
-  private PsiWildcardType(@NotNull PsiManager manager, boolean isExtending, @Nullable PsiType bound, 
-                          @NotNull TypeAnnotationProvider provider, @Nullable TypeNullability nullability) {
+  private PsiWildcardType(@NotNull PsiManager manager, boolean isExtending, @Nullable PsiType bound,
+                          @NotNull TypeAnnotationProvider provider, @Nullable TypeNullability nullability,
+                          @Nullable PsiElement context) {
     super(provider);
     myManager = manager;
     myIsExtending = isExtending;
     myBound = bound;
     myBaseNullability = nullability;
+    myContext = context;
   }
 
   public static @NotNull PsiWildcardType createUnbounded(@NotNull PsiManager manager) {
     return ConcurrencyUtil.computeIfAbsent(manager, UNBOUNDED_WILDCARD, () -> new PsiWildcardType(manager, false, null));
+  }
+
+  /**
+   * Creates an unbounded wildcard that remembers where it was written, which is what the nullness of its implicit bound
+   * depends on: an unbounded {@code ?} written in a {@code @NullMarked} scope has a nullable implicit bound, while the
+   * same {@code ?} written in unmarked code has an unspecified one. Unlike {@code ? extends X}, an unbounded wildcard
+   * has no bound type to carry that scope, so it has to be kept here.
+   *
+   * @param context the type element the wildcard was written at, or {@code null} if unknown; to rewrite a wildcard,
+   *                call {@link #unbounded()} on it instead, because that passes on the place of the original
+   * @see #unbounded()
+   */
+  public static @NotNull PsiWildcardType createUnbounded(@NotNull PsiManager manager, @Nullable PsiElement context) {
+    return context == null ? createUnbounded(manager) : new PsiWildcardType(manager, false, null, TypeAnnotationProvider.EMPTY, null, context);
   }
 
   public static @NotNull PsiWildcardType createExtends(@NotNull PsiManager manager, @NotNull PsiType bound) {
@@ -74,12 +91,28 @@ public final class PsiWildcardType extends PsiType.Stub implements JvmWildcardTy
 
   @Override
   public @NotNull PsiWildcardType withNullability(@NotNull TypeNullability nullability) {
-    return new PsiWildcardType(myManager, myIsExtending, myBound, getAnnotationProvider(), nullability);
+    return new PsiWildcardType(myManager, myIsExtending, myBound, getAnnotationProvider(), nullability, myContext);
   }
 
   @Override
   public @NotNull PsiType annotate(@NotNull TypeAnnotationProvider provider) {
-    return new PsiWildcardType(myManager, myIsExtending, myBound, provider);
+    return new PsiWildcardType(myManager, myIsExtending, myBound, provider, null, myContext);
+  }
+
+  /**
+   * @return the element the wildcard was written at, or {@code null} when unknown: for a wildcard that was inferred,
+   * created programmatically, or rebuilt by substitution.
+   */
+  @Nullable PsiElement getPsiContext() {
+    return myContext;
+  }
+
+  /**
+   * @return an unbounded wildcard that keeps the place this wildcard was written at, see
+   * {@link #createUnbounded(PsiManager, PsiElement)}. The result drops the annotations and the nullability of this type.
+   */
+  public @NotNull PsiWildcardType unbounded() {
+    return createUnbounded(myManager, myContext);
   }
 
   @Override

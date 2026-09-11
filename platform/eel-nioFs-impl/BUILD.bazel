@@ -1,6 +1,13 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
+load("//build:compiler-options.bzl", "create_kotlinc_options")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
 ### auto-generated section `build intellij.platform.eel.nioFs.impl` start
+create_kotlinc_options(
+    name = "custom_eel-nioFs-impl",
+    warn = "error",
+    x_warning_level = ["DEPRECATION:warning"],
+)
 
 jvm_library(
     name = "eel-nioFs-impl",
@@ -12,6 +19,7 @@ jvm_library(
         ],
         allow_empty = True,
     ),
+    kotlinc_opts = ":custom_eel-nioFs-impl",
     module_name = "intellij.platform.eel.nioFs.impl",
     resource_strip_prefix = "resources",
     resources = glob(
@@ -26,12 +34,15 @@ jvm_library(
         "//platform/core-nio-fs",
         "//platform/util",
         "//platform/core-api:core",
+        "//platform/util/annotations",
         "//platform/diagnostic/telemetry",
         "//libraries/opentelemetry",
         "@lib//:kotlin-stdlib",
-        "@lib//:jetbrains-annotations",
+        "//libraries/jetbrains/annotations",
     ],
 )
+
+content_module_jar(module = ":eel-nioFs-impl")
 
 jvm_library(
     name = "eel-nioFs-impl_test_lib",
@@ -40,6 +51,7 @@ jvm_library(
         [],
         allow_empty = True,
     ),
+    kotlinc_opts = ":custom_eel-nioFs-impl",
     module_name = "intellij.platform.eel.nioFs.impl",
     visibility = ["//visibility:public"],
     runtime_deps = [
@@ -51,8 +63,10 @@ jvm_library(
         "//platform/core-nio-fs:core-nio-fs_test_lib",
         "//platform/util:util_test_lib",
         "//platform/core-api:core_test_lib",
+        "//platform/util/annotations:annotations_test_lib",
         "//platform/diagnostic/telemetry:telemetry_test_lib",
         "//libraries/opentelemetry:opentelemetry_test_lib",
+        "//libraries/jetbrains/annotations:annotations_test_lib",
     ],
 )
 ### auto-generated section `build intellij.platform.eel.nioFs.impl` end
@@ -61,6 +75,8 @@ jvm_library(
 exports_files(
     [
         "intellij.platform.eel.nioFs.impl.iml",
+        "resources/intellij.platform.eel.nioFs.impl.xml",
+        "module-content.yaml",
     ],
     visibility = ["//visibility:public"],
 )

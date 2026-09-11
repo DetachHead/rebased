@@ -2,11 +2,14 @@
 package org.jetbrains.kotlin.idea.codeinsight.utils
 
 import org.jetbrains.annotations.NonNls
-import org.jetbrains.kotlin.analysis.api.analyze
-import org.jetbrains.kotlin.analysis.api.resolution.singleFunctionCallOrNull
+import org.jetbrains.kotlin.analysis.api.resolution.function
+import org.jetbrains.kotlin.analysis.api.resolution.single
 import org.jetbrains.kotlin.analysis.api.resolution.symbol
+import org.jetbrains.kotlin.analysis.api.session.analyze
 import org.jetbrains.kotlin.analysis.api.symbols.KaConstructorSymbol
+import org.jetbrains.kotlin.analysis.api.types.isSubtypeOf
 import org.jetbrains.kotlin.idea.base.psi.replaced
+import org.jetbrains.kotlin.idea.util.tryResolveExpressionCall
 import org.jetbrains.kotlin.name.CallableId
 import org.jetbrains.kotlin.name.ClassId
 import org.jetbrains.kotlin.name.StandardClassIds
@@ -59,8 +62,7 @@ object MutableCollectionsConversionUtils {
     private fun callableName(
         initializer: KtExpression,
     ): MutableCollectionCall? = analyze(initializer) {
-        val functionSymbol = initializer.resolveToCall()
-            ?.singleFunctionCallOrNull()
+        val functionSymbol = initializer.tryResolveExpressionCall()?.single?.function
             ?.symbol
             ?: return@analyze null
 

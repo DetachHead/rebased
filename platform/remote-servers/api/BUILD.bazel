@@ -1,7 +1,7 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
 ### auto-generated section `build intellij.platform.remoteServers` start
-
 jvm_library(
     name = "remoteServers",
     srcs = glob(
@@ -33,6 +33,8 @@ jvm_library(
         "//platform/editor-ui-api:editor-ui",
     ],
 )
+
+content_module_jar(module = ":remoteServers")
 
 jvm_library(
     name = "remoteServers_test_lib",
@@ -69,6 +71,8 @@ jvm_library(
 exports_files(
     [
         "intellij.platform.remoteServers.iml",
+        "resources/intellij.platform.remoteServers.xml",
+        "module-content.yaml",
     ],
     visibility = ["//visibility:public"],
 )

@@ -1,10 +1,15 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library", "jvm_provided_library")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
 ### auto-generated section `build intellij.xml.emmet.backend` start
-
 jvm_provided_library(
     name = "xml_emmet_provided",
     lib = "//xml/emmet",
+)
+
+jvm_provided_library(
+    name = "libraries_jetbrains_annotations_provided",
+    lib = "//libraries/jetbrains/annotations",
 )
 
 jvm_provided_library(
@@ -80,10 +85,11 @@ jvm_library(
     visibility = ["//visibility:public"],
     deps = [
         # do not sort,
+        "//xml/emmet/shared",
         "@lib//:kotlin-stdlib-provided",
-        "@lib//:jetbrains-annotations-provided",
         "//platform/kernel/rpc.backend",
         ":xml_emmet_provided",
+        ":libraries_jetbrains_annotations_provided",
         ":platform_ide-core_provided",
         ":platform_lang-impl_provided",
         ":platform_util-ui_provided",
@@ -98,6 +104,8 @@ jvm_library(
     ],
 )
 
+content_module_jar(module = ":backend")
+
 jvm_library(
     name = "backend_test_lib",
     testonly = True,
@@ -110,10 +118,12 @@ jvm_library(
     runtime_deps = [
         # do not sort,
         ":backend",
+        "//xml/emmet/shared:shared_test_lib",
         "@lib//:kotlin-stdlib-provided",
         "//xml/emmet",
         "//xml/emmet:emmet_test_lib",
-        "@lib//:jetbrains-annotations-provided",
+        "//libraries/jetbrains/annotations",
+        "//libraries/jetbrains/annotations:annotations_test_lib",
         "//platform/ide-core",
         "//platform/ide-core:ide-core_test_lib",
         "//platform/lang-impl",
@@ -145,6 +155,8 @@ jvm_library(
 exports_files(
     [
         "intellij.xml.emmet.backend.iml",
+        "resources/intellij.xml.emmet.backend.xml",
+        "module-content.yaml",
     ],
     visibility = ["//visibility:public"],
 )

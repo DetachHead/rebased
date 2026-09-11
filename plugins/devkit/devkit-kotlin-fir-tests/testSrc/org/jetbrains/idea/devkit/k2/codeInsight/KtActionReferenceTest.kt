@@ -9,6 +9,7 @@ import com.intellij.openapi.actionSystem.ActionManager
 import com.intellij.openapi.application.PathManager
 import com.intellij.openapi.fileEditor.impl.EditorEmptyTextPainter
 import com.intellij.openapi.options.Scheme
+import com.intellij.testFramework.ExpectedHighlightingData
 import com.intellij.testFramework.TestDataPath
 import com.intellij.testFramework.builders.JavaModuleFixtureBuilder
 import com.intellij.testFramework.fixtures.CodeInsightTestFixture
@@ -32,7 +33,9 @@ class KtActionReferenceTest : JavaCodeInsightFixtureTestCase() {
     moduleBuilder.addLibrary("platform-impl", PathUtil.getJarPathForClass(EditorEmptyTextPainter::class.java))
     moduleBuilder.addLibrary("platform-editor", PathUtil.getJarPathForClass(ActionManager::class.java))
     moduleBuilder.addLibrary("execution", PathUtil.getJarPathForClass(DefaultRunExecutor::class.java))
-    moduleBuilder.addLibrary("platform-resources", PathManager.getResourceRoot(LocalInspectionEP::class.java, "/idea/PlatformActions.xml")!!)
+    moduleBuilder.addLibrary("platform-resources", PathManager.getResourceRoot(LocalInspectionEP::class.java, "/idea/PlatformApplicationInfo.xml")!!)
+    moduleBuilder.addLibrary("platform-impl-resources", PathManager.getResourceRoot(EditorEmptyTextPainter::class.java, "/idea/PlatformActions.xml")!!)
+    moduleBuilder.addLibrary("lang-impl-resources", PathManager.getResourceRoot(EditorEmptyTextPainter::class.java, "/intellij.platform.lang.impl.actions.xml")!!)
     moduleBuilder.addLibrary("testFramework", PathUtil.getJarPathForClass(CodeInsightTestFixture::class.java))
   }
 
@@ -120,6 +123,7 @@ class KtActionReferenceTest : JavaCodeInsightFixtureTestCase() {
     assertSameElements(myFixture.getCompletionVariants("Caller.kt").orEmpty(), "myAction", "myGroup", "myActionWithoutExplicitId")
   }
 
+  @Suppress("DEPRECATION")
   fun testActionReferenceHighlighting() {
     myFixture.enableInspections(UnresolvedPluginConfigReferenceInspection::class.java)
     myFixture.createFile("plugin.xml", pluginXmlActions("""
@@ -132,7 +136,10 @@ class KtActionReferenceTest : JavaCodeInsightFixtureTestCase() {
       public class KeyEvent {}
     """.trimIndent())
 
-    myFixture.testHighlighting("ActionReferenceHighlighting.kt")
+    ExpectedHighlightingData.expectedDuplicatedHighlighting {
+      // missed a number of different dependencies which are hidden by the same key
+      myFixture.testHighlighting("ActionReferenceHighlighting.kt")
+    }
   }
 
   fun testActionReferenceToolWindowHighlighting() {

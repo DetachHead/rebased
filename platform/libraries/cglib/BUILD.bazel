@@ -1,7 +1,7 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
 ### auto-generated section `build intellij.libraries.cglib` start
-
 jvm_library(
     name = "cglib",
     srcs = glob(
@@ -32,6 +32,11 @@ jvm_library(
     ],
 )
 
+content_module_jar(
+    libraries = ["@lib//:libraries-cglib-cglib"],
+    module = ":cglib",
+)
+
 jvm_library(
     name = "cglib_test_lib",
     testonly = True,
@@ -60,6 +65,8 @@ jvm_library(
 exports_files(
     [
         "intellij.libraries.cglib.iml",
+        "resources/intellij.libraries.cglib.xml",
+        "module-content.yaml",
     ],
     visibility = ["//visibility:public"],
 )

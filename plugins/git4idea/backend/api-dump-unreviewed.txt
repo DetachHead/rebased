@@ -95,7 +95,6 @@ f:git4idea.GitPushUtil$BranchNameInputDialogMessages
 c:git4idea.GitRevisionNumber
 - com.intellij.openapi.vcs.history.ShortVcsRevisionNumber
 - sf:HEAD:git4idea.GitRevisionNumber
-- sf:NOT_COMMITTED_HASH:java.lang.String
 - <init>(java.lang.String,java.util.Date):V
 - asString():java.lang.String
 - compareTo(com.intellij.openapi.vcs.history.VcsRevisionNumber):I
@@ -154,8 +153,6 @@ f:git4idea.GitUtil
 - s:gitTime(java.util.Date):java.lang.String
 - s:hasLocalChanges(Z,com.intellij.openapi.project.Project,com.intellij.openapi.vfs.VirtualFile):Z
 - s:isCaseOnlyChange(java.lang.String,java.lang.String):Z
-- s:isHashString(java.lang.String):Z
-- s:isHashString(java.lang.String,Z):Z
 - s:joinToHtml(java.util.Collection):java.lang.String
 - s:mention(java.util.Collection):java.lang.String
 - s:parseRemoteBranch(java.lang.String,java.util.Collection):git4idea.GitRemoteBranch
@@ -488,18 +485,12 @@ a:git4idea.actions.ref.GitSingleRefAction
 - f:update(com.intellij.openapi.actionSystem.AnActionEvent):V
 - updateIfEnabledAndVisible(com.intellij.openapi.actionSystem.AnActionEvent,com.intellij.openapi.project.Project,java.util.List,git4idea.GitReference):V
 f:git4idea.actions.ref.GitSingleRefAction$Companion
-- f:getWorkingTreeWithRef(git4idea.GitReference,git4idea.repo.GitRepository,Z):git4idea.GitWorkingTree
 - f:isCurrentRefInAnyOtherWorkingTree(git4idea.GitReference,java.util.List):Z
 f:git4idea.actions.tag.GitPushTagActionWrapper
 - com.intellij.openapi.actionSystem.AnActionWrapper
 - com.intellij.openapi.actionSystem.DataSnapshotProvider
 - <init>(com.intellij.openapi.actionSystem.AnAction,git4idea.repo.GitRepository,git4idea.repo.GitRemote):V
 - dataSnapshot(com.intellij.openapi.actionSystem.DataSink):V
-f:git4idea.actions.workingTree.GitOpenExistingWorkingTreeForLocalBranchAction
-- git4idea.actions.ref.GitSingleRefAction
-- <init>():V
-- actionPerformed(com.intellij.openapi.actionSystem.AnActionEvent,com.intellij.openapi.project.Project,java.util.List,git4idea.GitReference):V
-- updateIfEnabledAndVisible(com.intellij.openapi.actionSystem.AnActionEvent,com.intellij.openapi.project.Project,java.util.List,git4idea.GitReference):V
 f:git4idea.annotate.GitAdvancedSettingsListener
 - sf:INSTANCE:git4idea.annotate.GitAdvancedSettingsListener
 - sf:registerListener(com.intellij.openapi.project.Project,kotlinx.coroutines.CoroutineScope):V
@@ -822,7 +813,6 @@ f:git4idea.branch.GitRebaseParams$RebaseUpstream$Commit
 - f:getCommit():com.intellij.vcs.log.Hash
 f:git4idea.branch.GitRebaseParams$RebaseUpstream$Companion
 - f:fromNullableString(java.lang.String):git4idea.branch.GitRebaseParams$RebaseUpstream
-- f:fromRefString(java.lang.String):git4idea.branch.GitRebaseParams$RebaseUpstream$Reference
 c:git4idea.branch.GitRebaseParams$RebaseUpstream$Reference
 - git4idea.branch.GitRebaseParams$RebaseUpstream
 - <init>(java.lang.String):V
@@ -1104,7 +1094,6 @@ git4idea.commands.Git
 - a:branchCreate(git4idea.repo.GitRepository,java.lang.String,java.lang.String,Z):git4idea.commands.GitCommandResult
 - a:branchDelete(git4idea.repo.GitRepository,java.lang.String,Z,git4idea.commands.GitLineHandlerListener[]):git4idea.commands.GitCommandResult
 - a:checkAttr(git4idea.repo.GitRepository,java.util.Collection,java.util.Collection):git4idea.commands.GitCommandResult
-- a:checkout(git4idea.repo.GitRepository,java.lang.String,java.lang.String,Z,Z,Z,git4idea.commands.GitLineHandlerListener[]):git4idea.commands.GitCommandResult
 - a:checkout(git4idea.repo.GitRepository,java.lang.String,java.lang.String,Z,Z,git4idea.commands.GitLineHandlerListener[]):git4idea.commands.GitCommandResult
 - a:checkoutNewBranch(git4idea.repo.GitRepository,java.lang.String,git4idea.commands.GitLineHandlerListener):git4idea.commands.GitCommandResult
 - a:cherryPick(git4idea.repo.GitRepository,java.lang.String,Z,Z,git4idea.commands.GitLineHandlerListener[]):git4idea.commands.GitCommandResult
@@ -1114,7 +1103,6 @@ git4idea.commands.Git
 - clone(com.intellij.openapi.project.Project,java.nio.file.Path,java.lang.String,java.lang.String,git4idea.commands.GitLineHandlerListener[]):git4idea.commands.GitCommandResult
 - a:config(git4idea.repo.GitRepository,java.lang.String[]):git4idea.commands.GitCommandResult
 - a:createNewTag(git4idea.repo.GitRepository,java.lang.String,git4idea.commands.GitLineHandlerListener,java.lang.String):git4idea.commands.GitCommandResult
-- a:createWorkingTree(git4idea.repo.GitRepository,com.intellij.openapi.vcs.FilePath,git4idea.GitReference,java.lang.String):git4idea.commands.GitCommandResult
 - a:deleteTag(git4idea.repo.GitRepository,java.lang.String,git4idea.commands.GitLineHandlerListener[]):git4idea.commands.GitCommandResult
 - a:deleteWorkingTree(git4idea.repo.GitRepository,git4idea.GitWorkingTree):git4idea.commands.GitCommandResult
 - a:diff(git4idea.repo.GitRepository,java.util.List,java.lang.String):git4idea.commands.GitCommandResult
@@ -1341,7 +1329,6 @@ c:git4idea.commands.GitImpl
 - branchCreate(git4idea.repo.GitRepository,java.lang.String,java.lang.String,Z):git4idea.commands.GitCommandResult
 - branchDelete(git4idea.repo.GitRepository,java.lang.String,Z,git4idea.commands.GitLineHandlerListener[]):git4idea.commands.GitCommandResult
 - checkAttr(git4idea.repo.GitRepository,java.util.Collection,java.util.Collection):git4idea.commands.GitCommandResult
-- checkout(git4idea.repo.GitRepository,java.lang.String,java.lang.String,Z,Z,Z,git4idea.commands.GitLineHandlerListener[]):git4idea.commands.GitCommandResult
 - checkout(git4idea.repo.GitRepository,java.lang.String,java.lang.String,Z,Z,git4idea.commands.GitLineHandlerListener[]):git4idea.commands.GitCommandResult
 - checkoutNewBranch(git4idea.repo.GitRepository,java.lang.String,git4idea.commands.GitLineHandlerListener):git4idea.commands.GitCommandResult
 - cherryPick(git4idea.repo.GitRepository,java.lang.String,Z,Z,git4idea.commands.GitLineHandlerListener[]):git4idea.commands.GitCommandResult
@@ -1349,7 +1336,6 @@ c:git4idea.commands.GitImpl
 - config(git4idea.repo.GitRepository,java.lang.String[]):git4idea.commands.GitCommandResult
 - createNewTag(git4idea.repo.GitRepository,java.lang.String,git4idea.commands.GitLineHandlerListener,java.lang.String):git4idea.commands.GitCommandResult
 - p:createRebaseEditor(com.intellij.openapi.project.Project,com.intellij.openapi.vfs.VirtualFile,git4idea.commands.GitLineHandler,Z):git4idea.rebase.GitRebaseEditorHandler
-- createWorkingTree(git4idea.repo.GitRepository,com.intellij.openapi.vcs.FilePath,git4idea.GitReference,java.lang.String):git4idea.commands.GitCommandResult
 - deleteTag(git4idea.repo.GitRepository,java.lang.String,git4idea.commands.GitLineHandlerListener[]):git4idea.commands.GitCommandResult
 - deleteWorkingTree(git4idea.repo.GitRepository,git4idea.GitWorkingTree):git4idea.commands.GitCommandResult
 - diff(git4idea.repo.GitRepository,java.util.List,java.lang.String):git4idea.commands.GitCommandResult
@@ -2475,7 +2461,6 @@ f:git4idea.index.GitIndexStatusUtilKt
 f:git4idea.index.GitIndexUtil
 - sf:DEFAULT_MODE:java.lang.String
 - sf:EXECUTABLE_MODE:java.lang.String
-- sf:NULL_HASH:com.intellij.vcs.log.Hash
 - sf:SUBMODULE_MODE:java.lang.String
 - <init>():V
 - s:listStaged(com.intellij.openapi.project.Project,com.intellij.openapi.vfs.VirtualFile,java.util.Collection):java.util.List
@@ -3952,7 +3937,6 @@ a:git4idea.remote.GitRepositoryHostingService
 git4idea.remote.InteractiveGitHttpAuthDataProvider
 - a:getAuthData(java.awt.Component):com.intellij.util.AuthData
 f:git4idea.remote.hosting.GitAsyncExtensionsKt
-- sf:currentRemoteBranchFlow(git4idea.repo.GitRepository):kotlinx.coroutines.flow.Flow
 - sf:discoverServers(kotlinx.coroutines.flow.Flow,kotlinx.coroutines.flow.Flow,I,kotlin.jvm.functions.Function2):kotlinx.coroutines.flow.Flow
 - bs:discoverServers$default(kotlinx.coroutines.flow.Flow,kotlinx.coroutines.flow.Flow,I,kotlin.jvm.functions.Function2,I,java.lang.Object):kotlinx.coroutines.flow.Flow
 - sf:gitRemotesStateIn(com.intellij.openapi.project.Project,kotlinx.coroutines.CoroutineScope,kotlinx.coroutines.flow.SharingStarted):kotlinx.coroutines.flow.StateFlow
@@ -4576,7 +4560,6 @@ f:git4idea.stash.GitStashOperations
 - sf:viewStash(com.intellij.openapi.project.Project,git4idea.ui.StashInfo,Z):V
 f:git4idea.stash.GitStashTracker
 - com.intellij.openapi.Disposable
-- <init>(com.intellij.openapi.project.Project):V
 - f:addListener(git4idea.stash.GitStashTrackerListener,com.intellij.openapi.Disposable):V
 - dispose():V
 - f:getRoots():java.util.Set
@@ -4600,8 +4583,6 @@ git4idea.stash.GitStashTrackerListener
 - a:stashesUpdated():V
 f:git4idea.stash.GitStashUtils
 - sf:createStashHandler(com.intellij.openapi.project.Project,com.intellij.openapi.vfs.VirtualFile,java.util.Collection,java.lang.String[]):git4idea.commands.GitLineHandler
-- sf:createStashHandler(com.intellij.openapi.project.Project,com.intellij.openapi.vfs.VirtualFile,Z,java.lang.String):git4idea.commands.GitLineHandler
-- bs:createStashHandler$default(com.intellij.openapi.project.Project,com.intellij.openapi.vfs.VirtualFile,Z,java.lang.String,I,java.lang.Object):git4idea.commands.GitLineHandler
 - sf:loadStashStack(com.intellij.openapi.project.Project,com.intellij.openapi.vfs.VirtualFile):java.util.List
 - sf:refreshStash(com.intellij.openapi.project.Project,com.intellij.openapi.vfs.VirtualFile):V
 f:git4idea.stash.ui.GitApplyStashAction
@@ -5083,7 +5064,6 @@ a:git4idea.update.GitUpdater
 - p:<init>(com.intellij.openapi.project.Project,git4idea.commands.Git,git4idea.repo.GitRepository,com.intellij.openapi.progress.ProgressIndicator,com.intellij.openapi.vcs.update.UpdatedFiles):V
 - pa:doUpdate():git4idea.update.GitUpdateResult
 - s:getUpdater(com.intellij.openapi.project.Project,git4idea.commands.Git,git4idea.branch.GitBranchPair,git4idea.repo.GitRepository,com.intellij.openapi.progress.ProgressIndicator,com.intellij.openapi.vcs.update.UpdatedFiles,git4idea.config.UpdateMethod):git4idea.update.GitUpdater
-- p:hasRemoteChanges(java.lang.String):Z
 - a:isSaveNeeded():Z
 - isUpdateNeeded(git4idea.branch.GitBranchPair):Z
 - p:markEnd(git4idea.repo.GitRepository):V
@@ -5197,3 +5177,8 @@ f:git4idea.vfs.GitVFSListener
 - com.intellij.openapi.vcs.VcsVFSListener
 - s:createInstance(git4idea.GitVcs,kotlinx.coroutines.CoroutineScope):git4idea.vfs.GitVFSListener
 - waitForExternalFilesEventsProcessedInTestMode():V
+f:git4idea.workingTrees.actions.GitOpenExistingWorkingTreeForLocalBranchAction
+- git4idea.actions.ref.GitSingleRefAction
+- <init>():V
+- actionPerformed(com.intellij.openapi.actionSystem.AnActionEvent,com.intellij.openapi.project.Project,java.util.List,git4idea.GitReference):V
+- updateIfEnabledAndVisible(com.intellij.openapi.actionSystem.AnActionEvent,com.intellij.openapi.project.Project,java.util.List,git4idea.GitReference):V

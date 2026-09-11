@@ -1,11 +1,20 @@
-load("@rules_jvm//:jvm.bzl", "jvm_library")
+load("@rules_jvm//:jvm.bzl", "jvm_library", "jvm_provided_library")
 load("//build:compiler-options.bzl", "create_kotlinc_options")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
 ### auto-generated section `build intellij.kotlin.compilerPlugins.serialization` start
-
 create_kotlinc_options(
     name = "custom_kotlin-compilerPlugins-serialization",
+    opt_in = [
+        "org.jetbrains.kotlin.analysis.api.KaExperimentalApi",
+        "org.jetbrains.kotlin.analysis.api.KaIdeApi",
+    ],
     x_context_parameters = True,
+)
+
+jvm_provided_library(
+    name = "libraries_kotlinc_libraries-kotlinc-kotlin-compiler-fir_provided",
+    lib = "//libraries/kotlinc/kotlin-compiler-fir:libraries-kotlinc-kotlin-compiler-fir",
 )
 
 jvm_library(
@@ -28,12 +37,11 @@ jvm_library(
     deps = [
         # do not sort,
         "//plugins/kotlin/code-insight/api",
-        "@lib//:kotlinc-kotlin-compiler-common",
+        "//libraries/kotlinc/kotlin-compiler-common:libraries-kotlinc-kotlin-compiler-common",
         "@lib//:kotlin-stdlib",
-        "@lib//:kotlinc-analysis-api",
-        "@lib//:kotlinc-analysis-api-k2",
-        "@lib//:kotlinc-kotlinx-serialization-compiler-plugin",
-        "@lib//:kotlinc-kotlin-compiler-fir-provided",
+        "//libraries/kotlinc/analysis-api:libraries-kotlinc-analysis-api",
+        "//libraries/kotlinc/analysis-api-k2:libraries-kotlinc-analysis-api-k2",
+        "//libraries/kotlinc/kotlinx-serialization-compiler-plugin:libraries-kotlinc-kotlinx-serialization-compiler-plugin",
         "//plugins/kotlin/base/util",
         "//plugins/kotlin/frontend-independent",
         "//platform/analysis-api:analysis",
@@ -47,8 +55,11 @@ jvm_library(
         "//plugins/kotlin/refactorings/kotlin.refactorings.common:kotlin-refactorings-base",
         "//plugins/kotlin/base/resources:kotlin-base-resources",
         "//plugins/kotlin/refactorings/kotlin.refactorings.k2:kotlin-refactorings",
+        ":libraries_kotlinc_libraries-kotlinc-kotlin-compiler-fir_provided",
     ],
 )
+
+content_module_jar(module = ":kotlin-compilerPlugins-serialization")
 
 jvm_library(
     name = "kotlin-compilerPlugins-serialization_test_lib",
@@ -64,7 +75,12 @@ jvm_library(
         # do not sort,
         ":kotlin-compilerPlugins-serialization",
         "//plugins/kotlin/code-insight/api:api_test_lib",
-        "@lib//:kotlinc-kotlin-compiler-fir-provided",
+        "//libraries/kotlinc/kotlin-compiler-common:libraries-kotlinc-kotlin-compiler-common_test_lib",
+        "//libraries/kotlinc/analysis-api:libraries-kotlinc-analysis-api_test_lib",
+        "//libraries/kotlinc/analysis-api-k2:libraries-kotlinc-analysis-api-k2_test_lib",
+        "//libraries/kotlinc/kotlin-compiler-fir:libraries-kotlinc-kotlin-compiler-fir",
+        "//libraries/kotlinc/kotlin-compiler-fir:libraries-kotlinc-kotlin-compiler-fir_test_lib",
+        "//libraries/kotlinc/kotlinx-serialization-compiler-plugin:libraries-kotlinc-kotlinx-serialization-compiler-plugin_test_lib",
         "//plugins/kotlin/base/util:util_test_lib",
         "//plugins/kotlin/frontend-independent:frontend-independent_test_lib",
         "//platform/analysis-api:analysis_test_lib",
@@ -86,6 +102,7 @@ jvm_library(
 exports_files(
     [
         "intellij.kotlin.compilerPlugins.serialization.iml",
+        "resources/intellij.kotlin.compilerPlugins.serialization.xml",
     ],
     visibility = ["//visibility:public"],
 )

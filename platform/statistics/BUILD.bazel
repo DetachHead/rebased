@@ -1,8 +1,17 @@
 load("@community//build:tests-options.bzl", "jps_test")
 load("@rules_jvm//:jvm.bzl", "jvm_library")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
+
+jps_test(
+    name = "statistics-tests_test",
+    timeout = "moderate",
+    tags = ["community-aggregator"],
+    runtime_deps = [":statistics-tests_test_lib"],
+)
+
+### skip generation section `test intellij.platform.statistics.tests`
 
 ### auto-generated section `build intellij.platform.statistics` start
-
 jvm_library(
     name = "statistics",
     srcs = glob(
@@ -22,21 +31,21 @@ jvm_library(
     exports = [
         # do not sort,
         "@lib//:com-jetbrains-fus-reporting-fus-api",
-        "@lib//:com-jetbrains-fus-reporting-ap-validation-all",
+        "//libraries/fus-ap-validation",
+        "@lib//:jetbrains-fus-reporting-api-jvm",
     ],
     deps = [
         # do not sort,
         "//platform/core-api:core",
         "//platform/core-impl",
         "@lib//:kotlin-stdlib",
-        "@lib//:jetbrains-annotations",
+        "//libraries/jetbrains/annotations",
         "//platform/util/jdom",
         "//platform/statistics/uploader",
         "//platform/statistics/config",
         "//libraries/fastutil",
         "//platform/util/concurrency",
         "//platform/core-ui",
-        "@lib//:jna",
         "//platform/util",
         "//platform/runtime/product",
         "//platform/platform-util-io:ide-util-io",
@@ -60,9 +69,19 @@ jvm_library(
         "//libraries/kotlinx/serialization/json",
         "//libraries/kotlinx/serialization/core",
         "@lib//:com-jetbrains-fus-reporting-fus-api",
-        "@lib//:com-jetbrains-fus-reporting-ap-validation-all",
+        "//libraries/fus-ap-validation",
         "//libraries/kotlinx/collections-immutable:libraries-kotlinx-collections-immutable",
+        "@lib//:jetbrains-fus-reporting-api-jvm",
     ],
+)
+
+content_module_jar(
+    libraries = [
+        # do not sort,
+        "@lib//:com-jetbrains-fus-reporting-fus-api",
+        "@lib//:jetbrains-fus-reporting-api-jvm",
+    ],
+    module = ":statistics",
 )
 
 jvm_library(
@@ -77,13 +96,16 @@ jvm_library(
     exports = [
         # do not sort,
         "@lib//:com-jetbrains-fus-reporting-fus-api",
-        "@lib//:com-jetbrains-fus-reporting-ap-validation-all",
+        "//libraries/fus-ap-validation",
+        "//libraries/fus-ap-validation:fus-ap-validation_test_lib",
+        "@lib//:jetbrains-fus-reporting-api-jvm",
     ],
     runtime_deps = [
         # do not sort,
         ":statistics",
         "//platform/core-api:core_test_lib",
         "//platform/core-impl:core-impl_test_lib",
+        "//libraries/jetbrains/annotations:annotations_test_lib",
         "//platform/util/jdom:jdom_test_lib",
         "//platform/statistics/uploader:uploader_test_lib",
         "//platform/statistics/config:config_test_lib",
@@ -116,6 +138,7 @@ jvm_library(
         "//libraries/assertj-core:assertj-core_test_lib",
         "//libraries/kotlinx/serialization/json:json_test_lib",
         "//libraries/kotlinx/serialization/core:core_test_lib",
+        "//libraries/fus-ap-validation:fus-ap-validation_test_lib",
         "//libraries/kotlinx/collections-immutable:libraries-kotlinx-collections-immutable_test_lib",
     ],
 )
@@ -125,13 +148,14 @@ jvm_library(
 exports_files(
     [
         "intellij.platform.statistics.iml",
+        "resources/intellij.platform.statistics.xml",
+        "module-content.yaml",
     ],
     visibility = ["//visibility:public"],
 )
 ### auto-generated section `iml intellij.platform.statistics` end
 
 ### auto-generated section `build intellij.platform.statistics.tests` start
-
 jvm_library(
     name = "statistics-tests",
     srcs = glob(
@@ -143,7 +167,7 @@ jvm_library(
     exports = [
         # do not sort,
         "@lib//:com-jetbrains-fus-reporting-fus-api",
-        "@lib//:com-jetbrains-fus-reporting-ap-validation-all",
+        "//libraries/fus-ap-validation",
     ],
 )
 
@@ -166,7 +190,8 @@ jvm_library(
     exports = [
         # do not sort,
         "@lib//:com-jetbrains-fus-reporting-fus-api",
-        "@lib//:com-jetbrains-fus-reporting-ap-validation-all",
+        "//libraries/fus-ap-validation",
+        "//libraries/fus-ap-validation:fus-ap-validation_test_lib",
     ],
     runtime_deps = [
         # do not sort,
@@ -182,7 +207,8 @@ jvm_library(
         "//platform/core-impl",
         "//platform/core-impl:core-impl_test_lib",
         "@lib//:kotlin-stdlib",
-        "@lib//:jetbrains-annotations",
+        "//libraries/jetbrains/annotations",
+        "//libraries/jetbrains/annotations:annotations_test_lib",
         "//platform/util/jdom",
         "//platform/util/jdom:jdom_test_lib",
         "//platform/statistics/uploader",
@@ -193,7 +219,6 @@ jvm_library(
         "//platform/util/concurrency:concurrency_test_lib",
         "//platform/core-ui",
         "//platform/core-ui:core-ui_test_lib",
-        "@lib//:jna",
         "//platform/util",
         "//platform/util:util_test_lib",
         "//platform/runtime/product",
@@ -229,6 +254,10 @@ jvm_library(
         "//libraries/kotlinx/coroutines/core:core_test_lib",
         "//libraries/junit5",
         "//libraries/junit5:junit5_test_lib",
+        "//platform/testFramework/junit5",
+        "//platform/testFramework/junit5:junit5_test_lib",
+        "//platform/testFramework/core",
+        "//platform/testFramework/core:core_test_lib",
         "//libraries/assertj-core",
         "//libraries/assertj-core:assertj-core_test_lib",
         "//libraries/kotlinx/serialization/json",
@@ -236,7 +265,8 @@ jvm_library(
         "//libraries/kotlinx/serialization/core",
         "//libraries/kotlinx/serialization/core:core_test_lib",
         "@lib//:com-jetbrains-fus-reporting-fus-api",
-        "@lib//:com-jetbrains-fus-reporting-ap-validation-all",
+        "//libraries/fus-ap-validation",
+        "//libraries/fus-ap-validation:fus-ap-validation_test_lib",
         "//libraries/kotlinx/collections-immutable:libraries-kotlinx-collections-immutable",
         "//libraries/kotlinx/collections-immutable:libraries-kotlinx-collections-immutable_test_lib",
     ],
@@ -251,11 +281,3 @@ exports_files(
     visibility = ["//visibility:public"],
 )
 ### auto-generated section `iml intellij.platform.statistics.tests` end
-
-### auto-generated section `test intellij.platform.statistics.tests` start
-
-jps_test(
-    name = "statistics-tests_test",
-    runtime_deps = [":statistics-tests_test_lib"],
-)
-### auto-generated section `test intellij.platform.statistics.tests` end

@@ -28,11 +28,7 @@ import com.intellij.codeInspection.dataFlow.value.DfaValue
 import com.intellij.codeInspection.dataFlow.value.DfaValueFactory
 import com.intellij.codeInspection.dataFlow.value.RelationType
 import com.intellij.psi.PsiMethod
-import org.jetbrains.kotlin.analysis.api.KaExperimentalApi
 import org.jetbrains.kotlin.analysis.api.KaSession
-import org.jetbrains.kotlin.analysis.api.analyze
-import org.jetbrains.kotlin.analysis.api.components.containingDeclaration
-import org.jetbrains.kotlin.analysis.api.components.resolveToCall
 import org.jetbrains.kotlin.analysis.api.contracts.description.KaContractConditionalContractEffectDeclaration
 import org.jetbrains.kotlin.analysis.api.contracts.description.KaContractConstantValue
 import org.jetbrains.kotlin.analysis.api.contracts.description.KaContractEffectDeclaration
@@ -48,20 +44,23 @@ import org.jetbrains.kotlin.analysis.api.contracts.description.booleans.KaContra
 import org.jetbrains.kotlin.analysis.api.contracts.description.booleans.KaContractIsInstancePredicateExpression
 import org.jetbrains.kotlin.analysis.api.contracts.description.booleans.KaContractIsNullPredicateExpression
 import org.jetbrains.kotlin.analysis.api.contracts.description.booleans.KaContractLogicalNotExpression
-import org.jetbrains.kotlin.analysis.api.resolution.KaCallableMemberCall
 import org.jetbrains.kotlin.analysis.api.resolution.KaFunctionCall
-import org.jetbrains.kotlin.analysis.api.resolution.KaSuccessCallInfo
-import org.jetbrains.kotlin.analysis.api.resolution.singleFunctionCallOrNull
+import org.jetbrains.kotlin.analysis.api.resolution.function
+import org.jetbrains.kotlin.analysis.api.resolution.simple
+import org.jetbrains.kotlin.analysis.api.resolution.single
 import org.jetbrains.kotlin.analysis.api.resolution.symbol
+import org.jetbrains.kotlin.analysis.api.session.analyze
 import org.jetbrains.kotlin.analysis.api.symbols.KaClassSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaConstructorSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaContextParameterSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaNamedFunctionSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaReceiverParameterSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaValueParameterSymbol
+import org.jetbrains.kotlin.analysis.api.symbols.containingDeclaration
 import org.jetbrains.kotlin.asJava.toLightMethods
-import org.jetbrains.kotlin.idea.inspections.dfa.KotlinAnchor.KotlinExpressionAnchor
 import org.jetbrains.kotlin.idea.codeInsight.inspections.dfa.KtClassDef.Companion.classDef
+import org.jetbrains.kotlin.idea.inspections.dfa.KotlinAnchor.KotlinExpressionAnchor
+import org.jetbrains.kotlin.idea.util.tryResolveExpressionCall
 import org.jetbrains.kotlin.psi.KtExpression
 
 // TODO: support Java contracts
@@ -106,7 +105,6 @@ class KotlinFunctionCallInstruction(
         return result.toTypedArray()
     }
 
-    @OptIn(KaExperimentalApi::class)
     context(_: KaSession)
     private fun processContracts(
         interpreter: DataFlowInterpreter,
@@ -116,7 +114,7 @@ class KotlinFunctionCallInstruction(
         result: MutableList<DfaInstructionState>
     ): DfaValue {
         val factory = resultValue.factory
-        val functionCall = call.resolveToCall()?.singleFunctionCallOrNull() ?: return resultValue
+        val functionCall = call.tryResolveExpressionCall()?.single?.function ?: return resultValue
         val functionSymbol = functionCall.symbol as? KaNamedFunctionSymbol ?: return resultValue
         val callEffects = functionSymbol.contractEffects
         for (effect in callEffects) {
@@ -145,7 +143,6 @@ class KotlinFunctionCallInstruction(
         return resultValue
     }
 
-    @OptIn(KaExperimentalApi::class)
     context(_: KaSession)
     private fun KaContractBooleanExpression.toCondition(
         factory: DfaValueFactory,
@@ -169,7 +166,6 @@ class KotlinFunctionCallInstruction(
         }
     }
 
-    @OptIn(KaExperimentalApi::class)
     context(_: KaSession)
     private fun KaContractParameterValue.findDfaValue(
         callDescriptor: KaFunctionCall<*>,
@@ -193,7 +189,6 @@ class KotlinFunctionCallInstruction(
         is KaContractOwnerParameterValue -> arguments.qualifier
     }
 
-    @OptIn(KaExperimentalApi::class)
     private fun KaContractEffectDeclaration.toContractReturnValue(): ContractReturnValue? {
         return when (this) {
             is KaContractReturnsNotNullEffectDeclaration -> ContractReturnValue.returnNotNull()
@@ -232,7 +227,7 @@ class KotlinFunctionCallInstruction(
                 }
             }
         }
-        val functionCall = call.resolveToCall()?.singleFunctionCallOrNull()
+        val functionCall = call.tryResolveExpressionCall()?.single?.function
         var dfType = getExpressionDfType(call)
         if (functionCall != null) {
             val type = fromKnownDescriptor(functionCall, arguments, stateBefore)
@@ -307,13 +302,12 @@ class KotlinFunctionCallInstruction(
 
     context(_: KaSession)
     private fun getPsiMethod(): PsiMethod? =
-        call.resolveToCall()?.singleFunctionCallOrNull()?.symbol?.psi?.toLightMethods()?.singleOrNull()
+        call.tryResolveExpressionCall()?.single?.function?.symbol?.psi?.toLightMethods()?.singleOrNull()
 
     context(_: KaSession)
     private fun getExpressionDfType(expr: KtExpression): DfType {
-        val constructedClass = (((expr.resolveToCall() as? KaSuccessCallInfo)
-            ?.call as? KaCallableMemberCall<*, *>)
-            ?.partiallyAppliedSymbol?.symbol as? KaConstructorSymbol)
+        val constructedClass = (expr.tryResolveExpressionCall()?.single?.simple
+            ?.symbol as? KaConstructorSymbol)
             ?.containingDeclaration as? KaClassSymbol
         if (constructedClass != null) {
             // Set exact class type for constructor

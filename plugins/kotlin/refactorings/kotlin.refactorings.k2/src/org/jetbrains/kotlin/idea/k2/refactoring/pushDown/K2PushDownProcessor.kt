@@ -5,12 +5,12 @@ import com.intellij.openapi.project.Project
 import com.intellij.psi.PsiElement
 import com.intellij.usageView.UsageInfo
 import com.intellij.util.containers.MultiMap
-import org.jetbrains.kotlin.analysis.api.KaExperimentalApi
 import org.jetbrains.kotlin.analysis.api.KaSession
-import org.jetbrains.kotlin.analysis.api.analyze
-import org.jetbrains.kotlin.analysis.api.symbols.KaClassSymbol
+import org.jetbrains.kotlin.analysis.api.session.analyze
+import org.jetbrains.kotlin.analysis.api.symbols.classSymbol
 import org.jetbrains.kotlin.analysis.api.types.KaSubstitutor
-import org.jetbrains.kotlin.analysis.api.types.KaSubstitutor.Empty
+import org.jetbrains.kotlin.analysis.api.types.createInheritanceTypeSubstitutor
+import org.jetbrains.kotlin.analysis.api.types.emptySubstitutor
 import org.jetbrains.kotlin.idea.base.analysis.api.utils.allowAnalysisFromWriteActionInEdt
 import org.jetbrains.kotlin.idea.k2.refactoring.pullUp.applyMarking
 import org.jetbrains.kotlin.idea.k2.refactoring.pullUp.clearMarking
@@ -89,7 +89,6 @@ internal class K2PushDownProcessor(
         processTargetClasses(targetClasses, actionsContext)
     }
 
-    @OptIn(KaExperimentalApi::class)
     private fun processTargetClasses(
         targetClasses: List<KtClassOrObject>,
         actionsContext: PushDownActionsContext,
@@ -102,22 +101,22 @@ internal class K2PushDownProcessor(
                 // the user-facing warning dialog.
                 // See: K2PushDownTestGenerated.K2K.testNoInheritors
                 context.membersToMove.forEach { memberInfo ->
-                    registerRemovalAction(memberInfo, Empty(token), actionsContext)
+                    registerRemovalAction(memberInfo, emptySubstitutor, actionsContext)
                 }
             } else {
                 targetClasses.forEach { targetClass ->
                     val substitutor = createInheritanceTypeSubstitutor(
-                        subClass = targetClass.symbol as KaClassSymbol,
-                        superClass = sourceClass.symbol as KaClassSymbol,
-                    ) ?: Empty(token)
+                        subClass = targetClass.classSymbol ?: return@forEach,
+                        superClass = sourceClass.classSymbol ?: return@forEach,
+                    ) ?: emptySubstitutor
                     processTargetClass(targetClass, substitutor, actionsContext)
                 }
             }
         }
     }
 
-    @OptIn(KaExperimentalApi::class)
-    private fun KaSession.processTargetClass(
+    context(session: KaSession)
+    private fun processTargetClass(
         targetClass: KtClassOrObject,
         substitutor: KaSubstitutor,
         actionsContext: PushDownActionsContext,
@@ -131,8 +130,8 @@ internal class K2PushDownProcessor(
         }
     }
 
-    @OptIn(KaExperimentalApi::class)
-    private fun KaSession.registerPushDownAction(
+    context(session: KaSession)
+    private fun registerPushDownAction(
         targetClass: KtClassOrObject,
         memberInfo: KotlinMemberInfo,
         targetClassFqName: FqName,
@@ -149,8 +148,8 @@ internal class K2PushDownProcessor(
         }
     }
 
-    @OptIn(KaExperimentalApi::class)
-    private fun KaSession.registerRemovalAction(
+    context(session: KaSession)
+    private fun registerRemovalAction(
         memberInfo: KotlinMemberInfo,
         substitutor: KaSubstitutor,
         actionsContext: PushDownActionsContext,
@@ -164,8 +163,8 @@ internal class K2PushDownProcessor(
         }
     }
 
-    @OptIn(KaExperimentalApi::class)
-    private fun KaSession.markElementsForRefactoring(
+    context(session: KaSession)
+    private fun markElementsForRefactoring(
         memberInfo: KotlinMemberInfo,
         targetClass: KtClassOrObject,
         substitutor: KaSubstitutor,

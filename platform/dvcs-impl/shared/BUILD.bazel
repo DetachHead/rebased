@@ -1,7 +1,7 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
 ### auto-generated section `build intellij.platform.vcs.dvcs.impl.shared` start
-
 jvm_library(
     name = "shared",
     srcs = glob(
@@ -20,6 +20,7 @@ jvm_library(
     visibility = ["//visibility:public"],
     deps = [
         # do not sort,
+        "//platform/kernel/rpc",
         "//platform/core-api:core",
         "//platform/util",
         "@lib//:kotlin-stdlib",
@@ -37,6 +38,8 @@ jvm_library(
     ],
 )
 
+content_module_jar(module = ":shared")
+
 jvm_library(
     name = "shared_test_lib",
     testonly = True,
@@ -49,6 +52,7 @@ jvm_library(
     runtime_deps = [
         # do not sort,
         ":shared",
+        "//platform/kernel/rpc:rpc_test_lib",
         "//platform/core-api:core_test_lib",
         "//platform/util:util_test_lib",
         "//platform/projectModel-api:projectModel_test_lib",
@@ -70,6 +74,8 @@ jvm_library(
 exports_files(
     [
         "intellij.platform.vcs.dvcs.impl.shared.iml",
+        "resources/intellij.platform.vcs.dvcs.impl.shared.xml",
+        "module-content.yaml",
     ],
     visibility = ["//visibility:public"],
 )

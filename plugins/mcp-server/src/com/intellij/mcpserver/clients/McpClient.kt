@@ -12,7 +12,6 @@ import com.intellij.mcpserver.impl.getForcedMcpServerPortOrNull
 import com.intellij.mcpserver.impl.util.network.McpServerConnectionAddressProvider
 import com.intellij.mcpserver.settings.McpServerSettings
 import com.intellij.mcpserver.stdio.IJ_MCP_SERVER_PORT
-import com.intellij.mcpserver.stdio.IJ_MCP_SERVER_PROJECT_PATH
 import com.intellij.mcpserver.stdio.main
 import com.intellij.openapi.application.ApplicationNamesInfo
 import com.intellij.openapi.util.NlsContexts
@@ -146,6 +145,9 @@ abstract class McpClient(
     return promotionCandidateServers(expectedPort).isNotEmpty()
   }
 
+  /** Whether this client's configuration already points at this IDE's MCP server. */
+  fun isConnectedToThisIde(): Boolean = isConfigured() == true && isPortCorrect()
+
   fun isPortCorrect(expectedPort: Int = expectedPromotionPort()): Boolean {
     val candidates = promotionCandidateServers(expectedPort)
     return candidates.isEmpty() || candidates.any { serverConfig -> isPortMatching(serverConfig, expectedPort) }
@@ -188,8 +190,9 @@ abstract class McpClient(
   }
 
   fun buildScopeHeaders(): Map<String, String>? {
-    val projectPath = (mcpClientInfo.scope as? McpClientInfo.Scope.Project)?.projectPath ?: return null
-    return mapOf(IJ_MCP_SERVER_PROJECT_PATH to projectPath)
+    return null
+    //val projectPath = (mcpClientInfo.scope as? McpClientInfo.Scope.Project)?.projectPath ?: return null
+    //return mapOf(IJ_MCP_SERVER_PROJECT_PATH to projectPath)
   }
 
   private fun isPortMatching(serverConfig: ExistingConfig, targetPort: Int): Boolean {
@@ -243,7 +246,7 @@ abstract class McpClient(
   private fun expectedPromotionPort(): Int {
     getForcedMcpServerPortOrNull()?.let { return it }
     return runCatching { McpServerService.getInstance().port }
-      .getOrElse { McpServerSettings.getInstance().state.mcpServerPort }
+      .getOrElse { McpServerSettings.getInstance().mcpServerPort }
   }
 
   private fun hasSimilarPort(port: Int, expectedPort: Int): Boolean = abs(port - expectedPort) <= PROMOTION_PORT_TOLERANCE

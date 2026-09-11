@@ -4,6 +4,7 @@ package com.jetbrains.python.psi.impl;
 import com.intellij.lang.ASTNode;
 import com.intellij.openapi.util.Ref;
 import com.intellij.psi.PsiPolyVariantReference;
+import com.intellij.util.containers.ContainerUtil;
 import com.intellij.psi.PsiReference;
 import com.jetbrains.python.PyNames;
 import com.jetbrains.python.PyTokenTypes;
@@ -14,8 +15,8 @@ import com.jetbrains.python.psi.PyExpression;
 import com.jetbrains.python.psi.PyPrefixExpression;
 import com.jetbrains.python.psi.impl.references.PyOperatorReference;
 import com.jetbrains.python.psi.resolve.PyResolveContext;
+import com.jetbrains.python.psi.types.PyCallableArgument;
 import com.jetbrains.python.psi.types.PyClassType;
-import com.jetbrains.python.psi.types.PyCollectionType;
 import com.jetbrains.python.psi.types.PyNarrowedType;
 import com.jetbrains.python.psi.types.PyType;
 import com.jetbrains.python.psi.types.PyTypeUtil;
@@ -71,15 +72,16 @@ public class PyPrefixExpressionImpl extends PyElementImpl implements PyPrefixExp
       .of(PyCallExpressionHelper.mapArguments(this, PyResolveContext.defaultContext(context)))
       .map(PyCallExpression.PyArgumentsMapping::getCallableType)
       .nonNull()
-      .map(callableType -> callableType.getCallType(context, this))
+      .map(callableType -> callableType.getCallType(context, this,
+                                                   ContainerUtil.map(getArguments(callableType.getCallable()), PyCallableArgument::new)))
       .map(callType -> isAwait ? Ref.deref(getGeneratorReturnType(callType)) : callType)
       .collect(PyTypeUtil.toUnion());
   }
 
   private static @Nullable Ref<PyType> getGeneratorReturnType(@Nullable PyType type) {
-    if (type instanceof PyCollectionType) {
-      if (PyNames.AWAITABLE.equals(((PyClassType)type).getPyClass().getName())) {
-        return Ref.create(((PyCollectionType)type).getIteratedItemType());
+    if (type instanceof PyClassType classType && classType.isParameterized()) {
+      if (PyNames.AWAITABLE.equals(classType.getPyClass().getName())) {
+        return Ref.create(classType.getIteratedItemType());
       }
       else {
         return PyTypingTypeProvider.coroutineOrGeneratorElementType(type);

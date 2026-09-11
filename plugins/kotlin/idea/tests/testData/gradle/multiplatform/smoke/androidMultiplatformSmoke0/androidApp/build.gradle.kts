@@ -1,5 +1,5 @@
 plugins {
-    id("com.android.application")
+    {{android_application_plugin_id}}
     kotlin("android")
 }
 

@@ -2,7 +2,6 @@ load("@community//build:tests-options.bzl", "jps_test")
 load("@rules_jvm//:jvm.bzl", "jvm_library")
 
 ### auto-generated section `build intellij.platform.buildScripts.tests` start
-
 jvm_library(
     name = "tests",
     srcs = glob(
@@ -36,14 +35,21 @@ jvm_library(
     runtime_deps = [":tests"],
     deps = [
         # do not sort,
+        "//platform/build-scripts/bazel-rules/searchable-options-injector",
+        "//platform/build-scripts/bazel-rules/searchable-options-injector:searchable-options-injector_test_lib",
+        "//platform/devIdeConfig",
+        "//platform/devIdeConfig:devIdeConfig_test_lib",
         "//platform/runtime/product",
         "//platform/runtime/product:product_test_lib",
-        "@lib//:junit4",
+        "//libraries/junit4",
+        "//libraries/junit4:junit4_test_lib",
         "@lib//:kotlin-stdlib",
         "//libraries/opentelemetry",
         "//libraries/opentelemetry:opentelemetry_test_lib",
         "//libraries/opentelemetry-semconv",
         "//libraries/opentelemetry-semconv:opentelemetry-semconv_test_lib",
+        "//libraries/opentelemetry-extension-kotlin",
+        "//libraries/opentelemetry-extension-kotlin:opentelemetry-extension-kotlin_test_lib",
         "//platform/build-scripts/downloader",
         "//platform/build-scripts/downloader:downloader_test_lib",
         "//platform/util",
@@ -60,6 +66,8 @@ jvm_library(
         "//platform/testFramework/extensions:testExtensions_test_lib",
         "//build/tasks",
         "//build/tasks:tasks_test_lib",
+        "//build/deps:dependencies",
+        "//build/deps:dependencies_test_lib",
         "//libraries/kotlinx/collections-immutable:libraries-kotlinx-collections-immutable",
         "//libraries/kotlinx/collections-immutable:libraries-kotlinx-collections-immutable_test_lib",
         "//libraries/commons/compress",
@@ -88,7 +96,8 @@ jvm_library(
         "//libraries/maven-resolver-provider:maven-resolver-provider_test_lib",
         "//libraries/mockito",
         "//libraries/mockito:mockito_test_lib",
-        "@lib//:mockito-kotlin",
+        "//libraries/mockito-kotlin",
+        "//libraries/mockito-kotlin:mockito-kotlin_test_lib",
         "//jps/model-serialization",
         "//jps/model-serialization:model-serialization_test_lib",
         "//jps/model-api:model",
@@ -111,6 +120,8 @@ jvm_library(
         "//platform/build-scripts/product-dsl:buildScripts-productDsl-tests_test_lib",
         "//platform/runtime/repository",
         "//platform/runtime/repository:repository_test_lib",
+        "//libraries/junit5-params",
+        "//libraries/junit5-params:junit5-params_test_lib",
     ],
 )
 ### auto-generated section `build intellij.platform.buildScripts.tests` end
@@ -125,7 +136,6 @@ exports_files(
 ### auto-generated section `iml intellij.platform.buildScripts.tests` end
 
 ### auto-generated section `test intellij.platform.buildScripts.tests` start
-
 jps_test(
     name = "tests_test",
     runtime_deps = [":tests_test_lib"],

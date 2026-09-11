@@ -1,13 +1,14 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
 load("//build:compiler-options.bzl", "create_kotlinc_options")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
 ### auto-generated section `build intellij.kotlin.completion.api` start
-
 create_kotlinc_options(
     name = "custom_api",
     opt_in = [
-        "org.jetbrains.kotlin.analysis.api.permissions.KaAllowProhibitedAnalyzeFromWriteAction",
+        "org.jetbrains.kotlin.analysis.api.KaExperimentalApi",
         "org.jetbrains.kotlin.analysis.api.KaIdeApi",
+        "org.jetbrains.kotlin.analysis.api.permissions.KaAllowProhibitedAnalyzeFromWriteAction",
     ],
     x_context_parameters = True,
 )
@@ -24,6 +25,10 @@ jvm_library(
     ),
     kotlinc_opts = ":custom_api",
     module_name = "intellij.kotlin.completion.api",
+    resource_strip_prefix = "resources",
+    resources = glob(
+        ["resources/**/*"],
+    ),
     visibility = ["//visibility:public"],
     deps = [
         # do not sort,
@@ -34,13 +39,15 @@ jvm_library(
         "//platform/projectModel-impl",
         "//libraries/kotlinx/serialization/core",
         "//libraries/kotlinx/serialization/json",
-        "@lib//:kotlinc-kotlin-compiler-common",
-        "@lib//:jetbrains-annotations",
+        "//libraries/kotlinc/kotlin-compiler-common:libraries-kotlinc-kotlin-compiler-common",
+        "//libraries/jetbrains/annotations",
         "//platform/util",
         "//platform/lang-impl",
         "//plugins/kotlin/base/kotlin.base.serialization",
     ],
 )
+
+content_module_jar(module = ":api")
 
 jvm_library(
     name = "api_test_lib",
@@ -61,6 +68,8 @@ jvm_library(
         "//platform/projectModel-impl:projectModel-impl_test_lib",
         "//libraries/kotlinx/serialization/core:core_test_lib",
         "//libraries/kotlinx/serialization/json:json_test_lib",
+        "//libraries/kotlinc/kotlin-compiler-common:libraries-kotlinc-kotlin-compiler-common_test_lib",
+        "//libraries/jetbrains/annotations:annotations_test_lib",
         "//platform/util:util_test_lib",
         "//platform/lang-impl:lang-impl_test_lib",
         "//plugins/kotlin/base/kotlin.base.serialization:kotlin.base.serialization_test_lib",
@@ -72,6 +81,7 @@ jvm_library(
 exports_files(
     [
         "intellij.kotlin.completion.api.iml",
+        "resources/intellij.kotlin.completion.api.xml",
     ],
     visibility = ["//visibility:public"],
 )

@@ -6,15 +6,22 @@ import com.intellij.openapi.project.BaseProjectDirectories.Companion.getBaseDire
 import com.intellij.openapi.project.BaseProjectDirectoriesDiff
 import com.intellij.openapi.project.BaseProjectDirectoriesListener
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.project.guessProjectDir
 import com.intellij.openapi.roots.ModuleRootModificationUtil
 import com.intellij.openapi.vfs.VirtualFile
+import com.intellij.platform.backend.workspace.WorkspaceModel
+import com.intellij.platform.backend.workspace.toVirtualFileUrl
+import com.intellij.platform.workspace.jps.entities.ExcludeUrlEntity
+import com.intellij.platform.workspace.storage.EntitySource
 import com.intellij.testFramework.PsiTestUtil
 import com.intellij.testFramework.VfsTestUtil
+import com.intellij.testFramework.common.timeoutRunBlocking
 import com.intellij.testFramework.junit5.TestApplication
 import com.intellij.testFramework.rules.ProjectModelExtension
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertSame
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.extension.RegisterExtension
 
@@ -89,6 +96,32 @@ class BaseProjectDirectoriesTest {
   }
 
   @Test
+  fun `moving a content root into a subdirectory re-roots even if another entity references the old url`() {
+    val module = projectModel.createModule()
+    val outer = projectModel.baseProjectDir.newVirtualDirectory("root")
+    val inner = projectModel.baseProjectDir.newVirtualDirectory("root/inner")
+
+    ModuleRootModificationUtil.addContentRoot(module, outer)
+    checkBaseDirectories(outer)
+
+    // An unrelated entity keeps referencing `outer`'s URL (models e.g. a Radler ProjectModelEntity,
+    // which outlives content-root changes). It must NOT pin `outer` as a base directory once no
+    // root-contributing entity points at it.
+    addStandaloneExcludeUrl(outer)
+    checkBaseDirectories(outer)
+
+    // "Change Project Root" from the opened folder down to a nested one: add the inner content root
+    // and drop the outer one.
+    ModuleRootModificationUtil.addContentRoot(module, inner)
+    PsiTestUtil.removeContentEntry(module, outer)
+
+    // `outer` must be evicted so the view re-roots to `inner`. Regression: it used to stay because
+    // the eviction check only asked "does any entity reference this URL?" — which the unrelated
+    // entity above answers `true`, wrongly shadowing the nested `inner` root.
+    checkBaseDirectories(inner)
+  }
+
+  @Test
   fun `find content root for a file`() {
     val module = projectModel.createModule()
     val root = projectModel.baseProjectDir.newVirtualDirectory("root")
@@ -107,6 +140,20 @@ class BaseProjectDirectoriesTest {
     val externalFile = VfsTestUtil.createFile(externalDir, "file.txt")
     assertNull(service.getBaseDirectoryFor(externalDir))
     assertNull(service.getBaseDirectoryFor(externalFile))
+  }
+
+  @Test
+  fun `guess project directory doesn't return an invalid base directory`() {
+    val module = projectModel.createModule()
+    val root = projectModel.baseProjectDir.newVirtualDirectory("root")
+    ModuleRootModificationUtil.addContentRoot(module, root)
+    checkBaseDirectories(root)
+
+    VfsTestUtil.deleteFile(root)
+
+    val guessedDirectory = projectModel.project.guessProjectDir()
+    assertTrue(guessedDirectory == null || guessedDirectory.isValid,
+               "A guessed project directory must be safe to use after a content root is invalidated")
   }
 
   @Test
@@ -135,6 +182,18 @@ class BaseProjectDirectoriesTest {
 
     assertEquals(files.toSet(), projectModel.project.getBaseDirectories())
   }
+
+  private fun addStandaloneExcludeUrl(dir: VirtualFile) {
+    timeoutRunBlocking {
+      val workspaceModel = WorkspaceModel.getInstance(projectModel.project)
+      val url = dir.toVirtualFileUrl(workspaceModel.getVirtualFileUrlManager())
+      workspaceModel.update("test: add standalone ExcludeUrlEntity") { storage ->
+        storage.addEntity(ExcludeUrlEntity(url, TestEntitySource))
+      }
+    }
+  }
+
+  private object TestEntitySource : EntitySource
 
   private class Listener(module: com.intellij.openapi.module.Module) {
 

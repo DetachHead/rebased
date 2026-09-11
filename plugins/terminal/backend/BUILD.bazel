@@ -1,7 +1,7 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
 ### auto-generated section `build intellij.terminal.backend` start
-
 jvm_library(
     name = "backend",
     srcs = glob(
@@ -32,6 +32,7 @@ jvm_library(
         "//libraries/pty4j",
         "//platform/util/coroutines",
         "//platform/kernel/backend",
+        "//platform/kernel/rpc.backend",
         "//platform/project/shared:project",
         "//platform/execution-impl",
         "//platform/core-impl",
@@ -45,6 +46,8 @@ jvm_library(
         "//fleet/rhizomedb",
     ],
 )
+
+content_module_jar(module = ":backend")
 
 jvm_library(
     name = "backend_test_lib",
@@ -70,6 +73,7 @@ jvm_library(
         "//libraries/pty4j:pty4j_test_lib",
         "//platform/util/coroutines:coroutines_test_lib",
         "//platform/kernel/backend:backend_test_lib",
+        "//platform/kernel/rpc.backend:rpc.backend_test_lib",
         "//platform/project/shared:project_test_lib",
         "//platform/execution-impl:execution-impl_test_lib",
         "//platform/core-impl:core-impl_test_lib",
@@ -89,6 +93,7 @@ jvm_library(
 exports_files(
     [
         "intellij.terminal.backend.iml",
+        "resources/intellij.terminal.backend.xml",
     ],
     visibility = ["//visibility:public"],
 )

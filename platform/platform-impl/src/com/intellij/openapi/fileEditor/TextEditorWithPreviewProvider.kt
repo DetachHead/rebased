@@ -66,14 +66,16 @@ abstract class TextEditorWithPreviewProvider(private val previewProvider: FileEd
     return createSplitEditorAsync(project, firstEditor = firstBuilder as TextEditor, secondEditor = secondBuilder)
   }
 
-  private fun readFirstProviderState(sourceElement: Element, project: Project, file: VirtualFile): FileEditorState? {
+  private fun readFirstProviderState(sourceElement: Element, project: Project, file: Lazy<VirtualFile?>): FileEditorState? {
     val child = sourceElement.getChild(FIRST_EDITOR) ?: return null
     return mainProvider.readState(/* sourceElement = */ child, /* project = */ project, /* file = */ file)
+      .takeIf { it !== FileEditorState.NO_STATE }
   }
 
-  private fun readSecondProviderState(sourceElement: Element, project: Project, file: VirtualFile): FileEditorState? {
+  private fun readSecondProviderState(sourceElement: Element, project: Project, file: Lazy<VirtualFile?>): FileEditorState? {
     val child = sourceElement.getChild(SECOND_EDITOR) ?: return null
     return previewProvider.readState(/* sourceElement = */ child, /* project = */ project, /* file = */ file)
+      .takeIf { it !== FileEditorState.NO_STATE }
   }
 
   private fun writeFirstProviderState(state: FileEditorState?, project: Project, targetElement: Element) {
@@ -92,7 +94,7 @@ abstract class TextEditorWithPreviewProvider(private val previewProvider: FileEd
     }
   }
 
-  override fun readState(sourceElement: Element, project: Project, file: VirtualFile): FileEditorState {
+  override fun readState(sourceElement: Element, project: Project, file: Lazy<VirtualFile?>): FileEditorState {
     val firstState = readFirstProviderState(sourceElement, project, file)
     val secondState = readSecondProviderState(sourceElement, project, file)
     val layoutState = readSplitLayoutState(sourceElement)
@@ -128,10 +130,15 @@ abstract class TextEditorWithPreviewProvider(private val previewProvider: FileEd
     targetElement.setAttribute(SPLIT_LAYOUT, value)
   }
 
+  /**
+   * An override that creates the split editor across a suspension point must register it with [registerCreatedFileEditor], the way
+   * this implementation does - otherwise a cancelled open discards the wrapper without releasing what it already holds.
+   */
   @ApiStatus.Experimental
   protected open suspend fun createSplitEditorAsync(project: Project, firstEditor: TextEditor, secondEditor: FileEditor): FileEditor {
+    val createdEditors = createdFileEditorSink()
     return withContext(Dispatchers.EDT) {
-      createSplitEditor(firstEditor, secondEditor)
+      createSplitEditor(firstEditor, secondEditor).also { createdEditors?.register(it) }
     }
   }
 
@@ -150,11 +157,13 @@ private suspend fun createEditorBuilder(
   editorCoroutineScope: CoroutineScope,
 ): FileEditor {
   return if (provider is AsyncFileEditorProvider) {
+    // an async provider registers what it creates itself
     provider.createFileEditor(project, file, document, editorCoroutineScope = editorCoroutineScope)
   }
   else {
+    val createdEditors = createdFileEditorSink()
     withContext(Dispatchers.EDT) {
-      provider.createEditor(project, file)
+      provider.createEditor(project, file).also { createdEditors?.register(it) }
     }
   }
 }

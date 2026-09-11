@@ -29,10 +29,10 @@ import com.intellij.psi.util.childrenOfType
 import com.intellij.psi.util.findParentOfType
 import com.intellij.util.concurrency.annotations.RequiresWriteLock
 import com.intellij.util.ui.JBEmptyBorder
-import org.jetbrains.kotlin.analysis.api.KaExperimentalApi
-import org.jetbrains.kotlin.analysis.api.analyze
+import org.jetbrains.kotlin.analysis.api.session.analyze
 import org.jetbrains.kotlin.analysis.api.symbols.KaCallableSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaClassSymbol
+import org.jetbrains.kotlin.analysis.api.symbols.symbol
 import org.jetbrains.kotlin.idea.KotlinFileType
 import org.jetbrains.kotlin.idea.base.codeInsight.ShortenReferencesFacility
 import org.jetbrains.kotlin.idea.base.externalSystem.KotlinBuildSystemFacade
@@ -62,7 +62,7 @@ import org.jetbrains.kotlin.psi.KtFile
 import org.jetbrains.kotlin.psi.KtModifierList
 import org.jetbrains.kotlin.psi.KtNamedDeclaration
 import org.jetbrains.kotlin.psi.KtVisitorVoid
-import org.jetbrains.kotlin.tooling.core.withClosure
+import org.jetbrains.kotlin.utils.closure
 import java.awt.Component
 import javax.swing.DefaultListCellRenderer
 import javax.swing.JLabel
@@ -110,7 +110,6 @@ class KotlinNoActualForExpectInspection : AbstractKotlinInspection() {
         }
     }
 
-    @OptIn(KaExperimentalApi::class)
     override fun buildVisitor(
         holder: ProblemsHolder, isOnTheFly: Boolean, session: LocalInspectionToolSession
     ): PsiElementVisitor {
@@ -138,7 +137,7 @@ class KotlinNoActualForExpectInspection : AbstractKotlinInspection() {
                 In the example above, it will return `nativeMain`, `appleMain`, `iosMain`, `iosX64Main` iosArm64Main`
                  */
                 val allModulesCapableOfProvidingActuals = missingActuals
-                    .withClosure<Module> { leafModule -> leafModule.implementedModules - expectModule }
+                    .closure { leafModule -> leafModule.implementedModules - expectModule }
                     .reversed() /* reversing the list to ensure that modules "closest to the 'expect'" come first. */
 
                 val actualDeclaration = analyze(parentDeclaration) {

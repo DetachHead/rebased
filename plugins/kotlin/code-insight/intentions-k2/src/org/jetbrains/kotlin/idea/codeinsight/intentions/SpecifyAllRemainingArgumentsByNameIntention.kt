@@ -14,8 +14,8 @@ internal class SpecifyAllRemainingArgumentsByNameIntention : SpecifyRemainingArg
 
     override fun getFamilyName(): String = KotlinBundle.message("specify.all.remaining.arguments.by.name")
 
-    override fun shouldShowFor(element: KtElement, remainingArgumentsData: RemainingArgumentsData): Boolean {
-        return remainingArgumentsData.remainingRequiredArguments.isNotEmpty() ||
+    override fun isAvailableFor(element: KtElement, remainingArgumentsData: RemainingArgumentsData): Boolean {
+        return remainingArgumentsData.allValueRemainingArguments.isNotEmpty() ||
                 element.languageVersionSettings.supportsFeature(LanguageFeature.ExplicitContextArguments)
     }
 
@@ -30,7 +30,7 @@ internal class SpecifyAllRemainingArgumentsByNameIntention : SpecifyRemainingArg
             project = actionContext.project,
             element = argumentList,
             remainingValueArguments = elementContext.allValueRemainingArguments,
-            remainingContextArguments = elementContext.allContextRemainingArguments,
+            remainingContextArguments = elementContext.allContextRemainingArguments - elementContext.implicitContextArgumentNames,
             allContextParameterNames = elementContext.allContextParameterNames,
             updater = updater
         )

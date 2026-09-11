@@ -1,7 +1,6 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
 
 ### auto-generated section `build intellij.libraries.skiko` start
-
 jvm_library(
     name = "skiko",
     srcs = glob(
@@ -48,6 +47,8 @@ jvm_library(
 exports_files(
     [
         "intellij.libraries.skiko.iml",
+        "resources/intellij.libraries.skiko.xml",
+        "module-content.yaml",
     ],
     visibility = ["//visibility:public"],
 )

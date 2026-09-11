@@ -1,6 +1,13 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
+load("//build:compiler-options.bzl", "create_kotlinc_options")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
 ### auto-generated section `build intellij.platform.eel.impl` start
+create_kotlinc_options(
+    name = "custom_eel-impl",
+    warn = "error",
+    x_warning_level = ["DEPRECATION:warning"],
+)
 
 jvm_library(
     name = "eel-impl",
@@ -12,6 +19,7 @@ jvm_library(
         ],
         allow_empty = True,
     ),
+    kotlinc_opts = ":custom_eel-impl",
     module_name = "intellij.platform.eel.impl",
     resource_strip_prefix = "resources",
     resources = glob(
@@ -20,17 +28,17 @@ jvm_library(
     visibility = ["//visibility:public"],
     deps = [
         # do not sort,
-        "@lib//:jetbrains-annotations",
+        "//libraries/jetbrains/annotations",
         "//libraries/kotlinx/coroutines/core",
         "@lib//:kotlin-stdlib",
         "//platform/util/base",
         "//platform/extensions",
         "//platform/util",
         "//platform/platform-util-io:ide-util-io",
+        "//platform/util/annotations",
         "//platform/util/coroutines",
         "//platform/util/multiplatform",
         "//platform/core-api:core",
-        "@lib//:jna",
         "//libraries/pty4j",
         "//platform/ide-core",
         "//platform/eel",
@@ -38,7 +46,13 @@ jvm_library(
         "//platform/core-impl",
         "//libraries/hash4j",
         "//platform/eel-impl-base",
+        "//platform/external-process-auth-helper/rt",
     ],
+)
+
+content_module_jar(
+    module = ":eel-impl",
+    modules_after = ["//platform/eel-impl-base"],
 )
 
 jvm_library(
@@ -48,16 +62,19 @@ jvm_library(
         [],
         allow_empty = True,
     ),
+    kotlinc_opts = ":custom_eel-impl",
     module_name = "intellij.platform.eel.impl",
     visibility = ["//visibility:public"],
     runtime_deps = [
         # do not sort,
         ":eel-impl",
+        "//libraries/jetbrains/annotations:annotations_test_lib",
         "//libraries/kotlinx/coroutines/core:core_test_lib",
         "//platform/util/base:base_test_lib",
         "//platform/extensions:extensions_test_lib",
         "//platform/util:util_test_lib",
         "//platform/platform-util-io:ide-util-io_test_lib",
+        "//platform/util/annotations:annotations_test_lib",
         "//platform/util/coroutines:coroutines_test_lib",
         "//platform/util/multiplatform:multiplatform_test_lib",
         "//platform/core-api:core_test_lib",
@@ -68,6 +85,7 @@ jvm_library(
         "//platform/core-impl:core-impl_test_lib",
         "//libraries/hash4j:hash4j_test_lib",
         "//platform/eel-impl-base:eel-impl-base_test_lib",
+        "//platform/external-process-auth-helper/rt:rt_test_lib",
     ],
 )
 ### auto-generated section `build intellij.platform.eel.impl` end
@@ -76,6 +94,8 @@ jvm_library(
 exports_files(
     [
         "intellij.platform.eel.impl.iml",
+        "resources/intellij.platform.eel.impl.xml",
+        "module-content.yaml",
     ],
     visibility = ["//visibility:public"],
 )

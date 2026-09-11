@@ -6,14 +6,16 @@ import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiReferenceRegistrar
 import com.intellij.psi.impl.source.resolve.reference.impl.providers.FileReference
+import org.jetbrains.annotations.ApiStatus
 
-internal class RelativeFileWithoutExtensionReference(
+@ApiStatus.Internal
+class RelativeFileWithoutExtensionReference(
   element: PsiElement,
   fileReference: FileReference,
   soft: Boolean
 ): FileWithoutExtensionReference(element, fileReference, soft), PriorityReference {
   override fun findReferencedFile(): VirtualFile? {
-    return VfsUtilCore.findRelativeFile(path, containingFile)
+    return VfsUtilCore.findRelativeFile(decodedPath, containingFile)
   }
 
   override fun getPriority(): Double {

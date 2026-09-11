@@ -1,13 +1,19 @@
 <idea-plugin allow-bundled-update="true">
   <id>com.jetbrains.performancePlugin</id>
-  <name>Performance Testing</name>
+  <name>Performance Diagnostics</name>
   <vendor>JetBrains</vendor>
   <category>Platform Development</category>
   <resource-bundle>messages.PerformanceTestingBundle</resource-bundle>
 
   <description><![CDATA[
-    <p>Plugin for automated execution of test scripts, capturing performance snapshots
-    and gathering performance statistics.</p>
+    <p>Finds the cause of a slow IDE, and gives you the data to report it.</p>
+
+    <ul>
+      <li>Detects a UI freeze, and names the plugin that caused it.</li>
+      <li>Captures a memory snapshot from <b>Help | Diagnostic Tools</b>.</li>
+      <li>Shows the indexing diagnostics for the current project.</li>
+      <li>Adds performance and hardware data to a support request.</li>
+    </ul>
 
     <p>Want to report a performance problem? — <a href="https://intellij-support.jetbrains.com/hc/en-us/articles/207241235-Reporting-performance-problems">
     Read More</a></p>
@@ -15,7 +21,55 @@
 
   <!-- region Generated dependencies - run `Generate Product Layouts` to regenerate -->
   <dependencies>
-    <module name="intellij.platform.structureView"/>
+    <module name="intellij.libraries.caffeine"/>
+    <module name="intellij.libraries.fastutil"/>
+    <module name="intellij.libraries.jackson"/>
+    <module name="intellij.libraries.jackson.databind"/>
+    <module name="intellij.libraries.jackson.module.kotlin"/>
+    <module name="intellij.libraries.jbr"/>
+    <module name="intellij.libraries.jna"/>
+    <module name="intellij.libraries.kotlinx.coroutines.core"/>
+    <module name="intellij.libraries.netty.buffer"/>
+    <module name="intellij.libraries.netty.codec.http"/>
+    <module name="intellij.libraries.opentelemetry"/>
+    <module name="intellij.libraries.opentelemetry.semconv"/>
+    <module name="intellij.libraries.oshi.core"/>
+    <module name="intellij.platform.analysis"/>
+    <module name="intellij.platform.analysis.impl"/>
+    <module name="intellij.platform.codeStyle"/>
+    <module name="intellij.platform.core"/>
+    <module name="intellij.platform.core.impl"/>
+    <module name="intellij.platform.core.ui"/>
+    <module name="intellij.platform.debugger"/>
+    <module name="intellij.platform.debugger.impl"/>
+    <module name="intellij.platform.debugger.impl.shared"/>
+    <module name="intellij.platform.debugger.impl.ui"/>
+    <module name="intellij.platform.diagnostic.telemetry"/>
+    <module name="intellij.platform.editor.ex"/>
+    <module name="intellij.platform.editor.ui"/>
+    <module name="intellij.platform.eel.impl"/>
+    <module name="intellij.platform.execution"/>
+    <module name="intellij.platform.execution.impl"/>
+    <module name="intellij.platform.ide.concurrency"/>
+    <module name="intellij.platform.ide.core"/>
+    <module name="intellij.platform.ide.core.impl"/>
+    <module name="intellij.platform.ide.impl"/>
+    <module name="intellij.platform.ide.internal"/>
+    <module name="intellij.platform.ide.progress"/>
+    <module name="intellij.platform.indexing"/>
+    <module name="intellij.platform.lang"/>
+    <module name="intellij.platform.lang.core"/>
+    <module name="intellij.platform.lang.impl"/>
+    <module name="intellij.platform.projectModel"/>
+    <module name="intellij.platform.projectModel.impl"/>
+    <module name="intellij.platform.refactoring"/>
+    <module name="intellij.platform.serviceContainer"/>
+    <module name="intellij.platform.statistics"/>
+    <module name="intellij.platform.usageView"/>
+    <module name="intellij.platform.usageView.impl"/>
+    <module name="intellij.platform.util.ex"/>
+    <module name="intellij.platform.util.ui"/>
+    <module name="intellij.platform.welcomeScreen"/>
   </dependencies>
   <!-- endregion -->
   <content namespace="jetbrains">
@@ -24,9 +78,13 @@
     <module name="intellij.performanceTesting.remoteDriver.compose"/>
     <module name="intellij.performanceTesting.vcs"/>
     <module name="intellij.performanceTesting.frontend"/>
+    <module name="intellij.performanceTesting.frontend.base"/>
+    <module name="intellij.performanceTesting.problemsView"/>
+    <module name="intellij.performanceTesting.structureView"/>
     <module name="intellij.performanceTesting.backend"/>
     <module name="intellij.performanceTesting.frontend.split"/>
     <module name="intellij.performanceTesting.backend.split"/>
+    <module name="intellij.performanceTesting.rdct"/>
     <module name="intellij.tools.ide.starter.bus" loading="embedded"/>
     <module name="intellij.driver.model" loading="embedded"/>
     <module name="intellij.driver.impl" loading="embedded"/>
@@ -38,6 +96,9 @@
   </content>
   <content>
     <module name="intellij.libraries.assertj.core" loading="embedded"/>
+    <!-- assertj-swing is a private library of this plugin. The unnamed content tag registers the wrapper in the
+         implicit per-plugin namespace, and 'embedded' publishes the classes to the plugins that depend on this one -->
+    <module name="intellij.libraries.assertj.swing" loading="embedded"/>
   </content>
 
   <actions>

@@ -1,4 +1,3 @@
-// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 // IMPORT__MARKER_START
 import fleet.buildtool.conventions.configureAtMostOneJvmTargetOrThrow
 import fleet.buildtool.conventions.withJavaSourceSet
@@ -8,8 +7,6 @@ plugins {
   alias(libs.plugins.kotlin.multiplatform)
   id("fleet.project-module-conventions")
   id("fleet.toolchain-conventions")
-  alias(libs.plugins.dokka)
-  id("fleet.module-publishing-conventions")
   // GRADLE_PLUGINS__MARKER_START
   id("fleet-module")
   // GRADLE_PLUGINS__MARKER_END
@@ -35,27 +32,44 @@ kotlin {
     "-progressive",
   )
   jvm {}
-  sourceSets.jvmMain.configure { resources.srcDir(layout.projectDirectory.dir("../resources")) }
-  sourceSets.commonMain.configure { kotlin.srcDir(layout.projectDirectory.dir("../srcCommonMain")) }
-  sourceSets.commonMain.configure { resources.srcDir(layout.projectDirectory.dir("../resourcesCommonMain")) }
-  sourceSets.commonTest.configure { kotlin.srcDir(layout.projectDirectory.dir("../srcCommonTest")) }
-  sourceSets.commonTest.configure { resources.srcDir(layout.projectDirectory.dir("../resourcesCommonTest")) }
-  sourceSets.jvmMain.configure { kotlin.srcDir(layout.projectDirectory.dir("../srcJvmMain")) }
-  configureAtMostOneJvmTargetOrThrow { compilations.named("main") { withJavaSourceSet { javaSourceSet -> javaSourceSet.java.srcDir(layout.projectDirectory.dir("../srcJvmMain")) } } }
-  sourceSets.jvmMain.configure { resources.srcDir(layout.projectDirectory.dir("../resourcesJvmMain")) }
-  sourceSets.jvmTest.configure { kotlin.srcDir(layout.projectDirectory.dir("../srcJvmTest")) }
-  configureAtMostOneJvmTargetOrThrow { compilations.named("test") { withJavaSourceSet { javaSourceSet -> javaSourceSet.java.srcDir(layout.projectDirectory.dir("../srcJvmTest")) } } }
-  sourceSets.jvmTest.configure { resources.srcDir(layout.projectDirectory.dir("../resourcesJvmTest")) }
+  sourceSets.jvmMain.configure {
+    kotlin.srcDir(layout.projectDirectory.dir("../srcJvmMain"))
+    resources.srcDir(layout.projectDirectory.dir("../resources"))
+    resources.srcDir(layout.projectDirectory.dir("../resourcesJvmMain"))
+  }
+  configureAtMostOneJvmTargetOrThrow { compilations.named("main") { withJavaSourceSet { javaSourceSet ->
+    javaSourceSet.java.srcDir(layout.projectDirectory.dir("../srcJvmMain"))
+  } } }
+  sourceSets.commonMain.configure {
+    kotlin.srcDir(layout.projectDirectory.dir("../srcCommonMain"))
+    resources.srcDir(layout.projectDirectory.dir("../resourcesCommonMain"))
+  }
+  sourceSets.commonTest.configure {
+    kotlin.srcDir(layout.projectDirectory.dir("../srcCommonTest"))
+    resources.srcDir(layout.projectDirectory.dir("../resourcesCommonTest"))
+  }
+  sourceSets.jvmTest.configure {
+    kotlin.srcDir(layout.projectDirectory.dir("../srcJvmTest"))
+    resources.srcDir(layout.projectDirectory.dir("../resourcesJvmTest"))
+  }
+  configureAtMostOneJvmTargetOrThrow { compilations.named("test") { withJavaSourceSet { javaSourceSet ->
+    javaSourceSet.java.srcDir(layout.projectDirectory.dir("../srcJvmTest"))
+  } } }
   sourceSets.commonMain.dependencies {
     implementation(jps.org.jetbrains.kotlin.kotlin.stdlib1993400674.get().let { "${it.group}:${it.name}:${it.version}" }) {
       exclude(group = "org.jetbrains", module = "annotations")
     }
+    implementation(jps.com.github.luben.zstd.jni705422806.get())
+    implementation(jps.org.tukaani.xz14489971.get())
+  }
+  sourceSets.commonTest.dependencies {
+    implementation(project(":fleet.test.runtime"))
+  }
+  sourceSets.jvmMain.dependencies {
     implementation(jps.org.slf4j.slf4j.api2013636515.get().let { "${it.group}:${it.name}:${it.version}" }) {
       isTransitive = false
       exclude(group = "org.slf4j", module = "slf4j-jdk14")
     }
-    implementation(jps.com.github.luben.zstd.jni705422806.get())
-    implementation(jps.org.tukaani.xz14489971.get())
     implementation(jps.org.apache.commons.commons.compress347955106.get().let { "${it.group}:${it.name}:${it.version}" }) {
       exclude(group = "commons-codec", module = "commons-codec")
       exclude(group = "commons-io", module = "commons-io")
@@ -64,10 +78,8 @@ kotlin {
     implementation(jps.org.apache.commons.commons.lang3579297339.get().let { "${it.group}:${it.name}:${it.version}" }) {
       isTransitive = false
     }
+    implementation(jps.commons.codec.commons.codec1670051051.get())
     implementation(jps.commons.io.commons.io645698317.get())
-  }
-  sourceSets.commonTest.dependencies {
-    implementation(project(":fleet.test.runtime"))
   }
   // KOTLIN__MARKER_END
 }

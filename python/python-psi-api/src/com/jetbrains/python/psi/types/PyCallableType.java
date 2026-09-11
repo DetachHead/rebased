@@ -39,9 +39,17 @@ public interface PyCallableType extends PyType {
 
   /**
    * Returns the type which is the result of calling an instance of this type.
+   *
+   * @param callSite the PSI element that represents the call, e.g. a call expression or an operator expression, or
+   *                 {@code null} for calls such as an invocation of a property getter or an application of a decorator
+   *                 to a function.
+   * @param arguments the arguments the call type is evaluated with.
    */
+  @ApiStatus.Internal
   @Nullable
-  PyType getCallType(@NotNull TypeEvalContext context, @NotNull PyCallSiteOwner callSite);
+  PyType getCallType(@NotNull TypeEvalContext context,
+                     @Nullable PyCallSiteOwner callSite,
+                     @NotNull List<PyCallableArgument> arguments);
 
   /**
    * Returns the list of parameter types.
@@ -75,6 +83,7 @@ public interface PyCallableType extends PyType {
    */
   @ApiStatus.Experimental
   default @Nullable PyCallableParameterVariadicType getParametersType(@NotNull TypeEvalContext context) {
+    // TODO: introduce a form for gradual variadic type to replace null here
     return null;
   }
 
@@ -118,15 +127,6 @@ public interface PyCallableType extends PyType {
 
   default @Nullable PyFunction.Modifier getModifier() {
     return null;
-  }
-
-  /**
-   * @return number of implicitly passed positional parameters; 0 means no parameters are passed implicitly.
-   * Note that a <tt>*args</tt> is never marked as passed implicitly.
-   * E.g. for a function like <tt>foo(a, b, *args)</tt> always holds <tt>getImplicitOffset() < 2</tt>.
-   */
-  default int getImplicitOffset() {
-    return 0;
   }
 
   @Override

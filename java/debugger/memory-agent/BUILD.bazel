@@ -1,7 +1,6 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
 
 ### auto-generated section `build intellij.java.debugger.memory.agent` start
-
 jvm_library(
     name = "java-debugger-memory-agent",
     srcs = glob(
@@ -48,6 +47,7 @@ jvm_library(
 exports_files(
     [
         "intellij.java.debugger.memory.agent.iml",
+        "resources/intellij.java.debugger.memory.agent.xml",
     ],
     visibility = ["//visibility:public"],
 )

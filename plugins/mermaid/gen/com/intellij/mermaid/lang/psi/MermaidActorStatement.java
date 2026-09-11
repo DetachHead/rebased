@@ -13,4 +13,7 @@ public interface MermaidActorStatement extends MermaidPsiElement {
   @Nullable
   MermaidIdAlias getIdAlias();
 
+  @Nullable
+  MermaidMetadata getMetadata();
+
 }

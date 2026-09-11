@@ -92,6 +92,8 @@
 - <init>(com.intellij.ide.structureView.StructureViewTreeElement,I):V
 - f:getElement():com.intellij.ide.structureView.StructureViewTreeElement
 - f:getFragmentIndex():I
+a:com.intellij.ide.structureView.StructureViewFactory
+- *a:refreshStructureView():V
 *:com.intellij.ide.structureView.StructureViewModel$ClickHandler
 - a:handleClick(com.intellij.ide.structureView.StructureViewClickEvent):java.util.concurrent.CompletableFuture
 com.intellij.ide.structureView.StructureViewModel$ExpandInfoProvider
@@ -175,17 +177,14 @@ com.intellij.openapi.editor.EditorSettings
 - *a:setSmoothCaretMovement(Z):V
 *e:com.intellij.openapi.editor.EditorSettings$CaretEasing
 - java.lang.Enum
-- sf:EASE:com.intellij.openapi.editor.EditorSettings$CaretEasing
-- sf:NINJA:com.intellij.openapi.editor.EditorSettings$CaretEasing
+- sf:GLIDING:com.intellij.openapi.editor.EditorSettings$CaretEasing
+- sf:SNAPPY:com.intellij.openapi.editor.EditorSettings$CaretEasing
 - s:valueOf(java.lang.String):com.intellij.openapi.editor.EditorSettings$CaretEasing
 - s:values():com.intellij.openapi.editor.EditorSettings$CaretEasing[]
 *:com.intellij.openapi.editor.EditorThreading
 - *sf:Companion:com.intellij.openapi.editor.EditorThreading$Companion
 - *s:assertInteractionAllowed():V
 - *s:compute(com.intellij.openapi.util.ThrowableComputable):java.lang.Object
-- a:doAssertInteractionAllowed():V
-- a:doCompute(com.intellij.openapi.util.ThrowableComputable):java.lang.Object
-- a:doRun(java.lang.Runnable):V
 - *s:run(java.lang.Runnable):V
 *f:com.intellij.openapi.editor.EditorThreading$Companion
 - f:assertInteractionAllowed():V
@@ -202,6 +201,8 @@ com.intellij.openapi.editor.EditorSettings
 - runBatchMutation(kotlin.jvm.functions.Function1):java.lang.Object
 com.intellij.openapi.editor.FoldingModel
 - *:addCustomLinesFolding(I,I,com.intellij.openapi.editor.CustomFoldRegionRenderer):com.intellij.openapi.editor.CustomFoldRegion
+com.intellij.openapi.editor.LineWrapPositionStrategy
+- *:isSoftWrappingAllowed(com.intellij.openapi.editor.Editor,I):Z
 *:com.intellij.openapi.editor.ScrollPositionCalculator
 - calcOffsetsToScroll(com.intellij.openapi.editor.Editor,java.awt.Point,com.intellij.openapi.editor.ScrollType,java.awt.Rectangle,javax.swing.JScrollPane):java.awt.Point
 - a:getHorizontalOffset(com.intellij.openapi.editor.Editor,java.awt.Point,com.intellij.openapi.editor.ScrollType,java.awt.Rectangle,javax.swing.JScrollPane):I

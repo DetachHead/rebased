@@ -1,7 +1,7 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
 ### auto-generated section `build intellij.platform.collaborationTools.auth.base` start
-
 jvm_library(
     name = "collaborationTools-auth-base",
     srcs = glob(
@@ -31,6 +31,8 @@ jvm_library(
     ],
 )
 
+content_module_jar(module = ":collaborationTools-auth-base")
+
 jvm_library(
     name = "collaborationTools-auth-base_test_lib",
     testonly = True,
@@ -58,6 +60,8 @@ jvm_library(
 exports_files(
     [
         "intellij.platform.collaborationTools.auth.base.iml",
+        "resources/intellij.platform.collaborationTools.auth.base.xml",
+        "module-content.yaml",
     ],
     visibility = ["//visibility:public"],
 )

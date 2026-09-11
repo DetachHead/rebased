@@ -22,6 +22,7 @@ import com.intellij.openapi.vfs.newvfs.events.VFileEvent
 import com.intellij.psi.PsiManager
 import com.intellij.psi.stubs.StubIndex
 import com.intellij.psi.stubs.StubIndexImpl
+import com.intellij.util.SystemProperties
 import com.intellij.util.concurrency.ThreadingAssertions
 import com.intellij.util.concurrency.createBoundedTaskExecutor
 import com.intellij.util.indexing.FileBasedIndex
@@ -48,13 +49,24 @@ private val LOG = logger<ChangedFilesCollector>()
 
 private const val MIN_CHANGES_TO_PROCESS_ASYNC = 20
 
+private val WARM_UP_FILE_TYPE_CACHE_OUTSIDE_NCS: Boolean = SystemProperties.getBooleanProperty(
+  "indexes.warm-file-type-cache-outside-ncs",
+  true
+)
+
 /**
  * Collects file changes supplied from VFS via [AsyncFileListener] into [eventMerger].
  * Collected changes could be accessed via [getEventMerger]
  */
 @ApiStatus.Internal
 class ChangedFilesCollector internal constructor(coroutineScope: CoroutineScope) : IndexedFilesListener() {
-  /** The projects for the file are taken from fileBasedIndex.indexableFilesFilterHolder */
+  /**
+   * This [DirtyFiles] container tracks the (VFS event -> [FileIndexingRequest]) phase of the pipeline: `fileId` is tracked
+   * here from the moment VFS reports it via listener, until the moment `fileId` is delivered into [FileBasedIndexImpl]
+   * -- i.e., converted to [FileIndexingRequest] and put into [FilesToUpdateCollector].
+   *
+   * The projects for the `fileId` are taken from [FileBasedIndexImpl.indexableFilesFilterHolder]
+   */
   val dirtyFiles: DirtyFiles = DirtyFiles()
 
   private val processedEventIndex = AtomicInteger()
@@ -70,7 +82,7 @@ class ChangedFilesCollector internal constructor(coroutineScope: CoroutineScope)
 
   override fun iterateIndexableFiles(file: VirtualFile, iterator: ContentIterator) {
     if (fileBasedIndex.belongsToIndexableFiles(file)) {
-      VfsUtilCore.visitChildrenRecursively(file, object : VirtualFileVisitor<Void?>() {
+      VfsUtilCore.visitChildrenRecursively(file, object : VirtualFileVisitor<Void?>(CHILDREN_MAY_BE_UNSORTED) {
         override fun visitFile(file: VirtualFile): Boolean {
           if (!fileBasedIndex.belongsToIndexableFiles(file)) {
             return false
@@ -191,6 +203,16 @@ class ChangedFilesCollector internal constructor(coroutineScope: CoroutineScope)
       private val perFileElementTypeUpdateProcessor = (StubIndex.getInstance() as StubIndexImpl)
         .perFileElementTypeModificationTrackerUpdateProcessor
 
+      override fun prepare(info: VfsEventsMerger.ChangeInfo) {
+        if (WARM_UP_FILE_TYPE_CACHE_OUTSIDE_NCS && !info.isFileRemoved) {
+          // IJPL-238333: Warm the file type cache OUTSIDE the lock/non-cancellable section below.
+          // freezeFileTypeTemporarilyIn() inside scheduleFileForIncrementalIndexing() triggers FileType
+          // detection by content => does IO on first access => better avoid it inside locks/NCS => let's
+          // do it earlier, so the fileType is cached, and just read from the cache inside lock/NCS below
+          info.file.fileType
+        }
+      }
+
       override fun process(info: VfsEventsMerger.ChangeInfo): Boolean {
         LOG.debug("Processing ", info)
         val fileId = info.fileId
@@ -251,6 +273,8 @@ class ChangedFilesCollector internal constructor(coroutineScope: CoroutineScope)
     try {
       fileBasedIndex.waitUntilIndicesAreInitialized()
       eventMerger.processChanges(object : VfsEventProcessor {
+        override fun prepare(changeInfo: VfsEventsMerger.ChangeInfo) = processor.prepare(changeInfo)
+
         override fun process(changeInfo: VfsEventsMerger.ChangeInfo): Boolean {
           withLock(fileBasedIndex.writeLock) {
             try {

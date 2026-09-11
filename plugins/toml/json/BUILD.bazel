@@ -1,7 +1,7 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
 ### auto-generated section `build intellij.toml.json` start
-
 jvm_library(
     name = "json",
     srcs = glob(
@@ -37,6 +37,8 @@ jvm_library(
         "//libraries/stream",
     ],
 )
+
+content_module_jar(module = ":json")
 
 jvm_library(
     name = "json_test_lib",
@@ -76,6 +78,7 @@ jvm_library(
 exports_files(
     [
         "intellij.toml.json.iml",
+        "src/main/resources/intellij.toml.json.xml",
     ],
     visibility = ["//visibility:public"],
 )

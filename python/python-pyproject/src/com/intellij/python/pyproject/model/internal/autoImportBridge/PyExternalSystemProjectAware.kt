@@ -1,7 +1,6 @@
 package com.intellij.python.pyproject.model.internal.autoImportBridge
 
 import com.intellij.openapi.Disposable
-import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.edtWriteAction
 import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.debug
@@ -14,8 +13,10 @@ import com.intellij.openapi.externalSystem.autoimport.ExternalSystemRefreshStatu
 import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.progress.runBlockingMaybeCancellable
 import com.intellij.openapi.project.Project
-import com.intellij.openapi.project.modules
 import com.intellij.platform.backend.observation.launchTracked
+import com.intellij.platform.backend.workspace.workspaceModel
+import com.intellij.platform.workspace.jps.entities.ModuleEntity
+import com.intellij.platform.workspace.storage.entities
 import com.intellij.project.stateStore
 import com.intellij.python.pyproject.model.internal.PY_PROJECT_SYSTEM_ID
 import com.intellij.python.pyproject.model.internal.PyProjectScopeService
@@ -26,8 +27,7 @@ import com.intellij.python.pyproject.model.internal.workspaceBridge.collectExclu
 import com.intellij.python.pyproject.model.internal.workspaceBridge.rebuildProjectModel
 import com.intellij.util.concurrency.annotations.RequiresBackgroundThread
 import com.intellij.util.messages.Topic
-import com.intellij.util.ui.EDT
-import com.jetbrains.python.sdk.baseDir
+import com.intellij.workspaceModel.ide.toPath
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -54,30 +54,28 @@ class PyExternalSystemProjectAware private constructor(
   private fun getRootPaths(): Set<Path> {
     // guessPath doesn't work: it returns first module path
     val projectRootDir = project.stateStore.projectBasePath
-    val modulePaths = project.modules.asSequence().mapNotNull { it.baseDir?.toNioPath() }
+    // Read the content root from the workspace model, not through `Module.baseDir`. `baseDir` gives a `VirtualFile`, and
+    // the VFS resolves a Windows 8.3 short name while `projectBasePath` keeps it. Two forms of one directory make
+    // `computeMinimalRoots` keep two roots, so the walk finds one `pyproject.toml` twice and the sync adds a second
+    // module `<name>@1` (PY-91133). The rest of the sync compares against the workspace url too.
+    val modulePaths = project.workspaceModel.currentSnapshot.entities<ModuleEntity>()
+      .flatMap { it.contentRoots }
+      .map { it.url.toPath() }
     return computeMinimalRoots(sequenceOf(projectRootDir) + modulePaths)
   }
 
   @get:RequiresBackgroundThread
   override val settingsFiles: Set<String>
-    get() {
-      if (EDT.isCurrentThreadEdt() && ApplicationManager.getApplication().isUnitTestMode) {
-        // Some tests are broken and access it from EDT.
-        // Since `@RequiresBackgroundThread` doesn't work for Kotlin, we can't check it in advance.
-        // This part will be rewritten soon anyway, so for now enjoy workaround
-        log.warn("Access from EDT, settingsFiles are empty")
-        return emptySet()
-      }
-      return runBlockingMaybeCancellable {
+    get() =
+      runBlockingMaybeCancellable {
         // We do not need file content: only names here.
-        val fsInfo = walkFileSystemNoTomlContent(getRootPaths()).getOr {
+        val fsInfo = walkFileSystemNoTomlContent(getRootPaths(), collectExcludedPaths(project)).getOr {
           // Dir can't be accessed
           log.trace(it.error)
           return@runBlockingMaybeCancellable emptySet()
         }
-        return@runBlockingMaybeCancellable fsInfo.rawTomlFiles.map { it.pathString }.toSet()
+        fsInfo.rawTomlFiles.map { it.pathString }.toSet()
       }
-    }
 
   override fun subscribe(listener: ExternalSystemProjectListener, parentDisposable: Disposable) {
     project.messageBus.connect(parentDisposable).subscribe(PROJECT_AWARE_TOPIC, listener)

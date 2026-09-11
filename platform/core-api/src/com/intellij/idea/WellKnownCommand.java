@@ -37,6 +37,7 @@ public final class WellKnownCommand {
   private static final WellKnownCommand GUI = new WellKnownCommand(/*isHeadless=*/false, /*isCommandLine=*/false, /*isRemoteDevHost=*/false);
   private static final WellKnownCommand GUI_COMMAND = new WellKnownCommand(/*isHeadless=*/false, /*isCommandLine=*/true, /*isRemoteDevHost=*/false);
   private static final WellKnownCommand HEADLESS = new WellKnownCommand(/*isHeadless=*/true, /*isCommandLine=*/true, /*isRemoteDevHost=*/false);
+  private static final WellKnownCommand HEADLESS_REMOTE_DEV_HOST = new WellKnownCommand(/*isHeadless=*/true, /*isCommandLine=*/true, /*isRemoteDevHost=*/true);
   // RemDev host that employs `com.intellij.platform.impl.toolkit.IdeToolkit`
   private static final WellKnownCommand REMOTE_DEV_HOST = new WellKnownCommand(/*isHeadless=*/false, /*isCommandLine=*/false, /*isRemoteDevHost=*/true);
 
@@ -49,6 +50,7 @@ public final class WellKnownCommand {
     put("update", HEADLESS);
     put("installPlugins", HEADLESS);
     put("installFrontendPlugins", HEADLESS);
+    put("provisionTbeBackend", HEADLESS_REMOTE_DEV_HOST);
     put("listBundledPlugins", HEADLESS);
     put("invalidateCaches", HEADLESS);
     put("warmup", HEADLESS);
@@ -74,7 +76,7 @@ public final class WellKnownCommand {
     put("appcodeClangModulesPrinter", HEADLESS);
     put("buildAppcodeCache", HEADLESS);
     put("dataSources", HEADLESS);
-    put("ml-evaluate", HEADLESS);
+    put("dumpArtifacts", HEADLESS);
     put("ml-process", HEADLESS);
     put("project-with-shared-caches", HEADLESS);
     put("qodanaExcludedPlugins", HEADLESS);

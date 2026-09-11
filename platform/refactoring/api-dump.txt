@@ -262,6 +262,7 @@ com.intellij.refactoring.RefactoringHelper
 - sf:EP_NAME:com.intellij.openapi.extensions.ExtensionPointName
 - a:performOperation(com.intellij.openapi.project.Project,java.lang.Object):V
 - a:prepareOperation(com.intellij.usageView.UsageInfo[],java.util.List):java.lang.Object
+- prepareOperation(com.intellij.usageView.UsageInfo[],java.util.List,java.lang.String):java.lang.Object
 f:com.intellij.refactoring.RefactoringSettings
 - com.intellij.openapi.components.PersistentStateComponent
 - ASK_FOR_RENAME_DECLARATION_WHEN_RENAME_FILE:Z

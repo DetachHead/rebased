@@ -5,6 +5,7 @@ import com.intellij.execution.ExecutionException;
 import com.intellij.ide.plugins.DynamicPluginListener;
 import com.intellij.ide.plugins.IdeaPluginDescriptor;
 import com.intellij.openapi.Disposable;
+import com.intellij.openapi.actionSystem.ActionManager;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.components.PersistentStateComponent;
 import com.intellij.openapi.components.State;
@@ -36,6 +37,7 @@ import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Disposer;
 import com.intellij.task.ProjectTaskContext;
 import com.intellij.task.ProjectTaskManager;
+import com.intellij.util.CoroutineScopeKt;
 import com.intellij.util.SmartList;
 import kotlinx.coroutines.CoroutineScope;
 import org.jetbrains.annotations.ApiStatus;
@@ -84,7 +86,9 @@ public final class ExternalProjectsManagerImpl implements ExternalProjectsManage
     myProject = project;
     myShortcutsManager = new ExternalSystemShortcutsManager(project);
     this.coroutineScope = coroutineScope;
-    Disposer.register(this, myShortcutsManager);
+    // A `this`-rooted registration from a failed constructor stays in the Disposer tree forever.
+    // The scope-backed parent avoids that: the container cancels the scope also on a constructor failure.
+    Disposer.register(CoroutineScopeKt.asDisposable(coroutineScope), myShortcutsManager);
     myTaskActivator = new ExternalSystemTaskActivator(project);
     myRunManagerListener = new ExternalSystemRunManagerListener(this);
     myWatcher = new ExternalSystemProjectsWatcherImpl(myProject);
@@ -365,7 +369,7 @@ public final class ExternalProjectsManagerImpl implements ExternalProjectsManage
   @Override
   public void setIgnored(@NotNull DataNode<?> dataNode, boolean isIgnored) {
     ExternalProjectsDataStorage.getInstance(myProject).setIgnored(dataNode, isIgnored);
-    ExternalSystemKeymapExtension.updateActions(myProject, ExternalSystemApiUtil.findAllRecursively(dataNode, TASK));
+    ExternalSystemKeymapExtension.updateActions(ActionManager.getInstance(), myProject, ExternalSystemApiUtil.findAllRecursively(dataNode, TASK));
   }
 
   @ApiStatus.Internal

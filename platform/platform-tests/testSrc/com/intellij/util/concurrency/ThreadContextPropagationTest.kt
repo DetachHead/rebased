@@ -16,8 +16,11 @@ import com.intellij.execution.process.ProcessIOExecutorService
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.EDT
 import com.intellij.openapi.application.ModalityState
+import com.intellij.openapi.application.NonBlockingReadAction
 import com.intellij.openapi.application.ReadAction
+import com.intellij.openapi.application.constraints.ConstrainedExecution.ContextConstraint
 import com.intellij.openapi.application.currentThreadContextModality
+import com.intellij.openapi.application.impl.NonBlockingReadActionImpl
 import com.intellij.openapi.progress.ProcessCanceledException
 import com.intellij.openapi.progress.ProgressIndicator
 import com.intellij.openapi.progress.ProgressManager
@@ -53,6 +56,7 @@ import org.junit.jupiter.api.extension.InvocationInterceptor
 import org.junit.jupiter.api.extension.ReflectiveInvocationContext
 import java.lang.reflect.Method
 import java.util.concurrent.Callable
+import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Future
 import java.util.concurrent.ScheduledExecutorService
@@ -233,6 +237,9 @@ class ThreadContextPropagationTest {
     val callbackSemaphore = Semaphore(1)
     var cancellationTracker by AtomicReference(0)
     val uiThreadFinishSemaphore = Semaphore(1)
+    // NBRA restarts the computation once the write action which cancelled it is done, so this may be released more than
+    // once. `Semaphore.up()` never goes below zero, so that is harmless.
+    val readActionStarted = Semaphore(1)
     var runAction by AtomicReference(false)
     val executor = AppExecutorUtil.createBoundedApplicationPoolExecutor("Test NBRA", 1)
 
@@ -240,6 +247,7 @@ class ThreadContextPropagationTest {
       val future = withContext(element) {
         blockingContext {
           ReadAction.nonBlocking(Callable {
+            readActionStarted.up()
             while (!runAction) {
               // the action should complete only when we explicitly allow it
               Thread.sleep(10)
@@ -281,33 +289,91 @@ class ThreadContextPropagationTest {
 
 
       blockingContext {
-        // the testing
-        assertEquals(0, cancellationTracker) // not cancelled yet
-        assertFalse(callTracker) // not completed yet
+        try {
+          // `submit` above is asynchronous, and a write action can only cancel the read action while it is running.
+          // Without this handshake the write action below may win the race, nothing gets cancelled, and the assertion
+          // on `cancellationTracker` fails sporadically.
+          readActionStarted.timeoutWaitUp()
 
-        ApplicationManager.getApplication().invokeAndWait {
-          ApplicationManager.getApplication().runWriteAction {
-            // we just cancelled NBRA by a write action
+          // the testing
+          assertEquals(0, cancellationTracker) // not cancelled yet
+          assertFalse(callTracker) // not completed yet
+
+          ApplicationManager.getApplication().invokeAndWait {
+            ApplicationManager.getApplication().runWriteAction {
+              // we just cancelled NBRA by a write action
+            }
           }
+          assertEquals(1, cancellationTracker) // cancelled 1 time
+          assertFalse(callTracker) // not completed yet
+
+          runAction = true // read action is allowed to complete now
+          while (true) {
+            try {
+              PlatformTestUtil.waitForFuture(future)
+              break
+            }
+            catch (_: TimeoutException) {
+            }
+          }
+
+          assertEquals(1, cancellationTracker) // still cancelled 1 time
+          callbackSemaphore.timeoutWaitUp()
+          uiThreadFinishSemaphore.timeoutWaitUp()
         }
-        assertEquals(1, cancellationTracker) // cancelled 1 time
-        assertFalse(callTracker) // not completed yet
-
-        runAction = true // read action is allowed to complete now
-        while (true) {
-          try {
-            PlatformTestUtil.waitForFuture(future)
-            break
-          }
-          catch (_: TimeoutException) {
-          }
+        finally {
+          // The read action spins until `runAction` is set, and the test application teardown waits for all NBRA tasks to
+          // finish. Without this, any failure above would deadlock `cleanApplicationState` and the real assertion error
+          // would never be reported - the run would just time out.
+          future.cancel()
         }
-
-        assertEquals(1, cancellationTracker) // still cancelled 1 time
-        callbackSemaphore.timeoutWaitUp()
-        uiThreadFinishSemaphore.timeoutWaitUp()
       }
     }
+  }
+
+  @Test
+  fun `NBRA reschedule carries the submission context`(): Unit = timeoutRunBlocking {
+    val element = TestElement("element")
+    val probePresence = ConcurrentLinkedQueue<Boolean>()
+    val constraint = object : ContextConstraint {
+      override fun isCorrectContext(): Boolean {
+        probePresence.add(currentThreadContext()[TestElementKey] === element)
+        return true
+      }
+
+      override fun schedule(runnable: Runnable) {
+        runnable.run()
+      }
+
+      override fun toString(): String = "recording constraint"
+    }
+    val action = ReadAction.nonBlocking(Callable { "x" }).withTestConstraint(constraint)
+    val writeActionStarted = Semaphore(1)
+    val writeActionMayFinish = Semaphore(1)
+    @Suppress("ForbiddenInSuspectContextMethod")
+    val promise = withContext(element) {
+      // a write action held during `submit` forces the NBRA through the deferred `invokeLater` reschedule
+      ApplicationManager.getApplication().invokeLater {
+        ApplicationManager.getApplication().runWriteAction {
+          writeActionStarted.up()
+          writeActionMayFinish.timeoutWaitUp()
+        }
+      }
+      writeActionStarted.timeoutWaitUp()
+      val promise = action.submit(AppExecutorUtil.getAppExecutorService())
+      writeActionMayFinish.up()
+      promise
+    }
+    assertEquals("x", PlatformTestUtil.waitForFuture(promise, 10_000))
+    assertFalse(probePresence.isEmpty())
+    assertTrue(probePresence.all { it }, "every constraint evaluation must see the submission context")
+  }
+
+  private fun <T> NonBlockingReadAction<T>.withTestConstraint(constraint: ContextConstraint): NonBlockingReadAction<T> {
+    val withConstraint = NonBlockingReadActionImpl::class.java.getDeclaredMethod("withConstraint", ContextConstraint::class.java)
+    withConstraint.isAccessible = true
+    @Suppress("UNCHECKED_CAST")
+    return withConstraint.invoke(this, constraint) as NonBlockingReadAction<T>
   }
 
   @Test

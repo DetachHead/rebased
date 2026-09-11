@@ -16,17 +16,17 @@ import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiFile
 import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.annotations.Nls
-import org.jetbrains.kotlin.analysis.api.KaExperimentalApi
 import org.jetbrains.kotlin.analysis.api.KaSession
-import org.jetbrains.kotlin.analysis.api.analyze
 import org.jetbrains.kotlin.analysis.api.components.KaDiagnosticCheckerFilter.ONLY_COMMON_CHECKERS
-import org.jetbrains.kotlin.analysis.api.components.importableFqName
-import org.jetbrains.kotlin.analysis.api.components.resolveCall
-import org.jetbrains.kotlin.analysis.api.components.resolveToSymbols
+import org.jetbrains.kotlin.analysis.api.components.collectDiagnostics
 import org.jetbrains.kotlin.analysis.api.diagnostics.KaDiagnosticWithPsi
 import org.jetbrains.kotlin.analysis.api.fir.diagnostics.KaFirDiagnostic
+import org.jetbrains.kotlin.analysis.api.resolution.resolveSuccessfulCall
+import org.jetbrains.kotlin.analysis.api.resolution.resolveSuccessfulSymbols
 import org.jetbrains.kotlin.analysis.api.resolution.symbol
+import org.jetbrains.kotlin.analysis.api.session.analyze
 import org.jetbrains.kotlin.analysis.api.symbols.KaDeclarationSymbol
+import org.jetbrains.kotlin.analysis.api.symbols.importableFqName
 import org.jetbrains.kotlin.builtins.StandardNames
 import org.jetbrains.kotlin.idea.base.projectStructure.RootKindFilter
 import org.jetbrains.kotlin.idea.base.projectStructure.matches
@@ -36,11 +36,11 @@ import org.jetbrains.kotlin.idea.codeinsight.api.classic.inspections.AbstractKot
 import org.jetbrains.kotlin.idea.codeinsight.api.classic.quickfixes.CleanupFix
 import org.jetbrains.kotlin.idea.codeinsight.api.classic.quickfixes.KotlinQuickFixAction
 import org.jetbrains.kotlin.idea.k2.codeinsight.fetchReplaceWithPattern
-import org.jetbrains.kotlin.idea.references.mainReference
 import org.jetbrains.kotlin.psi.KtFile
 import org.jetbrains.kotlin.psi.KtImportDirective
 import org.jetbrains.kotlin.psi.KtStringTemplateExpression
 import org.jetbrains.kotlin.psi.psiUtil.getQualifiedElementSelector
+import org.jetbrains.kotlin.resolution.KtResolvable
 
 @ApiStatus.Internal
 class KotlinCleanupInspection : AbstractKotlinInspection(), CleanupLocalInspectionTool {
@@ -79,13 +79,12 @@ private fun KtFile.importDirectivesToBeRemoved(): List<KtImportDirective> {
     return importDirectives.filter { it.isImportToBeRemoved() }
 }
 
-@OptIn(KaExperimentalApi::class)
 context(_: KaSession)
 private fun KtFile.hasAnnotationToSuppressDeprecation(): Boolean {
     val suppressAnnotationEntry = annotationEntries.firstOrNull {
         val calleeExpression = it.calleeExpression ?: return@firstOrNull false
         if (it.shortName?.asString() != "Suppress") return@firstOrNull false
-        calleeExpression.resolveCall()?.symbol?.importableFqName == StandardNames.FqNames.suppress
+        calleeExpression.resolveSuccessfulCall()?.symbol?.importableFqName == StandardNames.FqNames.suppress
     } ?: return false
 
     return suppressAnnotationEntry.valueArguments.any {
@@ -98,15 +97,15 @@ context(_: KaSession)
 private fun KtImportDirective.isImportToBeRemoved(): Boolean {
     if (isAllUnder) return false
 
-    val symbols = importedReference?.getQualifiedElementSelector()
-        ?.mainReference
-        ?.resolveToSymbols()
+    val symbols = (importedReference?.getQualifiedElementSelector() as? KtResolvable)
+        ?.resolveSuccessfulSymbols()
         ?.filterIsInstance<KaDeclarationSymbol>()
         .orEmpty()
     return symbols.isNotEmpty() && symbols.all { fetchReplaceWithPattern(it) != null }
 }
 
-private fun KaSession.getCleanupQuickFix(
+context(session: KaSession)
+private fun getCleanupQuickFix(
     diagnostic: KaDiagnosticWithPsi<*>,
 ): Collection<CleanupFix> = with(KotlinQuickFixService.getInstance()) {
     getQuickFixesFor(diagnostic).filterIsInstance<CleanupFix>()

@@ -3,20 +3,24 @@ package org.jetbrains.kotlin.idea.codeInsight
 
 import com.intellij.psi.util.PsiTreeUtil
 import org.jetbrains.kotlin.analysis.api.KaSession
-import org.jetbrains.kotlin.analysis.api.analyze
+import org.jetbrains.kotlin.analysis.api.components.resolveToSymbol
 import org.jetbrains.kotlin.analysis.api.resolution.KaExplicitReceiverValue
 import org.jetbrains.kotlin.analysis.api.resolution.KaImplicitReceiverValue
 import org.jetbrains.kotlin.analysis.api.resolution.KaReceiverValue
 import org.jetbrains.kotlin.analysis.api.resolution.KaSmartCastedReceiverValue
-import org.jetbrains.kotlin.analysis.api.resolution.successfulVariableAccessCall
 import org.jetbrains.kotlin.analysis.api.resolution.symbol
+import org.jetbrains.kotlin.analysis.api.resolution.variable
+import org.jetbrains.kotlin.analysis.api.session.analyze
 import org.jetbrains.kotlin.analysis.api.symbols.KaClassLikeSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaClassSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaPropertySymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaSyntheticJavaPropertySymbol
+import org.jetbrains.kotlin.analysis.api.symbols.containingSymbol
+import org.jetbrains.kotlin.analysis.api.symbols.symbol
 import org.jetbrains.kotlin.idea.codeinsight.utils.resolveExpression
 import org.jetbrains.kotlin.idea.references.mainReference
+import org.jetbrains.kotlin.idea.util.resolveSuccessfulExpressionCall
 import org.jetbrains.kotlin.lexer.KtTokens
 import org.jetbrains.kotlin.psi.KtBinaryExpression
 import org.jetbrains.kotlin.psi.KtCallableReferenceExpression
@@ -66,7 +70,8 @@ object RecursivePropertyAccessUtil {
     private fun hasThisAsReceiver(expression: KtQualifiedExpression) =
         expression.receiverExpression.textMatches(KtTokens.THIS_KEYWORD.value)
 
-    private fun KaSession.hasObjectReceiver(expression: KtQualifiedExpression): Boolean {
+    context(session: KaSession)
+    private fun hasObjectReceiver(expression: KtQualifiedExpression): Boolean {
         val receiver = expression.receiverExpression as? KtReferenceExpression ?: return false
         val receiverAsClassSymbol = receiver.resolveExpression() as? KaClassSymbol ?: return false
         return receiverAsClassSymbol.classKind.isObject
@@ -97,15 +102,15 @@ object RecursivePropertyAccessUtil {
     fun KtSimpleNameExpression.isRecursivePropertyAccess(anyRecursionTypes: Boolean): Boolean {
         val propertyAccessor = getContainingPropertyAccessor() ?: return false
         analyze(this) {
-            val variableAccessCall = resolveToCall()?.successfulVariableAccessCall() ?: return false
+            val variableAccessCall = resolveSuccessfulExpressionCall()?.variable ?: return false
             val propertySymbol = variableAccessCall.symbol as? KaPropertySymbol ?: return false
             if (propertySymbol != propertyAccessor.property.symbol) return false
 
             if (!anyRecursionTypes) {
                 val propertyContainer = propertySymbol.containingSymbol as? KaClassLikeSymbol
                 val propertyReceiverParameter = propertySymbol.receiverParameter
-                val callDispatchReceiver = getSymbolFor(variableAccessCall.partiallyAppliedSymbol.dispatchReceiver)
-                val callExtensionReceiver = getSymbolFor(variableAccessCall.partiallyAppliedSymbol.extensionReceiver)
+                val callDispatchReceiver = getSymbolFor(variableAccessCall.dispatchReceiver)
+                val callExtensionReceiver = getSymbolFor(variableAccessCall.extensionReceiver)
 
                 if (propertyContainer != callDispatchReceiver || propertyReceiverParameter != callExtensionReceiver)
                     return false
@@ -114,10 +119,12 @@ object RecursivePropertyAccessUtil {
         return isSameAccessor(this, propertyAccessor.isGetter)
     }
 
-    fun KaSession.isInsidePropertyAccessorWithBackingField(simpleNameExpression: KtSimpleNameExpression): Boolean =
+    context(session: KaSession)
+    fun isInsidePropertyAccessorWithBackingField(simpleNameExpression: KtSimpleNameExpression): Boolean =
         simpleNameExpression.getContainingPropertyAccessor()?.property?.symbol?.safeAs<KaPropertySymbol>()?.hasBackingField == true
 
-    private fun KaSession.getSymbolFor(receiverValue: KaReceiverValue?): KaSymbol? = when (receiverValue) {
+    context(session: KaSession)
+    private fun getSymbolFor(receiverValue: KaReceiverValue?): KaSymbol? = when (receiverValue) {
         is KaExplicitReceiverValue -> {
             val expression = receiverValue.expression
             val expressionSymbol = expression.resolveExpression()

@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.ide.util;
 
 import com.intellij.ide.IdeBundle;
@@ -242,7 +242,8 @@ public abstract class AbstractTreeClassChooserDialog<T extends PsiNamedElement> 
         super.initUI(callback, modalityState, allowMultipleSelection);
         dummyPanel.add(myGotoByNamePanel.getPanel(), BorderLayout.CENTER);
         if (myProject != null && !myProject.isDefault() && DumbService.getInstance(myProject).isDumb()) {
-          JBLabel dumbLabel = new JBLabel(IdeBundle.message("dumb.mode.analyzing.project"), SwingConstants.LEFT);
+          JBLabel dumbLabel = new JBLabel(IdeBundle.dumbModeMessage("dumb.mode.analyzing.project", "dumb.mode.light.analyzing.project"),
+                                          SwingConstants.LEFT);
           dumbLabel.setIcon(AnimatedIcon.Default.INSTANCE);
           dumbLabel.setBorder(new JBEmptyBorder(10, 3, 0, 3));
           dummyPanel.add(dumbLabel, BorderLayout.SOUTH);
@@ -414,7 +415,7 @@ public abstract class AbstractTreeClassChooserDialog<T extends PsiNamedElement> 
     return myClassFilter;
   }
 
-  T getBaseClass() {
+  protected T getBaseClass() {
     return myBaseClass;
   }
 

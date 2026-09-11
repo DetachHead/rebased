@@ -29,12 +29,15 @@ import com.intellij.openapi.editor.impl.FocusModeModel;
 import com.intellij.openapi.editor.impl.FoldingModelInternal;
 import com.intellij.openapi.editor.impl.FontInfo;
 import com.intellij.openapi.editor.impl.SoftWrapModelImpl;
+import com.intellij.openapi.editor.impl.caret.model.CaretRectangle;
 import com.intellij.openapi.editor.impl.TextDrawingCallback;
+import com.intellij.openapi.editor.impl.view.animation.EditorAnimationCache;
 import com.intellij.openapi.editor.markup.TextAttributes;
 import com.intellij.openapi.util.Disposer;
 import com.intellij.openapi.util.Key;
 import com.intellij.openapi.util.registry.Registry;
 import com.intellij.openapi.util.text.StringUtil;
+import com.intellij.util.DocumentInternalUtil;
 import com.intellij.util.concurrency.annotations.RequiresEdt;
 import com.intellij.util.ui.JdkConstants;
 import org.jetbrains.annotations.ApiStatus;
@@ -51,13 +54,17 @@ import java.awt.Graphics;
 import java.awt.Graphics2D;
 import java.awt.Insets;
 import java.awt.Point;
+import java.awt.Rectangle;
 import java.awt.event.HierarchyEvent;
 import java.awt.event.HierarchyListener;
 import java.awt.font.FontRenderContext;
 import java.awt.font.LineMetrics;
 import java.awt.geom.AffineTransform;
 import java.awt.geom.Point2D;
+import java.awt.geom.Rectangle2D;
 import java.text.Bidi;
+import java.util.List;
+import java.util.function.Supplier;
 
 /**
  * A facade for components responsible for drawing editor contents, managing editor size 
@@ -79,7 +86,9 @@ public final class EditorView implements TextDrawingCallback, Disposable, Dumpab
   private final TextLayoutCache myTextLayoutCache;
   private final LogicalPositionCache myLogicalPositionCache;
   private final CharWidthCache myCharWidthCache;
+  private final @Nullable EditorAnimationCache myContentAnimationCache;
   private final TabFragment myTabFragment;
+  private final SelectionVisualModel mySelectionVisualModel;
 
   private FontRenderContext myFontRenderContext; // guarded by myLock
   private String myPrefixText; // accessed only in EDT
@@ -112,14 +121,19 @@ public final class EditorView implements TextDrawingCallback, Disposable, Dumpab
     myPainter = new EditorPainter(this);
     myMapper = new EditorCoordinateMapper(this);
     mySizeManager = new EditorSizeManager(this);
-    myTextLayoutCache = new TextLayoutCache(this);
-    myLogicalPositionCache = new LogicalPositionCache(this);
+    myTextLayoutCache = new TextLayoutCache(this, new ComponentVisibilityTracker(myEditor.getContentComponent()));
+    myLogicalPositionCache = new LogicalPositionCache(myDocument, () -> myEditor.throwDisposalError("Editor is already disposed"));
     myCharWidthCache = new CharWidthCache(this);
+    myContentAnimationCache = EditorAnimationCache.createAnimationCache(editor);
     myTabFragment = new TabFragment(this);
+    mySelectionVisualModel = new SelectionVisualModel(myEditor);
 
     myEditor.getContentComponent().addHierarchyListener(this);
     getScrollingModel().addVisibleAreaListener(this);
 
+    if (myContentAnimationCache != null) {
+      Disposer.register(this, myContentAnimationCache);
+    }
     Disposer.register(this, myLogicalPositionCache);
     Disposer.register(this, myTextLayoutCache);
     Disposer.register(this, mySizeManager);
@@ -152,12 +166,14 @@ public final class EditorView implements TextDrawingCallback, Disposable, Dumpab
   }
 
   public @NotNull LogicalPosition offsetToLogicalPosition(int offset) {
-    assertEditorAccessible();
     return myMapper.offsetToLogicalPosition(offset);
   }
 
+  public int offsetToLogicalColumn(int line, int intraLineOffset) {
+    return myMapper.offsetToLogicalColumn(line, intraLineOffset);
+  }
+
   public int logicalPositionToOffset(@NotNull LogicalPosition pos) {
-    assertEditorAccessible();
     return myMapper.logicalPositionToOffset(pos);
   }
 
@@ -229,7 +245,7 @@ public final class EditorView implements TextDrawingCallback, Disposable, Dumpab
     myPrefixText = prefixText;
     synchronized (myLock) {
       myPrefixLayout = prefixText == null || prefixText.isEmpty() ? null :
-                       LineLayout.create(this, prefixText, attributes.getFontType());
+                       LineLayout.createForStandaloneText(this, prefixText, attributes.getFontType());
     }
     myPrefixAttributes = attributes;
     mySizeManager.invalidateRange(0, 0);
@@ -244,9 +260,66 @@ public final class EditorView implements TextDrawingCallback, Disposable, Dumpab
   public void paint(Graphics2D g) {
     getSoftWrapModel().prepareToMapping();
     checkFontRenderContext(g.getFontRenderContext());
+
+    Rectangle clip = g.getClipBounds();
+    EditorAnimationCache cache = myContentAnimationCache;
+    if (cache != null && clip != null && canPaintFromContentAnimationCache() && cache.paintFromCache(g, clip)) {
+      runPaintCallback();
+      return;
+    }
+
     myPainter.paint(g);
-    if (myPaintCallback != null) {
+    runPaintCallback();
+  }
+
+  private boolean canPaintFromContentAnimationCache() {
+    return !myEditor.isCurrentlyBuildingCache() &&
+           !myEditor.isStickyLinePainting() &&
+           !myEditor.isPaintingDumbBuffer() &&
+           !myEditor.isPurePaintingMode();
+  }
+
+  @ApiStatus.Internal
+  public void paintCaretFrame(Graphics2D graphics) {
+    CaretRectangle[] locations = myEditor.getCaretLocations(true);
+    if (locations == null) return;
+
+    Rectangle clip = graphics.getClipBounds();
+    if (clip == null) return;
+
+    myPainter.paintCaret(graphics, locations, clip.y);
+  }
+
+  private void runPaintCallback() {
+    if (!myEditor.isCurrentlyBuildingCache() && myPaintCallback != null) {
       myPaintCallback.run();
+    }
+  }
+
+  @ApiStatus.Internal
+  @RequiresEdt
+  public void cacheAreasForRepaint(@NotNull Object key, @NotNull Supplier<List<Rectangle2D>> rectangles) {
+    if (myContentAnimationCache != null) {
+      myContentAnimationCache.cacheAreasForRepaint(key, rectangles);
+    }
+  }
+
+  @ApiStatus.Internal
+  @RequiresEdt
+  public Rectangle @NotNull [] caretRectanglesForLocations(CaretRectangle @NotNull [] locations, int grow) {
+    return myPainter.caretRectanglesForLocations(locations, grow);
+  }
+
+  @ApiStatus.Internal
+  public void invalidateContentAnimationCache(@Nullable Rectangle clip) {
+    if (myContentAnimationCache != null) {
+      myContentAnimationCache.invalidate(clip);
+    }
+  }
+
+  void clearContentAnimationCache() {
+    if (myContentAnimationCache != null) {
+      myContentAnimationCache.clear();
     }
   }
 
@@ -257,7 +330,7 @@ public final class EditorView implements TextDrawingCallback, Disposable, Dumpab
 
   @ApiStatus.Internal
   @RequiresEdt
-  public void repaintCarets(EditorImpl.CaretRectangle @NotNull [] locations) {
+  public void repaintCarets(CaretRectangle @NotNull [] locations) {
     myPainter.repaintCarets(locations);
   }
 
@@ -306,6 +379,7 @@ public final class EditorView implements TextDrawingCallback, Disposable, Dumpab
 
   @RequiresEdt
   public void reinitSettings() {
+    clearContentAnimationCache();
     synchronized (myLock) {
       myPlainSpaceWidth = -1;
       myTabSize = -1;
@@ -316,7 +390,7 @@ public final class EditorView implements TextDrawingCallback, Disposable, Dumpab
       case RTL -> Bidi.DIRECTION_RIGHT_TO_LEFT;
       default -> Bidi.DIRECTION_DEFAULT_LEFT_TO_RIGHT;
     };
-    myLogicalPositionCache.reset(false);
+    myLogicalPositionCache.reset(false, getTabSize());
     myTextLayoutCache.resetToDocumentSize(false);
     invalidateFoldRegionLayouts();
     myCharWidthCache.clear();
@@ -326,6 +400,7 @@ public final class EditorView implements TextDrawingCallback, Disposable, Dumpab
 
   @RequiresEdt
   public void invalidateRange(int startOffset, int endOffset, boolean invalidateSize) {
+    clearContentAnimationCache();
     int textLength = myDocument.getTextLength();
     if (startOffset > endOffset || startOffset >= textLength || endOffset < 0) {
       return;
@@ -343,7 +418,8 @@ public final class EditorView implements TextDrawingCallback, Disposable, Dumpab
    */
   @RequiresEdt
   public void reset() {
-    myLogicalPositionCache.reset(true);
+    clearContentAnimationCache();
+    myLogicalPositionCache.reset(true, getTabSize());
     myTextLayoutCache.resetToDocumentSize(true);
     mySizeManager.reset();
   }
@@ -474,9 +550,9 @@ public final class EditorView implements TextDrawingCallback, Disposable, Dumpab
       offset = text.length();
       leanTowardsLargerOffsets = true;
     }
-    int logicalColumn = LogicalPositionCache.calcColumn(text, 0, 0, offset, getTabSize());
     int maxColumn = 0;
-    for (LineLayout.VisualFragment fragment : getFoldRegionLayout(region).getFragmentsInVisualOrder(0)) {
+    int logicalColumn = DocumentInternalUtil.calcLogicalColumn(text, 0, 0, offset, getTabSize());
+    for (LineVisualFragment fragment : getFoldRegionLayout(region).getFragmentsInVisualOrder(0)) {
       int startLC = fragment.getStartLogicalColumn();
       int endLC = fragment.getEndLogicalColumn();
       if (logicalColumn > startLC && logicalColumn < endLC ||
@@ -492,14 +568,14 @@ public final class EditorView implements TextDrawingCallback, Disposable, Dumpab
   public int visualColumnToOffsetInFoldRegion(@NotNull FoldRegion region, int visualColumn, boolean leansRight) {
     if (visualColumn < 0 || visualColumn == 0 && !leansRight) return 0;
     String text = region.getPlaceholderText();
-    for (LineLayout.VisualFragment fragment : getFoldRegionLayout(region).getFragmentsInVisualOrder(0)) {
+    for (LineVisualFragment fragment : getFoldRegionLayout(region).getFragmentsInVisualOrder(0)) {
       int startVC = fragment.getStartVisualColumn();
       int endVC = fragment.getEndVisualColumn();
       if (visualColumn > startVC && visualColumn < endVC ||
           visualColumn == startVC && leansRight ||
           visualColumn == endVC && !leansRight) {
         int logicalColumn = fragment.visualToLogicalColumn(visualColumn);
-        return LogicalPositionCache.calcOffset(text, logicalColumn, 0, 0, text.length(), getTabSize());
+        return DocumentInternalUtil.calcLogicalOffset(text, logicalColumn, 0, 0, text.length(), getTabSize());
       }
     }
     return text.length();
@@ -538,6 +614,7 @@ public final class EditorView implements TextDrawingCallback, Disposable, Dumpab
 
   @Override
   public void visibleAreaChanged(@NotNull VisibleAreaEvent e) {
+    clearContentAnimationCache();
     checkFontRenderContext(null);
   }
 
@@ -613,10 +690,6 @@ public final class EditorView implements TextDrawingCallback, Disposable, Dumpab
     return myPrefixAttributes;
   }
 
-  boolean isAd() {
-    return myEditorModel.isAd();
-  }
-
   EditorImpl getEditor() {
     return myEditor;
   }
@@ -665,6 +738,10 @@ public final class EditorView implements TextDrawingCallback, Disposable, Dumpab
     return myEditorModel.getScrollingModel();
   }
 
+  @NotNull SelectionVisualModel getSelectionVisualModel() {
+    return mySelectionVisualModel;
+  }
+
   FontRenderContext getFontRenderContext() {
     synchronized (myLock) {
       return myFontRenderContext;
@@ -700,8 +777,11 @@ public final class EditorView implements TextDrawingCallback, Disposable, Dumpab
     LineLayout layout = foldRegion.getUserData(FOLD_REGION_TEXT_LAYOUT);
     if (layout == null) {
       TextAttributes placeholderAttributes = getFoldingModel().getPlaceholderAttributes();
-      layout = LineLayout.create(this, StringUtil.replace(foldRegion.getPlaceholderText(), "\n", " "),
-                              placeholderAttributes == null ? Font.PLAIN : placeholderAttributes.getFontType());
+      layout = LineLayout.createForStandaloneText(
+        this,
+        StringUtil.replace(foldRegion.getPlaceholderText(), "\n", " "),
+        placeholderAttributes == null ? Font.PLAIN : placeholderAttributes.getFontType()
+      );
       foldRegion.putUserData(FOLD_REGION_TEXT_LAYOUT, layout);
     }
     return layout;
@@ -827,16 +907,11 @@ public final class EditorView implements TextDrawingCallback, Disposable, Dumpab
       }
     }
     if (contextUpdated) {
+      clearContentAnimationCache();
       myTextLayoutCache.resetToDocumentSize(false);
       invalidateFoldRegionLayouts();
       myCharWidthCache.clear();
       getFoldingModel().updateCachedOffsets();
-    }
-  }
-
-  private void assertEditorAccessible() {
-    if (!myEditorModel.isAd()) {
-      EditorThreading.assertInteractionAllowed();
     }
   }
 

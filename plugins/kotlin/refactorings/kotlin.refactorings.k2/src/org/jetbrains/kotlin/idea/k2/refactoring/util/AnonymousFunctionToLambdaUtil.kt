@@ -5,10 +5,13 @@ import com.intellij.openapi.util.Key
 import com.intellij.psi.search.LocalSearchScope
 import com.intellij.psi.search.searches.ReferencesSearch
 import org.jetbrains.kotlin.analysis.api.KaSession
-import org.jetbrains.kotlin.analysis.api.analyze
-import org.jetbrains.kotlin.analysis.api.components.expectedType
-import org.jetbrains.kotlin.analysis.api.components.resolveToCall
-import org.jetbrains.kotlin.analysis.api.resolution.singleFunctionCallOrNull
+import org.jetbrains.kotlin.analysis.api.expressions.expectedType
+import org.jetbrains.kotlin.analysis.api.resolution.function
+import org.jetbrains.kotlin.analysis.api.resolution.resolveSuccessfulSymbol
+import org.jetbrains.kotlin.analysis.api.resolution.single
+import org.jetbrains.kotlin.analysis.api.resolution.tryResolveCall
+import org.jetbrains.kotlin.analysis.api.session.analyze
+import org.jetbrains.kotlin.analysis.api.symbols.symbol
 import org.jetbrains.kotlin.analysis.api.types.KaClassType
 import org.jetbrains.kotlin.analysis.api.types.KaTypeParameterType
 import org.jetbrains.kotlin.idea.base.codeInsight.KotlinNameSuggester
@@ -76,7 +79,7 @@ object AnonymousFunctionToLambdaUtil {
         val argument = element.getStrictParentOfType<KtValueArgument>()?.getArgumentExpression()
         val callElement = argument?.getStrictParentOfType<KtCallElement>()
         val typeParameterIndexes = if (callElement != null && callElement.typeArgumentList == null) {
-            val functionalType = callElement.resolveToCall()?.singleFunctionCallOrNull()?.argumentMapping?.get(argument)?.symbol?.returnType
+            val functionalType = callElement.tryResolveCall()?.single?.function?.valueArgumentMapping?.get(argument)?.symbol?.returnType
 
             val typeArguments = (functionalType as? KaClassType)?.typeArguments?.let {
                 if (it.isNotEmpty()) it.dropLast(1) else it
@@ -154,19 +157,23 @@ object AnonymousFunctionToLambdaUtil {
         val isEmpty: Boolean
 
         init {
+            isEmpty = !markReturnExpressions()
+        }
+
+        private fun markReturnExpressions(): Boolean {
             var hasReturn = false
             analyze(function) {
                 val functionSymbol = function.symbol
                 val body = function.bodyExpression!!
                 body.forEachDescendantOfType<KtReturnExpression> {
-                    if (it.targetSymbol == functionSymbol) {
+                    if (it.resolveSuccessfulSymbol() == functionSymbol) {
                         hasReturn = true
                         it.putCopyableUserData(RETURN_KEY, Unit)
                     }
                 }
             }
 
-            isEmpty = !hasReturn
+            return hasReturn
         }
 
         private fun clear() {

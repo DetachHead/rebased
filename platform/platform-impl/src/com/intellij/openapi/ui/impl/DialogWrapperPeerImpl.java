@@ -27,6 +27,7 @@ import com.intellij.openapi.application.impl.LaterInvocator;
 import com.intellij.openapi.command.CommandProcessor;
 import com.intellij.openapi.command.CommandProcessorEx;
 import com.intellij.openapi.diagnostic.Logger;
+import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.project.DumbAware;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.DialogWrapper;
@@ -50,7 +51,6 @@ import com.intellij.openapi.wm.impl.ProjectFrameHelper;
 import com.intellij.openapi.wm.impl.customFrameDecorations.header.CustomFrameDialogContent;
 import com.intellij.openapi.wm.impl.customFrameDecorations.header.CustomHeader;
 import com.intellij.platform.ide.bootstrap.SplashManagerKt;
-import com.intellij.platform.locking.impl.IntelliJLockingUtil;
 import com.intellij.reference.SoftReference;
 import com.intellij.ui.AppUIUtil;
 import com.intellij.ui.ComponentUtil;
@@ -116,6 +116,7 @@ import java.awt.event.MouseMotionListener;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
 import java.awt.image.BufferStrategy;
+import java.lang.ref.Reference;
 import java.lang.ref.WeakReference;
 import java.util.ArrayList;
 import java.util.List;
@@ -159,7 +160,7 @@ public class DialogWrapperPeerImpl extends DialogWrapperPeer {
         if (project == null && curWindow != null) {
           project = ProjectUtil.getProjectForWindow(curWindow);
           if (project == null) {
-            project = CommonDataKeys.PROJECT.getData(DataManager.getInstance().getDataContext(curWindow));
+            project = getProjectNonCancelable(curWindow);
           }
         }
 
@@ -203,6 +204,11 @@ public class DialogWrapperPeerImpl extends DialogWrapperPeer {
 
     myDialog = createDialog(headless, owner, wrapper, myProject, ideModalityType);
     myCanBeParent = headless || canBeParent;
+  }
+
+  private static @Nullable Project getProjectNonCancelable(@NotNull Window curWindow) {
+    return ProgressManager.getInstance().computeInNonCancelableSection(() ->
+    CommonDataKeys.PROJECT.getData(DataManager.getInstance().getDataContext(curWindow)));
   }
 
   /**
@@ -249,7 +255,7 @@ public class DialogWrapperPeerImpl extends DialogWrapperPeer {
     return app == null ? null : WindowManagerEx.getInstanceEx();
   }
 
-  private static AbstractDialog createDialog(boolean headless, Window owner, DialogWrapper wrapper, Project project, DialogWrapper.IdeModalityType ideModalityType) {
+  private static @NotNull AbstractDialog createDialog(boolean headless, Window owner, @NotNull DialogWrapper wrapper, Project project, DialogWrapper.IdeModalityType ideModalityType) {
     if (headless) {
       return new HeadlessDialog(wrapper);
     }
@@ -520,7 +526,7 @@ public class DialogWrapperPeerImpl extends DialogWrapperPeer {
 
       var pair = ApplicationManager.getApplication().isWriteAccessAllowed()
                  ? new Pair<>(EmptyCoroutineContext.INSTANCE, emptyFunction)
-                 : IntelliJLockingUtil.getGlobalThreadingSupport().parallelizeLock();
+                 : ApplicationManager.getApplication().getThreadingSupport().parallelizeLock(false);
       lockContextWrapper = (r) -> {
         ThreadContext.installThreadContext(pair.getFirst(), true, () -> {
           r.run();
@@ -615,7 +621,7 @@ public class DialogWrapperPeerImpl extends DialogWrapperPeer {
 
   @RequiresEdt
   @SuppressWarnings({"KotlinInternalInJava", "UnnecessaryFullyQualifiedName"})
-  private static AccessToken resetCoroutinesEventLoop() {
+  private static @NotNull AccessToken resetCoroutinesEventLoop() {
     kotlinx.coroutines.EventLoop currentEventLoop = kotlinx.coroutines.ThreadLocalEventLoop.INSTANCE.currentOrNull$kotlinx_coroutines_core();
     kotlinx.coroutines.ThreadLocalEventLoop.INSTANCE.resetEventLoop$kotlinx_coroutines_core();
     return new AccessToken() {
@@ -678,7 +684,7 @@ public class DialogWrapperPeerImpl extends DialogWrapperPeer {
   }
 
   private static final class MyDialog extends JDialog implements DialogWrapperDialog, UiDataProvider, Queryable, AbstractDialog, DisposableWindow {
-    private final WeakReference<DialogWrapper> myDialogWrapper;
+    private final Reference<DialogWrapper> myDialogWrapper;
 
     /**
      * Initial size of the dialog. When the dialog is being closed and
@@ -688,21 +694,19 @@ public class DialogWrapperPeerImpl extends DialogWrapperPeer {
     private Dimension myInitialSize;
     private String myDimensionServiceKey;
     private static final String NORMAL_BOUNDS_SUFFIX = "_normalized";
-    private boolean myOpened = false;
-    private boolean myDisposed = false;
+    private boolean myOpened;
+    private boolean myDisposed;
 
     private MyDialog.MyWindowListener myWindowListener;
 
-    private final WeakReference<Project> myProject;
+    private final Reference<Project> myProject;
 
     private @Nullable MacDirtySizeHack myMacDirtySizeHack;
 
-    MyDialog(Window owner,
-                    DialogWrapper dialogWrapper,
-                    Project project) {
+    MyDialog(Window owner, @NotNull DialogWrapper dialogWrapper, Project project) {
       super(owner);
       myDialogWrapper = new WeakReference<>(dialogWrapper);
-      myProject = project != null ? new WeakReference<>(project) : null;
+      myProject = project == null ? null : new WeakReference<>(project);
 
       setFocusTraversalPolicy(new LayoutFocusTraversalPolicy() {
         @Override
@@ -744,18 +748,19 @@ public class DialogWrapperPeerImpl extends DialogWrapperPeer {
 
     @Override
     public void uiDataSnapshot(@NotNull DataSink sink) {
-      DialogWrapper wrapper = myDialogWrapper.get();
-      DataSink.uiDataSnapshot(sink, wrapper);
+      DataSink.uiDataSnapshot(sink, getDialogWrapper());
       Project project = getProject();
       if (project != null && project.isInitialized()) {
         sink.set(CommonDataKeys.PROJECT, project);
       }
     }
 
-    private void fitToScreen(Rectangle rect) {
+    private void fitToScreen(@NotNull Rectangle rect) {
       if (myDialogWrapper == null) return; // this can be invoked from super constructor before this field is assigned
       final DialogWrapper wrapper = myDialogWrapper.get();
-      if (wrapper != null) wrapper.fitToScreen(rect);
+      if (wrapper != null) {
+        wrapper.fitToScreen(rect);
+      }
     }
 
     @Override
@@ -1003,7 +1008,7 @@ public class DialogWrapperPeerImpl extends DialogWrapperPeer {
         setBounds(bounds);
       }
 
-      DialogWrapper wrapper = myDialogWrapper == null ? null : myDialogWrapper.get();
+      DialogWrapper wrapper = getDialogWrapper();
       if (wrapper != null) {
         wrapper.beforeShowCallback();
       }
@@ -1022,15 +1027,14 @@ public class DialogWrapperPeerImpl extends DialogWrapperPeer {
     }
 
     private void logMonitorConfiguration() {
-      var ideFrame = WindowManager.getInstance().getFrame(CommonDataKeys.PROJECT.getData(DataManager.getInstance().getDataContext(this)));
+      var ideFrame = WindowManager.getInstance().getFrame(getProjectNonCancelable(this));
       for (String message : ScreenUtil.loggableMonitorConfiguration(ideFrame)) {
         LOG.debug(message);
       }
     }
 
-    private @Nullable Project guessProjectDependingOnKey(String key) {
-      return !key.startsWith(WindowStateService.USE_APPLICATION_WIDE_STORE_KEY_PREFIX) ?
-             CommonDataKeys.PROJECT.getData(DataManager.getInstance().getDataContext(this)) : null;
+    private @Nullable Project guessProjectDependingOnKey(@NotNull String key) {
+      return key.startsWith(WindowStateService.USE_APPLICATION_WIDE_STORE_KEY_PREFIX) ? null : getProjectNonCancelable(this);
     }
 
     private static void maximize(@NotNull Dimension size, @Nullable Dimension alternativeSize) {
@@ -1153,7 +1157,7 @@ public class DialogWrapperPeerImpl extends DialogWrapperPeer {
         saveSize();
       }
 
-      public void saveSize() {
+      void saveSize() {
         if (myDimensionServiceKey != null &&
             myInitialSize != null &&
             myOpened) { // myInitialSize can be null only if dialog is disposed before first showing
@@ -1237,7 +1241,7 @@ public class DialogWrapperPeerImpl extends DialogWrapperPeer {
         }
       }
 
-      Dimension getSize() {
+      @NotNull Dimension getSize() {
         return new Dimension(width, height);
       }
 
@@ -1268,14 +1272,14 @@ public class DialogWrapperPeerImpl extends DialogWrapperPeer {
         setGlassPane(new IdeGlassPaneImpl(this));
         myGlassPaneIsSet = true;
         putClientProperty("DIALOG_ROOT_PANE", true);
-        setBorder(JBUI.CurrentTheme.Window.getBorder(isUndecorated()));
+        setBorder(JBUI.CurrentTheme.Window.getDialogBorder(isUndecorated()));
       }
 
       @Override
       protected @NotNull JLayeredPane createLayeredPane() {
         JLayeredPane p = new JBLayeredPane() {
           @Override
-          protected Graphics getComponentGraphics(Graphics g) {
+          protected @NotNull Graphics getComponentGraphics(Graphics g) {
             return JBSwingUtilities.runGlobalCGTransform(this, super.getComponentGraphics(g));
           }
         };
@@ -1286,7 +1290,7 @@ public class DialogWrapperPeerImpl extends DialogWrapperPeer {
       @Override
       public void validate() {
         super.validate();
-        DialogWrapper wrapper = myDialogWrapper.get();
+        DialogWrapper wrapper = getDialogWrapper();
         if (wrapper != null && wrapper.isAutoAdjustable()) {
           Window window = wrapper.getWindow();
           if (window != null) {
@@ -1344,7 +1348,7 @@ public class DialogWrapperPeerImpl extends DialogWrapperPeer {
 
       @Override
       public void uiDataSnapshot(@NotNull DataSink sink) {
-        DialogWrapper wrapper = myDialogWrapper.get();
+        DialogWrapper wrapper = getDialogWrapper();
         if (wrapper == null) return;
         sink.set(PlatformDataKeys.UI_DISPOSABLE, wrapper.getDisposable());
       }

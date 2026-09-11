@@ -12,15 +12,16 @@ import com.intellij.psi.search.searches.ReferencesSearch
 import com.intellij.psi.tree.IElementType
 import com.intellij.psi.util.parentOfTypes
 import com.intellij.psi.util.startOffset
-import org.jetbrains.kotlin.analysis.api.analyze
+import org.jetbrains.kotlin.analysis.api.resolution.resolveSuccessfulSymbol
+import org.jetbrains.kotlin.analysis.api.session.analyze
 import org.jetbrains.kotlin.analysis.api.symbols.KaLocalVariableSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaValueParameterSymbol
+import org.jetbrains.kotlin.analysis.api.symbols.symbol
 import org.jetbrains.kotlin.idea.base.psi.isPartOfQualifiedExpression
 import org.jetbrains.kotlin.idea.base.resources.KotlinBundle
 import org.jetbrains.kotlin.idea.codeinsight.api.classic.inspections.AbstractKotlinInspection
 import org.jetbrains.kotlin.idea.codeinsights.impl.base.inspections.getScopeToSearchParameterReferences
 import org.jetbrains.kotlin.idea.references.KtSimpleNameReference
-import org.jetbrains.kotlin.idea.references.mainReference
 import org.jetbrains.kotlin.lexer.KtModifierKeywordToken
 import org.jetbrains.kotlin.lexer.KtTokens
 import org.jetbrains.kotlin.psi.KtBinaryExpression
@@ -56,7 +57,6 @@ internal class CanBeParameterInspection : AbstractKotlinInspection() {
             // Applicable to val / var parameters of a class / object primary constructors
             val valOrVarKeyword = parameter.valOrVarKeyword ?: return
             if (parameter.hasModifier(KtTokens.OVERRIDE_KEYWORD) || parameter.hasModifier(KtTokens.ACTUAL_KEYWORD)) return
-            if (parameter.annotationEntries.isNotEmpty()) return
             val constructor = parameter.parents.match(KtParameterList::class, last = KtPrimaryConstructor::class) ?: return
             val klass = constructor.getContainingClassOrObject() as? KtClass ?: return
             if (klass.isData()) return
@@ -132,14 +132,14 @@ internal class CanBeParameterInspection : AbstractKotlinInspection() {
 
         analyze(klass) {
             val constructorPropertySymbol =
-                (parameter.symbol as? KaValueParameterSymbol)?.generatedPrimaryConstructorProperty ?: return true
+                (parameter.symbol as? KaValueParameterSymbol)?.primaryConstructorProperty ?: return true
 
             for (element in initializersAndDelegates) {
                 val nameReferenceExpressions = element.collectDescendantsOfType<KtNameReferenceExpression> {
                     it.text == parameter.name && !it.isPartOfQualifiedExpression()
                 }
                 for (nameReferenceExpression in nameReferenceExpressions) {
-                    val referenceSymbol = nameReferenceExpression.mainReference.resolveToSymbol() ?: continue
+                    val referenceSymbol = nameReferenceExpression.resolveSuccessfulSymbol() ?: continue
                     if (referenceSymbol != constructorPropertySymbol && referenceSymbol !is KaLocalVariableSymbol) {
                         return true
                     }

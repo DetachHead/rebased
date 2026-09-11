@@ -15,10 +15,15 @@
  */
 package com.jetbrains.python.inspections;
 
+import com.jetbrains.python.allure.Layers;
+import com.jetbrains.python.allure.Subsystems;
+
 import com.jetbrains.python.fixtures.PyInspectionTestCase;
 import com.jetbrains.python.psi.LanguageLevel;
 import org.jetbrains.annotations.NotNull;
 
+@Subsystems.Inspections
+@Layers.Functional
 public class PyUnboundLocalVariableInspectionTest extends PyInspectionTestCase {
   public void testSimple() {
     doTest();
@@ -472,6 +477,18 @@ public class PyUnboundLocalVariableInspectionTest extends PyInspectionTestCase {
                   pass
           except PermissionError:
               print(f"{test}")""");
+  }
+
+  // PY-83501
+  public void testExhaustiveIsInstanceChainNoUnboundWarning() {
+    doTestByText("""
+      def f(value: int | str) -> int:
+          if isinstance(value, str):
+              out = 1
+          elif isinstance(value, int):
+              out = 2
+          return out
+      """);
   }
 
   // PY-82876

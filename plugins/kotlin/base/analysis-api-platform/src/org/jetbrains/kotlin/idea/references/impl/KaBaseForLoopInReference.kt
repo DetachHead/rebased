@@ -2,12 +2,10 @@
 
 package org.jetbrains.kotlin.idea.references.impl
 
-import org.jetbrains.kotlin.analysis.api.KaExperimentalApi
 import org.jetbrains.kotlin.analysis.api.KaSession
 import org.jetbrains.kotlin.analysis.api.resolution.symbols
 import org.jetbrains.kotlin.analysis.api.symbols.KaSymbol
 import org.jetbrains.kotlin.idea.references.KtForLoopInReference
-import org.jetbrains.kotlin.psi.KtExperimentalApi
 import org.jetbrains.kotlin.psi.KtForExpression
 import org.jetbrains.kotlin.psi.KtImplementationDetail
 import org.jetbrains.kotlin.psi.KtImportAlias
@@ -15,7 +13,6 @@ import org.jetbrains.kotlin.references.KotlinPsiReferenceProviderContributor
 
 @OptIn(KtImplementationDetail::class)
 internal class KaBaseForLoopInReference(expression: KtForExpression) : KtForLoopInReference(expression), KaBaseReference {
-    @OptIn(KtExperimentalApi::class, KaExperimentalApi::class)
     override fun KaSession.resolveToSymbols(): Collection<KaSymbol> {
         return element.tryResolveSymbols()?.symbols.orEmpty()
     }

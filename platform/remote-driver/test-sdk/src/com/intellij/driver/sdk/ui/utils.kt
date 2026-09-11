@@ -41,6 +41,8 @@ fun UiComponent.pasteText(text: String) {
 @Remote(value = "com.intellij.ide.impl.ProjectUtil")
 interface ProjectUtil {
   fun focusProjectWindow(project: Project?, stealFocusIfAppInactive: Boolean)
+
+  fun openOrImport(path: String, projectToClose: Project?, forceOpenInNewFrame: Boolean): Project?
 }
 
 @Remote("com.intellij.ide.IdeEventQueue")
@@ -109,9 +111,9 @@ fun Driver.getSystemClipboard(): ClipboardRef = utility(ToolkitRef::class)
   .getSystemClipboard()
 
 
-fun Driver.syncVfs() {
+fun Driver.syncVfs(rdTarget: RdTarget = RdTarget.BACKEND) {
   withWriteAction {
-    service<VirtualFileManagerRemote>().syncRefresh()
+    service<VirtualFileManagerRemote>(rdTarget).syncRefresh()
   }
 }
 
@@ -140,7 +142,7 @@ interface ClipboardOwnerRef
 interface StringSelectionRef
 
 
-@Remote("com.intellij.openapi.vfs.VirtualFileManager", rdTarget = RdTarget.BACKEND)
+@Remote("com.intellij.openapi.vfs.VirtualFileManager")
 private interface VirtualFileManagerRemote {
   fun syncRefresh()
 }

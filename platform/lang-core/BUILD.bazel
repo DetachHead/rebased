@@ -1,7 +1,7 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
 ### auto-generated section `build intellij.platform.lang.core` start
-
 jvm_library(
     name = "lang-core",
     srcs = glob(
@@ -43,6 +43,8 @@ jvm_library(
     ],
 )
 
+content_module_jar(module = ":lang-core")
+
 jvm_library(
     name = "lang-core_test_lib",
     testonly = True,
@@ -55,7 +57,8 @@ jvm_library(
     runtime_deps = [
         # do not sort,
         ":lang-core",
-        "@lib//:junit4",
+        "//libraries/junit4",
+        "//libraries/junit4:junit4_test_lib",
         "//platform/ide-core:ide-core_test_lib",
         "//platform/execution:execution_test_lib",
         "//platform/platform-util-io:ide-util-io_test_lib",
@@ -83,6 +86,8 @@ jvm_library(
 exports_files(
     [
         "intellij.platform.lang.core.iml",
+        "resources/intellij.platform.lang.core.xml",
+        "module-content.yaml",
     ],
     visibility = ["//visibility:public"],
 )

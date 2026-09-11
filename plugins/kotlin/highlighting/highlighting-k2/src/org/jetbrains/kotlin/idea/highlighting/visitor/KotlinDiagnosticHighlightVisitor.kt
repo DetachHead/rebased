@@ -28,15 +28,17 @@ import com.intellij.xml.util.XmlStringUtil
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
-import org.jetbrains.kotlin.analysis.api.KaExperimentalApi
 import org.jetbrains.kotlin.analysis.api.KaSession
-import org.jetbrains.kotlin.analysis.api.analyze
 import org.jetbrains.kotlin.analysis.api.components.KaDiagnosticCheckerFilter
+import org.jetbrains.kotlin.analysis.api.components.collectDiagnostics
+import org.jetbrains.kotlin.analysis.api.components.diagnostics
+import org.jetbrains.kotlin.analysis.api.components.directDiagnostics
 import org.jetbrains.kotlin.analysis.api.diagnostics.KaDiagnostic
 import org.jetbrains.kotlin.analysis.api.diagnostics.KaDiagnosticWithPsi
 import org.jetbrains.kotlin.analysis.api.diagnostics.KaSeverity
 import org.jetbrains.kotlin.analysis.api.diagnostics.getDefaultMessageWithFactoryName
 import org.jetbrains.kotlin.analysis.api.fir.diagnostics.KaFirDiagnostic
+import org.jetbrains.kotlin.analysis.api.session.analyze
 import org.jetbrains.kotlin.idea.base.analysis.injectionRequiresOnlyEssentialHighlighting
 import org.jetbrains.kotlin.idea.base.analysis.isInjectedFileShouldBeAnalyzed
 import org.jetbrains.kotlin.idea.codeinsight.api.applicators.fixes.KotlinQuickFixService
@@ -177,7 +179,6 @@ internal class KotlinDiagnosticHighlightVisitor : HighlightVisitor, HighlightRan
             readAction {
                 val declaration = pointer.element ?: return@readAction
                 analyze(declaration) {
-                    @OptIn(KaExperimentalApi::class)
                     declaration.diagnostics(KaDiagnosticCheckerFilter.ONLY_COMMON_CHECKERS)
                 }
             }
@@ -210,7 +211,8 @@ internal class KotlinDiagnosticHighlightVisitor : HighlightVisitor, HighlightRan
         }
     }
 
-    private fun KaSession.convertToBuilder(file: KtFile, range: TextRange, diagnostic: KaDiagnosticWithPsi<*>): HighlightInfo.Builder {
+    context(session: KaSession)
+    private fun convertToBuilder(file: KtFile, range: TextRange, diagnostic: KaDiagnosticWithPsi<*>): HighlightInfo.Builder {
         val isWarning = diagnostic.severity == KaSeverity.WARNING
         val psiElement = diagnostic.psi
         val factoryName = diagnostic.factoryName
@@ -264,7 +266,8 @@ internal class KotlinDiagnosticHighlightVisitor : HighlightVisitor, HighlightRan
         return builder
     }
 
-    private fun KaSession.registerLazyFixes(
+    context(session: KaSession)
+    private fun registerLazyFixes(
         builder: HighlightInfo.Builder,
         quickFixService: KotlinQuickFixService,
         originalDiagnostic: KaDiagnosticWithPsi<*>,
@@ -278,9 +281,8 @@ internal class KotlinDiagnosticHighlightVisitor : HighlightVisitor, HighlightRan
             val restoredPsi = diagnosticPsiPointer.element as? KtElement ?: return@registerLazyFixes
 
             analyze(restoredPsi) {
-                @OptIn(KaExperimentalApi::class)
                 val restoredDiagnostics = restoredPsi
-                    .diagnostics(KaDiagnosticCheckerFilter.ONLY_COMMON_CHECKERS)
+                    .directDiagnostics(KaDiagnosticCheckerFilter.ONLY_COMMON_CHECKERS)
                     .filter { it.factoryName == diagnosticFactoryName }
 
                 for (diagnostic in restoredDiagnostics) {
@@ -316,10 +318,14 @@ internal class KotlinDiagnosticHighlightVisitor : HighlightVisitor, HighlightRan
     }
 
     @NlsSafe
-    private fun KaDiagnostic.getMessageToRender(): String =
-        if (isInternalOrUnitTestMode())
+    private fun KaDiagnostic.getMessageToRender(): String {
+        if (ApplicationManager.getApplication().isUnitTestMode) {
+            return "[$factoryName]"
+        }
+        return if (isInternalOrUnitTestMode())
             getDefaultMessageWithFactoryName()
         else defaultMessage
+    }
 
     private fun isInternalOrUnitTestMode(): Boolean {
         val application = ApplicationManager.getApplication()

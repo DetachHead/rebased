@@ -10,14 +10,15 @@ import com.intellij.openapi.util.TextRange
 import com.intellij.psi.SmartPsiElementPointer
 import com.intellij.psi.createSmartPointer
 import org.jetbrains.kotlin.analysis.api.KaSession
-import org.jetbrains.kotlin.analysis.api.analyze
-import org.jetbrains.kotlin.analysis.api.resolution.singleFunctionCallOrNull
+import org.jetbrains.kotlin.analysis.api.resolution.function
+import org.jetbrains.kotlin.analysis.api.resolution.single
 import org.jetbrains.kotlin.analysis.api.resolution.symbol
 import org.jetbrains.kotlin.idea.base.codeInsight.ShortenReferencesFacility
 import org.jetbrains.kotlin.idea.base.resources.KotlinBundle
 import org.jetbrains.kotlin.idea.codeinsight.api.applicable.inspections.KotlinApplicableInspectionBase
 import org.jetbrains.kotlin.idea.codeinsight.api.applicable.inspections.KotlinModCommandQuickFix
 import org.jetbrains.kotlin.idea.codeinsight.utils.StandardKotlinNames
+import org.jetbrains.kotlin.idea.util.tryResolveExpressionCall
 import org.jetbrains.kotlin.lexer.KtTokens
 import org.jetbrains.kotlin.name.Name
 import org.jetbrains.kotlin.psi.KtElement
@@ -62,11 +63,10 @@ class ReplaceReadLineWithReadlnInspection : KotlinApplicableInspectionBase.Simpl
     ): KotlinModCommandQuickFix<KtExpression> =
         ReplaceFix(context.targetExpression, context.newFunctionName)
 
-    override fun KaSession.prepareContext(element: KtExpression): Context? {
-        val callableId = analyze(element) {
-            val resolvedCall = element.resolveToCall()?.singleFunctionCallOrNull()
-            resolvedCall?.symbol?.callableId
-        } ?: return null
+    context(session: KaSession)
+    override fun prepareContext(element: KtExpression): Context? {
+        val resolvedCall = element.tryResolveExpressionCall()?.single?.function
+        val callableId = resolvedCall?.symbol?.callableId ?: return null
         if (callableId.packageName != StandardKotlinNames.KOTLIN_IO_PACKAGE || callableId.callableName != readLineName) return null
 
         val qualifiedOrCall = element.getQualifiedExpressionForSelectorOrThis()

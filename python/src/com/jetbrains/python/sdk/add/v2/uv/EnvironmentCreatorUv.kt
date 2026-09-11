@@ -1,4 +1,4 @@
-// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.jetbrains.python.sdk.add.v2.uv
 
 import com.intellij.openapi.module.Module
@@ -7,18 +7,28 @@ import com.intellij.openapi.observable.properties.ObservableMutableProperty
 import com.intellij.openapi.observable.properties.ObservableProperty
 import com.intellij.openapi.observable.util.not
 import com.intellij.openapi.projectRoots.Sdk
+import com.intellij.openapi.roots.ModuleRootModificationUtil
 import com.intellij.openapi.ui.ComboBox
 import com.intellij.openapi.ui.validation.DialogValidationRequestor
+import com.intellij.openapi.vfs.VfsUtil
+import com.intellij.python.community.execService.ExecOptions
 import com.intellij.python.pyproject.PY_PROJECT_TOML
 import com.intellij.python.pyproject.PyProjectToml
+import com.intellij.python.pytools.PyTool
+import com.intellij.python.pytools.runtime.PyToolRuntime
+import com.intellij.python.uv.backend.UvPyTool
+import com.intellij.python.uv.backend.runtime.uvCli
 import com.intellij.ui.dsl.builder.AlignX
 import com.intellij.ui.dsl.builder.Panel
 import com.intellij.ui.dsl.builder.bindItem
+import com.intellij.ui.dsl.builder.bindSelected
 import com.intellij.ui.dsl.gridLayout.UnscaledGaps
 import com.intellij.ui.dsl.listCellRenderer.textListCellRenderer
 import com.intellij.util.ui.AsyncProcessIcon
 import com.jetbrains.python.PyBundle.message
+import com.jetbrains.python.errorProcessing.ErrorSink
 import com.jetbrains.python.errorProcessing.PyResult
+import com.jetbrains.python.errorProcessing.withProject
 import com.jetbrains.python.newProjectWizard.collector.PythonNewProjectWizardCollector
 import com.jetbrains.python.sdk.add.v2.CustomNewEnvironmentCreator
 import com.jetbrains.python.sdk.add.v2.PathHolder
@@ -31,15 +41,13 @@ import com.jetbrains.python.sdk.add.v2.ValidatedPath
 import com.jetbrains.python.sdk.add.v2.ValidatedPathField
 import com.jetbrains.python.sdk.add.v2.VenvAlreadyExistsError
 import com.jetbrains.python.sdk.add.v2.VenvExistenceValidationState
-import com.jetbrains.python.sdk.add.v2.savePathForEelOnly
+import com.jetbrains.python.sdk.add.v2.persistCustomToolPath
 import com.jetbrains.python.sdk.add.v2.validatablePathField
-import com.jetbrains.python.sdk.uv.impl.createUvCli
+import com.jetbrains.python.sdk.baseDir
 import com.jetbrains.python.sdk.uv.impl.createUvLowLevel
-import com.jetbrains.python.sdk.uv.impl.setUvExecutableLocal
+import com.jetbrains.python.sdk.uv.impl.validateAndCreateUvCli
 import com.jetbrains.python.sdk.uv.setupNewUvSdkAndEnv
 import com.jetbrains.python.statistics.InterpreterType
-import com.jetbrains.python.errorProcessing.ErrorSink
-import com.jetbrains.python.errorProcessing.withProject
 import com.jetbrains.python.venvReader.VirtualEnvReader
 import io.github.z4kn4fein.semver.Version
 import kotlinx.coroutines.CoroutineScope
@@ -50,8 +58,6 @@ import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.withContext
 import java.nio.file.Path
-import kotlin.io.path.exists
-import kotlin.io.path.readText
 
 /**
  * Creates a UV environment creator for the given model.
@@ -70,16 +76,18 @@ internal class EnvironmentCreatorUv<P : PathHolder>(
   model: PythonMutableTargetAddInterpreterModel<P>,
   private val module: Module?,
   errorSink: ErrorSink,
-) : CustomNewEnvironmentCreator<P>("uv", model, errorSink) {
+) : CustomNewEnvironmentCreator<P>(model, errorSink) {
   override val interpreterType: InterpreterType = InterpreterType.UV
+  override val pyTool: PyTool = UvPyTool.getInstance()
   override val toolValidator: ToolValidator<P> = model.uvViewModel.toolValidator
+  override val globalSitePackage: Boolean get() = model.uvViewModel.inheritSitePackages.get()
   private val executableFlow = MutableStateFlow(model.uvViewModel.uvExecutable.get())
   private val pythonVersion: ObservableMutableProperty<Version?> = propertyGraph.property(null)
   private lateinit var versionComboBox: ComboBox<Version?>
   private lateinit var venvPathField: ValidatedPathField<Unit, P, ValidatedPath.Folder<P>>
   override val toolExecutable: ObservableProperty<ValidatedPath.Executable<P>?> = model.uvViewModel.uvExecutable
   override val toolExecutablePersister: suspend (P) -> Unit = { pathHolder ->
-    savePathForEelOnly(pathHolder) { path -> setUvExecutableLocal(path) }
+    model.fileSystem.persistCustomToolPath(pathHolder, pyTool)
   }
 
   private val venvAlreadyExistsError = propertyGraph.property<VenvAlreadyExistsError<P>?>(null)
@@ -102,6 +110,7 @@ internal class EnvironmentCreatorUv<P : PathHolder>(
     }
 
     propertyGraph.dependsOn(venvAlreadyExistsError, model.uvViewModel.uvVenvPath, deleteWhenChildModified = false) {
+      @Suppress("UNCHECKED_CAST") // TODO: Express it in the type-safe manner
       model.uvViewModel.uvVenvPath.get()?.validationResult?.errorOrNull as? VenvAlreadyExistsError<P>
     }
   }
@@ -131,7 +140,6 @@ internal class EnvironmentCreatorUv<P : PathHolder>(
         installAction = createInstallFix(errorSink)
       )
 
-      // TODO PY-87712 Add banner if the venv does exist at the specified location
       venvPathField = validatablePathField(
         fileSystem = model.fileSystem,
         pathValidator = model.uvViewModel.uvVenvValidator,
@@ -146,6 +154,12 @@ internal class EnvironmentCreatorUv<P : PathHolder>(
         venvExistenceValidationAlert(validationRequestor) {
           onVenvSelectExisting()
         }
+      }
+
+      row("") {
+        checkBox(message("sdk.create.custom.inherit.packages"))
+          .bindSelected(model.uvViewModel.inheritSitePackages)
+          .comment(message("sdk.create.custom.uv.inherit.packages.comment"))
       }
     }
   }
@@ -174,14 +188,9 @@ internal class EnvironmentCreatorUv<P : PathHolder>(
           val pyProjectTomlPath = projectPath.resolve(PY_PROJECT_TOML)
 
           val pythonVersions = withContext(Dispatchers.IO) {
-            val versionRequest = if (pyProjectTomlPath.exists()) {
-              PyProjectToml.parse(pyProjectTomlPath.readText()).project?.requiresPython
-            }
-            else {
-              null
-            }
+            val versionRequest = PyProjectToml.parseOrNull(pyProjectTomlPath)?.project?.requiresPython
 
-            val cli = createUvCli(executable.pathHolder, model.fileSystem).getOr { return@withContext emptyList() }
+            val cli = validateAndCreateUvCli(executable.pathHolder, model.fileSystem).getOr { return@withContext emptyList() }
             val cwd = Path.of("")
             val uvLowLevel = createUvLowLevel(cwd, cli, model.fileSystem, null)
             uvLowLevel.listSupportedPythonVersions(versionRequest)
@@ -221,6 +230,28 @@ internal class EnvironmentCreatorUv<P : PathHolder>(
       version = pythonVersion.get(),
       errorSink = errorSink,
       overrideExistingEnv = venvAlreadyExistsError.get() != null,
+      inheritSitePackages = model.uvViewModel.inheritSitePackages.get(),
     )
+  }
+
+  override suspend fun createPythonModuleStructure(module: Module): PyResult<Unit> {
+    val uv = toolExecutable.get()?.pathHolder!!
+    val baseDir = module.baseDir!!
+    val runtime = PyToolRuntime(
+      model.fileSystem.getBinaryToExec(uv),
+      ExecOptions()
+    ).withWorkingDirectory(baseDir.toNioPath())
+
+    return runtime.uvCli().init().mapSuccess {
+      // Refresh so the just-created project structure is visible in VFS as a source root for the welcome step.
+      VfsUtil.markDirtyAndRefresh(false, true, true, baseDir)
+
+      baseDir.findChild("src")?.takeIf { it.isDirectory }?.let { srcDir ->
+        ModuleRootModificationUtil.updateModel(module) { rootModel ->
+          val contentEntry = rootModel.contentEntries.firstOrNull() ?: return@updateModel
+          contentEntry.addSourceFolder(srcDir, false)
+        }
+      }
+    }
   }
 }

@@ -8,13 +8,15 @@ import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.PsiElement;
 import com.intellij.util.concurrency.annotations.RequiresBackgroundThread;
 import com.jetbrains.python.sdk.skeleton.PySkeletonUtil;
+import com.intellij.python.sdk.backend.PythonEnvironment;
+import com.intellij.python.sdk.backend.PythonEnvironmentExtKt;
+import com.intellij.python.sdk.backend.PythonInterpreter;
+import com.intellij.python.sdk.backend.PythonInterpreterKt;
 import org.jetbrains.annotations.ApiStatus;
-import org.jetbrains.annotations.Contract;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.Unmodifiable;
 
-import java.nio.file.Path;
 import java.util.List;
 
 /**
@@ -22,6 +24,11 @@ import java.util.List;
  */
 @SuppressWarnings("unused")
 public final class PythonSdkUtil {
+
+  /** The `id` the venv provider declares in `intellij.python.venv.xml`. */
+  private static final String VENV_KIND_ID = "venv";
+  /** The `id` the conda provider declares in `intellij.python.community.impl.conda.xml`. */
+  private static final String CONDA_KIND_ID = "conda";
 
   public static final String REMOTE_SOURCES_DIR_NAME = com.jetbrains.python.sdk.legacy.PythonSdkUtil.REMOTE_SOURCES_DIR_NAME;
   public static final String SKELETON_DIR_NAME = com.jetbrains.python.sdk.legacy.PythonSdkUtil.SKELETON_DIR_NAME;
@@ -99,22 +106,26 @@ public final class PythonSdkUtil {
   }
 
   /**
-   * @deprecated use {@link PyRichSdk}
+   * @deprecated use {@link PythonInterpreter}
    */
   @Deprecated
   @RequiresBackgroundThread(generateAssertion = false)
   public static boolean isVirtualEnv(@NotNull Sdk sdk) {
-    return PyRichSdkKt.pyRichSdk(sdk, false).getPythonEnvironment() instanceof PythonEnvironment.Venv;
+    return VENV_KIND_ID.equals(kindIdOf(sdk));
   }
 
   /**
-   * @deprecated use {@link PyRichSdk}
+   * @deprecated use {@link PythonInterpreter}
    */
   @Deprecated
   @RequiresBackgroundThread(generateAssertion = false)
   public static boolean isCondaVirtualEnv(@NotNull Sdk sdk) {
-    PyRichSdk pyRichSdk = PyRichSdkKt.pyRichSdk(sdk, false);
-    PythonEnvironment environment = pyRichSdk.getPythonEnvironment();
-    return environment instanceof PythonEnvironment.Conda && !((PythonEnvironment.Conda)environment).isBase();
+    return CONDA_KIND_ID.equals(kindIdOf(sdk));
+  }
+
+  /** The id its provider declares in xml, or {@code null} when no environment was detected. */
+  private static @Nullable String kindIdOf(@NotNull Sdk sdk) {
+    PythonEnvironment environment = PythonInterpreterKt.pythonInterpreter(sdk, false).getPythonEnvironment();
+    return environment == null ? null : PythonEnvironmentExtKt.getKindId(environment);
   }
 }

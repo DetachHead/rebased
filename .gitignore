@@ -9,6 +9,7 @@
 .idea/workspace.xml
 .idea.bazel
 .jqwik-database
+/.bazelbsp
 /.diff
 # detekt can be configured by ./platform/jewel/detekt-rules/install-rules-to-idea.sh
 /.idea/artifacts

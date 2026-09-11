@@ -5,28 +5,26 @@ import com.intellij.codeInsight.completion.InsertionContext
 import com.intellij.codeInsight.lookup.LookupElement
 import com.intellij.codeInsight.lookup.LookupElementBuilder
 import kotlinx.serialization.Serializable
-import org.jetbrains.kotlin.analysis.api.KaExperimentalApi
 import org.jetbrains.kotlin.analysis.api.KaSession
-import org.jetbrains.kotlin.analysis.api.types.KaType
 import org.jetbrains.kotlin.idea.KotlinIcons
 import org.jetbrains.kotlin.idea.base.serialization.names.KotlinNameSerializer
 import org.jetbrains.kotlin.idea.completion.api.serialization.SerializableInsertHandler
-import org.jetbrains.kotlin.idea.completion.implCommon.handlers.NamedArgumentInsertHandler
+import org.jetbrains.kotlin.idea.completion.impl.k2.contributors.K2NamedArgumentCompletionContributor.MissingParameterInfo
 import org.jetbrains.kotlin.idea.completion.impl.k2.lookups.KotlinLookupObject
 import org.jetbrains.kotlin.idea.completion.impl.k2.lookups.renderVerbose
+import org.jetbrains.kotlin.idea.completion.implCommon.handlers.NamedArgumentInsertHandler
 import org.jetbrains.kotlin.name.Name
 import org.jetbrains.kotlin.renderer.render
 
 internal object NamedArgumentLookupElementFactory {
 
-    @OptIn(KaExperimentalApi::class)
     context(_: KaSession)
-    fun createLookup(name: Name, types: List<IndexedValue<KaType>>): LookupElement {
-        val typeText = types.singleOrNull()?.value?.renderVerbose() ?: "..."
+    fun createLookup(name: Name, missingParameters: List<MissingParameterInfo>): LookupElement {
+        val typeText = missingParameters.singleOrNull()?.type?.renderVerbose() ?: "..."
         val nameString = name.asString()
 
         // Here we use the lowest possible argument index of all the possibilities of all signatures
-        val lowestArgumentIndex = types.minOfOrNull { it.index } ?: 0
+        val lowestArgumentIndex = missingParameters.minOfOrNull { it.index } ?: 0
         return LookupElementBuilder.create(NamedArgumentLookupObject(name, lowestArgumentIndex), "$nameString =")
             .withTailText(" $typeText")
             .withIcon(KotlinIcons.PARAMETER)

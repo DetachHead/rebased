@@ -1,5 +1,5 @@
 load("@aspect_rules_lint//format:defs.bzl", "format_multirun")
-load("@rules_java//java:defs.bzl", "java_binary")
+load("@community//build:tests-options.bzl", "jps_test")
 load("@rules_jvm//:jvm.bzl", "jvm_library", "kt_javac_options")
 load("//build:compiler-options.bzl", "create_kotlinc_options")
 
@@ -54,94 +54,24 @@ create_kotlinc_options(
     jvm_target = "25",
 )
 
-java_binary(
-    name = "main_run",
-    jvm_flags = [
-        "--add-opens=java.base/java.io=ALL-UNNAMED",
-        "--add-opens=java.base/java.lang=ALL-UNNAMED",
-        "--add-opens=java.base/java.lang.ref=ALL-UNNAMED",
-        "--add-opens=java.base/java.lang.reflect=ALL-UNNAMED",
-        "--add-opens=java.base/java.net=ALL-UNNAMED",
-        "--add-opens=java.base/java.nio=ALL-UNNAMED",
-        "--add-opens=java.base/java.nio.charset=ALL-UNNAMED",
-        "--add-opens=java.base/java.text=ALL-UNNAMED",
-        "--add-opens=java.base/java.time=ALL-UNNAMED",
-        "--add-opens=java.base/java.util=ALL-UNNAMED",
-        "--add-opens=java.base/java.util.concurrent=ALL-UNNAMED",
-        "--add-opens=java.base/java.util.concurrent.atomic=ALL-UNNAMED",
-        "--add-opens=java.base/java.util.concurrent.locks=ALL-UNNAMED",
-        "--add-opens=java.base/jdk.internal.vm=ALL-UNNAMED",
-        "--add-opens=java.base/sun.net.dns=ALL-UNNAMED",
-        "--add-opens=java.base/sun.nio.ch=ALL-UNNAMED",
-        "--add-opens=java.base/sun.nio.fs=ALL-UNNAMED",
-        "--add-opens=java.base/sun.security.ssl=ALL-UNNAMED",
-        "--add-opens=java.base/sun.security.util=ALL-UNNAMED",
-        "--add-opens=java.desktop/com.apple.eawt=ALL-UNNAMED",
-        "--add-opens=java.desktop/com.apple.eawt.event=ALL-UNNAMED",
-        "--add-opens=java.desktop/com.apple.laf=ALL-UNNAMED",
-        "--add-opens=java.desktop/com.sun.java.swing=ALL-UNNAMED",
-        "--add-opens=java.desktop/com.sun.java.swing.plaf.gtk=ALL-UNNAMED",
-        "--add-opens=java.desktop/java.awt=ALL-UNNAMED",
-        "--add-opens=java.desktop/java.awt.dnd.peer=ALL-UNNAMED",
-        "--add-opens=java.desktop/java.awt.event=ALL-UNNAMED",
-        "--add-opens=java.desktop/java.awt.font=ALL-UNNAMED",
-        "--add-opens=java.desktop/java.awt.image=ALL-UNNAMED",
-        "--add-opens=java.desktop/java.awt.peer=ALL-UNNAMED",
-        "--add-opens=java.desktop/javax.swing=ALL-UNNAMED",
-        "--add-opens=java.desktop/javax.swing.plaf.basic=ALL-UNNAMED",
-        "--add-opens=java.desktop/javax.swing.text=ALL-UNNAMED",
-        "--add-opens=java.desktop/javax.swing.text.html=ALL-UNNAMED",
-        "--add-opens=java.desktop/javax.swing.text.html.parser=ALL-UNNAMED",
-        "--add-opens=java.desktop/sun.awt=ALL-UNNAMED",
-        "--add-opens=java.desktop/sun.awt.X11=ALL-UNNAMED",
-        "--add-opens=java.desktop/sun.awt.datatransfer=ALL-UNNAMED",
-        "--add-opens=java.desktop/sun.awt.image=ALL-UNNAMED",
-        "--add-opens=java.desktop/sun.awt.windows=ALL-UNNAMED",
-        "--add-opens=java.desktop/sun.font=ALL-UNNAMED",
-        "--add-opens=java.desktop/sun.java2d=ALL-UNNAMED",
-        "--add-opens=java.desktop/sun.lwawt=ALL-UNNAMED",
-        "--add-opens=java.desktop/sun.lwawt.macosx=ALL-UNNAMED",
-        "--add-opens=java.desktop/sun.swing=ALL-UNNAMED",
-        "--add-opens=java.desktop/sun.swing.text=ALL-UNNAMED",
-        "--add-opens=java.management/sun.management=ALL-UNNAMED",
-        "--add-opens=jdk.attach/sun.tools.attach=ALL-UNNAMED",
-        "--add-opens=jdk.compiler/com.sun.tools.javac.api=ALL-UNNAMED",
-        "--add-opens=jdk.internal.jvmstat/sun.jvmstat.monitor=ALL-UNNAMED",
-        "--add-opens=jdk.jdi/com.sun.tools.jdi=ALL-UNNAMED",
-        "-Didea.home.path=$${BUILD_WORKSPACE_DIRECTORY}",
-        # same as .idea/runConfigurations/IDEA.xml:
-        "-Xmx2g",
-        "-XX:MaxJavaStackTraceDepth=10000",
-        "-XX:+AllowEnhancedClassRedefinition",
-        "-XX:PrintIdealGraphLevl=3",
-        "-XX:+IgnoreUnrecognizedVMOptions",
-        "-ea",
-        "-Dsun.io.useCanonCaches=false",
-        "-Dsun.awt.disablegrab=true",
-        "-Dsun.java2d.metal=true",
-        "-Dapple.laf.useScreenMenuBar=true",
-        "-Djdk.attach.allowAttachSelf",
-        "-Djdk.module.illegalAccess.silent=true",
-        "-DjbScreenMenuBar.enabled=true",
-        "-Didea.jre.check=true",
-        "-Didea.is.internal=true",
-        "-Didea.debug.mode=true",
-        "-Didea.config.path=$${BUILD_WORKSPACE_DIRECTORY}/config/idea",
-        "-Didea.system.path=$${BUILD_WORKSPACE_DIRECTORY}/system/idea",
-        "-Didea.diagnostic.opentelemetry.file=opentelemetry.json",
-        "-Dfus.internal.test.mode=true",
-        "-Dcompose.swing.render.on.graphics=true",
-    ],
-    main_class = "com.intellij.idea.Main",
-    runtime_deps = [":main"],
-)
-
 ## used to determine community root path in the test
 ## see community/build/tests-options.bzl
 exports_files(["intellij.idea.community.main.iml"])
 
-### auto-generated section `build intellij.idea.community.main` start
+exports_files(
+    glob(["build.txt"]),
+    visibility = ["//visibility:public"],
+)
 
+jps_test(
+    name = "main-tests_test",
+    timeout = "moderate",
+    tags = ["community-aggregator"],
+    runtime_deps = [":main-tests_test_lib"],
+)
+### skip generation section `test intellij.idea.community.main.tests`
+
+### auto-generated section `build intellij.idea.community.main` start
 jvm_library(
     name = "main",
     srcs = glob(
@@ -249,6 +179,12 @@ exports_files(
 ### auto-generated section `iml intellij.idea.community.main` end
 
 ### auto-generated section `build intellij.idea.community.main.tests` start
+create_kotlinc_options(
+    name = "custom_main-tests",
+    opt_in = ["kotlin.ExperimentalStdlibApi"],
+    plugin_options = ["plugin:androidx.compose.compiler.plugins.kotlin:featureFlag=-PausableComposition"],
+    x_context_parameters = True,
+)
 
 jvm_library(
     name = "main-tests",
@@ -264,18 +200,44 @@ jvm_library(
     name = "main-tests_test_lib",
     testonly = True,
     srcs = glob(
-        [],
+        [
+            "tests/main/testSrc/**/*.kt",
+            "tests/main/testSrc/**/*.java",
+            "tests/main/testSrc/**/*.form",
+        ],
         allow_empty = True,
     ),
+    kotlinc_opts = ":custom_main-tests",
     module_name = "intellij.idea.community.main.tests",
+    resource_strip_prefix = "tests/main/testData",
+    resources = glob(
+        ["tests/main/testData/**/*"],
+    ),
     visibility = ["//visibility:public"],
     runtime_deps = [
         # do not sort,
         ":main-tests",
+        "//platform/non-modal-welcome-screen:non-modal-welcome-screen_test_lib",
+        "//platform/platform-impl/concurrency:ide-concurrency-tests_test_lib",
+        "//platform/non-modal-welcome-screen:ide-nonModalWelcomeScreen-tests_test_lib",
+    ],
+    deps = [
+        # do not sort,
+        "//platform/bootstrap/coroutine",
+        "//platform/bootstrap/coroutine:coroutine_test_lib",
+        "@lib//:kotlin-stdlib",
+        "//libraries/junit5",
+        "//libraries/junit5:junit5_test_lib",
         "//:main",
         "//:main_test_lib",
-        "//plugins/tasks/tasks-tests:tests",
-        "//plugins/tasks/tasks-tests:tests_test_lib",
+        "//plugins/tasks/tests/base:tasks-tests",
+        "//plugins/tasks/tests/base:tasks-tests_test_lib",
+        "//plugins/tasks/tests/integration",
+        "//plugins/tasks/tests/integration:integration_test_lib",
+        "//plugins/tasks/tests/live",
+        "//plugins/tasks/tests/live:live_test_lib",
+        "//plugins/tasks/tests/vcs",
+        "//plugins/tasks/tests/vcs:vcs_test_lib",
         "//xml/dom-tests",
         "//xml/dom-tests:dom-tests_test_lib",
         "//jps/model-serialization:model-serialization-tests",
@@ -396,6 +358,8 @@ jvm_library(
         "//platform/jewel/markdown/core:jewel-markdown-core-tests_test_lib",
         "//platform/jewel/markdown/extensions/autolink:jewel-markdown-extensions-autolink-tests",
         "//platform/jewel/markdown/extensions/autolink:jewel-markdown-extensions-autolink-tests_test_lib",
+        "//platform/jewel/markdown/extensions/front-matter:jewel-markdown-extensions-frontMatter-tests",
+        "//platform/jewel/markdown/extensions/front-matter:jewel-markdown-extensions-frontMatter-tests_test_lib",
         "//platform/jewel/markdown/extensions/gfm-alerts:jewel-markdown-extensions-gfmAlerts-tests",
         "//platform/jewel/markdown/extensions/gfm-alerts:jewel-markdown-extensions-gfmAlerts-tests_test_lib",
         "//platform/jewel/markdown/extensions/gfm-tables:jewel-markdown-extensions-gfmTables-tests",
@@ -412,6 +376,14 @@ jvm_library(
         "//platform/build-scripts/product-dsl/plugin-graph:pluginGraph-tests_test_lib",
         "//platform/pluginSystem/parser/impl:pluginSystem-parser-impl-tests",
         "//platform/pluginSystem/parser/impl:pluginSystem-parser-impl-tests_test_lib",
+        "//platform/problemsView/backend:problemView-backend-tests",
+        "//platform/problemsView/backend:problemView-backend-tests_test_lib",
+        "//platform/recentFiles/tests",
+        "//platform/recentFiles/tests:tests_test_lib",
+        "//platform/problemsView/ui:problemView-ui-tests",
+        "//platform/problemsView/ui:problemView-ui-tests_test_lib",
+        "//platform/projectView/tests",
+        "//platform/projectView/tests:tests_test_lib",
         "//platform/sqlite:sqlite-tests",
         "//platform/sqlite:sqlite-tests_test_lib",
         "//platform/syntax/syntax-extensions:extensions-tests",
@@ -456,6 +428,8 @@ jvm_library(
         "//plugins/gitlab/gitlab-core:vcs-gitlab-tests_test_lib",
         "//plugins/gitlab/gitlab-yaml:vcs-gitlab-yaml-tests",
         "//plugins/gitlab/gitlab-yaml:vcs-gitlab-yaml-tests_test_lib",
+        "//platform/remote-driver/client:driver-client-tests",
+        "//platform/remote-driver/client:driver-client-tests_test_lib",
         "//platform/execution-process-mediator/client:execution-process-mediator-client-tests",
         "//platform/execution-process-mediator/client:execution-process-mediator-client-tests_test_lib",
         "//platform/execution-process-mediator/common:execution-process-mediator-common-tests",
@@ -476,6 +450,20 @@ jvm_library(
         "//platform/exploratory-tests:exploratory-tests-main_test_lib",
         "//platform/discoverability:discoverability-tests",
         "//platform/discoverability:discoverability-tests_test_lib",
+        "//plugins/dev/intellij.dev.leakDetection:leakDetection-tests",
+        "//plugins/dev/intellij.dev.leakDetection:leakDetection-tests_test_lib",
+        "//plugins/mcp-server/tests",
+        "//plugins/mcp-server/tests:tests_test_lib",
+        "//plugins/mcp-server/mcpserver.terminal/tests",
+        "//plugins/mcp-server/mcpserver.terminal/tests:tests_test_lib",
+        "//plugins/mcp-server/mcpserver.terminal.frontend/tests",
+        "//plugins/mcp-server/mcpserver.terminal.frontend/tests:tests_test_lib",
+        "//platform/testFramework/extensions:testExtensions",
+        "//platform/testFramework/extensions:testExtensions_test_lib",
+        "//platform/editor-ui-api:editor-ui",
+        "//platform/editor-ui-api:editor-ui_test_lib",
+        "//platform/testFramework",
+        "//platform/testFramework:testFramework_test_lib",
     ],
 )
 ### auto-generated section `build intellij.idea.community.main.tests` end

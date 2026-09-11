@@ -1,7 +1,6 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library", "jvm_provided_library")
 
 ### auto-generated section `build intellij.maven` start
-
 jvm_provided_library(
     name = "platform_java-guiForms-rt_provided",
     lib = "//platform/forms_rt:java-guiForms-rt",
@@ -285,6 +284,10 @@ jvm_library(
 exports_files(
     [
         "intellij.maven.iml",
+        "src/main/resources/inlayProviders/maven.pom.model.version.hints/preview.xml",
+        "src/main/resources/intellij.maven.xml",
+        "src/main/resources/liveTemplates/maven_xml.xml",
+        "src/main/resources/org/jetbrains/idea/maven/dom/converters/repositories/repositories.xml",
     ],
     visibility = ["//visibility:public"],
 )

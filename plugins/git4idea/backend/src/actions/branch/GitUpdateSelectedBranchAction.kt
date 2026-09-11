@@ -26,17 +26,17 @@ class GitUpdateSelectedBranchAction
       return
     }
 
-    val workingTreeWithBranch = getWorkingTreeWithRef(branch, repositories, skipCurrentWorkingTree = true)
+    val workingTreeWithBranch = findCheckedOutWorkingTree(branch, repositories, skipCurrentWorkingTree = true)
 
     val (enabled, description) = when {
-      workingTreeWithBranch != null -> {
-        false to GitBundle.message("branches.update.checked.out.in.worktree", workingTreeWithBranch.path.presentableUrl)
-      }
       GitFetchSupport.fetchSupport(project).isFetchRunning -> {
         false to GitBundle.message("branches.update.is.already.running")
       }
       !isTrackingInfosExist(listOf(branch.name), repositories) -> {
         false to GitBundle.message("branches.tracking.branch.doesn.t.configured.for.s", getSelectedBranchFullPresentation(branch.name))
+      }
+      workingTreeWithBranch != null -> {
+        true to GitBundle.message("branches.update.checked.out.in.worktree", workingTreeWithBranch.path.presentableUrl)
       }
       else -> {
         val updateMethod = GitVcsSettings.getInstance(project).updateMethod.methodName.lowercase(Locale.ROOT)

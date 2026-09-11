@@ -1,7 +1,7 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
 ### auto-generated section `build intellij.libraries.proxy.vole` start
-
 jvm_library(
     name = "proxy-vole",
     srcs = glob(
@@ -16,6 +16,11 @@ jvm_library(
     visibility = ["//visibility:public"],
     exports = ["@lib//:libraries-proxy-vole-proxy-vole"],
     runtime_deps = ["@lib//:libraries-proxy-vole-proxy-vole"],
+)
+
+content_module_jar(
+    libraries = ["@lib//:libraries-proxy-vole-proxy-vole"],
+    module = ":proxy-vole",
 )
 
 jvm_library(
@@ -37,6 +42,8 @@ jvm_library(
 exports_files(
     [
         "intellij.libraries.proxy.vole.iml",
+        "resources/intellij.libraries.proxy.vole.xml",
+        "module-content.yaml",
     ],
     visibility = ["//visibility:public"],
 )

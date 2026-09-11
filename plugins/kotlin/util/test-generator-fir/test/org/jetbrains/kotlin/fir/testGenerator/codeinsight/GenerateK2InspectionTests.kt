@@ -32,6 +32,7 @@ internal fun MutableTWorkspace.generateK2InspectionTests() {
     testGroup("code-insight/inspections-k2/tests", category = INSPECTIONS, testDataPath = "../../..") {
         testClass<AbstractK2LocalInspectionTest>(commonSuite = false) {
             val pattern = Patterns.forRegex("^([\\w\\-_\\.]+)\\.(kt|kts)$")
+            model("${idea}/inspectionsLocal/unusedContextParameterCall", pattern = pattern)
             model("${idea}/inspectionsLocal/unusedVariable", pattern = pattern)
             model("${idea}/inspectionsLocal/redundantVisibilityModifier", pattern = pattern)
             model("${idea}/inspectionsLocal/unusedEquals")
@@ -87,6 +88,7 @@ internal fun MutableTWorkspace.generateK2InspectionTests() {
             model("${idea}/inspectionsLocal/covariantEquals")
             model("${idea}/inspectionsLocal/explicitThis")
             model("${idea}/inspectionsLocal/redundantIf")
+            model("${idea}/inspectionsLocal/ifExpressionWithIdenticalBranches")
             model("${idea}/intentions/convertTryFinallyToUseCall")
             model("${idea}/inspectionsLocal/redundantLambdaArrow")
             model("${idea}/inspectionsLocal/redundantLambdaOrAnonymousFunction")
@@ -121,6 +123,7 @@ internal fun MutableTWorkspace.generateK2InspectionTests() {
             model("${idea}/inspectionsLocal/collections/simplifiableCallChain")
             model("${idea}/inspectionsLocal/collections/redundantAsSequence")
             model("${idea}/inspectionsLocal/collections/simplifiableCall")
+            model("${idea}/inspectionsLocal/collections/concatenationToBuildCollection", pattern = pattern)
             model("${idea}/inspectionsLocal/canSimplifyDollarLiteral")
             model("${idea}/inspectionsLocal/canConvertToMultiDollarString")
             model("${idea}/inspectionsLocal/floatingPointLiteralPrecision")
@@ -211,12 +214,14 @@ internal fun MutableTWorkspace.generateK2InspectionTests() {
         val generatedClassName = "$packageName.K2UnusedSymbolHighlightingTestGenerated"
         testClass<AbstractK2LocalInspectionAndGeneralHighlightingTest>(generatedClassName) {
             model("${idea}/inspectionsLocal/unusedSymbol", pattern = Patterns.KT_WITHOUT_DOTS)
+            model("${idea}/inspectionsLocal/unusedContextParameter", pattern = Patterns.KT_WITHOUT_DOTS)
         }
 
         testClass<AbstractK2InspectionTest> {
             val pattern = Patterns.forRegex("^(inspections\\.test)$")
             model("${idea}/inspections/enumValuesSoftDeprecateInJava", pattern = pattern)
             model("${idea}/inspections/enumValuesSoftDeprecateInKotlin", pattern = pattern)
+            model("${idea}/inspections/escapedCapturedVariable", pattern = pattern)
             model("${idea}/inspections/redundantIf", pattern = pattern)
             model("${idea}/inspections/equalsAndHashCode", pattern = pattern)
             model("${idea}/inspections/protectedInFinal", pattern = pattern)

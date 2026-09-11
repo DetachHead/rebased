@@ -1,14 +1,17 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.plugins.gradle.execution.inspections
 
+import com.intellij.gradle.codeInsight.backend.inspections.declarations.GradleLatestMinorVersionInspection
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.ex.ProjectEx
-import com.intellij.platform.testFramework.assertion.treeAssertion.SimpleTreeAssertion
+import com.intellij.platform.testFramework.assertion.BuildViewAssertions.assertBuildViewNode
+import com.intellij.platform.testFramework.assertion.BuildViewAssertions.assertBuildViewTree
+import com.intellij.platform.testFramework.assertion.BuildViewNodeAssertion
+import com.intellij.platform.testFramework.assertion.consoleText
 import com.intellij.testFramework.InspectionTestUtil
 import com.intellij.testFramework.enableInspectionTool
 import org.assertj.core.api.Assertions
 import org.gradle.util.GradleVersion
-import org.jetbrains.plugins.gradle.codeInspection.GradleLatestMinorVersionInspection
 import org.jetbrains.plugins.gradle.frameworkSupport.GradleDsl
 import org.jetbrains.plugins.gradle.frameworkSupport.buildscript.GradleBuildScriptBuilder.Companion.buildScript
 import org.jetbrains.plugins.gradle.importing.BuildViewMessagesImportingTestCase.Companion.assertNodeWithDeprecatedGradleWarning
@@ -35,7 +38,7 @@ class GradleLatestMinorVersionBuildIssueTaskExecutionTest : GradleExecutionTestC
         }
       })
       executeTasks(":task")
-      assertRunViewTree {
+      assertBuildViewTree(runView) {
         assertNode("successful") {
           assertNodeWithDeprecatedGradleWarning(gradleVersion)
           assertNodeWithNewMinorGradleVersionInfo(gradleVersion)
@@ -43,8 +46,8 @@ class GradleLatestMinorVersionBuildIssueTaskExecutionTest : GradleExecutionTestC
         }
       }
       if (shouldShowMinorGradleVersionWarning(gradleVersion)) {
-        assertRunViewConsoleText("New Minor Gradle Version Available") { consoleText ->
-          assertNewMinorGradleVersionNodeConsoleText(gradleVersion, consoleText)
+        assertBuildViewNode(runView, "New Minor Gradle Version Available") {
+          assertNewMinorGradleVersionNodeConsoleText(gradleVersion, it.consoleText)
         }
       }
     }
@@ -63,7 +66,7 @@ class GradleLatestMinorVersionBuildIssueTaskExecutionTest : GradleExecutionTestC
         }
       })
       executeTasks(":task")
-      assertRunViewTree {
+      assertBuildViewTree(runView) {
         assertNode("successful") {
           assertNodeWithDeprecatedGradleWarning(gradleVersion)
           assertNode(":task")
@@ -78,7 +81,7 @@ class GradleLatestMinorVersionBuildIssueTaskExecutionTest : GradleExecutionTestC
       enableInspectionTool(project, tool, (project as ProjectEx).getEarlyDisposable())
     }
 
-    internal fun SimpleTreeAssertion.Node<Nothing?>.assertNodeWithNewMinorGradleVersionInfo(gradleVersion: GradleVersion) {
+    internal fun BuildViewNodeAssertion.assertNodeWithNewMinorGradleVersionInfo(gradleVersion: GradleVersion) {
       if (shouldShowMinorGradleVersionWarning(gradleVersion)) {
         assertNode("New Minor Gradle Version Available")
       }
@@ -98,7 +101,7 @@ class GradleLatestMinorVersionBuildIssueTaskExecutionTest : GradleExecutionTestC
           We recommend upgrading to Gradle version $newVersion.
           
           Possible solutions:
-           - Switch to Gradle $newVersion and re-sync
+           - Change Gradle wrapper version to $newVersion and re-sync
            - Edit inspection settings
           """.trimIndent()
         )

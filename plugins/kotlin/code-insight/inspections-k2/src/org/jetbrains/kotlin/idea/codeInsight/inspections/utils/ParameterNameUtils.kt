@@ -3,9 +3,10 @@
 package org.jetbrains.kotlin.idea.codeInsight.inspections.utils
 
 import org.jetbrains.kotlin.analysis.api.KaSession
-import org.jetbrains.kotlin.analysis.api.resolution.KaCallableMemberCall
-import org.jetbrains.kotlin.analysis.api.resolution.successfulCallOrNull
+import org.jetbrains.kotlin.analysis.api.expressions.expressionType
+import org.jetbrains.kotlin.analysis.api.resolution.resolveSuccessfulCall
 import org.jetbrains.kotlin.analysis.api.types.KaFunctionType
+import org.jetbrains.kotlin.analysis.api.types.isFunctionType
 import org.jetbrains.kotlin.builtins.StandardNames
 import org.jetbrains.kotlin.idea.base.codeInsight.KotlinDeclarationNameValidator
 import org.jetbrains.kotlin.idea.base.codeInsight.KotlinNameSuggester
@@ -25,7 +26,8 @@ import org.jetbrains.kotlin.psi.psiUtil.getStrictParentOfType
  * @param lambdaArgument The lambda argument to check
  * @return True if nested lambdas would conflict with implicit 'it'
  */
-internal fun KaSession.hasImplicitItConflicts(lambdaArgument: KtLambdaArgument): Boolean {
+context(_: KaSession)
+internal fun hasImplicitItConflicts(lambdaArgument: KtLambdaArgument): Boolean {
     // Check if 'it' is already used in the current scope
     val nameValidator = KotlinDeclarationNameValidator(
         visibleDeclarationsContext = lambdaArgument,
@@ -91,7 +93,8 @@ internal fun KaSession.hasImplicitItConflicts(lambdaArgument: KtLambdaArgument):
  * @param lambdaArgument The lambda argument to find a name for
  * @return A unique parameter name
  */
-internal fun KaSession.findUniqueParameterName(lambdaArgument: KtLambdaArgument): String {
+context(_: KaSession)
+internal fun findUniqueParameterName(lambdaArgument: KtLambdaArgument): String {
     // Create a name validator to check if suggested names are valid
     val nameValidator = KotlinDeclarationNameValidator(
         visibleDeclarationsContext = lambdaArgument,
@@ -101,9 +104,9 @@ internal fun KaSession.findUniqueParameterName(lambdaArgument: KtLambdaArgument)
 
     // Get the receiver type from the call expression
     val callExpression = lambdaArgument.getStrictParentOfType<KtCallExpression>()
-    val resolvedCall = callExpression?.resolveToCall()?.successfulCallOrNull<KaCallableMemberCall<*, *>>()
-    val dispatchReceiver = resolvedCall?.partiallyAppliedSymbol?.dispatchReceiver
-    val extensionReceiver = resolvedCall?.partiallyAppliedSymbol?.extensionReceiver
+    val singleCall = callExpression?.resolveSuccessfulCall()
+    val dispatchReceiver = singleCall?.dispatchReceiver
+    val extensionReceiver = singleCall?.extensionReceiver
     val parameterType = dispatchReceiver?.type ?: extensionReceiver?.type
 
     // If we have a type, suggest a name based on it

@@ -1,4 +1,4 @@
-// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.structuralsearch.plugin.ui;
 
 import com.intellij.codeInsight.daemon.DaemonCodeAnalyzer;
@@ -7,6 +7,7 @@ import com.intellij.codeInsight.template.impl.TemplateContextTypes;
 import com.intellij.codeInsight.template.impl.TemplateEditorUtil;
 import com.intellij.lang.Language;
 import com.intellij.lang.injection.InjectedLanguageManager;
+import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.command.WriteCommandAction;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.editor.Editor;
@@ -63,7 +64,10 @@ public final class UIUtil {
   private UIUtil() {
   }
 
-  public static @NotNull Editor createEditor(@NotNull Document doc, Project project, boolean editable, @Nullable TemplateContextType contextType) {
+  public static @NotNull Editor createEditor(@NotNull Document doc,
+                                             Project project,
+                                             boolean editable,
+                                             @Nullable TemplateContextType contextType) {
     final Editor editor =
         editable ? EditorFactory.getInstance().createEditor(doc, project) : EditorFactory.getInstance().createViewer(doc, project);
 
@@ -93,7 +97,7 @@ public final class UIUtil {
     return editor;
   }
 
-  public static void setContent(final @NotNull Editor editor, String text) {
+  public static void setContent(@NotNull Editor editor, String text) {
     final String value = text != null ? text : "";
     final Document document = editor.getDocument();
     WriteCommandAction.runWriteCommandAction(editor.getProject(), SSRBundle.message("modify.editor.content.command.name"), SS_GROUP,
@@ -114,39 +118,15 @@ public final class UIUtil {
     final MatchOptions options = configuration.getMatchOptions();
     final MatchVariableConstraint varInfo = options.getVariableConstraint(varName);
 
-    if (varInfo != null) {
-      return varInfo;
-    }
-    return configuration.getMatchOptions().addNewVariableConstraint(varName);
+    return varInfo != null ? varInfo : configuration.getMatchOptions().addNewVariableConstraint(varName);
   }
 
-  public static @NotNull ReplacementVariableDefinition getOrAddReplacementVariable(@NotNull String varName, @NotNull Configuration configuration) {
+  public static @NotNull ReplacementVariableDefinition getOrAddReplacementVariable(@NotNull String varName,
+                                                                                   @NotNull Configuration configuration) {
     final ReplaceOptions replaceOptions = configuration.getReplaceOptions();
     ReplacementVariableDefinition definition = replaceOptions.getVariableDefinition(varName);
 
-    if (definition != null) {
-      return definition;
-    }
-    return replaceOptions.addNewVariableDefinition(varName);
-  }
-
-  public static boolean isTarget(@NotNull String varName, @NotNull MatchOptions matchOptions) {
-    if (Configuration.CONTEXT_VAR_NAME.equals(varName)) {
-      // Complete Match is default target
-      for (String name : matchOptions.getVariableConstraintNames()) {
-        if (!name.equals(Configuration.CONTEXT_VAR_NAME)) {
-          if (matchOptions.getVariableConstraint(name).isPartOfSearchResults()) {
-            return false;
-          }
-        }
-      }
-      return true;
-    }
-    final MatchVariableConstraint constraint = matchOptions.getVariableConstraint(varName);
-    if (constraint == null) {
-      return false;
-    }
-    return constraint.isPartOfSearchResults();
+    return definition != null ? definition : replaceOptions.addNewVariableDefinition(varName);
   }
 
   public static @NotNull EditorTextField createTextComponent(@NotNull String text, @NotNull Project project) {
@@ -213,8 +193,12 @@ public final class UIUtil {
     return StructuralSearchUtil.getDefaultFileType();
   }
 
-  public static @NotNull Document createDocument(@NotNull Project project, @Nullable LanguageFileType fileType, Language dialect,
-                                                 PatternContext patternContext, @NotNull String text, @Nullable StructuralSearchProfile profile) {
+  public static @NotNull Document createDocument(@NotNull Project project,
+                                                 @Nullable LanguageFileType fileType,
+                                                 Language dialect,
+                                                 PatternContext patternContext,
+                                                 @NotNull String text,
+                                                 @Nullable StructuralSearchProfile profile) {
     if (fileType != null && profile != null) {
       final String contextId = (patternContext == null) ? null : patternContext.getId();
       PsiFile codeFragment = profile.createCodeFragment(project, text, contextId);
@@ -223,7 +207,8 @@ public final class UIUtil {
       }
 
       if (codeFragment != null) {
-        final Document doc = PsiDocumentManager.getInstance(project).getDocument(codeFragment);
+        PsiFile f = codeFragment;
+        final Document doc = ReadAction.computeBlocking(() -> f.getViewProvider().getDocument());
         assert doc != null : "code fragment element should be physical";
         return doc;
       }
@@ -231,8 +216,12 @@ public final class UIUtil {
     return EditorFactory.getInstance().createDocument(text);
   }
 
-  public static @NotNull Editor createEditor(@NotNull Project project, @NotNull LanguageFileType fileType, Language dialect, @NotNull String text,
-                                             boolean editable, @NotNull StructuralSearchProfile profile) {
+  public static @NotNull Editor createEditor(@NotNull Project project,
+                                             @NotNull LanguageFileType fileType,
+                                             Language dialect,
+                                             @NotNull String text,
+                                             boolean editable,
+                                             @NotNull StructuralSearchProfile profile) {
     PsiFile codeFragment = profile.createCodeFragment(project, text, null);
     if (codeFragment == null) {
       codeFragment = createFileFragment(project, fileType, dialect, text);
@@ -250,7 +239,10 @@ public final class UIUtil {
     return createEditor(doc, project, editable, getTemplateContextType(profile, dialect));
   }
 
-  private static PsiFile createFileFragment(@NotNull Project project, @NotNull LanguageFileType fileType, Language dialect, @NotNull String text) {
+  private static PsiFile createFileFragment(@NotNull Project project,
+                                            @NotNull LanguageFileType fileType,
+                                            Language dialect,
+                                            @NotNull String text) {
     final String name = "__dummy." + fileType.getDefaultExtension();
     final PsiFileFactory factory = PsiFileFactory.getInstance(project);
 
@@ -260,7 +252,6 @@ public final class UIUtil {
   }
 
   public static TemplateContextType getTemplateContextType(@NotNull StructuralSearchProfile profile, Language dialect) {
-    final Class<? extends TemplateContextType> clazz = profile.getTemplateContextTypeClass(dialect);
-    return TemplateContextTypes.getByClass(clazz);
+    return TemplateContextTypes.getByClass(profile.getTemplateContextTypeClass(dialect));
   }
 }

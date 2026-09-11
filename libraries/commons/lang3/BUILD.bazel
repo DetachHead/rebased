@@ -1,7 +1,7 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
 ### auto-generated section `build intellij.libraries.commons.lang3` start
-
 jvm_library(
     name = "lang3",
     srcs = glob(
@@ -16,6 +16,11 @@ jvm_library(
     visibility = ["//visibility:public"],
     exports = ["@lib//:libraries-commons-lang3-commons-lang3"],
     runtime_deps = ["@lib//:libraries-commons-lang3-commons-lang3"],
+)
+
+content_module_jar(
+    libraries = ["@lib//:libraries-commons-lang3-commons-lang3"],
+    module = ":lang3",
 )
 
 jvm_library(
@@ -37,6 +42,8 @@ jvm_library(
 exports_files(
     [
         "intellij.libraries.commons.lang3.iml",
+        "resources/intellij.libraries.commons.lang3.xml",
+        "module-content.yaml",
     ],
     visibility = ["//visibility:public"],
 )

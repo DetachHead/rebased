@@ -75,6 +75,8 @@ c:com.intellij.codeInsight.template.impl.TemplateImpl
 *:com.intellij.codeInspection.ui.InspectionProblemAddedListener
 - sf:EP_NAME:com.intellij.openapi.extensions.ExtensionPointName
 - a:onProblemsAdded(com.intellij.openapi.project.Project,com.intellij.codeInspection.ex.InspectionToolWrapper,com.intellij.codeInspection.CommonProblemDescriptor[]):V
+*:com.intellij.find.findUsages.TextOccurrenceReference
+- com.intellij.psi.PsiReference
 c:com.intellij.openapi.module.impl.scopes.ModulesScope
 - com.intellij.psi.search.GlobalSearchScope
 - com.intellij.psi.search.ActualCodeInsightContextInfo

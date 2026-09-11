@@ -1,14 +1,15 @@
 load("@community//build:tests-options.bzl", "jps_test")
 load("@rules_jvm//:jvm.bzl", "jvm_library")
 load("//build:compiler-options.bzl", "create_kotlinc_options")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
 ### auto-generated section `build intellij.kotlin.projectStructure` start
-
 create_kotlinc_options(
     name = "custom_project-structure",
     opt_in = [
-        "org.jetbrains.kotlin.analysis.api.KaPlatformInterface",
         "org.jetbrains.kotlin.analysis.api.KaExperimentalApi",
+        "org.jetbrains.kotlin.analysis.api.KaIdeApi",
+        "org.jetbrains.kotlin.analysis.api.KaPlatformInterface",
         "org.jetbrains.kotlin.analysis.api.KaImplementationDetail",
         "org.jetbrains.kotlin.analysis.api.KaContextParameterApi",
     ],
@@ -43,22 +44,24 @@ jvm_library(
         "//platform/core-impl",
         "//plugins/kotlin/base/project-structure",
         "//platform/projectModel-impl",
-        "@lib//:kotlinc-analysis-api",
+        "//libraries/kotlinc/analysis-api:libraries-kotlinc-analysis-api",
         "//platform/workspace/jps",
         "//java/java-impl:impl",
         "//java/java-psi-api:psi",
-        "@lib//:kotlinc-analysis-api-platform-interface",
-        "@lib//:kotlinc-kotlin-compiler-common",
+        "//libraries/kotlinc/analysis-api-platform-interface:libraries-kotlinc-analysis-api-platform-interface",
+        "//libraries/kotlinc/kotlin-compiler-common:libraries-kotlinc-kotlin-compiler-common",
         "//plugins/kotlin/base/util",
         "//plugins/kotlin/base/facet",
-        "@lib//:kotlinc-analysis-api-impl-base",
+        "//libraries/kotlinc/analysis-api-impl-base:libraries-kotlinc-analysis-api-impl-base",
         "//plugins/kotlin/base/platforms",
-        "@lib//:kotlinc-kotlin-jps-common",
+        "//libraries/kotlinc/kotlin-jps-common:libraries-kotlinc-kotlin-jps-common",
         "//libraries/fastutil",
         "//java/openapi:java",
         "//plugins/kotlin/base/scripting/scripting.k2:kotlin-base-scripting",
     ],
 )
+
+content_module_jar(module = ":project-structure")
 
 jvm_library(
     name = "project-structure_test_lib",
@@ -81,12 +84,17 @@ jvm_library(
         "//platform/core-impl:core-impl_test_lib",
         "//plugins/kotlin/base/project-structure:project-structure_test_lib",
         "//platform/projectModel-impl:projectModel-impl_test_lib",
+        "//libraries/kotlinc/analysis-api:libraries-kotlinc-analysis-api_test_lib",
         "//platform/workspace/jps:jps_test_lib",
         "//java/java-impl:impl_test_lib",
         "//java/java-psi-api:psi_test_lib",
+        "//libraries/kotlinc/analysis-api-platform-interface:libraries-kotlinc-analysis-api-platform-interface_test_lib",
+        "//libraries/kotlinc/kotlin-compiler-common:libraries-kotlinc-kotlin-compiler-common_test_lib",
         "//plugins/kotlin/base/util:util_test_lib",
         "//plugins/kotlin/base/facet:facet_test_lib",
+        "//libraries/kotlinc/analysis-api-impl-base:libraries-kotlinc-analysis-api-impl-base_test_lib",
         "//plugins/kotlin/base/platforms:platforms_test_lib",
+        "//libraries/kotlinc/kotlin-jps-common:libraries-kotlinc-kotlin-jps-common_test_lib",
         "//libraries/fastutil:fastutil_test_lib",
         "//java/openapi:java_test_lib",
         "//plugins/kotlin/base/scripting/scripting.k2:kotlin-base-scripting_test_lib",
@@ -98,6 +106,7 @@ jvm_library(
 exports_files(
     [
         "intellij.kotlin.projectStructure.iml",
+        "resources/intellij.kotlin.projectStructure.xml",
     ],
     visibility = ["//visibility:public"],
 )

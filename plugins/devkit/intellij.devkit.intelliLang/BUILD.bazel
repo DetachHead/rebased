@@ -1,7 +1,7 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
 ### auto-generated section `build intellij.devkit.intelliLang` start
-
 jvm_library(
     name = "intelliLang",
     srcs = glob(
@@ -14,7 +14,10 @@ jvm_library(
         ["resources/**/*"],
     ),
     visibility = ["//visibility:public"],
+    runtime_deps = ["//plugins/IntelliLang:langInjection"],
 )
+
+content_module_jar(module = ":intelliLang")
 
 jvm_library(
     name = "intelliLang_test_lib",
@@ -25,7 +28,11 @@ jvm_library(
     ),
     module_name = "intellij.devkit.intelliLang",
     visibility = ["//visibility:public"],
-    runtime_deps = [":intelliLang"],
+    runtime_deps = [
+        # do not sort,
+        ":intelliLang",
+        "//plugins/IntelliLang:langInjection_test_lib",
+    ],
 )
 ### auto-generated section `build intellij.devkit.intelliLang` end
 
@@ -33,6 +40,8 @@ jvm_library(
 exports_files(
     [
         "intellij.devkit.intelliLang.iml",
+        "resources/devkit-xmlInjections.xml",
+        "resources/intellij.devkit.intelliLang.xml",
     ],
     visibility = ["//visibility:public"],
 )

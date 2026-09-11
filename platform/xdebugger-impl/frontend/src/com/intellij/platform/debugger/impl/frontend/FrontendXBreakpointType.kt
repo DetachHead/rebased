@@ -130,11 +130,13 @@ private open class FrontendXBreakpointType(
   override val enabledIcon: Icon = dto.icons.enabledIcon.icon()
   override val disabledIcon: Icon = dto.icons.disabledIcon.icon()
   override val suspendNoneIcon: Icon = dto.icons.suspendNoneIcon.icon()
+  override val suspendNoneDisabledIcon: Icon = dto.icons.suspendNoneDisabledIcon.icon()
   override val mutedEnabledIcon: Icon = dto.icons.mutedEnabledIcon.icon()
   override val mutedDisabledIcon: Icon = dto.icons.mutedDisabledIcon.icon()
   override val pendingIcon: Icon? = dto.icons.pendingIcon?.icon()
   override val inactiveDependentIcon: Icon = dto.icons.inactiveDependentIcon.icon()
   override val isSuspendThreadSupported: Boolean = dto.suspendThreadSupported
+  override val isTemporaryBreakpointSupported: Boolean = dto.temporaryBreakpointSupported
 
   // TODO: should we support changes from the backend (so we need to subscribe on them)
   private var _defaultSuspendPolicy = dto.defaultSuspendPolicy
@@ -188,9 +190,13 @@ private open class FrontendXBreakpointType(
     return dto.isAddBreakpointButtonVisible
   }
 
+  override fun isNewBadgeVisible(): Boolean {
+    return dto.isNewBadgeVisible
+  }
+
   override suspend fun addBreakpoint(project: Project): XBreakpointProxy? {
-    val breakpointDto = XBreakpointTypeApi.getInstance().addBreakpointThroughLux(project.projectId(), dto.id).await() ?: return null
-    return XDebugManagerProxy.getInstance().getBreakpointManagerProxy(project).awaitBreakpointCreation(breakpointDto.id)
+    val breakpointId = XBreakpointTypeApi.getInstance().addBreakpointThroughLux(project.projectId(), dto.id).await() ?: return null
+    return XDebugManagerProxy.getInstance().getBreakpointManagerProxy(project).awaitBreakpointCreation(breakpointId)
   }
 
   override fun equals(other: Any?): Boolean {

@@ -14,6 +14,7 @@ import com.intellij.ide.UpdatesInfoProviderManager
 import com.intellij.ide.impl.ProjectUtilCore
 import com.intellij.ide.plugins.newui.ListPluginComponent
 import com.intellij.ide.userScaledProjectIconSize
+import com.intellij.ide.welcomeScreen.WelcomeUtils
 import com.intellij.openapi.actionSystem.ActionGroup
 import com.intellij.openapi.actionSystem.ActionManager
 import com.intellij.openapi.actionSystem.ActionPlaces
@@ -117,10 +118,12 @@ internal class DefaultOpenProjectSelectionPredicateSupplier : OpenProjectSelecti
 @ApiStatus.Internal
 open class ProjectToolbarWidgetAction : ExpandableComboAction(), DumbAware {
   override fun createPopup(event: AnActionEvent): JBPopup? {
+    val project = event.project
+    if (project == null) return null
     val group = createActionGroup(event)
     if (group.childrenCount == 0) return null
     val step = createStep(group, event.dataContext)
-    return event.project?.let { createPopup(it = it, step = step) }
+    return createPopup(project = project, step = step)
   }
 
   override fun getActionUpdateThread(): ActionUpdateThread = ActionUpdateThread.BGT
@@ -189,7 +192,7 @@ open class ProjectToolbarWidgetAction : ExpandableComboAction(), DumbAware {
     }
   }
 
-  private fun createPopup(it: Project, step: ListPopupStep<PopupFactoryImpl.ActionItem>): ListPopup {
+  private fun createPopup(project: Project, step: ListPopupStep<PopupFactoryImpl.ActionItem>): ListPopup {
     val widgetRenderer = ProjectWidgetRenderer()
     val renderer = Function<ListCellRenderer<Any>, ListCellRenderer<out Any>> { base ->
       ListCellRenderer<PopupFactoryImpl.ActionItem> { list, value, index, isSelected, cellHasFocus ->
@@ -209,7 +212,7 @@ open class ProjectToolbarWidgetAction : ExpandableComboAction(), DumbAware {
       }
     }
 
-    val result = JBPopupFactory.getInstance().createListPopup(it, step, renderer)
+    val result = JBPopupFactory.getInstance().createListPopup(project, step, renderer)
 
     if (result is ListPopupImpl) {
       ClientProperty.put(result.list, AnimatedIcon.ANIMATION_IN_RENDERER_ALLOWED, true)
@@ -248,6 +251,13 @@ open class ProjectToolbarWidgetAction : ExpandableComboAction(), DumbAware {
     if (!hideProjectSwitching(initEvent)) {
       val group = ActionManager.getInstance().getAction("ProjectWidget.Actions") as ActionGroup
       result.addAll(group.getChildren(initEvent).asList())
+
+      WelcomeUtils.addWelcomeProjectNewAction(initEvent, initEvent.project, result)
+
+      WelcomeUtils.getGotoWelcomeProjectAction(initEvent.project)?.let {
+        result.addSeparator()
+        result.add(it)
+      }
 
       val openProjectsPredicate = OpenProjectSelectionPredicateSupplier.getInstance().getPredicate()
       val actionsMap = RecentProjectListActionProvider.getInstance().getActions(initEvent.project)

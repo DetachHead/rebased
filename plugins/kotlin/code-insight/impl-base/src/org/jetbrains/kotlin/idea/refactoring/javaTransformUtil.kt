@@ -25,12 +25,13 @@ import com.intellij.psi.impl.source.tree.SharedImplUtil
 import com.intellij.psi.util.PsiUtilCore
 import com.intellij.util.IncorrectOperationException
 import com.intellij.util.VisibilityUtil
-import org.jetbrains.kotlin.analysis.api.KaExperimentalApi
-import org.jetbrains.kotlin.analysis.api.analyze
+import org.jetbrains.kotlin.analysis.api.components.asPsiType
 import org.jetbrains.kotlin.analysis.api.permissions.KaAllowAnalysisFromWriteAction
 import org.jetbrains.kotlin.analysis.api.permissions.KaAllowAnalysisOnEdt
 import org.jetbrains.kotlin.analysis.api.permissions.allowAnalysisFromWriteAction
 import org.jetbrains.kotlin.analysis.api.permissions.allowAnalysisOnEdt
+import org.jetbrains.kotlin.analysis.api.session.analyze
+import org.jetbrains.kotlin.analysis.api.types.type
 import org.jetbrains.kotlin.asJava.LightClassUtil
 import org.jetbrains.kotlin.asJava.elements.KtLightMethod
 import org.jetbrains.kotlin.asJava.getAccessorLightMethods
@@ -91,7 +92,7 @@ private fun <T> copyTypeParameters(
     }
 }
 
-@OptIn(KaExperimentalApi::class, KaAllowAnalysisOnEdt::class, KaAllowAnalysisFromWriteAction::class)
+@OptIn(KaAllowAnalysisOnEdt::class, KaAllowAnalysisFromWriteAction::class)
 private fun copyTypeParameters(
     ktClass: KtClass,
     psiClass: PsiClass,
@@ -215,7 +216,7 @@ fun createJavaClass(klass: KtClass, targetClass: PsiClass?, classKind: ClassKind
 
     fun convertExtendsImplementsList(entries: List<KtSuperTypeListEntry>): Array<PsiJavaCodeReferenceElement> =
             entries.mapNotNull {
-                val typeText = toJavaTypeText(klass, it.typeReference,)
+                val typeText = toJavaTypeText(klass, it.typeReference)
                 if (typeText != null) factory.createReferenceFromText(typeText, javaClass) else null
             }.toTypedArray()
 
@@ -268,7 +269,7 @@ fun createJavaClass(klass: KtClass, targetClass: PsiClass?, classKind: ClassKind
 private fun toJavaTypeText(klass: KtClass, typeReference: KtTypeReference?, isAnnotationMethod: Boolean = false): String? =
     toJavaType(klass, typeReference, isAnnotationMethod = isAnnotationMethod)?.getCanonicalText(true)
 
-@OptIn(KaExperimentalApi::class, KaAllowAnalysisFromWriteAction::class, KaAllowAnalysisOnEdt::class)
+@OptIn(KaAllowAnalysisFromWriteAction::class, KaAllowAnalysisOnEdt::class)
 private fun toJavaType(klass: KtClass, typeReference: KtTypeReference?, isAnnotationMethod: Boolean = false): PsiType? =
     allowAnalysisFromWriteAction {
         allowAnalysisOnEdt {

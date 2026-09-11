@@ -1,7 +1,7 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
 ### auto-generated section `build intellij.kotlin.grazie` start
-
 jvm_library(
     name = "grazie",
     srcs = glob(
@@ -18,17 +18,20 @@ jvm_library(
         ["resources/**/*"],
     ),
     visibility = ["//visibility:public"],
+    runtime_deps = ["//platform/backend"],
     deps = [
         # do not sort,
         "@lib//:kotlin-stdlib",
         "//platform/core-api:core",
         "//platform/util",
-        "@lib//:kotlinc-kotlin-compiler-common",
+        "//libraries/kotlinc/kotlin-compiler-common:libraries-kotlinc-kotlin-compiler-common",
         "//platform/core-impl",
         "//platform/util-ex",
         "//plugins/grazie/src:core",
     ],
 )
+
+content_module_jar(module = ":grazie")
 
 jvm_library(
     name = "grazie_test_lib",
@@ -44,9 +47,11 @@ jvm_library(
         ":grazie",
         "//platform/core-api:core_test_lib",
         "//platform/util:util_test_lib",
+        "//libraries/kotlinc/kotlin-compiler-common:libraries-kotlinc-kotlin-compiler-common_test_lib",
         "//platform/core-impl:core-impl_test_lib",
         "//platform/util-ex:util-ex_test_lib",
         "//plugins/grazie/src:core_test_lib",
+        "//platform/backend:backend_test_lib",
     ],
 )
 ### auto-generated section `build intellij.kotlin.grazie` end
@@ -55,6 +60,7 @@ jvm_library(
 exports_files(
     [
         "intellij.kotlin.grazie.iml",
+        "resources/intellij.kotlin.grazie.xml",
     ],
     visibility = ["//visibility:public"],
 )

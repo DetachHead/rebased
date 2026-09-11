@@ -1,8 +1,8 @@
 load("@community//build:tests-options.bzl", "jps_test")
 load("@rules_jvm//:jvm.bzl", "jvm_library")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
 ### auto-generated section `build intellij.settingsSync.core` start
-
 jvm_library(
     name = "settingsSync-core",
     srcs = glob(
@@ -19,7 +19,7 @@ jvm_library(
         ["resources/**/*"],
     ),
     visibility = ["//visibility:public"],
-    exports = ["@lib//:jetbrains-intellij-deps-eclipse-jgit"],
+    exports = ["//libraries/jgit"],
     deps = [
         # do not sort,
         "@lib//:kotlin-stdlib",
@@ -33,7 +33,7 @@ jvm_library(
         "//platform/projectModel-api:projectModel",
         "//platform/projectModel-impl",
         "//platform/platform-impl:ide-impl",
-        "@lib//:jetbrains-intellij-deps-eclipse-jgit",
+        "//libraries/jgit",
         "@lib//:slf4j-api",
         "//platform/service-container",
         "//libraries/kotlinx/coroutines/core",
@@ -67,6 +67,8 @@ jvm_library(
     ],
 )
 
+content_module_jar(module = ":settingsSync-core")
+
 jvm_library(
     name = "settingsSync-core_test_lib",
     testonly = True,
@@ -76,7 +78,11 @@ jvm_library(
     ),
     module_name = "intellij.settingsSync.core",
     visibility = ["//visibility:public"],
-    exports = ["@lib//:jetbrains-intellij-deps-eclipse-jgit"],
+    exports = [
+        # do not sort,
+        "//libraries/jgit",
+        "//libraries/jgit:jgit_test_lib",
+    ],
     runtime_deps = [
         # do not sort,
         ":settingsSync-core",
@@ -92,6 +98,7 @@ jvm_library(
         "//platform/projectModel-api:projectModel_test_lib",
         "//platform/projectModel-impl:projectModel-impl_test_lib",
         "//platform/platform-impl:ide-impl_test_lib",
+        "//libraries/jgit:jgit_test_lib",
         "//platform/service-container:service-container_test_lib",
         "//platform/testFramework",
         "//platform/testFramework:testFramework_test_lib",
@@ -155,13 +162,14 @@ jvm_library(
 exports_files(
     [
         "intellij.settingsSync.core.iml",
+        "resources/intellij.settingsSync.core.xml",
+        "module-content.yaml",
     ],
     visibility = ["//visibility:public"],
 )
 ### auto-generated section `iml intellij.settingsSync.core` end
 
 ### auto-generated section `build intellij.settingsSync.core.tests` start
-
 jvm_library(
     name = "settingsSync-core-tests",
     srcs = glob(
@@ -170,7 +178,7 @@ jvm_library(
     ),
     module_name = "intellij.settingsSync.core.tests",
     visibility = ["//visibility:public"],
-    exports = ["@lib//:jetbrains-intellij-deps-eclipse-jgit"],
+    exports = ["//libraries/jgit"],
 )
 
 jvm_library(
@@ -193,7 +201,11 @@ jvm_library(
         ["testResources/**/*"],
     ),
     visibility = ["//visibility:public"],
-    exports = ["@lib//:jetbrains-intellij-deps-eclipse-jgit"],
+    exports = [
+        # do not sort,
+        "//libraries/jgit",
+        "//libraries/jgit:jgit_test_lib",
+    ],
     runtime_deps = [
         # do not sort,
         ":settingsSync-core-tests",
@@ -226,7 +238,8 @@ jvm_library(
         "//platform/projectModel-impl",
         "//platform/projectModel-impl:projectModel-impl_test_lib",
         "//platform/platform-impl:ide-impl",
-        "@lib//:jetbrains-intellij-deps-eclipse-jgit",
+        "//libraries/jgit",
+        "//libraries/jgit:jgit_test_lib",
         "@lib//:slf4j-api",
         "//platform/service-container",
         "//platform/service-container:service-container_test_lib",
@@ -303,6 +316,12 @@ jvm_library(
         "//RegExpSupport:regexp-tests_test_lib",
         "//platform/xdebugger-impl:debugger-impl-tests",
         "//platform/xdebugger-impl:debugger-impl-tests_test_lib",
+        "//libraries/junit4",
+        "//libraries/junit4:junit4_test_lib",
+        "//libraries/junit5",
+        "//libraries/junit5:junit5_test_lib",
+        "//libraries/junit5-params",
+        "//libraries/junit5-params:junit5-params_test_lib",
     ],
 )
 ### auto-generated section `build intellij.settingsSync.core.tests` end
@@ -317,7 +336,6 @@ exports_files(
 ### auto-generated section `iml intellij.settingsSync.core.tests` end
 
 ### auto-generated section `test intellij.settingsSync.core.tests` start
-
 jps_test(
     name = "settingsSync-core-tests_test",
     runtime_deps = [":settingsSync-core-tests_test_lib"],

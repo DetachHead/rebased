@@ -8,19 +8,16 @@ import com.intellij.modcommand.ModPsiUpdater
 import com.intellij.modcommand.Presentation
 import com.intellij.psi.util.endOffset
 import com.intellij.psi.util.parentOfType
-import org.jetbrains.kotlin.analysis.api.KaExperimentalApi
 import org.jetbrains.kotlin.analysis.api.KaSession
-import org.jetbrains.kotlin.analysis.api.components.arrayElementType
-import org.jetbrains.kotlin.analysis.api.components.containingModule
-import org.jetbrains.kotlin.analysis.api.components.createInheritanceTypeSubstitutor
-import org.jetbrains.kotlin.analysis.api.components.isSubtypeOf
-import org.jetbrains.kotlin.analysis.api.components.memberScope
-import org.jetbrains.kotlin.analysis.api.components.render
-import org.jetbrains.kotlin.analysis.api.components.substitute
 import org.jetbrains.kotlin.analysis.api.fir.diagnostics.KaFirDiagnostic.SupertypeNotInitialized
+import org.jetbrains.kotlin.analysis.api.renderer.render
 import org.jetbrains.kotlin.analysis.api.renderer.types.impl.KaTypeRendererForSource
+import org.jetbrains.kotlin.analysis.api.scopes.declaredMemberScope
+import org.jetbrains.kotlin.analysis.api.scopes.memberScope
+import org.jetbrains.kotlin.analysis.api.session.useSiteModule
 import org.jetbrains.kotlin.analysis.api.signatures.KaFunctionSignature
 import org.jetbrains.kotlin.analysis.api.signatures.KaVariableSignature
+import org.jetbrains.kotlin.analysis.api.signatures.substitute
 import org.jetbrains.kotlin.analysis.api.symbols.KaClassKind
 import org.jetbrains.kotlin.analysis.api.symbols.KaClassSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaConstructorSymbol
@@ -28,23 +25,28 @@ import org.jetbrains.kotlin.analysis.api.symbols.KaNamedClassSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaSymbolModality
 import org.jetbrains.kotlin.analysis.api.symbols.KaValueParameterSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.classSymbol
+import org.jetbrains.kotlin.analysis.api.symbols.containingModule
 import org.jetbrains.kotlin.analysis.api.types.KaErrorType
-import org.jetbrains.kotlin.analysis.api.useSiteModule
+import org.jetbrains.kotlin.analysis.api.types.arrayElementType
+import org.jetbrains.kotlin.analysis.api.types.createInheritanceTypeSubstitutor
+import org.jetbrains.kotlin.analysis.api.types.expandedSymbol
+import org.jetbrains.kotlin.analysis.api.types.isSubtypeOf
+import org.jetbrains.kotlin.analysis.api.types.type
 import org.jetbrains.kotlin.idea.base.analysis.api.utils.defaultValue
 import org.jetbrains.kotlin.idea.base.analysis.api.utils.shortenReferences
+import org.jetbrains.kotlin.idea.base.psi.getOrCreatePrimaryConstructorParameterList
 import org.jetbrains.kotlin.idea.base.psi.replaced
 import org.jetbrains.kotlin.idea.base.resources.KotlinBundle
 import org.jetbrains.kotlin.idea.codeinsight.api.applicable.intentions.KotlinPsiUpdateModCommandAction
 import org.jetbrains.kotlin.idea.codeinsight.api.applicators.fixes.KotlinQuickFixFactory
+import org.jetbrains.kotlin.name.render
 import org.jetbrains.kotlin.psi.KtClass
 import org.jetbrains.kotlin.psi.KtClassOrObject
 import org.jetbrains.kotlin.psi.KtPsiFactory
 import org.jetbrains.kotlin.psi.KtSuperTypeEntry
 import org.jetbrains.kotlin.psi.KtSuperTypeList
 import org.jetbrains.kotlin.psi.KtTypeReference
-import org.jetbrains.kotlin.psi.createPrimaryConstructorParameterListIfAbsent
 import org.jetbrains.kotlin.psi.psiUtil.parents
-import org.jetbrains.kotlin.renderer.render
 import org.jetbrains.kotlin.types.Variance
 import org.jetbrains.kotlin.util.match
 
@@ -161,7 +163,7 @@ internal object SuperClassNotInitializedFactories {
         ) {
             val containingClass = getContainingClass(element) ?: return
             val psiFactory = KtPsiFactory(actionContext.project)
-            val constructorParameterList = containingClass.createPrimaryConstructorParameterListIfAbsent()
+            val constructorParameterList = containingClass.getOrCreatePrimaryConstructorParameterList()
 
             elementContext.parametersInfo
                 .map { it.parameterGenerationInfo }
@@ -193,7 +195,6 @@ internal object SuperClassNotInitializedFactories {
         return superTypeEntry.parents.match(KtSuperTypeList::class, last = KtClass::class)
     }
 
-    @OptIn(KaExperimentalApi::class)
     context(_: KaSession)
     private fun createAddParametersFixes(superTypeEntry: KtSuperTypeEntry, superClassSymbol: KaNamedClassSymbol): List<AddParametersFix> {
         val containingClass = getContainingClass(superTypeEntry) ?: return emptyList()
@@ -242,7 +243,6 @@ internal object SuperClassNotInitializedFactories {
         )
     }
 
-    @OptIn(KaExperimentalApi::class)
     context(_: KaSession)
     private fun prepareParameterInfo(
         superParameter: KaVariableSignature<KaValueParameterSymbol>,

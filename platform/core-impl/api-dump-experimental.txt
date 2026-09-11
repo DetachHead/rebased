@@ -20,43 +20,32 @@
 *f:com.intellij.ide.plugins.PluginDetailsService$Companion
 - f:getInstance():com.intellij.ide.plugins.PluginDetailsService
 *:com.intellij.ide.plugins.PluginDetailsService$ModuleDependencyInfo
-- a:isOptional():Z
 *f:com.intellij.ide.plugins.PluginDetailsService$ModuleDependencyInfo$OnModule
 - com.intellij.ide.plugins.PluginDetailsService$ModuleDependencyInfo
-- <init>(java.lang.String,Z):V
 - f:getName():java.lang.String
-- isOptional():Z
 *f:com.intellij.ide.plugins.PluginDetailsService$ModuleDependencyInfo$OnPlugin
 - com.intellij.ide.plugins.PluginDetailsService$ModuleDependencyInfo
-- <init>(com.intellij.openapi.extensions.PluginId,Z):V
 - f:getPluginId():com.intellij.openapi.extensions.PluginId
-- isOptional():Z
 *f:com.intellij.ide.plugins.PluginDetailsService$PluginDetails
-- <init>(com.intellij.openapi.extensions.PluginId,java.lang.String,java.lang.String,java.lang.String,java.lang.String,com.intellij.ide.plugins.PluginDetailsService$PluginVendorInfo,java.util.Collection,java.util.Collection,Z):V
 - f:getChangeNotes():java.lang.String
 - f:getDependencies():java.util.Collection
 - f:getDescription():java.lang.String
 - f:getId():com.intellij.openapi.extensions.PluginId
 - f:getModules():java.util.Collection
 - f:getName():java.lang.String
+- f:getReleaseDate():java.time.LocalDate
+- f:getReleaseVersion():I
 - f:getVendor():com.intellij.ide.plugins.PluginDetailsService$PluginVendorInfo
 - f:getVersion():java.lang.String
 - f:isBuiltIn():Z
+- f:isLicenseOptional():Z
 *f:com.intellij.ide.plugins.PluginDetailsService$PluginModuleInfo
-- <init>(java.lang.String):V
 - f:getName():java.lang.String
 *f:com.intellij.ide.plugins.PluginDetailsService$PluginVendorInfo
-- <init>(java.lang.String,java.lang.String,java.lang.String,java.lang.String):V
 - f:getEmail():java.lang.String
 - f:getName():java.lang.String
 - f:getOrganization():java.lang.String
 - f:getUrl():java.lang.String
-*:com.intellij.ide.plugins.PluginNonLoadReason
-- a:getDetailedMessage():java.lang.String
-- a:getLogMessage():java.lang.String
-- a:getPlugin():com.intellij.ide.plugins.IdeaPluginDescriptor
-- a:getShortMessage():java.lang.String
-- a:getShouldNotifyUser():Z
 *c:com.intellij.lang.impl.TokenSequence
 - com.intellij.lexer.TokenList
 - asLexer():com.intellij.lexer.Lexer
@@ -89,14 +78,10 @@ a:com.intellij.openapi.application.ex.ApplicationInfoEx
 a:com.intellij.openapi.fileEditor.impl.FileDocumentManagerBase
 - com.intellij.openapi.fileEditor.FileDocumentManager
 - *s:isTrackable(com.intellij.openapi.vfs.VirtualFile):Z
-*f:com.intellij.psi.DummyBlockType
-- sf:DUMMY_BLOCK:com.intellij.psi.tree.IElementType
-- <init>():V
-*c:com.intellij.psi.DummyBlockType$DummyBlock
-- com.intellij.psi.impl.source.tree.CompositePsiElement
-- <init>():V
-- getLanguage():com.intellij.lang.Language
-- getReferences():com.intellij.psi.PsiReference[]
+a:com.intellij.psi.AbstractFileViewProvider
+- com.intellij.openapi.util.UserDataHolderBase
+- com.intellij.psi.FileViewProvider
+- *p:cacheContentInVersionedEnvironment():Z
 c:com.intellij.psi.impl.GeneratedMarkerVisitor
 - com.intellij.psi.impl.source.tree.RecursiveTreeElementWalkingVisitor
 - *:<init>(com.intellij.lang.ASTNode):V
@@ -147,3 +132,8 @@ a:com.intellij.psi.impl.source.tree.RecursiveTreeElementWalkingVisitor
 - com.intellij.psi.PsiRecursiveVisitor
 - *p:<init>(com.intellij.lang.ASTNode):V
 - *p:<init>(com.intellij.lang.ASTNode,Z):V
+*a:com.intellij.psi.impl.source.tree.mvcc.userData.VersionedUserDataHolderBase
+- com.intellij.openapi.util.UserDataHolderBase
+- <init>():V
+- p:changeUserMap(com.intellij.util.keyFMap.KeyFMap,com.intellij.util.keyFMap.KeyFMap):Z
+- p:setUserMap(com.intellij.util.keyFMap.KeyFMap):V

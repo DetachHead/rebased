@@ -1,11 +1,13 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
 ### auto-generated section `build intellij.python.black` start
-
 jvm_library(
     name = "black",
     srcs = glob(
         [
+            "gen/**/*.kt",
+            "gen/**/*.java",
             "src/**/*.kt",
             "src/**/*.java",
             "src/**/*.form",
@@ -46,11 +48,13 @@ jvm_library(
         "//python/python-pytools:pytools",
         "//python/python-pytools-ui:pytools-ui",
         "//python/openapi:community",
-        "//python/python-sdk:sdk",
+        "//python/python-sdk/backend",
         "//platform/projectModel-impl",
         "//platform/eel",
     ],
 )
+
+content_module_jar(module = ":black")
 
 jvm_library(
     name = "black_test_lib",
@@ -89,7 +93,7 @@ jvm_library(
         "//python/python-pytools:pytools_test_lib",
         "//python/python-pytools-ui:pytools-ui_test_lib",
         "//python/openapi:community_test_lib",
-        "//python/python-sdk:sdk_test_lib",
+        "//python/python-sdk/backend:backend_test_lib",
         "//platform/projectModel-impl:projectModel-impl_test_lib",
         "//platform/eel:eel_test_lib",
     ],
@@ -100,6 +104,7 @@ jvm_library(
 exports_files(
     [
         "intellij.python.black.iml",
+        "resources/intellij.python.black.xml",
     ],
     visibility = ["//visibility:public"],
 )

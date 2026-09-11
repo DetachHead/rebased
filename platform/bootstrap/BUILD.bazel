@@ -1,7 +1,7 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
 ### auto-generated section `build intellij.platform.bootstrap` start
-
 jvm_library(
     name = "bootstrap",
     srcs = glob(
@@ -43,6 +43,8 @@ jvm_library(
     ],
 )
 
+content_module_jar(module = ":bootstrap")
+
 jvm_library(
     name = "bootstrap_test_lib",
     testonly = True,
@@ -83,6 +85,8 @@ jvm_library(
 exports_files(
     [
         "intellij.platform.bootstrap.iml",
+        "resources/intellij.platform.bootstrap.xml",
+        "module-content.yaml",
     ],
     visibility = ["//visibility:public"],
 )

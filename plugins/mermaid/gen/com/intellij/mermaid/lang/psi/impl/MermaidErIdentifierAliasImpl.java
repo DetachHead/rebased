@@ -29,6 +29,12 @@ public class MermaidErIdentifierAliasImpl extends ASTWrapperPsiElement implement
 
   @Override
   @Nullable
+  public MermaidComplexLabel getComplexLabel() {
+    return findChildByClass(MermaidComplexLabel.class);
+  }
+
+  @Override
+  @Nullable
   public MermaidString getString() {
     return findChildByClass(MermaidString.class);
   }

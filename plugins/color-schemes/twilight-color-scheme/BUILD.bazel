@@ -1,7 +1,7 @@
+load("@community//platform/build-scripts/bazel-rules:ij_plugin.bzl", "ij_plugin")
 load("@rules_jvm//:jvm.bzl", "jvm_library")
 
 ### auto-generated section `build intellij.color.scheme.twilight` start
-
 jvm_library(
     name = "color-scheme-twilight",
     srcs = glob(
@@ -14,6 +14,7 @@ jvm_library(
         ["resources/**/*"],
     ),
     visibility = ["//visibility:public"],
+    runtime_deps = ["//platform/projectModel-impl"],
 )
 
 jvm_library(
@@ -25,7 +26,17 @@ jvm_library(
     ),
     module_name = "intellij.color.scheme.twilight",
     visibility = ["//visibility:public"],
-    runtime_deps = [":color-scheme-twilight"],
+    runtime_deps = [
+        # do not sort,
+        ":color-scheme-twilight",
+        "//platform/projectModel-impl:projectModel-impl_test_lib",
+    ],
+)
+
+ij_plugin(
+    name = "color-scheme-twilight_plugin",
+    descriptor_module = ":color-scheme-twilight",
+    visibility = ["//visibility:public"],
 )
 ### auto-generated section `build intellij.color.scheme.twilight` end
 
@@ -33,6 +44,8 @@ jvm_library(
 exports_files(
     [
         "intellij.color.scheme.twilight.iml",
+        "resources/META-INF/plugin.xml",
+        "resources/colorSchemes/twilight.xml",
     ],
     visibility = ["//visibility:public"],
 )

@@ -8,14 +8,25 @@ import com.intellij.execution.process.OSProcessHandler
 import com.intellij.openapi.application.ApplicationInfo
 import com.intellij.openapi.application.ApplicationNamesInfo
 import com.intellij.openapi.diagnostic.Logger
+import com.intellij.openapi.progress.runBlockingMaybeCancellable
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.NlsSafe
 import com.intellij.openapi.util.io.OSAgnosticPathUtil
 import com.intellij.openapi.util.text.StringUtil
+import com.intellij.openapi.vfs.JarFileSystem
 import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.openapi.vfs.VfsUtil
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.openapi.vfs.VirtualFileManager
+import com.intellij.platform.eel.EelDescriptor
+import com.intellij.platform.eel.environmentVariables
+import com.intellij.platform.eel.path.EelPath
+import com.intellij.platform.eel.provider.LocalEelDescriptor
+import com.intellij.platform.eel.provider.asEelPath
+import com.intellij.platform.eel.provider.asNioPath
+import com.intellij.platform.eel.provider.getEelDescriptor
+import com.intellij.platform.eel.provider.toEelApi
+import com.intellij.platform.eel.spawnProcess
 import com.intellij.platform.lsp.api.customization.LspCustomization
 import com.intellij.util.concurrency.annotations.RequiresBackgroundThread
 import com.intellij.util.concurrency.annotations.RequiresReadLock
@@ -27,8 +38,11 @@ import org.eclipse.lsp4j.ClientInfo
 import org.eclipse.lsp4j.ConfigurationItem
 import org.eclipse.lsp4j.InitializeParams
 import org.eclipse.lsp4j.WorkspaceFolder
+import org.jetbrains.annotations.ApiStatus
+import java.io.IOException
 import java.net.URI
 import java.net.URISyntaxException
+import java.nio.file.Path
 
 /**
  * Defines how the [LspClient] interacts with the running LSP server
@@ -99,24 +113,76 @@ abstract class LspClientDescriptor protected constructor(
   abstract fun isSupportedFile(file: VirtualFile): Boolean
 
   /**
+   * True if the LSP server can handle read-only requests, like hover or go-to-definition, for the given library file:
+   * a file inside an archive, for example a jar entry or a JDK class from the jrt file system.
+   * A library file normally goes to the client that navigated to it. When no running client did,
+   * the file goes to every client whose descriptor returns `true` here.
+   * Unlike [isSupportedFile], the given file is not in a local file system and not within project content roots.
+   * The same rules apply otherwise: the implementation must be idempotent, have no side effects,
+   * and the result must depend only on the given file.
+   *
+   * The default [getFileUri] produces a URI the JetBrains language servers understand only for a jar entry.
+   * A descriptor that accepts another archive file system must also override [getFileUri] and [findFileByUri].
+   */
+  @RequiresReadLock
+  open fun isSupportedLibraryFile(file: VirtualFile): Boolean = false
+
+  /**
    * Starts the LSP server process.
    * Usually, plugins don't need to override this function, but only implement the [createCommandLine] function.
+   *
+   * In WSL/Docker projects the process is launched via EEL so the server runs inside the project environment.
+   * In local projects the existing [GeneralCommandLine] / [OSProcessHandler] path is used unchanged.
    */
   @RequiresBackgroundThread
   @Throws(ExecutionException::class)
   open fun startServerProcess(): BaseProcessHandler<*> {
     // LSP spec says: "It defaults to utf-8, which is the only encoding supported right now"
     // see https://microsoft.github.io/language-server-protocol/specification/#contentPart
-    val startingCommandLine = createCommandLine().withCharset(Charsets.UTF_8)
-    LOG.info("$this: starting LSP server: $startingCommandLine")
-    return object : OSProcessHandler(startingCommandLine) {
-      override fun readerOptions(): BaseOutputReader.Options = object : BaseOutputReader.Options() {
-        override fun policy(): BaseDataReader.SleepingPolicy = forMostlySilentProcess().policy()
+    val commandLine = createCommandLine().withCharset(Charsets.UTF_8)
 
-        // Must not loose '\r' in "\r\n" line endings. They affect char count, which must match `Content-Length`
-        override fun splitToLines(): Boolean = false
+    val descriptor = project.getEelDescriptor()
+    if (descriptor !is LocalEelDescriptor) {
+      return startServerProcessViaEel(descriptor, commandLine)
+    }
+
+    LOG.info("$this: starting LSP server: $commandLine")
+    return object : OSProcessHandler(commandLine) {
+      override fun readerOptions(): BaseOutputReader.Options = lspReaderOptions()
+    }
+  }
+
+  private fun startServerProcessViaEel(descriptor: EelDescriptor, commandLine: GeneralCommandLine): BaseProcessHandler<*> {
+    val eelProcess = try {
+      @Suppress("checkedExceptions")
+      runBlockingMaybeCancellable {
+        val eelApi = descriptor.toEelApi()
+        val env = eelApi.exec.environmentVariables().eelIt().await() + commandLine.environment
+        val workingDir = commandLine.workDirectory?.toPath()?.let { nioPath ->
+          runCatching { nioPath.asEelPath() }.getOrNull()
+        }
+        eelApi.exec.spawnProcess(commandLine.exePath)
+          .args(commandLine.parametersList.list)
+          .env(env)
+          .let { if (workingDir != null) it.workingDirectory(workingDir) else it }
+          .eelIt()
       }
     }
+    catch (e: IOException) {
+      throw ExecutionException(e.message, e)
+    }
+
+    LOG.info("$this: starting LSP server via Eel: ${commandLine.exePath}")
+    return object : OSProcessHandler(eelProcess.convertToJavaProcess(), commandLine.commandLineString, Charsets.UTF_8) {
+      override fun readerOptions(): BaseOutputReader.Options = lspReaderOptions()
+    }
+  }
+
+  private fun lspReaderOptions(): BaseOutputReader.Options = object : BaseOutputReader.Options() {
+    override fun policy(): BaseDataReader.SleepingPolicy = forMostlySilentProcess().policy()
+
+    // Must not lose '\r' in "\r\n" line endings. They affect char count, which must match `Content-Length`
+    override fun splitToLines(): Boolean = false
   }
 
   /**
@@ -142,9 +208,26 @@ abstract class LspClientDescriptor protected constructor(
    * Returns a [DocumentUri](https://microsoft.github.io/language-server-protocol/specification/#documentUri), which can be used in various
    * requests to the LSP server.
    * The default implementation simply calls [getFilePath] and converts it to `file://...` URI.
+   * For a file inside a jar, it produces a `jar:///path/to.jar!/path/inside.jar` URI, symmetric to [findFileByUri].
    */
   open fun getFileUri(file: VirtualFile): String {
-    val escapedPath = URLUtil.encodePath(getFilePath(file))
+    if (file.fileSystem is JarFileSystem) {
+      val path = file.path
+      val separatorIndex = path.indexOf(URLUtil.JAR_SEPARATOR)
+      if (separatorIndex > 0) {
+        // route the jar's own path through getFilePath, so a WSL or Docker server receives a path it can read
+        val localJar = JarFileSystem.getInstance().getLocalByEntry(file)
+        val jarPath = localJar?.let { getFilePath(it) } ?: path.take(separatorIndex)
+        val jarUri = localFileUri(jarPath)
+        val escapedInJarPath = URLUtil.encodePath(path.substring(separatorIndex + URLUtil.JAR_SEPARATOR.length))
+        return URLUtil.JAR_PROTOCOL + jarUri.removePrefix(URLUtil.FILE_PROTOCOL) + URLUtil.JAR_SEPARATOR + escapedInJarPath
+      }
+    }
+    return localFileUri(getFilePath(file))
+  }
+
+  private fun localFileUri(path: String): String {
+    val escapedPath = URLUtil.encodePath(path)
     val url = VirtualFileManager.constructUrl(URLUtil.FILE_PROTOCOL, escapedPath)
     val uri = VfsUtil.toUri(url)?.toString() ?: url
     return lowercaseWindowsDriveAndEscapeColon(uri)
@@ -171,23 +254,31 @@ abstract class LspClientDescriptor protected constructor(
   /**
    * @see getFileUri
    */
-  protected open fun getFilePath(file: VirtualFile): String = file.path
+  // note: currently both overriders of this method JSNodeLspClientDescriptor and TailwindLspClientDescriptor are not EEL-compatible.
+  @ApiStatus.Internal
+  open fun getFilePath(file: VirtualFile): String {
+    val descriptor = project.getEelDescriptor()
+    if (descriptor !is LocalEelDescriptor) {
+      val path = runCatching { Path.of(file.path).asEelPath().toString() }.getOrNull()
+      if (path != null) {
+        return path
+      }
+    }
+    return file.path
+  }
 
   /**
-   * Extracts a file path from [fileUri] and calls [findLocalFileByPath]. Respects only `file://...` URIs.
+   * Extracts a file path from [fileUri] and calls [findLocalFileByPath] or [findFileInJar].
+   * Respects only `file://...` URIs and `jar:///path/to.jar!/path/inside.jar` URIs (the format the JetBrains language servers use for
+   * library sources).
    * @param fileUri a [DocumentUri](https://microsoft.github.io/language-server-protocol/specification/#documentUri) received from the LSP
    *                server within some response or notification
    */
   open fun findFileByUri(fileUri: String): VirtualFile? {
-    val badWslUriStart = "file:///wsl$/"
-    val fixedFileUri = when {
-      fileUri.startsWith(badWslUriStart) -> "file:////wsl$/${fileUri.substring(badWslUriStart.length)}"
-      else -> fileUri
-    }
-
     return try {
-      val uri = URI(fixedFileUri)
-      if (URLUtil.FILE_PROTOCOL != uri.scheme) {
+      val uri = URI(fileUri)
+      val scheme = uri.scheme
+      if (URLUtil.FILE_PROTOCOL != scheme && URLUtil.JAR_PROTOCOL != scheme) {
         LOG.warn("Unexpected URI scheme: $fileUri")
         return null
       }
@@ -195,6 +286,15 @@ abstract class LspClientDescriptor protected constructor(
       if (path == null) {
         LOG.warn("Unexpected URI (no path): $fileUri")
         return null
+      }
+      if (URLUtil.JAR_PROTOCOL == scheme) {
+        if (!path.contains(URLUtil.JAR_SEPARATOR)) {
+          LOG.warn("Unexpected jar URI (no ${URLUtil.JAR_SEPARATOR} separator): $fileUri")
+          return null
+        }
+        // `URI.path` keeps a leading slash before a Windows drive; `JarFileSystem`, unlike `LocalFileSystem`, does not strip it
+        val jarPath = if (path.startsWith('/') && OSAgnosticPathUtil.startsWithWindowsDrive(path.substring(1))) path.substring(1) else path
+        return findFileInJar(jarPath)
       }
       findLocalFileByPath(path)
     }
@@ -205,9 +305,39 @@ abstract class LspClientDescriptor protected constructor(
   }
 
   /**
+   * @param path a [JarFileSystem]-style path: `/path/to.jar!/path/inside.jar`
    * @see findFileByUri
    */
-  protected open fun findLocalFileByPath(path: String): VirtualFile? = LocalFileSystem.getInstance().findFileByPath(path)
+  protected open fun findFileInJar(path: String): VirtualFile? {
+    val separatorIndex = path.indexOf(URLUtil.JAR_SEPARATOR)
+    if (separatorIndex > 0) {
+      // resolve the jar's own path through findLocalFileByPath, symmetric to the mapping in getFileUri
+      val localJar = findLocalFileByPath(path.take(separatorIndex))
+      val jarRoot = localJar?.let { JarFileSystem.getInstance().getJarRootForLocalFile(it) }
+      if (jarRoot != null) {
+        val inJarPath = path.substring(separatorIndex + URLUtil.JAR_SEPARATOR.length)
+        return if (inJarPath.isEmpty()) jarRoot else jarRoot.findFileByRelativePath(inJarPath)
+      }
+    }
+    val jarFileSystem = JarFileSystem.getInstance()
+    return jarFileSystem.findFileByPath(path) ?: jarFileSystem.refreshAndFindFileByPath(path)
+  }
+
+  /**
+   * @see findFileByUri
+   */
+  protected open fun findLocalFileByPath(path: String): VirtualFile? {
+    val descriptor = project.getEelDescriptor()
+    if (descriptor !is LocalEelDescriptor) {
+      val file = runCatching {
+        LocalFileSystem.getInstance().findFileByPath(EelPath.parse(path, descriptor).asNioPath().toString())
+      }.getOrNull()
+      if (file != null) {
+        return file
+      }
+    }
+    return LocalFileSystem.getInstance().findFileByPath(path)
+  }
 
   /**
    * Returns a `languageId` field of the [TextDocumentItem](https://microsoft.github.io/language-server-protocol/specification#textDocumentItem) class,

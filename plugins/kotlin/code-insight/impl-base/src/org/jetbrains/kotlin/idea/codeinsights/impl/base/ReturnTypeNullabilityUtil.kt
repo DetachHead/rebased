@@ -1,15 +1,16 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.kotlin.idea.codeinsights.impl.base
 
-import org.jetbrains.kotlin.analysis.api.KaExperimentalApi
 import org.jetbrains.kotlin.analysis.api.KaSession
-import org.jetbrains.kotlin.analysis.api.components.expressionType
-import org.jetbrains.kotlin.analysis.api.components.isNullable
-import org.jetbrains.kotlin.analysis.api.components.resolveSymbol
+import org.jetbrains.kotlin.analysis.api.expressions.expressionType
+import org.jetbrains.kotlin.analysis.api.resolution.resolveSuccessfulSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaPropertySymbol
 import org.jetbrains.kotlin.analysis.api.symbols.symbol
 import org.jetbrains.kotlin.analysis.api.types.KaType
+import org.jetbrains.kotlin.analysis.api.types.isNullable
 import org.jetbrains.kotlin.idea.search.KotlinSearchUsagesSupport.SearchUtils.isOverridable
+import org.jetbrains.kotlin.load.java.JSPECIFY_NULLABLE_ANNOTATION_FQ_NAME
+import org.jetbrains.kotlin.load.java.JSPECIFY_OLD_NULLABLE_ANNOTATION_FQ_NAME
 import org.jetbrains.kotlin.name.JvmStandardClassIds.TRANSIENT_ANNOTATION_FQ_NAME
 import org.jetbrains.kotlin.psi.KtBlockExpression
 import org.jetbrains.kotlin.psi.KtCallableDeclaration
@@ -46,20 +47,26 @@ object ReturnTypeNullabilityUtil {
             else -> return false
         }
 
-        if (actualReturnTypes.isEmpty() || actualReturnTypes.any { it.isNullable }) return false
+        if (actualReturnTypes.isEmpty()) return false
+        if (actualReturnTypes.any { it.isNullable || it.carriesJSpecifyNullableAnnotation() }) return false
 
         return true
     }
 }
 
-@OptIn(KaExperimentalApi::class)
+context(_: KaSession)
+private fun KaType.carriesJSpecifyNullableAnnotation() = annotations.classIds.any {
+    val fqName = it.asSingleFqName()
+    fqName == JSPECIFY_NULLABLE_ANNOTATION_FQ_NAME || fqName == JSPECIFY_OLD_NULLABLE_ANNOTATION_FQ_NAME
+}
+
 context(_: KaSession)
 private fun actualReturnTypes(
     expression: KtExpression,
     declaration: KtDeclaration,
 ): List<KaType> {
     val returnTypes = expression.collectDescendantsOfType<KtReturnExpression> {
-        it.resolveSymbol() == declaration.symbol
+        it.resolveSuccessfulSymbol() == declaration.symbol
     }.map {
         it.returnedExpression?.expressionType
     }

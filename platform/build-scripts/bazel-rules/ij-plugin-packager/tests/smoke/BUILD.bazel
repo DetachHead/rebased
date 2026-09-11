@@ -1,0 +1,101 @@
+load("@rules_jvm//:jvm.bzl", "jvm_library")
+load("//platform/build-scripts/bazel-rules:ij_plugin.bzl", "ij_plugin")
+load("//platform/build-scripts/bazel-rules:ij_plugin_module.bzl", "ij_plugin_module")
+load(":build_settings_test.bzl", "ij_plugin_settings_test_target")
+
+# A minimal plugin used to check that `ij_plugin` rule and the packager worker actually work.
+
+jvm_library(
+    name = "descriptor-module",
+    module_name = "intellij.ijPluginPackagerSmoke",
+    resource_strip_prefix = "descriptor",
+    resources = glob(["descriptor/**/*"]),
+)
+
+jvm_library(
+    name = "embedded-content-module",
+    module_name = "intellij.ijPluginPackagerSmoke.embedded",
+    resource_strip_prefix = "embedded",
+    resources = glob(["embedded/**/*"]),
+)
+
+jvm_library(
+    name = "optional-content-module",
+    module_name = "intellij.ijPluginPackagerSmoke.optional",
+    resource_strip_prefix = "optional",
+    resources = glob(["optional/**/*"]),
+)
+
+ij_plugin_module(
+    name = "library-content-module",
+    module_name = "intellij.ijPluginPackagerSmoke.library",
+    packed_deps = [
+        "@lib//:libraries-asm-tools-asm-tools",  # java_library
+        "@lib//:libraries-assertj-core-assert_j",  # jvm_import
+    ],
+    resource_strip_prefix = "library",
+    resources = glob(["library/**/*"]),
+)
+
+ij_plugin(
+    name = "smoke-plugin",
+    descriptor_module = ":descriptor-module",
+    content_modules = [
+        ":embedded-content-module",
+        ":optional-content-module",
+        ":library-content-module_plugin_module",
+    ],
+)
+
+ij_plugin(
+    name = "smoke-plugin-with-restricted-compatibility-range",
+    descriptor_module = ":descriptor-module",
+    content_modules = [
+        ":embedded-content-module",
+        ":optional-content-module",
+        ":library-content-module_plugin_module",
+    ],
+    until_build = "$since_build",
+)
+
+ij_plugin_settings_test_target(
+    name = "smoke-plugin-default-settings",
+    plugin = ":smoke-plugin",
+)
+
+ij_plugin_settings_test_target(
+    name = "smoke-plugin-nightly-settings",
+    ide_build_number = "263.12345",
+    ide_stability_level = "nightly",
+    plugin = ":smoke-plugin",
+)
+
+ij_plugin_settings_test_target(
+    name = "smoke-plugin-eap-settings",
+    ide_build_number = "263.1234.56",
+    ide_stability_level = "EAP",
+    plugin = ":smoke-plugin",
+)
+
+ij_plugin_settings_test_target(
+    name = "smoke-plugin-release-settings",
+    ide_build_number = "263.12345.67",
+    ide_stability_level = "release",
+    plugin = ":smoke-plugin",
+    plugin_version = "1.2.3",
+)
+
+ij_plugin_settings_test_target(
+    name = "smoke-plugin-exact-settings",
+    force_exact_build_compatibility = True,
+    ide_build_number = "263.12345.67",
+    ide_stability_level = "EAP",
+    plugin = ":smoke-plugin",
+)
+
+ij_plugin_settings_test_target(
+    name = "smoke-plugin-with-restricted-compatibility-range-in-release",
+    ide_build_number = "263.12345.67",
+    ide_stability_level = "release",
+    plugin = ":smoke-plugin-with-restricted-compatibility-range",
+)

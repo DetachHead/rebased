@@ -94,7 +94,7 @@ public final class ImmediatePainter {
   }
 
   boolean paint(final Graphics g, final EditorActionPlan plan) {
-    if (ENABLED.asBoolean() && canPaintImmediately(myEditor) && myEditor.myAdView == null) {
+    if (ENABLED.asBoolean() && canPaintImmediately(myEditor)) {
       if (plan.getCaretShift() != 1) return false;
 
       final List<EditorActionPlan.Replacement> replacements = plan.getReplacements();
@@ -198,7 +198,7 @@ public final class ImmediatePainter {
 
     Caret caret = editor.getCaretModel().getPrimaryCaret();
     //noinspection ConstantConditions
-    final float caretWidth = isBlockCursor ? editor.getCaretLocations(false)[0].myWidth
+    final float caretWidth = isBlockCursor ? editor.getCaretLocations(false)[0].getWidth()
                                          : JBUIScale.scale(caret.getVisualAttributes().getWidth(settings.getLineCursorWidth())) * myEditor.getScale();
     final float caretShift = isBlockCursor ? 0 : caretWidth <= 1 ? 0 : 1 / JBUIScale.sysScale(g);
     final Rectangle2D caretRectangle = new Rectangle2D.Float(p2x + width2 - caretShift, p2y - topOverhang,

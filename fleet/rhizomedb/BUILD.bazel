@@ -1,8 +1,28 @@
+load("@community//fleet/build:fleet.bzl", "fleet_wasmjs_module")
 load("@rules_jvm//:jvm.bzl", "jvm_library")
 load("//build:compiler-options.bzl", "create_kotlinc_options")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
+
+fleet_wasmjs_module(
+    name = "wasmjs_module",
+    kotlinc_opts = ":custom_rhizomedb",
+    module_name = "fleet.rhizomedb",
+    visibility = ["//visibility:public"],
+    deps = [
+        "@community//fleet/fastutil:wasmjs_module_lib",
+        "@community//fleet/multiplatform.shims:wasmjs_module_lib",
+        "@community//fleet/openmap:wasmjs_module_lib",
+        "@community//fleet/radixTrie:wasmjs_module_lib",
+        "@community//fleet/util/core:wasmjs_module_lib",
+        "@kmp_deps//:org_jetbrains_annotations",
+        "@kmp_deps//:org_jetbrains_kotlin_kotlin_stdlib",
+        "@kmp_deps//:org_jetbrains_kotlinx_kotlinx_collections_immutable",
+        "@kmp_deps//:org_jetbrains_kotlinx_kotlinx_serialization_core",
+        "@kmp_deps//:org_jetbrains_kotlinx_kotlinx_serialization_json",
+    ],
+)
 
 ### auto-generated section `build fleet.rhizomedb` start
-
 create_kotlinc_options(
     name = "custom_rhizomedb",
     opt_in = [
@@ -14,6 +34,7 @@ create_kotlinc_options(
     x_context_parameters = True,
     x_jvm_default = "all-compatibility",
     x_lambdas = "class",
+    x_wasm_kclass_fqn = True,
 )
 
 jvm_library(
@@ -40,13 +61,15 @@ jvm_library(
         "//fleet/radixTrie",
         "@lib//:kotlin-stdlib",
         "@lib//:kotlinx-collections-immutable",
-        "@lib//:jetbrains-annotations",
+        "//libraries/jetbrains/annotations",
         "@lib//:kotlinx-serialization-core",
         "@lib//:kotlinx-serialization-json",
         "//fleet/fastutil",
         "//fleet/openmap",
     ],
 )
+
+content_module_jar(module = ":rhizomedb")
 
 jvm_library(
     name = "rhizomedb_test_lib",
@@ -64,6 +87,7 @@ jvm_library(
         "//fleet/util/core:core_test_lib",
         "//fleet/multiplatform.shims:multiplatform.shims_test_lib",
         "//fleet/radixTrie:radixTrie_test_lib",
+        "//libraries/jetbrains/annotations:annotations_test_lib",
         "//fleet/fastutil:fastutil_test_lib",
         "//fleet/openmap:openmap_test_lib",
     ],
@@ -74,6 +98,8 @@ jvm_library(
 exports_files(
     [
         "fleet.rhizomedb.iml",
+        "resources/fleet.rhizomedb.xml",
+        "module-content.yaml",
     ],
     visibility = ["//visibility:public"],
 )

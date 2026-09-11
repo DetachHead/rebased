@@ -15,8 +15,12 @@ import com.intellij.psi.PsiElement
 import com.intellij.psi.SmartPsiElementPointer
 import com.intellij.psi.codeStyle.CodeStyleManager
 import com.intellij.psi.createSmartPointer
+import com.intellij.psi.search.LocalSearchScope
+import com.intellij.psi.search.PsiSearchHelper
 import com.intellij.psi.util.PsiUtilCore
 import com.intellij.refactoring.RefactoringHelper
+import com.intellij.refactoring.rename.CollisionUsageInfo
+import com.intellij.refactoring.util.RelatedUsageInfo
 import com.intellij.usageView.UsageInfo
 import com.intellij.util.IncorrectOperationException
 import org.jetbrains.kotlin.asJava.unwrapped
@@ -89,10 +93,21 @@ class KotlinOptimizeImportsRefactoringHelper : RefactoringHelper<Set<KtFile>> {
         if (!it.isNonCodeUsage) it.file as? KtFile else null
     }
 
+    /** A rename of such elements cannot change imports, unless collision resolution rewrites references. */
+    private fun isConfinedToLocalScopes(usages: Array<UsageInfo>, elements: List<PsiElement>): Boolean =
+        elements.isNotEmpty() &&
+        elements.all { PsiSearchHelper.getInstance(it.project).getUseScope(it) is LocalSearchScope } &&
+        usages.none { it is CollisionUsageInfo || it is RelatedUsageInfo }
+
     override fun prepareOperation(usages: Array<UsageInfo>, elements: List<PsiElement>): Set<KtFile> {
         return prepareOperation(usages) + elements
             .mapNotNull { it.unwrapped?.containingFile as? KtFile }
             .filter { ProjectFileIndex.getInstance(elements.first().project).isInSourceContent(it.virtualFile) }.toSet()
+    }
+
+    override fun prepareOperation(usages: Array<UsageInfo>, elements: List<PsiElement>, refactoringId: String?): Set<KtFile> {
+        if (refactoringId == "refactoring.rename" && isConfinedToLocalScopes(usages, elements)) return emptySet()
+        return prepareOperation(usages, elements)
     }
 
     override fun performOperation(project: Project, operationData: Set<KtFile>) {

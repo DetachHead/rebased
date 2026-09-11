@@ -4,7 +4,7 @@
     <facet type="kotlin-language" name="Kotlin">
       <configuration version="5" platform="JVM 25" allPlatforms="JVM [25]" useProjectSettings="false">
         <compilerSettings>
-          <option name="additionalArguments" value="-Xjvm-default=all -opt-in=org.jetbrains.kotlin.utils.addToStdlib.UnsafeCastFunction -Xcontext-parameters -opt-in=org.jetbrains.kotlin.analysis.api.KaPlatformInterface -opt-in=org.jetbrains.kotlin.analysis.api.KaContextParameterApi -XXLanguage:+AllowEagerSupertypeAccessibilityChecks -progressive" />
+          <option name="additionalArguments" value="-Xjvm-default=all -opt-in=org.jetbrains.kotlin.utils.addToStdlib.UnsafeCastFunction -Xcontext-parameters -opt-in=org.jetbrains.kotlin.analysis.api.KaExperimentalApi -opt-in=org.jetbrains.kotlin.analysis.api.KaIdeApi -opt-in=org.jetbrains.kotlin.analysis.api.KaPlatformInterface -opt-in=org.jetbrains.kotlin.analysis.api.KaContextParameterApi -XXLanguage:+AllowEagerSupertypeAccessibilityChecks -progressive" />
         </compilerSettings>
         <compilerArguments>
           <stringArguments>
@@ -19,6 +19,7 @@
   <component name="NewModuleRootManager" inherit-compiler-output="true">
     <exclude-output />
     <content url="file://$MODULE_DIR$">
+      <sourceFolder url="file://$MODULE_DIR$/resources" type="java-resource" />
       <sourceFolder url="file://$MODULE_DIR$/src" isTestSource="false" />
     </content>
     <orderEntry type="inheritedJdk" />
@@ -28,8 +29,8 @@
     <orderEntry type="module" module-name="intellij.platform.core" />
     <orderEntry type="library" name="kotlin-stdlib" level="project" />
     <orderEntry type="module" module-name="intellij.kotlin.references" />
-    <orderEntry type="library" name="kotlinc.kotlin-compiler-common" level="project" />
-    <orderEntry type="library" name="kotlinc.kotlin-compiler-fir" level="project" />
+    <orderEntry type="module" module-name="intellij.libraries.kotlinc.kotlin.compiler.common" />
+    <orderEntry type="module" module-name="intellij.libraries.kotlinc.kotlin.compiler.fir" />
     <orderEntry type="module" module-name="intellij.libraries.guava" />
     <orderEntry type="module" module-name="intellij.platform.editor.ui" />
     <orderEntry type="module" module-name="intellij.platform.projectModel" />
@@ -39,13 +40,13 @@
     <orderEntry type="module" module-name="intellij.kotlin.base.plugin" />
     <orderEntry type="module" module-name="intellij.kotlin.base.resources" />
     <orderEntry type="module" module-name="kotlin.fir.frontend-independent" exported="" />
-    <orderEntry type="library" name="kotlinc.analysis-api" level="project" />
-    <orderEntry type="library" name="kotlinc.analysis-api-impl-base" level="project" />
-    <orderEntry type="library" name="kotlinc.analysis-api-k2" level="project" />
-    <orderEntry type="library" name="kotlinc.low-level-api-fir" level="project" />
-    <orderEntry type="library" name="kotlinc.kotlin-scripting-common" level="project" />
-    <orderEntry type="library" name="kotlinc.kotlin-scripting-compiler-impl" level="project" />
-    <orderEntry type="library" name="kotlinc.scripting-compiler-plugin" level="project" />
+    <orderEntry type="module" module-name="intellij.libraries.kotlinc.analysis.api" />
+    <orderEntry type="module" module-name="intellij.libraries.kotlinc.analysis.api.impl.base" />
+    <orderEntry type="module" module-name="intellij.libraries.kotlinc.analysis.api.k2" />
+    <orderEntry type="module" module-name="intellij.libraries.kotlinc.low.level.api.fir" />
+    <orderEntry type="module" module-name="intellij.libraries.kotlinc.kotlin.scripting.common" />
+    <orderEntry type="module" module-name="intellij.libraries.kotlinc.kotlin.scripting.compiler.impl" />
+    <orderEntry type="module" module-name="intellij.libraries.kotlinc.scripting.compiler.plugin" />
     <orderEntry type="module" module-name="intellij.kotlin.base.psi" />
     <orderEntry type="module" module-name="intellij.kotlin.base.kdoc" />
     <orderEntry type="module" module-name="intellij.kotlin.base.indices" />
@@ -68,15 +69,15 @@
     <orderEntry type="module" module-name="intellij.kotlin.uast" scope="RUNTIME" />
     <orderEntry type="module" module-name="intellij.java.analysis" scope="RUNTIME" />
     <orderEntry type="module" module-name="intellij.platform.execution.impl" />
-    <orderEntry type="library" name="kotlinc.analysis-api-platform-interface" level="project" />
-    <orderEntry type="library" scope="RUNTIME" name="kotlinc.symbol-light-classes" level="project" />
+    <orderEntry type="module" module-name="intellij.libraries.kotlinc.analysis.api.platform.interface" />
+    <orderEntry type="module" module-name="intellij.libraries.kotlinc.symbol.light.classes" />
     <orderEntry type="module" module-name="intellij.java.impl" />
     <orderEntry type="module" module-name="intellij.kotlin.analysis.platform" scope="RUNTIME" />
     <orderEntry type="module" module-name="intellij.kotlin.codeInsight.shared" />
     <orderEntry type="module" module-name="intellij.kotlin.codeInsight.utils" />
     <orderEntry type="module" module-name="intellij.platform.lang.core" />
     <orderEntry type="module" module-name="intellij.platform.util.classLoader" />
-    <orderEntry type="library" name="kotlinc.kotlin-jps-common" level="project" />
+    <orderEntry type="module" module-name="intellij.libraries.kotlinc.kotlin.jps.common" />
     <orderEntry type="module" module-name="intellij.kotlin.base.compilerConfiguration" />
     <orderEntry type="module" module-name="intellij.kotlin.codeInsight.overrideImplement" />
     <orderEntry type="module" module-name="intellij.kotlin.compilerPlugins.support.bundled" />

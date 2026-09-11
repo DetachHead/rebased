@@ -27,7 +27,7 @@ import com.intellij.psi.PsiLocalVariable;
 import com.intellij.psi.PsiModifier;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.refactoring.introduceField.BaseExpressionToFieldHandler;
-import com.intellij.refactoring.introduceField.JavaIntroduceFieldService;
+import com.intellij.refactoring.introduceField.JavaIntroduceFieldModCommandService;
 import com.intellij.refactoring.introduceField.LocalToFieldHandler;
 import com.intellij.testFramework.LightJavaCodeInsightTestCase;
 import com.intellij.testFramework.LightProjectDescriptor;
@@ -41,7 +41,7 @@ public class IntroduceFieldWithSetUpInitializationTest extends LightJavaCodeInsi
     public void configureModule(@NotNull Module module, @NotNull ModifiableRootModel model, @NotNull ContentEntry contentEntry) {
       super.configureModule(module, model, contentEntry);
       PsiTestUtil
-        .addProjectLibrary(model, "JUnit4", IntelliJProjectConfiguration.getProjectLibraryClassesRootPaths("JUnit4"));
+        .addProjectLibrary(model, "JUnit4", IntelliJProjectConfiguration.getModuleLibrary("intellij.libraries.junit4", "JUnit4").getClassesPaths());
     }
   };
 
@@ -94,7 +94,7 @@ public class IntroduceFieldWithSetUpInitializationTest extends LightJavaCodeInsi
                                                                             final PsiExpression[] occurences,
                                                                             final boolean isStatic) {
         return new BaseExpressionToFieldHandler.Settings("i", null, occurences, true, false, false,
-                                                         JavaIntroduceFieldService.InitializationPlace.IN_SETUP_METHOD,
+                                                         JavaIntroduceFieldModCommandService.InitializationPlace.IN_SETUP_METHOD,
                                                          PsiModifier.PRIVATE, local, local.getType(), true, (BaseExpressionToFieldHandler.TargetDestination)null, false,
                                                          false);
       }

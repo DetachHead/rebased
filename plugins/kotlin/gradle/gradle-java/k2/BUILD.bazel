@@ -1,8 +1,8 @@
 load("@community//build:tests-options.bzl", "jps_test")
 load("@rules_jvm//:jvm.bzl", "jvm_library")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
 ### auto-generated section `build intellij.kotlin.gradle.java` start
-
 jvm_library(
     name = "kotlin-gradle-java",
     srcs = glob(
@@ -22,12 +22,14 @@ jvm_library(
     deps = [
         # do not sort,
         "@lib//:kotlin-stdlib",
-        "@lib//:kotlinc-kotlin-jps-common",
+        "//libraries/kotlinc/kotlin-jps-common:libraries-kotlinc-kotlin-jps-common",
         "//plugins/kotlin/base/plugin",
         "//plugins/gradle/java",
         "//plugins/kotlin/highlighting/highlighting-k2:kotlin-highlighting",
     ],
 )
+
+content_module_jar(module = ":kotlin-gradle-java")
 
 jvm_library(
     name = "kotlin-gradle-java_test_lib",
@@ -41,6 +43,7 @@ jvm_library(
     runtime_deps = [
         # do not sort,
         ":kotlin-gradle-java",
+        "//libraries/kotlinc/kotlin-jps-common:libraries-kotlinc-kotlin-jps-common_test_lib",
         "//plugins/kotlin/base/plugin:plugin_test_lib",
         "//plugins/gradle/java:java_test_lib",
         "//plugins/kotlin/highlighting/highlighting-k2:kotlin-highlighting_test_lib",
@@ -52,6 +55,7 @@ jvm_library(
 exports_files(
     [
         "intellij.kotlin.gradle.java.iml",
+        "resources/intellij.kotlin.gradle.java.xml",
     ],
     visibility = ["//visibility:public"],
 )

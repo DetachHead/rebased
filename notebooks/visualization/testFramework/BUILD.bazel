@@ -2,7 +2,6 @@ load("@rules_jvm//:jvm.bzl", "jvm_library")
 load("//build:compiler-options.bzl", "create_kotlinc_options")
 
 ### auto-generated section `build intellij.notebooks.visualization.testFramework` start
-
 create_kotlinc_options(
     name = "custom_testFramework",
     opt_in = [
@@ -104,6 +103,7 @@ jvm_library(
 exports_files(
     [
         "intellij.notebooks.visualization.testFramework.iml",
+        "resources/intellij.notebooks.visualization.testFramework.xml",
     ],
     visibility = ["//visibility:public"],
 )

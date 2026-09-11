@@ -53,7 +53,8 @@ import org.jetbrains.kotlin.idea.fir.completion.test.handlers.AbstractHighLevelJ
 import org.jetbrains.kotlin.idea.fir.completion.test.handlers.AbstractHighLevelSmartCompletionHandlerTest
 import org.jetbrains.kotlin.idea.fir.completion.test.handlers.AbstractK2CompletionCharFilterTest
 import org.jetbrains.kotlin.idea.fir.completion.test.handlers.AbstractK2CompletionIncrementalResolveTest
-import org.jetbrains.kotlin.idea.fir.completion.wheigher.AbstractHighLevelWeigherTest
+import org.jetbrains.kotlin.idea.fir.completion.wheigher.AbstractBasicCompletionWeigherTest
+import org.jetbrains.kotlin.idea.fir.completion.wheigher.AbstractSmartCompletionWeigherTest
 import org.jetbrains.kotlin.idea.fir.copyPaste.AbstractFirKotlinToKotlinMultiDollarStringsCopyPasteTest
 import org.jetbrains.kotlin.idea.fir.copyPaste.AbstractFirLiteralKotlinToKotlinCopyPasteTest
 import org.jetbrains.kotlin.idea.fir.copyPaste.AbstractFirLiteralTextToKotlinCopyPasteTest
@@ -101,6 +102,7 @@ import org.jetbrains.kotlin.idea.fir.resolve.AbstractFirReferenceResolveWithComp
 import org.jetbrains.kotlin.idea.fir.resolve.AbstractFirReferenceResolveWithCompilerPluginsWithCompiledLibTest
 import org.jetbrains.kotlin.idea.fir.resolve.AbstractFirReferenceResolveWithCompilerPluginsWithCrossLibTest
 import org.jetbrains.kotlin.idea.fir.resolve.AbstractFirReferenceResolveWithCompilerPluginsWithLibTest
+import org.jetbrains.kotlin.idea.fir.resolve.AbstractFirReferenceResolveWithCompilerPluginsInSourceTest
 import org.jetbrains.kotlin.idea.fir.resolve.AbstractFirReferenceResolveWithCrossLibTest
 import org.jetbrains.kotlin.idea.fir.resolve.AbstractFirReferenceResolveWithLibTest
 import org.jetbrains.kotlin.idea.fir.resolve.AbstractFirReferenceToCompiledKotlinResolveInJavaTest
@@ -136,6 +138,7 @@ import org.jetbrains.kotlin.testGenerator.model.GroupCategory.J2K
 import org.jetbrains.kotlin.testGenerator.model.GroupCategory.NAVIGATION
 import org.jetbrains.kotlin.testGenerator.model.GroupCategory.QUICKFIXES
 import org.jetbrains.kotlin.testGenerator.model.GroupCategory.RENAME_REFACTORING
+import org.jetbrains.kotlin.testGenerator.model.Junit5Suite
 import org.jetbrains.kotlin.testGenerator.model.MutableTSuite
 import org.jetbrains.kotlin.testGenerator.model.Patterns
 import org.jetbrains.kotlin.testGenerator.model.Patterns.DIRECTORY
@@ -272,6 +275,10 @@ private fun assembleWorkspace(): TWorkspace = workspace() {
 
         testClass<AbstractFirReferenceResolveWithCompilerPluginsWithCrossLibTest> {
             model("resolve/referenceWithCompilerPluginsWithLib", pattern = DIRECTORY, isRecursive = false)
+        }
+
+        testClass<AbstractFirReferenceResolveWithCompilerPluginsInSourceTest> {
+            model("resolve/referenceWithCompilerPluginsInSource", pattern = DIRECTORY, isRecursive = false)
         }
 
         testClass<AbstractReferenceResolveInLibrarySourcesFirTest> {
@@ -528,8 +535,12 @@ private fun assembleWorkspace(): TWorkspace = workspace() {
             model("dumb")
         }
 
-        testClass<AbstractHighLevelWeigherTest> {
+        testClass<AbstractBasicCompletionWeigherTest> {
             model("weighers/basic", pattern = KT_OR_KTS_WITHOUT_DOTS)
+        }
+
+        testClass<AbstractSmartCompletionWeigherTest> {
+            model("weighers/smart", pattern = KT_OR_KTS_WITHOUT_DOTS)
         }
 
         testClass<AbstractHighLevelMultiFileJvmBasicCompletionTest> {
@@ -615,12 +626,19 @@ private fun assembleWorkspace(): TWorkspace = workspace() {
             model("configurator/jvm", pattern = DIRECTORY, isRecursive = false, testMethodName = "doTestWithMaven")
         }
 
-        testClass<AbstractKotlinMavenInspectionTest> {
-            val mavenInspections = "maven-inspections"
-            val pattern = Patterns.forRegex("^([\\w\\-]+).xml$")
-            testDataRoot.resolve(mavenInspections).listFiles()!!.onEach { check(it.isDirectory) }.sorted().forEach {
-                model("$mavenInspections/${it.name}", pattern = pattern, flatten = true)
-            }
+        testClass<AbstractKotlinMavenInspectionTest>(
+            junit5 = Junit5Suite(
+                constructorParams = "mavenVersion: String, modelVersion: String",
+                superConstructorArgs = "mavenVersion, modelVersion",
+                classAnnotations = listOf("ParameterizedClass", "ArgumentsSource(MavenVersionArguments::class)"),
+                imports = listOf(
+                    "com.intellij.maven.testFramework.fixtures.MavenVersionArguments",
+                    "org.junit.jupiter.params.ParameterizedClass",
+                    "org.junit.jupiter.params.provider.ArgumentsSource",
+                ),
+            ),
+        ) {
+            model("maven-inspections", pattern = Patterns.forRegex("^([\\w\\-]+).xml$"), isRecursive = false)
         }
     }
 

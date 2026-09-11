@@ -13,7 +13,6 @@ import kotlinx.collections.immutable.persistentMapOf
 import kotlinx.collections.immutable.plus
 import org.jetbrains.annotations.ApiStatus.Internal
 import org.jetbrains.annotations.ApiStatus.Obsolete
-import org.jetbrains.annotations.TestOnly
 import org.jetbrains.intellij.build.BuildContext
 import org.jetbrains.intellij.build.BuildOptions
 import org.jetbrains.intellij.build.CustomAssetDescriptor
@@ -43,16 +42,17 @@ class PluginLayout(val mainModule: String, @Internal @JvmField val auto: Boolean
   private val mainJarNameWithoutExtension: String = convertModuleNameToFileName(mainModule)
   private var mainJarName = "$mainJarNameWithoutExtension.jar"
 
-  /** module name to name of the library */
+  /** module name to file names of that module's own libraries which must not be packed */
   @JvmField
-  internal val excludedLibraries: MutableMap<String?, MutableList<String>> = HashMap()
+  internal val excludedModuleLibraries: MutableMap<String, MutableList<String>> = HashMap()
+
+  /** names of project libraries which must not be packed into this plugin */
+  @JvmField
+  internal val excludedProjectLibraries: MutableSet<String> = LinkedHashSet()
 
   internal fun excludeProjectLibrary(libraryName: String) {
-    excludedLibraries.computeIfAbsent(null) { ArrayList() }.add(libraryName)
+    excludedProjectLibraries.add(libraryName)
   }
-
-  @TestOnly
-  fun isLibraryExcluded(name: String): Boolean = excludedLibraries.get(null)?.contains(name) == true
 
   var directoryName: String = mainJarNameWithoutExtension
     private set
@@ -61,9 +61,51 @@ class PluginLayout(val mainModule: String, @Internal @JvmField val auto: Boolean
 
   @Internal
   @JvmField
-  var rawPluginXmlPatcher: (String, BuildContext) -> String = { s, _ -> s }
+  var rawPluginXmlPatcher: (String, BuildContext) -> String = IDENTITY_DESCRIPTOR_PATCHER
 
-  var pluginXmlPatcher: (String, BuildContext) -> String = { s, _ -> s }
+  var pluginXmlPatcher: (String, BuildContext) -> String = IDENTITY_DESCRIPTOR_PATCHER
+
+  /**
+   * Whether the layout replaces the raw descriptor text before the stamps run - see [rawPluginXmlPatcher].
+   *
+   * A reader cannot compare the field against the default itself, because the default is one shared instance a caller
+   * outside this file cannot name. The dev-distribution descriptor plan needs the answer: a plugin whose raw text is
+   * patched by code cannot be produced by an action that reads a plan.
+   */
+  val hasRawPluginXmlPatcher: Boolean
+    get() = rawPluginXmlPatcher !== IDENTITY_DESCRIPTOR_PATCHER
+
+  /** [hasRawPluginXmlPatcher] for [pluginXmlPatcher], the post-stamp half. */
+  val hasPluginXmlPatcher: Boolean
+    get() = pluginXmlPatcher !== IDENTITY_DESCRIPTOR_PATCHER
+
+  /**
+   * The raw text patch as data, or `null` when the layout states it as code - see [DescriptorMarkerPatcher].
+   *
+   * The dev-distribution descriptor plan states a marker list and holds a plugin out when this answer is `null`.
+   *
+   * The empty list for a layout that patches nothing, because that is the table such a layout states.
+   */
+  val descriptorMarkers: List<DescriptorMarker>?
+    get() = when {
+      !hasRawPluginXmlPatcher -> emptyList()
+      else -> (rawPluginXmlPatcher as? DescriptorMarkerPatcher)?.markers
+    }
+
+  /** Whether the layout stamps a version of its own instead of the IDE build version - see [versionEvaluator]. */
+  val hasCustomVersion: Boolean
+    get() = versionEvaluator !== PLUGIN_VERSION_AS_IDE
+
+  /**
+   * The custom version as data, or `null` when the layout states it as code - see [DataPluginVersionEvaluator].
+   *
+   * The empty string for a layout that takes the IDE build version, because that is the suffix such a layout appends.
+   */
+  val versionSuffix: String?
+    get() = when {
+      !hasCustomVersion -> ""
+      else -> (versionEvaluator as? DataPluginVersionEvaluator)?.versionSuffix
+    }
 
   var directoryNameSetExplicitly: Boolean = false
   var bundlingRestrictions: PluginBundlingRestrictions = PluginBundlingRestrictions.NONE
@@ -144,8 +186,26 @@ class PluginLayout(val mainModule: String, @Internal @JvmField val auto: Boolean
   @JvmField
   internal var modulesWithExcludedModuleLibraries: Set<String> = emptySet()
 
+  /**
+   * Modules whose module libraries this layout packs itself - see `doNotCopyModuleLibrariesAutomatically`.
+   *
+   * A declared-input question, which is why it is readable from outside. `JarPackager` does not copy these libraries
+   * into the module's jar, so nothing about the module's own bytes says they are needed; a custom asset or generator
+   * reads them instead (`layoutDatabaseDialects` zips the dialect jars this way). A dev-distribution fragment must
+   * therefore still declare them - and a prepacked member makes that explicit, because the hand-off takes the module's
+   * libraries out of the declaration the report drove.
+   */
+  @Internal
+  fun getModulesWithExcludedModuleLibraries(): Set<String> = modulesWithExcludedModuleLibraries
+
   internal var resourceGenerators: PersistentList<ResourceGenerator> = persistentListOf()
     private set
+
+  private val resourceGeneratorProjectLibraries = LinkedHashSet<String>()
+
+  /** Project-library inputs read by opaque [resourceGenerators], which cannot be inferred from packaged output. */
+  @Internal
+  fun getResourceGeneratorProjectLibraries(): Set<String> = resourceGeneratorProjectLibraries
 
   internal var customAssets: PersistentList<CustomAssetDescriptor> = persistentListOf()
     private set
@@ -189,10 +249,8 @@ class PluginLayout(val mainModule: String, @Internal @JvmField val auto: Boolean
      * [org.jetbrains.intellij.build.productLayout.ProductModulesLayout.bundledPluginModules],
      * [org.jetbrains.intellij.build.productLayout.ProductModulesLayout.pluginModulesToPublish] list.
      *
-     * Note that project-level libraries on which the plugin modules depend are automatically put in the 'IDE_HOME/lib' directory
-     * for all IDEs that are compatible with the plugin.
-     * If this isn't desired (e.g., a library is used in a single plugin only or isn't bundled with IDEs to reduce the distribution size),
-     * you may invoke [PluginLayoutSpec.withProjectLibrary] to include such a library to the plugin distribution.
+     * Note that a project-level library on which a plugin module depends is not packed implicitly - it must be provided
+     * by the platform or by a library module (`intellij.libraries.*`) declared in the plugin content, otherwise the build fails.
      *
      * @param mainModuleName name of the module containing META-INF/plugin.xml file of the plugin
      */
@@ -248,8 +306,8 @@ class PluginLayout(val mainModule: String, @Internal @JvmField val auto: Boolean
     }
 
     /**
-     * Project-level library is included in the plugin by default, if not yet included in the platform.
      * Direct main module dependencies in the same module group are included automatically.
+     * Project-level libraries are not - see the note in [plugin].
      */
     fun pluginAuto(moduleNames: List<String>): PluginLayout {
       val layout = PluginLayout(mainModule = moduleNames.first(), auto = true)
@@ -305,10 +363,18 @@ class PluginLayout(val mainModule: String, @Internal @JvmField val auto: Boolean
      */
     val bundlingRestrictions: PluginBundlingRestrictions.Builder = PluginBundlingRestrictions.Builder()
 
+    /**
+     * Excludes a module-level library from the plugin. This shouldn't be used in new code; mark the dependency as 'Provided' instead.
+     */
+    @Obsolete
     fun excludeModuleLibrary(libraryName: String, moduleName: String) {
-      layout.excludedLibraries.computeIfAbsent(moduleName) { ArrayList() }.add(libraryName)
+      layout.excludedModuleLibraries.computeIfAbsent(moduleName) { ArrayList() }.add(libraryName)
     }
 
+    /**
+     * Excludes a module-level library from the plugin. This shouldn't be used in new code; mark the dependency as 'Provided' instead.
+     */
+    @Obsolete
     fun excludeProjectLibrary(libraryName: String) {
       layout.excludeProjectLibrary(libraryName)
     }
@@ -322,6 +388,11 @@ class PluginLayout(val mainModule: String, @Internal @JvmField val auto: Boolean
     }
 
     fun withGeneratedResources(generator: ResourceGenerator) {
+      withGeneratedResources(inputProjectLibraries = emptyList(), generator = generator)
+    }
+
+    fun withGeneratedResources(inputProjectLibraries: Collection<String>, generator: ResourceGenerator) {
+      layout.resourceGeneratorProjectLibraries.addAll(inputProjectLibraries)
       layout.resourceGenerators += generator
     }
 
@@ -330,7 +401,7 @@ class PluginLayout(val mainModule: String, @Internal @JvmField val auto: Boolean
         override val platformSpecific: SupportedDistribution?
           get() = null
 
-        override suspend fun getSources(context: BuildContext): Sequence<LazySource>? {
+        override fun getSources(context: BuildContext): Sequence<LazySource>? {
           return sequenceOf(lazySourceSupplier(context) ?: return null)
         }
       }
@@ -341,7 +412,7 @@ class PluginLayout(val mainModule: String, @Internal @JvmField val auto: Boolean
         override val platformSpecific: SupportedDistribution
           get() = platform
 
-        override suspend fun getSources(context: BuildContext): Sequence<LazySource>? {
+        override fun getSources(context: BuildContext): Sequence<LazySource>? {
           return sequenceOf(lazySourceSupplier(context) ?: return null)
         }
       }
@@ -364,6 +435,7 @@ class PluginLayout(val mainModule: String, @Internal @JvmField val auto: Boolean
      * Pattern is relative to plugin root directory.
      * Example: withExecutable("lib/native/fsnotifier")
      */
+    @Deprecated("Use per-platform [withPlatformExecutable] instead")
     fun withExecutable(pattern: String) {
       val allPlatforms = listOf(
         SupportedDistribution(OsFamily.LINUX, JvmArchitecture.x64, LinuxLibcImpl.GLIBC),
@@ -396,6 +468,10 @@ class PluginLayout(val mainModule: String, @Internal @JvmField val auto: Boolean
 
     fun withRawPluginXmlPatcher(pluginXmlPatcher: (String, BuildContext) -> String) {
       layout.rawPluginXmlPatcher = pluginXmlPatcher
+    }
+
+    fun withPluginXmlPatcher(pluginXmlPatcher: (String, BuildContext) -> String) {
+      layout.pluginXmlPatcher = pluginXmlPatcher
     }
 
     fun withDeprecatedPostProcessor(layoutPatcher: LayoutPatcher, pluginXmlPatcher: DeprecatedPostScrambleProcessor) {
@@ -546,7 +622,11 @@ class PluginLayout(val mainModule: String, @Internal @JvmField val auto: Boolean
     /**
      * This plugin will be compatible with IDE versions with the same two digits of the build number.
      * See [org.jetbrains.intellij.build.CompatibleBuildRange.RESTRICTED_TO_SAME_RELEASE]
+     *
+     * It's better not to use this option: such a compatibility range is already used for EAP builds; for release builds it's better to keep the plugin compatible with newer IDE
+     * builds so users won't be forced to update it when installing a bug-fix update even if nothing is changed in the plugin.
      */
+    @Obsolete
     fun pluginCompatibilitySameRelease() {
       layout.pluginCompatibilitySameRelease = true
     }
@@ -699,24 +779,70 @@ class PluginLayout(val mainModule: String, @Internal @JvmField val auto: Boolean
 
 private val PLUGIN_VERSION_AS_IDE = PluginVersionEvaluator { _, ideBuildVersion, _ -> PluginVersionEvaluatorResult(pluginVersion = ideBuildVersion) }
 
+/**
+ * The default of both descriptor patchers, as one instance.
+ *
+ * One instance and not a lambda per layout, so that [PluginLayout.hasRawPluginXmlPatcher] can tell a layout that
+ * declares no patcher from one whose patcher happens to return its input.
+ */
+private val IDENTITY_DESCRIPTOR_PATCHER: (String, BuildContext) -> String = { s, _ -> s }
+
 private const val OS_SPECIFIC_DEPENDENCIES_PLUGIN_XML_PLACEHOLDER: String = "<!-- OS/ARCH-DEPENDENCY-PLACEHOLDER -->"
+
+/**
+ * One replacement of the raw descriptor text: the text that must be there, and what takes its place.
+ *
+ * A pair of strings and not a lambda, so that the dev-distribution descriptor plan can state the replacement as data.
+ * Both producers of a patched descriptor then apply the same pair, and neither runs the layout's Kotlin.
+ */
+class DescriptorMarker(@JvmField val literal: String, @JvmField val replacement: String)
+
+/**
+ * A [PluginLayout.rawPluginXmlPatcher] that states its replacements as [DescriptorMarker] pairs.
+ *
+ * A class and not a lambda, because [PluginLayout.descriptorMarkers] reads the pairs off the layout. A layout whose raw
+ * patch is not a list of replacements keeps a lambda, and the descriptor plan holds that plugin out by name.
+ */
+class DescriptorMarkerPatcher(@JvmField val markers: List<DescriptorMarker>) : (String, BuildContext) -> String {
+  override fun invoke(text: String, context: BuildContext): String {
+    var result = text
+    for (marker in markers) {
+      result = checkedReplace(oldText = result, regex = marker.literal, newText = marker.replacement)
+    }
+    return result
+  }
+}
+
+/**
+ * The `<!-- OS/ARCH-DEPENDENCY-PLACEHOLDER -->` replacement of one (os, arch) plugin variant.
+ *
+ * The one owner of the replacement text. The descriptor plan states `os-arch:<osId>:<marketplaceName>` and both
+ * producers rebuild the text from this function's shape, so a change here reaches every producer at once.
+ */
+fun osArchDescriptorMarker(os: OsFamily, arch: JvmArchitecture): DescriptorMarker = DescriptorMarker(
+  literal = OS_SPECIFIC_DEPENDENCIES_PLUGIN_XML_PLACEHOLDER,
+  replacement = """
+        |<plugin id="com.intellij.modules.os.${os.osId}"/>
+        |<plugin id="com.intellij.modules.arch.${arch.marketplaceName}"/>
+      """.trimMargin(),
+)
 
 fun patchOsSpecificPluginXml(
   spec: PluginLayout.PluginLayoutSpec,
   os: OsFamily,
   arch: JvmArchitecture,
 ) {
-  spec.withRawPluginXmlPatcher { text, _ ->
-    checkedReplace(
-      oldText = text,
-      regex = OS_SPECIFIC_DEPENDENCIES_PLUGIN_XML_PLACEHOLDER,
-      newText = """
-            |<plugin id="com.intellij.modules.os.${os.osId}"/>
-            |<plugin id="com.intellij.modules.arch.${arch.marketplaceName}"/>
-          """.trimMargin(),
-    )
-  }
+  spec.withRawPluginXmlPatcher(DescriptorMarkerPatcher(listOf(osArchDescriptorMarker(os, arch))))
 }
+
+/**
+ * The version of one (os, arch) plugin variant: the IDE build number, then the marketplace os and arch names.
+ *
+ * The one owner of that suffix. Marketplace expects linux/macos/windows for the os and x86_64/x86/arm64/arm32 for the
+ * architecture, which is what [OsFamily.osId] and [JvmArchitecture.marketplaceName] answer.
+ */
+fun osArchPluginVersion(os: OsFamily, arch: JvmArchitecture): DataPluginVersionEvaluator =
+  SuffixedPluginVersion("-${os.osId}-${arch.marketplaceName}")
 
 data class PluginVersionEvaluatorResult(@JvmField val pluginVersion: String, @JvmField val sinceUntil: Pair<String, String>? = null)
 
@@ -724,7 +850,27 @@ data class PluginVersionEvaluatorResult(@JvmField val pluginVersion: String, @Jv
  * Think twice before using this API.
  */
 fun interface PluginVersionEvaluator {
-  suspend fun evaluate(pluginXmlSupplier: suspend () -> String, ideBuildVersion: String, context: BuildContext): PluginVersionEvaluatorResult
+  fun evaluate(pluginXmlSupplier: () -> String, ideBuildVersion: String, context: BuildContext): PluginVersionEvaluatorResult
+}
+
+/**
+ * A [PluginVersionEvaluator] whose answer is the IDE build version plus a fixed suffix.
+ *
+ * The dev-distribution descriptor plan holds no build context and cannot run an evaluator. It reads [versionSuffix]
+ * instead, and both producers of the patched descriptor append that string to the build number they compute.
+ */
+interface DataPluginVersionEvaluator : PluginVersionEvaluator {
+  /** What this evaluator appends to the IDE build version. */
+  val versionSuffix: String
+}
+
+/** [DataPluginVersionEvaluator] with nothing beyond the suffix. */
+class SuffixedPluginVersion(override val versionSuffix: String) : DataPluginVersionEvaluator {
+  override fun evaluate(
+    pluginXmlSupplier: () -> String,
+    ideBuildVersion: String,
+    context: BuildContext,
+  ): PluginVersionEvaluatorResult = PluginVersionEvaluatorResult(pluginVersion = ideBuildVersion + versionSuffix)
 }
 
 private fun convertModuleNameToFileName(moduleName: String): String = moduleName.removePrefix("intellij.").replace('.', '-')

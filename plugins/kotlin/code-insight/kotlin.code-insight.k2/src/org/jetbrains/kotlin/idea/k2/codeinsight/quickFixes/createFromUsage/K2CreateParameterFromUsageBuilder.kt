@@ -12,20 +12,22 @@ import com.intellij.psi.SmartPointerManager
 import com.intellij.psi.SmartPsiElementPointer
 import com.intellij.psi.util.PsiUtil
 import com.intellij.psi.util.findParentOfType
-import org.jetbrains.kotlin.analysis.api.KaExperimentalApi
 import org.jetbrains.kotlin.analysis.api.KaSession
-import org.jetbrains.kotlin.analysis.api.analyze
-import org.jetbrains.kotlin.analysis.api.components.builtinTypes
-import org.jetbrains.kotlin.analysis.api.components.expectedType
-import org.jetbrains.kotlin.analysis.api.components.expressionType
 import org.jetbrains.kotlin.analysis.api.components.returnType
-import org.jetbrains.kotlin.analysis.api.components.semanticallyEquals
-import org.jetbrains.kotlin.analysis.api.components.typeCreator
-import org.jetbrains.kotlin.analysis.api.resolution.singleFunctionCallOrNull
+import org.jetbrains.kotlin.analysis.api.expressions.expectedType
+import org.jetbrains.kotlin.analysis.api.expressions.expressionType
+import org.jetbrains.kotlin.analysis.api.renderer.render
+import org.jetbrains.kotlin.analysis.api.resolution.function
+import org.jetbrains.kotlin.analysis.api.resolution.single
 import org.jetbrains.kotlin.analysis.api.resolution.symbol
+import org.jetbrains.kotlin.analysis.api.resolution.tryResolveCall
+import org.jetbrains.kotlin.analysis.api.session.analyze
 import org.jetbrains.kotlin.analysis.api.types.KaErrorType
 import org.jetbrains.kotlin.analysis.api.types.KaType
+import org.jetbrains.kotlin.analysis.api.types.builtinTypes
+import org.jetbrains.kotlin.analysis.api.types.semanticallyEquals
 import org.jetbrains.kotlin.analysis.api.types.symbol
+import org.jetbrains.kotlin.analysis.api.types.typeCreation.typeCreator
 import org.jetbrains.kotlin.idea.KotlinFileType
 import org.jetbrains.kotlin.idea.base.resources.KotlinBundle
 import org.jetbrains.kotlin.idea.k2.codeinsight.quickFixes.createFromUsage.K2CreateFunctionFromUsageUtil.computeExpectedParams
@@ -104,8 +106,8 @@ object K2CreateParameterFromUsageBuilder {
         val expression = arg.getArgumentExpression()?: return null
         analyze (arg) {
             val callExpression = (arg.parent?.parent as? KtCallElement) ?: return null
-            val call = callExpression.resolveToCall()?.singleFunctionCallOrNull() ?: return null
-            val namedDeclaration = call.partiallyAppliedSymbol.symbol.psi as? KtNamedDeclaration ?: return null
+            val call = callExpression.tryResolveCall()?.single?.function ?: return null
+            val namedDeclaration = call.symbol.psi as? KtNamedDeclaration ?: return null
             val namedDeclClass = if (namedDeclaration is KtConstructor<*>) namedDeclaration.getContainingClassOrObject() else namedDeclaration
             val valVar = if (namedDeclClass is KtClass && (namedDeclClass.isData() || namedDeclClass.isAnnotation()))
                 CreateParameterUtil.ValVar.VAL else CreateParameterUtil.ValVar.NONE
@@ -146,7 +148,6 @@ object K2CreateParameterFromUsageBuilder {
         override fun isAvailable(project: Project, editor: Editor?, file: PsiFile?): Boolean = originalExprPointer.element != null
         override fun getFamilyName(): String = KotlinBundle.message("fix.create.from.usage.family")
 
-        @OptIn(KaExperimentalApi::class)
         override fun generatePreview(
             project: Project,
             editor: Editor,
@@ -164,7 +165,6 @@ object K2CreateParameterFromUsageBuilder {
             return IntentionPreviewInfo.CustomDiff(KotlinFileType.INSTANCE, container.name, "", "$valVar${propertyName.quoteIfNeeded()}: $typeText")
         }
 
-        @OptIn(KaExperimentalApi::class)
         context(_: KaSession)
         private fun getExpectedType(expression: KtExpression): KaType {
             if (expression is KtDestructuringDeclarationEntry) {

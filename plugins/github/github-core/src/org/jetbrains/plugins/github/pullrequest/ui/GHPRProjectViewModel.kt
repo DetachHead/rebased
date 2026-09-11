@@ -23,6 +23,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.jetbrains.annotations.ApiStatus
+import org.jetbrains.plugins.github.api.GHRepositoryCoordinates
 import org.jetbrains.plugins.github.authentication.accounts.GHAccountManager
 import org.jetbrains.plugins.github.authentication.accounts.GithubAccount
 import org.jetbrains.plugins.github.pullrequest.GHRepositoryConnectionManager
@@ -81,7 +82,8 @@ class GHPRProjectViewModel(private val project: Project, parentCs: CoroutineScop
     //TODO: only do when UI is showing
     cs.launchNow {
       singleRepoAndAccountState.collect {
-        if (it != null) {
+        // Skip once connected, else a later re-emission would reconnect and cancel in-flight work.
+        if (it != null && connectionManager.connectionState.value == null) {
           with(vm) {
             repoSelectionState.value = it.first
             accountSelectionState.value = it.second
@@ -95,6 +97,13 @@ class GHPRProjectViewModel(private val project: Project, parentCs: CoroutineScop
 
   private suspend fun connect(repo: GHGitRepositoryMapping, account: GithubAccount) {
     withContext(cs.coroutineContext) {
+      // Compare by repository coordinates, not mapping equality: the same repo can re-resolve to a
+      // structurally different mapping (e.g. after git sync), which would otherwise trigger a needless
+      // reconnect that cancels in-flight work (e.g. a diff load).
+      val current = connectionManager.connectionState.value
+      if (current != null && current.repo.repository == repo.repository && current.account == account) {
+        return@withContext
+      }
       connectionManager.openConnection(repo, account)
       settings.selectedUrlAndAccount = repo.remote.url to account
     }
@@ -121,10 +130,29 @@ class GHPRProjectViewModel(private val project: Project, parentCs: CoroutineScop
     _activationRequests.tryEmit(Unit)
   }
 
-  fun activateAndAwaitProject(action: GHPRConnectedProjectViewModel.() -> Unit) {
+  /**
+   * @param preferredRepoAndAccount connects directly to this repository/account instead of relying on
+   * [selectorVm]'s auto-connect heuristics, which need exactly one known repo/account - not true for a
+   * freshly opened PR worktree. [action] always runs against the vm for [preferredRepoAndAccount], never
+   * a stale one left by a racing heuristic connection.
+   */
+  fun activateAndAwaitProject(
+    preferredRepoAndAccount: Pair<GHRepositoryCoordinates, GithubAccount>? = null,
+    action: GHPRConnectedProjectViewModel.() -> Unit,
+  ) {
     cs.launch {
       _activationRequests.emit(Unit)
-      connectedProjectVm.filterNotNull().first().action()
+      val connectedRepository = preferredRepoAndAccount?.let { (repositoryCoordinates, account) ->
+        val mapping = repositoriesManager.knownRepositoriesState
+          .first { repos -> repos.any { it.repository == repositoryCoordinates } }
+          .find { it.repository == repositoryCoordinates }
+        if (mapping != null) {
+          connect(mapping, account)
+          repositoryCoordinates
+        }
+        else null
+      }
+      connectedProjectVm.filterNotNull().first { connectedRepository == null || it.repository == connectedRepository }.action()
     }
   }
 

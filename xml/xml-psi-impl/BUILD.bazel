@@ -1,7 +1,7 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library", "resourcegroup")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
 ### auto-generated section `build intellij.xml.psi.impl` start
-
 resourcegroup(
     name = "psi-impl_resources",
     srcs = glob(
@@ -64,6 +64,11 @@ jvm_library(
     ],
 )
 
+content_module_jar(
+    libraries = ["@lib//:xml-resolver"],
+    module = ":psi-impl",
+)
+
 jvm_library(
     name = "psi-impl_test_lib",
     testonly = True,
@@ -113,6 +118,8 @@ jvm_library(
 exports_files(
     [
         "intellij.xml.psi.impl.iml",
+        "resources/intellij.xml.psi.impl.xml",
+        "module-content.yaml",
     ],
     visibility = ["//visibility:public"],
 )

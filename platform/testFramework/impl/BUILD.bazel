@@ -1,7 +1,6 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
 
 ### auto-generated section `build intellij.platform.testFramework.impl` start
-
 jvm_library(
     name = "impl",
     srcs = glob(
@@ -52,6 +51,7 @@ jvm_library(
 exports_files(
     [
         "intellij.platform.testFramework.impl.iml",
+        "resources/intellij.platform.testFramework.impl.xml",
     ],
     visibility = ["//visibility:public"],
 )

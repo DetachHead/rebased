@@ -4,11 +4,13 @@ package org.jetbrains.kotlin.idea.base.fir.analysisApiPlatform.modificationEvent
 import com.intellij.openapi.application.runReadAction
 import com.intellij.openapi.application.runUndoTransparentWriteAction
 import com.intellij.psi.PsiElement
-import org.jetbrains.kotlin.analysis.api.analyze
 import org.jetbrains.kotlin.analysis.api.components.KaDiagnosticCheckerFilter
+import org.jetbrains.kotlin.analysis.api.components.collectDiagnostics
 import org.jetbrains.kotlin.analysis.api.fir.diagnostics.KaFirDiagnostic
+import org.jetbrains.kotlin.analysis.api.fir.diagnostics.KaUnstableDiagnosticApi
 import org.jetbrains.kotlin.analysis.api.permissions.KaAllowAnalysisOnEdt
 import org.jetbrains.kotlin.analysis.api.permissions.allowAnalysisOnEdt
+import org.jetbrains.kotlin.analysis.api.session.analyze
 import org.jetbrains.kotlin.idea.test.KotlinLightCodeInsightFixtureTestCase
 import org.jetbrains.kotlin.psi.KtFile
 import org.jetbrains.kotlin.psi.KtPsiFactory
@@ -206,6 +208,7 @@ class KotlinWhitespaceModificationTest : KotlinLightCodeInsightFixtureTestCase()
         assertLiteralWhitespaceDiagnosticsCount(file = ktFile, expectedCount = 1)
     }
 
+    @OptIn(KaUnstableDiagnosticApi::class)
     private fun assertLiteralWhitespaceDiagnosticsCount(file: KtFile, expectedCount: Int) {
         runReadAction {
             analyze(file) {

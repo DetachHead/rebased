@@ -4,7 +4,6 @@ package org.jetbrains.intellij.build.telemetry
 import com.intellij.platform.diagnostic.telemetry.helpers.useWithoutActiveScope
 import io.opentelemetry.api.trace.Span
 import io.opentelemetry.api.trace.SpanBuilder
-import io.opentelemetry.context.Context
 import io.opentelemetry.extension.kotlin.asContextElement
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.withContext
@@ -14,22 +13,43 @@ import org.jetbrains.intellij.build.telemetry.TraceManager.spanBuilder
 import kotlin.coroutines.CoroutineContext
 import kotlin.coroutines.EmptyCoroutineContext
 
-suspend fun <T> block(
+suspend inline fun <T> block(
   name: String,
-  operation: suspend CoroutineScope.(Span) -> T,
+  crossinline operation: suspend CoroutineScope.(Span) -> T,
 ): T {
-  return spanBuilder(name).block(operation = operation)
+  return spanBuilder(name).block { operation(it) }
 }
 
-suspend fun <T> SpanBuilder.block(
+// inline like `use`, because `withBlock` takes a plain lambda and only an inlined one may suspend
+suspend inline fun <T> SpanBuilder.block(
   coroutineContext: CoroutineContext = EmptyCoroutineContext,
-  operation: suspend CoroutineScope.(Span) -> T,
+  crossinline operation: suspend CoroutineScope.(Span) -> T,
 ): T {
   TraceManager.scheduleExportPendingSpans()
   return startSpan().useWithoutActiveScope { span ->
     // see `use` below why `withContext` must be inner
     TeamCityBuildMessageLogger.withBlock(span) {
-      withContext(Context.current().with(span).asContextElement() + coroutineContext) {
+      withContext(span.asContextElement() + coroutineContext) {
+        operation(span)
+      }
+    }
+  }
+}
+
+/**
+ * The non-suspend twin of [block]. It makes the span current on the calling thread, so a span that [operation] starts
+ * gets this span as its parent.
+ */
+@Internal
+inline fun <T> blockingBlock(name: String, crossinline operation: (Span) -> T): T = spanBuilder(name).blockingBlock { operation(it) }
+
+/** See [blockingBlock]. */
+@Internal
+inline fun <T> SpanBuilder.blockingBlock(crossinline operation: (Span) -> T): T {
+  TraceManager.scheduleExportPendingSpans()
+  return startSpan().useWithoutActiveScope { span ->
+    TeamCityBuildMessageLogger.withBlock(span) {
+      span.makeCurrent().use {
         operation(span)
       }
     }
@@ -48,7 +68,7 @@ suspend inline fun <T> SpanBuilder.use(
     // inner `withContext` to ensure that we report the end of the span only when all child tasks are completed,
     // the same for `withFlow` - must be out of `withContext`
     TeamCityBuildMessageLogger.withFlow(span) {
-      withContext(Context.current().with(span).asContextElement() + context) {
+      withContext(span.asContextElement() + context) {
         operation(span)
       }
     }
@@ -56,13 +76,18 @@ suspend inline fun <T> SpanBuilder.use(
 }
 
 /**
+ * The non-suspend twin of [use]. It makes the span current on the calling thread, so a span that [operation] starts
+ * gets this span as its parent.
+ *
  * See [com.intellij.platform.diagnostic.telemetry.helpers.use]
  */
 @Internal
-inline fun <T> SpanBuilder.blockingUse(crossinline operation: (Span) -> T, ): T {
+inline fun <T> SpanBuilder.blockingUse(crossinline operation: (Span) -> T): T {
   return startSpan().useWithoutActiveScope { span ->
     TeamCityBuildMessageLogger.withFlow(span) {
-      operation(span)
+      span.makeCurrent().use {
+        operation(span)
+      }
     }
   }
 }

@@ -5,39 +5,38 @@ import com.intellij.psi.SmartPsiElementPointer
 import com.intellij.psi.createSmartPointer
 import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.kotlin.analysis.api.KaSession
-import org.jetbrains.kotlin.analysis.api.components.evaluate
-import org.jetbrains.kotlin.analysis.api.components.expressionType
-import org.jetbrains.kotlin.analysis.api.components.resolveToCall
-import org.jetbrains.kotlin.analysis.api.components.resolveToSymbol
-import org.jetbrains.kotlin.analysis.api.components.targetSymbol
-import org.jetbrains.kotlin.analysis.api.resolution.singleFunctionCallOrNull
+import org.jetbrains.kotlin.analysis.api.evaluation.evaluate
+import org.jetbrains.kotlin.analysis.api.expressions.expressionType
+import org.jetbrains.kotlin.analysis.api.resolution.function
+import org.jetbrains.kotlin.analysis.api.resolution.resolveSuccessfulSymbol
+import org.jetbrains.kotlin.analysis.api.resolution.single
 import org.jetbrains.kotlin.analysis.api.resolution.symbol
+import org.jetbrains.kotlin.analysis.api.resolution.tryResolveCall
 import org.jetbrains.kotlin.analysis.api.symbols.KaSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.symbol
 import org.jetbrains.kotlin.analysis.api.types.symbol
 import org.jetbrains.kotlin.builtins.StandardNames
 import org.jetbrains.kotlin.idea.base.codeInsight.KotlinNameSuggester
-import org.jetbrains.kotlin.psi.KtLabeledExpression
-import org.jetbrains.kotlin.psi.KtLambdaExpression
-import org.jetbrains.kotlin.psi.KtLoopExpression
-import org.jetbrains.kotlin.psi.KtPsiFactory
-import org.jetbrains.kotlin.psi.KtReturnExpression
-import org.jetbrains.kotlin.psi.psiUtil.anyDescendantOfType
-import org.jetbrains.kotlin.psi.psiUtil.forEachDescendantOfType
 import org.jetbrains.kotlin.idea.codeinsight.utils.dereferenceValidPointers
 import org.jetbrains.kotlin.idea.codeinsight.utils.findRelevantLoopForExpression
-import org.jetbrains.kotlin.psi.KtContinueExpression
-import org.jetbrains.kotlin.psi.KtForExpression
-import org.jetbrains.kotlin.idea.references.mainReference
 import org.jetbrains.kotlin.name.CallableId
 import org.jetbrains.kotlin.name.Name
 import org.jetbrains.kotlin.name.StandardClassIds
 import org.jetbrains.kotlin.psi.KtBinaryExpression
+import org.jetbrains.kotlin.psi.KtContinueExpression
 import org.jetbrains.kotlin.psi.KtExpression
+import org.jetbrains.kotlin.psi.KtForExpression
+import org.jetbrains.kotlin.psi.KtLabeledExpression
+import org.jetbrains.kotlin.psi.KtLambdaExpression
+import org.jetbrains.kotlin.psi.KtLoopExpression
 import org.jetbrains.kotlin.psi.KtNameReferenceExpression
 import org.jetbrains.kotlin.psi.KtParameter
+import org.jetbrains.kotlin.psi.KtPsiFactory
+import org.jetbrains.kotlin.psi.KtReturnExpression
 import org.jetbrains.kotlin.psi.KtSimpleNameExpression
 import org.jetbrains.kotlin.psi.createExpressionByPattern
+import org.jetbrains.kotlin.psi.psiUtil.anyDescendantOfType
+import org.jetbrains.kotlin.psi.psiUtil.forEachDescendantOfType
 import org.jetbrains.kotlin.psi.psiUtil.getStrictParentOfType
 
 @ApiStatus.Internal
@@ -51,7 +50,7 @@ object ForLoopUtils {
         val functionLiteralSymbol = functionLiteral.symbol
         return buildList {
             lambdaBody.forEachDescendantOfType<KtReturnExpression> { returnExpression ->
-                if (returnExpression.targetSymbol == functionLiteralSymbol) {
+                if (returnExpression.resolveSuccessfulSymbol() == functionLiteralSymbol) {
                     add(returnExpression.createSmartPointer())
                 }
             }
@@ -83,7 +82,7 @@ object ForLoopUtils {
             } else {
                 // Check if the candidate would conflict with existing names
                 !body.anyDescendantOfType<KtSimpleNameExpression> { nameExpr ->
-                    nameExpr.getReferencedName() == candidate && nameExpr.mainReference.resolveToSymbol() != null
+                    nameExpr.getReferencedName() == candidate && nameExpr.resolveSuccessfulSymbol() != null
                 }
             }
         }
@@ -103,7 +102,7 @@ object ForLoopUtils {
 
         body.forEachDescendantOfType<KtNameReferenceExpression> { reference ->
             if (reference.getReferencedName() == StandardNames.IMPLICIT_LAMBDA_PARAMETER_NAME.identifier &&
-                reference.mainReference.resolveToSymbol() == parameterSymbol
+                reference.resolveSuccessfulSymbol() == parameterSymbol
             ) {
                 reference.replace(factory.createExpression(newName))
             }
@@ -156,7 +155,7 @@ object ForLoopUtils {
     context(_: KaSession)
     private fun KtExpression.referencesSymbol(symbol: KaSymbol): Boolean =
         anyDescendantOfType<KtNameReferenceExpression> { ref ->
-            ref.mainReference.resolveToSymbol() == symbol
+            ref.resolveSuccessfulSymbol() == symbol
         }
 
     internal fun relabelReturns(
@@ -206,7 +205,7 @@ object ForLoopUtils {
         val left = left ?: return false
         if (left.evaluate()?.value != 0) return false
 
-        val call = resolveToCall()?.singleFunctionCallOrNull() ?: return false
+        val call = tryResolveCall()?.single?.function ?: return false
         return call.symbol.callableId in ZERO_BASED_INT_RANGE_CALLABLE_IDS && expressionType?.symbol?.classId == StandardClassIds.IntRange
     }
 }

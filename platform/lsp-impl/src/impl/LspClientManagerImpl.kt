@@ -18,6 +18,7 @@ import com.intellij.openapi.roots.ProjectFileIndex
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.vfs.VfsUtilCore
 import com.intellij.openapi.vfs.VirtualFile
+import com.intellij.openapi.vfs.newvfs.ArchiveFileSystem
 import com.intellij.platform.backend.workspace.WorkspaceModel
 import com.intellij.platform.lsp.api.Lsp4jServer
 import com.intellij.platform.lsp.api.Lsp4jServerWrapper
@@ -25,23 +26,38 @@ import com.intellij.platform.lsp.api.LspClientDescriptor
 import com.intellij.platform.lsp.api.LspClientManager
 import com.intellij.platform.lsp.api.LspClientManagerListener
 import com.intellij.platform.lsp.api.LspIntegrationProvider
-import com.intellij.platform.lsp.api.LspServer
 import com.intellij.platform.lsp.api.LspServerDescriptor
 import com.intellij.platform.lsp.api.LspServerManager
 import com.intellij.platform.lsp.api.LspServerState
 import com.intellij.platform.lsp.api.LspServerSupportProvider
 import com.intellij.platform.lsp.impl.documentSync.LspOpenedFilesService
+import com.intellij.platform.lsp.impl.features.navigation.LspLibraryFiles
+import com.intellij.platform.lsp.impl.serviceView.LspServiceViewSupport
 import com.intellij.platform.workspace.jps.entities.ContentRootEntity
 import com.intellij.util.EventDispatcher
+import com.intellij.util.concurrency.annotations.RequiresBackgroundThread
+import com.intellij.util.concurrency.annotations.RequiresReadLock
 import com.intellij.util.containers.ContainerUtil
 import com.intellij.util.containers.addIfNotNull
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.annotations.TestOnly
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicLong
 
 private val logger = logger<LspClientManagerImpl>()
-private const val MAX_LSP_SERVERS = 10
+private const val MAX_LSP_CLIENTS = 10
+
+/**
+ * The stable identity of a server: the same across sessions, so a restarted client can recognize its predecessor's files.
+ * The provider class is part of the identity, because two providers can use the same descriptor class, name, and roots.
+ */
+internal fun getServerId(providerClass: Class<out LspIntegrationProvider>, descriptor: LspClientDescriptor): String =
+  "${providerClass.name}:${descriptor.javaClass.name}:${descriptor.presentableName}:${descriptor.roots.joinToString(":") { it.path }}"
+
+internal fun LspClientImpl.getServerId(): String = getServerId(providerClass, descriptor)
 
 /**
  * Project service for managing LSP servers for the current project
@@ -51,12 +67,22 @@ class LspClientManagerImpl internal constructor(private val project: Project, in
   @Suppress("DEPRECATION")
   LspServerManager, Disposable {
   init {
-    assert(!project.isDefault) { "LspServerManager doesn't make sense for the default project" }
+    assert(!project.isDefault) { "LspClientManager doesn't make sense for the default project" }
     addExtensionPointListener()
     addWorkspaceModelListener()
   }
 
   private val lspClients: MutableCollection<LspClientImpl> = ContainerUtil.createLockFreeCopyOnWriteList()
+
+  /** Makes a client start in [ensureStarted] atomic with the stop-stamp write and the client snapshot in [stopClients]. */
+  private val startStopLock = Any()
+  private val stopClock = AtomicLong()
+
+  /**
+   * Keyed by the provider class name for [stopClients], and by the server id for [stopRunningServer].
+   * A string key is required: a `Class` key would retain the classloader of an unloaded plugin.
+   */
+  private val lastStopStamps = ConcurrentHashMap<String, Long>()
   @TestOnly
   private val lsp4jServerWrappers = ContainerUtil.createLockFreeCopyOnWriteList<Lsp4jServerWrapper>()
 
@@ -64,6 +90,8 @@ class LspClientManagerImpl internal constructor(private val project: Project, in
 
   override fun getClients(providerClass: Class<out LspIntegrationProvider>): Collection<LspClientImpl> =
     lspClients.filter { it.providerClass == providerClass }
+
+  internal fun getAllClients(): List<LspClientImpl> = lspClients.toList()
 
   @Deprecated("Use getClients", ReplaceWith("getClients(providerClass)"))
   @Suppress("DEPRECATION", "OVERRIDE_DEPRECATION")
@@ -73,7 +101,35 @@ class LspClientManagerImpl internal constructor(private val project: Project, in
   internal fun getClientsWithThisFileOpen(file: VirtualFile): Collection<LspClientImpl> =
     lspClients.filter { it.isFileOpened(file) }
 
+  /**
+   * Clients that should handle requests like hover or go-to-definition for the given file.
+   * A library file goes to the client that produced it (see [LspLibraryFiles]): a decompiled in-memory file is requested
+   * with the URI it was produced from, and a file inside a jar goes back to the client that navigated to it.
+   * A decompiled file that lost its producing client, for example after a server restart, is adopted:
+   * the replacement of the producing client, found by the same server identity, registers the file
+   * and reports it open again, so existing editor tabs keep working.
+   * An archive file that no client produced, a jar entry or a JDK class from the jrt file system,
+   * goes to every running client that opts in via [LspClientDescriptor.isSupportedLibraryFile]:
+   * such a file never gets the `didOpen` notification sent,
+   * but the LSP protocol allows requests for any URI the server can read.
+   */
+  @RequiresReadLock
+  @RequiresBackgroundThread
+  internal fun getClientsForFileRequests(file: VirtualFile): Collection<LspClientImpl> {
+    val clientsWithFileOpen = getClientsWithThisFileOpen(file)
+    if (clientsWithFileOpen.isNotEmpty()) return clientsWithFileOpen
+    val producingClients = getRunningClients().filter { it.libraryFiles.contains(file) }
+    if (producingClients.isNotEmpty()) return producingClients
+    val decompiledUri = LspLibraryFiles.getDecompiledFileUri(file)
+    if (decompiledUri != null) return getRunningClients().filter { it.libraryFiles.adopt(file, decompiledUri) }
+    if (file.fileSystem is ArchiveFileSystem) return getRunningClients().filter { it.descriptor.isSupportedLibraryFile(file) }
+    return emptyList()
+  }
+
   internal fun getRunningClients(): Collection<LspClientImpl> = lspClients.filter { it.state == LspServerState.Running }
+
+  internal fun hasInitializingOrRunningClients(): Boolean =
+    lspClients.any { it.state == LspServerState.Initializing || it.state == LspServerState.Running }
 
   internal fun findRunningClient(condition: (LspClientImpl) -> Boolean): LspClientImpl? =
     lspClients.find { it.state == LspServerState.Running && condition(it) }
@@ -94,6 +150,7 @@ class LspClientManagerImpl internal constructor(private val project: Project, in
       return
     }
 
+    val requestStamp = startRequestStamp()
     cs.launch {
       val descriptorsToStart = readAction {
         val clients = getClients(providerClass)
@@ -125,50 +182,90 @@ class LspClientManagerImpl internal constructor(private val project: Project, in
         descriptorsToStart
       }
 
-      descriptorsToStart.forEach { ensureStarted(providerClass, it) }
+      descriptorsToStart.forEach { ensureStarted(providerClass, it, requestStamp) }
     }
   }
 
   private fun callFileOpened(provider: LspIntegrationProvider, file: VirtualFile, starter: LspStarterImpl): Unit =
     provider.fileOpened(project, file, starter)
 
-  private fun LspClientDescriptor.getServerId(): String = "${javaClass.name}:${presentableName}:${roots.joinToString(":") { it.path }}"
 
-  override fun ensureClientStarted(providerClass: Class<out LspIntegrationProvider>, descriptor: LspClientDescriptor): Unit =
+  override fun ensureClientStarted(providerClass: Class<out LspIntegrationProvider>, descriptor: LspClientDescriptor) {
     ensureStarted(providerClass, descriptor)
+  }
 
   @Deprecated("Use ensureClientStarted", ReplaceWith("ensureClientStarted(providerClass, descriptor)"))
   @Suppress("DEPRECATION", "UNCHECKED_CAST")
-  override fun ensureServerStarted(providerClass: Class<out LspServerSupportProvider>, descriptor: LspServerDescriptor): Unit =
+  override fun ensureServerStarted(providerClass: Class<out LspServerSupportProvider>, descriptor: LspServerDescriptor) {
     ensureStarted(providerClass as Class<out LspIntegrationProvider>, descriptor)
+  }
 
-  private fun ensureStarted(providerClass: Class<out LspIntegrationProvider>, descriptor: LspClientDescriptor) {
-    if (!TrustedProjects.isProjectTrusted(project)) return
+  /**
+   * [requestStamp] is the [startRequestStamp] value captured at the event that requested this start.
+   * When [stopClients] for the provider, or [stopRunningServer] for the same server, came after the event,
+   * the request is stale and the start is skipped.
+   * `null` means an explicit request that always starts. Returns the started coroutine, so a test can join it.
+   */
+  internal fun ensureStarted(
+    providerClass: Class<out LspIntegrationProvider>,
+    descriptor: LspClientDescriptor,
+    requestStamp: Long? = null,
+  ): Job? {
+    if (!TrustedProjects.isProjectTrusted(project)) return null
 
-    cs.launch {
+    return cs.launch {
+      // make sure its listener is registered before the first `clientAdded` event, so the console gets all lifecycle events
+      LspServiceViewSupport.getInstance(project)
+
       readAndEdtWriteAction {
-        if (lspClients.any { client -> client.providerClass == providerClass && client.descriptor.getServerId() == descriptor.getServerId() }) {
+        if (lspClients.any { it.getServerId() == getServerId(providerClass, descriptor) }) {
           return@readAndEdtWriteAction value(Unit)
         }
 
-        if (lspClients.size >= MAX_LSP_SERVERS) {
+        if (lspClients.size >= MAX_LSP_CLIENTS) {
           logger.error("${lspClients.size} LSP servers are already running and one more wants to start." +
                        "To save system resources, this request will be ignored: $descriptor")
           return@readAndEdtWriteAction value(Unit)
         }
 
         writeAction {
-          val client = LspClientImpl(providerClass, descriptor, eventDispatcher.multicaster)
-          client.start()
-          lspClients.add(client)
-          Unit
+          val client = synchronized(startStopLock) {
+            if (requestStamp != null && lastStopStamp(providerClass, descriptor) > requestStamp) {
+              return@writeAction
+            }
+            val client = LspClientImpl(providerClass, descriptor, eventDispatcher.multicaster)
+            client.start()
+            lspClients.add(client)
+            client
+          }
+          // listeners run outside the lock
+          eventDispatcher.multicaster.clientAdded(client)
         }
       }
     }
   }
 
-  override fun stopClients(providerClass: Class<out LspIntegrationProvider>): Unit =
-    getClients(providerClass).forEach { stopRunningServer(it) }
+  /**
+   * The stamp for a start request. Capture it at the event that requests the start, before any scheduling.
+   * [ensureStarted] drops the request when [stopClients] for the provider,
+   * or [stopRunningServer] for the server, came after the captured stamp.
+   */
+  internal fun startRequestStamp(): Long = stopClock.get()
+
+  private fun lastStopStamp(
+    providerClass: Class<out LspIntegrationProvider>,
+    descriptor: LspClientDescriptor
+  ): Long =
+    maxOf(lastStopStamps.getOrDefault(providerClass.name, 0L),
+          lastStopStamps.getOrDefault(getServerId(providerClass, descriptor), 0L))
+
+  override fun stopClients(providerClass: Class<out LspIntegrationProvider>) {
+    val clients = synchronized(startStopLock) {
+      lastStopStamps[providerClass.name] = stopClock.incrementAndGet()
+      getClients(providerClass)
+    }
+    clients.forEach { stopRunningServer(it) }
+  }
 
   @Deprecated("Use stopClients", ReplaceWith("stopClients(providerClass)"))
   @Suppress("DEPRECATION", "OVERRIDE_DEPRECATION", "UNCHECKED_CAST")
@@ -178,11 +275,26 @@ class LspClientManagerImpl internal constructor(private val project: Project, in
   /**
    * Called when the server works fine but needs to be stopped for some reason.
    * For example, an action like `Stop server` or `Restart server` is invoked, or the project is closed.
+   * The stamp is keyed by the server id, so the stop does not drop a queued sibling start of the same provider.
    */
-  internal fun stopRunningServer(lspClient: LspClientImpl) =
+  internal fun stopRunningServer(lspClient: LspClientImpl) {
+    synchronized(startStopLock) {
+      lastStopStamps[lspClient.getServerId()] = stopClock.incrementAndGet()
+    }
     lspClient.ensureServerStopped(explicitStop = true) {
       handleServerStop(lspClient, explicitStop = true)
     }
+  }
+
+  /**
+   * Stops [lspClient] and starts a new client with the same descriptor.
+   * The restart must not depend on the open-editors scan of [startIfNeeded]: the scan skips library files,
+   * so it revives no server when only a library editor tab remains open.
+   */
+  internal fun restartClient(lspClient: LspClientImpl) {
+    stopRunningServer(lspClient)
+    ensureStarted(lspClient.providerClass, lspClient.descriptor)
+  }
 
   /**
    * Called when the IDE detects that the server stopped working, for example,
@@ -206,7 +318,7 @@ class LspClientManagerImpl internal constructor(private val project: Project, in
    */
   private fun handleServerStop(lspClient: LspClientImpl, explicitStop: Boolean) {
     if (lspClient.state in arrayOf(LspServerState.Initializing, LspServerState.Running) && !lspClients.contains(lspClient)) {
-      logger.error("LspServerManager doesn't know the server that it is asked to stop: $lspClient")
+      logger.error("LspClientManager doesn't know the server that it is asked to stop: $lspClient")
     }
 
     if (explicitStop) {
@@ -217,7 +329,9 @@ class LspClientManagerImpl internal constructor(private val project: Project, in
       // - plugin-specific technology disabled in Settings (stopServers(providerClass) called),
       // - manual server restart (RestartLspServerAction).
       // In any case, we need to remove it from the `lspClients` collection
-      lspClients.remove(lspClient)
+      if (lspClients.remove(lspClient)) {
+        eventDispatcher.multicaster.clientRemoved(lspClient)
+      }
     }
     else {
       // ShutdownUnexpectedly servers stay in the `lspClients` collection so that they show up as 'Terminated' in the status bar widget.
@@ -247,10 +361,10 @@ class LspClientManagerImpl internal constructor(private val project: Project, in
     }
   }
 
-  internal fun wrapLsp4jServer(lspServer: LspServer, lsp4jServer: Lsp4jServer): Lsp4jServer =
+  internal fun wrapLsp4jServer(lspClient: LspClientImpl, lsp4jServer: Lsp4jServer): Lsp4jServer =
     @Suppress("TestOnlyProblems")
     lsp4jServerWrappers.fold(lsp4jServer) { wrappedLsp4jServer, wrapper ->
-      wrapper.wrapLsp4jServer(lspServer, wrappedLsp4jServer)
+      wrapper.wrapLsp4jServer(lspClient, wrappedLsp4jServer)
     }
 
   override fun addListener(listener: LspClientManagerListener, parentDisposable: Disposable, sendEventsForExistingClients: Boolean) {
@@ -312,7 +426,7 @@ class LspClientManagerImpl internal constructor(private val project: Project, in
     // TODO Some running servers might need to be stopped if they serve roots that don't belong to the project anymore
 
     readAction {
-      val openedFiles = FileEditorManager.getInstance(project).openFiles
+      val openedFiles = FileEditorManager.getInstance(project).openFiles.filterNotNull()
       val unsavedFiles = FileDocumentManager.getInstance().unsavedDocuments.mapNotNull { FileDocumentManager.getInstance().getFile(it) }
       LspOpenedFilesService.getInstance(project).processOpenedFiles(unsavedFiles + openedFiles)
     }

@@ -1,11 +1,9 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.kotlin.idea.codeInsight.inspections.coroutines
 
-import org.jetbrains.kotlin.analysis.api.KaExperimentalApi
 import org.jetbrains.kotlin.analysis.api.KaSession
-import org.jetbrains.kotlin.analysis.api.components.resolveCall
 import org.jetbrains.kotlin.analysis.api.resolution.KaFunctionCall
-import org.jetbrains.kotlin.idea.codeInsight.inspections.coroutines.CoroutinesIds
+import org.jetbrains.kotlin.analysis.api.resolution.resolveSuccessfulCall
 import org.jetbrains.kotlin.idea.codeInsight.inspections.AbstractSimplifiableCallInspection
 import org.jetbrains.kotlin.idea.codeInsight.inspections.isIdentityLambda
 import org.jetbrains.kotlin.name.CallableId
@@ -23,10 +21,9 @@ internal class SimplifiableFlowCallInspection : AbstractSimplifiableCallInspecti
         targetFqName.asSingleFqName(),
         replacementFqName.asSingleFqName()
     ) {
-        @OptIn(KaExperimentalApi::class)
         context(_: KaSession)
         override fun analyze(callExpression: KtCallExpression): String? {
-            val functionCall = callExpression.resolveCall() ?: return null
+            val functionCall = callExpression.resolveSuccessfulCall() ?: return null
 
             val transformArgument = functionCall.findArgumentExpressionByParameterName(CoroutinesIds.ParameterNames.transform) as? KtLambdaExpression ?: return null
             if (!transformArgument.isIdentityLambda()) return null
@@ -60,6 +57,6 @@ internal class SimplifiableFlowCallInspection : AbstractSimplifiableCallInspecti
 }
 
 private fun KaFunctionCall<*>.findArgumentExpressionByParameterName(parameterName: Name): KtExpression? {
-    val matchingEntry = argumentMapping.entries.find { (_, parameter) -> parameter.name == parameterName }
+    val matchingEntry = valueArgumentMapping.entries.find { (_, parameter) -> parameter.name == parameterName }
     return matchingEntry?.key
 }

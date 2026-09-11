@@ -1,7 +1,7 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
 ### auto-generated section `build intellij.libraries.kotlinx.collections.immutable` start
-
 jvm_library(
     name = "libraries-kotlinx-collections-immutable",
     srcs = glob(
@@ -16,6 +16,11 @@ jvm_library(
     visibility = ["//visibility:public"],
     exports = ["@lib//:kotlinx-collections-immutable"],
     runtime_deps = ["@lib//:kotlinx-collections-immutable"],
+)
+
+content_module_jar(
+    libraries = ["@lib//:kotlinx-collections-immutable"],
+    module = ":libraries-kotlinx-collections-immutable",
 )
 
 jvm_library(
@@ -37,6 +42,8 @@ jvm_library(
 exports_files(
     [
         "intellij.libraries.kotlinx.collections.immutable.iml",
+        "resources/intellij.libraries.kotlinx.collections.immutable.xml",
+        "module-content.yaml",
     ],
     visibility = ["//visibility:public"],
 )

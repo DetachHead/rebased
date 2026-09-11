@@ -6,21 +6,23 @@ import com.intellij.modcommand.ModPsiUpdater
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.TextRange
 import com.intellij.psi.PsiFile
-import org.jetbrains.kotlin.analysis.api.KaExperimentalApi
 import org.jetbrains.kotlin.analysis.api.KaSession
 import org.jetbrains.kotlin.analysis.api.components.KaDiagnosticCheckerFilter
-import org.jetbrains.kotlin.analysis.api.resolution.successfulFunctionCallOrNull
+import org.jetbrains.kotlin.analysis.api.components.directDiagnostics
+import org.jetbrains.kotlin.analysis.api.expressions.expressionType
+import org.jetbrains.kotlin.analysis.api.resolution.resolveSuccessfulCall
 import org.jetbrains.kotlin.analysis.api.resolution.symbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaNamedFunctionSymbol
+import org.jetbrains.kotlin.analysis.api.symbols.findTopLevelCallables
 import org.jetbrains.kotlin.analysis.api.types.KaClassType
+import org.jetbrains.kotlin.builtins.StandardNames
 import org.jetbrains.kotlin.config.LanguageFeature
 import org.jetbrains.kotlin.idea.base.projectStructure.languageVersionSettings
 import org.jetbrains.kotlin.idea.base.resources.KotlinBundle
+import org.jetbrains.kotlin.idea.codeInsight.inspections.utils.LITERAL_TO_FUNCTION_CANDIDATES
 import org.jetbrains.kotlin.idea.codeinsight.api.applicable.inspections.KotlinApplicableInspectionBase
 import org.jetbrains.kotlin.idea.codeinsight.api.applicable.inspections.KotlinModCommandQuickFix
 import org.jetbrains.kotlin.idea.codeinsight.api.applicators.ApplicabilityRange
-import org.jetbrains.kotlin.idea.codeInsight.inspections.utils.LITERAL_TO_FUNCTION_CANDIDATES
-import org.jetbrains.kotlin.name.FqName
 import org.jetbrains.kotlin.name.Name
 import org.jetbrains.kotlin.psi.KtCallExpression
 import org.jetbrains.kotlin.psi.KtCollectionLiteralExpression
@@ -54,8 +56,8 @@ internal class CollapseCollectionLiteralChainCallInspection :
         return element.valueArguments.isEmpty()
     }
 
-    @OptIn(KaExperimentalApi::class)
-    override fun KaSession.prepareContext(element: KtCallExpression): Name? {
+    context(session: KaSession)
+    override fun prepareContext(element: KtCallExpression): Name? {
         val parent = element.parent as? KtDotQualifiedExpression ?: return null
         val receiver = parent.receiverExpression
         val literal = (receiver as? KtCollectionLiteralExpression)
@@ -64,11 +66,9 @@ internal class CollapseCollectionLiteralChainCallInspection :
 
         if (literal.directDiagnostics(filter = KaDiagnosticCheckerFilter.ONLY_COMMON_CHECKERS).isNotEmpty()) return null
 
-        val callFqName = element.resolveToCall()
-            ?.successfulFunctionCallOrNull()
-            ?.symbol?.callableId?.asSingleFqName() ?: return null
+        val callFqName = element.resolveSuccessfulCall()?.symbol?.callableId?.asSingleFqName() ?: return null
         val pkg = callFqName.parent()
-        if (pkg != FqName("kotlin.collections") && pkg != FqName("kotlin")) return null
+        if (pkg != StandardNames.COLLECTIONS_PACKAGE_FQ_NAME && pkg != StandardNames.BUILT_INS_PACKAGE_FQ_NAME) return null
 
         val chainReturnType = parent.expressionType as? KaClassType ?: return null
         val chainClassId = chainReturnType.classId

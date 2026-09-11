@@ -96,14 +96,16 @@ def local_path_to_jar_target(rel_path, is_community_only, community_root_rel):
     selection in dependency.kt:234-248.
 
     Priority order (same as Kotlin):
-      1. Under ultimate lib root (lib/)          → @ultimate_lib//<parent>:<file>
-      2. Under community lib root                → @lib//<parent>:<file>
-      3. Under community root (ultimate mode)    → @community//<parent>:<file>
-      4. Otherwise (project root)                → //<parent>:<file>
+      1. Under community lib/kotlin-snapshot/    → @lib//:<path under lib/>
+      2. Under ultimate lib root (lib/)          → @ultimate_lib//<parent>:<file>
+      3. Under community lib root                → @lib//<parent>:<file>
+      4. Under community root (ultimate mode)    → @community//<parent>:<file>
+      5. Otherwise (project root)                → //<parent>:<file>
 
     For community-only mode, community root IS the project root, so:
-      1. Under lib/                              → @lib//<parent>:<file>
-      2. Otherwise                               → //<parent>:<file>
+      1. Under lib/kotlin-snapshot/              → @lib//:<path under lib/>
+      2. Under lib/                              → @lib//<parent>:<file>
+      3. Otherwise                               → //<parent>:<file>
 
     Args:
         rel_path: project-root-relative path (after stripping $PROJECT_DIR$/)
@@ -117,7 +119,12 @@ def local_path_to_jar_target(rel_path, is_community_only, community_root_rel):
     if is_community_only:
         # Community-only: project root IS community root
         lib_prefix = "lib/"
-        if rel_path.startswith(lib_prefix):
+
+        # kt-master development places snapshot Kotlin libraries as a maven repo under lib/kotlin-snapshot,
+        # whose BUILD file stays at lib/ (dependency.kt getLocalLibBazelFileDir, lib.kt libraryJarTargets).
+        if rel_path.startswith(lib_prefix + "kotlin-snapshot/"):
+            return "@lib//:" + rel_path[len(lib_prefix):]
+        elif rel_path.startswith(lib_prefix):
             lib_rel = rel_path[len(lib_prefix):]
             return _path_to_label("@lib", lib_rel)
         else:
@@ -127,7 +134,9 @@ def local_path_to_jar_target(rel_path, is_community_only, community_root_rel):
         community_lib_prefix = community_root_rel + "/lib/" if community_root_rel else "lib/"
         ultimate_lib_prefix = "lib/"
 
-        if rel_path.startswith(community_lib_prefix):
+        if rel_path.startswith(community_lib_prefix + "kotlin-snapshot/"):
+            return "@lib//:" + rel_path[len(community_lib_prefix):]
+        elif rel_path.startswith(community_lib_prefix):
             lib_rel = rel_path[len(community_lib_prefix):]
             return _path_to_label("@lib", lib_rel)
         elif rel_path.startswith(ultimate_lib_prefix):
@@ -329,13 +338,39 @@ def derive_library_targets(
     Returns:
         sorted list of unique jar target labels
     """
+    return derive_library_target_index(
+        ctx = ctx,
+        library_xmls = library_xmls,
+        iml_data_list = iml_data_list,
+        is_community_only = is_community_only,
+        community_root_rel = community_root_rel,
+    ).all
+
+def derive_library_target_index(
+        ctx,
+        library_xmls,
+        iml_data_list,
+        is_community_only,
+        community_root_rel):
+    """[derive_library_targets], plus the owner each jar target came from.
+
+    The dev-distribution plan names the libraries a platform fragment may resolve by *name* - a project library name,
+    or the module that declares a module library - because only this converter knows what those become as labels.
+    Answering that needs the attribution the flat list throws away.
+
+    Returns:
+        struct with `all` (sorted list of unique jar target labels), `by_project_library` (project library name to
+        sorted labels) and `by_module` (module name to sorted labels of the module libraries it declares)
+    """
     targets = {}  # dict used as set
+    by_project_library = {}
+    by_module = {}
 
     # Cooperative Kotlin development mode: when set, Maven libraries with filenames
     # ending in -<version>.jar are treated as snapshots and redirected to repo//snapshots:.
     # Mirrors dependency.kt:120-123 (isKotlinDevVersionAsSnapshotOutsideOfTree).
-    # Only checked for project-level libraries (not module-level), matching the Kotlin
-    # generator behavior where module-level libs don't trigger this path.
+    # Applied to both project-level and module-level libraries, matching the Kotlin
+    # generator, which handles the snapshot redirect for every JpsLibraryDependency.
     kotlin_dev_snapshot_version = ctx.getenv("JPS_TO_BAZEL_TREAT_KOTLIN_DEV_VERSION_AS_SNAPSHOT")
 
     # Repo for project-level Maven libraries:
@@ -380,9 +415,12 @@ def derive_library_targets(
         is_snapshot_outside_of_tree = is_snapshot_version(parsed.maven_urls)
         is_kotlin_dev_version_as_snapshot_outside_of_tree = is_kotlin_dev_version_as_snapshot(parsed.maven_urls, kotlin_dev_snapshot_version)
 
+        own = by_project_library.setdefault(lib_name, {})
+
         for url in parsed.maven_urls:
             target = maven_url_to_jar_target(url, repo, is_snapshot_outside_of_tree or is_kotlin_dev_version_as_snapshot_outside_of_tree)
             targets[target] = True
+            own[target] = True
 
         for url in parsed.local_urls:
             rel_path = _extract_project_relative_path(url)
@@ -392,6 +430,7 @@ def derive_library_targets(
             rel_path = _normalize_path(rel_path, "local library URL in %s" % lib_xml.xml_rel_path)
             target = local_path_to_jar_target(rel_path, is_community_only, community_root_rel)
             targets[target] = True
+            own[target] = True
 
     # Module-level libraries (from .iml files)
     # Container determined by module's is_community status.
@@ -399,14 +438,15 @@ def derive_library_targets(
     # JPS resolves $MODULE_DIR$ via JpsPathUtil.urlToNioPath() (dependency.kt:427).
     for iml_data in iml_data_list:
         module_repo = "@lib" if (is_community_only or iml_data.is_community) else "@ultimate_lib"
+        own = by_module.setdefault(iml_data.module_name, {})
 
         for module_lib in iml_data.parsed_iml.module_libraries:
             maven_urls = [u for u in module_lib.jar_urls if "$MAVEN_REPOSITORY$" in u]
             is_snapshot_outside_of_tree = is_snapshot_version(maven_urls)
+            is_kotlin_dev_version_as_snapshot_outside_of_tree = is_kotlin_dev_version_as_snapshot(maven_urls, kotlin_dev_snapshot_version)
             for url in module_lib.jar_urls:
                 if "$MAVEN_REPOSITORY$" in url:
-                    target = maven_url_to_jar_target(url, module_repo, is_snapshot_outside_of_tree)
-                    targets[target] = True
+                    target = maven_url_to_jar_target(url, module_repo, is_snapshot_outside_of_tree or is_kotlin_dev_version_as_snapshot_outside_of_tree)
                 elif "$PROJECT_DIR$" in url:
                     rel_path = _extract_project_relative_path(url)
                     if rel_path == None:
@@ -414,16 +454,20 @@ def derive_library_targets(
                              (url, iml_data.module_name))
                     rel_path = _normalize_path(rel_path, "module-library URL in %s" % iml_data.iml_rel_path)
                     target = local_path_to_jar_target(rel_path, is_community_only, community_root_rel)
-                    targets[target] = True
                 elif "$MODULE_DIR$" in url:
                     rel_path = _resolve_module_dir_path(url, iml_data.iml_dir_rel, iml_data.iml_rel_path)
                     if rel_path == None:
                         fail("Failed to resolve $MODULE_DIR$ in module library URL: %s (module=%s)" %
                              (url, iml_data.module_name))
                     target = local_path_to_jar_target(rel_path, is_community_only, community_root_rel)
-                    targets[target] = True
                 else:
                     fail("Unsupported module-library CLASSES root in %s (module=%s): %s" %
                          (iml_data.iml_rel_path, iml_data.module_name, url))
+                targets[target] = True
+                own[target] = True
 
-    return sorted(targets.keys())
+    return struct(
+        all = sorted(targets.keys()),
+        by_project_library = {name: sorted(owned.keys()) for name, owned in by_project_library.items()},
+        by_module = {name: sorted(owned.keys()) for name, owned in by_module.items()},
+    )

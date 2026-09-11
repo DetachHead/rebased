@@ -19,20 +19,17 @@ import org.jetbrains.intellij.build.productLayout.xml.appendOpeningTag
 import org.jetbrains.intellij.build.productLayout.xml.appendXmlHeader
 import org.jetbrains.intellij.build.productLayout.xml.buildModuleAliasesXml
 import org.jetbrains.intellij.build.productLayout.xml.generateXIncludes
-import org.jetbrains.intellij.build.productLayout.xml.includesPlatformLangPlugin
 import org.jetbrains.intellij.build.productLayout.xml.withEditorFold
+import org.jetbrains.intellij.build.productLayout.discovery.TEST_PRODUCT_CLASS_NAME
 import java.nio.file.Files
 import java.nio.file.Path
 import kotlin.io.path.invariantSeparatorsPathString
 
 internal fun appendDefaultProductPluginMetadata(sb: StringBuilder, spec: ProductModulesContentSpec) {
-  // Add id/name/vendor if NOT getting them from xi:include (e.g., PlatformLangPlugin.xml)
-  if (!spec.includesPlatformLangPlugin()) {
-    sb.append("  <id>com.intellij</id>\n")
-    sb.append("  <name>IDEA CORE</name>\n")
-    if (spec.vendor != null) {
-      sb.append("  <vendor>${spec.vendor}</vendor>\n")
-    }
+  sb.append("  <id>com.intellij</id>\n")
+  sb.append("  <name>IDEA CORE</name>\n")
+  if (spec.vendor != null) {
+    sb.append("  <vendor>${spec.vendor}</vendor>\n")
   }
 }
 
@@ -129,6 +126,7 @@ internal fun generateProductXml(
 internal fun generateTestPluginXml(
   spec: TestPluginSpec,
   productPropertiesClass: String,
+  productName: String,
   projectRoot: Path,
   moduleDependencies: List<ContentModuleName>,
   pluginDependencies: List<PluginId>,
@@ -137,7 +135,18 @@ internal fun generateTestPluginXml(
 ): TestPluginFileResult {
   val pluginXmlPath = projectRoot.resolve(spec.pluginXmlPath)
   val sortedContentSpec = sortTestPluginContentSpec(spec.spec)
-  val sortedModuleDependencies = moduleDependencies.sortedBy { it.value }
+  val contentModules = buildContentBlocksAndChainMapping(sortedContentSpec, collectModuleSetAliases = false)
+    .contentBlocks
+    .asSequence()
+    .flatMap { it.modules }
+    .mapTo(HashSet()) { ContentModuleName(it.moduleId.name) }
+  // Prepend the explicit platformModule (loading directive) before planner-computed module deps.
+  val externalModuleDependencies = moduleDependencies.filterNot { it in contentModules }
+  val allModuleDependencies = if (spec.platformModule != null)
+    listOf(ContentModuleName(spec.platformModule)) + externalModuleDependencies
+  else
+    externalModuleDependencies
+  val sortedModuleDependencies = allModuleDependencies.sortedBy { it.value }
   val sortedPluginDependencies = pluginDependencies.sortedBy { it.value }
 
   val moduleCommentProvider: (ContentModuleName, List<String>?) -> String? = { moduleName, moduleSetChain ->
@@ -163,7 +172,7 @@ internal fun generateTestPluginXml(
     headerBuilder = { sb ->
       sb.append("<!-- DO NOT EDIT: This file is auto-generated from Kotlin code -->\n")
       sb.append("<!-- To regenerate, run 'Generate Product Layouts' or directly UltimateGenerator.main() -->\n")
-      sb.append("<!-- Source: $productPropertiesClass.getProductContentDescriptor() -->\n")
+      sb.append("<!-- Source: ${testPluginSourceComment(productPropertiesClass, productName, spec)} -->\n")
     },
     metadataBuilder = { sb ->
       sb.append("  <id>${spec.pluginId.value}</id>\n")
@@ -197,6 +206,16 @@ internal fun generateTestPluginXml(
     status = status,
     moduleCount = buildResult.contentBlocks.sumOf { it.modules.size },
   )
+}
+
+private fun testPluginSourceComment(productPropertiesClass: String, productName: String, spec: TestPluginSpec): String {
+  val productSource = if (productPropertiesClass == TEST_PRODUCT_CLASS_NAME) {
+    "platform/buildScripts/src/productLayout/UltimateModuleSets.kt: UltimateModuleSets.getTestProductSpecs()[\"$productName\"]"
+  }
+  else {
+    "$productPropertiesClass.getProductContentDescriptor()"
+  }
+  return "$productSource, testPlugin(pluginId = \"${spec.pluginId.value}\")"
 }
 
 private fun sortTestPluginContentSpec(spec: ProductModulesContentSpec): ProductModulesContentSpec {
@@ -265,7 +284,8 @@ fun buildProductContentXml(
   val moduleSetAliases = buildData.aliasToSource
   val moduleToIncludeDependenciesMapping = buildData.moduleToIncludeDependencies
 
-  val xml = buildString {
+  val sb = StringBuilder()
+  with(sb) {
     // Header comments go BEFORE the opening tag (outside <idea-plugin>)
     headerBuilder?.invoke(this)
     appendOpeningTag(spec, inlineXmlIncludes, inlineModuleSets)
@@ -349,7 +369,7 @@ fun buildProductContentXml(
   }
 
   return ProductContentBuildResult(
-    xml = xml,
+    xml = sb.toString(),
     contentBlocks = contentBlocks,
     moduleToSetChainMapping = moduleToSetChainMapping,
     moduleToIncludeDependenciesMapping = moduleToIncludeDependenciesMapping,

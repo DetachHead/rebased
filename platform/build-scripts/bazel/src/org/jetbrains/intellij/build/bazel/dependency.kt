@@ -4,6 +4,7 @@ package org.jetbrains.intellij.build.bazel
 import com.intellij.openapi.util.NlsSafe
 import org.jetbrains.jps.model.JpsGlobal
 import org.jetbrains.jps.model.JpsSimpleElement
+import org.jetbrains.jps.model.java.JpsJavaClasspathKind
 import org.jetbrains.jps.model.java.JpsJavaDependencyScope
 import org.jetbrains.jps.model.library.JpsMavenRepositoryLibraryDescriptor
 import org.jetbrains.jps.model.library.JpsOrderRootType
@@ -39,6 +40,8 @@ internal data class ModuleDeps(
   @JvmField val deps: List<BazelLabel>,
   @JvmField val provided: List<BazelLabel>,
   @JvmField val runtimeDeps: List<BazelLabel>,
+  /** Dependencies that should be packed together with this module in the plugin distribution; used to populate `packed_deps` attribute in `ij_plugin_module` rule */
+  @JvmField val packedDeps: List<BazelLabel>,
   @JvmField val exports: List<BazelLabel>,
   @JvmField val associates: List<BazelLabel>,
   @JvmField val plugins: List<String>,
@@ -55,6 +58,7 @@ internal fun generateDeps(
   val associates = mutableListOf<BazelLabel>()
   val exports = mutableListOf<BazelLabel>()
   val runtimeDeps = mutableListOf<BazelLabel>()
+  val packedDeps = mutableListOf<BazelLabel>()
   val provided = mutableListOf<BazelLabel>()
 
   if (isTest) {  // test always depends on production
@@ -125,7 +129,6 @@ internal fun generateDeps(
         val m2OrgJetBrainsKotlin = m2Repo.resolve("org").resolve("jetbrains").resolve("kotlin")
         files.any { it.name.endsWith("-$kotlinCompilerCliVersion.jar") } && files.all { it.startsWith(m2OrgJetBrainsKotlin) }
       } ?: false
-      val targetNameSuffix = if (isProvided) PROVIDED_SUFFIX else ""
       val parentLibraryReference = element.libraryReference.parentReference
       val moduleLibraryModuleName = if (parentLibraryReference is JpsModuleReference) parentLibraryReference.moduleName else null
       when {
@@ -154,22 +157,25 @@ internal fun generateDeps(
             jpsName = jpsLibrary.name,
             moduleLibraryModuleName = moduleLibraryModuleName,
           )
-          context.addLocalLibrary(
-            lib = LocalLibrary(
-              files = localFiles,
-              target = libraryTarget,
-              bazelBuildFileDir = libSnapshotsDir,
+          val library = LocalLibrary(files = localFiles, target = libraryTarget, bazelBuildFileDir = libSnapshotsDir)
+          context.addLocalLibrary(lib = library, isProvided = isProvided)
+
+          val dependencyLabel = BazelLabel(
+            libraryDependencyLabel(
+              library = library,
+              container = libraryContainer,
+              communityRoot = context.communityRoot,
+              ultimateRoot = context.ultimateRoot,
+              isCommunityDependent = module.isCommunity,
+              isProvided = isProvided,
             ),
-            isProvided = isProvided,
+            null,
           )
-
-          val prefix = if (module.isCommunity) "@lib//snapshots" else "@ultimate_lib//snapshots"
-
           addDep(
             isTest = isTest,
             scope = scope,
             deps = deps,
-            dependencyLabel = BazelLabel("$prefix:$targetName$targetNameSuffix", null),
+            dependencyLabel = dependencyLabel,
             runtimeDeps = runtimeDeps,
             hasSources = hasSources,
             dependentModule = module,
@@ -178,6 +184,7 @@ internal fun generateDeps(
             provided = provided,
             isExported = isExported,
           )
+          addPackedDepIfNeeded(dependencyLabel, packedDeps, isTest, scope, moduleLibraryModuleName)
         }
 
         // repositoryJpsLibrary == null
@@ -189,7 +196,7 @@ internal fun generateDeps(
           val libraryContainer = context.getLibraryContainer(isCommunityLib)
 
           val isModuleLibrary = element.libraryReference.parentReference is JpsModuleReference
-          val targetName = if (underKotlinSnapshotLibRoot(firstFile, communityRoot = context.communityRoot)) {
+          val targetName = if (underKotlinSnapshotLibRoot(firstFile, communityRoot = context.communityRoot) && !isModuleLibrary) {
             // name the same way as a maven library, so there will be minimal changes
             // migrating from kotlin from maven to kotlin from a snapshot
             escapeBazelLabel(jpsLibrary.name)
@@ -220,41 +227,32 @@ internal fun generateDeps(
             "Absolute paths:\n${files.joinToString("\n") { it.invariantSeparatorsPathString }}"
           }
 
-          context.addLocalLibrary(
-            lib = LocalLibrary(files = files, target = libraryTarget, bazelBuildFileDir = bazelFileDir),
-            isProvided = isProvided,
-          )
+          val library = LocalLibrary(files = files, target = libraryTarget, bazelBuildFileDir = bazelFileDir)
+          context.addLocalLibrary(lib = library, isProvided = isProvided)
 
           if (!isCommunityLib) {
-          require(!module.isCommunity) {
+            require(!module.isCommunity) {
               "Module ${module.module.name} must not depend on a non-community libraries because it is a community module" +
               "(library=${jpsLibrary.name}, files=$files, bazelTargetName=$targetName)"
             }
           }
 
-          val communityLibsRoot = context.communityRoot.resolve("lib")
-          val ultimateLibsRoot = context.ultimateRoot?.resolve("lib")
-          val prefix = when {
-            // separate Bazel module 'lib'
-            bazelFileDir.startsWith(communityLibsRoot) ->
-              "@lib//${bazelFileDir.relativeTo(communityLibsRoot).invariantSeparatorsPathString}"
-            // separate Bazel module 'ultimate_lib'
-            ultimateLibsRoot != null && bazelFileDir.startsWith(ultimateLibsRoot) ->
-              "@ultimate_lib//${bazelFileDir.relativeTo(ultimateLibsRoot).invariantSeparatorsPathString}"
-            // Bazel module 'community'
-            bazelFileDir.startsWith(context.communityRoot) ->
-              "${if (module.isCommunity) "//" else "@community//"}${bazelFileDir.relativeTo(context.communityRoot).invariantSeparatorsPathString}"
-            // Bazel module 'ultimate'
-            context.ultimateRoot != null && bazelFileDir.startsWith(context.ultimateRoot) ->
-              "//${bazelFileDir.relativeTo(context.ultimateRoot).invariantSeparatorsPathString}"
-            else -> error("Unknown library root location: $bazelFileDir (community=${context.communityRoot}, ultimate=${context.ultimateRoot})")
-          }
-
+          val dependencyLabel = BazelLabel(
+            libraryDependencyLabel(
+              library = library,
+              container = libraryContainer,
+              communityRoot = context.communityRoot,
+              ultimateRoot = context.ultimateRoot,
+              isCommunityDependent = module.isCommunity,
+              isProvided = isProvided,
+            ),
+            null,
+          )
           addDep(
             isTest = isTest,
             scope = scope,
             deps = deps,
-            dependencyLabel = BazelLabel("$prefix:$targetName$targetNameSuffix", null),
+            dependencyLabel = dependencyLabel,
             runtimeDeps = runtimeDeps,
             hasSources = hasSources,
             dependentModule = module,
@@ -263,6 +261,7 @@ internal fun generateDeps(
             provided = provided,
             isExported = isExported,
           )
+          addPackedDepIfNeeded(dependencyLabel, packedDeps, isTest, scope, moduleLibraryModuleName)
         }
 
         // Repository library, meaning library files are under .m2 and not under VCS
@@ -289,7 +288,7 @@ internal fun generateDeps(
           var libraryContainer = context.getLibraryContainer(isCommunityOrKotlinc)
 
           // we process community modules first, so, `addOrGet` (library equality ignores `isCommunity` flag)
-          libraryContainer = context.addMavenLibrary(
+          val library = context.addMavenLibrary(
             MavenLibrary(
               mavenCoordinates = "${jpsMavenLibraryDescriptor.groupId}:${jpsMavenLibraryDescriptor.artifactId}:${jpsMavenLibraryDescriptor.version}",
               jars = repositoryJpsLibrary.getPaths(JpsOrderRootType.COMPILED).map { getFileMavenFileDescription(m2Repo, repositoryJpsLibrary, it) },
@@ -298,7 +297,8 @@ internal fun generateDeps(
               target = LibraryTarget(targetName = targetName, container = libraryContainer, jpsName = jpsLibrary.name, moduleLibraryModuleName = moduleLibraryModuleName),
             ),
             isProvided = isProvided,
-          ).target.container
+          )
+          libraryContainer = library.target.container
 
           val containerForLabel = if (isProvided) {
             // provided libraries for ultimate are defined in ultimate, but not kotlinc.* as per ^^
@@ -310,7 +310,17 @@ internal fun generateDeps(
             libraryContainer
           }
 
-          val libLabel = BazelLabel("${containerForLabel.repoLabel}//:$targetName$targetNameSuffix", module = null)
+          val libLabel = BazelLabel(
+            libraryDependencyLabel(
+              library = library,
+              container = containerForLabel,
+              communityRoot = context.communityRoot,
+              ultimateRoot = context.ultimateRoot,
+              isCommunityDependent = module.isCommunity,
+              isProvided = isProvided,
+            ),
+            module = null,
+          )
 
           addDep(
             isTest = isTest,
@@ -325,12 +335,13 @@ internal fun generateDeps(
             provided = provided,
             isExported = isExported,
           )
+          addPackedDepIfNeeded(libLabel, packedDeps, isTest, scope, moduleLibraryModuleName)
         }
       }
     }
   }
 
-  if (exports.isNotEmpty() && !dependentModuleName.startsWith("intellij.libraries.")) {
+  if (exports.isNotEmpty() && !dependentModuleName.startsWith(LIB_MODULE_PREFIX)) {
     require(!exports.any { it.label == "@lib//:kotlinx-serialization-core" }) {
       "Do not export kotlinx-serialization-core (module=$dependentModuleName})"
     }
@@ -361,10 +372,23 @@ internal fun generateDeps(
   checkForDuplicates("bazel deps", deps)
   checkForDuplicates("bazel associates", associates)
   checkForDuplicates("bazel runtimeDeps", runtimeDeps)
+  checkForDuplicates("bazel packedDeps", packedDeps)
   checkForDuplicates("bazel exports", exports)
   checkForDuplicates("bazel provided", provided)
 
-  return ModuleDeps(deps = deps, associates = associates, runtimeDeps = runtimeDeps, exports = exports, provided = provided, plugins = plugins.toList())
+  return ModuleDeps(deps = deps, associates = associates, runtimeDeps = runtimeDeps, packedDeps = packedDeps, exports = exports, provided = provided, plugins = plugins.toList())
+}
+
+private fun addPackedDepIfNeeded(
+  dependencyLabel: BazelLabel,
+  packedDeps: MutableList<BazelLabel>,
+  isTest: Boolean,
+  scope: JpsJavaDependencyScope,
+  moduleLibraryModuleName: String?,
+) {
+  if (moduleLibraryModuleName != null && !isTest && scope.isIncludedIn(JpsJavaClasspathKind.PRODUCTION_RUNTIME)) {
+    packedDeps.add(dependencyLabel)
+  }
 }
 
 private fun getLocalLibBazelFileDir(files: List<Path>, communityRoot: Path): Path {
@@ -379,7 +403,7 @@ private fun getLocalLibBazelFileDir(files: List<Path>, communityRoot: Path): Pat
   return dir
 }
 
-private fun underKotlinSnapshotLibRoot(dir: Path, communityRoot: Path) =
+internal fun underKotlinSnapshotLibRoot(dir: Path, communityRoot: Path) =
   dir.startsWith(communityRoot.resolve("lib").resolve("kotlin-snapshot"))
 
 private fun getFileMavenFileDescription(m2Repo: Path, lib: JpsTypedLibrary<JpsSimpleElement<JpsMavenRepositoryLibraryDescriptor>>, jar: Path): MavenFileDescription {

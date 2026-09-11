@@ -1,12 +1,18 @@
 package com.intellij.driver.sdk.ui.components.common
 
+import com.intellij.driver.sdk.step
 import com.intellij.driver.sdk.ui.Finder
 import com.intellij.driver.sdk.ui.components.ComponentData
 import com.intellij.driver.sdk.ui.components.UiComponent
+import com.intellij.driver.sdk.ui.components.UiComponent.Companion.waitFound
 import com.intellij.driver.sdk.ui.components.elements.ActionButtonUi
+import com.intellij.driver.sdk.ui.components.elements.accessibleList
+import com.intellij.driver.sdk.ui.components.elements.popup
+import com.intellij.driver.sdk.ui.components.settings.settingsDialog
 import com.intellij.openapi.util.SystemInfo
 
-val Finder.mainToolbar: MainToolbarUI get() =
+val Finder.mainToolbar: MainToolbarUI
+  get() =
     x("//div[@class='MainToolbar']", MainToolbarUI::class.java)
 
 
@@ -16,8 +22,7 @@ val Finder.mainToolbar: MainToolbarUI get() =
 val Finder.toolbar: UiComponent
   get() = if (SystemInfo.isLinux && System.getenv("DISPLAY") == null) {
     mainToolbar
-  }
-  else {
+  } else {
     toolbarHeader
   }
 
@@ -38,6 +43,19 @@ class MainToolbarUI(data: ComponentData) : UiComponent(data) {
 
   fun vcsWidget(branchName: String = "Version"): AbstractToolbarComboUi =
     abstractToolbarCombo { and(byType("com.intellij.openapi.wm.impl.AbstractToolbarCombo"), contains(byVisibleText(branchName))) }
+
+  fun gitVcsWidget(): AbstractToolbarComboUi =
+    abstractToolbarCombo { byType("com.intellij.vcs.git.frontend.widget.GitBranchToolbarComboButton") }
+}
+
+fun IdeaFrameUI.openSettingsViaToolbar() {
+  step("Open Settings via Toolbar") {
+    mainToolbar.settingsButton.click()
+    popup().accessibleList().clickItem("Settings", fullMatch = false)
+  }
+  step("Wait Settings window is opened") {
+    settingsDialog().waitFound()
+  }
 }
 
 val MainToolbarUI.rerunButton get() = x { contains(byAccessibleName("Rerun")) }

@@ -18,6 +18,7 @@ import com.intellij.openapi.components.StoragePathMacros
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.editor.EditorFactory
 import com.intellij.openapi.editor.RangeMarker
+import com.intellij.openapi.editor.elf.Elf
 import com.intellij.openapi.editor.event.CaretEvent
 import com.intellij.openapi.editor.event.DocumentEvent
 import com.intellij.openapi.editor.event.EditorEventListener
@@ -103,6 +104,8 @@ open class IdeDocumentHistoryImpl(
   private val changedFilesInCurrentCommand = HashSet<VirtualFile>()
   private var currentCommandHasMoves = false
   private var reallyExcludeCurrentCommandFromNavigation = false
+  private val isNavigationHistorySuppressed: Boolean
+    get() = NavigationHistoryContext.isActive
 
   private val recentFileTimestampMap: SynchronizedClearableLazy<PersistentHashMap<String, Long>>
 
@@ -123,11 +126,15 @@ open class IdeDocumentHistoryImpl(
     })
     connection.subscribe(CommandListener.TOPIC, object : CommandListener {
       override fun commandStarted(event: CommandEvent) {
-        onCommandStarted(event.commandGroupId)
+        if (!Elf.getElf().isElfCommandInProgress()) {
+          onCommandStarted(event.commandGroupId)
+        }
       }
 
       override fun commandFinished(event: CommandEvent) {
-        onCommandFinished(event.project, event.commandGroupId)
+        if (!Elf.getElf().isElfCommandInProgress()) {
+          onCommandFinished(event.project, event.commandGroupId)
+        }
       }
     })
 
@@ -224,7 +231,7 @@ open class IdeDocumentHistoryImpl(
 
   override fun onSelectionChanged() {
     ThreadingAssertions.assertEventDispatchThread()
-    if (!reallyExcludeCurrentCommandFromNavigation) {
+    if (!reallyExcludeCurrentCommandFromNavigation && !isNavigationHistorySuppressed) {
       currentCommandIsNavigation = true
     }
     currentCommandHasMoves = true
@@ -275,18 +282,8 @@ open class IdeDocumentHistoryImpl(
     }
 
     val commandStartPlace = commandStartPlace
-    if (commandStartPlace != null && currentCommandIsNavigation && currentCommandHasMoves) {
-      if (!backInProgress) {
-        if (!registeredBackPlaceInLastGroup) {
-          registeredBackPlaceInLastGroup = true
-          putLastOrMerge(next = commandStartPlace, limit = BACK_QUEUE_LIMIT, isChanged = false, groupId = commandGroupId)
-          registerViewed(commandStartPlace.file)
-        }
-        if (!forwardInProgress) {
-          forwardPlaces.clear()
-        }
-      }
-      removeInvalidFilesFromStacks()
+    if (!isNavigationHistorySuppressed && commandStartPlace != null && currentCommandIsNavigation && currentCommandHasMoves) {
+      commitBackPlace(commandStartPlace, commandGroupId, checkCommandGroup = true)
     }
 
     if (currentCommandHasChanges) {
@@ -352,6 +349,56 @@ open class IdeDocumentHistoryImpl(
       }
     }
     return files
+  }
+
+  override fun prepareHistorySnapshot(): NavigationHistorySnapshot {
+    ThreadingAssertions.assertEventDispatchThread()
+    val lastPlace = getCurrentPlaceInfo()
+    var isCompleted = false
+
+    return NavigationHistorySnapshot {
+      ThreadingAssertions.assertEventDispatchThread()
+      if (isCompleted) {
+        return@NavigationHistorySnapshot
+      }
+      isCompleted = true
+      if (lastPlace != null && !backInProgress && !forwardInProgress && hasChangedSince(lastPlace)) {
+        commitBackPlace(lastPlace, groupId = null, checkCommandGroup = false)
+      }
+    }
+  }
+
+  private fun hasChangedSince(place: PlaceInfo): Boolean {
+    val currentPlace = getCurrentPlaceInfo() ?: return false
+    return !isSameCaretPlace(currentPlace, place)
+  }
+
+  private fun isSameCaretPlace(currentPlace: PlaceInfo, previousPlace: PlaceInfo): Boolean {
+    if (currentPlace.file != previousPlace.file || currentPlace.editorTypeId != previousPlace.editorTypeId) {
+      return false
+    }
+    val currentCaret = currentPlace.caretPosition
+    val previousCaret = previousPlace.caretPosition
+
+    return if (currentCaret != null && previousCaret != null && currentCaret.isValid && previousCaret.isValid) {
+      currentCaret.startOffset == previousCaret.startOffset
+    } else currentPlace.navigationState == previousPlace.navigationState
+  }
+
+  private fun commitBackPlace(place: PlaceInfo, groupId: Any?, checkCommandGroup: Boolean) {
+    if (!backInProgress) {
+      if (!checkCommandGroup || !registeredBackPlaceInLastGroup) {
+        if (checkCommandGroup) {
+          registeredBackPlaceInLastGroup = true
+        }
+        putLastOrMerge(next = place, limit = BACK_QUEUE_LIMIT, isChanged = false, groupId = groupId)
+        registerViewed(place.file)
+      }
+      if (!forwardInProgress) {
+        forwardPlaces.clear()
+      }
+    }
+    removeInvalidFilesFromStacks()
   }
 
   fun isRecentlyChanged(file: VirtualFile): Boolean = state.changedPaths.contains(file.getPath())
@@ -593,7 +640,7 @@ open class IdeDocumentHistoryImpl(
     val offset = editor.getCaretModel().offset
     var marker = fileEditor.getUserData(CACHED_CARET_MARKER_KEY)
     if (marker == null || !marker.isValid || marker.startOffset != offset || marker.endOffset != offset) {
-      marker = editor.getElfDocument().createRangeMarker(offset, offset)
+      marker = editor.getDocument().createRangeMarker(offset, offset)
       fileEditor.putUserData(CACHED_CARET_MARKER_KEY, marker)
     }
     return marker

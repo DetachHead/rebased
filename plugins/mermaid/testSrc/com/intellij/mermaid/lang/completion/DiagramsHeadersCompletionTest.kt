@@ -24,9 +24,30 @@ class DiagramsHeadersCompletionTest : MermaidBaseTestCase("completion/diagrams")
     "quadrantChart",
     "timeline",
     "zenuml",
+    // mermaid 11.10.0 dropped the "-beta" suffix; both spellings are offered.
+    "sankey",
     "sankey-beta",
+    "xychart",
     "xychart-beta",
+    "block",
     "block-beta",
+    // Rendered by the bundled mermaid, parsed via the generic fallback rather than a detailed grammar.
+    "architecture-beta",
+    "cynefin-beta",
+    "eventmodeling",
+    "ishikawa-beta",
+    "kanban",
+    "packet",
+    "radar-beta",
+    "railroad-beta",
+    "railroad-abnf-beta",
+    "railroad-ebnf-beta",
+    "railroad-peg-beta",
+    "swimlane-beta",
+    "treemap-beta",
+    "treeView-beta",
+    "venn-beta",
+    "wardley-beta",
   )
 
   fun `test diagrams headers`() = doTest(*diagrams)

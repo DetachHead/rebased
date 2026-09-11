@@ -1,7 +1,7 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
 ### auto-generated section `build intellij.properties.backend` start
-
 jvm_library(
     name = "properties-backend",
     srcs = glob(
@@ -35,7 +35,7 @@ jvm_library(
         "//platform/projectModel-api:projectModel",
         "//platform/util/diff",
         "//spellchecker",
-        "//xml/impl",
+        "//xml/xml-psi-impl:psi-impl",
         "//plugins/properties/properties-psi-api:psi",
         "//plugins/properties/properties-psi-impl:backend-psi",
         "//platform/usageView",
@@ -57,6 +57,8 @@ jvm_library(
         "//jps/model-api:model",
     ],
 )
+
+content_module_jar(module = ":properties-backend")
 
 jvm_library(
     name = "properties-backend_test_lib",
@@ -84,7 +86,7 @@ jvm_library(
         "//platform/projectModel-api:projectModel_test_lib",
         "//platform/util/diff:diff_test_lib",
         "//spellchecker:spellchecker_test_lib",
-        "//xml/impl:impl_test_lib",
+        "//xml/xml-psi-impl:psi-impl_test_lib",
         "//plugins/properties/properties-psi-api:psi_test_lib",
         "//plugins/properties/properties-psi-impl:backend-psi_test_lib",
         "//platform/usageView:usageView_test_lib",
@@ -113,6 +115,7 @@ jvm_library(
 exports_files(
     [
         "intellij.properties.backend.iml",
+        "resources/intellij.properties.backend.xml",
     ],
     visibility = ["//visibility:public"],
 )

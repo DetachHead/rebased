@@ -4,7 +4,7 @@ package org.jetbrains.kotlin.idea.codeInsight.inspections
 import com.intellij.codeInspection.ProblemsHolder
 import com.intellij.openapi.util.TextRange
 import org.jetbrains.kotlin.analysis.api.KaSession
-import org.jetbrains.kotlin.analysis.api.resolution.successfulFunctionCallOrNull
+import org.jetbrains.kotlin.analysis.api.resolution.simple
 import org.jetbrains.kotlin.idea.base.resources.KotlinBundle
 import org.jetbrains.kotlin.idea.codeinsight.api.applicable.inspections.KotlinApplicableInspectionBase
 import org.jetbrains.kotlin.idea.codeinsight.api.applicable.inspections.KotlinModCommandQuickFix
@@ -12,6 +12,7 @@ import org.jetbrains.kotlin.idea.codeinsight.utils.StandardKotlinNames
 import org.jetbrains.kotlin.idea.codeinsights.impl.base.quickFix.CallChainConversion
 import org.jetbrains.kotlin.idea.codeinsights.impl.base.quickFix.CallChainExpressions
 import org.jetbrains.kotlin.idea.codeinsights.impl.base.quickFix.SimplifyCallChainFix
+import org.jetbrains.kotlin.idea.util.resolveSuccessfulExpressionCall
 import org.jetbrains.kotlin.name.FqName
 import org.jetbrains.kotlin.psi.KtQualifiedExpression
 import org.jetbrains.kotlin.psi.KtReturnExpression
@@ -59,10 +60,13 @@ internal class RedundantRunCatchingInspection : KotlinApplicableInspectionBase.S
         return lambdaArgument?.anyDescendantOfType<KtReturnExpression>() != true
     }
 
-    override fun KaSession.prepareContext(element: KtQualifiedExpression): CallChainExpressions? {
+    context(session: KaSession)
+    override fun prepareContext(element: KtQualifiedExpression): CallChainExpressions? {
         val callChainExpressions = CallChainExpressions.from(element) ?: return null
-        val firstCalleeCall = callChainExpressions.firstCalleeExpression.resolveToCall()?.successfulFunctionCallOrNull() ?: return null
-        val secondCalleeCall = callChainExpressions.secondCalleeExpression.resolveToCall()?.successfulFunctionCallOrNull() ?: return null
+        val firstCalleeCall =
+            callChainExpressions.firstCalleeExpression.resolveSuccessfulExpressionCall()?.simple ?: return null
+        val secondCalleeCall =
+            callChainExpressions.secondCalleeExpression.resolveSuccessfulExpressionCall()?.simple ?: return null
         if (firstCalleeCall.signature.callableId?.asSingleFqName() != conversion.firstFqName) {
             return null
         }

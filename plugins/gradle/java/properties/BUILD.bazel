@@ -1,7 +1,7 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
 ### auto-generated section `build intellij.gradle.java.properties` start
-
 jvm_library(
     name = "properties",
     srcs = glob(
@@ -21,20 +21,22 @@ jvm_library(
     deps = [
         # do not sort,
         "@lib//:kotlin-stdlib",
-        "@lib//:jetbrains-annotations",
+        "//libraries/jetbrains/annotations",
         "//plugins/properties/properties-psi-api:psi",
         "//plugins/properties/properties-psi-impl:backend-psi",
         "//plugins/gradle/java",
+        "//plugins/gradle/properties",
         "//platform/core-api:core",
         "//platform/core-impl",
         "//platform/util",
-        "//platform/analysis-api:analysis",
         "//platform/indexing-api:indexing",
         "//java/java-psi-api:psi",
         "//platform/util:util-ui",
-        "//platform/projectModel-api:projectModel",
+        "//plugins/properties:properties-backend",
     ],
 )
+
+content_module_jar(module = ":properties")
 
 jvm_library(
     name = "properties_test_lib",
@@ -48,17 +50,18 @@ jvm_library(
     runtime_deps = [
         # do not sort,
         ":properties",
+        "//libraries/jetbrains/annotations:annotations_test_lib",
         "//plugins/properties/properties-psi-api:psi_test_lib",
         "//plugins/properties/properties-psi-impl:backend-psi_test_lib",
         "//plugins/gradle/java:java_test_lib",
+        "//plugins/gradle/properties:properties_test_lib",
         "//platform/core-api:core_test_lib",
         "//platform/core-impl:core-impl_test_lib",
         "//platform/util:util_test_lib",
-        "//platform/analysis-api:analysis_test_lib",
         "//platform/indexing-api:indexing_test_lib",
         "//java/java-psi-api:psi_test_lib",
         "//platform/util:util-ui_test_lib",
-        "//platform/projectModel-api:projectModel_test_lib",
+        "//plugins/properties:properties-backend_test_lib",
     ],
 )
 ### auto-generated section `build intellij.gradle.java.properties` end
@@ -67,6 +70,7 @@ jvm_library(
 exports_files(
     [
         "intellij.gradle.java.properties.iml",
+        "resources/intellij.gradle.java.properties.xml",
     ],
     visibility = ["//visibility:public"],
 )

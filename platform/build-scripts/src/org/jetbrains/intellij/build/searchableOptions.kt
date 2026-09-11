@@ -2,10 +2,6 @@
 package org.jetbrains.intellij.build
 
 import io.opentelemetry.api.common.AttributeKey
-import kotlinx.coroutines.CoroutineName
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import kotlinx.serialization.Contextual
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -39,14 +35,14 @@ class SearchableOptionSetDescriptor(
   @JvmField internal val index: Map<String, List<SearchableOptionSetIndexItem>>,
   @JvmField val baseDir: Path,
 ) {
-  fun createSourceByModule(moduleName: String): List<Source> {
+  fun createSourceByModule(moduleName: String): List<FileSource> {
     val list = index[moduleName] ?: return emptyList()
     return list.map {
       FileSource(relativePath = it.file, size = it.size, hash = it.hash, file = baseDir.resolve(it.file))
     }
   }
 
-  fun createSourceByPlugin(pluginId: String): Collection<Source> = createSourceByModule(pluginId)
+  fun createSourceByPlugin(pluginId: String): List<FileSource> = createSourceByModule(pluginId)
 }
 
 internal fun readSearchableOptionIndex(baseDir: Path): SearchableOptionSetDescriptor {
@@ -71,21 +67,21 @@ internal suspend fun buildSearchableOptions(
 ): SearchableOptionSetDescriptor? {
   return context.executeStep(spanBuilder("building searchable options index"), BuildOptions.SEARCHABLE_OPTIONS_INDEX_STEP) { span ->
     val targetDirectory = context.paths.searchableOptionDir
-    // bundled maven is also downloaded during traverseUI execution in an external process,
-    // making it fragile to call more than one traverseUI at the same time (in the reproducibility test, for example),
-    // so it's pre-downloaded with proper synchronization
-    withContext(Dispatchers.IO) {
-      launch(CoroutineName("download maven4 libs")) {
-        BundledMavenDownloader.downloadMaven4Libs(context.paths.communityHomeDirRoot)
+    // Resolve bundled Maven inputs before traverseUI starts an external process. Under Bazel these are
+    // read directly from declared runfiles; other builds retain their normal download-cache behavior.
+    // The nested group ends before the product starts.
+    taskScope {
+      fork("resolve maven4 libs") {
+        BundledMavenDownloader.resolveMaven4Libs(context.paths.communityHomeDirRoot)
       }
-      launch(CoroutineName("download maven3 libs")) {
-        BundledMavenDownloader.downloadMaven3Libs(context.paths.communityHomeDirRoot)
+      fork("resolve maven3 libs") {
+        BundledMavenDownloader.resolveMaven3Libs(context.paths.communityHomeDirRoot)
       }
-      launch(CoroutineName("download maven distribution")) {
+      fork("download maven distribution") {
         BundledMavenDownloader.downloadMavenDistribution(context.paths.communityHomeDirRoot)
       }
-      launch(CoroutineName("download maven telemetry dependencies")) {
-        BundledMavenDownloader.downloadMavenTelemetryDependencies(context.paths.communityHomeDirRoot)
+      fork("resolve maven telemetry dependencies") {
+        BundledMavenDownloader.resolveMavenTelemetryDependencies(context.paths.communityHomeDirRoot)
       }
     }
 

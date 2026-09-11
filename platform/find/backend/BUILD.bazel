@@ -1,7 +1,7 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
 ### auto-generated section `build intellij.platform.find.backend` start
-
 jvm_library(
     name = "backend",
     srcs = glob(
@@ -20,11 +20,13 @@ jvm_library(
     visibility = ["//visibility:public"],
     deps = [
         # do not sort,
+        "//platform/kernel/rpc",
         "@lib//:kotlin-stdlib",
         "//platform/core-api:core",
         "//platform/indexing-api:indexing",
         "//platform/usageView",
         "//platform/kernel/backend",
+        "//platform/kernel/rpc.backend",
         "//platform/find",
         "//platform/project/shared:project",
         "//platform/platform-impl/rpc",
@@ -36,6 +38,8 @@ jvm_library(
         "//fleet/rhizomedb",
     ],
 )
+
+content_module_jar(module = ":backend")
 
 jvm_library(
     name = "backend_test_lib",
@@ -49,10 +53,12 @@ jvm_library(
     runtime_deps = [
         # do not sort,
         ":backend",
+        "//platform/kernel/rpc:rpc_test_lib",
         "//platform/core-api:core_test_lib",
         "//platform/indexing-api:indexing_test_lib",
         "//platform/usageView:usageView_test_lib",
         "//platform/kernel/backend:backend_test_lib",
+        "//platform/kernel/rpc.backend:rpc.backend_test_lib",
         "//platform/find:find_test_lib",
         "//platform/project/shared:project_test_lib",
         "//platform/platform-impl/rpc:rpc_test_lib",
@@ -70,6 +76,8 @@ jvm_library(
 exports_files(
     [
         "intellij.platform.find.backend.iml",
+        "resources/intellij.platform.find.backend.xml",
+        "module-content.yaml",
     ],
     visibility = ["//visibility:public"],
 )

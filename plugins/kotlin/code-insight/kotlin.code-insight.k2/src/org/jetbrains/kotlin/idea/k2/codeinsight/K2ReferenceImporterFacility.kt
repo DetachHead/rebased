@@ -2,12 +2,12 @@
 package org.jetbrains.kotlin.idea.k2.codeinsight
 
 import com.intellij.psi.PsiElement
-import org.jetbrains.kotlin.analysis.api.KaExperimentalApi
 import org.jetbrains.kotlin.analysis.api.KaSession
-import org.jetbrains.kotlin.analysis.api.analyze
 import org.jetbrains.kotlin.analysis.api.components.KaDiagnosticCheckerFilter
+import org.jetbrains.kotlin.analysis.api.components.directDiagnostics
 import org.jetbrains.kotlin.analysis.api.components.resolveToSymbol
 import org.jetbrains.kotlin.analysis.api.diagnostics.KaSeverity
+import org.jetbrains.kotlin.analysis.api.session.analyze
 import org.jetbrains.kotlin.idea.codeInsight.KotlinReferenceImporterFacility
 import org.jetbrains.kotlin.idea.codeinsight.api.applicators.fixes.KotlinQuickFixService
 import org.jetbrains.kotlin.idea.codeinsight.api.classic.quickfixes.KotlinImportQuickFixAction
@@ -53,7 +53,6 @@ class K2ReferenceImporterFacility : KotlinReferenceImporterFacility {
      *
      * To avoid that, we sacrifice some possible performance, but make sure that the [analyze] call is properly finished instead.
      */
-    @OptIn(KaExperimentalApi::class)
     override fun createImportFixesForExpression(expression: KtExpression): Sequence<KotlinImportQuickFixAction<*>> {
         val file = expression.containingKtFile
 
@@ -63,7 +62,7 @@ class K2ReferenceImporterFacility : KotlinReferenceImporterFacility {
             }
 
             val diagnostics = expression
-                .diagnostics(KaDiagnosticCheckerFilter.EXTENDED_AND_COMMON_CHECKERS)
+                .directDiagnostics(KaDiagnosticCheckerFilter.EXTENDED_AND_COMMON_CHECKERS)
                 .filter { it.severity == KaSeverity.ERROR && expression.textRange in it.psi.textRange }
 
             val quickFixService = KotlinQuickFixService.getInstance()

@@ -1,14 +1,24 @@
 load("@community//build:tests-options.bzl", "jps_test")
 load("@rules_jvm//:jvm.bzl", "jvm_library")
 load("//build:compiler-options.bzl", "create_kotlinc_options")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
+
+jps_test(
+    name = "python-processOutput-frontend-tests_test",
+    timeout = "long",
+    tags = ["community-aggregator"],
+    runtime_deps = [":python-processOutput-frontend-tests_test_lib"],
+)
+
+### skip generation section `test intellij.python.processOutput.frontend.tests`
 
 ### auto-generated section `build intellij.python.processOutput.frontend` start
-
 create_kotlinc_options(
     name = "custom_frontend",
     opt_in = ["kotlin.time.ExperimentalTime"],
-    plugin_options = ["plugin:androidx.compose.compiler.plugins.kotlin:generateFunctionKeyMetaAnnotations=true"],
+    warn = "error",
     x_context_parameters = True,
+    x_warning_level = ["DEPRECATION:warning"],
 )
 
 jvm_library(
@@ -35,23 +45,21 @@ jvm_library(
         "//platform/platform-api:ide",
         "//platform/ide-core",
         "//platform/core-api:core",
-        "//libraries/skiko",
-        "//libraries/compose-foundation-desktop",
-        "//platform/jewel/foundation",
-        "//platform/jewel/ui",
-        "//platform/jewel/ide-laf-bridge",
         "//platform/core-ui",
         "//platform/util:util-ui",
         "//platform/editor-ui-api:editor-ui",
         "//platform/projectModel-api:projectModel",
         "//platform/execution-impl",
-        "//libraries/compose-runtime-desktop",
         "//platform/statistics",
         "//python/python-process-output/common",
         "//libraries/kotlin/reflect",
         "//python/common",
+        "//platform/util/coroutines",
+        "//platform/core-impl",
     ],
 )
+
+content_module_jar(module = ":frontend")
 
 jvm_library(
     name = "frontend_test_lib",
@@ -70,11 +78,6 @@ jvm_library(
         "//platform/platform-api:ide_test_lib",
         "//platform/ide-core:ide-core_test_lib",
         "//platform/core-api:core_test_lib",
-        "//libraries/skiko:skiko_test_lib",
-        "//libraries/compose-foundation-desktop:compose-foundation-desktop_test_lib",
-        "//platform/jewel/foundation:foundation_test_lib",
-        "//platform/jewel/ui:ui_test_lib",
-        "//platform/jewel/ide-laf-bridge:ide-laf-bridge_test_lib",
         "//platform/core-ui:core-ui_test_lib",
         "//python/python-exec-service:community-execService",
         "//python/python-exec-service:community-execService_test_lib",
@@ -86,12 +89,10 @@ jvm_library(
         "//libraries/kotlin/test:libraries-kotlinTest_test_lib",
         "//libraries/kotlin/test-assertions-core-jvm:libraries-kotlinTestAssertionsCoreJvm",
         "//libraries/kotlin/test-assertions-core-jvm:libraries-kotlinTestAssertionsCoreJvm_test_lib",
-        "@lib//:kotlin-test-junit",
-        "//platform/jewel/int-ui/int-ui-standalone:jewel-intUi-standalone",
-        "//platform/jewel/int-ui/int-ui-standalone:jewel-intUi-standalone_test_lib",
+        "//libraries/kotlin/test-junit:libraries-kotlin-test-junit",
+        "//libraries/kotlin/test-junit:libraries-kotlin-test-junit_test_lib",
         "//platform/projectModel-api:projectModel_test_lib",
         "//platform/execution-impl:execution-impl_test_lib",
-        "//libraries/compose-runtime-desktop:compose-runtime-desktop_test_lib",
         "//libraries/mockk",
         "//libraries/mockk:mockk_test_lib",
         "//libraries/mockk/jvm",
@@ -104,8 +105,6 @@ jvm_library(
         "//python/python-process-output/common:common_test_lib",
         "//python/junit5Tests-framework:community-junit5Tests-framework",
         "//python/junit5Tests-framework:community-junit5Tests-framework_test_lib",
-        "//libraries/compose-foundation-desktop-junit",
-        "//libraries/compose-foundation-desktop-junit:compose-foundation-desktop-junit_test_lib",
         "//libraries/kotlinx/coroutines/debug",
         "//libraries/kotlinx/coroutines/debug:debug_test_lib",
         "//libraries/junit5",
@@ -118,6 +117,8 @@ jvm_library(
         "//python/python-test-env/junit5",
         "//python/python-test-env/junit5:junit5_test_lib",
         "//python/common:common_test_lib",
+        "//platform/util/coroutines:coroutines_test_lib",
+        "//platform/core-impl:core-impl_test_lib",
     ],
 )
 ### auto-generated section `build intellij.python.processOutput.frontend` end
@@ -126,18 +127,22 @@ jvm_library(
 exports_files(
     [
         "intellij.python.processOutput.frontend.iml",
+        "resources/intellij.python.processOutput.frontend.xml",
     ],
     visibility = ["//visibility:public"],
 )
 ### auto-generated section `iml intellij.python.processOutput.frontend` end
 
 ### auto-generated section `build intellij.python.processOutput.frontend.tests` start
-
 create_kotlinc_options(
     name = "custom_python-processOutput-frontend-tests",
-    opt_in = ["kotlin.time.ExperimentalTime"],
-    plugin_options = ["plugin:androidx.compose.compiler.plugins.kotlin:generateFunctionKeyMetaAnnotations=true"],
+    opt_in = [
+        "kotlin.time.ExperimentalTime",
+        "com.intellij.util.system.LowLevelLocalMachineAccess",
+    ],
+    warn = "error",
     x_context_parameters = True,
+    x_warning_level = ["DEPRECATION:warning"],
 )
 
 jvm_library(
@@ -181,16 +186,6 @@ jvm_library(
         "//platform/platform-api:ide_test_lib",
         "//platform/core-api:core",
         "//platform/core-api:core_test_lib",
-        "//libraries/skiko",
-        "//libraries/skiko:skiko_test_lib",
-        "//libraries/compose-foundation-desktop",
-        "//libraries/compose-foundation-desktop:compose-foundation-desktop_test_lib",
-        "//platform/jewel/foundation",
-        "//platform/jewel/foundation:foundation_test_lib",
-        "//platform/jewel/ui",
-        "//platform/jewel/ui:ui_test_lib",
-        "//platform/jewel/ide-laf-bridge",
-        "//platform/jewel/ide-laf-bridge:ide-laf-bridge_test_lib",
         "//platform/core-ui",
         "//platform/core-ui:core-ui_test_lib",
         "//python/python-exec-service:community-execService",
@@ -205,15 +200,12 @@ jvm_library(
         "//libraries/kotlin/test:libraries-kotlinTest_test_lib",
         "//libraries/kotlin/test-assertions-core-jvm:libraries-kotlinTestAssertionsCoreJvm",
         "//libraries/kotlin/test-assertions-core-jvm:libraries-kotlinTestAssertionsCoreJvm_test_lib",
-        "@lib//:kotlin-test-junit",
-        "//platform/jewel/int-ui/int-ui-standalone:jewel-intUi-standalone",
-        "//platform/jewel/int-ui/int-ui-standalone:jewel-intUi-standalone_test_lib",
+        "//libraries/kotlin/test-junit:libraries-kotlin-test-junit",
+        "//libraries/kotlin/test-junit:libraries-kotlin-test-junit_test_lib",
         "//platform/projectModel-api:projectModel",
         "//platform/projectModel-api:projectModel_test_lib",
         "//platform/execution-impl",
         "//platform/execution-impl:execution-impl_test_lib",
-        "//libraries/compose-runtime-desktop",
-        "//libraries/compose-runtime-desktop:compose-runtime-desktop_test_lib",
         "//libraries/mockk",
         "//libraries/mockk:mockk_test_lib",
         "//libraries/mockk/jvm",
@@ -228,8 +220,6 @@ jvm_library(
         "//python/python-process-output/common:common_test_lib",
         "//python/junit5Tests-framework:community-junit5Tests-framework",
         "//python/junit5Tests-framework:community-junit5Tests-framework_test_lib",
-        "//libraries/compose-foundation-desktop-junit",
-        "//libraries/compose-foundation-desktop-junit:compose-foundation-desktop-junit_test_lib",
         "//libraries/kotlinx/coroutines/debug",
         "//libraries/kotlinx/coroutines/debug:debug_test_lib",
         "//libraries/junit5",
@@ -254,11 +244,3 @@ exports_files(
     visibility = ["//visibility:public"],
 )
 ### auto-generated section `iml intellij.python.processOutput.frontend.tests` end
-
-### auto-generated section `test intellij.python.processOutput.frontend.tests` start
-
-jps_test(
-    name = "python-processOutput-frontend-tests_test",
-    runtime_deps = [":python-processOutput-frontend-tests_test_lib"],
-)
-### auto-generated section `test intellij.python.processOutput.frontend.tests` end

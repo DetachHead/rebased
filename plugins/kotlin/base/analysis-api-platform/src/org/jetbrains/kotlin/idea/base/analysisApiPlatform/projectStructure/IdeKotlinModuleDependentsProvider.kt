@@ -44,12 +44,15 @@ abstract class IdeKotlinModuleDependentsProvider(protected val project: Project)
         return when (module) {
             is KaSourceModule -> getDirectDependentsForSourceModule(module)
 
+            // Script modules are not supported yet (see KTIJ-25620).
+            is KaScriptModule, is KaScriptDependencyModule -> emptySet()
+
             is KaLibraryModule -> {
                 if (module.isSdk) {
                     // No dependents need to be provided for SDK modules (see `KotlinModuleDependentsProvider`).
                     return emptySet()
                 }
-                return buildSet { getDirectDependentsForLibraryNonSdkModule(module, this) }
+                buildSet { getDirectDependentsForLibraryNonSdkModule(module, this) }
             }
 
             is KaLibrarySourceModule -> getDirectDependents(module.binaryLibrary)
@@ -65,8 +68,6 @@ abstract class IdeKotlinModuleDependentsProvider(protected val project: Project)
             // There is no way to find dependents of danging file modules, as such modules are created on-site.
             is KaDanglingFileModule -> emptySet()
 
-            // Script modules are not supported yet (see KTIJ-25620).
-            is KaScriptModule, is KaScriptDependencyModule -> emptySet()
             is KaNotUnderContentRootModule -> emptySet()
 
             else -> throw KotlinExceptionWithAttachments("Unexpected ${module::class.simpleName}").withAttachment("module.txt", module)

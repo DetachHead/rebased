@@ -1,7 +1,7 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
 ### auto-generated section `build intellij.markdown.fenceInjection` start
-
 jvm_library(
     name = "fenceInjection",
     srcs = glob(
@@ -31,6 +31,8 @@ jvm_library(
     ],
 )
 
+content_module_jar(module = ":fenceInjection")
+
 jvm_library(
     name = "fenceInjection_test_lib",
     testonly = True,
@@ -58,6 +60,7 @@ jvm_library(
 exports_files(
     [
         "intellij.markdown.fenceInjection.iml",
+        "src/main/resources/intellij.markdown.fenceInjection.xml",
     ],
     visibility = ["//visibility:public"],
 )

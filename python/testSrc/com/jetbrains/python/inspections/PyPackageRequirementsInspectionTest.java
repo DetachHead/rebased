@@ -1,6 +1,9 @@
 // Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.jetbrains.python.inspections;
 
+import com.jetbrains.python.allure.Layers;
+import com.jetbrains.python.allure.Subsystems;
+
 import com.intellij.openapi.projectRoots.Sdk;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.util.containers.ContainerUtil;
@@ -22,6 +25,8 @@ import static com.jetbrains.python.packaging.management.TestPythonPackageManager
 import static com.jetbrains.python.packaging.management.TestPythonPackageManagerService.replacePythonPackageManagerServiceWithTestInstance;
 
 
+@Subsystems.Inspections
+@Layers.Functional
 public class PyPackageRequirementsInspectionTest extends PyInspectionTestCase {
   @NotNull
   @Override
@@ -153,7 +158,7 @@ public class PyPackageRequirementsInspectionTest extends PyInspectionTestCase {
     myFixture.configureByText("requirements.txt", "pkg[extras]");
 
     final PyPackageRequirementsInspection inspection = new PyPackageRequirementsInspection();
-    inspection.getIgnoredPackages().add("pkg");
+    inspection.ignoredPackages.add("pkg");
 
     myFixture.enableInspections(inspection);
     myFixture.checkHighlighting(isWarning(), isInfo(), isWeakWarning());

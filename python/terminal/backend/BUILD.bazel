@@ -1,7 +1,13 @@
-load("@community//build:tests-options.bzl", "jps_test")
 load("@rules_jvm//:jvm.bzl", "jvm_library")
+load("//build:compiler-options.bzl", "create_kotlinc_options")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
 ### auto-generated section `build intellij.python.terminal.backend` start
+create_kotlinc_options(
+    name = "custom_backend",
+    warn = "error",
+    x_warning_level = ["DEPRECATION:warning"],
+)
 
 jvm_library(
     name = "backend",
@@ -13,6 +19,7 @@ jvm_library(
         ],
         allow_empty = True,
     ),
+    kotlinc_opts = ":custom_backend",
     module_name = "intellij.python.terminal.backend",
     resource_strip_prefix = "resources",
     resources = glob(
@@ -21,6 +28,7 @@ jvm_library(
     visibility = ["//visibility:public"],
     deps = [
         # do not sort,
+        "//platform/kernel/rpc.backend",
         "//python:python-community-impl",
         "//plugins/terminal",
         "//platform/core-api:core",
@@ -30,15 +38,18 @@ jvm_library(
         "//platform/workspace/storage",
         "//platform/workspace/jps",
         "@lib//:kotlin-stdlib",
-        "//python/python-sdk:sdk",
+        "//python/python-sdk/backend",
         "//platform/lang-api:lang",
         "//platform/analysis-api:analysis",
         "//platform/eel-provider",
         "//platform/ide-core",
         "//platform/platform-impl:ide-impl",
         "//python/terminal/shared",
+        "//platform/project/shared:project",
     ],
 )
+
+content_module_jar(module = ":backend")
 
 jvm_library(
     name = "backend_test_lib",
@@ -47,11 +58,13 @@ jvm_library(
         [],
         allow_empty = True,
     ),
+    kotlinc_opts = ":custom_backend",
     module_name = "intellij.python.terminal.backend",
     visibility = ["//visibility:public"],
     runtime_deps = [
         # do not sort,
         ":backend",
+        "//platform/kernel/rpc.backend:rpc.backend_test_lib",
         "//python:python-community-impl_test_lib",
         "//plugins/terminal:terminal_test_lib",
         "//libraries/mockito",
@@ -62,7 +75,7 @@ jvm_library(
         "//platform/backend/workspace:workspace_test_lib",
         "//platform/workspace/storage:storage_test_lib",
         "//platform/workspace/jps:jps_test_lib",
-        "//python/python-sdk:sdk_test_lib",
+        "//python/python-sdk/backend:backend_test_lib",
         "//platform/lang-api:lang_test_lib",
         "//platform/analysis-api:analysis_test_lib",
         "//python/junit5Tests-framework:community-junit5Tests-framework",
@@ -89,6 +102,7 @@ jvm_library(
         "//python/python-test-env/junit5",
         "//python/python-test-env/junit5:junit5_test_lib",
         "//python/terminal/shared:shared_test_lib",
+        "//platform/project/shared:project_test_lib",
     ],
 )
 ### auto-generated section `build intellij.python.terminal.backend` end
@@ -97,6 +111,7 @@ jvm_library(
 exports_files(
     [
         "intellij.python.terminal.backend.iml",
+        "resources/intellij.python.terminal.backend.xml",
     ],
     visibility = ["//visibility:public"],
 )

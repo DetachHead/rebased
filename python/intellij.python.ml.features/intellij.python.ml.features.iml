@@ -20,7 +20,7 @@
     <orderEntry type="module" module-name="intellij.platform.ide" />
     <orderEntry type="module" module-name="intellij.platform.ide.impl" />
     <orderEntry type="module" module-name="intellij.python.community.impl" />
-    <orderEntry type="module" module-name="intellij.python.sdk" />
+    <orderEntry type="module" module-name="intellij.python.sdk.backend" />
     <orderEntry type="module" module-name="intellij.platform.concurrency" />
     <orderEntry type="module" module-name="intellij.platform.core.ui" />
     <orderEntry type="module" module-name="intellij.platform.ide.codeinsight.inline" />
@@ -43,7 +43,6 @@
         </SOURCES>
       </library>
     </orderEntry>
-    <orderEntry type="library" name="jetbrains.mlapi.catboost" level="project" />
-    <orderEntry type="library" name="jetbrains.mlapi.catboost.shadow.need.slf4j" level="project" />
+    <orderEntry type="module" module-name="intellij.libraries.mlapi.catboost" />
   </component>
 </module>

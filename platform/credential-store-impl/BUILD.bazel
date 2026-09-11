@@ -1,8 +1,16 @@
 load("@community//build:tests-options.bzl", "jps_test")
 load("@rules_jvm//:jvm.bzl", "jvm_library")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
+
+jps_test(
+    name = "credentialStore-impl-tests_test",
+    timeout = "moderate",
+    tags = ["community-aggregator"],
+    runtime_deps = [":credentialStore-impl-tests_test_lib"],
+)
+### skip generation section `test intellij.platform.credentialStore.impl.tests`
 
 ### auto-generated section `build intellij.platform.credentialStore.impl` start
-
 jvm_library(
     name = "credentialStore-impl",
     srcs = glob(
@@ -39,7 +47,6 @@ jvm_library(
         "//platform/core-api:core",
         "@lib//:kotlin-stdlib",
         "//libraries/kotlinx/coroutines/core",
-        "@lib//:jna",
         "//libraries/guava",
         "//libraries/bouncy-castle-provider",
         "//libraries/snakeyaml",
@@ -49,6 +56,11 @@ jvm_library(
         "//platform/analysis-api:analysis",
         "//platform/platform-api:ide",
     ],
+)
+
+content_module_jar(
+    libraries = ["@lib//:platform-credential_store-impl-dbus-java"],
+    module = ":credentialStore-impl",
 )
 
 jvm_library(
@@ -91,7 +103,8 @@ jvm_library(
         "//platform/testFramework/extensions:testExtensions_test_lib",
         "//libraries/assertj-core",
         "//libraries/assertj-core:assertj-core_test_lib",
-        "@lib//:junit4",
+        "//libraries/junit4",
+        "//libraries/junit4:junit4_test_lib",
         "//platform/analysis-api:analysis_test_lib",
         "//platform/platform-api:ide_test_lib",
         "//images:images-tests",
@@ -108,13 +121,14 @@ jvm_library(
 exports_files(
     [
         "intellij.platform.credentialStore.impl.iml",
+        "resources/intellij.platform.credentialStore.impl.xml",
+        "module-content.yaml",
     ],
     visibility = ["//visibility:public"],
 )
 ### auto-generated section `iml intellij.platform.credentialStore.impl` end
 
 ### auto-generated section `build intellij.platform.credentialStore.impl.tests` start
-
 jvm_library(
     name = "credentialStore-impl-tests",
     srcs = glob(
@@ -140,10 +154,6 @@ jvm_library(
         "//platform/credential-store-impl:credentialStore-impl",
         "//platform/credential-store-impl:credentialStore-impl_test_lib",
     ],
-    resource_strip_prefix = "testResources",
-    resources = glob(
-        ["testResources/**/*"],
-    ),
     visibility = ["//visibility:public"],
     runtime_deps = [
         # do not sort,
@@ -186,7 +196,6 @@ jvm_library(
         "@lib//:kotlin-stdlib",
         "//libraries/kotlinx/coroutines/core",
         "//libraries/kotlinx/coroutines/core:core_test_lib",
-        "@lib//:jna",
         "//libraries/guava",
         "//libraries/guava:guava_test_lib",
         "//libraries/bouncy-castle-provider",
@@ -204,7 +213,8 @@ jvm_library(
         "//platform/testFramework/extensions:testExtensions_test_lib",
         "//libraries/assertj-core",
         "//libraries/assertj-core:assertj-core_test_lib",
-        "@lib//:junit4",
+        "//libraries/junit4",
+        "//libraries/junit4:junit4_test_lib",
         "//platform/analysis-api:analysis",
         "//platform/analysis-api:analysis_test_lib",
         "//platform/platform-api:ide",
@@ -215,6 +225,8 @@ jvm_library(
         "//RegExpSupport:regexp-tests_test_lib",
         "//platform/xdebugger-impl:debugger-impl-tests",
         "//platform/xdebugger-impl:debugger-impl-tests_test_lib",
+        "//libraries/junit5",
+        "//libraries/junit5:junit5_test_lib",
     ],
 )
 ### auto-generated section `build intellij.platform.credentialStore.impl.tests` end
@@ -227,11 +239,3 @@ exports_files(
     visibility = ["//visibility:public"],
 )
 ### auto-generated section `iml intellij.platform.credentialStore.impl.tests` end
-
-### auto-generated section `test intellij.platform.credentialStore.impl.tests` start
-
-jps_test(
-    name = "credentialStore-impl-tests_test",
-    runtime_deps = [":credentialStore-impl-tests_test_lib"],
-)
-### auto-generated section `test intellij.platform.credentialStore.impl.tests` end

@@ -1,7 +1,6 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
 
 ### auto-generated section `build intellij.idea.community.customization` start
-
 jvm_library(
     name = "customization",
     srcs = glob(
@@ -17,11 +16,11 @@ jvm_library(
     runtime_deps = [
         # do not sort,
         "//java/ide-resources",
-        "@lib//:idea-community-customization-tips-idea-ce",
         "//platform/platform-impl:ide-impl",
         "//idea/customization/min",
         "//idea/customization/base",
         "//platform/experiment",
+        "//community-resources/ide-customization",
     ],
 )
 
@@ -42,6 +41,7 @@ jvm_library(
         "//idea/customization/min:min_test_lib",
         "//idea/customization/base:base_test_lib",
         "//platform/experiment:experiment_test_lib",
+        "//community-resources/ide-customization:ide-customization_test_lib",
     ],
 )
 ### auto-generated section `build intellij.idea.community.customization` end
@@ -50,6 +50,8 @@ jvm_library(
 exports_files(
     [
         "intellij.idea.community.customization.iml",
+        "resources/META-INF/IdeaPlugin.xml",
+        "resources/idea/IdeaApplicationInfo.xml",
     ],
     visibility = ["//visibility:public"],
 )

@@ -1,13 +1,14 @@
-// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.kotlin.idea.debugger.core
 
 import com.intellij.debugger.engine.JVMNameUtil
 import com.intellij.util.asSafely
 import org.jetbrains.annotations.ApiStatus
-import org.jetbrains.kotlin.analysis.api.KaExperimentalApi
 import org.jetbrains.kotlin.analysis.api.KaSession
 import org.jetbrains.kotlin.analysis.api.annotations.KaAnnotationValue
 import org.jetbrains.kotlin.analysis.api.base.KaConstantValue
+import org.jetbrains.kotlin.analysis.api.components.javaGetterName
+import org.jetbrains.kotlin.analysis.api.components.javaSetterName
 import org.jetbrains.kotlin.analysis.api.symbols.KaCallableSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaClassSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaConstructorSymbol
@@ -18,8 +19,11 @@ import org.jetbrains.kotlin.analysis.api.symbols.KaNamedFunctionSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaPropertyAccessorSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaPropertyGetterSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaPropertySymbol
+import org.jetbrains.kotlin.analysis.api.symbols.containingDeclaration
+import org.jetbrains.kotlin.analysis.api.symbols.containingFile
+import org.jetbrains.kotlin.analysis.api.symbols.containingSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.isLocal
-import org.jetbrains.kotlin.analysis.decompiler.psi.file.KtClsFile
+import org.jetbrains.kotlin.analysis.api.symbols.symbol
 import org.jetbrains.kotlin.fileClasses.JvmFileClassUtil
 import org.jetbrains.kotlin.fileClasses.javaFileFacadeFqName
 import org.jetbrains.kotlin.idea.debugger.base.util.fqnToInternalName
@@ -29,8 +33,8 @@ import org.jetbrains.kotlin.psi.KtFile
 import org.jetbrains.kotlin.resolve.jvm.JvmClassName
 
 @ApiStatus.Internal
-@OptIn(KaExperimentalApi::class)
-fun KaSession.methodName(symbol: KaFunctionSymbol): String? = when (symbol) {
+context(session: KaSession)
+fun methodName(symbol: KaFunctionSymbol): String? = when (symbol) {
     is KaNamedFunctionSymbol -> getByteCodeMethodName(symbol)
     is KaConstructorSymbol -> JVMNameUtil.CONSTRUCTOR_NAME
     is KaPropertyAccessorSymbol -> {
@@ -42,7 +46,8 @@ fun KaSession.methodName(symbol: KaFunctionSymbol): String? = when (symbol) {
 }
 
 @ApiStatus.Internal
-fun KaSession.getByteCodeMethodName(symbol: KaNamedFunctionSymbol): String {
+context(session: KaSession)
+fun getByteCodeMethodName(symbol: KaNamedFunctionSymbol): String {
     val localFunPrefix = if (symbol.isLocal) {
         generateSequence(symbol) { if (it.isLocal) it.containingSymbol as? KaNamedFunctionSymbol else null }
             .drop(1).toList().map { it.name.asString() }
@@ -64,22 +69,25 @@ fun KaSession.getByteCodeMethodName(symbol: KaNamedFunctionSymbol): String {
 fun isInlineClass(symbol: KaDeclarationSymbol?): Boolean = symbol is KaNamedClassSymbol && symbol.isInline
 
 @ApiStatus.Internal
-fun KaSession.getClassName(declaration: KtDeclaration): String? {
+context(session: KaSession)
+fun getClassName(declaration: KtDeclaration): String? {
     val symbol = declaration.symbol as? KaFunctionSymbol ?: return null
     return getJvmInternalClassName(symbol)?.internalNameToFqn()
 }
 
 @ApiStatus.Internal
-fun KaSession.getJvmInternalClassName(symbol: KaCallableSymbol): String? {
+context(session: KaSession)
+fun getJvmInternalClassName(symbol: KaCallableSymbol): String? {
     val classOrObject = getContainingClassOrObjectSymbol(symbol)
     if (classOrObject != null) {
         return classOrObject.getJvmInternalName()
     }
     val fileSymbol = symbol.containingFile ?: return null
     val file = fileSymbol.psi as? KtFile ?: return null
-    if (file is KtClsFile) {
+    if (file.isCompiled) {
         return file.javaFileFacadeFqName.asString().fqnToInternalName()
     }
+
     return JvmFileClassUtil.getFileClassInfoNoResolve(file).facadeClassFqName.asString().fqnToInternalName()
 }
 
@@ -92,7 +100,8 @@ fun KaClassSymbol.getJvmInternalName(): String? {
 }
 
 @ApiStatus.Internal
-fun KaSession.getContainingClassOrObjectSymbol(symbol: KaCallableSymbol): KaClassSymbol? {
+context(session: KaSession)
+fun getContainingClassOrObjectSymbol(symbol: KaCallableSymbol): KaClassSymbol? {
     var containerSymbol = symbol.containingSymbol
     while (containerSymbol != null) {
         if (containerSymbol is KaClassSymbol) return containerSymbol

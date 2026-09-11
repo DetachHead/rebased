@@ -1,6 +1,11 @@
-load("@rules_jvm//:jvm.bzl", "jvm_library")
+load("@rules_jvm//:jvm.bzl", "jvm_library", "jvm_provided_library")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
 ### auto-generated section `build intellij.platform.buildScripts.downloader` start
+jvm_provided_library(
+    name = "libraries_zstd-jni_provided",
+    lib = "//libraries/zstd-jni",
+)
 
 jvm_library(
     name = "downloader",
@@ -21,10 +26,9 @@ jvm_library(
     runtime_deps = ["//libraries/commons/lang3"],
     deps = [
         # do not sort,
-        "@lib//:jetbrains-annotations",
+        "//libraries/jetbrains/annotations",
         "//libraries/commons/compress",
         "//libraries/teamcity/service-messages:libraries-teamcity-service-messages",
-        "@lib//:zstd-jni",
         "//libraries/commons/io",
         "@lib//:kotlin-stdlib",
         "//libraries/kotlinx/coroutines/core",
@@ -33,8 +37,12 @@ jvm_library(
         "//libraries/opentelemetry-extension-kotlin",
         "//libraries/hash4j",
         "//libraries/ktor/client",
+        "//platform/bazel-runfiles",
+        ":libraries_zstd-jni_provided",
     ],
 )
+
+content_module_jar(module = ":downloader")
 
 jvm_library(
     name = "downloader_test_lib",
@@ -48,9 +56,12 @@ jvm_library(
     runtime_deps = [
         # do not sort,
         ":downloader",
+        "//libraries/jetbrains/annotations:annotations_test_lib",
         "//libraries/commons/compress:compress_test_lib",
         "//libraries/commons/lang3:lang3_test_lib",
         "//libraries/teamcity/service-messages:libraries-teamcity-service-messages_test_lib",
+        "//libraries/zstd-jni",
+        "//libraries/zstd-jni:zstd-jni_test_lib",
         "//libraries/commons/io:io_test_lib",
         "//libraries/kotlinx/coroutines/core:core_test_lib",
         "//libraries/opentelemetry:opentelemetry_test_lib",
@@ -58,6 +69,7 @@ jvm_library(
         "//libraries/opentelemetry-extension-kotlin:opentelemetry-extension-kotlin_test_lib",
         "//libraries/hash4j:hash4j_test_lib",
         "//libraries/ktor/client:client_test_lib",
+        "//platform/bazel-runfiles:bazel-runfiles_test_lib",
     ],
 )
 ### auto-generated section `build intellij.platform.buildScripts.downloader` end
@@ -66,6 +78,8 @@ jvm_library(
 exports_files(
     [
         "intellij.platform.buildScripts.downloader.iml",
+        "resources/intellij.platform.buildScripts.downloader.xml",
+        "module-content.yaml",
     ],
     visibility = ["//visibility:public"],
 )

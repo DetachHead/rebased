@@ -4,12 +4,8 @@ package org.jetbrains.intellij.build.impl
 import com.intellij.openapi.util.io.NioFiles
 import com.intellij.platform.buildData.productInfo.ProductInfoLaunchData
 import io.opentelemetry.api.trace.Span
-import kotlinx.coroutines.CoroutineName
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
-import kotlinx.coroutines.withContext
 import org.jetbrains.intellij.build.BuildContext
 import org.jetbrains.intellij.build.BuildOptions
 import org.jetbrains.intellij.build.JvmArchitecture
@@ -33,7 +29,6 @@ import org.jetbrains.intellij.build.impl.qodana.generateQodanaLaunchData
 import org.jetbrains.intellij.build.impl.stdioMcpRunner.generateStdioMcpRunnerLaunchData
 import org.jetbrains.intellij.build.impl.support.generateInstallationIntegrityManifest
 import org.jetbrains.intellij.build.io.copyFile
-import org.jetbrains.intellij.build.io.copyFileToDir
 import org.jetbrains.intellij.build.io.moveFileToDir
 import org.jetbrains.intellij.build.io.runProcess
 import org.jetbrains.intellij.build.io.substituteTemplatePlaceholders
@@ -67,44 +62,47 @@ class LinuxDistributionBuilder(
   override val targetOs: OsFamily
     get() = OsFamily.LINUX
 
+  override suspend fun copyNativeBinFiles(binDir: Path, arch: JvmArchitecture): List<Path> {
+    val sourceBinDir = context.paths.communityHomeDir.resolve("bin/linux")
+    return listOf(
+      copyRestarterToDir(binDir, OsFamily.LINUX, arch, context),
+      copyNativeBinFileToDir(sourceBinDir.resolve("${arch.dirName}/fsnotifier"), binDir),
+    )
+  }
+
   override suspend fun copyFilesForOsDistribution(targetPath: Path, arch: JvmArchitecture) {
     spanBuilder("copy files for os distribution")
       .setAttribute("os", targetOs.osName)
       .setAttribute("arch", arch.name)
       .setAttribute("targetLibcImpl", targetLibcImpl.name).use {
-      withContext(Dispatchers.IO) {
-        val distBinDir = targetPath.resolve("bin").createDirectories()
-        writeVmOptions(distBinDir)
+      val distBinDir = targetPath.resolve("bin").createDirectories()
+      writeVmOptions(distBinDir)
 
-        context.executeStep(spanBuilder("copy product bin files"), BuildOptions.PRODUCT_BIN_DIR_STEP) {
-          val sourceBinDir = context.paths.communityHomeDir.resolve("bin/linux")
+      context.executeStep(spanBuilder("copy product bin files"), BuildOptions.PRODUCT_BIN_DIR_STEP) {
+        copyNativeBinFiles(distBinDir, arch)
 
-          copyFileToDir(NativeBinaryDownloader.getRestarter(context, OsFamily.LINUX, arch), distBinDir)
-          copyFileToDir(sourceBinDir.resolve("${arch.dirName}/fsnotifier"), distBinDir)
-
-          context.getEmbeddedFrontendProductContext()?.let { clientContext ->
-            writeLinuxVmOptions(distBinDir, clientContext)
-            generateLauncherScript(
-              distBinDir, arch, getAdditionalEmbeddedClientVmOptions(OsFamily.LINUX, context), targetLibcImpl, clientContext
-            )
-          }
-          generateScripts(distBinDir, arch, targetLibcImpl, context)
+        context.getEmbeddedFrontendProductContext()?.let { clientContext ->
+          writeLinuxVmOptions(distBinDir, clientContext)
+          generateLauncherScript(
+            distBinDir, arch, getAdditionalEmbeddedClientVmOptions(OsFamily.LINUX, context), targetLibcImpl, clientContext
+          )
         }
-        addNativeLauncher(distBinDir, targetPath, arch, context)
-        generateBuildTxt(targetPath, context)
-        copyDistFiles(targetPath, OsFamily.LINUX, arch, targetLibcImpl, context)
-
-        //todo converting line separators to unix-style make sense only when building Linux distributions under Windows on a local machine;
-        // for real installers we need to checkout all text files with 'lf' separators anyway
-        Files.writeString(distBinDir.resolve(PROPERTIES_FILE_NAME), ideaProperties!!.lineSequence().joinToString("\n"))
-
-        if (iconPngPath != null) {
-          Files.copy(iconPngPath, distBinDir.resolve("${context.productProperties.baseFileName}.png"), StandardCopyOption.REPLACE_EXISTING)
-        }
-        generateReadme(targetPath)
-        generateVersionMarker(targetPath, context)
-        customizer.copyAdditionalFiles(targetPath, arch, context)
+        generateScripts(distBinDir, arch, targetLibcImpl, context)
       }
+      addNativeLauncher(distBinDir, targetPath, arch, context)
+      generateBuildTxt(targetPath, context)
+      copyDistFiles(targetPath, OsFamily.LINUX, arch, targetLibcImpl, context)
+
+      //todo converting line separators to unix-style make sense only when building Linux distributions under Windows on a local machine;
+      // for real installers we need to checkout all text files with 'lf' separators anyway
+      Files.writeString(distBinDir.resolve(PROPERTIES_FILE_NAME), ideaProperties!!.lineSequence().joinToString("\n"))
+
+      if (iconPngPath != null) {
+        Files.copy(iconPngPath, distBinDir.resolve("${context.productProperties.baseFileName}.png"), StandardCopyOption.REPLACE_EXISTING)
+      }
+      generateReadme(targetPath)
+      generateVersionMarker(targetPath, context)
+      customizer.copyAdditionalFiles(targetPath, arch, context)
     }
   }
 
@@ -119,7 +117,7 @@ class LinuxDistributionBuilder(
       BuildOptions.LINUX_ARTIFACTS_STEP
     ) {
       if (customizer.buildArtifactWithoutRuntime) {
-        launch(Dispatchers.IO + CoroutineName("Build Linux $arch .tar.gz without bundled Runtime")) {
+        fork("Build Linux $arch .tar.gz without bundled Runtime") {
           context.executeStep(
             spanBuilder("Build Linux .tar.gz without bundled Runtime")
               .setAttribute("arch", arch.name)
@@ -158,13 +156,13 @@ class LinuxDistributionBuilder(
       }
 
       if (targetLibcImpl != LinuxLibcImpl.MUSL) {
-        launch(Dispatchers.IO + CoroutineName("build Snap package")) {
+        fork("build Snap package") {
           buildSnapPackage(runtimeDir, osAndArchSpecificDistPath, arch, targetLibcImpl)
         }
       }
 
       if (tarGzPath != null) {
-        context.executeStep(spanBuilder("bundle repair utility"), BuildOptions.REPAIR_UTILITY_BUNDLE_STEP, Dispatchers.IO) {
+        context.executeStep(spanBuilder("bundle repair utility"), BuildOptions.REPAIR_UTILITY_BUNDLE_STEP) {
           val tempTar = Files.createTempDirectory(context.paths.tempDir, "tar-")
           try {
             unTar(tarGzPath, tempTar)
@@ -201,7 +199,7 @@ class LinuxDistributionBuilder(
     )
   }
 
-  override suspend fun generateExecutableFilesPatterns(includeRuntime: Boolean, arch: JvmArchitecture, libc: LibcImpl): Sequence<String> {
+  override fun generateExecutableFilesPatterns(includeRuntime: Boolean, arch: JvmArchitecture, libc: LibcImpl): Sequence<String> {
     val base = customizer.generateExecutableFilesPatterns(includeRuntime, arch, libc, context)
     val pluginPatterns = collectPluginExecutablePatterns(context, OsFamily.LINUX, arch, libc)
     return base + pluginPatterns
@@ -213,7 +211,7 @@ class LinuxDistributionBuilder(
   private val launcherFileName: String
     get() = context.productProperties.baseFileName
 
-  private suspend fun buildTarGz(arch: JvmArchitecture, runtimeDir: Path?, unixDistPath: Path, suffix: String): Path = withContext(Dispatchers.IO) {
+  private suspend fun buildTarGz(arch: JvmArchitecture, runtimeDir: Path?, unixDistPath: Path, suffix: String): Path {
     val tarRoot = rootDirectoryName
     val tarName = context.productProperties.getBaseArtifactName(context) + suffix + ".tar.gz"
     val tarPath = context.paths.artifactDir.resolve(tarName)
@@ -233,7 +231,7 @@ class LinuxDistributionBuilder(
     spanBuilder("build Linux tar.gz")
       .setAttribute("runtimeDir", runtimeDir?.toString() ?: "")
       .setAttribute("targetLibcImpl", targetLibcImpl.name)
-      .use(Dispatchers.IO) {
+      .use {
         val executableFileMatchers = generateExecutableFilesMatchers(includeRuntime = runtimeDir != null, arch, targetLibcImpl).keys
         tar(tarPath, tarRoot, dirs, executableFileMatchers, context.options.buildDateInSeconds)
         validateProductJson(tarPath, tarRoot, context)
@@ -242,7 +240,7 @@ class LinuxDistributionBuilder(
         context.notifyArtifactBuilt(tarPath)
         checkExecutablePermissions(distribution = tarPath, root = rootDirectoryName, includeRuntime = runtimeDir != null, arch, targetLibcImpl, context)
       }
-    tarPath
+    return tarPath
   }
 
   private val snapVersion: String by lazy {
@@ -389,7 +387,7 @@ class LinuxDistributionBuilder(
   private suspend fun writeProductJsonFile(targetDir: Path, arch: JvmArchitecture, withRuntime: Boolean): Path {
     val json = generateProductInfoJson(
       relativePathToBin = "bin",
-      builtinModules = context.builtinModule,
+      builtinModules = context.builtinModules(),
       launch = listOf(
         ProductInfoLaunchData.create(
           OsFamily.LINUX.osName,

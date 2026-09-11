@@ -15,6 +15,7 @@ import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.util.EmptyRunnable
 import com.intellij.testFramework.junit5.TestApplication
 import com.intellij.util.concurrency.Semaphore
+import com.intellij.util.concurrency.annotations.RequiresBackgroundThread
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.fail
@@ -33,8 +34,8 @@ abstract class CancellableReadActionTests {
   }
 }
 
-fun <X> computeCancellable(action: () -> X): X {
-  return ReadAction.computeCancellable<X, Nothing>(action)
+fun <X> computeCancellableUnsafe(action: () -> X): X {
+  return ReadAction.computeCancellableUnsafe<X, Nothing>(action)
 }
 
 fun testComputeCancellableRethrow() {
@@ -45,7 +46,7 @@ fun testComputeCancellableRethrow() {
 
 private inline fun <reified T : Throwable> testComputeCancellableRethrow(t: T) {
   val thrown = assertThrows<T> {
-    computeCancellable {
+    computeCancellableUnsafe {
       throw t
     }
   }
@@ -55,7 +56,7 @@ private inline fun <reified T : Throwable> testComputeCancellableRethrow(t: T) {
 fun testThrowsIfPendingWrite() {
   val finishWrite = waitForPendingWrite()
   assertThrows<CannotReadException> {
-    computeCancellable {
+    computeCancellableUnsafe {
       fail()
     }
   }
@@ -65,7 +66,7 @@ fun testThrowsIfPendingWrite() {
 fun testThrowsIfRunningWrite() {
   val finishWrite = waitForWrite()
   assertThrows<CannotReadException> {
-    computeCancellable {
+    computeCancellableUnsafe {
       fail()
     }
   }
@@ -86,7 +87,7 @@ private fun waitForWrite(): Semaphore {
 }
 
 fun testDoesntThrowWhenAlmostFinished() {
-  val result = computeCancellable {
+  val result = computeCancellableUnsafe {
     testNoExceptions()
     waitForPendingWrite().up()
     assertThrows<CannotReadException> { // cancelled
@@ -99,7 +100,7 @@ fun testDoesntThrowWhenAlmostFinished() {
 
 fun testThrowsOnWrite() {
   assertThrows<CannotReadException> {
-    computeCancellable {
+    computeCancellableUnsafe {
       testNoExceptions()
       waitForPendingWrite().up()
       testReadExceptions()
@@ -118,6 +119,7 @@ private fun testReadExceptions(): Nothing {
   throw jce
 }
 
+@RequiresBackgroundThread
 fun waitForPendingWrite(): Semaphore {
   val finishWrite = Semaphore(1)
   val pendingWrite = Semaphore(1)

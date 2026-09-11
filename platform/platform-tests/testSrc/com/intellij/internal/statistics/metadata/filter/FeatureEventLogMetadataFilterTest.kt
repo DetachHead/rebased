@@ -874,11 +874,11 @@ class FeatureEventLogMetadataFilterTest {
   }
 
   private fun testMetadataAndSnapshotBuildFilter(rules: EventGroupsFilterRules<EventLogBuild>, all: List<LogEvent>, filtered: List<LogEvent>) {
-    testMetadataFilter(all, filtered, LogEventCompositeFilter(LogEventMetadataFilter(rules), LogEventSnapshotBuildFilter))
+    testMetadataFilter(all, filtered, LogEventCompositeFilter(LogEventMetadataFilter(rules), LogEventSnapshotBuildFilter(false)))
   }
 
   private fun testSnapshotBuilderFilter(all: List<LogEvent>, filtered: List<LogEvent>) {
-    testMetadataFilter(all, filtered, LogEventSnapshotBuildFilter)
+    testMetadataFilter(all, filtered, LogEventSnapshotBuildFilter(false))
   }
 
   private fun testMetadataFilter(all: List<LogEvent>, filtered: List<LogEvent>, filter: LogEventFilter) {

@@ -3,7 +3,6 @@ package com.intellij.find.impl
 
 import com.intellij.find.FindModel
 import com.intellij.openapi.Disposable
-import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.wm.ex.ProgressIndicatorEx
 import com.intellij.usages.FindUsagesProcessPresentation
@@ -14,13 +13,6 @@ import javax.swing.table.TableCellRenderer
 
 @ApiStatus.Internal
 interface FindAndReplaceExecutor {
-
-  companion object {
-    @JvmStatic
-    fun getInstance(): FindAndReplaceExecutor {
-      return ApplicationManager.getApplication().getService(FindAndReplaceExecutor::class.java)
-    }
-  }
 
   fun createTableCellRenderer(): TableCellRenderer? {
     return null
@@ -38,23 +30,10 @@ interface FindAndReplaceExecutor {
     onResult: (UsageInfoAdapter) -> Boolean,
     onFinish: () -> Unit?,
     maxUsages: Int,
+    isLoadMore: Boolean = false,
   )
 
-  /**
-   * Initiates a "Find all"/"Replace all" operation on the backend and displays results in the Find tool window.
-   * NOTE: Currently, the operation is performed on the backend only,
-   * should be reworked when Find tool window is split for remote development.
-   *
-   * This function handles searching for text based on the provided search model
-   *
-   * @param findModel the model containing search parameters and criteria
-   * @param project the project where the search is performed
-   */
-  fun performFindAllOrReplaceAll(findModel: FindModel, project: Project)
-
   fun validateModel(findModel: FindModel, onFinish: (Boolean) -> Any?)
-
-  fun performScopeSelection(scopeId: String, project: Project)
 
   fun cancelActivities()
 

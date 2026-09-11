@@ -1,9 +1,9 @@
 load("@community//build:tests-options.bzl", "jps_test")
 load("@rules_jvm//:jvm.bzl", "jvm_library")
 load("//build:compiler-options.bzl", "create_kotlinc_options")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
 ### auto-generated section `build intellij.kotlin.base.codeInsight` start
-
 create_kotlinc_options(
     name = "custom_code-insight",
     opt_in = [
@@ -11,6 +11,7 @@ create_kotlinc_options(
         "org.jetbrains.kotlin.analysis.api.KaIdeApi",
         "org.jetbrains.kotlin.analysis.api.KaContextParameterApi",
         "org.jetbrains.kotlin.analysis.api.permissions.KaAllowProhibitedAnalyzeFromWriteAction",
+        "org.jetbrains.kotlin.analysis.api.KaExperimentalApi",
     ],
     x_context_parameters = True,
 )
@@ -35,15 +36,17 @@ jvm_library(
     exports = ["//plugins/kotlin/base/code-insight/minimal"],
     deps = [
         # do not sort,
-        "@lib//:jetbrains-annotations",
+        "//libraries/jetbrains/annotations",
         "@lib//:kotlin-stdlib",
         "//libraries/kotlin/reflect",
         "//plugins/kotlin/references",
-        "@lib//:kotlinc-kotlin-compiler-common",
-        "@lib//:kotlinc-analysis-api",
-        "@lib//:kotlinc-kotlin-jps-common",
+        "//libraries/kotlinc/kotlin-compiler-common:libraries-kotlinc-kotlin-compiler-common",
+        "//libraries/kotlinc/analysis-api:libraries-kotlinc-analysis-api",
+        "//libraries/kotlinc/symbol-light-classes:libraries-kotlinc-symbol-light-classes",
+        "//libraries/kotlinc/kotlin-jps-common:libraries-kotlinc-kotlin-jps-common",
         "//platform/analysis-api:analysis",
         "//platform/core-api:core",
+        "//java/java-backend:backend",
         "//platform/lang-core",
         "//platform/projectModel-api:projectModel",
         "//plugins/kotlin/base/util",
@@ -81,6 +84,8 @@ jvm_library(
     ],
 )
 
+content_module_jar(module = ":code-insight")
+
 jvm_library(
     name = "code-insight_test_lib",
     testonly = True,
@@ -99,10 +104,16 @@ jvm_library(
     runtime_deps = [
         # do not sort,
         ":code-insight",
+        "//libraries/jetbrains/annotations:annotations_test_lib",
         "//libraries/kotlin/reflect:reflect_test_lib",
         "//plugins/kotlin/references:references_test_lib",
+        "//libraries/kotlinc/kotlin-compiler-common:libraries-kotlinc-kotlin-compiler-common_test_lib",
+        "//libraries/kotlinc/analysis-api:libraries-kotlinc-analysis-api_test_lib",
+        "//libraries/kotlinc/symbol-light-classes:libraries-kotlinc-symbol-light-classes_test_lib",
+        "//libraries/kotlinc/kotlin-jps-common:libraries-kotlinc-kotlin-jps-common_test_lib",
         "//platform/analysis-api:analysis_test_lib",
         "//platform/core-api:core_test_lib",
+        "//java/java-backend:backend_test_lib",
         "//platform/lang-core:lang-core_test_lib",
         "//platform/projectModel-api:projectModel_test_lib",
         "//plugins/kotlin/base/util:util_test_lib",
@@ -136,7 +147,8 @@ jvm_library(
         "//java/testFramework:testFramework_test_lib",
         "//platform/backend/workspace:workspace_test_lib",
         "//plugins/kotlin/formatter:formatter_test_lib",
-        "@lib//:junit4",
+        "//libraries/junit4",
+        "//libraries/junit4:junit4_test_lib",
         "//platform/testFramework",
         "//platform/testFramework:testFramework_test_lib",
         "//plugins/kotlin/base/testFramework",
@@ -144,7 +156,8 @@ jvm_library(
         "//plugins/kotlin/tests-common:common-tests",
         "//plugins/kotlin/tests-common:common-tests_test_lib",
         "//plugins/kotlin/base/code-insight/minimal:minimal_test_lib",
-        "@lib//:kotlin-test",
+        "//libraries/kotlin/test:libraries-kotlinTest",
+        "//libraries/kotlin/test:libraries-kotlinTest_test_lib",
         "//platform/util/concurrency:concurrency_test_lib",
         "//platform/util:util-ui_test_lib",
     ],
@@ -155,13 +168,13 @@ jvm_library(
 exports_files(
     [
         "intellij.kotlin.base.codeInsight.iml",
+        "resources/intellij.kotlin.base.codeInsight.xml",
     ],
     visibility = ["//visibility:public"],
 )
 ### auto-generated section `iml intellij.kotlin.base.codeInsight` end
 
 ### auto-generated section `build intellij.kotlin.base.codeInsight.tests` start
-
 create_kotlinc_options(
     name = "custom_kotlin-base-codeInsight-tests",
     opt_in = [
@@ -169,6 +182,7 @@ create_kotlinc_options(
         "org.jetbrains.kotlin.analysis.api.KaIdeApi",
         "org.jetbrains.kotlin.analysis.api.KaContextParameterApi",
         "org.jetbrains.kotlin.analysis.api.permissions.KaAllowProhibitedAnalyzeFromWriteAction",
+        "org.jetbrains.kotlin.analysis.api.KaExperimentalApi",
     ],
     x_context_parameters = True,
 )
@@ -214,13 +228,17 @@ jvm_library(
     ],
     deps = [
         # do not sort,
-        "@lib//:jetbrains-annotations",
+        "//libraries/jetbrains/annotations",
+        "//libraries/jetbrains/annotations:annotations_test_lib",
         "@lib//:kotlin-stdlib",
         "//libraries/kotlin/reflect",
         "//libraries/kotlin/reflect:reflect_test_lib",
-        "@lib//:kotlinc-kotlin-compiler-common",
-        "@lib//:kotlinc-analysis-api",
-        "@lib//:kotlinc-kotlin-jps-common",
+        "//libraries/kotlinc/kotlin-compiler-common:libraries-kotlinc-kotlin-compiler-common",
+        "//libraries/kotlinc/kotlin-compiler-common:libraries-kotlinc-kotlin-compiler-common_test_lib",
+        "//libraries/kotlinc/analysis-api:libraries-kotlinc-analysis-api",
+        "//libraries/kotlinc/analysis-api:libraries-kotlinc-analysis-api_test_lib",
+        "//libraries/kotlinc/kotlin-jps-common:libraries-kotlinc-kotlin-jps-common",
+        "//libraries/kotlinc/kotlin-jps-common:libraries-kotlinc-kotlin-jps-common_test_lib",
         "//platform/analysis-api:analysis",
         "//platform/analysis-api:analysis_test_lib",
         "//platform/core-api:core",
@@ -283,7 +301,8 @@ jvm_library(
         "//platform/backend/workspace:workspace_test_lib",
         "//plugins/kotlin/formatter",
         "//plugins/kotlin/formatter:formatter_test_lib",
-        "@lib//:junit4",
+        "//libraries/junit4",
+        "//libraries/junit4:junit4_test_lib",
         "//platform/testFramework",
         "//platform/testFramework:testFramework_test_lib",
         "//plugins/kotlin/base/testFramework",
@@ -297,6 +316,8 @@ jvm_library(
         "//platform/util/concurrency:concurrency_test_lib",
         "//plugins/kotlin/base/pluginTestFramework:kotlin-base-plugin-testFramework",
         "//plugins/kotlin/base/pluginTestFramework:kotlin-base-plugin-testFramework_test_lib",
+        "//libraries/junit5",
+        "//libraries/junit5:junit5_test_lib",
     ],
 )
 ### auto-generated section `build intellij.kotlin.base.codeInsight.tests` end
@@ -311,7 +332,6 @@ exports_files(
 ### auto-generated section `iml intellij.kotlin.base.codeInsight.tests` end
 
 ### auto-generated section `test intellij.kotlin.base.codeInsight.tests` start
-
 jps_test(
     name = "kotlin-base-codeInsight-tests_test",
     runtime_deps = [":kotlin-base-codeInsight-tests_test_lib"],

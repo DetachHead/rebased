@@ -2,9 +2,13 @@
 package org.intellij.plugins.markdown.fileActions.utils
 
 import com.intellij.execution.configurations.GeneralCommandLine
+import com.intellij.execution.process.ProcessNotCreatedException
 import com.intellij.execution.process.ProcessOutput
 import com.intellij.execution.util.ExecUtil
 import com.intellij.ide.actions.OpenFileAction
+import com.intellij.ide.actions.ShowSettingsUtilImpl
+import com.intellij.notification.Notification
+import com.intellij.notification.NotificationListener
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.actionSystem.CommonDataKeys
 import com.intellij.openapi.actionSystem.DataContext
@@ -26,17 +30,20 @@ import org.intellij.plugins.markdown.MarkdownBundle
 import org.intellij.plugins.markdown.fileActions.export.MarkdownDocxExportProvider
 import org.intellij.plugins.markdown.fileActions.export.MarkdownExportProvider
 import org.intellij.plugins.markdown.lang.MarkdownFileType
+import org.intellij.plugins.markdown.settings.MarkdownSettingsConfigurable
+import org.intellij.plugins.markdown.settings.pandoc.PandocExecutableDetector
 import org.intellij.plugins.markdown.settings.pandoc.PandocSettings
 import org.intellij.plugins.markdown.ui.MarkdownNotifications
 import org.intellij.plugins.markdown.ui.actions.MarkdownActionUtil
 import org.intellij.plugins.markdown.ui.preview.MarkdownPreviewFileEditor
-import org.intellij.plugins.markdown.ui.preview.jcef.JCEFHtmlPanelProvider
+import org.intellij.plugins.markdown.ui.preview.MarkdownPreviewBrowserActions
 import java.io.File
+import javax.swing.event.HyperlinkEvent
 
 /**
  * Utilities used mainly for import/export from markdown.
  */
-internal object MarkdownImportExportUtils {
+object MarkdownImportExportUtils {
   /**
    * Returns the preview of markdown file or null if the preview editor or project is null.
    */
@@ -118,10 +125,24 @@ internal object MarkdownImportExportUtils {
       }
 
       override fun onThrowable(error: Throwable) {
+        val errorMessage = if (error is ProcessNotCreatedException) {
+          MarkdownBundle.message("markdown.import.from.docx.pandoc.not.found")
+        } else {
+          @Suppress("HardCodedStringLiteral")
+          error.localizedMessage ?: MarkdownBundle.message("markdown.export.failure.msg", vFileToImport.name)
+        }
         MarkdownNotifications.showError(
           project,
           id = MarkdownExportProvider.Companion.NotificationIds.exportFailed,
-          message = "[${vFileToImport.name}] ${error.localizedMessage}"
+          message = "[${vFileToImport.name}] $errorMessage",
+          listener = if (error is ProcessNotCreatedException) object : NotificationListener.Adapter() {
+            override fun hyperlinkActivated(notification: Notification, event: HyperlinkEvent) {
+              if (event.description == "settings") {
+                ShowSettingsUtilImpl.showSettingsDialog(project, MarkdownSettingsConfigurable.ID, "")
+                notification.expire()
+              }
+            }
+          } else null
         )
       }
 
@@ -146,7 +167,9 @@ internal object MarkdownImportExportUtils {
    * returns a platform-independent cmd to perform the converting of docx to markdown using pandoc.
    */
   private fun getConvertDocxToMdCommandLine(file: VirtualFile, mediaSrc: String, targetFile: String, project: Project): GeneralCommandLine {
-    val pandoc = PandocSettings.getInstance(project).pathToPandoc ?: "pandoc"
+    val pandoc = PandocSettings.getInstance(project).pathToPandoc?.takeIf { it.isNotBlank() }
+      ?: PandocExecutableDetector.detect(project)?.takeIf { it.isNotBlank() }
+      ?: "pandoc"
     return GeneralCommandLine(
       pandoc,
       "--extract-media=$mediaSrc",
@@ -165,7 +188,7 @@ internal object MarkdownImportExportUtils {
    * Checks whether the JCEF panel, which is needed for exporting to HTML and PDF, is open in the markdown editor.
    */
   fun isJCEFPanelOpen(editor: MarkdownPreviewFileEditor): Boolean {
-    return editor.lastPanelProviderInfo?.className == JCEFHtmlPanelProvider::class.java.name
+    return editor.getUserData(MarkdownPreviewFileEditor.PREVIEW_BROWSER)?.get() is MarkdownPreviewBrowserActions
   }
 
   /**
@@ -188,4 +211,3 @@ internal object MarkdownImportExportUtils {
     refreshProjectDirectory(project, dirToExport.path)
   }
 }
-

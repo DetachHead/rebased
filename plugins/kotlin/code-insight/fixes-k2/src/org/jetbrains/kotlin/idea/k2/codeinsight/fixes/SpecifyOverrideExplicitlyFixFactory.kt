@@ -8,14 +8,16 @@ import com.intellij.psi.SmartPsiElementPointer
 import com.intellij.psi.createSmartPointer
 import org.jetbrains.kotlin.analysis.api.KaExperimentalApi
 import org.jetbrains.kotlin.analysis.api.KaSession
-import org.jetbrains.kotlin.analysis.api.components.resolveToSymbol
 import org.jetbrains.kotlin.analysis.api.fir.diagnostics.KaFirDiagnostic
 import org.jetbrains.kotlin.analysis.api.renderer.declarations.KaCallableReturnTypeFilter
 import org.jetbrains.kotlin.analysis.api.renderer.declarations.impl.KaDeclarationRendererForSource
 import org.jetbrains.kotlin.analysis.api.renderer.declarations.modifiers.renderers.KaRendererKeywordFilter
 import org.jetbrains.kotlin.analysis.api.renderer.declarations.renderers.callables.KaValueParameterSymbolRenderer
+import org.jetbrains.kotlin.analysis.api.renderer.render
+import org.jetbrains.kotlin.analysis.api.resolution.resolveSuccessfulSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaConstructorSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaValueParameterSymbol
+import org.jetbrains.kotlin.analysis.api.symbols.containingDeclaration
 import org.jetbrains.kotlin.analysis.api.symbols.markers.KaNamedSymbol
 import org.jetbrains.kotlin.idea.base.analysis.api.utils.shortenReferences
 import org.jetbrains.kotlin.idea.base.resources.KotlinBundle
@@ -25,7 +27,6 @@ import org.jetbrains.kotlin.idea.core.overrideImplement.BodyType
 import org.jetbrains.kotlin.idea.core.overrideImplement.KtClassMember
 import org.jetbrains.kotlin.idea.core.overrideImplement.KtClassMemberInfo
 import org.jetbrains.kotlin.idea.core.overrideImplement.generateMember
-import org.jetbrains.kotlin.idea.references.mainReference
 import org.jetbrains.kotlin.lexer.KtTokens
 import org.jetbrains.kotlin.psi.KtCallableDeclaration
 import org.jetbrains.kotlin.psi.KtClassOrObject
@@ -35,7 +36,6 @@ import org.jetbrains.kotlin.psi.KtParameter
 import org.jetbrains.kotlin.psi.KtPsiFactory
 
 internal object SpecifyOverrideExplicitlyFixFactory {
-    @OptIn(KaExperimentalApi::class)
     val specifyOverrideExplicitlyFixFactory =
         KotlinQuickFixFactory.ModCommandBased { diagnostic: KaFirDiagnostic.DelegatedMemberHidesSupertypeOverride ->
             val ktClass = diagnostic.psi
@@ -96,7 +96,7 @@ internal object SpecifyOverrideExplicitlyFixFactory {
     context(_: KaSession)
     private fun KtDelegatedSuperTypeEntry.getSymbol(): KaNamedSymbol? {
         val nameReferenceExpression = delegateExpression as? KtNameReferenceExpression ?: return null
-        return nameReferenceExpression.mainReference.resolveToSymbol() as? KaNamedSymbol
+        return nameReferenceExpression.resolveSuccessfulSymbol() as? KaNamedSymbol
     }
 
     @KaExperimentalApi

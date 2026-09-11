@@ -26,10 +26,14 @@ enum class ErrorCategory {
   PLUGIN_CONTENT_DUPLICATE,
   /** [PluginDescriptorIdConflictError] - hard failure, not suppressible */
   PLUGIN_DESCRIPTOR_ID_CONFLICT,
+  /** [ContentModuleCopyConflictError] - suppressible per name via contentModuleCopyConflicts */
+  CONTENT_MODULE_COPY_CONFLICT,
   /** [PluginDependencyNotBundledError] - hard failure, not suppressible */
   PLUGIN_PLUGIN_DEP_MISSING,
   /** [DuplicatePluginDependencyDeclarationError] - hard failure, not suppressible */
   PLUGIN_PLUGIN_DEP_DUPLICATE,
+  /** [ContentModuleDependencyDeclarationError] - hard failure; an unresolved plugin id is allowed per module via validationExceptions */
+  CONTENT_MODULE_DEPENDENCY_DECLARATION,
   /** [DslTestPluginDependencyError] - hard failure, not suppressible */
   DSL_TEST_PLUGIN_DEPENDENCY_UNRESOLVED,
   /** [MissingTestPluginPluginDependencyError] - hard failure, not suppressible */
@@ -65,6 +69,17 @@ enum class ErrorCategory {
   IMPLICIT_EMBEDDED_CONTENT_MODULE,
   /** [EmbeddedContentModuleDependencyError] - hard failure, not suppressible */
   EMBEDDED_CONTENT_MODULE_DEPENDENCY,
+  /** [UnusedEmbeddedLibraryModuleError] - hard failure, not suppressible */
+  UNUSED_EMBEDDED_LIBRARY_MODULE,
+  /** [UnusedSharedLibraryModuleError] - hard failure, not suppressible */
+  UNUSED_SHARED_LIBRARY_MODULE,
+
+  /** [PluginVariantOverlapError] - hard failure, not suppressible */
+  PLUGIN_VARIANT_OVERLAP,
+  /** [MissingLibraryLicenseError] - hard failure, not suppressible */
+  MISSING_LIBRARY_LICENSE,
+  /** [ModuleInMultiplePluginsError] - hard failure, allowlisted by name in the generator */
+  MODULE_IN_MULTIPLE_PLUGINS,
 }
 
 /**
@@ -111,9 +126,11 @@ fun ValidationError.errorId(): String {
     is MissingContentModulePluginDependencyError -> "missing-plugin-dep:$context"
     is DuplicatePluginContentModulesError -> "plugin-content-dup:$context"
     is PluginDescriptorIdConflictError -> "plugin-descriptor-id-conflict:$context"
+    is ContentModuleCopyConflictError -> "content-module-copy-conflict:$context:${duplicatedModule.value}"
     is PluginDependencyError -> "plugin-dep:${pluginName.value}"
     is PluginDependencyNotBundledError -> "plugin-plugin-dep:${pluginName.value}"
     is DuplicatePluginDependencyDeclarationError -> "plugin-plugin-dep-dup:${pluginName.value}"
+    is ContentModuleDependencyDeclarationError -> "content-module-dep-declaration:${contentModuleName.value}"
     is DslTestPluginDependencyError -> "dsl-test-plugin-dep:${testPluginId.value}"
     is MissingTestPluginPluginDependencyError -> "test-plugin-missing-plugin-dep:${testPluginId.value}"
     is InvalidSuppressionConfigKeyError -> "invalid-suppression-keys:$context"
@@ -124,5 +141,10 @@ fun ValidationError.errorId(): String {
     is MissingContentModuleBackingError -> "content-module-backing:$context"
     is ImplicitEmbeddedContentModuleError -> "implicit-embedded-content:$context"
     is EmbeddedContentModuleDependencyError -> "embedded-content-dependency:$context"
+    is UnusedEmbeddedLibraryModuleError -> "unused-embedded-library:$context"
+    is UnusedSharedLibraryModuleError -> "unused-shared-library:$context"
+    is PluginVariantOverlapError -> "plugin-variant-overlap:$context"
+    is MissingLibraryLicenseError -> "missing-library-license:$context"
+    is ModuleInMultiplePluginsError -> "module-in-multiple-plugins:$context"
   }
 }

@@ -1,6 +1,8 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.codeInsight.actions
 
+import com.intellij.application.options.CodeStyle
+import com.intellij.application.options.codeStyle.cache.CodeStyleCachingService
 import com.intellij.formatting.service.CoreFormattingService
 import com.intellij.formatting.service.FormattingServiceUtil
 import com.intellij.formatting.service.structuredAsyncDocumentFormattingScope
@@ -24,6 +26,7 @@ import com.intellij.openapi.progress.ProgressManager
 import com.intellij.openapi.progress.Task
 import com.intellij.openapi.progress.coroutineToIndicator
 import com.intellij.openapi.progress.runBlockingMaybeCancellable
+import com.intellij.openapi.progress.util.checkCancelledEvenWithPCEDisabled
 import com.intellij.openapi.project.DumbService
 import com.intellij.openapi.project.IndexNotReadyException
 import com.intellij.openapi.project.Project
@@ -35,7 +38,6 @@ import com.intellij.openapi.util.NlsContexts
 import com.intellij.openapi.util.NlsSafe
 import com.intellij.openapi.util.TextRange
 import com.intellij.openapi.util.ThrowableComputable
-import com.intellij.openapi.util.registry.Registry
 import com.intellij.openapi.util.registry.RegistryManager
 import com.intellij.openapi.vfs.ReadonlyStatusHandler
 import com.intellij.openapi.vfs.VirtualFile
@@ -43,14 +45,18 @@ import com.intellij.openapi.vfs.VirtualFileFilter
 import com.intellij.psi.PsiDirectory
 import com.intellij.psi.PsiFile
 import com.intellij.psi.PsiManager
+import com.intellij.psi.codeStyle.CodeStyleSettings
 import com.intellij.psi.util.PsiUtilCore
+import com.intellij.util.ConcurrencyUtil
 import com.intellij.util.IncorrectOperationException
 import com.intellij.util.application
+import com.intellij.util.concurrency.Semaphore
 import com.intellij.util.concurrency.annotations.RequiresReadLock
 import com.intellij.util.diff.FilesTooBigForDiffException
 import org.jetbrains.annotations.ApiStatus
 import java.util.concurrent.ExecutionException
 import java.util.concurrent.FutureTask
+import java.util.concurrent.atomic.AtomicReference
 import java.util.function.Consumer
 
 abstract class AbstractLayoutCodeProcessor private constructor(
@@ -73,14 +79,13 @@ abstract class AbstractLayoutCodeProcessor private constructor(
   var infoCollector: LayoutCodeInfoCollector? = null
     private set
 
-  private sealed interface Target {
-    object Project : Target
-    class Module(val module: com.intellij.openapi.module.Module) : Target
-    // todo: BUG! includeSubdirs is unused
-    class Directory(val directory: PsiDirectory, val includeSubdirs: Boolean) : Target
-    class Files(val files: List<PsiFile>) : Target
-    class SingleFile(val psiFile: PsiFile) : Target
-  }
+  private sealed interface Target
+  private object ProjectTarget : Target
+  private class ModuleTarget(val module: Module) : Target
+  // todo: BUG! includeSubdirs is unused
+  private class DirectoryTarget(val directory: PsiDirectory, val includeSubdirs: Boolean) : Target
+  private class FilesTarget(val files: List<PsiFile>) : Target
+  private class SingleFileTarget(val psiFile: PsiFile) : Target
 
   protected constructor(
     project: Project,
@@ -89,7 +94,7 @@ abstract class AbstractLayoutCodeProcessor private constructor(
     processChangedTextOnly: Boolean,
   ) : this(
     project,
-    Target.Project,
+    ProjectTarget,
     progressText,
     commandName,
     processChangedTextOnly
@@ -119,7 +124,7 @@ abstract class AbstractLayoutCodeProcessor private constructor(
     processChangedTextOnly: Boolean,
   ) : this(
     project,
-    if (module != null) Target.Module(module) else Target.Project,
+    if (module != null) ModuleTarget(module) else ProjectTarget,
     progressText,
     commandName,
     processChangedTextOnly
@@ -134,7 +139,7 @@ abstract class AbstractLayoutCodeProcessor private constructor(
     processChangedTextOnly: Boolean,
   ) : this(
     project,
-    Target.Directory(directory, includeSubdirs),
+    DirectoryTarget(directory, includeSubdirs),
     progressText,
     commandName,
     processChangedTextOnly
@@ -148,7 +153,7 @@ abstract class AbstractLayoutCodeProcessor private constructor(
     processChangedTextOnly: Boolean,
   ) : this(
     project,
-    Target.SingleFile(psiFile),
+    SingleFileTarget(psiFile),
     progressText,
     commandName,
     processChangedTextOnly
@@ -163,7 +168,7 @@ abstract class AbstractLayoutCodeProcessor private constructor(
     processChangedTextOnly: Boolean,
   ) : this(
     project,
-    Target.Files(files.toList()),
+    FilesTarget(files.toList()),
     progressText,
     commandName,
     processChangedTextOnly
@@ -206,6 +211,8 @@ abstract class AbstractLayoutCodeProcessor private constructor(
   /**
    * Ensures that a given file is ready to reformatting and prepares it if necessary.
    *
+   * Beware: it is not guaranteed to run on a BGT.
+   *
    * @param psiFile                    file to process
    * @param processChangedTextOnly  flag that defines is only the changed text (in terms of VCS change) should be processed
    * @return          task that triggers formatting of the given file. Returns value of that task indicates whether formatting
@@ -245,7 +252,7 @@ abstract class AbstractLayoutCodeProcessor private constructor(
   }
 
   open fun run() {
-    if (target is Target.SingleFile) {
+    if (target is SingleFileTarget) {
       PsiUtilCore.ensureValid(target.psiFile)
       val virtualFile = PsiUtilCore.getVirtualFile(target.psiFile)
       if (virtualFile != null) {
@@ -270,7 +277,7 @@ abstract class AbstractLayoutCodeProcessor private constructor(
   }
 
   fun runBackground() {
-    if (target is Target.SingleFile) {
+    if (target is SingleFileTarget) {
       PsiUtilCore.ensureValid(target.psiFile)
       val virtualFile = PsiUtilCore.getVirtualFile(target.psiFile)
       if (virtualFile != null) {
@@ -291,16 +298,16 @@ abstract class AbstractLayoutCodeProcessor private constructor(
   }
 
   private fun buildFilesIterator(): FileRecursiveIterator {
-    if (target is Target.Files) {
+    if (target is FilesTarget) {
       return FileRecursiveIterator(myProject, target.files)
     }
     if (processChangedTextOnly) {
       return buildChangedFilesIterator()
     }
-    if (target is Target.Directory) {
+    if (target is DirectoryTarget) {
       return FileRecursiveIterator(target.directory)
     }
-    if (target is Target.Module) {
+    if (target is ModuleTarget) {
       return FileRecursiveIterator(target.module)
     }
     return FileRecursiveIterator(myProject)
@@ -317,8 +324,8 @@ abstract class AbstractLayoutCodeProcessor private constructor(
   }
 
   private fun getAllSearchableDirsFromContext(): List<PsiDirectory> = when (target) {
-    is Target.Directory -> listOf(target.directory)
-    is Target.Module -> FileRecursiveIterator.collectModuleDirectories(target.module)
+    is DirectoryTarget -> listOf(target.directory)
+    is ModuleTarget -> FileRecursiveIterator.collectModuleDirectories(target.module)
     else -> FileRecursiveIterator.collectProjectDirectories(myProject)
   }
 
@@ -361,7 +368,7 @@ abstract class AbstractLayoutCodeProcessor private constructor(
 
   @Throws(IncorrectOperationException::class)
   fun runWithoutProgress() {
-    if (target !is Target.SingleFile) {
+    if (target !is SingleFileTarget) {
       return
     }
     val virtualFile = PsiUtilCore.getVirtualFile(target.psiFile)
@@ -374,6 +381,43 @@ abstract class AbstractLayoutCodeProcessor private constructor(
     indicator.setIndeterminate(false)
     val task = ProcessingTask(indicator)
     return task.process()
+  }
+
+  /** Must be called in [prepareTask], outside the prepared write task. E.g.:
+   * ```
+   * override fun prepareTask(psiFile: PsiFile, processChangedTextOnly: Boolean): FutureTask<Boolean> {
+   *   val settings = awaitFileCodeStyleSettings(psiFile)
+   *   return FutureTask<Boolean> {
+   *     CodeStyle.runWithLocalSettings(myProject, settings) {
+   *      ...
+   *     }
+   *   }
+   * }
+   * ```*/
+  @ApiStatus.Internal
+  protected fun awaitFileCodeStyleSettings(psiFile: PsiFile): CodeStyleSettings {
+    // Resolve file settings outside the WriteCommandAction. CodeStyleCachedValueProvider
+    // computes settings asynchronously when first requested from EDT/under a write
+    // action, so a cold lookup inside the FutureTask body would return stale defaults
+    // and skip .editorconfig modifiers.
+    val fileSettings = AtomicReference(CodeStyle.getSettings(psiFile))
+
+    // If settings are already being computed asynchronously for `fileToProcess`, returned settings may be stale,
+    // so wait for possible concurrent computation to finish.
+    if (!ApplicationManager.getApplication().isDispatchThread()) {
+      val latch = Semaphore()
+      latch.down()
+      CodeStyleCachingService.getInstance(myProject).scheduleWhenSettingsComputed(psiFile) {
+        fileSettings.set(CodeStyle.getSettings(psiFile))
+        latch.up()
+      }
+      // With the current implementation of CodeStyleCachingService,
+      // there is a possible race where a scheduled callback is never called.
+      if (!awaitWithCheckCancelled(latch, 5000)) {
+        LOG.warn("Reformat code style settings computation timed out.")
+      }
+    }
+    return fileSettings.get()
   }
 
   private inner class ProcessingTask(val progressIndicator: ProgressIndicator) {
@@ -427,9 +471,10 @@ abstract class AbstractLayoutCodeProcessor private constructor(
 
         ProgressIndicatorProvider.checkCanceled()
 
+        val stageCommandName = processor.commandName
         withStructuredAsyncDocumentFormattingIfNotEdt {
-          processor.runTask(file, commandName, groupId, processAllFilesAsSingleUndoStep) {
-            AbstractLayoutCodeProcessorWriteInterceptor.getInstance().runFileWrite(writeTask, myProject, commandName);
+          processor.runTask(file, stageCommandName, groupId, processAllFilesAsSingleUndoStep) {
+            AbstractLayoutCodeProcessorWriteInterceptor.getInstance().runFileWrite(writeTask, myProject, stageCommandName)
           }
         }
 
@@ -474,9 +519,14 @@ abstract class AbstractLayoutCodeProcessor private constructor(
       if (files.isEmpty()) return true
       val totalFiles = files.size
       if (!application.isUnitTestMode()) {
-        val shouldContinue = invokeAndWaitIfNeeded {
+        val shouldContinue = invokeAndWaitIfNeeded<Boolean?> {
           val status = ReadonlyStatusHandler.getInstance(myProject).ensureFilesWritable(files)
           !status.hasReadonlyFiles()
+        } ?: run {
+          // If on BGT, invokeAndWaitIfNeeded can swallow PCEs that happen on EDT and return null here on BGT.
+          ProgressManager.checkCanceled()
+          LOG.error("invokeAndWaitIfNeeded returned null, but processing is not canceled.")
+          false
         }
         if (!shouldContinue) return false
       }
@@ -589,5 +639,20 @@ abstract class AbstractLayoutCodeProcessor private constructor(
 
     private fun isWaitForAsyncDocumentFormattingTasks(): Boolean =
       RegistryManager.getInstance().get("code.processor.wait.for.async.formatting.tasks").asBoolean()
+  }
+}
+
+private fun awaitWithCheckCancelled(semaphore: Semaphore, timeoutMs: Long): Boolean {
+  val indicator = ProgressManager.getInstance().getProgressIndicator()
+  var waitTimeLeft = timeoutMs
+  while (true) {
+    if (semaphore.waitFor(ConcurrencyUtil.DEFAULT_TIMEOUT_MS)) {
+      return true
+    }
+    checkCancelledEvenWithPCEDisabled(indicator)
+    waitTimeLeft -= ConcurrencyUtil.DEFAULT_TIMEOUT_MS
+    if (waitTimeLeft <= 0) {
+      return false
+    }
   }
 }

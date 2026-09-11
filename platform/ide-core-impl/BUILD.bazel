@@ -1,7 +1,7 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
 ### auto-generated section `build intellij.platform.ide.core.impl` start
-
 jvm_library(
     name = "ide-core-impl",
     srcs = glob(
@@ -31,7 +31,6 @@ jvm_library(
         "//platform/util/concurrency",
         "//platform/core-impl",
         "//platform/analysis-impl",
-        "//libraries/icu4j",
         "//libraries/fastutil",
         "//platform/editor-ui-api:editor-ui",
         "//platform/core-ui",
@@ -48,6 +47,11 @@ jvm_library(
         "//libraries/kotlinx/collections-immutable:libraries-kotlinx-collections-immutable",
         "//jps/model-api:model",
     ],
+)
+
+content_module_jar(
+    module = ":ide-core-impl",
+    modules_before = ["//platform/backend/observation"],
 )
 
 jvm_library(
@@ -73,7 +77,6 @@ jvm_library(
         "//platform/util/concurrency:concurrency_test_lib",
         "//platform/core-impl:core-impl_test_lib",
         "//platform/analysis-impl:analysis-impl_test_lib",
-        "//libraries/icu4j:icu4j_test_lib",
         "//libraries/fastutil:fastutil_test_lib",
         "//platform/editor-ui-api:editor-ui_test_lib",
         "//platform/core-ui:core-ui_test_lib",
@@ -97,6 +100,8 @@ jvm_library(
 exports_files(
     [
         "intellij.platform.ide.core.impl.iml",
+        "resources/intellij.platform.ide.core.impl.xml",
+        "module-content.yaml",
     ],
     visibility = ["//visibility:public"],
 )

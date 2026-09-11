@@ -19,8 +19,12 @@ import com.intellij.psi.PsiJavaFile;
 import com.intellij.psi.PsiPackage;
 import com.intellij.psi.SmartPointerManager;
 import com.intellij.psi.SmartPsiElementPointer;
+import com.intellij.psi.search.LocalSearchScope;
+import com.intellij.psi.search.PsiSearchHelper;
 import com.intellij.psi.codeStyle.CodeStyleManager;
 import com.intellij.psi.codeStyle.JavaCodeStyleManager;
+import com.intellij.refactoring.rename.CollisionUsageInfo;
+import com.intellij.refactoring.util.RelatedUsageInfo;
 import com.intellij.usageView.UsageInfo;
 import com.intellij.util.IncorrectOperationException;
 import com.intellij.util.ObjectUtils;
@@ -28,6 +32,7 @@ import com.intellij.util.SequentialModalProgressTask;
 import com.intellij.util.SequentialTask;
 import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.Unmodifiable;
 
 import java.util.ArrayList;
@@ -40,6 +45,13 @@ import java.util.Map;
 import java.util.Set;
 
 public final class OptimizeImportsRefactoringHelper implements RefactoringHelper<Set<PsiJavaFile>> {
+  /** A rename of such elements cannot change imports, unless collision resolution rewrites references. */
+  private static boolean isConfinedToLocalScopes(UsageInfo @NotNull [] usages, @NotNull List<? extends @NotNull PsiElement> elements) {
+    return !elements.isEmpty() &&
+           ContainerUtil.and(elements, e -> PsiSearchHelper.getInstance(e.getProject()).getUseScope(e) instanceof LocalSearchScope) &&
+           !ContainerUtil.exists(usages, u -> u instanceof CollisionUsageInfo || u instanceof RelatedUsageInfo);
+  }
+
   private static Set<PsiJavaFile> prepareOperation(final UsageInfo @NotNull [] usages) {
     Set<PsiJavaFile> javaFiles = new HashSet<>();
     for (UsageInfo usage : usages) {
@@ -56,6 +68,14 @@ public final class OptimizeImportsRefactoringHelper implements RefactoringHelper
   public @Unmodifiable Set<PsiJavaFile> prepareOperation(UsageInfo @NotNull [] usages, @NotNull List<? extends @NotNull PsiElement> elements) {
     Set<PsiJavaFile> movedFiles = ContainerUtil.map2SetNotNull(elements, e -> ObjectUtils.tryCast(e.getContainingFile(), PsiJavaFile.class));
     return ContainerUtil.union(movedFiles, prepareOperation(usages));
+  }
+
+  @Override
+  public @Unmodifiable Set<PsiJavaFile> prepareOperation(UsageInfo @NotNull [] usages,
+                                                         @NotNull List<? extends @NotNull PsiElement> elements,
+                                                         @Nullable String refactoringId) {
+    if ("refactoring.rename".equals(refactoringId) && isConfinedToLocalScopes(usages, elements)) return Set.of();
+    return prepareOperation(usages, elements);
   }
 
   @Override

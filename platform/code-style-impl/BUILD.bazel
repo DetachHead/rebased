@@ -1,7 +1,7 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
 ### auto-generated section `build intellij.platform.codeStyle.impl` start
-
 jvm_library(
     name = "codeStyle-impl",
     srcs = glob(
@@ -38,6 +38,8 @@ jvm_library(
     ],
 )
 
+content_module_jar(module = ":codeStyle-impl")
+
 jvm_library(
     name = "codeStyle-impl_test_lib",
     testonly = True,
@@ -72,6 +74,8 @@ jvm_library(
 exports_files(
     [
         "intellij.platform.codeStyle.impl.iml",
+        "resources/intellij.platform.codeStyle.impl.xml",
+        "module-content.yaml",
     ],
     visibility = ["//visibility:public"],
 )

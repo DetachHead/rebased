@@ -1,7 +1,7 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
 ### auto-generated section `build intellij.kotlin.runConfigurations.jvm` start
-
 jvm_library(
     name = "jvm",
     srcs = glob(
@@ -21,8 +21,10 @@ jvm_library(
     deps = [
         # do not sort,
         "@lib//:kotlin-stdlib",
-        "@lib//:kotlinc-kotlin-compiler-common",
-        "@lib//:kotlinc-kotlin-jps-common",
+        "//libraries/kotlinc/kotlin-compiler-common:libraries-kotlinc-kotlin-compiler-common",
+        "//libraries/kotlinc/analysis-api:libraries-kotlinc-analysis-api",
+        "//libraries/kotlinc/symbol-light-classes:libraries-kotlinc-symbol-light-classes",
+        "//libraries/kotlinc/kotlin-jps-common:libraries-kotlinc-kotlin-jps-common",
         "//platform/core-api:core",
         "//platform/editor-ui-api:editor-ui",
         "//platform/execution-impl",
@@ -54,14 +56,13 @@ jvm_library(
         "//java/execution/impl",
         "//platform/core-ui",
         "//platform/core-impl",
-        "//plugins/kotlin/base/scripting/scripting.shared",
-        "@lib//:kotlinc-kotlin-scripting-common",
-        "@lib//:kotlinc-kotlin-scripting-compiler-impl",
         "//platform/forms_rt:java-guiForms-rt",
         "//platform/util/concurrency",
         "//platform/statistics",
     ],
 )
+
+content_module_jar(module = ":jvm")
 
 jvm_library(
     name = "jvm_test_lib",
@@ -75,6 +76,10 @@ jvm_library(
     runtime_deps = [
         # do not sort,
         ":jvm",
+        "//libraries/kotlinc/kotlin-compiler-common:libraries-kotlinc-kotlin-compiler-common_test_lib",
+        "//libraries/kotlinc/analysis-api:libraries-kotlinc-analysis-api_test_lib",
+        "//libraries/kotlinc/symbol-light-classes:libraries-kotlinc-symbol-light-classes_test_lib",
+        "//libraries/kotlinc/kotlin-jps-common:libraries-kotlinc-kotlin-jps-common_test_lib",
         "//platform/core-api:core_test_lib",
         "//platform/editor-ui-api:editor-ui_test_lib",
         "//platform/execution-impl:execution-impl_test_lib",
@@ -106,7 +111,6 @@ jvm_library(
         "//java/execution/impl:impl_test_lib",
         "//platform/core-ui:core-ui_test_lib",
         "//platform/core-impl:core-impl_test_lib",
-        "//plugins/kotlin/base/scripting/scripting.shared:scripting.shared_test_lib",
         "//platform/forms_rt:java-guiForms-rt_test_lib",
         "//platform/util/concurrency:concurrency_test_lib",
         "//platform/statistics:statistics_test_lib",
@@ -118,6 +122,7 @@ jvm_library(
 exports_files(
     [
         "intellij.kotlin.runConfigurations.jvm.iml",
+        "resources/intellij.kotlin.runConfigurations.jvm.xml",
     ],
     visibility = ["//visibility:public"],
 )

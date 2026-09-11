@@ -40,6 +40,7 @@ class BazelGeneratorIntegrationTests {
   val softly = JUnitSoftAssertions()
 
   @Test fun kotlinSnapshotLibrary() = doTest("kotlin-snapshot-library")
+  @Test fun kotlinSnapshotModuleLibrary() = doTest("kotlin-snapshot-module-library")
   @Test fun snapshotRepositoryLibrary() = doTest("snapshot-repository-library")
   @Test fun snapshotLibrary() = doTest("snapshot-library")
   @Test fun snapshotLibraryInTree() = doTest("snapshot-library-in-tree")
@@ -53,6 +54,39 @@ class BazelGeneratorIntegrationTests {
   @Test fun resourcesPluginDescriptorInSecondRoot() = doTest("resources-plugin-descriptor-in-second-root")
 
   @Test fun compileExcludes() = doTest("compile-excludes")
+
+  @Test fun ijPluginTarget() = doTest("ij-plugin-target")
+
+  /**
+   * A plugin content module whose jar merges its module libraries, and one whose recipe the model refuses.
+   *
+   * `intellij.libraries.example` declares four module libraries and its recipe records three, so
+   * `content_module_jar` names those three in `orderEntry` order and the plugin declares the module as prepacked
+   * instead of declaring its raw jar and its libraries. The fourth library is TEST-scope: this is the
+   * `intellij.libraries.coil` case in miniature.
+   *
+   * `intellij.libraries.refused` is the other side of the same comparison. Its recipe records the TEST-scope library,
+   * which the production-runtime walk cannot reach, so it keeps no packing target, stays a raw `content_modules`
+   * member, and the plugin keeps declaring its library. That is the scope filter shown as a refusal rather than as a
+   * silently smaller jar.
+   */
+  @Test fun prepackedContentModuleLibraries() = doTest("prepacked-content-module-libraries")
+
+  /**
+   * The three destinations a plugin can give one content module's jar, and what each one generates.
+   *
+   * `intellij.libraries.conventional` sits at `lib/modules/<module>.jar`, so the relation is a plain
+   * `prepacked_content_modules` label and the rule derives the destination from the module name.
+   * `intellij.libraries.embedded` sits at `lib/<module>.jar`, which the rule cannot derive, so the relation carries it
+   * in `prepacked_jars`.
+   *
+   * `intellij.libraries.conflicting` is the veto: this one report puts its jar at *both* destinations. One packed jar
+   * cannot satisfy both, and a relation is keyed by *(plugin, module)*, so there is no second relation to carry the
+   * second path. It stays a raw `content_modules` member and `JarPackager` keeps packing both jars. It keeps a
+   * `content_module_jar` target that nobody names, which is correct: the repo-global fold still agrees on the jar, and
+   * only this plugin's relation is impossible.
+   */
+  @Test fun prepackedContentModulePlacement() = doTest("prepacked-content-module-placement")
 
   private fun doTest(
     testName: String,
@@ -151,9 +185,9 @@ class BazelGeneratorIntegrationTests {
         
         http_file(
             name = "org_jetbrains_intellij_deps-debugger-agent-1_161_http",
-            url = "$url",
-            sha256 = "$sha256",
             downloaded_file_path = "debugger-agent-1.161.jar",
+            sha256 = "$sha256",
+            url = "$url",
         )
       """.trimIndent() + "\n"
     )
@@ -251,6 +285,133 @@ class BazelGeneratorIntegrationTests {
     if (softly.wasSuccess()) {
       tempWorkspaceBaseDir.deleteRecursively()
       normalizedProjectDir.deleteRecursively()
+    }
+  }
+
+  @Test
+  fun `MRI-4552 generator emits jps_test load for a module with test sources`() {
+    val testName = "MRI-4552"
+    val testDataPath = getTestDataPath(testName)
+
+    val projectDataPath = testDataPath.resolve("project")
+    assertTrue("$projectDataPath is not a directory", projectDataPath.isDirectory())
+
+    val tempDir = Files.createTempDirectory("test-$testName")
+    projectDataPath.copyToRecursively(tempDir, followLinks = true, overwrite = false)
+
+    JpsModuleToBazel.main(
+      arrayOf(
+        "--workspace_directory=$tempDir",
+        "--run_without_ultimate_root=true",
+        "--default-custom-modules=false",
+        "--m2-repo=${tempDir.resolve("m2-repo")}",
+      )
+    )
+
+    val generatedBuildFile = tempDir.resolve("module").resolve("BUILD.bazel")
+    assertTrue("Generated $generatedBuildFile is missing", Files.exists(generatedBuildFile))
+    val generatedContent = generatedBuildFile.readText()
+
+    // The module declares a test source root, so a jps_test target must be generated.
+    softly.assertThat(generatedContent)
+      .describedAs("jps_test target must be generated for a module with test sources")
+      .contains("jps_test(")
+    // The matching load statement must be present as well, otherwise Bazel fails with
+    // "name 'jps_test' is not defined" when the BUILD.bazel is freshly generated (MRI-4552).
+    softly.assertThat(generatedContent)
+      .describedAs("jps_test load statement must be present so the generated BUILD.bazel compiles")
+      .contains("""load("@community//build:tests-options.bzl", "jps_test")""")
+
+    // do not delete tempDir on tests failure, it is used in IDE to inspect the generated output
+    if (softly.wasSuccess()) {
+      tempDir.deleteRecursively()
+    }
+  }
+
+  @Test
+  fun `MRI-4647 generator translates -Werror facet option to warn = error`() {
+    val testName = "MRI-4647"
+    val testDataPath = getTestDataPath(testName)
+
+    val projectDataPath = testDataPath.resolve("project")
+    assertTrue("$projectDataPath is not a directory", projectDataPath.isDirectory())
+
+    val tempDir = Files.createTempDirectory("test-$testName")
+    projectDataPath.copyToRecursively(tempDir, followLinks = true, overwrite = false)
+
+    JpsModuleToBazel.main(
+      arrayOf(
+        "--workspace_directory=$tempDir",
+        "--run_without_ultimate_root=true",
+        "--default-custom-modules=false",
+        "--m2-repo=${tempDir.resolve("m2-repo")}",
+      )
+    )
+
+    val generatedBuildFile = tempDir.resolve("module").resolve("BUILD.bazel")
+    assertTrue("Generated $generatedBuildFile is missing", Files.exists(generatedBuildFile))
+    val generatedContent = generatedBuildFile.readText()
+
+    // The module's Kotlin facet sets -Werror (allWarningsAsErrors), so a custom kotlinc options
+    // target must be generated for it.
+    softly.assertThat(generatedContent)
+      .describedAs("create_kotlinc_options target must be generated for a module with a -Werror facet option")
+      .contains("create_kotlinc_options(")
+    // -Werror must be translated to warn = "error", which the JPS incremental worker turns back into -Werror.
+    softly.assertThat(generatedContent)
+      .describedAs("-Werror facet option must be translated to warn = \"error\"")
+      .contains("warn = \"error\"")
+
+    // do not delete tempDir on tests failure, it is used in IDE to inspect the generated output
+    if (softly.wasSuccess()) {
+      tempDir.deleteRecursively()
+    }
+  }
+
+  @Test
+  fun `MRI-4701 generator translates -Xwarning-level facet option to x_warning_level`() {
+    val testName = "MRI-4701"
+    val testDataPath = getTestDataPath(testName)
+
+    val projectDataPath = testDataPath.resolve("project")
+    assertTrue("$projectDataPath is not a directory", projectDataPath.isDirectory())
+
+    val tempDir = Files.createTempDirectory("test-$testName")
+    projectDataPath.copyToRecursively(tempDir, followLinks = true, overwrite = false)
+
+    JpsModuleToBazel.main(
+      arrayOf(
+        "--workspace_directory=$tempDir",
+        "--run_without_ultimate_root=true",
+        "--default-custom-modules=false",
+        "--m2-repo=${tempDir.resolve("m2-repo")}",
+      )
+    )
+
+    val generatedBuildFile = tempDir.resolve("module").resolve("BUILD.bazel")
+    assertTrue("Generated $generatedBuildFile is missing", Files.exists(generatedBuildFile))
+    val generatedContent = generatedBuildFile.readText()
+
+    // The module's Kotlin facet sets -Xwarning-level=DEPRECATION:warning, so a custom kotlinc options
+    // target must be generated for it.
+    softly.assertThat(generatedContent)
+      .describedAs("create_kotlinc_options target must be generated for a module with a -Xwarning-level facet option")
+      .contains("create_kotlinc_options(")
+    // -Xwarning-level must be translated to x_warning_level, which the JPS incremental worker turns back into -Xwarning-level.
+    softly.assertThat(generatedContent)
+      .describedAs("-Xwarning-level facet option must be translated to x_warning_level entries")
+      .contains("x_warning_level = [")
+    softly.assertThat(generatedContent)
+      .describedAs("the DEPRECATION:warning level must be preserved")
+      .contains("\"DEPRECATION:warning\"")
+    // the facet also sets -Werror, which must keep working alongside the per-diagnostic override.
+    softly.assertThat(generatedContent)
+      .describedAs("-Werror facet option must still be translated to warn = \"error\"")
+      .contains("warn = \"error\"")
+
+    // do not delete tempDir on tests failure, it is used in IDE to inspect the generated output
+    if (softly.wasSuccess()) {
+      tempDir.deleteRecursively()
     }
   }
 

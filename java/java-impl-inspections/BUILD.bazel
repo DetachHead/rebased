@@ -1,7 +1,7 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
 ### auto-generated section `build intellij.java.impl.inspections` start
-
 jvm_library(
     name = "impl-inspections",
     srcs = glob(
@@ -59,6 +59,8 @@ jvm_library(
     ],
 )
 
+content_module_jar(module = ":impl-inspections")
+
 jvm_library(
     name = "impl-inspections_test_lib",
     testonly = True,
@@ -115,6 +117,7 @@ jvm_library(
 exports_files(
     [
         "intellij.java.impl.inspections.iml",
+        "resources/intellij.java.impl.inspections.xml",
     ],
     visibility = ["//visibility:public"],
 )

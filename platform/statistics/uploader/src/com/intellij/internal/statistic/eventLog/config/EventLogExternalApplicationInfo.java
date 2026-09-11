@@ -32,13 +32,16 @@ public class EventLogExternalApplicationInfo implements EventLogApplicationInfo 
 
   private final boolean myIsEAP;
 
+  private final boolean myIsSnapshotFilteringDisabled;
+
   public EventLogExternalApplicationInfo(@NotNull String regionalCode, @NotNull String productCode,
                                          @NotNull String productVersion, @Nullable String userAgent,
                                          boolean isInternal, boolean isTestConfig, boolean isTestSendEndpoint, boolean isEAP,
                                          @NotNull Map<String, String> extraHeaders,
                                          @NotNull DataCollectorDebugLogger logger,
                                          @NotNull DataCollectorSystemEventLogger eventLogger,
-                                         int baselineVersion) {
+                                         int baselineVersion,
+                                         boolean isSnapshotFilteringDisabled) {
     myRegionalCode = regionalCode;
     myProductCode = productCode;
     myProductVersion = productVersion;
@@ -54,6 +57,7 @@ public class EventLogExternalApplicationInfo implements EventLogApplicationInfo 
     myIsEAP = isEAP;
     myLogger = logger;
     myEventLogger = eventLogger;
+    myIsSnapshotFilteringDisabled = isSnapshotFilteringDisabled;
   }
 
   @Override
@@ -109,5 +113,9 @@ public class EventLogExternalApplicationInfo implements EventLogApplicationInfo 
   @Override
   public @NotNull DataCollectorSystemEventLogger getEventLogger() {
     return myEventLogger;
+  }
+
+  public boolean isSnapshotFilteringDisabled() {
+    return myIsSnapshotFilteringDisabled;
   }
 }

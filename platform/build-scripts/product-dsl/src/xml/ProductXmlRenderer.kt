@@ -4,11 +4,11 @@
 package org.jetbrains.intellij.build.productLayout.xml
 
 import com.intellij.openapi.util.JDOMUtil
+import com.intellij.platform.pluginSystem.parser.impl.LoadPathUtil
 import org.jdom.Element
 import org.jetbrains.intellij.build.ModuleOutputProvider
-import org.jetbrains.intellij.build.findFileInModuleLibraryDependencies
-import org.jetbrains.intellij.build.findFileInModuleSources
 import org.jetbrains.intellij.build.isModuleNameLikeFilename
+import org.jetbrains.intellij.build.resolveDescriptor
 import org.jetbrains.intellij.build.productLayout.ProductModulesContentSpec
 import org.jetbrains.jps.model.module.JpsModule
 
@@ -45,17 +45,6 @@ internal fun StringBuilder.appendOpeningTag(
 }
 
 /**
- * Checks if the spec includes a platform lang plugin that provides id/name.
- */
-internal fun ProductModulesContentSpec.includesPlatformLangPlugin(): Boolean {
-  return deprecatedXmlIncludes.any {
-    it.resourcePath == "META-INF/PlatformLangPlugin.xml" ||
-    it.resourcePath == "META-INF/JavaIdePlugin.xml" ||
-    it.resourcePath == "META-INF/pycharm-core.xml"
-  }
-}
-
-/**
  * Generates xi:include directives or inline content for deprecated XML includes.
  */
 internal fun generateXIncludes(
@@ -72,10 +61,16 @@ internal fun generateXIncludes(
       error("Module '${include.contentModuleName.value}' not found (referenced in xi:include for '$resourcePath')")
     }
 
-    val data = findFileInModuleSources(module, resourcePath)?.let { JDOMUtil.load(it) }
-               ?: findFileInModuleLibraryDependencies(module = module, relativePath = resourcePath, outputProvider = outputProvider)
-                 ?.let { JDOMUtil.load(it) }
-               ?: error("Resource '$resourcePath' not found in module '${module.name}' sources or libraries (referenced in xi:include)")
+    // The `deprecatedInclude` API names the owner, so the search stays inside that module and its libraries. It
+    // reads the module output too, because a build that assembles from Bazel outputs has no checkout to read.
+    val data = resolveDescriptor(
+      module = module,
+      path = resourcePath,
+      outputProvider = outputProvider,
+      walk = null,
+      searchAnyModuleOutput = false,
+    )?.let { JDOMUtil.load(it) }
+               ?: error("Resource '$resourcePath' not found in module '${module.name}' sources, libraries or output (referenced in xi:include)")
 
     if (inlineXmlIncludes && !include.optional) {
       resolveIncludes(data, ModuleScopedXIncludeResolver(module, outputProvider))
@@ -115,8 +110,8 @@ internal fun resourcePathToXIncludePath(resourcePath: String): String {
 }
 
 /**
- * Resolves nested `<xi:include>` elements inside a `deprecatedInclude` resource against
- * the **owning** module's sources and libraries.
+ * Resolves a nested `<xi:include>` element inside a `deprecatedInclude` resource against the **owning** module alone.
+ * It reads no dependency of that module, and it never opens the output of another module.
  *
  * The `deprecatedInclude("<module>", "<resource>")` API unambiguously identifies the
  * owning module; xi:includes inside that resource are expected to live in the same
@@ -135,16 +130,15 @@ private class ModuleScopedXIncludeResolver(
   override fun resolveElement(relativePath: String, isOptional: Boolean, isDynamic: Boolean): Element? {
     if (isOptional || isDynamic) return null
     val loadPath = hrefToLoadPath(relativePath)
-    return findFileInModuleSources(module, loadPath)?.let { JDOMUtil.load(it) }
-           ?: findFileInModuleLibraryDependencies(module = module, relativePath = loadPath, outputProvider = outputProvider)
-             ?.let { JDOMUtil.load(it) }
+    return resolveDescriptor(
+      module = module,
+      path = loadPath,
+      outputProvider = outputProvider,
+      walk = null,
+      searchAnyModuleOutput = false,
+    )?.let { JDOMUtil.load(it) }
   }
 }
 
-// mirrors org.jetbrains.intellij.build.impl.toLoadPath
-private fun hrefToLoadPath(href: String): String = when {
-  href.isEmpty() -> href
-  href[0] == '/' -> href.substring(1)
-  isModuleNameLikeFilename(href) -> href
-  else -> "META-INF/$href"
-}
+/** [LoadPathUtil.toLoadPath], which reads the first character, so an empty href answers itself. */
+private fun hrefToLoadPath(href: String): String = if (href.isEmpty()) href else LoadPathUtil.toLoadPath(href)

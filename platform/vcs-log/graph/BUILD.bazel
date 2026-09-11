@@ -1,8 +1,8 @@
 load("@community//build:tests-options.bzl", "jps_test")
 load("@rules_jvm//:jvm.bzl", "jvm_library")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
 ### auto-generated section `build intellij.platform.vcs.log.graph.impl` start
-
 jvm_library(
     name = "vcs-log-graph-impl",
     srcs = glob(
@@ -36,6 +36,8 @@ jvm_library(
     ],
 )
 
+content_module_jar(module = ":vcs-log-graph-impl")
+
 jvm_library(
     name = "vcs-log-graph-impl_test_lib",
     testonly = True,
@@ -61,7 +63,8 @@ jvm_library(
         "//platform/vcs-log/graph-api:vcs-log-graph_test_lib",
         "//platform/testFramework",
         "//platform/testFramework:testFramework_test_lib",
-        "@lib//:junit4",
+        "//libraries/junit4",
+        "//libraries/junit4:junit4_test_lib",
         "//libraries/guava:guava_test_lib",
         "//libraries/fastutil:fastutil_test_lib",
         "//libraries/assertj-core",
@@ -76,13 +79,14 @@ jvm_library(
 exports_files(
     [
         "intellij.platform.vcs.log.graph.impl.iml",
+        "resources/intellij.platform.vcs.log.graph.impl.xml",
+        "module-content.yaml",
     ],
     visibility = ["//visibility:public"],
 )
 ### auto-generated section `iml intellij.platform.vcs.log.graph.impl` end
 
 ### auto-generated section `build intellij.platform.vcs.log.graph.impl.tests` start
-
 jvm_library(
     name = "vcs-log-graph-impl-tests",
     srcs = glob(
@@ -132,7 +136,8 @@ jvm_library(
         "//platform/vcs-log/graph-api:vcs-log-graph_test_lib",
         "//platform/testFramework",
         "//platform/testFramework:testFramework_test_lib",
-        "@lib//:junit4",
+        "//libraries/junit4",
+        "//libraries/junit4:junit4_test_lib",
         "@lib//:kotlin-stdlib",
         "//libraries/guava",
         "//libraries/guava:guava_test_lib",
@@ -156,7 +161,6 @@ exports_files(
 ### auto-generated section `iml intellij.platform.vcs.log.graph.impl.tests` end
 
 ### auto-generated section `test intellij.platform.vcs.log.graph.impl.tests` start
-
 jps_test(
     name = "vcs-log-graph-impl-tests_test",
     runtime_deps = [":vcs-log-graph-impl-tests_test_lib"],

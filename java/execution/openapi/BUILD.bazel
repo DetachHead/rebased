@@ -1,7 +1,7 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
 ### auto-generated section `build intellij.java.execution` start
-
 jvm_library(
     name = "java-execution",
     srcs = glob(
@@ -45,6 +45,8 @@ jvm_library(
     ],
 )
 
+content_module_jar(module = ":java-execution")
+
 jvm_library(
     name = "java-execution_test_lib",
     testonly = True,
@@ -86,6 +88,7 @@ jvm_library(
 exports_files(
     [
         "intellij.java.execution.iml",
+        "resources/intellij.java.execution.xml",
     ],
     visibility = ["//visibility:public"],
 )

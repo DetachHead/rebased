@@ -9,6 +9,7 @@ import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.actionSystem.CustomizedDataContext;
 import com.intellij.openapi.actionSystem.DataContext;
 import com.intellij.openapi.actionSystem.Presentation;
+import com.intellij.openapi.application.AccessToken;
 import com.intellij.openapi.application.WriteIntentReadAction;
 import com.intellij.openapi.command.CommandProcessor;
 import com.intellij.openapi.command.UndoConfirmationPolicy;
@@ -17,12 +18,14 @@ import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.fileEditor.FileDocumentManager;
 import com.intellij.openapi.project.DumbAware;
 import com.intellij.openapi.vfs.VirtualFile;
+import com.intellij.util.concurrency.ThreadingAssertions;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.awt.event.InputEvent;
 import java.awt.event.KeyEvent;
 
+import static com.intellij.concurrency.ThreadContext.withThreadLocal;
 import static com.intellij.openapi.actionSystem.CommonDataKeys.EDITOR;
 import static com.intellij.openapi.actionSystem.CommonDataKeys.PROJECT;
 
@@ -94,12 +97,14 @@ public abstract class EditorAction extends AnAction implements DumbAware, LightE
         LatencyRecorder.getInstance().recordLatencyAwareAction(editor, actionId, inputEvent.getWhen());
       }
     }
-    // Some editor actions have `actionUpdateThread == EDT`, but they still work with document in their `perform`.
-    // As part of IJPL-223881, such actions do not run in write-intent lock;
-    // but as of now, we are not ready to liberate the editor actions from write-intent.
-    WriteIntentReadAction.run(() -> {
-      actionPerformed(editor, dataContext);
-    });
+    if (this.getTemplatePresentation().isRWLockRequired()) {
+      WriteIntentReadAction.run(() -> actionPerformed(editor, dataContext));
+    } else {
+      AccessToken token = withThreadLocal(ThreadingAssertions.inputEventWithoutWriteIntentLock, (__) -> (exception) -> LockFreeEditorActionsCore.INSTANCE.showBalloonWithAdvice(exception));
+      try (token) {
+        actionPerformed(editor, dataContext);
+      }
+    }
   }
 
   public final void actionPerformed(Editor editor, @NotNull DataContext dataContext) {

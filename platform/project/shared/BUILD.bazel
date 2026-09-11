@@ -1,7 +1,7 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
 ### auto-generated section `build intellij.platform.project` start
-
 jvm_library(
     name = "project",
     srcs = glob(
@@ -20,6 +20,7 @@ jvm_library(
     visibility = ["//visibility:public"],
     deps = [
         # do not sort,
+        "//platform/kernel/rpc.lite",
         "@lib//:kotlin-stdlib",
         "//libraries/kotlinx/serialization/core",
         "//libraries/kotlinx/serialization/json",
@@ -28,10 +29,11 @@ jvm_library(
         "//platform/projectModel-api:projectModel",
         "//platform/util/coroutines",
         "//platform/core-api:core",
-        "//platform/platform-impl/rpc",
         "//fleet/rhizomedb",
     ],
 )
+
+content_module_jar(module = ":project")
 
 jvm_library(
     name = "project_test_lib",
@@ -45,6 +47,7 @@ jvm_library(
     runtime_deps = [
         # do not sort,
         ":project",
+        "//platform/kernel/rpc.lite:rpc.lite_test_lib",
         "//libraries/kotlinx/serialization/core:core_test_lib",
         "//libraries/kotlinx/serialization/json:json_test_lib",
         "//platform/kernel/shared:kernel_test_lib",
@@ -52,7 +55,6 @@ jvm_library(
         "//platform/projectModel-api:projectModel_test_lib",
         "//platform/util/coroutines:coroutines_test_lib",
         "//platform/core-api:core_test_lib",
-        "//platform/platform-impl/rpc:rpc_test_lib",
         "//fleet/rhizomedb:rhizomedb_test_lib",
     ],
 )
@@ -62,6 +64,8 @@ jvm_library(
 exports_files(
     [
         "intellij.platform.project.iml",
+        "resources/intellij.platform.project.xml",
+        "module-content.yaml",
     ],
     visibility = ["//visibility:public"],
 )

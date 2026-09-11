@@ -79,6 +79,7 @@ public class GenericsHighlightingTest extends LightDaemonAnalyzerTestCase {
   public void testEnum242390() { doTest7(false); }
   public void testSameErasure() { doTest5(false); }
   public void testPairsWithSameErasure() { doTest5(false); }
+  public void testTypeParameterBoundsOrder() { doTest5(false); }
   public void testMethods() { doTest5(false); }
   public void testFields() { doTest5(false); }
   public void testStaticImports() { doTest5(true); }
@@ -418,6 +419,7 @@ public class GenericsHighlightingTest extends LightDaemonAnalyzerTestCase {
   public void testArrayContainsInTypeParameterWithSerializableBound() { doTest7(true); }
   public void testIntersectTypeParameterBounds() { doTest7(false); }
   public void testTopLevelCaptureConversion() { doTest7(false); }
+  public void testCaptureConversionForAssignmentExpression() { doTest7(false); }
   public void testNoCaptureConversionForArrayType() { doTest7(false); }
   public void testErasureOfMethodCallExpressionTypeIfItDoesntDependOnGenericsParameter() { doTest7(false); }
   public void testUncheckedConversionInReturnType() { doTest7(false); }

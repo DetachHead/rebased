@@ -3,18 +3,19 @@
 package org.jetbrains.kotlin.idea.codeInsight.inspections.jdk2k
 
 import org.jetbrains.kotlin.analysis.api.KaSession
-import org.jetbrains.kotlin.analysis.api.components.expandedSymbol
-import org.jetbrains.kotlin.analysis.api.components.expressionType
-import org.jetbrains.kotlin.analysis.api.components.isMarkedNullable
-import org.jetbrains.kotlin.analysis.api.components.resolveToCall
-import org.jetbrains.kotlin.analysis.api.resolution.singleVariableAccessCall
+import org.jetbrains.kotlin.analysis.api.expressions.expressionType
+import org.jetbrains.kotlin.analysis.api.resolution.single
 import org.jetbrains.kotlin.analysis.api.resolution.symbol
+import org.jetbrains.kotlin.analysis.api.resolution.variable
 import org.jetbrains.kotlin.analysis.api.types.KaType
+import org.jetbrains.kotlin.analysis.api.types.expandedSymbol
+import org.jetbrains.kotlin.analysis.api.types.isMarkedNullable
 import org.jetbrains.kotlin.builtins.StandardNames
 import org.jetbrains.kotlin.idea.base.analysis.api.utils.shortenReferences
 import org.jetbrains.kotlin.idea.base.psi.imports.addImport
 import org.jetbrains.kotlin.idea.base.psi.replaced
 import org.jetbrains.kotlin.idea.util.CommentSaver
+import org.jetbrains.kotlin.idea.util.tryResolveExpressionCall
 import org.jetbrains.kotlin.name.FqName
 import org.jetbrains.kotlin.psi.KtCallExpression
 import org.jetbrains.kotlin.psi.KtDotQualifiedExpression
@@ -50,8 +51,11 @@ object ToKotlinPrint : Transformation {
     }
 
     context(_: KaSession) override fun isApplicableByAnalyze(callExpression: KtCallExpression): Boolean =
-        (callExpression.calleeExpression as? KtSimpleNameExpression)?.getReceiverExpression()?.resolveToCall()
-            ?.singleVariableAccessCall()?.partiallyAppliedSymbol?.symbol?.callableId?.asSingleFqName() == FqName("java.lang.System.out")
+        (callExpression.calleeExpression as? KtSimpleNameExpression)?.getReceiverExpression()
+            ?.tryResolveExpressionCall()?.single?.variable
+            ?.symbol
+            ?.callableId
+            ?.asSingleFqName() == FqName("java.lang.System.out")
 }
 
 object ToExtensionFunctionWithNonNullableReceiver : Transformation {

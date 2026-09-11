@@ -1,7 +1,7 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
 ### auto-generated section `build intellij.libraries.jbr` start
-
 jvm_library(
     name = "jbr",
     srcs = glob(
@@ -14,8 +14,13 @@ jvm_library(
         ["resources/**/*"],
     ),
     visibility = ["//visibility:public"],
-    exports = ["@lib//:jbr-api"],
-    runtime_deps = ["@lib//:jbr-api"],
+    exports = ["@lib//:libraries-jbr-jbr-api"],
+    runtime_deps = ["@lib//:libraries-jbr-jbr-api"],
+)
+
+content_module_jar(
+    libraries = ["@lib//:libraries-jbr-jbr-api"],
+    module = ":jbr",
 )
 
 jvm_library(
@@ -28,7 +33,7 @@ jvm_library(
     kotlinc_opts = "@community//:k8",
     module_name = "intellij.libraries.jbr",
     visibility = ["//visibility:public"],
-    exports = ["@lib//:jbr-api"],
+    exports = ["@lib//:libraries-jbr-jbr-api"],
     runtime_deps = [":jbr"],
 )
 ### auto-generated section `build intellij.libraries.jbr` end
@@ -37,6 +42,8 @@ jvm_library(
 exports_files(
     [
         "intellij.libraries.jbr.iml",
+        "resources/intellij.libraries.jbr.xml",
+        "module-content.yaml",
     ],
     visibility = ["//visibility:public"],
 )

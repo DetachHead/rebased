@@ -2,10 +2,13 @@
 package com.intellij.internal.statistic.utils;
 
 import com.intellij.ide.ConsentOptionsProvider;
+import com.intellij.internal.statistic.config.eventLog.EventLogBuildType;
+import com.intellij.idea.AppMode;
 import com.intellij.internal.statistic.eventLog.EventLogInternalApplicationInfo;
 import com.intellij.internal.statistic.eventLog.EventLogInternalSendConfig;
 import com.intellij.internal.statistic.eventLog.ExternalEventLogSettings;
 import com.intellij.internal.statistic.eventLog.StatisticsEventLogProviderUtil;
+import com.intellij.internal.statistic.eventLog.FileDeletionCause;
 import com.intellij.internal.statistic.eventLog.connection.EventLogSendListener;
 import com.intellij.internal.statistic.eventLog.connection.EventLogSettingsClient;
 import com.intellij.internal.statistic.eventLog.connection.EventLogStatisticsService;
@@ -14,6 +17,7 @@ import com.intellij.internal.statistic.eventLog.connection.StatisticsService;
 import com.intellij.internal.statistic.persistence.UsageStatisticsPersistenceComponent;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.util.NlsContexts;
+import com.intellij.openapi.util.registry.Registry;
 import com.intellij.openapi.util.text.Strings;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -44,7 +48,12 @@ public final class StatisticsUploadAssistant {
     }
 
     if (ApplicationManager.getApplication().isHeadlessEnvironment()) {
-      return isHeadlessStatisticsEnabled();
+      if (isHeadlessStatisticsEnabled()) {
+        return true;
+      }
+      if (!AppMode.isStatisticsAllowedByStarter()) {
+        return false;
+      }
     }
 
     // Prohibit sending statistics if the client is running on TC. TC can collect statistics but not send.
@@ -62,7 +71,12 @@ public final class StatisticsUploadAssistant {
 
   public static boolean isCollectAllowed(@NotNull BooleanSupplier isAllowedByUserConsent) {
     if (ApplicationManager.getApplication().isHeadlessEnvironment()) {
-      return isHeadlessStatisticsEnabled();
+      if (isHeadlessStatisticsEnabled()) {
+        return true;
+      }
+      if (!AppMode.isStatisticsAllowedByStarter()) {
+        return false;
+      }
     }
 
     if (!isDisableCollectStatistics() && !isCollectionForceDisabled()) {
@@ -131,17 +145,29 @@ public final class StatisticsUploadAssistant {
         getEventLogProvider(recorderId).getEventLogSystemLogger$intellij_platform_statistics()
           .logFilesSend(totalLocalFiles, success, failed, false, successfullySentFiles, errors);
       }
+
+      @Override
+      public void onFileDeletedAfterSend(@NotNull FileDeletionCause cause, long sizeBytes, long ageMs, long queuedMs, @NotNull EventLogBuildType buildType) {
+        getEventLogProvider(recorderId).getEventLogSystemLogger$intellij_platform_statistics()
+          .logFileDeleted(cause, ageMs, queuedMs, sizeBytes, buildType);
+      }
     };
 
     return new EventLogStatisticsService(
       EventLogInternalSendConfig.createByRecorder(recorderId, true),
       new EventLogInternalApplicationInfo(isUseTestStatisticsConfig(), isUseTestStatisticsSendEndpoint()),
-      listener
+      listener,
+      Registry.is("feature.usage.event.snapshot.filtering.disabled", false)
     );
   }
 
   public static EventLogSettingsClient createExternalSettings(@NotNull String recorderId, boolean isTestConfig, boolean isTestSendEndpoint, long cacheTimeoutMs) {
-    return new EventLogUploadSettingsClient(recorderId, new EventLogInternalApplicationInfo(isTestConfig, isTestSendEndpoint), cacheTimeoutMs);
+    return new EventLogUploadSettingsClient(
+      recorderId,
+      new EventLogInternalApplicationInfo(isTestConfig, isTestSendEndpoint),
+      Registry.is("feature.usage.event.snapshot.filtering.disabled", false),
+      cacheTimeoutMs
+    );
   }
 
   public static boolean isTeamcityDetected() {

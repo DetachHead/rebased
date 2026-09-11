@@ -23,6 +23,7 @@ import com.intellij.openapi.progress.ProgressIndicator
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.io.FileUtilRt
 import com.intellij.openapi.vfs.VirtualFile
+import com.intellij.openapi.wm.ex.WelcomeScreenProjectProvider
 import com.intellij.platform.backend.navigation.NavigationRequest
 import com.intellij.platform.backend.navigation.NavigationRequests
 import com.intellij.pom.Navigatable
@@ -41,6 +42,7 @@ import javax.swing.ListCellRenderer
 
 private val LOG = Logger.getInstance(FileSearchEverywhereContributor::class.java)
 
+@Deprecated("The old Search Everywhere is being sunset in favor of the new (Split) Search Everywhere (com.intellij.platform.searchEverywhere).")
 open class FileSearchEverywhereContributor(event: AnActionEvent, contributorModules: List<SearchEverywhereContributorModule>?) : AbstractGotoSEContributor(
   event, contributorModules), EssentialContributor, SearchEverywherePreviewProvider {
   private val modelForRenderer: GotoFileModel
@@ -192,6 +194,8 @@ class FileSearchEverywhereContributorFactory : SearchEverywhereContributorFactor
   override fun createContributor(initEvent: AnActionEvent): SearchEverywhereContributor<Any?> {
     return PSIPresentationBgRendererWrapper.wrapIfNecessary(FileSearchEverywhereContributor(initEvent))
   }
+
+  override fun isAvailable(project: Project): Boolean = !WelcomeScreenProjectProvider.isWelcomeScreenProject(project)
 }
 
 @Internal

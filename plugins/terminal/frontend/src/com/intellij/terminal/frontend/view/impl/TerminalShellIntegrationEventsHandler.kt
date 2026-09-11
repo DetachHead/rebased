@@ -1,7 +1,7 @@
 package com.intellij.terminal.frontend.view.impl
 
 import com.intellij.openapi.diagnostic.logger
-import com.intellij.util.asDisposable
+import com.intellij.platform.util.coroutines.childScope
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
@@ -14,12 +14,14 @@ import org.jetbrains.plugins.terminal.session.TerminalStartupOptions
 import org.jetbrains.plugins.terminal.session.guessShellName
 import org.jetbrains.plugins.terminal.session.impl.TerminalAliasesReceivedEvent
 import org.jetbrains.plugins.terminal.session.impl.TerminalCommandFinishedEvent
+import org.jetbrains.plugins.terminal.session.impl.TerminalCommandHistoryPathReceivedEvent
 import org.jetbrains.plugins.terminal.session.impl.TerminalCommandStartedEvent
 import org.jetbrains.plugins.terminal.session.impl.TerminalCompletionFinishedEvent
 import org.jetbrains.plugins.terminal.session.impl.TerminalInitialStateEvent
 import org.jetbrains.plugins.terminal.session.impl.TerminalOutputEvent
 import org.jetbrains.plugins.terminal.session.impl.TerminalPromptFinishedEvent
 import org.jetbrains.plugins.terminal.session.impl.TerminalPromptStartedEvent
+import org.jetbrains.plugins.terminal.session.impl.TerminalSession
 import org.jetbrains.plugins.terminal.session.impl.TerminalStateChangedEvent
 import org.jetbrains.plugins.terminal.session.impl.dto.toState
 import org.jetbrains.plugins.terminal.util.getNow
@@ -30,15 +32,12 @@ internal class TerminalShellIntegrationEventsHandler(
   private val outputModelController: TerminalOutputModelController,
   private val sessionModel: TerminalSessionModel,
   private val shellIntegrationDeferred: CompletableDeferred<TerminalShellIntegration>,
+  private val sessionDeferred: Deferred<TerminalSession>,
   private val startupOptionsDeferred: Deferred<TerminalStartupOptions>,
   private val coroutineScope: CoroutineScope,
 ) : TerminalOutputEventsHandler {
   private val shellIntegration: TerminalShellIntegrationImpl?
     get() = shellIntegrationDeferred.getNow() as? TerminalShellIntegrationImpl
-
-  private fun getIntegrationOrThrow(): TerminalShellIntegrationImpl {
-    return shellIntegration ?: error("Shell integration is not initialized yet")
-  }
 
   override suspend fun handleEvent(event: TerminalOutputEvent) {
     when (event) {
@@ -57,34 +56,39 @@ internal class TerminalShellIntegrationEventsHandler(
       // So, throw an exception if it is not initialized yet to find such cases quickly.
       TerminalPromptStartedEvent -> {
         outputModelController.applyPendingUpdates()
-        getIntegrationOrThrow().onPromptStarted(outputModelController.model.cursorOffset)
+        withIntegrationOrThrow { it.onPromptStarted(outputModelController.model.cursorOffset) }
       }
       TerminalPromptFinishedEvent -> {
         outputModelController.applyPendingUpdates()
-        getIntegrationOrThrow().onPromptFinished(outputModelController.model.cursorOffset)
+        withIntegrationOrThrow { it.onPromptFinished(outputModelController.model.cursorOffset) }
       }
       is TerminalCommandStartedEvent -> {
         outputModelController.applyPendingUpdates()
-        getIntegrationOrThrow().onCommandStarted(outputModelController.model.cursorOffset, event.command)
+        withIntegrationOrThrow { it.onCommandStarted(outputModelController.model.cursorOffset, event.command) }
       }
       is TerminalCommandFinishedEvent -> {
         outputModelController.applyPendingUpdates()
-        getIntegrationOrThrow().onCommandFinished(event.exitCode)
+        withIntegrationOrThrow { it.onCommandFinished(event.exitCode) }
       }
       is TerminalAliasesReceivedEvent -> {
         withContext(Dispatchers.Default) {
-          val shellName = startupOptionsDeferred.getNow()?.guessShellName()
-          if (shellName != null) {
-            val aliases = parseAliases(event.aliasesRaw, shellName)
-            getIntegrationOrThrow().onAliasesReceived(aliases)
-          }
-          else {
-            LOG.error("Failed to parse aliases: startup options are not initialized yet")
+          val startupOptions = startupOptionsDeferred.getNow()
+          when {
+            startupOptions != null -> {
+              val aliases = parseAliases(event.aliasesRaw, startupOptions.guessShellName())
+              withIntegrationOrThrow { it.onAliasesReceived(aliases) }
+            }
+            // The view was disposed while this event was in flight: expected shutdown, nothing to report.
+            startupOptionsDeferred.isCancelled -> Unit
+            else -> LOG.error("Failed to parse aliases: startup options are not initialized yet")
           }
         }
       }
       is TerminalCompletionFinishedEvent -> {
-        getIntegrationOrThrow().onCompletionFinished(event.result)
+        withIntegrationOrThrow { it.onCompletionFinished(event.result) }
+      }
+      is TerminalCommandHistoryPathReceivedEvent -> {
+        withIntegrationOrThrow { it.onCommandHistoryFilePathReceived(event.path) }
       }
       else -> {
         // do nothing
@@ -93,10 +97,21 @@ internal class TerminalShellIntegrationEventsHandler(
   }
 
   private fun initShellIntegration() {
+    val startupOptions = startupOptionsDeferred.getNow() ?: run {
+      // The view was disposed while this event was in flight: expected shutdown, nothing to initialize.
+      if (startupOptionsDeferred.isCancelled) return
+      error("Startup options are null but should be already initialized at this point")
+    }
+    val session = sessionDeferred.getNow() ?: run {
+      if (sessionDeferred.isCancelled) return
+      error("Terminal session is null but should be already initialized at this point")
+    }
     val integration = TerminalShellIntegrationImpl(
       outputModelController.model,
       sessionModel,
-      coroutineScope.asDisposable()
+      coroutineScope.childScope("TerminalShellIntegration"),
+      session.eelDescriptor,
+      startupOptions.guessShellName(),
     )
     shellIntegrationDeferred.complete(integration)
   }
@@ -114,6 +129,24 @@ internal class TerminalShellIntegrationEventsHandler(
       LOG.error("Failed to parse aliases for ${adjustedShellName.value}: $text", ex)
       emptyMap()
     }
+  }
+
+  /**
+   * Runs [action] with the initialized shell integration.
+   *
+   * It is expected that shell integration is initialized before this method is called, so this asserts if it is not,
+   * to find such cases quickly.
+   * The one exception is a cancelled [shellIntegrationDeferred]: that means the view was disposed while this event was in flight,
+   * which is expected shutdown, not a bug, so it is skipped quietly instead.
+   */
+  private inline fun withIntegrationOrThrow(action: (TerminalShellIntegrationImpl) -> Unit) {
+    val integration = shellIntegration
+    if (integration != null) {
+      action(integration)
+      return
+    }
+    if (shellIntegrationDeferred.isCancelled) return
+    error("Shell integration is not initialized yet")
   }
 
   companion object {

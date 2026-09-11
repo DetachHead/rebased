@@ -10,8 +10,7 @@ import com.intellij.platform.buildScripts.licenses.SoftwareBillOfMaterials.Compa
 object CommunityLibraryLicenses {
   @Suppress("SpellCheckingInspection", "NonAsciiCharacters")
   val LICENSES_LIST: List<LibraryLicense> = listOf(
-    LibraryLicense("A fast Java JSON schema validator", libraryName = "json-schema-validator", url = "https://github.com/networknt/json-schema-validator")
-      .additionalLibraryNames("json-schema-validator-jetbrains")
+    LibraryLicense("A fast Java JSON schema validator", libraryName = "json-schema-validator-jetbrains", url = "https://github.com/networknt/json-schema-validator")
       .apache("https://github.com/networknt/json-schema-validator/blob/master/LICENSE"),
 
     LibraryLicense("aalto-xml", libraryName = "aalto-xml", url = "https://github.com/FasterXML/aalto-xml/")
@@ -55,6 +54,10 @@ object CommunityLibraryLicenses {
       .apache("https://github.com/androidx/androidx/blob/androidx-main/LICENSE.txt")
       .copyrightText("Copyright (C) The Android Open Source Project")
       .suppliedByOrganizations(Suppliers.GOOGLE),
+
+    androidDependency("AndroidX Navigation Event Compose Desktop", libraryName = "androidx.navigationevent.navigationevent.compose.desktop"),
+
+    androidDependency("AndroidX Navigation Event Desktop", libraryName = "androidx.navigationevent.navigationevent.desktop"),
 
     LibraryLicense("antlr4-runtime", libraryName = "antlr4-runtime", url = "https://github.com/antlr/antlr4")
       .newBsd("https://github.com/antlr/antlr4/blob/dev/LICENSE.txt"),
@@ -201,6 +204,10 @@ object CommunityLibraryLicenses {
       .simplifiedBsd("https://github.com/cs-au-dk/dk.brics.automaton/blob/master/COPYING")
       .copyrightText("Copyright (c) 2001-2022 Anders Moeller"),
 
+    LibraryLicense("Awaitility", libraryName = "awaitility", url = "https://github.com/awaitility/awaitility")
+      .apache("https://github.com/awaitility/awaitility/blob/master/LICENSE")
+      .suppliedByPersons("Johan Haleby"),
+
     LibraryLicense("Bash-Preexec", version = "0.5.0", attachedTo = "intellij.terminal", url = "https://github.com/rcaloras/bash-preexec")
       .mit("https://github.com/rcaloras/bash-preexec/blob/master/LICENSE.md"),
 
@@ -244,6 +251,12 @@ object CommunityLibraryLicenses {
     LibraryLicense("classgraph", libraryName = "classgraph", url = "https://github.com/classgraph/classgraph")
       .license("codehaus", "https://github.com/codehaus/classworlds/blob/master/classworlds/LICENSE.txt"),
 
+    LibraryLicense("CLDR plural categories (derived data)", version = "48", attachedTo = "intellij.compose.ide.plugin.resources", url = "https://cldr.unicode.org/")
+      .license("Unicode", "https://www.unicode.org/license.txt"),
+
+    LibraryLicense("CLDR plural rules (derived data)", version = "48", attachedTo = "intellij.platform.util", url = "https://cldr.unicode.org/")
+      .license("Unicode", "https://www.unicode.org/license.txt"),
+
     LibraryLicense("Clikt", libraryName = "clikt", url = "https://github.com/ajalt/clikt")
       .apache("https://github.com/ajalt/clikt/blob/master/LICENSE.txt")
       .copyrightText("Copyright 2018 AJ Alt")
@@ -281,10 +294,6 @@ object CommunityLibraryLicenses {
       )
       .suppliedByOrganizations(Suppliers.JETBRAINS),
 
-    LibraryLicense("Compose Multiplatform Compiler", libraryName = "jetbrains.compose.compiler.hosted", url = "https://github.com/JetBrains/compose-multiplatform")
-      .apache("https://github.com/JetBrains/compose-multiplatform/blob/master/LICENSE.txt")
-      .suppliedByOrganizations(Suppliers.JETBRAINS),
-
     LibraryLicense("Compose Runtime", libraryName = "androidx.compose.runtime.desktop", url = "https://source.android.com/")
       .apache("https://cs.android.com/androidx/platform/frameworks/support/+/androidx-main:LICENSE.txt")
       .suppliedByOrganizations(Suppliers.GOOGLE),
@@ -296,6 +305,10 @@ object CommunityLibraryLicenses {
     LibraryLicense("Compose Runtime Saveable Desktop", libraryName = "androidx.compose.runtime.saveable.desktop", url = "https://source.android.com/")
       .apache("https://cs.android.com/androidx/platform/frameworks/support/+/androidx-main:LICENSE.txt")
       .suppliedByOrganizations(Suppliers.GOOGLE),
+
+    LibraryLicense("Compose Swing UI", libraryName = "dev.matkov.compose.swing.swing-ui", url = "https://github.com/MatkovIvan/compose-swing-ui")
+      .apache("https://github.com/MatkovIvan/compose-swing-ui/blob/master/LICENSE")
+      .suppliedByPersons("Ivan Matkov"),
 
     // For ADB wireless QR Code generation
     LibraryLicense("Core barcode encoding/decoding library", url = "https://github.com/zxing/zxing/tree/master/core", libraryName = "zxing-core")
@@ -325,7 +338,7 @@ object CommunityLibraryLicenses {
       .suppliedByOrganizations("SmartBear Software"),
 
     LibraryLicense("dbus-java", libraryName = "dbus-java", url = "https://github.com/hypfvieh/dbus-java")
-      .lgpl2("https://github.com/hypfvieh/dbus-java/blob/dbus-java-3.0/LICENSE")
+      .mit("https://github.com/hypfvieh/dbus-java/blob/dbus-java-parent-4.2.1/LICENSE")
       .suppliedByPersons("David M. <hypfvieh@googlemail.com>"),
 
     LibraryLicense("debugpy", version = LibraryLicense.CUSTOM_REVISION, attachedTo="intellij.python", url = "https://github.com/microsoft/debugpy")
@@ -336,6 +349,34 @@ object CommunityLibraryLicenses {
 
     LibraryLicense("dotenv-kotlin", libraryName = "io.github.cdimascio.dotenv.kotlin", url = "https://github.com/cdimascio/dotenv-kotlin")
       .apache("https://github.com/cdimascio/dotenv-kotlin/blob/master/LICENSE"),
+
+    LibraryLicense(libraryName = "eclipse.lsp4j", url = "https://github.com/eclipse/lsp4j")
+      .eplV2("https://github.com/eclipse-lsp4j/lsp4j/blob/main/LICENSE")
+      .suppliedByPersons(
+        "Sven Efftinge", "Christian Dietrich", "Dennis Hübner", "Anton Kosyakov", "Miro Spönemann", "Jonah Graham",
+        "Akos Kitta", "Yaohai Zheng"
+      ),
+
+    LibraryLicense(libraryName = "eclipse.lsp4j.debug", url = "https://github.com/eclipse/lsp4j")
+      .eplV2("https://github.com/eclipse-lsp4j/lsp4j/blob/main/LICENSE")
+      .suppliedByPersons(
+        "Sven Efftinge", "Christian Dietrich", "Dennis Hübner", "Anton Kosyakov", "Miro Spönemann", "Jonah Graham",
+        "Akos Kitta", "Yaohai Zheng"
+      ),
+
+    LibraryLicense(libraryName = "eclipse.lsp4j.jsonrpc", url = "https://github.com/eclipse/lsp4j")
+      .eplV2("https://github.com/eclipse-lsp4j/lsp4j/blob/main/LICENSE")
+      .suppliedByPersons(
+        "Sven Efftinge", "Christian Dietrich", "Dennis Hübner", "Anton Kosyakov", "Miro Spönemann", "Jonah Graham",
+        "Akos Kitta", "Yaohai Zheng"
+      ),
+
+    LibraryLicense(libraryName = "eclipse.lsp4j.jsonrpc.debug", url = "https://github.com/eclipse/lsp4j")
+      .eplV2("https://github.com/eclipse-lsp4j/lsp4j/blob/main/LICENSE")
+      .suppliedByPersons(
+        "Sven Efftinge", "Christian Dietrich", "Dennis Hübner", "Anton Kosyakov", "Miro Spönemann", "Jonah Graham",
+        "Akos Kitta", "Yaohai Zheng"
+      ),
 
     LibraryLicense("Eclipse JDT Core", version = "4.2.1", attachedTo = "intellij.platform.jps.build", url = "https://www.eclipse.org/jdt/core/index.php")
       .eplV2("https://github.com/eclipse-jdt/eclipse.jdt.core/blob/master/LICENSE"),
@@ -487,8 +528,8 @@ object CommunityLibraryLicenses {
       .apache("https://github.com/apache/httpcomponents-client/blob/master/LICENSE.txt")
       .suppliedByOrganizations(Suppliers.APACHE),
 
-    LibraryLicense("ICU4J", libraryName = "icu4j", url = "https://icu.unicode.org/")
-      .license("Unicode", "https://www.unicode.org/copyright.html"),
+    LibraryLicense("ICU4J MessagePattern (derived code)", version = "78.3", attachedTo = "intellij.java.i18n", url = "https://icu.unicode.org/")
+      .license("Unicode", "https://www.unicode.org/license.txt"),
 
     LibraryLicense("imgscalr", libraryName = "imgscalr", url = "https://github.com/thebuzzmedia/imgscalr")
       .apache("https://github.com/rkalla/imgscalr/blob/master/LICENSE"),
@@ -564,6 +605,7 @@ object CommunityLibraryLicenses {
       .suppliedByPersons("Tatu Saloranta", "Christopher Currie", "Paul Brown"),
 
     LibraryLicense("Jackson Dataformat TOML", libraryName = "jackson-dataformat-toml", url = "https://github.com/FasterXML/jackson-dataformats-text")
+      .additionalLibraryNames("jackson3-dataformat-toml")
       .apache("https://github.com/FasterXML/jackson-dataformats-text/blob/2.16/pom.xml")
       .suppliedByPersons("Tatu Saloranta", "Christopher Currie", "Paul Brown"),
 
@@ -686,11 +728,11 @@ object CommunityLibraryLicenses {
       ),
 
     LibraryLicense(libraryName = "jediterm-core", url = "https://github.com/JetBrains/jediterm")
-      .lgpl3("https://github.com/JetBrains/jediterm/blob/master/LICENSE-LGPLv3.txt")
+      .apache("https://github.com/JetBrains/jediterm/blob/master/LICENSE-APACHE-2.0.txt")
       .suppliedByOrganizations(Suppliers.JETBRAINS),
 
     LibraryLicense(libraryName = "jediterm-ui", url = "https://github.com/JetBrains/jediterm")
-      .lgpl3("https://github.com/JetBrains/jediterm/blob/master/LICENSE-LGPLv3.txt")
+      .apache("https://github.com/JetBrains/jediterm/blob/master/LICENSE-APACHE-2.0.txt")
       .suppliedByOrganizations(Suppliers.JETBRAINS),
 
     LibraryLicense("JetBrains Annotations", libraryName = "jetbrains-annotations", url = "https://github.com/JetBrains/java-annotations")
@@ -1048,6 +1090,10 @@ object CommunityLibraryLicenses {
       .newBsd("https://github.com/mikaelgrev/miglayout/blob/master/src/site/resources/docs/license.txt")
       .suppliedByOrganizations("MiG InfoCom AB"),
 
+    LibraryLicense("Mockito Kotlin", libraryName = "mockito-kotlin", url = "https://github.com/mockito/mockito-kotlin")
+      .mit("https://github.com/mockito/mockito-kotlin/blob/main/LICENSE")
+      .suppliedByPersons("Niek Haarman"),
+
     LibraryLicense("MockK", libraryName = "io.mockk", url = "https://mockk.io")
       .apache("https://github.com/mockk/mockk/blob/master/LICENSE"),
 
@@ -1176,6 +1222,10 @@ object CommunityLibraryLicenses {
     LibraryLicense("pockets", version = "0.9.1", attachedTo = "intellij.python", url = "https://pockets.readthedocs.io/")
       .newBsd("https://github.com/RobRuana/pockets/blob/master/LICENSE"),
 
+    LibraryLicense("protobuf-java-util", libraryName = "google.protobuf.java.util", url = "https://developers.google.com/protocol-buffers")
+      .newBsd("https://github.com/protocolbuffers/protobuf/blob/main/LICENSE")
+      .suppliedByOrganizations(Suppliers.GOOGLE),
+
     LibraryLicense("protobuf-kotlin", libraryName = "google.protobuf.kotlin", url = "https://developers.google.com/protocol-buffers")
       .newBsd("https://github.com/protocolbuffers/protobuf/blob/main/LICENSE")
       .suppliedByOrganizations(Suppliers.GOOGLE),
@@ -1301,6 +1351,9 @@ object CommunityLibraryLicenses {
         authors = "Lucas Theisen"
       ),
 
+    LibraryLicense("SSHJ", libraryName = "SSHJ", url = "https://github.com/hierynomus/sshj")
+      .apache("https://github.com/hierynomus/sshj/blob/master/LICENSE"),
+
     LibraryLicense("StreamEx", libraryName = "StreamEx", url = "https://github.com/amaembo/streamex")
       .apache("https://github.com/amaembo/streamex/blob/master/LICENSE"),
 
@@ -1332,10 +1385,6 @@ object CommunityLibraryLicenses {
 
     LibraryLicense("thriftpy2", version = "0.4.13", attachedTo = "intellij.python", url = "https://github.com/Thriftpy/thriftpy2/")
       .mit("https://github.com/Thriftpy/thriftpy2/blob/master/LICENSE"),
-
-    LibraryLicense("toml4j", libraryName = "toml4j", url = "https://github.com/mwanji/toml4j")
-      .mit("https://github.com/mwanji/toml4j/blob/master/LICENSE")
-      .suppliedByPersons("Moandji Ezana"),
 
     // for traceprocessor-proto module library in intellij.android.profilersAndroid
     LibraryLicense("Trang", libraryName = "trang-core.jar", version = LibraryLicense.CUSTOM_REVISION, url = "https://relaxng.org/jclark/trang.html")
@@ -1439,36 +1488,31 @@ object CommunityLibraryLicenses {
     jetbrainsLibrary("ai.grazie.emb"),
     jetbrainsLibrary("ai.grazie.nlp.detect"),
     jetbrainsLibrary("ai.grazie.nlp.encoder.bert.uncased"),
+    jetbrainsLibrary("ai.grazie.nlp.phonetics.jvm"),
+    jetbrainsLibrary("ai.grazie.nlp.similarity.jvm"),
     jetbrainsLibrary("ai.grazie.semantic.engine"),
     jetbrainsLibrary("ai.grazie.spell.gec.engine.local"),
     jetbrainsLibrary("ai.grazie.spell.hunspell.en"),
+    jetbrainsLibrary("ai.grazie.utils.common.jvm"),
+    jetbrainsLibrary("ai.grazie.utils.multiplatform.jvm"),
     jetbrainsLibrary("cloud-config-client"),
+    jetbrainsLibrary("cloud.jetbrains.sdk.ml.jbai.ner.api"),
+    jetbrainsLibrary("cloud.jetbrains.sdk.ml.jbai.tree.api"),
     jetbrainsLibrary("com.jetbrains.fus.reporting.ap.validation.all"),
     jetbrainsLibrary("com.jetbrains.fus.reporting.fus-api"),
     jetbrainsLibrary("completion-log-events"),
-    jetbrainsLibrary("completion-ranking-cpp-exp"),
     jetbrainsLibrary("completion-ranking-css-exp"),
     jetbrainsLibrary("completion-ranking-dart-exp"),
-    jetbrainsLibrary("completion-ranking-go-exp"),
     jetbrainsLibrary("completion-ranking-html-exp"),
     jetbrainsLibrary("completion-ranking-java"),
-    jetbrainsLibrary("completion-ranking-java-exp"),
-    jetbrainsLibrary("completion-ranking-java-exp2"),
-    jetbrainsLibrary("completion-ranking-js-exp"),
     jetbrainsLibrary("completion-ranking-kotlin"),
-    jetbrainsLibrary("completion-ranking-kotlin-exp"),
-    jetbrainsLibrary("completion-ranking-php-exp"),
     jetbrainsLibrary("completion-ranking-python-exp"),
     jetbrainsLibrary("completion-ranking-python-with-full-line"),
-    jetbrainsLibrary("completion-ranking-ruby-exp"),
-    jetbrainsLibrary("completion-ranking-rust-exp"),
     jetbrainsLibrary("completion-ranking-scala-exp"),
     jetbrainsLibrary("completion-ranking-sh"),
-    jetbrainsLibrary("completion-ranking-sh-exp"),
-    jetbrainsLibrary("completion-ranking-swift-exp"),
-    jetbrainsLibrary("completion-ranking-typescript-exp"),
     jetbrainsLibrary("debugger-agent"),
     jetbrainsLibrary("debugger-memory-agent"),
+    jetbrainsLibrary("diogen-analysis"),
     jetbrainsLibrary("download-pgp-verifier"),
     jetbrainsLibrary("file-prediction-model"),
     jetbrainsLibrary("find-action-model"),
@@ -1483,6 +1527,7 @@ object CommunityLibraryLicenses {
     jetbrainsLibrary("jetbrains.compose.components.ui.tooling.preview.desktop"),
     jetbrainsLibrary("jetbrains.compose.hot.reload.devtools.api"),
     jetbrainsLibrary("jetbrains.compose.hot.reload.gradle.idea"),
+    jetbrainsLibrary("jetbrains.fus.reporting.api.jvm"),
     jetbrainsLibrary("jetbrains.intellij.deps.rwmutex.idea"),
     jetbrainsLibrary("jetbrains.kotlin.jps.plugin.classpath"),
     jetbrainsLibrary("jetbrains.ml.models.jetenry.inline.prompt.detection.model"),
@@ -1490,6 +1535,7 @@ object CommunityLibraryLicenses {
     jetbrainsLibrary("jetbrains.mlapi.catboost"),
     jetbrainsLibrary("jetbrains.mlapi.catboost.shadow.need.slf4j"),
     jetbrainsLibrary("jetbrains.mlapi.core"),
+    jetbrainsLibrary("jetbrains.patronus.codeowners.lib.ownership"),
     jetbrainsLibrary("jshell-frontend"),
     jetbrainsLibrary("jvm-native-trusted-roots"),
     jetbrainsLibrary("kotlin-gradle-plugin-idea"),
@@ -1500,7 +1546,6 @@ object CommunityLibraryLicenses {
     jetbrainsLibrary("kotlin-tooling-core"),
     jetbrainsLibrary("kotlinc.allopen-compiler-plugin"),
     jetbrainsLibrary("kotlinc.analysis-api"),
-    jetbrainsLibrary("kotlinc.analysis-api-fe10"),
     jetbrainsLibrary("kotlinc.analysis-api-impl-base"),
     jetbrainsLibrary("kotlinc.analysis-api-k2"),
     jetbrainsLibrary("kotlinc.analysis-api-platform-interface"),

@@ -1,8 +1,8 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library", "kt_javac_options")
 load("//build:compiler-options.bzl", "create_kotlinc_options")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
 ### auto-generated section `build intellij.grid.impl` start
-
 create_kotlinc_options(
     name = "custom_impl",
     opt_in = [
@@ -83,6 +83,8 @@ jvm_library(
     ],
 )
 
+content_module_jar(module = ":impl")
+
 jvm_library(
     name = "impl_test_lib",
     testonly = True,
@@ -146,6 +148,8 @@ jvm_library(
 exports_files(
     [
         "intellij.grid.impl.iml",
+        "resources/intellij.grid.impl.xml",
+        "module-content.yaml",
     ],
     visibility = ["//visibility:public"],
 )

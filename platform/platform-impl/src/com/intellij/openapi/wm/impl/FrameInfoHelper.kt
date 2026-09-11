@@ -116,7 +116,7 @@ internal fun updateFrameInfo(frameHelper: ProjectFrameHelper, frame: JFrame, las
 
   // don't report if was already reported
   if (!usePreviousBounds && oldBounds != newBounds && !ScreenUtil.intersectsVisibleScreen(frame)) {
-    logger<WindowInfoImpl>().error("Frame bounds are invalid: $newBounds")
+    logger<WindowInfoImpl>().warn("Frame bounds are invalid: $newBounds")
   }
 
   val frameInfo = oldFrameInfo ?: FrameInfo()
@@ -137,8 +137,12 @@ internal fun checkForNonsenseBounds(name: String, bounds: Rectangle?) {
   }
 }
 
-internal fun checkForNonsenseBounds(name: String, height: Int, width: Int) {
+internal fun checkForNonsenseBounds(name: String, frame: JFrame, height: Int, width: Int) {
   if (height < 100 || width < 100) {
     IDE_FRAME_EVENT_LOG.warn(Throwable("The frame bounds '$name' are suspiciously small: ${height}x${width}"))
+    IDE_FRAME_EVENT_LOG.warn("The current monitor configuration is:")
+    for (message in ScreenUtil.loggableMonitorConfiguration(frame)) {
+      IDE_FRAME_EVENT_LOG.warn(message)
+    }
   }
 }

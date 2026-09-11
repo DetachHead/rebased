@@ -3,11 +3,11 @@ package org.jetbrains.kotlin.idea.codeInsight.inspections
 
 import com.intellij.codeInspection.LocalQuickFix
 import org.jetbrains.kotlin.analysis.api.KaSession
-import org.jetbrains.kotlin.analysis.api.analyze
-import org.jetbrains.kotlin.analysis.api.components.expandedSymbol
-import org.jetbrains.kotlin.analysis.api.components.resolveToCall
-import org.jetbrains.kotlin.analysis.api.resolution.successfulFunctionCallOrNull
+import org.jetbrains.kotlin.analysis.api.resolution.resolveSuccessfulCall
+import org.jetbrains.kotlin.analysis.api.session.analyze
 import org.jetbrains.kotlin.analysis.api.symbols.KaFunctionSymbol
+import org.jetbrains.kotlin.analysis.api.symbols.findTopLevelCallables
+import org.jetbrains.kotlin.analysis.api.types.expandedSymbol
 import org.jetbrains.kotlin.idea.base.codeInsight.isEnumValuesFunctionCall
 import org.jetbrains.kotlin.idea.base.resources.KotlinBundle
 import org.jetbrains.kotlin.idea.codeinsight.utils.StandardKotlinNames
@@ -51,7 +51,7 @@ internal class EnumValuesTopLevelFunctionSoftDeprecateInspection : EnumValuesSof
     override fun createQuickFix(callExpression: KtCallExpression, symbol: KaFunctionSymbol): LocalQuickFix? {
         if (symbol.callableId?.callableName != StandardKotlinNames.Enum.enumValues.shortName()) return null
 
-        val resolvedCall = callExpression.resolveToCall()?.successfulFunctionCallOrNull() ?: return null
+        val resolvedCall = callExpression.resolveSuccessfulCall() ?: return null
         val enumType = resolvedCall.typeArgumentsMapping.values.firstOrNull() ?: return null
         val enumClassSymbol = enumType.expandedSymbol ?: return null
         val enumClassQualifiedName = enumClassSymbol.classId?.asFqNameString() ?: return null

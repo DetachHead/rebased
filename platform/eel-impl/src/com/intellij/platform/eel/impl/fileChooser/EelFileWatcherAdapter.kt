@@ -8,7 +8,6 @@ import com.intellij.platform.eel.fs.EelFileSystemApi.WatchedPath
 import com.intellij.platform.eel.fs.UnwatchOptionsBuilder
 import com.intellij.platform.eel.fs.WatchOptionsBuilder
 import com.intellij.platform.eel.provider.asEelPath
-import com.intellij.platform.eel.provider.getEelDescriptor
 import com.intellij.platform.eel.provider.toEelApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
@@ -25,9 +24,9 @@ class EelFileWatcherAdapter : FileWatcherAdapter {
     if (!Files.isDirectory(path) || path.parent == null|| watchedPaths.contains(path)) return null
     return flow {
       try {
-        val descriptor = path.getEelDescriptor()
+        val eelPath = path.asEelPath()
+        val descriptor = eelPath.descriptor
         val eelApi = descriptor.toEelApi()
-        val eelPath = path.asEelPath(descriptor)
         val changesFlow = eelApi.fs.watchChanges()
         eelApi.fs.addWatchRoots(
           WatchOptionsBuilder()
@@ -56,9 +55,9 @@ class EelFileWatcherAdapter : FileWatcherAdapter {
 
   private suspend fun unwatch(path: Path) {
     try {
-      val descriptor = path.getEelDescriptor()
+      val eelPath = path.asEelPath()
+      val descriptor = eelPath.descriptor
       val eelApi = descriptor.toEelApi()
-      val eelPath = path.asEelPath(descriptor)
       eelApi.fs.unwatch(UnwatchOptionsBuilder(eelPath).build())
     }
     catch (e: Exception) {

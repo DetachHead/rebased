@@ -1,7 +1,7 @@
+load("@community//platform/build-scripts/bazel-rules:ij_plugin.bzl", "ij_plugin")
 load("@rules_jvm//:jvm.bzl", "jvm_library")
 
 ### auto-generated section `build intellij.keymap.visualStudioForMac` start
-
 jvm_library(
     name = "keymap-visualStudioForMac",
     srcs = glob(
@@ -14,6 +14,7 @@ jvm_library(
         ["resources/**/*"],
     ),
     visibility = ["//visibility:public"],
+    runtime_deps = ["//platform/platform-impl:ide-impl"],
 )
 
 jvm_library(
@@ -25,7 +26,17 @@ jvm_library(
     ),
     module_name = "intellij.keymap.visualStudioForMac",
     visibility = ["//visibility:public"],
-    runtime_deps = [":keymap-visualStudioForMac"],
+    runtime_deps = [
+        # do not sort,
+        ":keymap-visualStudioForMac",
+        "//platform/platform-impl:ide-impl_test_lib",
+    ],
+)
+
+ij_plugin(
+    name = "keymap-visualStudioForMac_plugin",
+    descriptor_module = ":keymap-visualStudioForMac",
+    visibility = ["//visibility:public"],
 )
 ### auto-generated section `build intellij.keymap.visualStudioForMac` end
 
@@ -33,6 +44,8 @@ jvm_library(
 exports_files(
     [
         "intellij.keymap.visualStudioForMac.iml",
+        "resources/META-INF/plugin.xml",
+        "resources/keymaps/Visual Studio for Mac.xml",
     ],
     visibility = ["//visibility:public"],
 )

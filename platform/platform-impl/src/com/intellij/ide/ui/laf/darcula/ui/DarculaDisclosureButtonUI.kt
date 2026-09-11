@@ -2,8 +2,8 @@
 package com.intellij.ide.ui.laf.darcula.ui
 
 import com.intellij.icons.AllIcons
-import com.intellij.ide.ui.laf.darcula.DarculaNewUIUtil
 import com.intellij.ide.ui.laf.darcula.ui.DarculaDisclosureButtonUI.Companion.intersectsWithAdditionalActionsButton
+import com.intellij.ui.DrawUtil
 import com.intellij.ui.JBColor
 import com.intellij.ui.components.DisclosureButton
 import com.intellij.ui.util.height
@@ -51,7 +51,6 @@ class DarculaDisclosureButtonUI(val uiComponent: JComponent) : BasicButtonUI() {
       return actionBounds.contains(e.point)
     }
 
-    @ApiStatus.Internal
     internal fun getAdditionalActionsButtonBounds(c: DisclosureButton): Rectangle? {
       if (c.additionalAction == null) return null
       val gearIcon = additionalActionsIcon(false)
@@ -201,7 +200,7 @@ class DarculaDisclosureButtonUI(val uiComponent: JComponent) : BasicButtonUI() {
   }
 
   override fun getPreferredSize(c: JComponent?): Dimension {
-    val result = super.getPreferredSize(c)
+    val result = super.getPreferredSize(c) ?: JBDimension(20, 20)
 
     if (c is DisclosureButton) {
       val insets = c.getInsets()
@@ -227,7 +226,7 @@ class DarculaDisclosureButtonUI(val uiComponent: JComponent) : BasicButtonUI() {
 
     val defaultBg = c.buttonBackground ?: c.defaultBackground
     if (defaultBg != null) {
-      DarculaNewUIUtil.fillRoundedRectangle(g, r, defaultBg, arc = c.arc.toFloat())
+      DrawUtil.fillRoundedRectangle(g, r, defaultBg, arc = c.arc.toFloat())
     }
 
     val model = c.model
@@ -237,7 +236,7 @@ class DarculaDisclosureButtonUI(val uiComponent: JComponent) : BasicButtonUI() {
       else -> return
     }
     if (overlay != null) {
-      DarculaNewUIUtil.fillRoundedRectangle(g, r, overlay, c.arc.toFloat())
+      DrawUtil.fillRoundedRectangle(g, r, overlay, c.arc.toFloat())
     }
   }
 

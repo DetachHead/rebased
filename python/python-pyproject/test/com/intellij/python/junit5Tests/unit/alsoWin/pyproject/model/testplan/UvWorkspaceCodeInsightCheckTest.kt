@@ -3,13 +3,12 @@ package com.intellij.python.junit5Tests.unit.alsoWin.pyproject.model.testplan
 
 import com.intellij.python.junit5Tests.framework.PyDefaultTestApplication
 import com.intellij.python.junit5Tests.framework.metaInfo.TestClassInfo
-import com.intellij.python.junit5Tests.unit.alsoWin.pyproject.SEP
+import com.intellij.python.junit5Tests.unit.alsoWin.pyproject.div
 import com.intellij.python.junit5Tests.unit.alsoWin.pyproject.model.ExpectedModule
 import com.intellij.python.junit5Tests.unit.alsoWin.pyproject.model.pyProjectTomlSyncFixture
 import com.intellij.testFramework.TestDataPath
 import com.intellij.testFramework.common.timeoutRunBlocking
 import com.intellij.testFramework.junit5.fixture.projectFixture
-import com.intellij.testFramework.junit5.fixture.tempPathFixture
 import org.junit.jupiter.api.Test
 
 @PyDefaultTestApplication
@@ -17,10 +16,10 @@ import org.junit.jupiter.api.Test
 @TestDataPath($$"$CONTENT_ROOT/../testData/monorepo/uv_workspace_codeinsightg_check")
 internal class UvWorkspaceCodeInsightCheckTest {
   companion object {
-    private val tempDirFixture = tempPathFixture()
-    private val projectFixture = projectFixture(pathFixture = tempDirFixture)
+    private val projectFixture = projectFixture()
   }
-  private val f by pyProjectTomlSyncFixture(projectFixture, tempDirFixture)
+
+  private val f by pyProjectTomlSyncFixture(projectFixture)
 
   /**
    * The root `my-uv-monorepo` declares `package_a` in `[tool.uv.sources]` with `workspace = true`,
@@ -32,8 +31,8 @@ internal class UvWorkspaceCodeInsightCheckTest {
     f.reloadProject()
     f.assertProjectStructure(
       ExpectedModule("my-uv-monorepo", contentRoot = ".", sourceRoots = listOf(".")),
-      ExpectedModule("package_a", contentRoot = "packages${SEP}package_a"),
-      ExpectedModule("package_b", contentRoot = "packages${SEP}package_b", deps = listOf("package_a")),
+      ExpectedModule("package_a", contentRoot = "packages" / "package_a"),
+      ExpectedModule("package_b", contentRoot = "packages" / "package_b", deps = listOf("package_a")),
     )
   }
 }

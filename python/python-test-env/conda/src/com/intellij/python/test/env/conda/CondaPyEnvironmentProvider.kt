@@ -5,7 +5,10 @@ import com.intellij.execution.processTools.getResultStdout
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.diagnostic.thisLogger
 import com.intellij.openapi.projectRoots.Sdk
+import com.intellij.python.community.execService.Args
 import com.intellij.python.community.execService.BinOnEel
+import com.intellij.python.community.execService.ExecService
+import com.intellij.python.community.execService.execGetStdout
 import com.intellij.python.test.env.core.CacheKey
 import com.intellij.python.test.env.core.PyEnvDownloadCache
 import com.intellij.python.test.env.core.PyEnvironment
@@ -18,6 +21,7 @@ import com.intellij.util.io.awaitExit
 import com.intellij.util.system.CpuArch
 import com.intellij.util.system.OS
 import com.jetbrains.python.PythonBinary
+import com.jetbrains.python.Result
 import com.jetbrains.python.getOrThrow
 import com.jetbrains.python.packaging.PyCondaPackageService
 import com.jetbrains.python.sdk.conda.execution.CondaExecutor
@@ -37,7 +41,7 @@ import kotlin.io.path.pathString
 /**
  * Specification for Conda Python environment with mandatory version pinning.
  * 
- * @property condaVersion Specific Miniconda version (e.g., "py312_24.9.2-0")
+ * @property condaVersion Specific Miniconda version (e.g., "py312_26.7.1-1")
  */
 @ApiStatus.Internal
 class CondaPyEnvironmentSpec(
@@ -56,7 +60,7 @@ class CondaPyEnvironmentSpec(
  * 
  * Example:
  * ```kotlin
- * val env = condaEnvironment("py312_24.9.2-0") {
+ * val env = condaEnvironment("py312_26.7.1-1") {
  *   pythonVersion = "3.11"
  *   libraries {
  *     +"numpy==2.0.2"
@@ -87,6 +91,10 @@ class CondaPyEnvironmentProvider : PyEnvironmentProvider<CondaPyEnvironmentSpec>
 
   private companion object {
     const val MINICONDA_BASE_URL = "https://repo.anaconda.com/miniconda"
+
+    /** The architecture names that the Miniconda installer file names use. */
+    const val ARCH_ARM64 = "arm64"
+    const val ARCH_X86_64 = "x86_64"
   }
 
   override suspend fun setupEnvironment(context: Context, spec: CondaPyEnvironmentSpec): PyEnvironment {
@@ -99,6 +107,11 @@ class CondaPyEnvironmentProvider : PyEnvironmentProvider<CondaPyEnvironmentSpec>
 
     val condaExecutable = downloadAndSetupConda(spec.condaVersion)
     logger.info("Conda executable: $condaExecutable")
+
+    // conda 25+ refuses to create envs from the default Anaconda channels until their ToS is
+    // accepted. The `conda tos` plugin doesn't exist on older conda releases, so we run the
+    // accept commands best-effort and ignore non-zero exit codes.
+    acceptAnacondaToSBestEffort(logger, condaExecutable)
 
     val fullPythonVersion = spec.pythonVersion.toString()
 
@@ -156,21 +169,35 @@ class CondaPyEnvironmentProvider : PyEnvironmentProvider<CondaPyEnvironmentSpec>
    * Get the platform-specific Miniconda installer name.
    */
   private fun getMinicondaInstallerName(version: String): String {
-    val arch = when {
-      CpuArch.isArm64() -> "arm64"
-      CpuArch.isIntel64() -> "x86_64"
-      else -> "x86"
+    // The conda env tests support arm64 and x86_64 only. Miniconda has no modern 32-bit build.
+    val arch = when (CpuArch.CURRENT) {
+      CpuArch.ARM64 -> ARCH_ARM64
+      CpuArch.X86_64 -> ARCH_X86_64
+      CpuArch.X86, CpuArch.ARM32, CpuArch.OTHER, CpuArch.UNKNOWN ->
+        throw UnsupportedOperationException("Unsupported CPU architecture: ${CpuArch.CURRENT}")
     }
-    
+
     return when (OS.CURRENT) {
       OS.Windows -> "Miniconda3-$version-Windows-$arch.exe"
-      OS.macOS -> "Miniconda3-$version-MacOSX-$arch.sh"
+      OS.macOS -> {
+        // Anaconda stopped the MacOSX-x86_64 builds after py313_25.7.0-2.
+        // A modern pin has no macOS installer for an Intel Mac, so the download would fail with HTTP 404.
+        if (arch != ARCH_ARM64) {
+          throw UnsupportedOperationException(
+            "Miniconda $version has no MacOSX-$arch installer. " +
+            "Anaconda publishes a macOS build for arm64 only, since py313_25.7.0-2. " +
+            "Run the conda env tests on an arm64 Mac, on Linux, or on Windows. " +
+            "PredefinedPyEnvironments in the intellij.python.test.env.common module holds the pinned versions."
+          )
+        }
+        "Miniconda3-$version-MacOSX-$arch.sh"
+      }
       OS.Linux -> {
         // Linux uses aarch64 instead of arm64
         val linuxArch = if (CpuArch.isArm64()) "aarch64" else arch
         "Miniconda3-$version-Linux-$linuxArch.sh"
       }
-      else -> throw UnsupportedOperationException("Unsupported OS: ${OS.CURRENT}")
+      OS.FreeBSD, OS.HarmonyOS, OS.Other -> throw UnsupportedOperationException("Unsupported OS: ${OS.CURRENT}")
     }
   }
 
@@ -227,7 +254,7 @@ class CondaPyEnvironmentProvider : PyEnvironmentProvider<CondaPyEnvironmentSpec>
 
   private suspend fun installLibraries(envPath: Path, condaExecutable: Path, libraries: List<String>) {
     val logger = thisLogger()
-    
+
     if (libraries.isEmpty()) {
       logger.info("No libraries to install")
       return
@@ -239,8 +266,37 @@ class CondaPyEnvironmentProvider : PyEnvironmentProvider<CondaPyEnvironmentSpec>
     val command = listOf(condaExecutable.pathString) + args
     executeProcess(command, logger, "conda")
   }
-}
 
+  /**
+   * conda 25 introduced a Terms-of-Service gate on the default Anaconda channels.
+   * `conda create -p ... python=...` fails with `CondaToSNonInteractiveError` until you accept
+   * the ToS of every default channel.
+   * Windows adds `pkgs/msys2` to that set, so the list must hold it too.
+   *
+   * The `conda tos accept` subcommand is provided by the conda-tos plugin shipped with conda 25;
+   * earlier conda releases do not have it. We run the accept commands best-effort: a non-zero
+   * exit is logged and ignored so that older conda versions (where the plugin is absent or
+   * unnecessary) keep working. The same applies to a channel that the current platform does not
+   * use.
+   */
+  private suspend fun acceptAnacondaToSBestEffort(logger: Logger, condaExecutable: Path) {
+    val channels = listOf(
+      "https://repo.anaconda.com/pkgs/main",
+      "https://repo.anaconda.com/pkgs/r",
+      "https://repo.anaconda.com/pkgs/msys2",
+    )
+    val execService = ExecService()
+    for (channel in channels) {
+      when (val result = execService.execGetStdout(condaExecutable, Args("tos", "accept", "--override-channels", "--channel", channel))) {
+        is Result.Success ->
+          logger.info("conda tos accept for $channel succeeded: ${result.result.trim()}")
+        is Result.Failure ->
+          logger.info("conda tos accept for $channel failed (likely conda < 25 without the tos plugin): ${result.error.message}")
+      }
+    }
+  }
+}
+  
 /**
  * Conda Python environment implementation
  */
@@ -275,6 +331,6 @@ class CondaPyEnvironment(
     return PyCondaEnv(
       envIdentity = PyCondaEnvIdentity.UnnamedEnv(envPath.pathString, isBase = true),
       fullCondaPathOnTarget = condaExecutable.toString(),
-    ).createSdkFromThisEnv(null, emptyList()).getOrThrow()
+    ).createSdkFromThisEnv(null, emptyList(), envPath).getOrThrow()
   }
 }

@@ -1,7 +1,7 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
 ### auto-generated section `build intellij.kotlin.onboarding.maven` start
-
 jvm_library(
     name = "onboarding-maven",
     srcs = glob(
@@ -21,7 +21,7 @@ jvm_library(
     deps = [
         # do not sort,
         "@lib//:kotlin-stdlib",
-        "@lib//:kotlinc-kotlin-compiler-common",
+        "//libraries/kotlinc/kotlin-compiler-common:libraries-kotlinc-kotlin-compiler-common",
         "//platform/core-api:core",
         "//platform/editor-ui-api:editor-ui",
         "//platform/projectModel-api:projectModel",
@@ -44,8 +44,11 @@ jvm_library(
         "//platform/util:util-ui",
         "//plugins/kotlin/maven",
         "//platform/lang-api:lang",
+        "//platform/backend/observation",
     ],
 )
+
+content_module_jar(module = ":onboarding-maven")
 
 jvm_library(
     name = "onboarding-maven_test_lib",
@@ -59,6 +62,7 @@ jvm_library(
     runtime_deps = [
         # do not sort,
         ":onboarding-maven",
+        "//libraries/kotlinc/kotlin-compiler-common:libraries-kotlinc-kotlin-compiler-common_test_lib",
         "//platform/core-api:core_test_lib",
         "//platform/editor-ui-api:editor-ui_test_lib",
         "//platform/projectModel-api:projectModel_test_lib",
@@ -81,6 +85,7 @@ jvm_library(
         "//platform/util:util-ui_test_lib",
         "//plugins/kotlin/maven:maven_test_lib",
         "//platform/lang-api:lang_test_lib",
+        "//platform/backend/observation:observation_test_lib",
     ],
 )
 ### auto-generated section `build intellij.kotlin.onboarding.maven` end
@@ -89,6 +94,7 @@ jvm_library(
 exports_files(
     [
         "intellij.kotlin.onboarding.maven.iml",
+        "resources/intellij.kotlin.onboarding.maven.xml",
     ],
     visibility = ["//visibility:public"],
 )

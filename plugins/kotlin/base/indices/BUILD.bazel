@@ -1,7 +1,7 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
 ### auto-generated section `build intellij.kotlin.base.indices` start
-
 jvm_library(
     name = "indices",
     srcs = glob(
@@ -13,11 +13,15 @@ jvm_library(
         allow_empty = True,
     ),
     module_name = "intellij.kotlin.base.indices",
+    resource_strip_prefix = "resources",
+    resources = glob(
+        ["resources/**/*"],
+    ),
     visibility = ["//visibility:public"],
     deps = [
         # do not sort,
         "@lib//:kotlin-stdlib",
-        "@lib//:kotlinc-kotlin-compiler-common",
+        "//libraries/kotlinc/kotlin-compiler-common:libraries-kotlinc-kotlin-compiler-common",
         "//platform/core-api:core",
         "//plugins/kotlin/base/psi",
         "//platform/core-impl",
@@ -34,6 +38,8 @@ jvm_library(
     ],
 )
 
+content_module_jar(module = ":indices")
+
 jvm_library(
     name = "indices_test_lib",
     testonly = True,
@@ -46,6 +52,7 @@ jvm_library(
     runtime_deps = [
         # do not sort,
         ":indices",
+        "//libraries/kotlinc/kotlin-compiler-common:libraries-kotlinc-kotlin-compiler-common_test_lib",
         "//platform/core-api:core_test_lib",
         "//plugins/kotlin/base/psi:psi_test_lib",
         "//platform/core-impl:core-impl_test_lib",
@@ -67,6 +74,7 @@ jvm_library(
 exports_files(
     [
         "intellij.kotlin.base.indices.iml",
+        "resources/intellij.kotlin.base.indices.xml",
     ],
     visibility = ["//visibility:public"],
 )

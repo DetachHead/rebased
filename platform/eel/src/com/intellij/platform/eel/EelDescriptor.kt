@@ -1,7 +1,8 @@
-// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.platform.eel
 
 import com.intellij.platform.eel.path.EelPath.OS
+import com.intellij.platform.util.annotations.VisibleToClasses
 import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.annotations.NonNls
 
@@ -33,7 +34,26 @@ interface EelDescriptorWithIsolatedWorkspace : EelDescriptor
  */
 @ApiStatus.OverrideOnly
 @ApiStatus.Internal
+@VisibleToClasses(
+  "com.intellij.docker.ijent.DockerEelDescriptor",
+  "com.intellij.platform.ijent.ssh.impl.IjentSshAgentForwardingService",
+)
 interface EelDescriptorWithSshForwardingEnabled : EelDescriptor
+
+/**
+ * The deployment of this environment can ask for user interaction, for example an SSH authentication dialog.
+ * The synchronous NIO bridge fails fast instead of awaiting such a deployment, because the dialog
+ * needs the thread the bridge blocks (IJPL-245001).
+ *
+ * Read [deploymentMayRequireUserInteraction]; the instanceof check alone is not the answer:
+ * a delegating descriptor reports the answer of its current target, and the answer changes with the target.
+ */
+@ApiStatus.OverrideOnly
+@ApiStatus.Internal
+interface EelDescriptorWithInteractiveDeployment : EelDescriptor {
+  val deploymentMayRequireUserInteraction: Boolean
+    get() = true
+}
 
 /**
  * Identifies a specific machine — such as a Docker container, WSL distribution, or SSH host.
@@ -62,6 +82,19 @@ interface EelMachine {
   suspend fun toEelApi(descriptor: EelDescriptor): EelApi
 
   fun ownsDescriptor(descriptor: EelDescriptor): Boolean
+}
+
+/**
+ * An [EelMachine] that reports whether it holds a live connection.
+ *
+ * The value is a snapshot and can change at any moment. Treat `true` as a hint, for example
+ * "an await of [EelMachine.toEelApi] only fetches the existing session", never as a correctness
+ * guarantee. A machine that does not implement this interface does not report its state;
+ * the absence of the interface is not evidence of a missing connection.
+ */
+@ApiStatus.Experimental
+interface EelMachineWithConnectionState : EelMachine {
+  val isConnected: Boolean
 }
 
 /**

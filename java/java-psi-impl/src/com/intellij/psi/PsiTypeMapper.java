@@ -1,4 +1,4 @@
-// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.psi;
 
 import com.intellij.openapi.diagnostic.Logger;
@@ -71,7 +71,7 @@ public abstract class PsiTypeMapper extends PsiTypeVisitorEx<PsiType> {
   public PsiType visitWildcardType(final @NotNull PsiWildcardType wildcardType) {
     PsiType bound = wildcardType.getBound();
     final PsiManager manager = wildcardType.getManager();
-    if (bound == null) return PsiWildcardType.createUnbounded(manager);
+    if (bound == null) return wildcardType.unbounded();
 
     bound = mapType(bound);
     if (bound == null) return null;
@@ -106,5 +106,4 @@ public abstract class PsiTypeMapper extends PsiTypeVisitorEx<PsiType> {
   public PsiType visitDiamondType(@NotNull PsiDiamondType diamondType) {
     return diamondType;
   }
-
 }

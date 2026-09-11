@@ -16,18 +16,14 @@ import org.jetbrains.annotations.ApiStatus
 enum class PredefinedPyEnvironments(val spec: PyEnvironmentSpec<*>) {
 
   /**
-   * Python 2.7.18
+   * Python 2.7.18 (plain interpreter, no venv).
    * ID: python2.7
    * Tags: python2.7
-   * Packages: virtualenv
+   *
+   * Python 2.7 has no usable venv: the built-in `venv` module is absent and neither the bundled
+   * `virtualenv-py3.pyz` nor `uv` can target it. Tests run directly on the interpreter (this is also
+   * what the JUnit5 env framework does, see `PyDebuggerPython2Test` / `Python27ProfilerTest`).
    */
-  VENV_2_7(venvEnvironment {
-    pythonVersion = pythonVersion("2.7")
-    libraries {
-      +"virtualenv"
-    }
-  }),
-
   VANILLA_2_7(pythonEnvironment {
     pythonVersion = pythonVersion("2.7")
   }),
@@ -200,10 +196,31 @@ enum class PredefinedPyEnvironments(val spec: PyEnvironmentSpec<*>) {
   }),
 
   /**
-   * Conda environment with pinned Miniconda version
+   * Conda environment with the newest Miniconda build.
+   * All conda tests use this environment.
+   * The `conda-env-tests` skill tells you how to move the pin.
    * Tags: conda
    */
-  CONDA(condaEnvironment("py312_24.9.2-0") {
+  CONDA(condaEnvironment("py312_26.7.1-1") {
+    pythonVersion = pythonVersion("3.12")
+  }),
+
+  /**
+   * Conda 24.x environment used by helper-script tests.
+   * It covers the `conda.core.index.get_index` branch.
+   * Conda 25 removed that function.
+   * Tags: conda, conda24
+   */
+  CONDA_24(condaEnvironment("py312_24.9.2-0") {
+    pythonVersion = pythonVersion("3.12")
+  }),
+
+  /**
+   * Conda 25.x environment used by helper-script tests.
+   * It covers the `conda.core.subdir_data.SubdirData` branch.
+   * Tags: conda, conda25
+   */
+  CONDA_25(condaEnvironment("py312_25.11.1-1") {
     pythonVersion = pythonVersion("3.12")
   });
 
@@ -213,7 +230,7 @@ enum class PredefinedPyEnvironments(val spec: PyEnvironmentSpec<*>) {
      * Environment tags for finding which tags an environment supports
      */
     val ENVIRONMENTS_TO_TAGS: Map<PredefinedPyEnvironments, Set<String>> = mapOf(
-      VENV_2_7 to setOf("python2.7"),
+      VANILLA_2_7 to setOf("python2.7"),
       VENV_3_8_FULL to setOf(
         "python3", "python3.8", "pytest", "django", "django2", "behave", "behave-django",
         "ipython", "ipython780", "skeletons", "tox", "jinja2", "packaging", "nose",
@@ -234,7 +251,9 @@ enum class PredefinedPyEnvironments(val spec: PyEnvironmentSpec<*>) {
       VENV_3_13 to setOf("python3.13", "ruff"),
       VENV_3_14 to setOf("python3", "python3.14", "ruff"),
       VANILLA_3_14 to setOf("vanilla"),
-      CONDA to setOf("conda")
+      CONDA to setOf("conda"),
+      CONDA_24 to setOf("conda", "conda24"),
+      CONDA_25 to setOf("conda", "conda25")
     )
   }
 }

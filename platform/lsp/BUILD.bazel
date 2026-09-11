@@ -1,7 +1,7 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
 ### auto-generated section `build intellij.platform.lsp` start
-
 jvm_library(
     name = "lsp",
     srcs = glob(
@@ -21,8 +21,8 @@ jvm_library(
     deps = [
         # do not sort,
         "@lib//:kotlin-stdlib",
-        "@lib//:eclipse-lsp4j",
-        "@lib//:eclipse-lsp4j-jsonrpc",
+        "//libraries/lsp4j",
+        "//libraries/lsp4j/jsonrpc",
         "//platform/analysis-api:analysis",
         "//platform/core-api:core",
         "//platform/editor-ui-api:editor-ui",
@@ -35,8 +35,13 @@ jvm_library(
         "//platform/execution",
         "//platform/markdown-utils",
         "//platform/core-ui",
+        "//platform/eel",
+        "//platform/eel-provider",
+        "//platform/eel-nioFs",
     ],
 )
+
+content_module_jar(module = ":lsp")
 
 jvm_library(
     name = "lsp_test_lib",
@@ -50,6 +55,8 @@ jvm_library(
     runtime_deps = [
         # do not sort,
         ":lsp",
+        "//libraries/lsp4j:lsp4j_test_lib",
+        "//libraries/lsp4j/jsonrpc:jsonrpc_test_lib",
         "//platform/analysis-api:analysis_test_lib",
         "//platform/core-api:core_test_lib",
         "//platform/editor-ui-api:editor-ui_test_lib",
@@ -62,6 +69,9 @@ jvm_library(
         "//platform/execution:execution_test_lib",
         "//platform/markdown-utils:markdown-utils_test_lib",
         "//platform/core-ui:core-ui_test_lib",
+        "//platform/eel:eel_test_lib",
+        "//platform/eel-provider:eel-provider_test_lib",
+        "//platform/eel-nioFs:eel-nioFs_test_lib",
     ],
 )
 ### auto-generated section `build intellij.platform.lsp` end
@@ -70,6 +80,9 @@ jvm_library(
 exports_files(
     [
         "intellij.platform.lsp.iml",
+        "resources/META-INF/intellij.moduleSets.libraries.lsp4j.xml",
+        "resources/intellij.platform.lsp.xml",
+        "module-content.yaml",
     ],
     visibility = ["//visibility:public"],
 )

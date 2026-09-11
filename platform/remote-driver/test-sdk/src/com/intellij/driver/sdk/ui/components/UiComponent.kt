@@ -31,6 +31,8 @@ data class ComponentData(
   val robotProvider: RobotProvider,
   val parentSearchContext: SearchContext,
   val foundComponent: Component?,
+  /** If the readable name is provided, it will be used in the error messages */
+  val readableName: String? = null,
 )
 
 private val LOG = logger<UiComponent>()
@@ -82,7 +84,7 @@ open class UiComponent(private val data: ComponentData) : Finder, WithKeyboard {
    * @param timeout The maximum time to wait for the element to not be found. If not specified, the default timeout is used.
    */
   fun waitNotFound(timeout: Duration? = DEFAULT_FIND_TIMEOUT) {
-    waitFor(message = "There should be no ${this::class.simpleName}[xpath=${data.xpath}] in ${data.parentSearchContext.contextAsString}",
+    waitFor(message = "There should be no $this in ${data.parentSearchContext.contextAsString}",
             timeout = timeout ?: DEFAULT_FIND_TIMEOUT,
             interval = 1.seconds) {
       !present()
@@ -90,7 +92,7 @@ open class UiComponent(private val data: ComponentData) : Finder, WithKeyboard {
   }
 
   override fun toString(): String {
-    return this::class.simpleName + "[xpath=${data.xpath}]"
+    return "${data.readableName?.let { if (it.contains(" ")) "'$it'" else it } ?: this::class.simpleName}[xpath=${data.xpath}]"
   }
 
   fun setFocus() {
@@ -99,7 +101,7 @@ open class UiComponent(private val data: ComponentData) : Finder, WithKeyboard {
 
   private fun findThisComponent(timeout: Duration? = DEFAULT_FIND_TIMEOUT): Component =
     waitForOne(
-      message = "Find ${this::class.simpleName}[xpath=${data.xpath}] in ${data.parentSearchContext.contextAsString}",
+      message = "Find $this in ${data.parentSearchContext.contextAsString}",
       timeout = timeout ?: DEFAULT_FIND_TIMEOUT,
       interval = 1.seconds,
       getter = { data.parentSearchContext.findAll(data.xpath) }
@@ -433,6 +435,20 @@ open class UiComponent(private val data: ComponentData) : Finder, WithKeyboard {
     else {
       withComponent { robot.click(it, mouseButton) }
     }
+  }
+
+  /**
+   * Posts a click addressed to this component and returns without waiting for it to be dispatched.
+   *
+   * Use it for a click whose effect cannot be awaited — a click that opens a modal dialog, most of all: the dialog
+   * blocks the dispatching thread while it is up, so [click] would wait for its own event forever. In exchange
+   * nothing is verified past the component being shown and enabled — not delivery, not the effect. Assert on what
+   * the click was supposed to produce, and use `IdeEventQueue.flushQueue` if a later step needs the gesture
+   * dispatched first. `Robot.postGesture` documents the full contract.
+   */
+  fun postClick(where: Point? = null) {
+    LOG.info("Post click at $this${where?.let { ": $it" } ?: ""}")
+    withComponent { robot.postGesture(it, where, RemoteMouseButton.LEFT, 1) }
   }
 
   fun strictClick(point: Point? = null, mouseButton: RemoteMouseButton = RemoteMouseButton.LEFT) {

@@ -4,6 +4,12 @@ package com.intellij.platform.ijent.spi
 
 import com.intellij.openapi.diagnostic.Attachment
 import com.intellij.platform.eel.channels.EelDelicateApi
+import com.intellij.platform.eel.channels.EelReceiveChannel
+import com.intellij.platform.eel.channels.EelReceiveChannelException
+import com.intellij.platform.eel.channels.PeekableEelReceiveChannel
+import com.intellij.platform.eel.channels.readLine
+import com.intellij.platform.eel.channels.readUntil
+import com.intellij.platform.eel.channels.useLines
 import com.intellij.platform.ijent.IjentLog
 import com.intellij.platform.ijent.IjentLogger
 import com.intellij.platform.ijent.IjentScope
@@ -15,9 +21,11 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.DelicateCoroutinesApi
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.filterNotNull
@@ -29,8 +37,9 @@ import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.yield
 import org.jetbrains.annotations.ApiStatus
 import java.io.IOException
-import java.io.InputStream
 import java.lang.reflect.Method
+import java.nio.charset.Charset
+import java.nio.charset.StandardCharsets.US_ASCII
 import java.time.ZonedDateTime
 import java.time.format.DateTimeParseException
 import java.util.Collections
@@ -42,7 +51,8 @@ import kotlin.time.toKotlinDuration
 object IjentSessionMediatorUtils {
   private val loggedErrors = Collections.newSetFromMap(CollectionFactory.createConcurrentWeakMap<Throwable, Boolean>())
 
-  fun createProcessScope(parentScope: ParentOfIjentScopes, ijentLabel: String, logger: IjentLog): IjentScope {
+  @OptIn(ExperimentalCoroutinesApi::class)
+  fun createProcessScope(parentScope: ParentOfIjentScopes, ijentLabel: String): IjentScope {
     val context = IjentThreadPool.coroutineContext
     // Prevents from logging the error by the default exception handler.
     // Errors are logged explicitly in this function.
@@ -52,41 +62,60 @@ object IjentSessionMediatorUtils {
     // Instead, there's a logic below that decides if a specific IjentUnavailableException should be propagated to the parent scope.
     val trickySupervisorScope = parentScope.s.childScope(ijentLabel, context + dummyExceptionHandler, supervisor = true)
 
-    val ijentProcessScope = trickySupervisorScope.childScope(ijentLabel, supervisor = false)
+    val ijentProcessScope = trickySupervisorScope.childScope(ijentLabel, supervisor = false, context = IjentScope.IjentContext())
 
     ijentProcessScope.coroutineContext.job.invokeOnCompletion { err ->
+      // Unconditional: the categorized logging below mutes cancellations and expected exits, which leaves a
+      // teardown mid-bootstrap with no trace of what felled the scope.
+      IjentLogger.LIFETIME_LOG.debug { "$ijentLabel session scope completed, cause: $err" }
+
+      // Has to be read before the scope is cancelled below, otherwise every teardown looks application-initiated.
+      val closedByApplication = trickySupervisorScope.coroutineContext.job.isCancelled
+
       trickySupervisorScope.cancel()
 
       if (err != null) {
-        val propagateToParentScope = when (err) {
-          is IjentUnavailableException -> when (err) {
+        val actualError = IjentUnavailableException.unwrapFromCancellationExceptions(err)
+        val ijentContext = ijentProcessScope.coroutineContext[IjentScope.IjentContext.Key]!!
+
+        (actualError as? IjentUnavailableException)?.let(ijentContext::completeExitReason)
+        val errorToPropagate =
+          if (actualError is IOException && ijentContext.exitReason.isCompleted) ijentContext.exitReason.getCompleted()
+          else actualError
+
+        val propagateToParentScope = when (errorToPropagate) {
+          is CancellationException -> false
+          is IjentUnavailableException -> when (errorToPropagate) {
             is IjentUnavailableException.ClosedByApplication -> false
-            is IjentUnavailableException.CommunicationFailure -> !err.exitedExpectedly
+            is IjentUnavailableException.CommunicationFailure -> !errorToPropagate.exitedExpectedly
           }
-          else -> true
+          else -> !closedByApplication
         }
 
         if (propagateToParentScope) {
           try {
-            err.addSuppressed(Throwable("Rethrown from here"))
+            errorToPropagate.addSuppressed(Throwable("Rethrown from here"))
             parentScope.s.launch(start = CoroutineStart.UNDISPATCHED) {
-              throw err
+              throw errorToPropagate
             }
           }
           catch (_: Throwable) {
             // It seems that the scope has already been canceled with something else.
           }
-        }
 
-        // TODO Callers should be able to define their own exception handlers.
-        logIjentError(logger, ijentLabel, err)
+          // TODO Callers should be able to define their own exception handlers.
+          logIjentError(ijentLabel, errorToPropagate)
+        }
+        else {
+          IjentLogger.LIFETIME_LOG.debug(err) { "Ignored a failure of IJent $ijentLabel, its scope was already being shut down" }
+        }
       }
     }
     @OptIn(EelDelicateApi::class)
     return IjentScope(parentScope, ijentProcessScope)
   }
 
-  fun logIjentError(logger: IjentLog, ijentLabel: String, exception: Throwable) {
+  fun logIjentError(ijentLabel: String, exception: Throwable) {
     // Wrapped in a non-cancellable section because this can be called from `invokeOnCompletion`
     // of an already-cancelled scope, and `logger.error(...)` may create application services
     // (e.g. error-report submitters) that the service container refuses to instantiate under a
@@ -98,7 +127,7 @@ object IjentSessionMediatorUtils {
 
           is IjentUnavailableException.CommunicationFailure -> {
             if (!exception.exitedExpectedly && loggedErrors.add(exception)) {
-              logger.error("Exception in connection with IJent $ijentLabel: ${exception.message}", exception)
+              IjentLogger.OTHER_LOG.error("Exception in connection with IJent $ijentLabel: ${exception.message}", exception)
             }
           }
         }
@@ -107,7 +136,7 @@ object IjentSessionMediatorUtils {
 
         else -> {
           if (loggedErrors.add(exception)) {
-            logger.error("Unexpected error during communnication with IJent $ijentLabel", exception)
+            IjentLogger.OTHER_LOG.error("Unexpected error during communnication with IJent $ijentLabel", exception)
           }
         }
       }
@@ -115,14 +144,16 @@ object IjentSessionMediatorUtils {
   }
 
   suspend fun ijentProcessStderrLogger(
-    errorStream: InputStream,
+    errorStream: EelReceiveChannel,
     ijentLabel: String,
     lastStderrMessages: MutableSharedFlow<String?>,
-    logger: IjentLog,
   ) {
-    val lineConsumer = createIjentStderrLineConsumer(ijentLabel, lastStderrMessages, logger)
+    val lineConsumer = createIjentStderrLineConsumer(ijentLabel, lastStderrMessages)
     try {
-      errorStream.reader().useLines { lines ->
+      // `useLines` reads the stderr stream with a blocking call that parks its thread for the whole IJent
+      // session. Keep that thread on `IjentThreadPool` instead of the default `Dispatchers.IO`, otherwise a
+      // `DefaultDispatcher-worker-*` thread (not whitelisted by `ThreadLeakTracker`) is reported as a leak.
+      errorStream.useLines(IjentThreadPool.coroutineContext) { lines ->
         for (line in lines) {
           yield()
           lineConsumer.consume(line)
@@ -130,7 +161,7 @@ object IjentSessionMediatorUtils {
       }
     }
     catch (err: IOException) {
-      logger.debug { "$ijentLabel bootstrap got an error: $err" }
+      IjentLogger.LIFETIME_LOG.debug { "$ijentLabel bootstrap got an error: $err" }
     }
     finally {
       lineConsumer.complete()
@@ -140,9 +171,8 @@ object IjentSessionMediatorUtils {
   fun createIjentStderrLineConsumer(
     ijentLabel: String,
     lastStderrMessages: MutableSharedFlow<String?>,
-    logger: IjentLog,
   ): IjentStderrLineConsumer {
-    val logIjentStderr = LogIjentStderr(logger)
+    val logIjentStderr = LogIjentStderr()
     return IjentStderrLineConsumer(lastStderrMessages) { line ->
       logIjentStderr(ijentLabel, line)
     }
@@ -182,7 +212,7 @@ object IjentSessionMediatorUtils {
     }
   }
 
-  private class LogIjentStderr(private val logger: IjentLog) {
+  private class LogIjentStderr {
     private var lastLoggingHandler: ((String) -> Unit)? = null
 
     operator fun invoke(ijentLabel: String, line: String) {
@@ -192,10 +222,17 @@ object IjentSessionMediatorUtils {
         ijentLogMessageRegex.matchEntire(line)?.destructured
         ?: run {
           val message = "$ijentLabel log: $line"
-          // It's important to always log such messages,
-          // but if logs are supposed to be written to a separate file in debug level,
-          // they're logged in debug level.
-          val logger = lastLoggingHandler ?: logger::info
+          // Not IJent's own log format — typically raw OpenSSH client output. Map a recognizable OpenSSH
+          // level prefix (debug1/2/3, error/fatal, warning) onto the matching IJent level, so that e.g.
+          // `debug1: ...` chatter is no longer logged at INFO. Remember the resolved handler so that a
+          // following continuation line (which carries no prefix of its own) keeps the same level.
+          // It's important to always log such messages; unrecognized lines honor an earlier debug-only
+          // routing when present, otherwise default to INFO so they always stay visible.
+          val opensshHandler = opensshLevelHandler(line)
+          if (opensshHandler != null) {
+            lastLoggingHandler = opensshHandler
+          }
+          val logger = opensshHandler ?: lastLoggingHandler ?: IjentLogger.OTHER_LOG::info
           logger(message)
           return
         }
@@ -204,7 +241,7 @@ object IjentSessionMediatorUtils {
         java.time.Duration.between(hostDateTime, ZonedDateTime.parse(rawRemoteDateTime)).toKotlinDuration()
       }
       catch (_: DateTimeParseException) {
-        val logger = lastLoggingHandler ?: logger::info
+        val logger = lastLoggingHandler ?: IjentLogger.OTHER_LOG::info
         logger(message)
         return
       }
@@ -248,43 +285,54 @@ object IjentSessionMediatorUtils {
         append(message)
       })
     }
+
+    /**
+     * Maps a raw OpenSSH stderr line onto the matching [logger] handler, or `null` when the line carries no
+     * recognizable OpenSSH level tag (so the caller keeps its default handling). The level classification
+     * itself lives in the pure, unit-testable [classifyOpensshStderrLine].
+     */
+    private fun opensshLevelHandler(line: String): ((String) -> Unit)? =
+      when (classifyOpensshStderrLine(line)) {
+        OpensshStderrLevel.DEBUG -> IjentLogger.LIFETIME_LOG::debug
+        OpensshStderrLevel.WARN -> IjentLogger.LIFETIME_LOG::warn
+        OpensshStderrLevel.ERROR -> IjentLogger.LIFETIME_LOG::error
+        null -> null
+      }
   }
 
   suspend fun ijentProcessExitCodeHandler(
     ijentLabel: String,
     lastStderrMessages: MutableSharedFlow<String?>,
-    logger: IjentLog,
     exitCode: Int,
     isExitExpected: Boolean,
   ): Nothing {
-    val error = if (isExitExpected) {
-      IjentUnavailableException.CommunicationFailure("IJent process exited successfully").apply { exitedExpectedly = true }
+    if (isExitExpected) {
+      val error = IjentUnavailableException.ClosedByApplication("IJent process exited successfully", null)
+      currentCoroutineContext()[IjentScope.IjentContext.Key]?.completeExitReason(error)
+      IjentLogger.LIFETIME_LOG.debug { error.message }
+      // Carrying the domain exception as the cancellation cause makes expected shutdown look like a test failure.
+      throw CancellationException(error.message)
     }
     else {
-      val stderr = StringBuilder()
-      // This code blocks the whole coroutine scope, so it should
-      withContext(NonCancellable) {
+      val error = withContext(NonCancellable) {
+        val stderr = StringBuilder()
         val timeoutResult: Unit? = withTimeoutOrNull(1.seconds) {
           collectLines(lastStderrMessages, stderr)
         }
-        if (timeoutResult == null) {
-          stderr.append("\n<didn't collect the whole stderr>")
+        if (timeoutResult == null) stderr.append("\n<didn't collect the whole stderr>")
+
+        IjentUnavailableException.CommunicationFailure(
+          "The process $ijentLabel suddenly exited with the code $exitCode",
+          null,
+          Attachment("stderr", stderr.toString()),
+        ).also {
+          currentCoroutineContext()[IjentScope.IjentContext.Key]?.completeExitReason(it)
         }
       }
-      IjentUnavailableException.CommunicationFailure(
-        "The process $ijentLabel suddenly exited with the code $exitCode",
-        Attachment("stderr", stderr.toString()),
-      )
+      // TODO IJPL-198706 When IJent unexpectedly terminates, users should be asked for further actions.
+      IjentLogger.OTHER_LOG.warn(error)
+      throw error
     }
-
-    // TODO IJPL-198706 When IJent unexpectedly terminates, users should be asked for further actions.
-    if (isExitExpected) {
-      logger.info(error)
-    }
-    else {
-      logger.warn(error)
-    }
-    throw error
   }
 
   private suspend fun collectLines(lastStderrMessages: SharedFlow<String?>, stderr: StringBuilder) {
@@ -300,7 +348,7 @@ object IjentSessionMediatorUtils {
   @OptIn(DelicateCoroutinesApi::class)
   suspend fun ijentProcessFinalizer(
     ijentLabel: String,
-    mediatorFinalizer: () -> Unit,
+    mediatorFinalizer: suspend () -> Unit,
   ): Nothing {
     try {
       awaitCancellation()
@@ -310,19 +358,55 @@ object IjentSessionMediatorUtils {
 
       val existingIjentUnavailableException = actualErrors.filterIsInstance<IjentUnavailableException>().firstOrNull()
       if (existingIjentUnavailableException != null) {
+        currentCoroutineContext()[IjentScope.IjentContext.Key]?.completeExitReason(existingIjentUnavailableException)
         throw existingIjentUnavailableException
       }
 
-      val cause = actualErrors.firstOrNull() ?: err
-      val message =
-        if (cause is CancellationException) "The coroutine scope of $ijentLabel was cancelled"
-        else "IJent communication terminated due to an error"
-      throw IjentUnavailableException.ClosedByApplication(message, cause)
+      if (actualErrors.isEmpty()) {
+        // A plain cancellation is an application-initiated close; publish the canonical reason but keep the control flow.
+        val closed = IjentUnavailableException.ClosedByApplication("The coroutine scope of $ijentLabel was cancelled", err)
+        currentCoroutineContext()[IjentScope.IjentContext.Key]?.completeExitReason(closed)
+      }
+      // A real failure is not an application close; the exit-code handler publishes the authoritative reason.
+      throw err
     }
     finally {
-      mediatorFinalizer()
-
+      withContext(NonCancellable) {
+        mediatorFinalizer()
+      }
     }
+  }
+
+  suspend fun PeekableEelReceiveChannel.readLineOrThrow(charset: Charset, msg: String = "Communication terminated unexpectedly"): String {
+    var cause: Throwable? = null
+    var result: String? = null
+    try {
+      result = this.readLine(charset)
+    }
+    catch (err: EelReceiveChannelException) {
+      cause = err
+    }
+    if (result != null) {
+      return result
+    }
+    val error = IjentUnavailableException.CommunicationFailure(msg, cause)
+    throw error
+  }
+
+  suspend fun PeekableEelReceiveChannel.readLineUntilPipeOrThrow(msg: String = "Communication terminated unexpectedly"): String {
+    val line = StringBuilder()
+    try {
+      val pipeReached = readUntil('|'.code.toByte()) { buffer, _ ->
+        line.append(US_ASCII.decode(buffer))
+      }
+      if (!pipeReached) {
+        throw IjentUnavailableException.CommunicationFailure(msg, null)
+      }
+    }
+    catch (err: EelReceiveChannelException) {
+      throw IjentUnavailableException.CommunicationFailure(msg, err)
+    }
+    return line.toString()
   }
 }
 
@@ -370,5 +454,36 @@ private val CANCELLATION_INVOKER: ((Runnable) -> Unit)? = run {
   }
   catch (_: Throwable) {
     null
+  }
+}
+
+/**
+ * OpenSSH stderr log levels that [IjentSessionMediatorUtils]'s stderr handler recognizes and re-maps onto
+ * IJent log levels.
+ */
+internal enum class OpensshStderrLevel { DEBUG, WARN, ERROR }
+
+/**
+ * Best-effort classification of a raw OpenSSH client stderr line into an [OpensshStderrLevel].
+ *
+ * OpenSSH's `do_log` (log.c) prefixes stderr output with a lowercase level tag: `debug1:`, `debug2:` and
+ * `debug3:` are always present, while `error:`/`fatal:` are added when OpenSSH logs through a handler rather
+ * than bare stderr. The client additionally emits human-facing `Warning:` notices. Recognizing these tags
+ * lets the mediator log OpenSSH's own chatter at DEBUG and its problems at WARN/ERROR instead of dumping
+ * everything at INFO.
+ *
+ * The tag must be a single whitespace-free token ending at the first `": "`, so ordinary sentences that
+ * merely contain a colon (e.g. `Connection to host closed: bye`) and progname-prefixed lines without a level
+ * tag (e.g. `ssh: Could not resolve host "fakebox"`) are deliberately left unclassified: this returns `null`
+ * for them and the caller keeps its default handling.
+ */
+internal fun classifyOpensshStderrLine(line: String): OpensshStderrLevel? {
+  val tag = line.substringBefore(": ", missingDelimiterValue = "")
+  if (tag.isEmpty() || tag.any(Char::isWhitespace)) return null
+  return when (tag.lowercase()) {
+    "debug1", "debug2", "debug3" -> OpensshStderrLevel.DEBUG
+    "error", "fatal" -> OpensshStderrLevel.ERROR
+    "warning", "warn" -> OpensshStderrLevel.WARN
+    else -> null
   }
 }

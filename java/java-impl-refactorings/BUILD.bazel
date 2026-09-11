@@ -1,7 +1,7 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
 ### auto-generated section `build intellij.java.impl.refactorings` start
-
 jvm_library(
     name = "impl-refactorings",
     srcs = glob(
@@ -70,6 +70,8 @@ jvm_library(
     ],
 )
 
+content_module_jar(module = ":impl-refactorings")
+
 jvm_library(
     name = "impl-refactorings_test_lib",
     testonly = True,
@@ -137,6 +139,8 @@ jvm_library(
 exports_files(
     [
         "intellij.java.impl.refactorings.iml",
+        "resources/META-INF/RegistryKeysRefactorings.xml",
+        "resources/intellij.java.impl.refactorings.xml",
     ],
     visibility = ["//visibility:public"],
 )

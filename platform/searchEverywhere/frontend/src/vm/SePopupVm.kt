@@ -27,6 +27,7 @@ import com.intellij.openapi.project.IncompleteDependenciesService
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.registry.Registry
 import com.intellij.openapi.wm.ToolWindowManager.Companion.getInstance
+import com.intellij.platform.ide.productMode.IdeProductMode
 import com.intellij.platform.searchEverywhere.SeItemData
 import com.intellij.platform.searchEverywhere.SeSession
 import com.intellij.platform.searchEverywhere.frontend.SeSelectionResult
@@ -97,11 +98,6 @@ class SePopupVm(
     val initialisedTabVmIds = initializedTabVms.map { it.tabId }.toSet()
     val tabsVms = initializedTabVms + initialDummyTabVms.filter { !initialisedTabVmIds.contains(it.tabId) }
 
-    // Just for safety in case the initially selected tab is not in the initial tabs
-    val initialTabId =
-      if (tabsVms.containsId(initialTabId)) initialTabId
-      else tabsVms.first().tabId
-
     SeTabsModel(tabsVms, initialTabId)
   })
   val tabsModelFlow: StateFlow<SeTabsModel> get() = _tabsModelFlow.asStateFlow()
@@ -161,7 +157,9 @@ class SePopupVm(
     coroutineScope.launch {
       _deferredTabVms.collect { tabInitEvent ->
         _tabsModelFlow.update { model ->
-          model.newModelWithReplacedTab(tabInitEvent.newTabs, removeDummy = tabInitEvent.removeDummy)
+          model.newModelWithReplacedTab(tabInitEvent.newTabs,
+                                        selectedTabId = tabInitEvent.selectedTabId ?: model.selectedTabIdFlow.value,
+                                        removeDummy = tabInitEvent.removeDummy)
         }
       }
     }
@@ -178,7 +176,7 @@ class SePopupVm(
         it.getValue()?.let { tab ->
           val newInfo = tabsCustomizer.customizeTabInfo(tab.id, SeTabInfo(tab.priority, tab.name)) ?: return@launch
           val tabVm = SeTabVmImpl(project, coroutineScope, tab, newInfo, searchPattern, availableLegacyContributors.allTab)
-          _deferredTabVms.emit(SeTabInitEvent(listOf(tabVm)))
+          _deferredTabVms.emit(SeTabInitEvent(listOf(tabVm), selectedTabId = initialTabId.takeIf { tab.id == initialTabId }))
         }
       }
     }
@@ -197,7 +195,9 @@ class SePopupVm(
       }
 
       SeLog.log(SeLog.LIFE_CYCLE) { "Initialized deferred adapted tabs: [${adaptedCustomized.joinToString { it.tabId }}]" }
-      _deferredTabVms.emit(SeTabInitEvent(adaptedCustomized, true))
+      _deferredTabVms.emit(SeTabInitEvent(adaptedCustomized, selectedTabId = initialTabId.takeIf {
+        adaptedCustomized.containsId(initialTabId)
+      }, true))
     }
 
     coroutineScope.launch {
@@ -211,7 +211,7 @@ class SePopupVm(
       }.map { (currentTab, isDumb, isIncomplete) ->
         // IJPL-193615: In RemDev, IncompleteDependenciesService state is not synchronized between frontend and backend,
         // so isIncomplete always remains false on frontend, making dependency loading messages unavailable in RemDev.
-        if (currentTab.isIndexingDependent && isDumb) {
+        if (currentTab.isIndexingDependent && isDumb && !IdeProductMode.isLight) {
           if (currentTab.tabId == SeActionsTab.ID) {
             SearchFieldHint(IdeBundle.message("dumb.mode.analyzing.project"), IdeBundle.message("dumb.mode.some.actions.might.be.unavailable.during.project.analysis"), true)
           }
@@ -363,7 +363,7 @@ class SePopupVm(
     }
   }
 
-  private class SeTabInitEvent(val newTabs: List<SeTabVm>, val removeDummy: Boolean = false)
+  private class SeTabInitEvent(val newTabs: List<SeTabVm>, val selectedTabId: String?, val removeDummy: Boolean = false)
 }
 
 @ApiStatus.Internal

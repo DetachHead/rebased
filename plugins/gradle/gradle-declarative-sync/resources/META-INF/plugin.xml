@@ -1,3 +1,5 @@
+<!-- BUILD_USING_BAZEL_MARKER: this plugin is also packaged by the `ij_plugin` Bazel rule, and IjPluginDistributionEquivalenceTest
+     checks that the result matches the distribution produced by the build scripts. See IJPL-251444. -->
 <idea-plugin implementation-detail="true">
   <name>Gradle Declarative Sync</name>
   <id>com.intellij.gradle.declarativeSync</id>
@@ -12,8 +14,16 @@
   <!-- region Generated dependencies - run `Generate Product Layouts` to regenerate -->
   <dependencies>
     <module name="intellij.gradle"/>
+    <module name="intellij.libraries.jackson"/>
+    <module name="intellij.libraries.jackson.databind"/>
+    <module name="intellij.libraries.jetbrains.annotations"/>
+    <module name="intellij.platform.analysis"/>
+    <module name="intellij.platform.core"/>
+    <module name="intellij.platform.externalSystem.impl"/>
+    <module name="intellij.platform.workspace.jps"/>
   </dependencies>
   <!-- endregion -->
+  <content namespace="jetbrains"/>
   <depends>com.intellij.java</depends>
   <depends>com.intellij.gradle</depends>
   <depends>org.jetbrains.idea.gradle.dsl</depends>

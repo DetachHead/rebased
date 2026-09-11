@@ -7,7 +7,11 @@ import com.intellij.psi.PsiElement
 import com.intellij.psi.SmartPsiElementPointer
 import com.intellij.psi.createSmartPointer
 import org.jetbrains.kotlin.analysis.api.KaSession
+import org.jetbrains.kotlin.analysis.api.components.compositeScope
+import org.jetbrains.kotlin.analysis.api.components.scopeContext
+import org.jetbrains.kotlin.analysis.api.expressions.isUsedAsExpression
 import org.jetbrains.kotlin.analysis.api.fir.diagnostics.KaFirDiagnostic
+import org.jetbrains.kotlin.analysis.api.resolution.resolveSuccessfulSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaPropertySymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaSymbolLocation
 import org.jetbrains.kotlin.analysis.api.symbols.KaVariableSymbol
@@ -17,7 +21,6 @@ import org.jetbrains.kotlin.idea.codeinsight.api.applicable.intentions.KotlinPsi
 import org.jetbrains.kotlin.idea.codeinsight.api.applicators.fixes.KotlinQuickFixFactory
 import org.jetbrains.kotlin.idea.codeinsight.utils.SurroundWithNullCheckUtils
 import org.jetbrains.kotlin.idea.codeinsight.utils.SurroundWithNullCheckUtils.hasAcceptableParent
-import org.jetbrains.kotlin.idea.references.mainReference
 import org.jetbrains.kotlin.psi.KtDeclaration
 import org.jetbrains.kotlin.psi.KtExpression
 import org.jetbrains.kotlin.psi.KtOperationReferenceExpression
@@ -73,7 +76,8 @@ internal object SurroundWithNullCheckFixFactory {
         createQuickFixIfApplicableToUnsafeCall(diagnostic)
     }
 
-    private fun KaSession.createQuickFixIfApplicableToUnsafeCall(diagnostic: KaFirDiagnostic<*>): List<SurroundWithNullCheckFix> {
+    context(session: KaSession)
+    private fun createQuickFixIfApplicableToUnsafeCall(diagnostic: KaFirDiagnostic<*>): List<SurroundWithNullCheckFix> {
         val element = when (diagnostic) {
             is KaFirDiagnostic.UnsafeCall -> diagnostic.receiverExpression
             else -> diagnostic.psi
@@ -92,7 +96,7 @@ internal object SurroundWithNullCheckFixFactory {
         // Surround declaration (even of local variable) with null check is generally a bad idea
         if (expressionTarget is KtDeclaration) return emptyList()
 
-        val referenceSymbol = nullableExpression.mainReference.resolveToSymbol() as? KaNamedSymbol ?: return emptyList()
+        val referenceSymbol = nullableExpression.resolveSuccessfulSymbol() as? KaNamedSymbol ?: return emptyList()
         val file = expressionTarget.containingKtFile
         val scope = file.scopeContext(expressionTarget).compositeScope()
 

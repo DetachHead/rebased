@@ -12,11 +12,9 @@ import com.intellij.platform.pluginGraph.contentName
 import com.intellij.platform.pluginGraph.isSlashNotation
 import com.intellij.platform.pluginSystem.parser.impl.parseContentAndXIncludes
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.withContext
 import org.jetbrains.intellij.build.ModuleOutputProvider
 import org.jetbrains.intellij.build.findFileInModuleSources
 import org.jetbrains.intellij.build.productLayout.config.SuppressionConfig
@@ -30,7 +28,6 @@ import org.jetbrains.intellij.build.productLayout.generator.collectPluginGraphDe
 import org.jetbrains.intellij.build.productLayout.generator.computeActionGroupModuleDependencies
 import org.jetbrains.intellij.build.productLayout.generator.computeAliasPreservedPluginDeps
 import org.jetbrains.intellij.build.productLayout.generator.computeExistingDependencyHandling
-import org.jetbrains.intellij.build.productLayout.generator.embeddedCheckProductNames
 import org.jetbrains.intellij.build.productLayout.generator.filterPluginDependencies
 import org.jetbrains.intellij.build.productLayout.generator.planContentModuleDependenciesWithBothSets
 import org.jetbrains.intellij.build.productLayout.generator.updateGraphWithModuleDependencyPlans
@@ -124,8 +121,7 @@ internal suspend fun generatePluginDependencies(
     val outputProvider = testSetup.jps.outputProvider
     val contentModuleCache = AsyncCache<String, PlannedContentModuleResult?>()
     val testContentModuleCache = AsyncCache<String, DependencyFileResult?>()
-    val allRealProductNames = embeddedCheckProductNames(testSetup.products.map { it.name })
-    val pluginGraphDeps = collectPluginGraphDeps(graph = graph, allRealProductNames = allRealProductNames)
+    val pluginGraphDeps = collectPluginGraphDeps(graph = graph)
       .associateBy { it.pluginContentModuleName.value }
     val actionGroupProviderModules = buildActionGroupProviderModules(graph = graph, descriptorCache = descriptorCache)
 
@@ -137,7 +133,6 @@ internal suspend fun generatePluginDependencies(
           graphDeps = graphDeps,
           pluginContentCache = pluginContentCache,
           graph = graph,
-          allRealProductNames = allRealProductNames,
           outputProvider = outputProvider,
           descriptorCache = descriptorCache,
           actionGroupProviderModules = actionGroupProviderModules,
@@ -232,7 +227,6 @@ private suspend fun generatePluginDependency(
   graphDeps: PluginGraphDeps,
   pluginContentCache: PluginContentProvider,
   graph: PluginGraph,
-  allRealProductNames: Set<String>,
   outputProvider: ModuleOutputProvider,
   descriptorCache: ModuleDescriptorCache,
   actionGroupProviderModules: Map<String, Set<ContentModuleName>>,
@@ -313,8 +307,9 @@ private suspend fun generatePluginDependency(
       val generation = planContentModuleDependenciesWithBothSets(
         contentModuleName = contentModule,
         descriptorCache = descriptorCache,
+        outputProvider = outputProvider,
+        projectLibraryToModuleMap = outputProvider.getProjectLibraryToModuleMap(),
         pluginGraph = graph,
-        allRealProductNames = allRealProductNames,
         isTestDescriptor = isTestModule,
         suppressionConfig = effectiveConfig,
         updateSuppressions = updateSuppressions,
@@ -380,7 +375,7 @@ private fun writeContentModulePlan(plan: ContentModuleDependencyPlan, strategy: 
       testDependencies = emptyList(),
       existingXmlModuleDependencies = emptySet(),
       writtenPluginDependencies = emptyList(),
-      allJpsPluginDependencies = emptySet(),
+      requiredPluginDependencies = emptySet(),
       suppressionUsages = emptyList(),
     )
   }
@@ -403,7 +398,7 @@ private fun writeContentModulePlan(plan: ContentModuleDependencyPlan, strategy: 
     testDependencies = plan.testDependencies,
     existingXmlModuleDependencies = plan.existingXmlModuleDependencies,
     writtenPluginDependencies = plan.writtenPluginDependencies,
-    allJpsPluginDependencies = plan.allJpsPluginDependencies,
+    requiredPluginDependencies = plan.requiredPluginDependencies,
     suppressionUsages = plan.suppressionUsages,
   )
 }
@@ -424,7 +419,7 @@ private fun writeContentModulePlan(plan: ContentModuleDependencyPlan, strategy: 
  * @param strategy File update strategy (write vs diff)
  * @return Result with written dependencies or null if no test descriptor exists
  */
-private suspend fun generateTestDescriptorDependencies(
+private fun generateTestDescriptorDependencies(
   contentModuleName: ContentModuleName,
   outputProvider: ModuleOutputProvider,
   graphModuleDeps: Set<ContentModuleName>,
@@ -444,7 +439,7 @@ private suspend fun generateTestDescriptorDependencies(
     onlyProductionSources = false,
   ) ?: return null
 
-  val content = withContext(Dispatchers.IO) { Files.readString(descriptorPath) }
+  val content = Files.readString(descriptorPath)
   if (content.contains("@skip-dependency-generation")) {
     return null
   }
@@ -482,7 +477,7 @@ private suspend fun generateTestDescriptorDependencies(
 }
 
 @Suppress("UNUSED_PARAMETER")
-private suspend fun buildValidationCache(
+private fun buildValidationCache(
   outputProvider: ModuleOutputProvider,
   pluginContentInfos: Map<String, PluginContentInfo>,
   scope: CoroutineScope,

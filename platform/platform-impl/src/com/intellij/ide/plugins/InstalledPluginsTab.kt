@@ -12,12 +12,13 @@ import com.intellij.ide.plugins.marketplace.statistics.PluginManagerUsageCollect
 import com.intellij.ide.plugins.newui.ListPluginComponent
 import com.intellij.ide.plugins.newui.MultiSelectionEventHandler
 import com.intellij.ide.plugins.newui.MyPluginModel
+import com.intellij.ide.plugins.newui.PluginUpdatesService
 import com.intellij.ide.plugins.newui.PluginDetailsPageComponent
 import com.intellij.ide.plugins.newui.PluginInstallationState
 import com.intellij.ide.plugins.newui.PluginLogo
 import com.intellij.ide.plugins.newui.PluginModelFacade
 import com.intellij.ide.plugins.newui.PluginUiModel
-import com.intellij.ide.plugins.newui.PluginUpdatesService
+import com.intellij.ide.plugins.newui.PluginUpdateSubscription
 import com.intellij.ide.plugins.newui.PluginsGroup
 import com.intellij.ide.plugins.newui.PluginsGroupComponent
 import com.intellij.ide.plugins.newui.PluginsGroupComponentWithProgress
@@ -36,6 +37,7 @@ import com.intellij.openapi.actionSystem.ToggleAction
 import com.intellij.openapi.application.EDT
 import com.intellij.openapi.application.ModalityState.any
 import com.intellij.openapi.application.asContextElement
+import com.intellij.openapi.diagnostic.rethrowControlFlowException
 import com.intellij.openapi.extensions.ExtensionPointName
 import com.intellij.openapi.extensions.PluginId
 import com.intellij.openapi.project.DumbAware
@@ -49,6 +51,7 @@ import com.intellij.ui.components.labels.LinkListener
 import com.intellij.util.concurrency.annotations.RequiresEdt
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.jetbrains.annotations.ApiStatus
@@ -58,11 +61,11 @@ import java.util.function.Consumer
 import java.util.function.Supplier
 import javax.swing.JComponent
 import javax.swing.JLabel
+import kotlin.time.TimeSource
 
 @ApiStatus.Internal
 class InstalledPluginsTab @RequiresEdt constructor(
   private val pluginModelFacade: PluginModelFacade,
-  private val pluginUpdatesService: PluginUpdatesService,
   private val coroutineScope: CoroutineScope,
   private val searchInMarketplaceTabHandler: Consumer<String>?,
   searchTextFieldQueryDebouncePeriodMs: Long = 100,
@@ -90,6 +93,12 @@ class InstalledPluginsTab @RequiresEdt constructor(
 
   private val eventHandler = MultiSelectionEventHandler()
   private val installedPanel = createInstalledPanel(eventHandler)
+
+  private var pluginUpdateSubscription: PluginUpdateSubscription? = null
+  @Volatile
+  private var installedPanelModelJob: Job? = null
+
+  private val tracker: PluginManagerUiTracker = PluginManagerUiTracker()
 
   init {
     updateAllLink.isVisible = false
@@ -124,30 +133,55 @@ class InstalledPluginsTab @RequiresEdt constructor(
 
   private fun computeAndApplyInstalledPanelModel() {
     val myPluginModel = pluginModelFacade.getModel()
-    coroutineScope.launch(Dispatchers.IO) {
-      myPluginModel.waitForSessionInitialization()
-      val pluginManager = UiPluginManager.getInstance()
-      val installedPlugins = pluginManager.getInstalledPlugins()
-      val visiblePlugins = pluginManager.getVisiblePlugins(Registry.`is`("plugins.show.implementation.details"))
-      val errorCheckResults = pluginManager.loadErrors(myPluginModel.mySessionId.toString())
-      val visiblePluginsRequiresUltimate = pluginManager.getPluginsRequiresUltimateMap(visiblePlugins.map { it.pluginId })
-      val errors = MyPluginModel.getErrors(errorCheckResults)
-      val installationStates = pluginManager.getInstallationStates()
-      withContext(Dispatchers.EDT + any().asContextElement()) {
-        try {
-          PluginLogo.startBatchMode()
-          val model = CreateInstalledPanelModel(
-            installedPlugins,
-            visiblePlugins,
-            errors,
-            visiblePluginsRequiresUltimate,
-            installationStates
-          )
-          applyInstalledPanelModel(model)
-        }
-        finally {
-          PluginLogo.endBatchMode()
-        }
+    installedPanelModelJob = coroutineScope.launch(Dispatchers.IO) {
+      val totalStart = TimeSource.Monotonic.markNow()
+      try {
+        val model = fetchInstalledPanelModel(myPluginModel)
+        tracker.measure(PluginManagerUiMetric.INSTALLED_TAB_FETCH, totalStart)
+
+        renderInstalledPanelModel(model)
+        tracker.measure(PluginManagerUiMetric.INSTALLED_TAB_TOTAL, totalStart)
+      }
+      catch (e: Exception) {
+        rethrowControlFlowException(e)
+        tracker.logEvent(PluginManagerUiEvent.INSTALLED_TAB_LOAD_ERROR)
+        throw e
+      }
+    }
+  }
+
+  private suspend fun waitForInstalledPanelModel() {
+    installedPanelModelJob?.join()
+  }
+
+  private suspend fun fetchInstalledPanelModel(myPluginModel: MyPluginModel): CreateInstalledPanelModel {
+    myPluginModel.waitForSessionInitialization()
+    val pluginManager = UiPluginManager.getInstance()
+    val installedPlugins = pluginManager.getInstalledPlugins()
+    val visiblePlugins = pluginManager.getVisiblePlugins(Registry.`is`("plugins.show.implementation.details"))
+    val errorCheckResults = pluginManager.loadErrors(myPluginModel.mySessionId.toString())
+    val visiblePluginsRequiresUltimate = pluginManager.getPluginsRequiresUltimateMap(visiblePlugins.map { it.pluginId })
+    val errors = MyPluginModel.getErrors(errorCheckResults)
+    val installationStates = pluginManager.getInstallationStates()
+    return CreateInstalledPanelModel(
+      installedPlugins,
+      visiblePlugins,
+      errors,
+      visiblePluginsRequiresUltimate,
+      installationStates,
+    )
+  }
+
+  private suspend fun renderInstalledPanelModel(model: CreateInstalledPanelModel) {
+    withContext(Dispatchers.EDT + any().asContextElement()) {
+      val renderStart = TimeSource.Monotonic.markNow()
+      try {
+        PluginLogo.startBatchMode()
+        applyInstalledPanelModel(model)
+      }
+      finally {
+        PluginLogo.endBatchMode()
+        tracker.measure(PluginManagerUiMetric.INSTALLED_TAB_RENDER, renderStart)
       }
     }
   }
@@ -290,9 +324,8 @@ class InstalledPluginsTab @RequiresEdt constructor(
         }
       }
 
-      pluginUpdatesService.calculateUpdates { updates ->
-        val updateModels = updates?.filter { plugin -> pluginModelFacade.isEnabled(plugin) }
-                           ?: emptyList()
+      pluginUpdateSubscription = PluginUpdatesService.getInstance().subscribe { updates ->
+        val updateModels = updates.all.filter{ plugin -> pluginModelFacade.isEnabled(plugin) }
         setUpdateDescriptors(installedPanel, updateModels)
         setUpdateDescriptors(searchPanel.panel, updateModels)
         applyBundledUpdates(updateModels)
@@ -303,6 +336,11 @@ class InstalledPluginsTab @RequiresEdt constructor(
     finally {
       installedPanel.hideLoadingIcon()
     }
+  }
+
+  override fun dispose() {
+    pluginUpdateSubscription?.cancel()
+    super.dispose()
   }
 
   private fun onUpdateAllClick() {
@@ -421,6 +459,7 @@ class InstalledPluginsTab @RequiresEdt constructor(
       selectionListener,
       if (searchInMarketplaceTabHandler == null) null else Consumer<String?> { query -> searchInMarketplaceTabHandler.accept(query!!) },
       pluginModelFacade,
+      ::waitForInstalledPanelModel,
     )
     return searchPanel
   }
@@ -586,7 +625,6 @@ class InstalledPluginsTab @RequiresEdt constructor(
     bundledUpdateCounter.isVisible = visible
   }
 
-  @ApiStatus.Internal
   internal inner class InstalledSearchOptionAction(private val myOption: InstalledSearchOption)
     : ToggleAction(myOption.myPresentableNameSupplier), DumbAware {
     var myIsSelected: Boolean = false

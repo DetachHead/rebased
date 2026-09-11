@@ -20,7 +20,7 @@ internal class EmphasisFormattingBlock(
   private val wrap: Wrap? = null
 ) : MarkdownWrappingFormattingBlock(settings, spacing, node, alignment, wrap = wrap) {
   override fun buildChildren(): List<Block> {
-    val contentWrap = Wrap.createWrap(WrapType.NORMAL, true)
+    val contentWrap = createWrapForChildren(wrapFirstElement = true)
     val noneWrap = Wrap.createWrap(WrapType.NONE, false)
     val filtered = MarkdownBlocks.filterFromWhitespaces(node.children())
     return buildList {
@@ -31,7 +31,10 @@ internal class EmphasisFormattingBlock(
             val markerWrap = if (node.isFirst()) wrap ?: contentWrap else noneWrap
             add(MarkdownWrappingFormattingBlock(settings, spacing, node, alignment, markerWrap))
           }
-          else -> add(MarkdownBlocks.create(node, settings, spacing) { alignment })
+          else -> {
+            val childWrap = if (node.isFirstContentElement()) noneWrap else null
+            add(MarkdownBlocks.create(node, settings, spacing, childWrap) { alignment })
+          }
         }
       }
     }

@@ -110,13 +110,23 @@ object SuvorovProgress {
    * See IJPL-211485
    */
   fun tryProgressWithPendingBackgroundWriteAction() {
+    val application = ApplicationManager.getApplication()
+    val rwService = application.serviceIfCreated<ReadWriteActionSupport>()
     if (Thread.holdsLock(awtComponentLock)) {
-      val application = ApplicationManager.getApplication()
-      val rwService = application.serviceIfCreated<ReadWriteActionSupport>()
-      @Suppress("TestOnlyProblems")
       if (rwService is PlatformReadWriteActionSupport) {
-        rwService.signalWriteActionNeedsToBeRetried()
+        rwService.signalBackgroundWriteActionNeedsToBeRetried()
       }
+    }
+    if (rwService is PlatformReadWriteActionSupport) {
+      rwService.signalSuspendedEdtWriteActionNeedsToBeRetried()
+    }
+  }
+
+  fun enableSuspendedWriteActionsBack() {
+    val application = ApplicationManager.getApplication()
+    val rwService = application.serviceIfCreated<ReadWriteActionSupport>()
+    if (rwService is PlatformReadWriteActionSupport) {
+      rwService.signalSuspendedEdtWriteActionCanProceed()
     }
   }
 
@@ -177,6 +187,7 @@ object SuvorovProgress {
         else -> throw IllegalArgumentException("Unknown value for registry key `ide.freeze.fake.progress.kind`: $value")
       }
     } finally {
+      enableSuspendedWriteActionsBack()
       counter.incrementAndGet()
     }
   }
@@ -280,7 +291,6 @@ object SuvorovProgress {
     }
   }
 
-  @OptIn(InternalCoroutinesApi::class)
   private fun processInvocationEventsWithoutDialog(awaitedValue: Deferred<*>, showingDelay: Int) {
     eternalStealer.dispatchAllEventsForTimeout(showingDelay.toLong(), awaitedValue)
   }

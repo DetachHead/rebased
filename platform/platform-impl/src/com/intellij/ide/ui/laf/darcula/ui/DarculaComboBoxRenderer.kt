@@ -1,10 +1,9 @@
 // Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.ide.ui.laf.darcula.ui
 
-import com.intellij.ide.ui.laf.darcula.DarculaNewUIUtil
+import com.intellij.ui.DrawUtil
 import com.intellij.ui.ExperimentalUI
 import com.intellij.util.ui.JBUI
-import org.jetbrains.annotations.ApiStatus
 import java.awt.Color
 import java.awt.Component
 import java.awt.Dimension
@@ -17,7 +16,6 @@ import javax.swing.ListCellRenderer
 import javax.swing.border.Border
 import javax.swing.plaf.UIResource
 
-@ApiStatus.Internal
 internal class DarculaComboBoxRenderer : JLabel(), ListCellRenderer<Any>, ExperimentalUI.NewUIComboBoxRenderer, UIResource {
 
   private var selectionColor: Color? = null
@@ -76,7 +74,7 @@ internal class DarculaComboBoxRenderer : JLabel(), ListCellRenderer<Any>, Experi
 
     selectionColor?.let {
       val leftRightInset = JBUI.CurrentTheme.Popup.Selection.LEFT_RIGHT_INSET.get()
-      DarculaNewUIUtil.fillRoundedRectangle(g, Rectangle(leftRightInset, 0, width - leftRightInset * 2, height), it)
+      DrawUtil.fillRoundedRectangle(g, Rectangle(leftRightInset, 0, width - leftRightInset * 2, height), it)
     }
 
     super.paintComponent(g)

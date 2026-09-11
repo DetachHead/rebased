@@ -1,7 +1,8 @@
+load("@community//platform/build-scripts/bazel-rules:dev_dist_plugin.bzl", "dev_dist_plugin")
 load("@rules_jvm//:jvm.bzl", "jvm_library")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "dev_dist_plugin_jar")
 
 ### auto-generated section `build intellij.java.plugin` start
-
 jvm_library(
     name = "plugin",
     srcs = glob(
@@ -55,7 +56,114 @@ jvm_library(
 exports_files(
     [
         "intellij.java.plugin.iml",
+        "resources/META-INF/plugin.xml",
     ],
     visibility = ["//visibility:public"],
 )
 ### auto-generated section `iml intellij.java.plugin` end
+
+### auto-generated section `dev intellij.java.plugin` start
+dev_dist_plugin(
+    content_modules = [
+        "//java/compiler/impl",
+        "//java/debugger/debugger-agent:java-debugger-agent-holder",
+        "//java/debugger/impl",
+        "//java/debugger/jb-jdi:java-debugger-libraries-jb-jdi",
+        "//java/debugger/memory-agent:java-debugger-memory-agent",
+        "//jps/jps-builders:build",
+        "//libraries/completion-ranking-java",
+        "//libraries/jps-javac-extension",
+        "//libraries/test-discovery",
+        "@community//build:dependency-graph",
+    ],
+    descriptor_module = ":plugin",
+    libraries = [
+        "@lib//:eclipse",
+        "@lib//:java-debugger-agent-holder-debugger-agent",
+        "@lib//:java-debugger-impl-sa-jdwp",
+        "@lib//:java-debugger-libraries-jb-jdi-jb-jdi",
+        "@lib//:java-debugger-memory-agent-debugger-memory-agent",
+        "@lib//:kotlin-metadata",
+        "@lib//:libraries-completion-ranking-java-completion-ranking-java",
+        "@lib//:libraries-jps-javac-extension-jps-javac-extension",
+        "@lib//:libraries-test-discovery-intellij-test-discovery",
+        "@lib//:platform-jps-build-qdox-java-parser",
+    ],
+    prepacked_content_modules = [
+        "//java/codeserver/core:core_content_module_jar",
+        "//java/codeserver/highlighting:highlighting_content_module_jar",
+        "//java/compiler/openapi:java-compiler_content_module_jar",
+        "//java/debugger/backend:backend_content_module_jar",
+        "//java/debugger/frontend:frontend_content_module_jar",
+        "//java/debugger/openapi:java-debugger_content_module_jar",
+        "//java/debugger/shared:shared_content_module_jar",
+        "//java/execution/backend:backend_content_module_jar",
+        "//java/execution/frontend:frontend_content_module_jar",
+        "//java/execution/impl:impl_content_module_jar",
+        "//java/execution/openapi:java-execution_content_module_jar",
+        "//java/execution/shared:shared_content_module_jar",
+        "//java/idea-ui:ui_content_module_jar",
+        "//java/java-analysis-api:analysis_content_module_jar",
+        "//java/java-analysis-impl:analysis-impl_content_module_jar",
+        "//java/java-backend:backend_content_module_jar",
+        "//java/java-bookmarks:bookmarks_content_module_jar",
+        "//java/java-copyright:copyright_content_module_jar",
+        "//java/java-features-trainer:featuresTrainer_content_module_jar",
+        "//java/java-frontend:frontend_content_module_jar",
+        "//java/java-impl-inspections:impl-inspections_content_module_jar",
+        "//java/java-impl-refactorings:impl-refactorings_content_module_jar",
+        "//java/java-impl:impl_content_module_jar",
+        "//java/java-indexing-api:indexing_content_module_jar",
+        "//java/java-indexing-impl:indexing-impl_content_module_jar",
+        "//java/java-indexing-serializers:indexing-serializers_content_module_jar",
+        "//java/java-promo:promo_content_module_jar",
+        "//java/java-structure-view:structureView_content_module_jar",
+        "//java/jsp-openapi:jsp_content_module_jar",
+        "//java/jsp-spi:jsp-spi_content_module_jar",
+        "//java/langInjection/jps:jps_content_module_jar",
+        "//java/langInjection:langInjection_content_module_jar",
+        "//java/manifest:manifest_content_module_jar",
+        "//java/openapi:java_content_module_jar",
+        "//java/performancePlugin:performancePlugin_content_module_jar",
+        "//java/remote-servers/api:java-remoteServers_content_module_jar",
+        "//java/remote-servers/impl:impl_content_module_jar",
+        "//java/structuralsearch-java:structuralSearch_content_module_jar",
+        "//java/terminal/backend:backend_content_module_jar",
+        "//java/terminal/frontend:frontend_content_module_jar",
+        "//java/terminal/shared:shared_content_module_jar",
+        "//java/typeMigration:typeMigration_content_module_jar",
+        "//java/unscramble:unscramble_content_module_jar",
+        "//java/vcs:vcs_content_module_jar",
+        "//java/xml.dom.impl:xml.dom.impl_content_module_jar",
+        "//jvm/jvm-analysis-api:analysis_content_module_jar",
+        "//jvm/jvm-analysis-impl:analysis-impl_content_module_jar",
+        "//jvm/jvm-analysis-quickFix:analysis-quickFix_content_module_jar",
+        "//jvm/jvm-analysis-refactoring:analysis-refactoring_content_module_jar",
+        "//plugins/ui-designer-core:uiDesigner_content_module_jar",
+        "//uast/uast-common-ide:ide_content_module_jar",
+        "//uast/uast-common:uast_content_module_jar",
+        "//uast/uast-java-ide:java-uast-ide_content_module_jar",
+        "//uast/uast-java:java-uast_content_module_jar",
+    ],
+    prepacked_jars = {
+        "//java/compiler/forms-compiler:java-guiForms-compiler_content_module_jar": "intellij.java.guiForms.compiler.jar",
+        "//java/compiler/instrumentation-util-8:java-compiler-instrumentationUtil-java8_content_module_jar": "intellij.java.compiler.instrumentationUtil.java8.jar",
+        "//java/compiler/instrumentation-util:instrumentation-util_content_module_jar": "intellij.java.compiler.instrumentationUtil.jar",
+        "//java/compiler/javac2:java-compiler-antTasks_content_module_jar": "intellij.java.compiler.antTasks.jar",
+        "//java/java-frontback-impl:frontback-impl_content_module_jar": "intellij.java.frontback.impl.jar",
+        "//java/java-frontback-psi-api:frontback-psi_content_module_jar": "intellij.java.frontback.psi.jar",
+        "//java/java-frontback-psi-impl:frontback-psi-impl_content_module_jar": "intellij.java.frontback.psi.impl.jar",
+        "//java/java-psi-api:psi_content_module_jar": "intellij.java.psi.jar",
+        "//java/java-psi-impl:psi-impl_content_module_jar": "intellij.java.psi.impl.jar",
+        "//java/java-syntax:syntax_content_module_jar": "intellij.java.syntax.jar",
+        "@community//build:build-javac-rt_content_module_jar": "intellij.platform.jps.build.javac.rt.jar",
+    },
+    prepacked_layout_jars = [":jps-launcher_dev_dist_plugin_jar"],
+)
+
+dev_dist_plugin_jar(
+    modules = ["//jps/jps-launcher:build-launcher"],
+    plugin_main_module = "intellij.java.plugin",
+    relative_output_file = "jps-launcher.jar",
+)
+### auto-generated section `dev intellij.java.plugin` end

@@ -1,9 +1,8 @@
-// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.notification;
 
 import com.intellij.ide.IdeCoreBundle;
 import com.intellij.ide.ui.IdeUiService;
-import com.intellij.ide.util.PropertiesComponent;
 import com.intellij.openapi.actionSystem.ActionPlaces;
 import com.intellij.openapi.actionSystem.ActionUiKind;
 import com.intellij.openapi.actionSystem.AnAction;
@@ -204,13 +203,11 @@ public class Notification {
       myDoNotAskDisplayName = title;
       myDoNotAskId = myGroupId;
     }
-    var id = "Notification.DoNotAsk-" + myDoNotAskId;
-    var doNotAsk = PropertiesComponent.getInstance().getBoolean(id, false);
-    if (doNotAsk) {
+    if (DoNotAskAppManager.getInstance().isDoNotAsk(myDoNotAskId)) {
       return false;
     }
     if (project != null) {
-      return !PropertiesComponent.getInstance(project).getBoolean(id, false);
+      return !DoNotAskProjectManager.getInstance(project).isDoNotAsk(myDoNotAskId);
     }
     return true;
   }
@@ -366,7 +363,11 @@ public class Notification {
     if (!myExpired.compareAndSet(false, true)) return;
 
     UIUtil.invokeLaterIfNeeded(this::hideBalloon);
-    NotificationsManager.getNotificationsManager().expire(this);
+
+    var manager = NotificationsManager.getNotificationsManager();
+    if (manager != null) {
+      manager.expire(this);
+    }
 
     if (myWhenExpired != null) {
       for (var each : myWhenExpired) {
@@ -443,22 +444,22 @@ public class Notification {
     );
   }
 
-  private static final String DO_NOT_ASK_PREFIX = "Notification.DoNotAsk-";
-  private static final String DO_NOT_ASK_DISPLAY_PREFIX = "Notification.DisplayName-DoNotAsk-";
-
   @ApiStatus.Experimental
   @Contract("_ -> this")
   public Notification setDoNotAskFor(@Nullable Project project) {
-    var manager = project == null ? PropertiesComponent.getInstance() : PropertiesComponent.getInstance(project);
-    manager.setValue(DO_NOT_ASK_PREFIX + myDoNotAskId, true);
-    manager.setValue(DO_NOT_ASK_DISPLAY_PREFIX + myDoNotAskId, myDoNotAskDisplayName);
+    if (project == null) {
+      DoNotAskAppManager.getInstance().markDoNotAsk(myDoNotAskId, myDoNotAskDisplayName);
+    }
+    else {
+      DoNotAskProjectManager.getInstance(project).markDoNotAsk(myDoNotAskId, myDoNotAskDisplayName);
+    }
     return this;
   }
 
   @ApiStatus.Experimental
   public static boolean isDoNotAskFor(@Nullable Project project, @NotNull String doNotAskId) {
-    return project != null && PropertiesComponent.getInstance(project).getBoolean(DO_NOT_ASK_PREFIX + doNotAskId) ||
-           PropertiesComponent.getInstance().getBoolean(DO_NOT_ASK_PREFIX + doNotAskId);
+    return project != null && DoNotAskProjectManager.getInstance(project).isDoNotAsk(doNotAskId) ||
+           DoNotAskAppManager.getInstance().isDoNotAsk(doNotAskId);
   }
 
   @ApiStatus.Internal

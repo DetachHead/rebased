@@ -1,10 +1,11 @@
-<idea-plugin visibility="internal" package="com.intellij.settingsSync.core">
+<idea-plugin visibility="public" package="com.intellij.settingsSync.core">
   <!-- region Generated dependencies - run `Generate Product Layouts` to regenerate -->
   <dependencies>
     <plugin id="Git4Idea"/>
     <module name="intellij.libraries.jackson3"/>
     <module name="intellij.libraries.jackson3.databind"/>
     <module name="intellij.libraries.jackson3.module.kotlin"/>
+    <module name="intellij.libraries.jgit"/>
     <module name="intellij.libraries.kotlinx.coroutines.core"/>
     <module name="intellij.libraries.kotlinx.serialization.core"/>
     <module name="intellij.libraries.kotlinx.serialization.json"/>
@@ -19,10 +20,13 @@
     <module name="intellij.platform.editor.ui"/>
     <module name="intellij.platform.ide"/>
     <module name="intellij.platform.ide.core"/>
+    <module name="intellij.platform.ide.core.impl"/>
     <module name="intellij.platform.ide.impl"/>
+    <module name="intellij.platform.ide.progress"/>
     <module name="intellij.platform.lang.impl"/>
     <module name="intellij.platform.projectModel"/>
     <module name="intellij.platform.projectModel.impl"/>
+    <module name="intellij.platform.serviceContainer"/>
     <module name="intellij.platform.statistics"/>
     <module name="intellij.platform.util.ex"/>
     <module name="intellij.platform.util.ui"/>
@@ -31,6 +35,7 @@
     <module name="intellij.platform.vcs.impl"/>
     <module name="intellij.platform.vcs.log"/>
     <module name="intellij.platform.vcs.log.impl"/>
+    <module name="intellij.platform.workspace.jps"/>
     <module name="intellij.vcs.git.backend"/>
   </dependencies>
   <!-- endregion -->

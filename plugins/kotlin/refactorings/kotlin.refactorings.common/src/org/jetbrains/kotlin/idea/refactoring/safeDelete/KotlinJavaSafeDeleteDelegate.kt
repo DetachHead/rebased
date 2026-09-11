@@ -14,9 +14,11 @@ import com.intellij.refactoring.safeDelete.usageInfo.SafeDeleteCustomUsageInfo
 import com.intellij.refactoring.safeDelete.usageInfo.SafeDeleteReferenceSimpleDeleteUsageInfo
 import com.intellij.usageView.UsageInfo
 import org.jetbrains.kotlin.analysis.api.KaSession
-import org.jetbrains.kotlin.analysis.api.analyze
-import org.jetbrains.kotlin.analysis.api.resolution.successfulFunctionCallOrNull
+import org.jetbrains.kotlin.analysis.api.javaInterop.callableSymbol
+import org.jetbrains.kotlin.analysis.api.resolution.resolveSuccessfulCall
+import org.jetbrains.kotlin.analysis.api.session.analyze
 import org.jetbrains.kotlin.analysis.api.symbols.KaFunctionSymbol
+import org.jetbrains.kotlin.analysis.api.symbols.symbol
 import org.jetbrains.kotlin.asJava.unwrapped
 import org.jetbrains.kotlin.idea.refactoring.parentLabeledExpression
 import org.jetbrains.kotlin.lexer.KtTokens
@@ -66,7 +68,8 @@ class KotlinJavaSafeDeleteDelegate : JavaSafeDeleteDelegate {
         }
     }
 
-    private fun KaSession.createParameterUsagesFromResolvedCall(
+    context(session: KaSession)
+    private fun createParameterUsagesFromResolvedCall(
         callExpression: KtCallElement,
         usages: MutableList<in UsageInfo>,
         parameter: PsiNamedElement,
@@ -82,7 +85,7 @@ class KotlinJavaSafeDeleteDelegate : JavaSafeDeleteDelegate {
             else -> null
         } ?: return
 
-        val resolvedCall = callExpression.resolveToCall()?.successfulFunctionCallOrNull() ?: return
+        val resolvedCall = callExpression.resolveSuccessfulCall() ?: return
 
         val valueArguments = callExpression.valueArguments.filterIsInstance<KtValueArgument>().filter { argument ->
             val argumentExpression = argument.getArgumentExpression()

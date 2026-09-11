@@ -31,44 +31,6 @@ public final class EnvironmentUtil {
   private static final String DESKTOP_STARTUP_ID = "DESKTOP_STARTUP_ID";
   private static final String MAC_OS_LOCALE_PATH = "/usr/share/locale";
 
-  /** @deprecated primitive well-known constant; inline */
-  @Deprecated
-  @ApiStatus.ScheduledForRemoval
-  @SuppressWarnings("DeprecatedIsStillUsed")
-  public static final String DISABLE_OMZ_AUTO_UPDATE = "DISABLE_AUTO_UPDATE";
-  /** @deprecated primitive well-known constant; inline */
-  @Deprecated
-  @ApiStatus.ScheduledForRemoval
-  public static final String BASH_EXECUTABLE_NAME = "bash";
-  /** @deprecated primitive well-known constant; inline */
-  @Deprecated
-  @ApiStatus.ScheduledForRemoval
-  public static final String SHELL_VARIABLE_NAME = "SHELL";
-  /** @deprecated primitive well-known constant; inline */
-  @Deprecated
-  @ApiStatus.ScheduledForRemoval
-  public static final String SHELL_LOGIN_ARGUMENT = "-l";
-  /** @deprecated primitive well-known constant; inline */
-  @Deprecated
-  @ApiStatus.ScheduledForRemoval
-  public static final String SHELL_COMMAND_ARGUMENT = "-c";
-  /** @deprecated non-standard command (POSIX specifies '.'); do not use */
-  @Deprecated
-  @ApiStatus.ScheduledForRemoval
-  public static final String SHELL_SOURCE_COMMAND = "source";
-  /** @deprecated primitive well-known constant; inline */
-  @Deprecated
-  @ApiStatus.ScheduledForRemoval
-  public static final String SHELL_ENV_COMMAND = "/usr/bin/env";
-  /** @deprecated primitive well-known constant; inline */
-  @Deprecated
-  @ApiStatus.ScheduledForRemoval
-  public static final String ENV_ZERO_ARGUMENT = "-0";
-  /** @deprecated implementation detail; do not use */
-  @Deprecated
-  @ApiStatus.ScheduledForRemoval
-  public static final String MacOS_LOADER_BINARY = "printenv";
-
   private static final AtomicReference<Supplier<Map<String, String>>> ourEnvLoader = new AtomicReference<>();
 
   private EnvironmentUtil() { }
@@ -220,8 +182,12 @@ public final class EnvironmentUtil {
   private static final Pattern pattern = Pattern.compile("\\$(.*?)\\$");
 
   public static void inlineParentOccurrences(@NotNull Map<String, String> envs, @NotNull Map<String, String> parentEnv) {
+    inlineParentOccurrences(envs, parentEnv, OS.CURRENT == OS.Windows);
+  }
+
+  public static void inlineParentOccurrences(@NotNull Map<String, String> envs, @NotNull Map<String, String> parentEnv, boolean isWindows) {
     // On Windows, names of environment variables are case-insensitive. On UNIX, names are case-sensitive.
-    Comparator<String> keyComparator = OS.CURRENT == OS.Windows ? String.CASE_INSENSITIVE_ORDER : Comparator.naturalOrder();
+    Comparator<String> keyComparator = isWindows ? String.CASE_INSENSITIVE_ORDER : Comparator.naturalOrder();
     Map<String, String> lookup = new TreeMap<>(keyComparator);
     lookup.putAll(envs);
     lookup.putAll(parentEnv);
@@ -241,13 +207,5 @@ public final class EnvironmentUtil {
         lookup.put(key, value);
       }
     }
-  }
-
-  /** @deprecated trivial; inline */
-  @Deprecated
-  @ApiStatus.ScheduledForRemoval
-  @SuppressWarnings({"IO_FILE_USAGE", "UnnecessaryFullyQualifiedName"})
-  public static boolean containsEnvKeySubstitution(@NotNull String envKey, @NotNull String val) {
-    return ArrayUtil.find(val.split(java.io.File.pathSeparator), "$" + envKey + "$") != -1;
   }
 }

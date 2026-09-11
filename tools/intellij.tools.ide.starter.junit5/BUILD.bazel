@@ -3,7 +3,6 @@ load("@rules_jvm//:jvm.bzl", "jvm_library", "jvm_provided_library")
 load("//build:compiler-options.bzl", "create_kotlinc_options")
 
 ### auto-generated section `build intellij.tools.ide.starter.junit5` start
-
 create_kotlinc_options(
     name = "custom_ide-starter-junit5",
     opt_in = ["kotlin.time.ExperimentalTime"],
@@ -46,7 +45,7 @@ jvm_library(
         "//libraries/kotlinx/coroutines/core",
         "@lib//:kotlin-stdlib",
         "//libraries/kotlin/reflect",
-        "@lib//:kodein-di-jvm",
+        "//libraries/kodein-di-jvm",
         "//tools/intellij.tools.ide.starter:ide-starter",
         "//platform/remote-driver/model",
         "//tools/intellij.tools.ide.util.common:ide-util-common",
@@ -73,11 +72,13 @@ jvm_library(
         ":ide-starter-junit5",
         "//libraries/kotlinx/coroutines/core:core_test_lib",
         "//libraries/kotlin/reflect:reflect_test_lib",
+        "//libraries/kodein-di-jvm:kodein-di-jvm_test_lib",
         "//libraries/junit5",
         "//libraries/junit5:junit5_test_lib",
         "//tools/intellij.tools.ide.starter:ide-starter_test_lib",
         "//platform/remote-driver/model:model_test_lib",
-        "@lib//:kotlin-test-assertions-core-jvm",
+        "//libraries/kotlin/test-assertions-core-jvm:libraries-kotlinTestAssertionsCoreJvm",
+        "//libraries/kotlin/test-assertions-core-jvm:libraries-kotlinTestAssertionsCoreJvm_test_lib",
         "//libraries/mockito",
         "//libraries/mockito:mockito_test_lib",
         "@lib//:mockito-junit-jupiter",
@@ -120,7 +121,6 @@ exports_files(
 ### auto-generated section `iml intellij.tools.ide.starter.junit5` end
 
 ### auto-generated section `build intellij.tools.ide.starter.junit5.tests` start
-
 create_kotlinc_options(
     name = "custom_ide-starter-junit5-tests",
     opt_in = ["kotlin.time.ExperimentalTime"],
@@ -165,7 +165,8 @@ jvm_library(
         "@lib//:kotlin-stdlib",
         "//libraries/kotlin/reflect",
         "//libraries/kotlin/reflect:reflect_test_lib",
-        "@lib//:kodein-di-jvm",
+        "//libraries/kodein-di-jvm",
+        "//libraries/kodein-di-jvm:kodein-di-jvm_test_lib",
         "//libraries/junit5",
         "//libraries/junit5:junit5_test_lib",
         "//tools/intellij.tools.ide.starter:ide-starter",
@@ -180,7 +181,8 @@ jvm_library(
         "//tools/intellij.tools.ide.starter.product.idea.ultimate:ide-starter-product-idea-ultimate_test_lib",
         "//platform/remote-driver/model",
         "//platform/remote-driver/model:model_test_lib",
-        "@lib//:kotlin-test-assertions-core-jvm",
+        "//libraries/kotlin/test-assertions-core-jvm:libraries-kotlinTestAssertionsCoreJvm",
+        "//libraries/kotlin/test-assertions-core-jvm:libraries-kotlinTestAssertionsCoreJvm_test_lib",
         "//libraries/mockito",
         "//libraries/mockito:mockito_test_lib",
         "@lib//:mockito-junit-jupiter",
@@ -214,6 +216,8 @@ jvm_library(
         "//platform/xdebugger-impl:debugger-impl-tests_test_lib",
         "//platform/testFramework/teamCity",
         "//platform/testFramework/teamCity:teamCity_test_lib",
+        "//tools/intellij.tools.ide.starter/testSrc:tools-ide-starter-tests",
+        "//tools/intellij.tools.ide.starter/testSrc:tools-ide-starter-tests_test_lib",
     ],
 )
 ### auto-generated section `build intellij.tools.ide.starter.junit5.tests` end
@@ -228,7 +232,6 @@ exports_files(
 ### auto-generated section `iml intellij.tools.ide.starter.junit5.tests` end
 
 ### auto-generated section `test intellij.tools.ide.starter.junit5.tests` start
-
 jps_test(
     name = "ide-starter-junit5-tests_test",
     runtime_deps = [":ide-starter-junit5-tests_test_lib"],

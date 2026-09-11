@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.jetbrains.python.statistics
 
 import com.intellij.codeInsight.daemon.DaemonCodeAnalyzer
@@ -43,11 +43,10 @@ private val VirtualFile.isUpToDate: Boolean
     return true
   }
 
-@Service
-@ApiStatus.Internal
+@Service(Service.Level.PROJECT)
 @VisibleForTesting
-class PackageDaemonTaskExecutor(private val cs: CoroutineScope) {
-  fun execute(vFile: VirtualFile, project: Project): Job {
+internal class PackageDaemonTaskExecutor(private val project: Project, private val cs: CoroutineScope) {
+  fun execute(vFile: VirtualFile): Job {
     return cs.launch {
       constrainedReadAction(ReadConstraint.inSmartMode(project)) readAction@{
         val fileIndex = ProjectFileIndex.getInstance(project)
@@ -93,7 +92,7 @@ class PackageDaemonTaskExecutor(private val cs: CoroutineScope) {
   }
 }
 
-class PyPackageDaemonListener(private val project: Project) : DaemonCodeAnalyzer.DaemonListener {
+internal class PyPackageDaemonListener(private val project: Project) : DaemonCodeAnalyzer.DaemonListener {
   init {
     if (!isEnabled) {
       throw ExtensionNotApplicableException.create()
@@ -104,7 +103,7 @@ class PyPackageDaemonListener(private val project: Project) : DaemonCodeAnalyzer
     for (fileEditor in fileEditors) {
       val vFile = fileEditor.file
       if (vFile.isUpToDate) continue
-      service<PackageDaemonTaskExecutor>().execute(vFile, project)
+      project.service<PackageDaemonTaskExecutor>().execute(vFile)
     }
   }
 

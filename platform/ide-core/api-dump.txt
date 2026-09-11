@@ -663,6 +663,7 @@ com.intellij.openapi.application.ApplicationStarter
 - sf:NOT_IN_EDT:I
 - canProcessExternalCommandLine():Z
 - getRequiredModality():I
+- getShouldReportStatistics():Z
 - isHeadless():Z
 - main(java.util.List):V
 - premain(java.util.List):V
@@ -680,9 +681,7 @@ f:com.intellij.openapi.application.Experiments
 f:com.intellij.openapi.application.Experiments$Companion
 - f:getInstance():com.intellij.openapi.application.Experiments
 c:com.intellij.openapi.fileChooser.FileChooserDescriptor
-- java.lang.Cloneable
 - <init>(com.intellij.openapi.fileChooser.FileChooserDescriptor):V
-- f:clone():java.lang.Object
 - getDescription():java.lang.String
 - getIcon(com.intellij.openapi.vfs.VirtualFile):javax.swing.Icon
 - getRoots():java.util.List
@@ -694,6 +693,7 @@ c:com.intellij.openapi.fileChooser.FileChooserDescriptor
 - isEnvironmentRestricted():Z
 - F:isFileSelectable(com.intellij.openapi.vfs.VirtualFile):Z
 - isHideIgnored():Z
+- isLocalFileSystem():Z
 - isShowHiddenFiles():Z
 - setDescription(java.lang.String):V
 - setEnvironmentRestricted(Z):V
@@ -710,6 +710,8 @@ c:com.intellij.openapi.fileChooser.FileChooserDescriptor
 - withExtensionFilter(java.lang.String):com.intellij.openapi.fileChooser.FileChooserDescriptor
 - withFileFilter(com.intellij.openapi.util.Condition):com.intellij.openapi.fileChooser.FileChooserDescriptor
 - withHideIgnored(Z):com.intellij.openapi.fileChooser.FileChooserDescriptor
+- withLocalFileSystem():com.intellij.openapi.fileChooser.FileChooserDescriptor
+- withLocalFileSystem(Z):com.intellij.openapi.fileChooser.FileChooserDescriptor
 - withRoots(java.util.List):com.intellij.openapi.fileChooser.FileChooserDescriptor
 - withRoots(com.intellij.openapi.vfs.VirtualFile[]):com.intellij.openapi.fileChooser.FileChooserDescriptor
 - withShowFileSystemRoots(Z):com.intellij.openapi.fileChooser.FileChooserDescriptor
@@ -830,6 +832,7 @@ c:com.intellij.openapi.options.ConfigurableEP
 a:com.intellij.openapi.options.ConfigurableProvider
 - <init>():V
 - canCreateConfigurable():Z
+- getConfigurableType():java.lang.Class
 com.intellij.openapi.options.ConfigurableWithId
 - com.intellij.openapi.options.Configurable
 - a:getId():java.lang.String
@@ -844,8 +847,7 @@ c:com.intellij.openapi.options.ConfigurationException
 - setQuickFix(com.intellij.openapi.options.ConfigurationQuickFix):V
 - setQuickFix(java.lang.Runnable):V
 - withHtmlMessage():com.intellij.openapi.options.ConfigurationException
-f:com.intellij.openapi.options.OptionsBundle
-- com.intellij.DynamicBundle
+com.intellij.openapi.options.NoAutomaticReset
 com.intellij.openapi.options.SearchableConfigurable
 - com.intellij.openapi.options.ConfigurableWithId
 - enableSearch(java.lang.String):java.lang.Runnable
@@ -1395,6 +1397,28 @@ c:com.intellij.ui.UserActivityWatcher
 - <init>():V
 - addUserActivityListener(com.intellij.ui.UserActivityListener):V
 - removeUserActivityListener(com.intellij.ui.UserActivityListener):V
+c:com.intellij.ui.components.panels.Wrapper
+- javax.swing.JPanel
+- com.intellij.openapi.ui.NullableComponent
+- <init>():V
+- <init>(java.awt.LayoutManager):V
+- <init>(java.awt.LayoutManager,javax.swing.JComponent):V
+- <init>(java.awt.LayoutManager,Z):V
+- <init>(javax.swing.JComponent):V
+- <init>(Z):V
+- getPreferredSize():java.awt.Dimension
+- getTargetComponent():javax.swing.JComponent
+- isNull():Z
+- requestFocus():V
+- f:requestFocus(Z):Z
+- requestFocusInWindow():Z
+- requestFocusInternal():V
+- setContent(javax.swing.JComponent):V
+- f:setHorizontalSizeReferent(javax.swing.JComponent):com.intellij.ui.components.panels.Wrapper
+- f:setVerticalSizeReferent(javax.swing.JComponent):com.intellij.ui.components.panels.Wrapper
+f:com.intellij.ui.components.panels.Wrapper$North
+- com.intellij.ui.components.panels.Wrapper
+- <init>(javax.swing.JComponent):V
 c:com.intellij.ui.content.AlertIcon
 - com.intellij.ui.RetrievableIcon
 - javax.swing.Icon

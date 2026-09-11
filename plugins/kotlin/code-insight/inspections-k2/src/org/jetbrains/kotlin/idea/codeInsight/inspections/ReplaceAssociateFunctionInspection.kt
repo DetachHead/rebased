@@ -5,28 +5,34 @@ package org.jetbrains.kotlin.idea.codeInsight.inspections
 import com.intellij.codeInspection.ProblemsHolder
 import com.intellij.modcommand.ModPsiUpdater
 import com.intellij.openapi.project.Project
-import org.jetbrains.kotlin.analysis.api.KaExperimentalApi
-import org.jetbrains.kotlin.analysis.api.analyze
+import org.jetbrains.kotlin.analysis.api.expressions.expressionType
+import org.jetbrains.kotlin.analysis.api.renderer.render
 import org.jetbrains.kotlin.analysis.api.renderer.types.impl.KaTypeRendererForSource
-import org.jetbrains.kotlin.analysis.api.resolution.singleFunctionCallOrNull
+import org.jetbrains.kotlin.analysis.api.resolution.function
+import org.jetbrains.kotlin.analysis.api.resolution.single
 import org.jetbrains.kotlin.analysis.api.resolution.symbol
+import org.jetbrains.kotlin.analysis.api.session.analyze
 import org.jetbrains.kotlin.analysis.api.types.KaClassType
+import org.jetbrains.kotlin.analysis.api.types.isSubtypeOf
+import org.jetbrains.kotlin.analysis.api.types.semanticallyEquals
 import org.jetbrains.kotlin.idea.base.analysis.api.utils.shortenReferences
-import org.jetbrains.kotlin.types.Variance
 import org.jetbrains.kotlin.idea.base.resources.KotlinBundle
 import org.jetbrains.kotlin.idea.codeinsight.api.applicable.inspections.KotlinModCommandQuickFix
 import org.jetbrains.kotlin.idea.codeinsight.api.classic.inspections.AbstractKotlinInspection
 import org.jetbrains.kotlin.idea.codeinsight.utils.callExpression
 import org.jetbrains.kotlin.idea.codeinsights.impl.base.quickFix.AssociateFunction
-import org.jetbrains.kotlin.idea.codeinsights.impl.base.quickFix.AssociateFunction.ASSOCIATE_BY_KEY_AND_VALUE
 import org.jetbrains.kotlin.idea.codeinsights.impl.base.quickFix.AssociateFunction.ASSOCIATE_BY
+import org.jetbrains.kotlin.idea.codeinsights.impl.base.quickFix.AssociateFunction.ASSOCIATE_BY_KEY_AND_VALUE
 import org.jetbrains.kotlin.idea.codeinsights.impl.base.quickFix.AssociateFunction.ASSOCIATE_WITH
 import org.jetbrains.kotlin.idea.codeinsights.impl.base.quickFix.AssociateFunctionUtil
 import org.jetbrains.kotlin.idea.codeinsights.impl.base.quickFix.AssociateFunctionUtil.lambda
 import org.jetbrains.kotlin.idea.codeinsights.impl.base.quickFix.AssociateFunctionUtil.lastStatement
 import org.jetbrains.kotlin.idea.codeinsights.impl.base.quickFix.AssociateFunctionUtil.pair
+import org.jetbrains.kotlin.idea.util.tryResolveExpressionCall
 import org.jetbrains.kotlin.name.FqName
+import org.jetbrains.kotlin.name.Name
 import org.jetbrains.kotlin.name.StandardClassIds.BASE_COLLECTIONS_PACKAGE
+import org.jetbrains.kotlin.name.StandardClassIds.BASE_SEQUENCES_PACKAGE
 import org.jetbrains.kotlin.psi.BuilderByPattern
 import org.jetbrains.kotlin.psi.KtCallExpression
 import org.jetbrains.kotlin.psi.KtDotQualifiedExpression
@@ -39,8 +45,7 @@ import org.jetbrains.kotlin.psi.buildExpression
 import org.jetbrains.kotlin.psi.dotQualifiedExpressionVisitor
 import org.jetbrains.kotlin.psi.psiUtil.allChildren
 import org.jetbrains.kotlin.psi.psiUtil.getStrictParentOfType
-import org.jetbrains.kotlin.name.Name
-import org.jetbrains.kotlin.name.StandardClassIds.BASE_SEQUENCES_PACKAGE
+import org.jetbrains.kotlin.types.Variance
 
 
 class ReplaceAssociateFunctionInspection : AbstractKotlinInspection() {
@@ -49,7 +54,7 @@ class ReplaceAssociateFunctionInspection : AbstractKotlinInspection() {
         val callExpression = dotQualifiedExpression.callExpression ?: return
         val calleeExpression = callExpression.calleeExpression ?: return
         val calleeExpressionFqName = analyze(calleeExpression) {
-            val functionCall = calleeExpression.resolveToCall()?.singleFunctionCallOrNull() ?: return
+            val functionCall = calleeExpression.tryResolveExpressionCall()?.single?.function ?: return
             functionCall.symbol.callableId?.asSingleFqName() ?: return
         }
         if (calleeExpressionFqName !in validAssociateFqNames) return
@@ -97,7 +102,6 @@ class ReplaceAssociateFunctionFix(
         newExpression?.let { dotQualifiedExpression.replace(newExpression) }
     }
 
-    @OptIn(KaExperimentalApi::class)
     private fun createAssociateWithExpression(expressionData: ExpressionData, updater: ModPsiUpdater): KtExpression? =
         with(expressionData) {
             var keySelectorTypeRendered: String? = null

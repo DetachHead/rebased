@@ -10,4 +10,7 @@ public interface MermaidFlowchartLinkStatement extends MermaidPsiElement {
   @Nullable
   MermaidComplexLinkText getComplexLinkText();
 
+  @Nullable
+  MermaidEdgeId getEdgeId();
+
 }

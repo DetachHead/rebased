@@ -3,9 +3,9 @@ package com.intellij.ide.actions;
 
 import com.intellij.ide.IdeBundle;
 import com.intellij.ide.actions.searcheverywhere.ClassSearchEverywhereContributor;
+import com.intellij.ide.actions.searcheverywhere.GotoContributorsAvailabilityService;
 import com.intellij.ide.actions.searcheverywhere.statistics.SearchFieldStatisticsCollector;
 import com.intellij.ide.util.gotoByName.GotoClassModel2;
-import com.intellij.navigation.ChooseByNameRegistry;
 import com.intellij.openapi.actionSystem.ActionManager;
 import com.intellij.openapi.actionSystem.ActionPlaces;
 import com.intellij.openapi.actionSystem.AnAction;
@@ -58,7 +58,7 @@ public final class GotoClassAction extends SearchEverywhereBaseAction implements
   static void invokeGoToFile(@NotNull Project project, @NotNull AnActionEvent e, @NotNull AnAction failedAction) {
     String actionTitle = StringUtil.trimEnd(ObjectUtils.notNull(
       e.getPresentation().getText(), GotoClassPresentationUpdater.getActionTitle()), "...");
-    String message = IdeBundle.message("go.to.class.dumb.mode.message", actionTitle);
+    String message = IdeBundle.dumbModeMessage("go.to.class.dumb.mode.message", "go.to.class.light.mode.message", actionTitle);
     DumbService.getInstance(project).showDumbModeNotificationForAction(message, ActionManager.getInstance().getId(failedAction));
     AnAction action = ActionManager.getInstance().getAction(GotoFileAction.ID);
     InputEvent event = ActionCommand.getInputEvent(GotoFileAction.ID);
@@ -68,6 +68,8 @@ public final class GotoClassAction extends SearchEverywhereBaseAction implements
 
   @Override
   protected boolean hasContributors(@NotNull DataContext dataContext) {
-    return !ChooseByNameRegistry.getInstance().getClassModelContributorList().isEmpty();
+    Project project = CommonDataKeys.PROJECT.getData(dataContext);
+    if (project == null) return true;
+    return GotoContributorsAvailabilityService.getInstance(project).hasClassContributors();
   }
 }

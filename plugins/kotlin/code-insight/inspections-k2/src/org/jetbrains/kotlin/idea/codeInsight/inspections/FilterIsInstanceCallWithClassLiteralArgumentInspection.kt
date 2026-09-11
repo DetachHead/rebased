@@ -5,8 +5,9 @@ import com.intellij.codeInspection.CleanupLocalInspectionTool
 import com.intellij.codeInspection.ProblemsHolder
 import com.intellij.modcommand.ModPsiUpdater
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.util.TextRange
 import org.jetbrains.kotlin.analysis.api.KaSession
-import org.jetbrains.kotlin.analysis.api.components.resolveToSymbol
+import org.jetbrains.kotlin.analysis.api.resolution.resolveSuccessfulSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaNamedClassSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaNamedFunctionSymbol
 import org.jetbrains.kotlin.idea.base.codeInsight.ShortenReferencesFacility
@@ -14,7 +15,7 @@ import org.jetbrains.kotlin.idea.base.resources.KotlinBundle
 import org.jetbrains.kotlin.idea.codeinsight.api.applicable.asUnit
 import org.jetbrains.kotlin.idea.codeinsight.api.applicable.inspections.KotlinApplicableInspectionBase
 import org.jetbrains.kotlin.idea.codeinsight.api.applicable.inspections.KotlinModCommandQuickFix
-import org.jetbrains.kotlin.idea.references.mainReference
+import org.jetbrains.kotlin.idea.codeinsights.impl.base.applicators.ApplicabilityRanges
 import org.jetbrains.kotlin.name.CallableId
 import org.jetbrains.kotlin.name.Name
 import org.jetbrains.kotlin.name.StandardClassIds
@@ -26,6 +27,7 @@ import org.jetbrains.kotlin.psi.KtPsiFactory
 import org.jetbrains.kotlin.psi.KtValueArgument
 import org.jetbrains.kotlin.psi.KtVisitorVoid
 import org.jetbrains.kotlin.psi.psiUtil.getQualifiedElementSelector
+import org.jetbrains.kotlin.resolution.KtResolvable
 
 private val FILTER_IS_INSTANCE_CALLABLE_ID = CallableId(StandardClassIds.BASE_COLLECTIONS_PACKAGE, Name.identifier("filterIsInstance"))
 
@@ -50,7 +52,8 @@ internal class FilterIsInstanceCallWithClassLiteralArgumentInspection : KotlinAp
     override fun isApplicableByPsi(element: KtCallExpression): Boolean =
         element.calleeExpression?.text == "filterIsInstance" && element.valueArguments.singleOrNull()?.isClassLiteral() == true
 
-    override fun KaSession.prepareContext(element: KtCallExpression): Unit? {
+    context(session: KaSession)
+    override fun prepareContext(element: KtCallExpression): Unit? {
         if (element.resolveToFunctionSymbol()?.callableId != FILTER_IS_INSTANCE_CALLABLE_ID) return null
 
         return element.valueArguments
@@ -88,6 +91,10 @@ internal class FilterIsInstanceCallWithClassLiteralArgumentInspection : KotlinAp
             element.valueArgumentList?.removeArgument(argument)
         }
     }
+
+    override fun getApplicableRanges(element: KtCallExpression): List<TextRange> {
+        return ApplicabilityRanges.calleeExpression(element)
+    }
 }
 
 private fun KtValueArgument.isClassLiteral(): Boolean =
@@ -98,8 +105,8 @@ private fun KtValueArgument.classLiteral(): KtClassLiteralExpression? =
 
 context(_: KaSession)
 private fun KtElement.resolveToClassSymbol(): KaNamedClassSymbol? =
-    mainReference?.resolveToSymbol() as? KaNamedClassSymbol
+    (this as? KtResolvable)?.resolveSuccessfulSymbol() as? KaNamedClassSymbol
 
 context(_: KaSession)
 private fun KtCallExpression.resolveToFunctionSymbol(): KaNamedFunctionSymbol? =
-    calleeExpression?.mainReference?.resolveToSymbol() as? KaNamedFunctionSymbol
+    this.resolveSuccessfulSymbol() as? KaNamedFunctionSymbol

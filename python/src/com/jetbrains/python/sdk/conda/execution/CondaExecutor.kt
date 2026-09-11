@@ -1,7 +1,6 @@
 // Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.jetbrains.python.sdk.conda.execution
 
-import com.intellij.openapi.diagnostic.thisLogger
 import com.intellij.openapi.projectRoots.Sdk
 import com.intellij.openapi.util.IntellijInternalApi
 import com.intellij.platform.eel.isWindows
@@ -14,33 +13,23 @@ import com.intellij.python.community.execService.ExecService
 import com.intellij.python.community.execService.ProcessOutputTransformer
 import com.intellij.python.community.execService.ZeroCodeJsonParserTransformer
 import com.intellij.python.community.execService.ZeroCodeStdoutTransformer
-import com.intellij.python.community.execService.python.advancedApi.ExecutablePython
-import com.intellij.python.community.execService.python.advancedApi.validatePythonAndGetInfo
-import com.intellij.util.ShellEnvironmentReader
-import com.jetbrains.python.PyBundle
-import com.jetbrains.python.PythonInfo
 import com.jetbrains.python.errorProcessing.PyResult
 import com.jetbrains.python.packaging.common.PythonOutdatedPackage
 import com.jetbrains.python.packaging.common.PythonPackage
+import com.jetbrains.python.packaging.getCondaBasePython
+import com.intellij.python.sdk.backend.activationEnvironment
 import com.jetbrains.python.sdk.conda.execution.models.CondaEnvInfo
 import com.jetbrains.python.sdk.flavors.conda.PyCondaEnvIdentity
 import com.jetbrains.python.sdk.flavors.conda.PyCondaFlavorData
 import com.jetbrains.python.sdk.pySdkAdditionalData
 import com.jetbrains.python.sdk.runExecutableWithProgress
 import com.jetbrains.python.sdk.targetEnvConfiguration
-import org.jetbrains.annotations.ApiStatus
-import java.io.IOException
 import java.nio.file.Path
 import kotlin.io.path.Path
-import kotlin.io.path.absolutePathString
-import kotlin.io.path.exists
-import kotlin.io.path.isDirectory
-import kotlin.io.path.isExecutable
 import kotlin.io.path.pathString
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.minutes
 
-@ApiStatus.Internal
 internal object CondaExecutor {
   suspend fun createNamedEnv(binaryToExec: BinaryToExec, envName: String, pythonVersion: String): PyResult<Unit> {
     val args = listOf("create", "-y", "-n", envName, "python=${pythonVersion}")
@@ -134,11 +123,6 @@ internal object CondaExecutor {
     )
   }
 
-  suspend fun getPythonInfo(binaryToExec: BinaryToExec, envIdentity: PyCondaEnvIdentity): PyResult<PythonInfo> {
-    val runArgs = prepareCondaRunArgs(listOf("run"), listOf("python"), envIdentity)
-    return ExecService().validatePythonAndGetInfo(ExecutablePython(binaryToExec, runArgs, emptyMap()))
-  }
-
   private fun prepareCondaRunArgs(
     argsBeforeEnv: List<String>, argsAfterEnv: List<String>, condaEnvIdentity: PyCondaEnvIdentity?,
   ): List<String> {
@@ -167,7 +151,7 @@ internal object CondaExecutor {
     argsAfterEnv: List<String> = emptyList(),
     transformer: ProcessOutputTransformer<T>,
   ): PyResult<T> {
-    val envs = getFixedEnvs(binaryToExec).getOr { return it }
+    val envs = condaActivationEnvs(binaryToExec).getOr { return it }
     val runArgs = prepareCondaRunArgs(args, argsAfterEnv, condaEnvIdentity).toTypedArray()
     return runExecutableWithProgress(
       binaryToExec,
@@ -180,58 +164,19 @@ internal object CondaExecutor {
     )
   }
 
-  private fun getFixedEnvs(binaryToExec: BinaryToExec): PyResult<Map<String, String>> {
-    val pathOnEel = (binaryToExec as? BinOnEel)?.path
-                    ?: return PyResult.success(emptyMap())
-
-    val osFamily = pathOnEel.osFamily
-    if (!osFamily.isWindows) return PyResult.success(emptyMap())
-    if (!pathOnEel.exists()) {
-      return PyResult.localizedError(PyBundle.message("python.add.sdk.conda.executable.path.is.not.found"))
-    }
-    val activateBat = pathOnEel.resolveSibling("activate.bat")
-    if (!activateBat.isExecutable()) {
-      thisLogger().warn("$activateBat doesn't exist or can't be read")
-      return PyResult.success(emptyMap())
-    }
-    try {
-      val command = ShellEnvironmentReader.winShellCommand(activateBat, null)
-      val envs = ShellEnvironmentReader.readEnvironment(command, 0).first
-      val transformed = transformEnvVars(envs, pathOnEel)
-      return PyResult.success(transformed)
-    }
-    catch (e: IOException) {
-      thisLogger().warn("Can't read env vars", e)
-      return PyResult.success(emptyMap())
-    }
-  }
-
   /**
-   * Special fix for conda PATH.
-   * conda itself runs base python under the hood. When run non-base env, only non-base env gets activated, so conda
-   * first runs non-activated base python. It loads ``sitecustomize.py`` and it leads to mkl loading that throws warning
-   * due to path issue (DLL not found).
-   * We add this folder to conda path
+   * conda runs base python under the hood, so the base install's `Library\bin` (MKL DLLs) and the rest of the
+   * activation environment must be present (PY-57146). Activate the base conda env through the regular activation
+   * pipeline, which also appends `Library\bin` via the conda activation post-processor. Local Windows conda only.
    */
-  private fun transformEnvVars(envs: Map<String, String>, condaPathOnTarget: Path): Map<String, String> {
-    val extraPath = condaPathOnTarget.parent?.parent?.resolve("Library")?.resolve("Bin")
-    if (extraPath == null || !extraPath.exists() || !extraPath.isDirectory()) {
-      thisLogger().warn("$extraPath doesn't exist")
-    }
-    thisLogger().info("Patching envs")
-    return envs.map { (key, value) ->
-      val fixedVal = if (key.equals("Path", ignoreCase = true) && extraPath != null) {
-        value + ";" + extraPath.absolutePathString()
-      }
-      else value
-
-      key to fixedVal
-    }.toMap()
+  private suspend fun condaActivationEnvs(binaryToExec: BinaryToExec): PyResult<Map<String, String>> {
+    val condaExecutable = (binaryToExec as? BinOnEel)?.path ?: return PyResult.success(emptyMap())
+    if (!condaExecutable.osFamily.isWindows) return PyResult.success(emptyMap())
+    val baseCondaPython = getCondaBasePython(condaExecutable.pathString) ?: return PyResult.success(emptyMap())
+    return Path.of(baseCondaPython).activationEnvironment()
   }
 }
 
-
-@ApiStatus.Internal
 internal fun Sdk.getCondaBinToExecute(): BinaryToExec {
   val targetConfig = targetEnvConfiguration
   val pathOnTarget = (pySdkAdditionalData.flavorAndData.data as PyCondaFlavorData).env.fullCondaPathOnTarget

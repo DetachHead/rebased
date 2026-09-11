@@ -2,12 +2,14 @@
 package com.intellij.ui.treeStructure
 
 import com.intellij.openapi.components.service
+import com.intellij.openapi.editor.colors.TextAttributesKey
 import com.intellij.ui.SimpleTextAttributes
 import com.intellij.ui.tree.TreeVisitor
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
 import org.jetbrains.annotations.ApiStatus
+import java.awt.Color
 import javax.swing.Icon
 
 @ApiStatus.Experimental
@@ -34,13 +36,20 @@ interface TreeViewModelVisitor {
 }
 
 @ApiStatus.Experimental
-interface TreeNodeViewModel {
+interface TreeNodeWithPresentation {
+  val presentation: TreeNodePresentation
+}
+
+@ApiStatus.Experimental
+interface TreeNodeViewModel : TreeNodeWithPresentation {
   val domainModel: TreeNodeDomainModel
   val parent: TreeNodeViewModel?
   val state: Flow<TreeNodeState>
   val children: Flow<List<TreeNodeViewModel>>
   fun stateSnapshot(): TreeNodeState
   fun setExpanded(isExpanded: Boolean)
+  override val presentation: TreeNodePresentation
+    get() = stateSnapshot().presentation
 }
 
 @ApiStatus.Experimental
@@ -66,7 +75,9 @@ data class TreeNodePresentationImpl(
   val icon: Icon?,
   val mainText: String,
   val fullText: List<TreeNodeTextFragment>,
+  val background: Color?,
   val toolTip: String?,
+  val textAttributesKey: TextAttributesKey?,
 ) : TreeNodePresentation
 
 @ApiStatus.Internal

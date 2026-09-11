@@ -12,6 +12,7 @@
     <module name="intellij.platform.core.impl"/>
     <module name="intellij.platform.editor.ui"/>
     <module name="intellij.platform.ide.core"/>
+    <module name="intellij.platform.ide.core.impl"/>
     <module name="intellij.platform.ide.impl"/>
     <module name="intellij.platform.lang"/>
     <module name="intellij.platform.lang.impl"/>
@@ -19,6 +20,7 @@
     <module name="intellij.platform.polySymbols"/>
     <module name="intellij.platform.projectModel"/>
     <module name="intellij.platform.projectModel.impl"/>
+    <module name="intellij.platform.syntax.psi"/>
     <module name="intellij.platform.util.ui"/>
     <module name="intellij.regexp"/>
     <module name="intellij.xml.parser"/>
@@ -75,6 +77,9 @@
     <standardResourceProvider implementation="com.intellij.javaee.InternalResourceProvider"/>
 
     <projectService serviceInterface="com.intellij.javaee.ExternalResourceManagerExBase" serviceImplementation="com.intellij.javaee.ProjectResources"/>
+    <applicationService serviceInterface="com.intellij.javaee.ExternalResourceManager"
+                        serviceImplementation="com.intellij.javaee.ExternalResourceManagerExBase"/>
+    <applicationSettings service="com.intellij.javaee.ExternalResourceManagerExBase"/>
 
     <projectService serviceInterface="com.intellij.psi.XmlElementFactory" serviceImplementation="com.intellij.psi.XmlElementFactoryImpl"/>
 

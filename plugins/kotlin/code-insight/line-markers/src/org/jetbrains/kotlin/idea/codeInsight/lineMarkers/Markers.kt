@@ -13,13 +13,14 @@ import com.intellij.psi.createSmartPointer
 import com.intellij.psi.util.parentOfType
 import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.annotations.Nls
-import org.jetbrains.kotlin.analysis.api.KaExperimentalApi
-import org.jetbrains.kotlin.analysis.api.analyze
 import org.jetbrains.kotlin.analysis.api.projectStructure.KaLibraryModule
 import org.jetbrains.kotlin.analysis.api.projectStructure.KaLibrarySourceModule
 import org.jetbrains.kotlin.analysis.api.projectStructure.KaModule
 import org.jetbrains.kotlin.analysis.api.projectStructure.KaSourceModule
+import org.jetbrains.kotlin.analysis.api.session.analyze
 import org.jetbrains.kotlin.analysis.api.symbols.KaDeclarationSymbol
+import org.jetbrains.kotlin.analysis.api.symbols.getExpectsForActual
+import org.jetbrains.kotlin.analysis.api.symbols.symbol
 import org.jetbrains.kotlin.idea.base.facet.isHMPPEnabled
 import org.jetbrains.kotlin.idea.base.platforms.KotlinNativeLibraryKind
 import org.jetbrains.kotlin.idea.base.platforms.detectLibraryKind
@@ -27,10 +28,8 @@ import org.jetbrains.kotlin.idea.base.platforms.isKlibLibraryRootForPlatform
 import org.jetbrains.kotlin.idea.base.projectStructure.bundledLibraryVariant
 import org.jetbrains.kotlin.idea.base.projectStructure.extractLibraryVariantName
 import org.jetbrains.kotlin.idea.base.projectStructure.getKaModule
-import org.jetbrains.kotlin.idea.base.projectStructure.kmp.SourceModuleDependenciesFilterCandidate
 import org.jetbrains.kotlin.idea.base.projectStructure.openapiLibrary
 import org.jetbrains.kotlin.idea.base.projectStructure.openapiModule
-import org.jetbrains.kotlin.idea.base.util.K1ModeProjectStructureApi
 import org.jetbrains.kotlin.idea.searching.kmp.findAllActualForExpect
 import org.jetbrains.kotlin.konan.library.KONAN_STDLIB_NAME
 import org.jetbrains.kotlin.name.Name
@@ -159,7 +158,6 @@ private class ActualExpectedPsiElementCellRenderer(private val onlyModuleNames: 
 }
 
 @Nls
-@OptIn(KaExperimentalApi::class)
 @Suppress("HardCodedStringLiteral")
 fun KaModule.nameForTooltip(): String {
     when (this) {
@@ -230,7 +228,6 @@ fun buildNavigateToExpectedDeclarationsPopup(element: PsiElement?, allNavigatabl
     }
 }
 
-@OptIn(KaExperimentalApi::class)
 fun hasExpectForActual(declaration: KtDeclaration): Boolean {
     return analyze(declaration) {
         val symbol: KaDeclarationSymbol = declaration.symbol
@@ -242,7 +239,6 @@ fun KtDeclaration.allNavigatableExpectedDeclarations(): List<SmartPsiElementPoin
     return expectedDeclarationIfAny() + findMarkerBoundDeclarations().flatMap { it.expectedDeclarationIfAny() }
 }
 
-@OptIn(KaExperimentalApi::class)
 internal fun KtDeclaration.expectedDeclarationIfAny(): List<SmartPsiElementPointer<KtDeclaration>> {
     val declaration = this
     return analyze(this) {

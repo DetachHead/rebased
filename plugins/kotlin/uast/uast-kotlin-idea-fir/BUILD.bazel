@@ -1,8 +1,8 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
 load("//build:compiler-options.bzl", "create_kotlinc_options")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
 ### auto-generated section `build intellij.kotlin.uast.idea` start
-
 create_kotlinc_options(
     name = "custom_kotlin-uast-idea",
     opt_in = [
@@ -25,13 +25,17 @@ jvm_library(
     ),
     kotlinc_opts = ":custom_kotlin-uast-idea",
     module_name = "intellij.kotlin.uast.idea",
+    resource_strip_prefix = "resources",
+    resources = glob(
+        ["resources/**/*"],
+    ),
     visibility = ["//visibility:public"],
     deps = [
         # do not sort,
         "@lib//:kotlin-stdlib",
-        "@lib//:kotlinc-kotlin-compiler-common",
-        "@lib//:kotlinc-analysis-api",
-        "@lib//:kotlinc-analysis-api-k2",
+        "//libraries/kotlinc/kotlin-compiler-common:libraries-kotlinc-kotlin-compiler-common",
+        "//libraries/kotlinc/analysis-api:libraries-kotlinc-analysis-api",
+        "//libraries/kotlinc/analysis-api-k2:libraries-kotlinc-analysis-api-k2",
         "//plugins/kotlin/uast/uast-kotlin-base:kotlin-uast-base",
         "//platform/util",
         "//plugins/kotlin/frontend-independent",
@@ -51,6 +55,8 @@ jvm_library(
     ],
 )
 
+content_module_jar(module = ":kotlin-uast-idea")
+
 jvm_library(
     name = "kotlin-uast-idea_test_lib",
     testonly = True,
@@ -64,7 +70,11 @@ jvm_library(
     runtime_deps = [
         # do not sort,
         ":kotlin-uast-idea",
-        "@lib//:kotlin-test",
+        "//libraries/kotlin/test:libraries-kotlinTest",
+        "//libraries/kotlin/test:libraries-kotlinTest_test_lib",
+        "//libraries/kotlinc/kotlin-compiler-common:libraries-kotlinc-kotlin-compiler-common_test_lib",
+        "//libraries/kotlinc/analysis-api:libraries-kotlinc-analysis-api_test_lib",
+        "//libraries/kotlinc/analysis-api-k2:libraries-kotlinc-analysis-api-k2_test_lib",
         "//plugins/kotlin/uast/uast-kotlin-base:kotlin-uast-base_test_lib",
         "//platform/util:util_test_lib",
         "//plugins/kotlin/frontend-independent:frontend-independent_test_lib",
@@ -91,6 +101,7 @@ jvm_library(
 exports_files(
     [
         "intellij.kotlin.uast.idea.iml",
+        "resources/intellij.kotlin.uast.idea.xml",
     ],
     visibility = ["//visibility:public"],
 )

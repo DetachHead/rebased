@@ -85,9 +85,9 @@ internal class GHPRDetailsViewModelImpl(
   private val vm by lazy { project.service<GHPRProjectViewModel>() }
   override val securityService: GHPRSecurityService = dataContext.securityService
   override val avatarIconsProvider: IconsProvider<String> = dataContext.avatarIconsProvider
-  override val branchesVm = GHPRBranchesViewModel(cs, project, dataContext.repositoryDataService.repositoryMapping, detailsState)
+  override val branchesVm = GHPRBranchesViewModel(cs, project, dataContext.repositoryDataService.repositoryMapping, dataContext.securityService.account, detailsState)
 
-  private val reviewVmHelper = GHPRReviewViewModelHelper(cs, dataProvider)
+  private val reviewVmHelper = GHPRReviewViewModelHelper(cs, project, dataProvider)
   override val changesVm = GHPRChangesViewModelImpl(cs, project, dataContext, dataProvider, openPullRequestDiff)
 
   private val remoteUrlCoordinates = dataContext.repositoryDataService.repositoryMapping.remote

@@ -1,4 +1,4 @@
-// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.jetbrains.python.statistics
 
 import com.intellij.notification.impl.NotificationIdsHolder
@@ -81,11 +81,13 @@ internal class PackageRequirementsIdsHolder : NotificationIdsHolder {
 
 internal class PythonSDKUpdaterIdsHolder : NotificationIdsHolder {
   override fun getNotificationIds(): List<String> = listOf(
+    REFRESH_SKELETONS_FAILED,
     REFRESH_SKELETONS_FOR_REMOTE_INTERPRETER_FAILED,
     REMOTE_INTERPRETER_SUPPORT_IS_NOT_AVAILABLE,
   )
 
   companion object {
+    const val REFRESH_SKELETONS_FAILED = "refresh.skeletons.failed"
     const val REFRESH_SKELETONS_FOR_REMOTE_INTERPRETER_FAILED = "refresh.skeletons.for.remote.interpreter.failed"
     const val REMOTE_INTERPRETER_SUPPORT_IS_NOT_AVAILABLE = "remote.interpreter.support.is.not.available"
   }

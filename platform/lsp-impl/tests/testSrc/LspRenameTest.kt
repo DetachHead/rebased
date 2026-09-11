@@ -20,17 +20,22 @@ import com.intellij.testFramework.junit5.fixture.projectFixture
 import com.intellij.testFramework.junit5.fixture.tempPathFixture
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import org.eclipse.lsp4j.DeleteFile
 import org.eclipse.lsp4j.Position
 import org.eclipse.lsp4j.PrepareRenameDefaultBehavior
 import org.eclipse.lsp4j.PrepareRenameResult
 import org.eclipse.lsp4j.Range
+import org.eclipse.lsp4j.RenameFile
 import org.eclipse.lsp4j.RenameOptions
+import org.eclipse.lsp4j.TextDocumentEdit
 import org.eclipse.lsp4j.TextEdit
+import org.eclipse.lsp4j.VersionedTextDocumentIdentifier
 import org.eclipse.lsp4j.WorkspaceEdit
 import org.eclipse.lsp4j.jsonrpc.messages.Either
 import org.eclipse.lsp4j.jsonrpc.messages.Either3
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Nested
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertNotNull
@@ -84,7 +89,6 @@ internal class LspRenameTest {
 
     @Test
     fun `prepareRename returns range and placeholder`() = timeoutRunBlocking {
-      // given
       TemplateManagerImpl.setTemplateTesting(project)
 
       val virtualFile = codeInsightFixture.configureByText("test.txt", "hello world").virtualFile
@@ -95,10 +99,8 @@ internal class LspRenameTest {
         Either3.forSecond(PrepareRenameResult(Range(Position(0, 0), Position(0, 5)), "hello"))
       }
 
-      // when
       triggerRename()
 
-      // then
       serverSession.awaitExpected()
       withContext(Dispatchers.EDT) {
         val templateState = TemplateManagerImpl.getTemplateState(codeInsightFixture.editor)
@@ -113,7 +115,6 @@ internal class LspRenameTest {
 
     @Test
     fun `prepareRename with range only uses document text`() = timeoutRunBlocking {
-      // given
       TemplateManagerImpl.setTemplateTesting(project)
 
       val virtualFile = codeInsightFixture.configureByText("test.txt", "hello world").virtualFile
@@ -124,10 +125,8 @@ internal class LspRenameTest {
         Either3.forFirst(Range(Position(0, 0), Position(0, 5)))
       }
 
-      // when
       triggerRename()
 
-      // then
       serverSession.awaitExpected()
       withContext(Dispatchers.EDT) {
         val templateState = TemplateManagerImpl.getTemplateState(codeInsightFixture.editor)
@@ -142,7 +141,6 @@ internal class LspRenameTest {
 
     @Test
     fun `prepareRename with defaultBehavior falls back to word range`() = timeoutRunBlocking {
-      // given
       TemplateManagerImpl.setTemplateTesting(project)
 
       val virtualFile = codeInsightFixture.configureByText("test.txt", "hello world").virtualFile
@@ -153,10 +151,8 @@ internal class LspRenameTest {
         Either3.forThird(PrepareRenameDefaultBehavior(true))
       }
 
-      // when
       triggerRename()
 
-      // then
       serverSession.awaitExpected()
       withContext(Dispatchers.EDT) {
         val templateState = TemplateManagerImpl.getTemplateState(codeInsightFixture.editor)
@@ -188,16 +184,13 @@ internal class LspRenameTest {
 
     @Test
     fun `prepareProvider disabled falls back to word range`() = timeoutRunBlocking {
-      // given
       TemplateManagerImpl.setTemplateTesting(project)
 
       val virtualFile = codeInsightFixture.configureByText("test.txt", "hello world").virtualFile
       configureServerSession(project, virtualFile)
 
-      // when
       triggerRename()
 
-      // then
       withContext(Dispatchers.EDT) {
         val templateState = TemplateManagerImpl.getTemplateState(codeInsightFixture.editor)
         assertNotNull(templateState, "Template should be active")
@@ -228,7 +221,6 @@ internal class LspRenameTest {
 
     @Test
     fun `rename applies workspace edit from server`() = timeoutRunBlocking {
-      // given
       TemplateManagerImpl.setTemplateTesting(project)
 
       val virtualFile = codeInsightFixture.configureByText("test.txt", "hello world").virtualFile
@@ -245,18 +237,15 @@ internal class LspRenameTest {
         WorkspaceEdit(mapOf(fileUri to listOf(TextEdit(Range(Position(0, 0), Position(0, 5)), "greetings"))))
       }
 
-      // when
       triggerRename()
       codeInsightFixture.type("greetings\n")
 
-      // then
       serverSession.awaitExpected()
       assertEquals("greetings world", codeInsightFixture.editor.document.text)
     }
 
     @Test
     fun `undoing rename template restores original document and does not send server request`() = timeoutRunBlocking {
-      // given
       TemplateManagerImpl.setTemplateTesting(project)
 
       val virtualFile = codeInsightFixture.configureByText("test.txt", "hello world").virtualFile
@@ -267,19 +256,16 @@ internal class LspRenameTest {
         Either3.forSecond(PrepareRenameResult(Range(Position(0, 0), Position(0, 5)), "hello"))
       }
 
-      // when
       triggerRename()
       codeInsightFixture.type("greetings")
       codeInsightFixture.performEditorAction(IdeActions.ACTION_UNDO)
 
-      // then
       serverSession.awaitExpected()
       assertEquals("hello world", codeInsightFixture.editor.document.text)
     }
 
     @Test
     fun `aborting rename does not send server request`() = timeoutRunBlocking {
-      // given
       TemplateManagerImpl.setTemplateTesting(project)
 
       val virtualFile = codeInsightFixture.configureByText("test.txt", "hello world").virtualFile
@@ -290,20 +276,17 @@ internal class LspRenameTest {
         Either3.forSecond(PrepareRenameResult(Range(Position(0, 0), Position(0, 5)), "hello"))
       }
 
-      // when
       triggerRename()
       val state = TemplateManagerImpl.getTemplateState(codeInsightFixture.editor)
       codeInsightFixture.type("greetings")
       WriteCommandAction.runWriteCommandAction(project) { state?.gotoEnd(true) }
 
-      // then
       serverSession.awaitExpected()
       assertEquals("hello world", codeInsightFixture.editor.document.text)
     }
 
     @Test
     fun `rename applies edits on multiple lines`() = timeoutRunBlocking {
-      // given
       TemplateManagerImpl.setTemplateTesting(project)
 
       val text = """
@@ -330,11 +313,9 @@ internal class LspRenameTest {
         )))
       }
 
-      // when
       triggerRename()
       codeInsightFixture.type("renamed\n")
 
-      // then
       serverSession.awaitExpected()
       val expectedText = """
         renamed bar
@@ -345,8 +326,76 @@ internal class LspRenameTest {
     }
 
     @Test
+    fun `rename applies RenameFile operation together with text edits`() = timeoutRunBlocking {
+      TemplateManagerImpl.setTemplateTesting(project)
+
+      // The scenario emulates the rename of a top-level class: the server edits the text and renames the file
+      val virtualFile = codeInsightFixture.configureByText("Foo.txt", "class <caret>Foo").virtualFile
+      val serverSession = configureServerSession(project, virtualFile)
+      val fileUri = serverSession.fileUri(virtualFile)
+      val newFileUri = fileUri.removeSuffix("Foo.txt") + "Bar.txt"
+
+      serverSession.expectRequest(serverSession.PREPARE_RENAME, { it.textDocument.uri == fileUri }) {
+        Either3.forSecond(PrepareRenameResult(Range(Position(0, 6), Position(0, 9)), "Foo"))
+      }
+
+      serverSession.expectRequest(serverSession.RENAME, {
+        it.textDocument.uri == fileUri && it.newName == "Bar"
+      }) {
+        WorkspaceEdit(listOf(
+          Either.forLeft(TextDocumentEdit(
+            VersionedTextDocumentIdentifier(fileUri, null),
+            listOf(Either.forLeft(TextEdit(Range(Position(0, 6), Position(0, 9)), "Bar"))),
+          )),
+          Either.forRight(RenameFile(fileUri, newFileUri)),
+        ))
+      }
+
+      triggerRename()
+      codeInsightFixture.type("Bar\n")
+
+      serverSession.awaitExpected()
+      assertEquals("class Bar", codeInsightFixture.editor.document.text)
+      assertEquals("Bar.txt", virtualFile.name)
+    }
+
+    @Test
+    fun `rename applies DeleteFile operation together with text edits`() = timeoutRunBlocking {
+      TemplateManagerImpl.setTemplateTesting(project)
+
+      // The scenario emulates a rename that makes another file obsolete: the server edits the text and deletes that file
+      val virtualFile = codeInsightFixture.configureByText("Baz.txt", "class <caret>Baz").virtualFile
+      val obsoleteFile = codeInsightFixture.addFileToProject("Obsolete.txt", "obsolete content").virtualFile
+      val serverSession = configureServerSession(project, virtualFile)
+      val fileUri = serverSession.fileUri(virtualFile)
+      val obsoleteFileUri = serverSession.fileUri(obsoleteFile)
+
+      serverSession.expectRequest(serverSession.PREPARE_RENAME, { it.textDocument.uri == fileUri }) {
+        Either3.forSecond(PrepareRenameResult(Range(Position(0, 6), Position(0, 9)), "Baz"))
+      }
+
+      serverSession.expectRequest(serverSession.RENAME, {
+        it.textDocument.uri == fileUri && it.newName == "Qux"
+      }) {
+        WorkspaceEdit(listOf(
+          Either.forLeft(TextDocumentEdit(
+            VersionedTextDocumentIdentifier(fileUri, null),
+            listOf(Either.forLeft(TextEdit(Range(Position(0, 6), Position(0, 9)), "Qux"))),
+          )),
+          Either.forRight(DeleteFile(obsoleteFileUri)),
+        ))
+      }
+
+      triggerRename()
+      codeInsightFixture.type("Qux\n")
+
+      serverSession.awaitExpected()
+      assertEquals("class Qux", codeInsightFixture.editor.document.text)
+      assertFalse(obsoleteFile.isValid)
+    }
+
+    @Test
     fun `rename XML tag via LSP when native PSI rename is also available`() = timeoutRunBlocking {
-      // given
       TemplateManagerImpl.setTemplateTesting(project)
 
       val virtualFile = codeInsightFixture.configureByText("test.xml", "<tag>text</tag>").virtualFile
@@ -366,11 +415,9 @@ internal class LspRenameTest {
         )))
       }
 
-      // when
       triggerRename()
       codeInsightFixture.type("newtag\n")
 
-      // then
       serverSession.awaitExpected()
       assertEquals("<newtag>text</newtag>", codeInsightFixture.editor.document.text)
     }

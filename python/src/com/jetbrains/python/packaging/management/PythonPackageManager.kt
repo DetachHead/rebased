@@ -16,9 +16,12 @@ import com.intellij.openapi.progress.runBlockingMaybeCancellable
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.projectRoots.Sdk
 import com.intellij.openapi.util.Key
+import com.intellij.openapi.util.io.FileUtil
+import com.intellij.platform.util.coroutines.childScope
 import com.intellij.psi.PsiFile
+import com.intellij.python.pyproject.PyDependencyGroup
+import com.intellij.python.pyproject.model.spi.ProjectName
 import com.intellij.serviceContainer.AlreadyDisposedException
-import com.intellij.util.cancelOnDispose
 import com.intellij.util.concurrency.annotations.RequiresBackgroundThread
 import com.intellij.util.concurrency.annotations.RequiresEdt
 import com.intellij.util.messages.Topic
@@ -38,23 +41,29 @@ import com.jetbrains.python.packaging.common.loadInstalledPackagesMetadata
 import com.jetbrains.python.packaging.packageRequirements.DependencyTreeProvider
 import com.jetbrains.python.packaging.packageRequirements.FlatPackageStructureNode
 import com.jetbrains.python.packaging.packageRequirements.PackageStructureNode
+import com.jetbrains.python.packaging.requirementsTxt.PythonRequirementTxtSdkUtils
 import com.jetbrains.python.packaging.utils.PyPackageCoroutine
 import com.jetbrains.python.requirements.PyDependenciesFile
 import com.jetbrains.python.requirements.PyDependenciesFileProvider
-import com.jetbrains.python.sdk.PythonSdkAdditionalData
 import com.jetbrains.python.sdk.PythonSdkType
 import com.jetbrains.python.sdk.associatedModuleDir
 import com.jetbrains.python.sdk.isReadOnly
+import com.jetbrains.python.sdk.pySdkAdditionalData
 import com.jetbrains.python.sdk.readOnlyErrorMessage
 import com.jetbrains.python.sdk.refreshPaths
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.async
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.job
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -75,33 +84,51 @@ import kotlin.coroutines.cancellation.CancellationException
 abstract class PythonPackageManager @ApiStatus.Internal constructor(
   val project: Project,
   val sdk: Sdk,
-) : Disposable.Default {
+) : Disposable {
   /**
    * Whether this manager has an explicit list of top-level dependencies (e.g. from pyproject.toml).
    * When true, only packages from [listDeclaredPackagesCached] are treated as "declared" in the UI,
    * and the rest are shown as transitive.
    * When false (default), all installed packages are considered declared.
    */
-  internal open val installedPackagesIncludeTransitive: Boolean = false
+  @ApiStatus.Internal
+  open val installedPackagesIncludeTransitive: Boolean = false
 
   @get:ApiStatus.Internal
   protected abstract val dependenciesFilesRelativePaths: List<Path>
 
-  val isInstalledPackagesLoaded: Boolean
-    @ApiStatus.Internal
-    get() = installedPackages != null
+  /**
+   * Lifetime of every coroutine this manager starts. A child of the packaging scope of the project.
+   */
+  @ApiStatus.Internal
+  protected val managerScope: CoroutineScope =
+    PyPackageCoroutine.getScope(project).childScope("PythonPackageManager for ${sdk.name}")
 
   private val isInited = AtomicBoolean(false)
   private val packageReloadMutex = Mutex()
 
   private val dependencyCache = DependencyCache()
 
-  private val initializationJob = PyPackageCoroutine.launch(project,
-                                                            NON_INTERACTIVE_ROOT_TRACE_CONTEXT + ModalityState.any().asContextElement(),
-                                                            start = CoroutineStart.LAZY) {
+  private val initializationJob = managerScope.launch(
+    NON_INTERACTIVE_ROOT_TRACE_CONTEXT + ModalityState.any().asContextElement(),
+    start = CoroutineStart.LAZY,
+  ) {
     initInstalledPackages()
-  }.also {
-    it.cancelOnDispose(this)
+  }
+
+  /**
+   * Cancels [this] together with [managerScope]. Use it for a job that this manager did not start itself.
+   */
+  @ApiStatus.Internal
+  protected fun <T : Job> T.cancelWithManager(): T = also { job ->
+    managerScope.coroutineContext.job.invokeOnCompletion { job.cancel() }
+  }
+
+  @ApiStatus.Internal
+  override fun dispose() {
+    // Not inherited from Disposable.Default: the scope's parent is the project, so without this it would outlive
+    // the manager and keep running work for an SDK that is already gone.
+    managerScope.cancel()
   }
 
 
@@ -117,12 +144,13 @@ abstract class PythonPackageManager @ApiStatus.Internal constructor(
   @Volatile
   private var installedPackagesMetadata: Map<PyPackageName, PythonPackageMetadata> = emptyMap()
 
-  @ApiStatus.Internal
-  internal open val treeProvider: DependencyTreeProvider? = null
+  @get:ApiStatus.Internal
+  open val treeProvider: DependencyTreeProvider? = null
 
-  internal abstract val repositoryManager: PythonRepositoryManager
+  @get:ApiStatus.Internal
+  abstract val repositoryManager: PythonRepositoryManager
 
-  @ApiStatus.Internal
+  @get:ApiStatus.Internal
   open val dependenciesExporter: DependenciesExporter? = null
 
   @ApiStatus.Internal
@@ -134,17 +162,17 @@ abstract class PythonPackageManager @ApiStatus.Internal constructor(
     return reloadPackages()
   }
 
-  @ApiStatus.Internal
   internal suspend fun installPackage(
     installRequest: PythonPackageInstallRequest,
     options: List<String> = emptyList(),
     module: Module? = null,
+    dependencyGroup: PyDependencyGroup? = null,
   ): PyResult<List<PythonPackage>> {
     if (sdk.isReadOnly) {
       return PyResult.localizedError(sdk.readOnlyErrorMessage)
     }
     waitForInit()
-    installPackageCommand(installRequest, options, module).getOr { return it }
+    installPackageCommand(installRequest, options, module, dependencyGroup).getOr { return it }
 
     return reloadPackages()
   }
@@ -161,7 +189,7 @@ abstract class PythonPackageManager @ApiStatus.Internal constructor(
   }
 
   @ApiStatus.Internal
-  suspend fun uninstallPackage(vararg packages: String, workspaceMember: PyWorkspaceMember? = null): PyResult<List<PythonPackage>> {
+  suspend fun uninstallPackage(vararg packages: String, workspaceMember: PyWorkspaceMember? = null, dependencyGroup: PyDependencyGroup? = null): PyResult<List<PythonPackage>> {
     if (sdk.isReadOnly) {
       return PyResult.localizedError(sdk.readOnlyErrorMessage)
     }
@@ -172,7 +200,7 @@ abstract class PythonPackageManager @ApiStatus.Internal constructor(
     waitForInit()
 
     val normalizedPackagesNames = packages.map { PyPackageName.normalizePackageName(it) }
-    uninstallPackageCommand(*normalizedPackagesNames.toTypedArray(), workspaceMember = workspaceMember).getOr { return it }
+    uninstallPackageCommand(*normalizedPackagesNames.toTypedArray(), workspaceMember = workspaceMember, dependencyGroup = dependencyGroup).getOr { return it }
     return reloadPackages()
   }
 
@@ -199,12 +227,12 @@ abstract class PythonPackageManager @ApiStatus.Internal constructor(
         syncPublisher(PyPackageManager.PACKAGE_MANAGER_TOPIC).packagesRefreshed(sdk)
       }
 
-      PyPackageCoroutine.launch(project, NON_INTERACTIVE_ROOT_TRACE_CONTEXT) {
+      managerScope.launch(NON_INTERACTIVE_ROOT_TRACE_CONTEXT) {
         reloadOutdatedPackages()
-      }.cancelOnDispose(this@PythonPackageManager)
-      PyPackageCoroutine.launch(project, NON_INTERACTIVE_ROOT_TRACE_CONTEXT) {
+      }
+      managerScope.launch(NON_INTERACTIVE_ROOT_TRACE_CONTEXT) {
         reloadInstalledPackagesMetadata()
-      }.cancelOnDispose(this@PythonPackageManager)
+      }
 
       if (!isInit) {
         refreshPaths(project, sdk)
@@ -233,6 +261,18 @@ abstract class PythonPackageManager @ApiStatus.Internal constructor(
    */
   @ApiStatus.Experimental
   fun listDeclaredPackagesSnapshot(): List<PythonPackage>? = dependencyCache.snapshot.value
+
+  /**
+   * Whether [file] is one of the dependency files this manager currently tracks for the active
+   * interpreter — i.e. it is present in the cached dependency-file tree (the root plus, e.g., uv
+   * workspace members), not merely a file that happens to share a name. Non-blocking: reflects the
+   * last cache refresh and is `false` until the manager has been initialized.
+   */
+  @ApiStatus.Internal
+  fun tracksDependencyFile(file: PsiFile): Boolean {
+    val virtualFile = file.originalFile.virtualFile ?: return false
+    return dependencyCache.trackedFilesSnapshot().any { it.virtualFile == virtualFile }
+  }
 
   @ApiStatus.Experimental
   suspend fun listOutdatedPackages(): Map<String, PythonOutdatedPackage> {
@@ -313,15 +353,16 @@ abstract class PythonPackageManager @ApiStatus.Internal constructor(
    */
   @ApiStatus.Internal
   @CheckReturnValue
-internal  abstract suspend fun installPackageCommand(
+  abstract suspend fun installPackageCommand(
     installRequest: PythonPackageInstallRequest,
     options: List<String>,
     module: Module? = null,
+    dependencyGroup: PyDependencyGroup? = null,
   ): PyResult<Unit>
 
   @ApiStatus.Internal
   @CheckReturnValue
-  internal open suspend fun installPackageDetachedCommand(
+  open suspend fun installPackageDetachedCommand(
     installRequest: PythonPackageInstallRequest,
     options: List<String>,
   ): PyResult<Unit> =
@@ -336,6 +377,7 @@ internal  abstract suspend fun installPackageCommand(
   protected abstract suspend fun uninstallPackageCommand(
     vararg pythonPackages: String,
     workspaceMember: PyWorkspaceMember? = null,
+    dependencyGroup: PyDependencyGroup? = null,
   ): PyResult<Unit>
 
   @ApiStatus.Internal
@@ -358,6 +400,19 @@ internal  abstract suspend fun installPackageCommand(
    */
   @ApiStatus.Internal
   open suspend fun getPackageTree(): PackageStructureNode = FlatPackageStructureNode
+
+  /**
+   * Returns workspace support if this manager supports multi-project workspaces or dependency groups,
+   * `null` otherwise.
+   */
+  @get:ApiStatus.Internal
+  open val workspaceSupport: PythonWorkspaceSupport? get() = null
+
+  /**
+   * CLI tools exposed by this manager, used for command-mode completion and dispatch in the install dialog.
+   */
+  @get:ApiStatus.Internal
+  open val cliSpecs: List<PythonManagerCliSpec> get() = emptyList()
 
   /**
    * Lists project top-level (declared) dependencies with caching based on dependency file modification time.
@@ -384,14 +439,15 @@ internal  abstract suspend fun installPackageCommand(
 
   @ApiStatus.Internal
   suspend fun getRootDependenciesFile(): PyDependenciesFile? {
-    val baseDir = sdk.associatedModuleDir ?: return null
-    val persistedRelative = (sdk.sdkAdditionalData as? PythonSdkAdditionalData)?.requiredTxtPath?.toString()
-    val virtualFile = if (persistedRelative != null) {
-      baseDir.findFileByRelativePath(persistedRelative)
+    val virtualFile = if (sdk.pySdkAdditionalData.requirementsPath != null) {
+      // An explicitly stored path wins over (and does not fall back to) the manager-specific defaults.
+      PythonRequirementTxtSdkUtils.resolvePersistedRequirementsFile(sdk)
     }
     else {
-      dependenciesFilesRelativePaths.firstNotNullOfOrNull { path ->
-        baseDir.findFileByRelativePath(path.toString())
+      sdk.associatedModuleDir?.let { baseDir ->
+        dependenciesFilesRelativePaths.firstNotNullOfOrNull { path ->
+          baseDir.findFileByRelativePath(FileUtil.toSystemIndependentName(path.toString()))
+        }
       }
     }
     return virtualFile?.let { PyDependenciesFileProvider.resolve(it) }
@@ -468,13 +524,13 @@ internal  abstract suspend fun installPackageCommand(
       // runs synchronously on the thread that completed the underlying deferred. `drop(1)`
       // skips the StateFlow's initial replay so manager construction doesn't trigger a
       // spurious restart for the still-empty snapshot.
-      PyPackageCoroutine.launch(project, NON_INTERACTIVE_ROOT_TRACE_CONTEXT) {
+      managerScope.launch(NON_INTERACTIVE_ROOT_TRACE_CONTEXT) {
         snapshot.drop(1).collect {
           if (!project.isDisposed) {
             DaemonCodeAnalyzer.getInstance(project).restart("PythonPackageManager.declaredPackagesChanged")
           }
         }
-      }.cancelOnDispose(this@PythonPackageManager)
+      }
     }
 
     /**
@@ -497,7 +553,7 @@ internal  abstract suspend fun installPackageCommand(
         CompletableDeferred(value = null)
       }
       else {
-        PyPackageCoroutine.getScope(project).async(NON_INTERACTIVE_ROOT_TRACE_CONTEXT, start = CoroutineStart.LAZY) {
+        managerScope.async(NON_INTERACTIVE_ROOT_TRACE_CONTEXT, start = CoroutineStart.LAZY) {
           listDeclaredPackages()
         }
       }
@@ -519,9 +575,16 @@ internal  abstract suspend fun installPackageCommand(
     suspend fun awaitLatest(): PyResult<List<PythonPackage>>? = ensureFreshEntry().deferred.await()
 
     /**
+     * Non-blocking view of the dependency files the latest cache entry tracks (root plus, e.g., uv
+     * workspace members). Empty until the cache has been seeded by [initInstalledPackages] or a
+     * [listDeclaredPackagesCached] refresh.
+     */
+    fun trackedFilesSnapshot(): List<PyDependenciesFile> = entry?.files?.keys?.toList().orEmpty()
+
+    /**
      * [files] is the `(file -> modification stamp)` cache key; [deferred] is the
      * `listDeclaredPackages` result (pre-completed `CompletableDeferred(null)` when there
-     * are no files, otherwise a `LAZY` async on [PyPackageCoroutine.getScope]).
+     * are no files, otherwise a `LAZY` async on [managerScope]).
      */
     private inner class Entry(
       val files: SequencedMap<PyDependenciesFile, Long>,
@@ -560,6 +623,20 @@ fun PythonPackageManager.listDeclaredPackagesAsync(): List<PythonPackage>? = run
   listDeclaredPackagesCached()
 }?.getOrNull()
 
+/**
+ * Lists installed packages, awaiting initial loading if necessary.
+ *
+ * Use this from non-suspending background contexts (e.g. inspection visitors) instead of
+ * [PythonPackageManager.listInstalledPackagesSnapshot] when freshness matters — the snapshot
+ * may be stale or empty before the initial reload finishes, which causes false-positive
+ * "requirement is not satisfied" diagnostics right after PPTW package operations
+ * (PY-89774).
+ */
+@RequiresBackgroundThread
+internal fun PythonPackageManager.listInstalledPackagesAsync(): List<PythonPackage> = runBlockingMaybeCancellable {
+  listInstalledPackages()
+}
+
 @ApiStatus.Internal
 @JvmInline
 value class PyWorkspaceMember(val name: String)
@@ -571,4 +648,31 @@ value class PyWorkspaceMember(val name: String)
 interface DependenciesExporter {
   @RequiresEdt
   fun export(file: PsiFile)
+}
+
+/**
+ * Workspace support for package managers that handle multi-project workspaces (e.g. uv)
+ * or dependency groups (e.g. Poetry).
+ *
+ * Obtain via [PythonPackageManager.workspaceSupport]; `null` for managers without workspace support.
+ */
+@ApiStatus.Internal
+interface PythonWorkspaceSupport {
+  /**
+   * Returns workspace members for multi-project workspaces.
+   * Single-project managers with dependency group support return a list with just [projectName].
+   */
+  suspend fun getWorkspaceMembers(projectName: ProjectName): List<PyWorkspaceMember>
+
+  /**
+   * Returns dependency groups per workspace member.
+   * Each key is a workspace member, each value is the list of dependency groups from that member's pyproject.toml.
+  */
+ suspend fun getDependencyGroups(projectName: ProjectName): Map<PyWorkspaceMember, List<PyDependencyGroup>> = emptyMap()
+
+  /**
+   * Resolves the IntelliJ [Module] that corresponds to the given workspace member.
+   * Returns null if the mapping cannot be determined (e.g. single-project managers).
+   */
+  suspend fun resolveModule(member: PyWorkspaceMember): Module? = null
 }

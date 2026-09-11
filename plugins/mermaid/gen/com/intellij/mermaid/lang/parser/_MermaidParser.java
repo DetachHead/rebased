@@ -31,6 +31,7 @@ import static com.intellij.mermaid.lang.lexer.MermaidTokens.ZenUML.*;
 import static com.intellij.mermaid.lang.lexer.MermaidTokens.Sankey.*;
 import static com.intellij.mermaid.lang.lexer.MermaidTokens.XYChart.*;
 import static com.intellij.mermaid.lang.lexer.MermaidTokens.Block.*;
+import static com.intellij.mermaid.lang.lexer.MermaidTokens.Generic.*;
 import static com.intellij.mermaid.lang.parser.ParserUtils.*;
 
 @SuppressWarnings({"SimplifiableIfStatement", "UnusedAssignment"})
@@ -153,7 +154,7 @@ public class _MermaidParser implements PsiParser, LightPsiParser {
   }
 
   /* ********************************************************** */
-  // [CREATE] (PARTICIPANT | ACTOR) complexIdentifier [AS idAlias]
+  // [CREATE] (PARTICIPANT | ACTOR) complexIdentifier [metadata] [AS idAlias]
   //   | DESTROY complexIdentifier
   public static boolean actorStatement(PsiBuilder builder_, int level_) {
     if (!recursion_guard_(builder_, level_, "actorStatement")) return false;
@@ -165,7 +166,7 @@ public class _MermaidParser implements PsiParser, LightPsiParser {
     return result_;
   }
 
-  // [CREATE] (PARTICIPANT | ACTOR) complexIdentifier [AS idAlias]
+  // [CREATE] (PARTICIPANT | ACTOR) complexIdentifier [metadata] [AS idAlias]
   private static boolean actorStatement_0(PsiBuilder builder_, int level_) {
     if (!recursion_guard_(builder_, level_, "actorStatement_0")) return false;
     boolean result_;
@@ -174,6 +175,7 @@ public class _MermaidParser implements PsiParser, LightPsiParser {
     result_ = result_ && actorStatement_0_1(builder_, level_ + 1);
     result_ = result_ && complexIdentifier(builder_, level_ + 1);
     result_ = result_ && actorStatement_0_3(builder_, level_ + 1);
+    result_ = result_ && actorStatement_0_4(builder_, level_ + 1);
     exit_section_(builder_, marker_, null, result_);
     return result_;
   }
@@ -194,16 +196,23 @@ public class _MermaidParser implements PsiParser, LightPsiParser {
     return result_;
   }
 
-  // [AS idAlias]
+  // [metadata]
   private static boolean actorStatement_0_3(PsiBuilder builder_, int level_) {
     if (!recursion_guard_(builder_, level_, "actorStatement_0_3")) return false;
-    actorStatement_0_3_0(builder_, level_ + 1);
+    metadata(builder_, level_ + 1);
+    return true;
+  }
+
+  // [AS idAlias]
+  private static boolean actorStatement_0_4(PsiBuilder builder_, int level_) {
+    if (!recursion_guard_(builder_, level_, "actorStatement_0_4")) return false;
+    actorStatement_0_4_0(builder_, level_ + 1);
     return true;
   }
 
   // AS idAlias
-  private static boolean actorStatement_0_3_0(PsiBuilder builder_, int level_) {
-    if (!recursion_guard_(builder_, level_, "actorStatement_0_3_0")) return false;
+  private static boolean actorStatement_0_4_0(PsiBuilder builder_, int level_) {
+    if (!recursion_guard_(builder_, level_, "actorStatement_0_4_0")) return false;
     boolean result_;
     Marker marker_ = enter_section_(builder_);
     result_ = consumeToken(builder_, AS);
@@ -2590,6 +2599,7 @@ public class _MermaidParser implements PsiParser, LightPsiParser {
   //   | classDiagramClickStatement
   //   | accStatement
   //   | styleStatement
+  //   | classDefStatement
   static boolean classDiagramStatement(PsiBuilder builder_, int level_) {
     if (!recursion_guard_(builder_, level_, "classDiagramStatement")) return false;
     boolean result_;
@@ -2603,11 +2613,12 @@ public class _MermaidParser implements PsiParser, LightPsiParser {
     if (!result_) result_ = classDiagramClickStatement(builder_, level_ + 1);
     if (!result_) result_ = accStatement(builder_, level_ + 1);
     if (!result_) result_ = styleStatement(builder_, level_ + 1);
+    if (!result_) result_ = classDefStatement(builder_, level_ + 1);
     return result_;
   }
 
   /* ********************************************************** */
-  // CLASS classDiagramIdentifier [generic] [classLabel] [STYLE_SEPARATOR ID]
+  // CLASS classDiagramIdentifier [generic] [classLabel] [annotation] [STYLE_SEPARATOR ID]
   public static boolean classHeader(PsiBuilder builder_, int level_) {
     if (!recursion_guard_(builder_, level_, "classHeader")) return false;
     if (!nextTokenIs(builder_, CLASS)) return false;
@@ -2618,6 +2629,7 @@ public class _MermaidParser implements PsiParser, LightPsiParser {
     result_ = result_ && classHeader_2(builder_, level_ + 1);
     result_ = result_ && classHeader_3(builder_, level_ + 1);
     result_ = result_ && classHeader_4(builder_, level_ + 1);
+    result_ = result_ && classHeader_5(builder_, level_ + 1);
     exit_section_(builder_, marker_, CLASS_HEADER, result_);
     return result_;
   }
@@ -2636,9 +2648,16 @@ public class _MermaidParser implements PsiParser, LightPsiParser {
     return true;
   }
 
-  // [STYLE_SEPARATOR ID]
+  // [annotation]
   private static boolean classHeader_4(PsiBuilder builder_, int level_) {
     if (!recursion_guard_(builder_, level_, "classHeader_4")) return false;
+    annotation(builder_, level_ + 1);
+    return true;
+  }
+
+  // [STYLE_SEPARATOR ID]
+  private static boolean classHeader_5(PsiBuilder builder_, int level_) {
+    if (!recursion_guard_(builder_, level_, "classHeader_5")) return false;
     parseTokens(builder_, 0, STYLE_SEPARATOR, ID);
     return true;
   }
@@ -4040,19 +4059,40 @@ public class _MermaidParser implements PsiParser, LightPsiParser {
   }
 
   /* ********************************************************** */
-  // ID+
+  // (ID !EDGE_ID_MARKER)+
   public static boolean complexIdentifier(PsiBuilder builder_, int level_) {
     if (!recursion_guard_(builder_, level_, "complexIdentifier")) return false;
     if (!nextTokenIs(builder_, ID)) return false;
     boolean result_;
     Marker marker_ = enter_section_(builder_);
-    result_ = consumeToken(builder_, ID);
+    result_ = complexIdentifier_0(builder_, level_ + 1);
     while (result_) {
       int pos_ = current_position_(builder_);
-      if (!consumeToken(builder_, ID)) break;
+      if (!complexIdentifier_0(builder_, level_ + 1)) break;
       if (!empty_element_parsed_guard_(builder_, "complexIdentifier", pos_)) break;
     }
     exit_section_(builder_, marker_, COMPLEX_IDENTIFIER, result_);
+    return result_;
+  }
+
+  // ID !EDGE_ID_MARKER
+  private static boolean complexIdentifier_0(PsiBuilder builder_, int level_) {
+    if (!recursion_guard_(builder_, level_, "complexIdentifier_0")) return false;
+    boolean result_;
+    Marker marker_ = enter_section_(builder_);
+    result_ = consumeToken(builder_, ID);
+    result_ = result_ && complexIdentifier_0_1(builder_, level_ + 1);
+    exit_section_(builder_, marker_, null, result_);
+    return result_;
+  }
+
+  // !EDGE_ID_MARKER
+  private static boolean complexIdentifier_0_1(PsiBuilder builder_, int level_) {
+    if (!recursion_guard_(builder_, level_, "complexIdentifier_0_1")) return false;
+    boolean result_;
+    Marker marker_ = enter_section_(builder_, level_, _NOT_);
+    result_ = !consumeToken(builder_, EDGE_ID_MARKER);
+    exit_section_(builder_, level_, marker_, result_, false, null);
     return result_;
   }
 
@@ -4520,6 +4560,18 @@ public class _MermaidParser implements PsiParser, LightPsiParser {
   }
 
   /* ********************************************************** */
+  // ID EDGE_ID_MARKER
+  public static boolean edgeId(PsiBuilder builder_, int level_) {
+    if (!recursion_guard_(builder_, level_, "edgeId")) return false;
+    if (!nextTokenIs(builder_, ID)) return false;
+    boolean result_;
+    Marker marker_ = enter_section_(builder_);
+    result_ = consumeTokens(builder_, 0, ID, EDGE_ID_MARKER);
+    exit_section_(builder_, marker_, EDGE_ID, result_);
+    return result_;
+  }
+
+  /* ********************************************************** */
   // OPEN_CURLY EOL+ elementBlockLines? CLOSE_CURLY
   public static boolean elementBlock(PsiBuilder builder_, int level_) {
     if (!recursion_guard_(builder_, level_, "elementBlock")) return false;
@@ -4768,7 +4820,7 @@ public class _MermaidParser implements PsiParser, LightPsiParser {
   }
 
   /* ********************************************************** */
-  // erIdentifier [erIdentifierAlias] erEntityBlock
+  // erIdentifier [erStyleClass] [erIdentifierAlias] erEntityBlock
   public static boolean entityDeclaration(PsiBuilder builder_, int level_) {
     if (!recursion_guard_(builder_, level_, "entityDeclaration")) return false;
     if (!nextTokenIs(builder_, "<entity declaration>", DOUBLE_QUOTE, ID)) return false;
@@ -4776,14 +4828,22 @@ public class _MermaidParser implements PsiParser, LightPsiParser {
     Marker marker_ = enter_section_(builder_, level_, _NONE_, ENTITY_DECLARATION, "<entity declaration>");
     result_ = erIdentifier(builder_, level_ + 1);
     result_ = result_ && entityDeclaration_1(builder_, level_ + 1);
+    result_ = result_ && entityDeclaration_2(builder_, level_ + 1);
     result_ = result_ && erEntityBlock(builder_, level_ + 1);
     exit_section_(builder_, level_, marker_, result_, false, null);
     return result_;
   }
 
-  // [erIdentifierAlias]
+  // [erStyleClass]
   private static boolean entityDeclaration_1(PsiBuilder builder_, int level_) {
     if (!recursion_guard_(builder_, level_, "entityDeclaration_1")) return false;
+    erStyleClass(builder_, level_ + 1);
+    return true;
+  }
+
+  // [erIdentifierAlias]
+  private static boolean entityDeclaration_2(PsiBuilder builder_, int level_) {
+    if (!recursion_guard_(builder_, level_, "entityDeclaration_2")) return false;
     erIdentifierAlias(builder_, level_ + 1);
     return true;
   }
@@ -4963,7 +5023,7 @@ public class _MermaidParser implements PsiParser, LightPsiParser {
   }
 
   /* ********************************************************** */
-  // OPEN_SQUARE (ID | string) CLOSE_SQUARE
+  // OPEN_SQUARE (complexLabel | maybeEmptyString) CLOSE_SQUARE
   public static boolean erIdentifierAlias(PsiBuilder builder_, int level_) {
     if (!recursion_guard_(builder_, level_, "erIdentifierAlias")) return false;
     if (!nextTokenIs(builder_, OPEN_SQUARE)) return false;
@@ -4976,12 +5036,12 @@ public class _MermaidParser implements PsiParser, LightPsiParser {
     return result_;
   }
 
-  // ID | string
+  // complexLabel | maybeEmptyString
   private static boolean erIdentifierAlias_1(PsiBuilder builder_, int level_) {
     if (!recursion_guard_(builder_, level_, "erIdentifierAlias_1")) return false;
     boolean result_;
-    result_ = consumeToken(builder_, ID);
-    if (!result_) result_ = string(builder_, level_ + 1);
+    result_ = complexLabel(builder_, level_ + 1);
+    if (!result_) result_ = maybeEmptyString(builder_, level_ + 1);
     return result_;
   }
 
@@ -5035,24 +5095,40 @@ public class _MermaidParser implements PsiParser, LightPsiParser {
   }
 
   /* ********************************************************** */
-  // erIdentifier relationship erIdentifier COLON (complexLabel | maybeEmptyString)
+  // erIdentifier [erStyleClass] relationship erIdentifier [erStyleClass] COLON (complexLabel | maybeEmptyString)
   public static boolean erRelationStatement(PsiBuilder builder_, int level_) {
     if (!recursion_guard_(builder_, level_, "erRelationStatement")) return false;
     if (!nextTokenIs(builder_, "<er relation statement>", DOUBLE_QUOTE, ID)) return false;
     boolean result_;
     Marker marker_ = enter_section_(builder_, level_, _NONE_, ER_RELATION_STATEMENT, "<er relation statement>");
     result_ = erIdentifier(builder_, level_ + 1);
+    result_ = result_ && erRelationStatement_1(builder_, level_ + 1);
     result_ = result_ && relationship(builder_, level_ + 1);
     result_ = result_ && erIdentifier(builder_, level_ + 1);
-    result_ = result_ && consumeToken(builder_, COLON);
     result_ = result_ && erRelationStatement_4(builder_, level_ + 1);
+    result_ = result_ && consumeToken(builder_, COLON);
+    result_ = result_ && erRelationStatement_6(builder_, level_ + 1);
     exit_section_(builder_, level_, marker_, result_, false, null);
     return result_;
   }
 
-  // complexLabel | maybeEmptyString
+  // [erStyleClass]
+  private static boolean erRelationStatement_1(PsiBuilder builder_, int level_) {
+    if (!recursion_guard_(builder_, level_, "erRelationStatement_1")) return false;
+    erStyleClass(builder_, level_ + 1);
+    return true;
+  }
+
+  // [erStyleClass]
   private static boolean erRelationStatement_4(PsiBuilder builder_, int level_) {
     if (!recursion_guard_(builder_, level_, "erRelationStatement_4")) return false;
+    erStyleClass(builder_, level_ + 1);
+    return true;
+  }
+
+  // complexLabel | maybeEmptyString
+  private static boolean erRelationStatement_6(PsiBuilder builder_, int level_) {
+    if (!recursion_guard_(builder_, level_, "erRelationStatement_6")) return false;
     boolean result_;
     result_ = complexLabel(builder_, level_ + 1);
     if (!result_) result_ = maybeEmptyString(builder_, level_ + 1);
@@ -5060,39 +5136,122 @@ public class _MermaidParser implements PsiParser, LightPsiParser {
   }
 
   /* ********************************************************** */
-  // erRelationStatement
+  // erSubgraphStatement
+  //   | erRelationStatement
   //   | entityDeclaration
-  //   | erIdentifier [erIdentifierAlias]
+  //   | erIdentifier [erStyleClass] [erIdentifierAlias]
   //   | directive
   //   | accStatement
+  //   | styleStatement
+  //   | classDefStatement
+  //   | flowchartClassStatement
+  //   | directionStatement
   static boolean erStatement(PsiBuilder builder_, int level_) {
     if (!recursion_guard_(builder_, level_, "erStatement")) return false;
     boolean result_;
     Marker marker_ = enter_section_(builder_);
-    result_ = erRelationStatement(builder_, level_ + 1);
+    result_ = erSubgraphStatement(builder_, level_ + 1);
+    if (!result_) result_ = erRelationStatement(builder_, level_ + 1);
     if (!result_) result_ = entityDeclaration(builder_, level_ + 1);
-    if (!result_) result_ = erStatement_2(builder_, level_ + 1);
+    if (!result_) result_ = erStatement_3(builder_, level_ + 1);
     if (!result_) result_ = directive(builder_, level_ + 1);
     if (!result_) result_ = accStatement(builder_, level_ + 1);
+    if (!result_) result_ = styleStatement(builder_, level_ + 1);
+    if (!result_) result_ = classDefStatement(builder_, level_ + 1);
+    if (!result_) result_ = flowchartClassStatement(builder_, level_ + 1);
+    if (!result_) result_ = directionStatement(builder_, level_ + 1);
     exit_section_(builder_, marker_, null, result_);
     return result_;
   }
 
-  // erIdentifier [erIdentifierAlias]
-  private static boolean erStatement_2(PsiBuilder builder_, int level_) {
-    if (!recursion_guard_(builder_, level_, "erStatement_2")) return false;
+  // erIdentifier [erStyleClass] [erIdentifierAlias]
+  private static boolean erStatement_3(PsiBuilder builder_, int level_) {
+    if (!recursion_guard_(builder_, level_, "erStatement_3")) return false;
     boolean result_;
     Marker marker_ = enter_section_(builder_);
     result_ = erIdentifier(builder_, level_ + 1);
-    result_ = result_ && erStatement_2_1(builder_, level_ + 1);
+    result_ = result_ && erStatement_3_1(builder_, level_ + 1);
+    result_ = result_ && erStatement_3_2(builder_, level_ + 1);
     exit_section_(builder_, marker_, null, result_);
+    return result_;
+  }
+
+  // [erStyleClass]
+  private static boolean erStatement_3_1(PsiBuilder builder_, int level_) {
+    if (!recursion_guard_(builder_, level_, "erStatement_3_1")) return false;
+    erStyleClass(builder_, level_ + 1);
+    return true;
+  }
+
+  // [erIdentifierAlias]
+  private static boolean erStatement_3_2(PsiBuilder builder_, int level_) {
+    if (!recursion_guard_(builder_, level_, "erStatement_3_2")) return false;
+    erIdentifierAlias(builder_, level_ + 1);
+    return true;
+  }
+
+  /* ********************************************************** */
+  // STYLE_SEPARATOR ID
+  public static boolean erStyleClass(PsiBuilder builder_, int level_) {
+    if (!recursion_guard_(builder_, level_, "erStyleClass")) return false;
+    if (!nextTokenIs(builder_, STYLE_SEPARATOR)) return false;
+    boolean result_;
+    Marker marker_ = enter_section_(builder_);
+    result_ = consumeTokens(builder_, 0, STYLE_SEPARATOR, ID);
+    exit_section_(builder_, marker_, ER_STYLE_CLASS, result_);
+    return result_;
+  }
+
+  /* ********************************************************** */
+  // erLines
+  public static boolean erSubgraphBlock(PsiBuilder builder_, int level_) {
+    if (!recursion_guard_(builder_, level_, "erSubgraphBlock")) return false;
+    boolean result_;
+    Marker marker_ = enter_section_(builder_, level_, _NONE_, ER_SUBGRAPH_BLOCK, "<er subgraph block>");
+    result_ = erLines(builder_, level_ + 1);
+    exit_section_(builder_, level_, marker_, result_, false, null);
+    return result_;
+  }
+
+  /* ********************************************************** */
+  // SUBGRAPH erIdentifier [erIdentifierAlias]
+  public static boolean erSubgraphHeader(PsiBuilder builder_, int level_) {
+    if (!recursion_guard_(builder_, level_, "erSubgraphHeader")) return false;
+    if (!nextTokenIs(builder_, SUBGRAPH)) return false;
+    boolean result_;
+    Marker marker_ = enter_section_(builder_);
+    result_ = consumeToken(builder_, SUBGRAPH);
+    result_ = result_ && erIdentifier(builder_, level_ + 1);
+    result_ = result_ && erSubgraphHeader_2(builder_, level_ + 1);
+    exit_section_(builder_, marker_, ER_SUBGRAPH_HEADER, result_);
     return result_;
   }
 
   // [erIdentifierAlias]
-  private static boolean erStatement_2_1(PsiBuilder builder_, int level_) {
-    if (!recursion_guard_(builder_, level_, "erStatement_2_1")) return false;
+  private static boolean erSubgraphHeader_2(PsiBuilder builder_, int level_) {
+    if (!recursion_guard_(builder_, level_, "erSubgraphHeader_2")) return false;
     erIdentifierAlias(builder_, level_ + 1);
+    return true;
+  }
+
+  /* ********************************************************** */
+  // erSubgraphHeader erSubgraphBlock? END
+  public static boolean erSubgraphStatement(PsiBuilder builder_, int level_) {
+    if (!recursion_guard_(builder_, level_, "erSubgraphStatement")) return false;
+    if (!nextTokenIs(builder_, SUBGRAPH)) return false;
+    boolean result_;
+    Marker marker_ = enter_section_(builder_);
+    result_ = erSubgraphHeader(builder_, level_ + 1);
+    result_ = result_ && erSubgraphStatement_1(builder_, level_ + 1);
+    result_ = result_ && consumeToken(builder_, END);
+    exit_section_(builder_, marker_, ER_SUBGRAPH_STATEMENT, result_);
+    return result_;
+  }
+
+  // erSubgraphBlock?
+  private static boolean erSubgraphStatement_1(PsiBuilder builder_, int level_) {
+    if (!recursion_guard_(builder_, level_, "erSubgraphStatement_1")) return false;
+    erSubgraphBlock(builder_, level_ + 1);
     return true;
   }
 
@@ -5401,21 +5560,38 @@ public class _MermaidParser implements PsiParser, LightPsiParser {
   }
 
   /* ********************************************************** */
-  // START_ARROW complexLinkText ARROW | ARROW [SEP complexLinkText SEP]
+  // [edgeId] (START_ARROW complexLinkText ARROW | ARROW [SEP complexLinkText SEP])
   public static boolean flowchartLinkStatement(PsiBuilder builder_, int level_) {
     if (!recursion_guard_(builder_, level_, "flowchartLinkStatement")) return false;
-    if (!nextTokenIs(builder_, "<flowchart link statement>", ARROW, START_ARROW)) return false;
     boolean result_;
     Marker marker_ = enter_section_(builder_, level_, _NONE_, FLOWCHART_LINK_STATEMENT, "<flowchart link statement>");
     result_ = flowchartLinkStatement_0(builder_, level_ + 1);
-    if (!result_) result_ = flowchartLinkStatement_1(builder_, level_ + 1);
+    result_ = result_ && flowchartLinkStatement_1(builder_, level_ + 1);
     exit_section_(builder_, level_, marker_, result_, false, null);
     return result_;
   }
 
-  // START_ARROW complexLinkText ARROW
+  // [edgeId]
   private static boolean flowchartLinkStatement_0(PsiBuilder builder_, int level_) {
     if (!recursion_guard_(builder_, level_, "flowchartLinkStatement_0")) return false;
+    edgeId(builder_, level_ + 1);
+    return true;
+  }
+
+  // START_ARROW complexLinkText ARROW | ARROW [SEP complexLinkText SEP]
+  private static boolean flowchartLinkStatement_1(PsiBuilder builder_, int level_) {
+    if (!recursion_guard_(builder_, level_, "flowchartLinkStatement_1")) return false;
+    boolean result_;
+    Marker marker_ = enter_section_(builder_);
+    result_ = flowchartLinkStatement_1_0(builder_, level_ + 1);
+    if (!result_) result_ = flowchartLinkStatement_1_1(builder_, level_ + 1);
+    exit_section_(builder_, marker_, null, result_);
+    return result_;
+  }
+
+  // START_ARROW complexLinkText ARROW
+  private static boolean flowchartLinkStatement_1_0(PsiBuilder builder_, int level_) {
+    if (!recursion_guard_(builder_, level_, "flowchartLinkStatement_1_0")) return false;
     boolean result_;
     Marker marker_ = enter_section_(builder_);
     result_ = consumeToken(builder_, START_ARROW);
@@ -5426,26 +5602,26 @@ public class _MermaidParser implements PsiParser, LightPsiParser {
   }
 
   // ARROW [SEP complexLinkText SEP]
-  private static boolean flowchartLinkStatement_1(PsiBuilder builder_, int level_) {
-    if (!recursion_guard_(builder_, level_, "flowchartLinkStatement_1")) return false;
+  private static boolean flowchartLinkStatement_1_1(PsiBuilder builder_, int level_) {
+    if (!recursion_guard_(builder_, level_, "flowchartLinkStatement_1_1")) return false;
     boolean result_;
     Marker marker_ = enter_section_(builder_);
     result_ = consumeToken(builder_, ARROW);
-    result_ = result_ && flowchartLinkStatement_1_1(builder_, level_ + 1);
+    result_ = result_ && flowchartLinkStatement_1_1_1(builder_, level_ + 1);
     exit_section_(builder_, marker_, null, result_);
     return result_;
   }
 
   // [SEP complexLinkText SEP]
-  private static boolean flowchartLinkStatement_1_1(PsiBuilder builder_, int level_) {
-    if (!recursion_guard_(builder_, level_, "flowchartLinkStatement_1_1")) return false;
-    flowchartLinkStatement_1_1_0(builder_, level_ + 1);
+  private static boolean flowchartLinkStatement_1_1_1(PsiBuilder builder_, int level_) {
+    if (!recursion_guard_(builder_, level_, "flowchartLinkStatement_1_1_1")) return false;
+    flowchartLinkStatement_1_1_1_0(builder_, level_ + 1);
     return true;
   }
 
   // SEP complexLinkText SEP
-  private static boolean flowchartLinkStatement_1_1_0(PsiBuilder builder_, int level_) {
-    if (!recursion_guard_(builder_, level_, "flowchartLinkStatement_1_1_0")) return false;
+  private static boolean flowchartLinkStatement_1_1_1_0(PsiBuilder builder_, int level_) {
+    if (!recursion_guard_(builder_, level_, "flowchartLinkStatement_1_1_1_0")) return false;
     boolean result_;
     Marker marker_ = enter_section_(builder_);
     result_ = consumeToken(builder_, SEP);
@@ -5949,6 +6125,7 @@ public class _MermaidParser implements PsiParser, LightPsiParser {
   // ganttDateFormatStatement
   //   | titleStatement
   //   | ganttExcludesStatement
+  //   | ganttWeekendStatement
   //   | ganttIncludesStatement
   //   | ganttAxisFormatStatement
   //   | ganttTodayMarkerStatement
@@ -5967,6 +6144,7 @@ public class _MermaidParser implements PsiParser, LightPsiParser {
     result_ = ganttDateFormatStatement(builder_, level_ + 1);
     if (!result_) result_ = titleStatement(builder_, level_ + 1);
     if (!result_) result_ = ganttExcludesStatement(builder_, level_ + 1);
+    if (!result_) result_ = ganttWeekendStatement(builder_, level_ + 1);
     if (!result_) result_ = ganttIncludesStatement(builder_, level_ + 1);
     if (!result_) result_ = ganttAxisFormatStatement(builder_, level_ + 1);
     if (!result_) result_ = ganttTodayMarkerStatement(builder_, level_ + 1);
@@ -6078,6 +6256,34 @@ public class _MermaidParser implements PsiParser, LightPsiParser {
   }
 
   /* ********************************************************** */
+  // WEEKEND GANTT_VALUE+
+  public static boolean ganttWeekendStatement(PsiBuilder builder_, int level_) {
+    if (!recursion_guard_(builder_, level_, "ganttWeekendStatement")) return false;
+    if (!nextTokenIs(builder_, WEEKEND)) return false;
+    boolean result_;
+    Marker marker_ = enter_section_(builder_);
+    result_ = consumeToken(builder_, WEEKEND);
+    result_ = result_ && ganttWeekendStatement_1(builder_, level_ + 1);
+    exit_section_(builder_, marker_, GANTT_WEEKEND_STATEMENT, result_);
+    return result_;
+  }
+
+  // GANTT_VALUE+
+  private static boolean ganttWeekendStatement_1(PsiBuilder builder_, int level_) {
+    if (!recursion_guard_(builder_, level_, "ganttWeekendStatement_1")) return false;
+    boolean result_;
+    Marker marker_ = enter_section_(builder_);
+    result_ = consumeToken(builder_, GANTT_VALUE);
+    while (result_) {
+      int pos_ = current_position_(builder_);
+      if (!consumeToken(builder_, GANTT_VALUE)) break;
+      if (!empty_element_parsed_guard_(builder_, "ganttWeekendStatement_1", pos_)) break;
+    }
+    exit_section_(builder_, marker_, null, result_);
+    return result_;
+  }
+
+  /* ********************************************************** */
   // TILDA genericTypeId [generic] TILDA
   public static boolean generic(PsiBuilder builder_, int level_) {
     if (!recursion_guard_(builder_, level_, "generic")) return false;
@@ -6097,6 +6303,117 @@ public class _MermaidParser implements PsiParser, LightPsiParser {
     if (!recursion_guard_(builder_, level_, "generic_2")) return false;
     generic(builder_, level_ + 1);
     return true;
+  }
+
+  /* ********************************************************** */
+  // genericLines
+  public static boolean genericBody(PsiBuilder builder_, int level_) {
+    if (!recursion_guard_(builder_, level_, "genericBody")) return false;
+    boolean result_;
+    Marker marker_ = enter_section_(builder_, level_, _NONE_, GENERIC_BODY, "<generic body>");
+    result_ = genericLines(builder_, level_ + 1);
+    exit_section_(builder_, level_, marker_, result_, false, null);
+    return result_;
+  }
+
+  /* ********************************************************** */
+  // (GENERIC_TEXT | string)+
+  public static boolean genericContent(PsiBuilder builder_, int level_) {
+    if (!recursion_guard_(builder_, level_, "genericContent")) return false;
+    if (!nextTokenIs(builder_, "<generic content>", DOUBLE_QUOTE, GENERIC_TEXT)) return false;
+    boolean result_;
+    Marker marker_ = enter_section_(builder_, level_, _NONE_, GENERIC_CONTENT, "<generic content>");
+    result_ = genericContent_0(builder_, level_ + 1);
+    while (result_) {
+      int pos_ = current_position_(builder_);
+      if (!genericContent_0(builder_, level_ + 1)) break;
+      if (!empty_element_parsed_guard_(builder_, "genericContent", pos_)) break;
+    }
+    exit_section_(builder_, level_, marker_, result_, false, null);
+    return result_;
+  }
+
+  // GENERIC_TEXT | string
+  private static boolean genericContent_0(PsiBuilder builder_, int level_) {
+    if (!recursion_guard_(builder_, level_, "genericContent_0")) return false;
+    boolean result_;
+    result_ = consumeToken(builder_, GENERIC_TEXT);
+    if (!result_) result_ = string(builder_, level_ + 1);
+    return result_;
+  }
+
+  /* ********************************************************** */
+  // GENERIC_DIAGRAM
+  public static boolean genericHeader(PsiBuilder builder_, int level_) {
+    if (!recursion_guard_(builder_, level_, "genericHeader")) return false;
+    if (!nextTokenIs(builder_, GENERIC_DIAGRAM)) return false;
+    boolean result_;
+    Marker marker_ = enter_section_(builder_);
+    result_ = consumeToken(builder_, GENERIC_DIAGRAM);
+    exit_section_(builder_, marker_, GENERIC_HEADER, result_);
+    return result_;
+  }
+
+  /* ********************************************************** */
+  // genericStatement [separator] | separator
+  static boolean genericLine(PsiBuilder builder_, int level_) {
+    if (!recursion_guard_(builder_, level_, "genericLine")) return false;
+    boolean result_;
+    Marker marker_ = enter_section_(builder_);
+    result_ = genericLine_0(builder_, level_ + 1);
+    if (!result_) result_ = separator(builder_, level_ + 1);
+    exit_section_(builder_, marker_, null, result_);
+    return result_;
+  }
+
+  // genericStatement [separator]
+  private static boolean genericLine_0(PsiBuilder builder_, int level_) {
+    if (!recursion_guard_(builder_, level_, "genericLine_0")) return false;
+    boolean result_;
+    Marker marker_ = enter_section_(builder_);
+    result_ = genericStatement(builder_, level_ + 1);
+    result_ = result_ && genericLine_0_1(builder_, level_ + 1);
+    exit_section_(builder_, marker_, null, result_);
+    return result_;
+  }
+
+  // [separator]
+  private static boolean genericLine_0_1(PsiBuilder builder_, int level_) {
+    if (!recursion_guard_(builder_, level_, "genericLine_0_1")) return false;
+    separator(builder_, level_ + 1);
+    return true;
+  }
+
+  /* ********************************************************** */
+  // genericLine [genericLines]
+  static boolean genericLines(PsiBuilder builder_, int level_) {
+    if (!recursion_guard_(builder_, level_, "genericLines")) return false;
+    boolean result_;
+    Marker marker_ = enter_section_(builder_);
+    result_ = genericLine(builder_, level_ + 1);
+    result_ = result_ && genericLines_1(builder_, level_ + 1);
+    exit_section_(builder_, marker_, null, result_);
+    return result_;
+  }
+
+  // [genericLines]
+  private static boolean genericLines_1(PsiBuilder builder_, int level_) {
+    if (!recursion_guard_(builder_, level_, "genericLines_1")) return false;
+    genericLines(builder_, level_ + 1);
+    return true;
+  }
+
+  /* ********************************************************** */
+  // directive
+  //   | accStatement
+  //   | genericContent
+  static boolean genericStatement(PsiBuilder builder_, int level_) {
+    if (!recursion_guard_(builder_, level_, "genericStatement")) return false;
+    boolean result_;
+    result_ = directive(builder_, level_ + 1);
+    if (!result_) result_ = accStatement(builder_, level_ + 1);
+    if (!result_) result_ = genericContent(builder_, level_ + 1);
+    return result_;
   }
 
   /* ********************************************************** */
@@ -7305,6 +7622,146 @@ public class _MermaidParser implements PsiParser, LightPsiParser {
   }
 
   /* ********************************************************** */
+  // METADATA_START EOL* [metadataEntries] METADATA_END
+  public static boolean metadata(PsiBuilder builder_, int level_) {
+    if (!recursion_guard_(builder_, level_, "metadata")) return false;
+    if (!nextTokenIs(builder_, METADATA_START)) return false;
+    boolean result_;
+    Marker marker_ = enter_section_(builder_);
+    result_ = consumeToken(builder_, METADATA_START);
+    result_ = result_ && metadata_1(builder_, level_ + 1);
+    result_ = result_ && metadata_2(builder_, level_ + 1);
+    result_ = result_ && consumeToken(builder_, METADATA_END);
+    exit_section_(builder_, marker_, METADATA, result_);
+    return result_;
+  }
+
+  // EOL*
+  private static boolean metadata_1(PsiBuilder builder_, int level_) {
+    if (!recursion_guard_(builder_, level_, "metadata_1")) return false;
+    while (true) {
+      int pos_ = current_position_(builder_);
+      if (!consumeToken(builder_, EOL)) break;
+      if (!empty_element_parsed_guard_(builder_, "metadata_1", pos_)) break;
+    }
+    return true;
+  }
+
+  // [metadataEntries]
+  private static boolean metadata_2(PsiBuilder builder_, int level_) {
+    if (!recursion_guard_(builder_, level_, "metadata_2")) return false;
+    metadataEntries(builder_, level_ + 1);
+    return true;
+  }
+
+  /* ********************************************************** */
+  // metadataEntry ((EOL | COMMA)+ metadataEntry)* EOL*
+  static boolean metadataEntries(PsiBuilder builder_, int level_) {
+    if (!recursion_guard_(builder_, level_, "metadataEntries")) return false;
+    if (!nextTokenIs(builder_, "", DOUBLE_QUOTE, METADATA_KEY)) return false;
+    boolean result_;
+    Marker marker_ = enter_section_(builder_);
+    result_ = metadataEntry(builder_, level_ + 1);
+    result_ = result_ && metadataEntries_1(builder_, level_ + 1);
+    result_ = result_ && metadataEntries_2(builder_, level_ + 1);
+    exit_section_(builder_, marker_, null, result_);
+    return result_;
+  }
+
+  // ((EOL | COMMA)+ metadataEntry)*
+  private static boolean metadataEntries_1(PsiBuilder builder_, int level_) {
+    if (!recursion_guard_(builder_, level_, "metadataEntries_1")) return false;
+    while (true) {
+      int pos_ = current_position_(builder_);
+      if (!metadataEntries_1_0(builder_, level_ + 1)) break;
+      if (!empty_element_parsed_guard_(builder_, "metadataEntries_1", pos_)) break;
+    }
+    return true;
+  }
+
+  // (EOL | COMMA)+ metadataEntry
+  private static boolean metadataEntries_1_0(PsiBuilder builder_, int level_) {
+    if (!recursion_guard_(builder_, level_, "metadataEntries_1_0")) return false;
+    boolean result_;
+    Marker marker_ = enter_section_(builder_);
+    result_ = metadataEntries_1_0_0(builder_, level_ + 1);
+    result_ = result_ && metadataEntry(builder_, level_ + 1);
+    exit_section_(builder_, marker_, null, result_);
+    return result_;
+  }
+
+  // (EOL | COMMA)+
+  private static boolean metadataEntries_1_0_0(PsiBuilder builder_, int level_) {
+    if (!recursion_guard_(builder_, level_, "metadataEntries_1_0_0")) return false;
+    boolean result_;
+    Marker marker_ = enter_section_(builder_);
+    result_ = metadataEntries_1_0_0_0(builder_, level_ + 1);
+    while (result_) {
+      int pos_ = current_position_(builder_);
+      if (!metadataEntries_1_0_0_0(builder_, level_ + 1)) break;
+      if (!empty_element_parsed_guard_(builder_, "metadataEntries_1_0_0", pos_)) break;
+    }
+    exit_section_(builder_, marker_, null, result_);
+    return result_;
+  }
+
+  // EOL | COMMA
+  private static boolean metadataEntries_1_0_0_0(PsiBuilder builder_, int level_) {
+    if (!recursion_guard_(builder_, level_, "metadataEntries_1_0_0_0")) return false;
+    boolean result_;
+    result_ = consumeToken(builder_, EOL);
+    if (!result_) result_ = consumeToken(builder_, COMMA);
+    return result_;
+  }
+
+  // EOL*
+  private static boolean metadataEntries_2(PsiBuilder builder_, int level_) {
+    if (!recursion_guard_(builder_, level_, "metadataEntries_2")) return false;
+    while (true) {
+      int pos_ = current_position_(builder_);
+      if (!consumeToken(builder_, EOL)) break;
+      if (!empty_element_parsed_guard_(builder_, "metadataEntries_2", pos_)) break;
+    }
+    return true;
+  }
+
+  /* ********************************************************** */
+  // (METADATA_KEY | string) COLON metadataEntryValue
+  public static boolean metadataEntry(PsiBuilder builder_, int level_) {
+    if (!recursion_guard_(builder_, level_, "metadataEntry")) return false;
+    if (!nextTokenIs(builder_, "<metadata entry>", DOUBLE_QUOTE, METADATA_KEY)) return false;
+    boolean result_;
+    Marker marker_ = enter_section_(builder_, level_, _NONE_, METADATA_ENTRY, "<metadata entry>");
+    result_ = metadataEntry_0(builder_, level_ + 1);
+    result_ = result_ && consumeToken(builder_, COLON);
+    result_ = result_ && metadataEntryValue(builder_, level_ + 1);
+    exit_section_(builder_, level_, marker_, result_, false, null);
+    return result_;
+  }
+
+  // METADATA_KEY | string
+  private static boolean metadataEntry_0(PsiBuilder builder_, int level_) {
+    if (!recursion_guard_(builder_, level_, "metadataEntry_0")) return false;
+    boolean result_;
+    result_ = consumeToken(builder_, METADATA_KEY);
+    if (!result_) result_ = string(builder_, level_ + 1);
+    return result_;
+  }
+
+  /* ********************************************************** */
+  // METADATA_VALUE | string
+  public static boolean metadataEntryValue(PsiBuilder builder_, int level_) {
+    if (!recursion_guard_(builder_, level_, "metadataEntryValue")) return false;
+    if (!nextTokenIs(builder_, "<metadata entry value>", DOUBLE_QUOTE, METADATA_VALUE)) return false;
+    boolean result_;
+    Marker marker_ = enter_section_(builder_, level_, _NONE_, METADATA_ENTRY_VALUE, "<metadata entry value>");
+    result_ = consumeToken(builder_, METADATA_VALUE);
+    if (!result_) result_ = string(builder_, level_ + 1);
+    exit_section_(builder_, level_, marker_, result_, false, null);
+    return result_;
+  }
+
+  /* ********************************************************** */
   // mindmapLines
   public static boolean mindmapBody(PsiBuilder builder_, int level_) {
     if (!recursion_guard_(builder_, level_, "mindmapBody")) return false;
@@ -7513,7 +7970,7 @@ public class _MermaidParser implements PsiParser, LightPsiParser {
   }
 
   /* ********************************************************** */
-  // NAMESPACE namespaceIdentifier
+  // NAMESPACE namespaceIdentifier [namespaceLabel]
   public static boolean namespaceHeader(PsiBuilder builder_, int level_) {
     if (!recursion_guard_(builder_, level_, "namespaceHeader")) return false;
     if (!nextTokenIs(builder_, NAMESPACE)) return false;
@@ -7521,8 +7978,16 @@ public class _MermaidParser implements PsiParser, LightPsiParser {
     Marker marker_ = enter_section_(builder_);
     result_ = consumeToken(builder_, NAMESPACE);
     result_ = result_ && namespaceIdentifier(builder_, level_ + 1);
+    result_ = result_ && namespaceHeader_2(builder_, level_ + 1);
     exit_section_(builder_, marker_, NAMESPACE_HEADER, result_);
     return result_;
+  }
+
+  // [namespaceLabel]
+  private static boolean namespaceHeader_2(PsiBuilder builder_, int level_) {
+    if (!recursion_guard_(builder_, level_, "namespaceHeader_2")) return false;
+    namespaceLabel(builder_, level_ + 1);
+    return true;
   }
 
   /* ********************************************************** */
@@ -7543,13 +8008,27 @@ public class _MermaidParser implements PsiParser, LightPsiParser {
   }
 
   /* ********************************************************** */
-  // classStatement [EOL] | EOL
+  // OPEN_SQUARE string CLOSE_SQUARE
+  public static boolean namespaceLabel(PsiBuilder builder_, int level_) {
+    if (!recursion_guard_(builder_, level_, "namespaceLabel")) return false;
+    if (!nextTokenIs(builder_, OPEN_SQUARE)) return false;
+    boolean result_;
+    Marker marker_ = enter_section_(builder_);
+    result_ = consumeToken(builder_, OPEN_SQUARE);
+    result_ = result_ && string(builder_, level_ + 1);
+    result_ = result_ && consumeToken(builder_, CLOSE_SQUARE);
+    exit_section_(builder_, marker_, NAMESPACE_LABEL, result_);
+    return result_;
+  }
+
+  /* ********************************************************** */
+  // classStatement [EOL] | namespaceStatement [EOL] | EOL
   static boolean namespaceLine(PsiBuilder builder_, int level_) {
     if (!recursion_guard_(builder_, level_, "namespaceLine")) return false;
-    if (!nextTokenIs(builder_, "", CLASS, EOL)) return false;
     boolean result_;
     Marker marker_ = enter_section_(builder_);
     result_ = namespaceLine_0(builder_, level_ + 1);
+    if (!result_) result_ = namespaceLine_1(builder_, level_ + 1);
     if (!result_) result_ = consumeToken(builder_, EOL);
     exit_section_(builder_, marker_, null, result_);
     return result_;
@@ -7573,11 +8052,28 @@ public class _MermaidParser implements PsiParser, LightPsiParser {
     return true;
   }
 
+  // namespaceStatement [EOL]
+  private static boolean namespaceLine_1(PsiBuilder builder_, int level_) {
+    if (!recursion_guard_(builder_, level_, "namespaceLine_1")) return false;
+    boolean result_;
+    Marker marker_ = enter_section_(builder_);
+    result_ = namespaceStatement(builder_, level_ + 1);
+    result_ = result_ && namespaceLine_1_1(builder_, level_ + 1);
+    exit_section_(builder_, marker_, null, result_);
+    return result_;
+  }
+
+  // [EOL]
+  private static boolean namespaceLine_1_1(PsiBuilder builder_, int level_) {
+    if (!recursion_guard_(builder_, level_, "namespaceLine_1_1")) return false;
+    consumeToken(builder_, EOL);
+    return true;
+  }
+
   /* ********************************************************** */
   // namespaceLine [namespaceLines]
   static boolean namespaceLines(PsiBuilder builder_, int level_) {
     if (!recursion_guard_(builder_, level_, "namespaceLines")) return false;
-    if (!nextTokenIs(builder_, "", CLASS, EOL)) return false;
     boolean result_;
     Marker marker_ = enter_section_(builder_);
     result_ = namespaceLine(builder_, level_ + 1);
@@ -8061,6 +8557,7 @@ public class _MermaidParser implements PsiParser, LightPsiParser {
   //   | quadrantHeader EOL* [quadrantBody]
   //   | xyChartHeader EOL* [xyChartBody]
   //   | blockDiagramHeader EOL* [blockDiagramBody]
+  //   | genericHeader EOL* [genericBody]
   static boolean oldDiagram(PsiBuilder builder_, int level_) {
     if (!recursion_guard_(builder_, level_, "oldDiagram")) return false;
     boolean result_;
@@ -8081,6 +8578,7 @@ public class _MermaidParser implements PsiParser, LightPsiParser {
     if (!result_) result_ = oldDiagram_13(builder_, level_ + 1);
     if (!result_) result_ = oldDiagram_14(builder_, level_ + 1);
     if (!result_) result_ = oldDiagram_15(builder_, level_ + 1);
+    if (!result_) result_ = oldDiagram_16(builder_, level_ + 1);
     exit_section_(builder_, marker_, null, result_);
     return result_;
   }
@@ -8541,6 +9039,36 @@ public class _MermaidParser implements PsiParser, LightPsiParser {
   private static boolean oldDiagram_15_2(PsiBuilder builder_, int level_) {
     if (!recursion_guard_(builder_, level_, "oldDiagram_15_2")) return false;
     blockDiagramBody(builder_, level_ + 1);
+    return true;
+  }
+
+  // genericHeader EOL* [genericBody]
+  private static boolean oldDiagram_16(PsiBuilder builder_, int level_) {
+    if (!recursion_guard_(builder_, level_, "oldDiagram_16")) return false;
+    boolean result_;
+    Marker marker_ = enter_section_(builder_);
+    result_ = genericHeader(builder_, level_ + 1);
+    result_ = result_ && oldDiagram_16_1(builder_, level_ + 1);
+    result_ = result_ && oldDiagram_16_2(builder_, level_ + 1);
+    exit_section_(builder_, marker_, null, result_);
+    return result_;
+  }
+
+  // EOL*
+  private static boolean oldDiagram_16_1(PsiBuilder builder_, int level_) {
+    if (!recursion_guard_(builder_, level_, "oldDiagram_16_1")) return false;
+    while (true) {
+      int pos_ = current_position_(builder_);
+      if (!consumeToken(builder_, EOL)) break;
+      if (!empty_element_parsed_guard_(builder_, "oldDiagram_16_1", pos_)) break;
+    }
+    return true;
+  }
+
+  // [genericBody]
+  private static boolean oldDiagram_16_2(PsiBuilder builder_, int level_) {
+    if (!recursion_guard_(builder_, level_, "oldDiagram_16_2")) return false;
+    genericBody(builder_, level_ + 1);
     return true;
   }
 
@@ -9031,7 +9559,7 @@ public class _MermaidParser implements PsiParser, LightPsiParser {
   }
 
   /* ********************************************************** */
-  // OPEN_SQUARE (NUM (COMMA NUM)*) CLOSE_SQUARE
+  // OPEN_SQUARE (plotPoint (COMMA plotPoint)*) CLOSE_SQUARE
   public static boolean plotData(PsiBuilder builder_, int level_) {
     if (!recursion_guard_(builder_, level_, "plotData")) return false;
     if (!nextTokenIs(builder_, OPEN_SQUARE)) return false;
@@ -9044,18 +9572,18 @@ public class _MermaidParser implements PsiParser, LightPsiParser {
     return result_;
   }
 
-  // NUM (COMMA NUM)*
+  // plotPoint (COMMA plotPoint)*
   private static boolean plotData_1(PsiBuilder builder_, int level_) {
     if (!recursion_guard_(builder_, level_, "plotData_1")) return false;
     boolean result_;
     Marker marker_ = enter_section_(builder_);
-    result_ = consumeToken(builder_, NUM);
+    result_ = plotPoint(builder_, level_ + 1);
     result_ = result_ && plotData_1_1(builder_, level_ + 1);
     exit_section_(builder_, marker_, null, result_);
     return result_;
   }
 
-  // (COMMA NUM)*
+  // (COMMA plotPoint)*
   private static boolean plotData_1_1(PsiBuilder builder_, int level_) {
     if (!recursion_guard_(builder_, level_, "plotData_1_1")) return false;
     while (true) {
@@ -9066,14 +9594,35 @@ public class _MermaidParser implements PsiParser, LightPsiParser {
     return true;
   }
 
-  // COMMA NUM
+  // COMMA plotPoint
   private static boolean plotData_1_1_0(PsiBuilder builder_, int level_) {
     if (!recursion_guard_(builder_, level_, "plotData_1_1_0")) return false;
     boolean result_;
     Marker marker_ = enter_section_(builder_);
-    result_ = consumeTokens(builder_, 0, COMMA, NUM);
+    result_ = consumeToken(builder_, COMMA);
+    result_ = result_ && plotPoint(builder_, level_ + 1);
     exit_section_(builder_, marker_, null, result_);
     return result_;
+  }
+
+  /* ********************************************************** */
+  // NUM [string]
+  public static boolean plotPoint(PsiBuilder builder_, int level_) {
+    if (!recursion_guard_(builder_, level_, "plotPoint")) return false;
+    if (!nextTokenIs(builder_, NUM)) return false;
+    boolean result_;
+    Marker marker_ = enter_section_(builder_);
+    result_ = consumeToken(builder_, NUM);
+    result_ = result_ && plotPoint_1(builder_, level_ + 1);
+    exit_section_(builder_, marker_, PLOT_POINT, result_);
+    return result_;
+  }
+
+  // [string]
+  private static boolean plotPoint_1(PsiBuilder builder_, int level_) {
+    if (!recursion_guard_(builder_, level_, "plotPoint_1")) return false;
+    string(builder_, level_ + 1);
+    return true;
   }
 
   /* ********************************************************** */
@@ -9089,7 +9638,19 @@ public class _MermaidParser implements PsiParser, LightPsiParser {
   }
 
   /* ********************************************************** */
-  // quadrantComplexText COLON point
+  // RADIUS COLON QUADRANT_TEXT
+  public static boolean pointRadius(PsiBuilder builder_, int level_) {
+    if (!recursion_guard_(builder_, level_, "pointRadius")) return false;
+    if (!nextTokenIs(builder_, RADIUS)) return false;
+    boolean result_;
+    Marker marker_ = enter_section_(builder_);
+    result_ = consumeTokens(builder_, 0, RADIUS, COLON, QUADRANT_TEXT);
+    exit_section_(builder_, marker_, POINT_RADIUS, result_);
+    return result_;
+  }
+
+  /* ********************************************************** */
+  // quadrantComplexText COLON point [pointRadius]
   public static boolean pointStatement(PsiBuilder builder_, int level_) {
     if (!recursion_guard_(builder_, level_, "pointStatement")) return false;
     if (!nextTokenIs(builder_, "<point statement>", DOUBLE_QUOTE, QUADRANT_TEXT)) return false;
@@ -9098,8 +9659,16 @@ public class _MermaidParser implements PsiParser, LightPsiParser {
     result_ = quadrantComplexText(builder_, level_ + 1);
     result_ = result_ && consumeToken(builder_, COLON);
     result_ = result_ && point(builder_, level_ + 1);
+    result_ = result_ && pointStatement_3(builder_, level_ + 1);
     exit_section_(builder_, level_, marker_, result_, false, null);
     return result_;
+  }
+
+  // [pointRadius]
+  private static boolean pointStatement_3(PsiBuilder builder_, int level_) {
+    if (!recursion_guard_(builder_, level_, "pointStatement_3")) return false;
+    pointRadius(builder_, level_ + 1);
+    return true;
   }
 
   /* ********************************************************** */
@@ -9913,15 +10482,32 @@ public class _MermaidParser implements PsiParser, LightPsiParser {
   }
 
   /* ********************************************************** */
-  // requirementType identifier
+  // requirementType (identifier | string) [erStyleClass]
   public static boolean requirementHeader(PsiBuilder builder_, int level_) {
     if (!recursion_guard_(builder_, level_, "requirementHeader")) return false;
     boolean result_;
     Marker marker_ = enter_section_(builder_, level_, _NONE_, REQUIREMENT_HEADER, "<requirement header>");
     result_ = requirementType(builder_, level_ + 1);
-    result_ = result_ && identifier(builder_, level_ + 1);
+    result_ = result_ && requirementHeader_1(builder_, level_ + 1);
+    result_ = result_ && requirementHeader_2(builder_, level_ + 1);
     exit_section_(builder_, level_, marker_, result_, false, null);
     return result_;
+  }
+
+  // identifier | string
+  private static boolean requirementHeader_1(PsiBuilder builder_, int level_) {
+    if (!recursion_guard_(builder_, level_, "requirementHeader_1")) return false;
+    boolean result_;
+    result_ = identifier(builder_, level_ + 1);
+    if (!result_) result_ = string(builder_, level_ + 1);
+    return result_;
+  }
+
+  // [erStyleClass]
+  private static boolean requirementHeader_2(PsiBuilder builder_, int level_) {
+    if (!recursion_guard_(builder_, level_, "requirementHeader_2")) return false;
+    erStyleClass(builder_, level_ + 1);
+    return true;
   }
 
   /* ********************************************************** */
@@ -10005,6 +10591,10 @@ public class _MermaidParser implements PsiParser, LightPsiParser {
   //   | relationshipDef
   //   | directive
   //   | accStatement
+  //   | styleStatement
+  //   | classDefStatement
+  //   | flowchartClassStatement
+  //   | directionStatement
   static boolean requirementStatement(PsiBuilder builder_, int level_) {
     if (!recursion_guard_(builder_, level_, "requirementStatement")) return false;
     boolean result_;
@@ -10013,6 +10603,10 @@ public class _MermaidParser implements PsiParser, LightPsiParser {
     if (!result_) result_ = relationshipDef(builder_, level_ + 1);
     if (!result_) result_ = directive(builder_, level_ + 1);
     if (!result_) result_ = accStatement(builder_, level_ + 1);
+    if (!result_) result_ = styleStatement(builder_, level_ + 1);
+    if (!result_) result_ = classDefStatement(builder_, level_ + 1);
+    if (!result_) result_ = flowchartClassStatement(builder_, level_ + 1);
+    if (!result_) result_ = directionStatement(builder_, level_ + 1);
     return result_;
   }
 
@@ -10877,35 +11471,82 @@ public class _MermaidParser implements PsiParser, LightPsiParser {
   }
 
   /* ********************************************************** */
-  // STYLE_OPT COLON STYLE_VAL (COMMA STYLE_OPT COLON STYLE_VAL)*
+  // STYLE_OPT [COLON STYLE_VAL+]
+  public static boolean styleDeclaration(PsiBuilder builder_, int level_) {
+    if (!recursion_guard_(builder_, level_, "styleDeclaration")) return false;
+    if (!nextTokenIs(builder_, STYLE_OPT)) return false;
+    boolean result_;
+    Marker marker_ = enter_section_(builder_);
+    result_ = consumeToken(builder_, STYLE_OPT);
+    result_ = result_ && styleDeclaration_1(builder_, level_ + 1);
+    exit_section_(builder_, marker_, STYLE_DECLARATION, result_);
+    return result_;
+  }
+
+  // [COLON STYLE_VAL+]
+  private static boolean styleDeclaration_1(PsiBuilder builder_, int level_) {
+    if (!recursion_guard_(builder_, level_, "styleDeclaration_1")) return false;
+    styleDeclaration_1_0(builder_, level_ + 1);
+    return true;
+  }
+
+  // COLON STYLE_VAL+
+  private static boolean styleDeclaration_1_0(PsiBuilder builder_, int level_) {
+    if (!recursion_guard_(builder_, level_, "styleDeclaration_1_0")) return false;
+    boolean result_;
+    Marker marker_ = enter_section_(builder_);
+    result_ = consumeToken(builder_, COLON);
+    result_ = result_ && styleDeclaration_1_0_1(builder_, level_ + 1);
+    exit_section_(builder_, marker_, null, result_);
+    return result_;
+  }
+
+  // STYLE_VAL+
+  private static boolean styleDeclaration_1_0_1(PsiBuilder builder_, int level_) {
+    if (!recursion_guard_(builder_, level_, "styleDeclaration_1_0_1")) return false;
+    boolean result_;
+    Marker marker_ = enter_section_(builder_);
+    result_ = consumeToken(builder_, STYLE_VAL);
+    while (result_) {
+      int pos_ = current_position_(builder_);
+      if (!consumeToken(builder_, STYLE_VAL)) break;
+      if (!empty_element_parsed_guard_(builder_, "styleDeclaration_1_0_1", pos_)) break;
+    }
+    exit_section_(builder_, marker_, null, result_);
+    return result_;
+  }
+
+  /* ********************************************************** */
+  // styleDeclaration (COMMA styleDeclaration)*
   public static boolean styleOptions(PsiBuilder builder_, int level_) {
     if (!recursion_guard_(builder_, level_, "styleOptions")) return false;
     if (!nextTokenIs(builder_, STYLE_OPT)) return false;
     boolean result_;
     Marker marker_ = enter_section_(builder_);
-    result_ = consumeTokens(builder_, 0, STYLE_OPT, COLON, STYLE_VAL);
-    result_ = result_ && styleOptions_3(builder_, level_ + 1);
+    result_ = styleDeclaration(builder_, level_ + 1);
+    result_ = result_ && styleOptions_1(builder_, level_ + 1);
     exit_section_(builder_, marker_, STYLE_OPTIONS, result_);
     return result_;
   }
 
-  // (COMMA STYLE_OPT COLON STYLE_VAL)*
-  private static boolean styleOptions_3(PsiBuilder builder_, int level_) {
-    if (!recursion_guard_(builder_, level_, "styleOptions_3")) return false;
+  // (COMMA styleDeclaration)*
+  private static boolean styleOptions_1(PsiBuilder builder_, int level_) {
+    if (!recursion_guard_(builder_, level_, "styleOptions_1")) return false;
     while (true) {
       int pos_ = current_position_(builder_);
-      if (!styleOptions_3_0(builder_, level_ + 1)) break;
-      if (!empty_element_parsed_guard_(builder_, "styleOptions_3", pos_)) break;
+      if (!styleOptions_1_0(builder_, level_ + 1)) break;
+      if (!empty_element_parsed_guard_(builder_, "styleOptions_1", pos_)) break;
     }
     return true;
   }
 
-  // COMMA STYLE_OPT COLON STYLE_VAL
-  private static boolean styleOptions_3_0(PsiBuilder builder_, int level_) {
-    if (!recursion_guard_(builder_, level_, "styleOptions_3_0")) return false;
+  // COMMA styleDeclaration
+  private static boolean styleOptions_1_0(PsiBuilder builder_, int level_) {
+    if (!recursion_guard_(builder_, level_, "styleOptions_1_0")) return false;
     boolean result_;
     Marker marker_ = enter_section_(builder_);
-    result_ = consumeTokens(builder_, 0, COMMA, STYLE_OPT, COLON, STYLE_VAL);
+    result_ = consumeToken(builder_, COMMA);
+    result_ = result_ && styleDeclaration(builder_, level_ + 1);
     exit_section_(builder_, marker_, null, result_);
     return result_;
   }
@@ -11473,7 +12114,7 @@ public class _MermaidParser implements PsiParser, LightPsiParser {
   }
 
   /* ********************************************************** */
-  // complexIdentifier [vertexText]
+  // complexIdentifier [metadata | vertexText]
   public static boolean vertex(PsiBuilder builder_, int level_) {
     if (!recursion_guard_(builder_, level_, "vertex")) return false;
     if (!nextTokenIs(builder_, ID)) return false;
@@ -11485,11 +12126,20 @@ public class _MermaidParser implements PsiParser, LightPsiParser {
     return result_;
   }
 
-  // [vertexText]
+  // [metadata | vertexText]
   private static boolean vertex_1(PsiBuilder builder_, int level_) {
     if (!recursion_guard_(builder_, level_, "vertex_1")) return false;
-    vertexText(builder_, level_ + 1);
+    vertex_1_0(builder_, level_ + 1);
     return true;
+  }
+
+  // metadata | vertexText
+  private static boolean vertex_1_0(PsiBuilder builder_, int level_) {
+    if (!recursion_guard_(builder_, level_, "vertex_1_0")) return false;
+    boolean result_;
+    result_ = metadata(builder_, level_ + 1);
+    if (!result_) result_ = vertexText(builder_, level_ + 1);
+    return result_;
   }
 
   /* ********************************************************** */

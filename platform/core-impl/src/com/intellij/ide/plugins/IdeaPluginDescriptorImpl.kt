@@ -52,8 +52,6 @@ sealed class IdeaPluginDescriptorImpl(
 
   abstract val ownClassPath: List<Path>?
 
-  /** **DO NOT USE** outside plugin subsystem internal code. It is public now due to an unfinished migration */
-  var isMarkedForLoading: Boolean = true
   private var _pluginClassLoader: ClassLoader? = null
 
   abstract val isIndependentFromCoreClassLoader: Boolean
@@ -75,7 +73,7 @@ sealed class IdeaPluginDescriptorImpl(
   }
 
   @Deprecated("Deprecated in Java")
-  override fun isEnabled(): Boolean = isMarkedForLoading
+  override fun isEnabled(): Boolean = isLoaded
 
   internal fun createDependsSubDescriptor(
     subBuilder: PluginDescriptorBuilder,
@@ -210,7 +208,8 @@ class DependsSubDescriptor(
 
   @Deprecated("use main descriptor")
   override fun getPluginPath(): Path = parent.pluginPath
-  @Deprecated("use main descriptor") override val useIdeaClassLoader: Boolean get() = parent.useIdeaClassLoader
+  @Deprecated("use main descriptor")
+  override val useIdeaClassLoader: Boolean get() = parent.useIdeaClassLoader
 
   @Deprecated("use main descriptor")
   override fun allowBundledUpdate(): Boolean = parent.allowBundledUpdate()
@@ -506,11 +505,14 @@ private fun convertExtensions(rawMap: Map<String, List<ExtensionElement>>): Map<
 }
 
 @get:Internal
-val IdeaPluginDescriptorImpl.shortLogDescription: String get() = when (this) {
-  is PluginMainDescriptor -> "plugin '$name' ($pluginId, $version)"
-  is DependsSubDescriptor -> "<depends> config '${descriptorPath}' of plugin ${pluginId}"
-  is ContentModuleDescriptor -> "module ${moduleId.displayName}"
-}
+val IdeaPluginDescriptorImpl.shortLogDescription: String
+  get() {
+    return when (this) {
+      is PluginMainDescriptor -> "plugin '$name' ($pluginId, $version)"
+      is DependsSubDescriptor -> "<depends> config '${descriptorPath}' of plugin ${pluginId}"
+      is ContentModuleDescriptor -> "module ${moduleId.displayName}"
+    }
+  }
 
 /**
  * Workaround for the `com.intellij.rd.client.capable` alias being declared in two plugins (IJPL-220139):

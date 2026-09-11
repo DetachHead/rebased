@@ -10,10 +10,13 @@ import com.intellij.openapi.util.TextRange
 import com.intellij.psi.PsiElement
 import com.intellij.psi.SmartPsiElementPointer
 import com.intellij.psi.createSmartPointer
-import org.jetbrains.kotlin.analysis.api.KaExperimentalApi
 import org.jetbrains.kotlin.analysis.api.KaSession
+import org.jetbrains.kotlin.analysis.api.expressions.expressionType
+import org.jetbrains.kotlin.analysis.api.renderer.render
 import org.jetbrains.kotlin.analysis.api.renderer.types.impl.KaTypeRendererForSource
+import org.jetbrains.kotlin.analysis.api.resolution.resolveSuccessfulSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaBackingFieldSymbol
+import org.jetbrains.kotlin.analysis.api.symbols.symbol
 import org.jetbrains.kotlin.analysis.api.types.KaClassType
 import org.jetbrains.kotlin.analysis.api.types.KaStarTypeProjection
 import org.jetbrains.kotlin.idea.base.resources.KotlinBundle
@@ -21,7 +24,6 @@ import org.jetbrains.kotlin.idea.base.util.reformat
 import org.jetbrains.kotlin.idea.codeinsight.api.applicable.inspections.KotlinApplicableInspectionBase
 import org.jetbrains.kotlin.idea.codeinsight.api.applicable.inspections.KotlinModCommandQuickFix
 import org.jetbrains.kotlin.idea.codeinsight.api.applicators.ApplicabilityRange
-import org.jetbrains.kotlin.idea.references.mainReference
 import org.jetbrains.kotlin.idea.util.CommentSaver
 import org.jetbrains.kotlin.psi.KtBackingField
 import org.jetbrains.kotlin.psi.KtBlockExpression
@@ -70,7 +72,8 @@ internal class RevertExplicitBackingFieldsInspection :
     override fun getApplicableRanges(element: KtProperty): List<TextRange> =
         ApplicabilityRange.single(element) { it.fieldDeclaration?.fieldKeyword }
 
-    override fun KaSession.prepareContext(element: KtProperty): Context {
+    context(session: KaSession)
+    override fun prepareContext(element: KtProperty): Context {
         val initializerText = element.allChildren
             .firstIsInstanceOrNull<KtBackingField>()
             ?.let { computeInitializerText(it) }
@@ -132,9 +135,10 @@ internal class RevertExplicitBackingFieldsInspection :
                 }
             }
 
-    private fun KaSession.isReferenceTo(ref: KtNameReferenceExpression, property: KtProperty): Boolean {
+    context(session: KaSession)
+    private fun isReferenceTo(ref: KtNameReferenceExpression, property: KtProperty): Boolean {
         val propertySymbol = property.symbol
-        val resolvedSymbol = ref.mainReference.resolveToSymbol()
+        val resolvedSymbol = ref.resolveSuccessfulSymbol()
         if (ref.getReferencedName() != property.name) return false
         return resolvedSymbol == propertySymbol ||
                 (resolvedSymbol is KaBackingFieldSymbol && resolvedSymbol.owningProperty == propertySymbol)
@@ -155,8 +159,8 @@ internal class RevertExplicitBackingFieldsInspection :
         )
     }
 
-    @OptIn(KaExperimentalApi::class)
-    private fun KaSession.computeInitializerText(backingField: KtBackingField): String? {
+    context(session: KaSession)
+    private fun computeInitializerText(backingField: KtBackingField): String? {
         val initializer = backingField.initializer ?: return null
         if (backingField.typeReference != null) return initializer.text
         val callExpr = initializer as? KtCallExpression ?: return initializer.text

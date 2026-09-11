@@ -1,6 +1,11 @@
-load("@rules_jvm//:jvm.bzl", "jvm_library")
+load("@rules_jvm//:jvm.bzl", "jvm_library", "jvm_provided_library")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
 ### auto-generated section `build intellij.kotlin.lombok` start
+jvm_provided_library(
+    name = "libraries_kotlinc_libraries-kotlinc-kotlin-compiler-fir_provided",
+    lib = "//libraries/kotlinc/kotlin-compiler-fir:libraries-kotlinc-kotlin-compiler-fir",
+)
 
 jvm_library(
     name = "lombok",
@@ -27,15 +32,14 @@ jvm_library(
         "//platform/editor-ui-api:editor-ui",
         "//platform/projectModel-api:projectModel",
         "//platform/util",
-        "@lib//:kotlinc-kotlin-compiler-common-provided",
-        "@lib//:kotlinc-analysis-api-provided",
+        "//libraries/kotlinc/kotlin-compiler-common:libraries-kotlinc-kotlin-compiler-common",
+        "//libraries/kotlinc/analysis-api:libraries-kotlinc-analysis-api",
         "//plugins/kotlin/code-insight/api",
         "//plugins/kotlin/code-insight/utils",
         "//plugins/kotlin/code-insight/impl-base:kotlin-codeInsight-shared",
         "//plugins/kotlin/project-configuration",
         "//plugins/kotlin/base/project-structure",
-        "@lib//:kotlinc-analysis-api-platform-interface-provided",
-        "@lib//:kotlinc-kotlin-compiler-fir-provided",
+        "//libraries/kotlinc/analysis-api-platform-interface:libraries-kotlinc-analysis-api-platform-interface",
         "//plugins/kotlin/base/psi",
         "//platform/indexing-api:indexing",
         "//platform/backend/observation",
@@ -45,8 +49,11 @@ jvm_library(
         "//java/java-impl:impl",
         "//java/java-psi-api:psi",
         "@lib//:kotlinc-lombok-compiler-plugin",
+        ":libraries_kotlinc_libraries-kotlinc-kotlin-compiler-fir_provided",
     ],
 )
+
+content_module_jar(module = ":lombok")
 
 jvm_library(
     name = "lombok_test_lib",
@@ -66,15 +73,16 @@ jvm_library(
         "//platform/editor-ui-api:editor-ui_test_lib",
         "//platform/projectModel-api:projectModel_test_lib",
         "//platform/util:util_test_lib",
-        "@lib//:kotlinc-kotlin-compiler-common-provided",
-        "@lib//:kotlinc-analysis-api-provided",
+        "//libraries/kotlinc/kotlin-compiler-common:libraries-kotlinc-kotlin-compiler-common_test_lib",
+        "//libraries/kotlinc/analysis-api:libraries-kotlinc-analysis-api_test_lib",
         "//plugins/kotlin/code-insight/api:api_test_lib",
         "//plugins/kotlin/code-insight/utils:utils_test_lib",
         "//plugins/kotlin/code-insight/impl-base:kotlin-codeInsight-shared_test_lib",
         "//plugins/kotlin/project-configuration:project-configuration_test_lib",
         "//plugins/kotlin/base/project-structure:project-structure_test_lib",
-        "@lib//:kotlinc-analysis-api-platform-interface-provided",
-        "@lib//:kotlinc-kotlin-compiler-fir-provided",
+        "//libraries/kotlinc/analysis-api-platform-interface:libraries-kotlinc-analysis-api-platform-interface_test_lib",
+        "//libraries/kotlinc/kotlin-compiler-fir:libraries-kotlinc-kotlin-compiler-fir",
+        "//libraries/kotlinc/kotlin-compiler-fir:libraries-kotlinc-kotlin-compiler-fir_test_lib",
         "//plugins/kotlin/base/psi:psi_test_lib",
         "//platform/indexing-api:indexing_test_lib",
         "//platform/backend/observation:observation_test_lib",
@@ -91,6 +99,7 @@ jvm_library(
 exports_files(
     [
         "intellij.kotlin.lombok.iml",
+        "resources/intellij.kotlin.lombok.xml",
     ],
     visibility = ["//visibility:public"],
 )

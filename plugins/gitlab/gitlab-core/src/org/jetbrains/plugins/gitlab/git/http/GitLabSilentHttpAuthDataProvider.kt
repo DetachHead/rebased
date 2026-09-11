@@ -1,15 +1,14 @@
 // Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.plugins.gitlab.git.http
 
-import com.intellij.collaboration.auth.AccountManager
 import com.intellij.collaboration.auth.DefaultAccountHolder
 import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.logger
-import com.intellij.openapi.progress.ProcessCanceledException
+import com.intellij.openapi.diagnostic.rethrowControlFlowException
 import com.intellij.openapi.project.Project
+import com.intellij.util.AuthData
 import git4idea.remote.hosting.http.HostedGitAuthenticationFailureManager
-import git4idea.remote.hosting.http.SilentHostedGitHttpAuthDataProvider
-import kotlinx.coroutines.flow.map
+import git4idea.remote.hosting.http.SilentHostedGitHttpAuthDataProviderBase
 import org.jetbrains.plugins.gitlab.api.GitLabApiManager
 import org.jetbrains.plugins.gitlab.api.request.getCurrentUser
 import org.jetbrains.plugins.gitlab.authentication.GitLabCredentials
@@ -19,11 +18,11 @@ import org.jetbrains.plugins.gitlab.authentication.accounts.GitLabProjectDefault
 
 private val LOG = logger<GitLabSilentHttpAuthDataProvider>()
 
-internal class GitLabSilentHttpAuthDataProvider : SilentHostedGitHttpAuthDataProvider<GitLabAccount>() {
+internal class GitLabSilentHttpAuthDataProvider : SilentHostedGitHttpAuthDataProviderBase<GitLabAccount, GitLabCredentials>() {
   override val providerId: String = "GitLab Plugin"
 
-  override val accountManager: AccountManager<GitLabAccount, String>
-    get() = StringCredentialsAdapter(service<GitLabAccountManager>())
+  override val accountManager: GitLabAccountManager
+    get() = service<GitLabAccountManager>()
 
   override fun getDefaultAccountHolder(project: Project): DefaultAccountHolder<GitLabAccount> {
     return project.service<GitLabProjectDefaultAccountHolder>()
@@ -33,29 +32,18 @@ internal class GitLabSilentHttpAuthDataProvider : SilentHostedGitHttpAuthDataPro
     return project.service<GitLabGitAuthenticationFailureManager>()
   }
 
-  override suspend fun getAccountLogin(account: GitLabAccount, token: String): String? {
-    return try {
-      service<GitLabApiManager>().getClient(account.server, token).graphQL.getCurrentUser().username
-    }
-    catch (e: ProcessCanceledException) {
-      null
+  override suspend fun getAuthData(account: GitLabAccount): AuthData? {
+    try {
+      val credentials = accountManager.getAndRefreshCredentials(account)
+      val login = service<GitLabApiManager>()
+        .getClient(account.server, credentials.accessToken)
+        .graphQL.getCurrentUser().username
+      return AuthData(login, credentials.accessToken)
     }
     catch (e: Exception) {
-      LOG.info("Cannot load details for $account", e)
-      null
+      rethrowControlFlowException(e)
+      LOG.warn("Cannot acquire auth data for $account", e)
+      return null
     }
-  }
-
-  // Necessary to avoid making `SilentHostedGitHttpAuthDataProvider` using generic credentials due to external API usages
-  private class StringCredentialsAdapter(
-    private val delegate: AccountManager<GitLabAccount, GitLabCredentials>,
-  ) : AccountManager<GitLabAccount, String> {
-    override val accountsState get() = delegate.accountsState
-    override val canPersistCredentials get() = delegate.canPersistCredentials
-    override suspend fun findCredentials(account: GitLabAccount) = delegate.findCredentials(account)?.accessToken
-    override fun getCredentialsFlow(account: GitLabAccount) = delegate.getCredentialsFlow(account).map { it?.accessToken }
-    override suspend fun updateAccount(account: GitLabAccount, credentials: String) = error("Use GitLabAccountManager directly")
-    override suspend fun updateAccounts(accountsWithCredentials: Map<GitLabAccount, String?>) = error("Use GitLabAccountManager directly")
-    override suspend fun removeAccount(account: GitLabAccount) = delegate.removeAccount(account)
   }
 }
