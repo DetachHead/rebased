@@ -14,6 +14,7 @@
     <module name="intellij.platform.core.impl"/>
     <module name="intellij.platform.core.ui"/>
     <module name="intellij.platform.debugger"/>
+    <module name="intellij.platform.debugger.impl"/>
     <module name="intellij.platform.debugger.impl.rpc"/>
     <module name="intellij.platform.debugger.impl.shared"/>
     <module name="intellij.platform.editor.ui"/>
@@ -27,7 +28,9 @@
     <module name="intellij.platform.kernel.backend"/>
     <module name="intellij.platform.lang"/>
     <module name="intellij.platform.lang.impl"/>
+    <module name="intellij.platform.project"/>
     <module name="intellij.platform.projectModel"/>
+    <module name="intellij.platform.rpc.backend"/>
     <module name="intellij.platform.statistics"/>
     <module name="intellij.platform.util.coroutines"/>
     <module name="intellij.platform.util.ui"/>

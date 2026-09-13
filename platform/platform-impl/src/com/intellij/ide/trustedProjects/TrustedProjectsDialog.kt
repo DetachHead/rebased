@@ -1,4 +1,4 @@
-// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.ide.trustedProjects
 
 import com.intellij.diagnostic.WindowsDefenderChecker
@@ -9,6 +9,7 @@ import com.intellij.ide.impl.OpenUntrustedProjectChoice
 import com.intellij.ide.impl.TRUSTED_PROJECTS_HELP_TOPIC
 import com.intellij.ide.impl.TrustedPathsSettings
 import com.intellij.ide.impl.TrustedProjectsStatistics
+import com.intellij.ide.trustedProjects.impl.TrustedFileDialog
 import com.intellij.ide.trustedProjects.impl.TrustedProjectStartupDialog
 import com.intellij.openapi.application.ApplicationInfo
 import com.intellij.openapi.application.EDT
@@ -74,16 +75,9 @@ object TrustedProjectsDialog {
 
     if (openChoice != OpenUntrustedProjectChoice.CANCEL && pathsToExclude.isNotEmpty()) {
       val checker = serviceAsync<WindowsDefenderChecker>()
-      val defenderTrustDir = dialog.defenderTrustFolder
-      if (openChoice == OpenUntrustedProjectChoice.TRUST_AND_OPEN && defenderTrustDir != null) {
+      if (openChoice == OpenUntrustedProjectChoice.TRUST_AND_OPEN) {
         checker.markProjectPath(projectRoot, /*skip =*/ false)
         WindowsDefenderStatisticsCollector.excludedFromTrustDialog(dialog.isTrustAll)
-        if (defenderTrustDir != projectRoot) {
-          (pathsToExclude as MutableList<Path>).apply {
-            remove(projectRoot)
-            add(0, defenderTrustDir)
-          }
-        }
         WindowsDefenderCheckerActivity.runAndNotify(project) {
           checker.excludeProjectPaths(project, projectRoot, pathsToExclude)
         }
@@ -157,6 +151,39 @@ object TrustedProjectsDialog {
     TrustedProjects.setProjectTrusted(locatedProject, answer)
 
     TrustedProjectsStatistics.LOAD_UNTRUSTED_PROJECT_CONFIRMATION_CHOICE.log(project, answer)
+
+    return answer
+  }
+
+  /**
+   * Shows a warning confirmation for trusting the location of a single file opened in the safe mode
+   * inside [hostProject]'s frame (see [TrustedFiles]) and marks [filePath] trusted if the user confirms.
+   *
+   * @return `true` if the file became trusted
+   */
+  @JvmStatic
+  fun confirmTrustingUntrustedFile(hostProject: Project, filePath: Path): Boolean {
+    val locatedFile = TrustedProjectsLocator.locateProject(filePath, project = null)
+    if (TrustedProjects.isProjectTrusted(locatedFile)) {
+      TrustedProjects.setProjectTrusted(locatedFile, true)
+      return true
+    }
+
+    val choice = TrustedFileDialog.showAndGet(hostProject, filePath)
+    val answer = choice.isTrusted
+
+    if (answer) {
+      val parentPath = filePath.parent
+      if (choice.isTrustFolder && parentPath != null) {
+        TrustedProjectsStatistics.TRUST_FILE_LOCATION_CHECKBOX_SELECTED.log()
+        // record the folder grant first: setProjectTrusted fires the only trust event,
+        // and TrustedFilesCache must see the granted folder when it resets on that event
+        service<TrustedPathsSettings>().addTrustedPath(parentPath.toString())
+      }
+      TrustedProjects.setProjectTrusted(locatedFile, true)
+    }
+
+    TrustedProjectsStatistics.LOAD_UNTRUSTED_PROJECT_CONFIRMATION_CHOICE.log(hostProject, answer)
 
     return answer
   }

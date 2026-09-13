@@ -49,6 +49,7 @@ import androidx.compose.ui.layout.onFirstVisible
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.PopupProperties
 import androidx.compose.ui.window.rememberComponentRectPositionProvider
 import java.awt.event.KeyEvent as AWTKeyEvent
 import kotlinx.coroutines.CoroutineDispatcher
@@ -72,6 +73,20 @@ import org.jetbrains.jewel.ui.theme.speedSearchStyle
 import org.jetbrains.jewel.ui.theme.textFieldStyle
 import org.jetbrains.skiko.hostOs
 
+/**
+ * Creates a speed search area that provides keyboard-driven search functionality for its content.
+ *
+ * @param modifier The modifier to be applied to the container.
+ * @param matcherBuilder A function that creates a [SpeedSearchMatcher] from the search text. Defaults to
+ *   [SpeedSearchMatcher.patternMatcher].
+ * @param styling The visual styling for the speed search input overlay.
+ * @param textFieldStyle The styling for the text field within the search overlay.
+ * @param textStyle The text style for the search input text.
+ * @param searchMatchStyle The styling for highlighting matched text in search results.
+ * @param interactionSource The interaction source for tracking focus state. If null, a new one will be created.
+ * @param content The content to be displayed within the speed search area. Use [SpeedSearchScope] to access search
+ *   state and process key events.
+ */
 @Composable
 @ExperimentalJewelApi
 @ApiStatus.Experimental
@@ -112,7 +127,8 @@ public fun SpeedSearchArea(
  * @param textStyle The text style for the search input text.
  * @param searchMatchStyle The styling for highlighting matched text in search results.
  * @param interactionSource The interaction source for tracking focus state. If null, a new one will be created.
- * @param dismissOnLoseFocus Whether to automatically hide the search input when it loses focus. Defaults to true.
+ * @param dismissOnLoseFocus Whether focus loss or renderer-level outside dismissal hides the search input. Escape
+ *   behavior is defined by the content's [SpeedSearchScope.processKeyEvent] implementation. Defaults to true.
  * @param content The content to be displayed within the speed search area. Use [SpeedSearchScope] to access search
  *   state and process key events.
  */
@@ -157,7 +173,8 @@ public fun SpeedSearchArea(
  * @param textStyle The text style for the search input text.
  * @param searchMatchStyle The styling for highlighting matched text in search results.
  * @param interactionSource The interaction source for tracking focus state. If null, a new one will be created.
- * @param dismissOnLoseFocus Whether to automatically hide the search input when it loses focus. Defaults to true.
+ * @param dismissOnLoseFocus Whether focus loss or renderer-level outside dismissal hides the search input. Escape
+ *   behavior is defined by the content's [SpeedSearchScope.processKeyEvent] implementation. Defaults to true.
  * @param content The content to be displayed within the speed search area. Use [SpeedSearchScope] to access search
  *   state and process key events.
  */
@@ -190,9 +207,11 @@ public fun SpeedSearchArea(
 
         if (state.isVisible) {
             SpeedSearchInput(
+                speedSearchState = state,
                 state = state.textFieldState,
                 hasMatch = state.hasMatches,
                 position = state.position,
+                dismissOnLoseFocus = dismissOnLoseFocus,
                 styling = styling,
                 textStyle = textStyle,
                 textFieldStyle = textFieldStyle,
@@ -390,9 +409,11 @@ public fun ProvideSearchMatchState(
 
 @Composable
 private fun SpeedSearchInput(
+    speedSearchState: SpeedSearchState,
     state: TextFieldState,
     hasMatch: Boolean,
     position: Alignment.Vertical,
+    dismissOnLoseFocus: Boolean,
     styling: SpeedSearchStyle,
     textStyle: TextStyle,
     textFieldStyle: TextFieldStyle,
@@ -407,7 +428,13 @@ private fun SpeedSearchInput(
             }
         }
 
-    Popup(popupPositionProvider = rememberComponentRectPositionProvider(anchor, alignment)) {
+    Popup(
+        popupPositionProvider = rememberComponentRectPositionProvider(anchor, alignment),
+        onDismissRequest = { speedSearchState.hideSearch() },
+        // Only the outside-click path is conditional. Escape always hides the search input, which is what makes
+        // the first Escape belong to speed search and the second to whatever the search is layered over.
+        properties = PopupProperties(dismissOnClickOutside = dismissOnLoseFocus),
+    ) {
         val focusRequester = remember { FocusRequester() }
 
         BasicTextField(

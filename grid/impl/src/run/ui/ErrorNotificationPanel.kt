@@ -12,11 +12,13 @@ import com.intellij.openapi.actionSystem.DataSink
 import com.intellij.openapi.actionSystem.PlatformDataKeys
 import com.intellij.openapi.actionSystem.UiDataProvider
 import com.intellij.openapi.application.WriteIntentReadAction
+import com.intellij.openapi.ide.CopyPasteManager
 import com.intellij.openapi.project.DumbAwareAction
 import com.intellij.openapi.ui.MessageType
 import com.intellij.openapi.util.NlsActions
 import com.intellij.openapi.util.NlsContexts
 import com.intellij.openapi.util.text.StringUtil
+import com.intellij.ui.ComponentWithMnemonics
 import com.intellij.ui.components.ActionLink
 import com.intellij.util.ui.JBDimension
 import com.intellij.util.ui.JBUI
@@ -27,6 +29,7 @@ import java.awt.Cursor
 import java.awt.Dimension
 import java.awt.FlowLayout
 import java.awt.Graphics
+import java.awt.event.ActionEvent
 import java.awt.event.KeyEvent
 import java.awt.event.MouseEvent
 import java.awt.event.MouseListener
@@ -58,7 +61,7 @@ class ErrorNotificationPanel private constructor(
   items: List<PanelItem>,
   private val hideErrorAction: Runnable?,
   private val messageType: MessageType = MessageType.ERROR,
-) : JPanel(BorderLayout()), UiDataProvider {
+) : JPanel(BorderLayout()), UiDataProvider, ComponentWithMnemonics {
   private var copyProvider: CopyProvider? = null
   private val textPane: JTextArea?
   private val content: JPanel
@@ -159,7 +162,8 @@ class ErrorNotificationPanel private constructor(
     private var type: MessageType = MessageType.ERROR
     private var hideErrorAction: Runnable? = null
 
-    private var isChoppedMessage = false
+    var isChoppedMessage: Boolean = false
+      private set
 
     init {
       errorMessage = when {
@@ -201,11 +205,16 @@ class ErrorNotificationPanel private constructor(
       }
     }
 
-    fun addFullMessageButtonIfNeeded(): Builder {
-      if (!isChoppedMessage) return this
-      return addLink(DataGridBundle.message("action.full.message.text"), KeyEvent.VK_F, Runnable {
+    fun addCopyButton(): Builder {
+      return addLink(DataGridBundle.message("action.copy.text"), KeyEvent.VK_Y) {
+        CopyPasteManager.copyTextToClipboard(message ?: errorMessage ?: "")
+      }
+    }
+
+    fun addFullMessageButton(): Builder {
+      return addLink(DataGridBundle.message("action.full.message.text"), KeyEvent.VK_F) {
         ErrorNotificationPopup(DataGridBundle.message("action.full.message.text"), error, message).show()
-      })
+      }
     }
 
     fun addCloseButton(action: Runnable?): Builder {
@@ -250,7 +259,7 @@ class ErrorNotificationPanel private constructor(
     private val mnemonicCode: Int? = null,
   ) : PanelItem {
     override fun buildComponent(): JComponent {
-      return ActionLink(linkText) { onClickAction() }.apply {
+      return MnemonicActionLink(linkText) { onClickAction() }.apply {
         font = UIManager.getFont("ToolTip.font")
         if (mnemonicCode != null) {
           mnemonic = mnemonicCode
@@ -259,6 +268,9 @@ class ErrorNotificationPanel private constructor(
       }
     }
   }
+
+  private class MnemonicActionLink(@Nls linkText: String, onClickAction: (ActionEvent) -> Unit) :
+    ActionLink(linkText, onClickAction), ComponentWithMnemonics
 
   private class IconLink(
     private val icon: Icon,
@@ -275,7 +287,7 @@ class ErrorNotificationPanel private constructor(
     }
   }
 
-  private class EmptySpace() : PanelItem {
+  private class EmptySpace : PanelItem {
     override fun buildComponent(): JComponent {
       return Box.createRigidArea(JBDimension(1, 20)) as JComponent
     }

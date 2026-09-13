@@ -4,24 +4,16 @@ project
 project.androidApp
 
 project.androidApp.androidTest
+    kmmLib.androidMain (TEST)
     kmmLib.commonMain (TEST)
-    kmmLib.main (TEST)
 
 project.androidApp.main
+    kmmLib.androidMain (COMPILE)
     kmmLib.commonMain (COMPILE)
-    kmmLib.main (COMPILE)
 
 project.androidApp.unitTest
+    kmmLib.androidMain (TEST)
     kmmLib.commonMain (TEST)
-    kmmLib.main (TEST)
-
-project.androidTest
-    main (friend, TEST)
-
-project.main
-
-project.unitTest
-    main (friend, TEST)
 
 
 Test configuration:

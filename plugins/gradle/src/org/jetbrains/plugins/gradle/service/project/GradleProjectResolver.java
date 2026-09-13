@@ -12,6 +12,7 @@ import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.externalSystem.importing.ProjectResolverPolicy;
 import com.intellij.openapi.externalSystem.model.DataNode;
 import com.intellij.openapi.externalSystem.model.ExternalSystemException;
+import com.intellij.openapi.externalSystem.service.internal.ExternalSystemPartialResolutionException;
 import com.intellij.openapi.externalSystem.model.ProjectKeys;
 import com.intellij.openapi.externalSystem.model.project.ContentRootData;
 import com.intellij.openapi.externalSystem.model.project.ExternalSystemSourceType;
@@ -98,13 +99,11 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CancellationException;
-import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Predicate;
 import java.util.function.Supplier;
 import java.util.stream.Stream;
 
 import static com.intellij.gradle.toolingExtension.GradleToolingExtensionProperties.USE_RESILIENT_MODEL_FETCH_SYSTEM_PROPERTY_KEY;
-import static com.intellij.gradle.toolingExtension.util.GradleVersionSpecificsUtil.isResilientModelFetchApiSupported;
 import static com.intellij.openapi.externalSystem.util.ExternalSystemApiUtil.find;
 import static com.intellij.openapi.externalSystem.util.ExternalSystemApiUtil.findAll;
 import static com.intellij.openapi.externalSystem.util.ExternalSystemApiUtil.findAllRecursively;
@@ -212,6 +211,10 @@ public final class GradleProjectResolver implements ExternalSystemProjectResolve
         var gradleHome = ObjectUtils.doIfNotNull(resolverContext.getUserData(GRADLE_HOME_DIR), it -> it.getPath());
         new GradleBuildSrcProjectsResolver(this, resolverContext, gradleHome, projectResolverChain)
           .discoverAndAppendTo(projectDataNode);
+      }
+
+      if (resolverContext.getReporter().hasFailures()) {
+        throw new ExternalSystemPartialResolutionException(projectDataNode);
       }
 
       return projectDataNode;
@@ -610,9 +613,8 @@ public final class GradleProjectResolver implements ExternalSystemProjectResolve
     if (Registry.is("gradle.daemon.legacy.dependency.resolver", false)) {
       executionSettings.withArgument("-Didea.gradle.daemon.legacy.dependency.resolver=true");
     }
-    if (Registry.is("gradle.use.resilient.model.fetch") && isResilientModelFetchApiSupported(resolverContext.getGradleVersion())) {
-      executionSettings.withVmOption("-D" + USE_RESILIENT_MODEL_FETCH_SYSTEM_PROPERTY_KEY + "=true");
-    }
+    executionSettings.withVmOption("-D" + USE_RESILIENT_MODEL_FETCH_SYSTEM_PROPERTY_KEY + "=" +
+                                   isResilientModelFetchEnabled(resolverContext));
 
     GradleImportCustomizer importCustomizer = GradleImportCustomizer.get();
     GradleProjectResolverUtil.createProjectResolvers(resolverContext).forEachOrdered(extension -> {
@@ -627,6 +629,17 @@ public final class GradleProjectResolver implements ExternalSystemProjectResolve
       // collect extra command-line arguments
       executionSettings.withArguments(extension.getExtraCommandLineArgs());
     });
+  }
+
+  private static boolean isResilientModelFetchEnabled(@NotNull DefaultProjectResolverContext context) {
+    // todo IDEA-390866: remove it when Gradle 9.7 available
+    if (Registry.is("gradle.use.resilient.model.fetch.unstable")) {
+      return GradleVersionUtil.isGradleAtLeast(context.getGradleVersion(), "9.3");
+    }
+    if (Registry.is("gradle.use.resilient.model.fetch")) {
+      return GradleVersionUtil.isGradleAtLeast(context.getGradleVersion(), "9.7");
+    }
+    return false;
   }
 
   private static @NotNull Collection<IdeaModule> exposeCompositeBuild(

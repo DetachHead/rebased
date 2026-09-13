@@ -9,7 +9,9 @@
     <module name="intellij.platform.ide.impl"/>
     <module name="intellij.platform.kernel.backend"/>
     <module name="intellij.platform.lang.impl"/>
+    <module name="intellij.platform.project"/>
     <module name="intellij.platform.projectModel"/>
+    <module name="intellij.platform.rpc.backend"/>
     <module name="intellij.platform.scopes"/>
     <module name="intellij.platform.util.coroutines"/>
   </dependencies>

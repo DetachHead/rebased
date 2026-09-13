@@ -1,7 +1,6 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
 
 ### auto-generated section `build intellij.lsp.ui.idea.product.modules` start
-
 jvm_library(
     name = "idea.product.modules",
     srcs = glob(
@@ -33,6 +32,7 @@ jvm_library(
 exports_files(
     [
         "intellij.lsp.ui.idea.product.modules.iml",
+        "resources/META-INF/intellij.lsp.ui.idea.product.modules/product-modules.xml",
     ],
     visibility = ["//visibility:public"],
 )

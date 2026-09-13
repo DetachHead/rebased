@@ -5,9 +5,10 @@ import com.intellij.codeInspection.util.IntentionFamilyName
 import com.intellij.modcommand.ActionContext
 import com.intellij.modcommand.ModPsiUpdater
 import com.intellij.psi.util.parentOfType
-import org.jetbrains.kotlin.analysis.api.KaExperimentalApi
 import org.jetbrains.kotlin.analysis.api.KaSession
+import org.jetbrains.kotlin.analysis.api.resolution.resolveSuccessfulSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaNamedClassSymbol
+import org.jetbrains.kotlin.analysis.api.symbols.containingSymbol
 import org.jetbrains.kotlin.descriptors.annotations.AnnotationUseSiteTarget
 import org.jetbrains.kotlin.idea.base.analysis.api.utils.shortenReferences
 import org.jetbrains.kotlin.idea.base.resources.KotlinBundle
@@ -63,8 +64,8 @@ internal class ConvertOptInMarkerToRequirementIntention :
     override fun getFamilyName(): @IntentionFamilyName String =
         KotlinBundle.message("intention.family.name.convert.opt.in.marker.to.requirement")
 
-    @OptIn(KaExperimentalApi::class)
-    override fun KaSession.prepareContext(element: KtValueArgument): Context? {
+    context(session: KaSession)
+    override fun prepareContext(element: KtValueArgument): Context? {
         val lit = element.getArgumentExpression() as? KtClassLiteralExpression ?: return null
 
         val parentAnnotation = element.parentOfType<KtAnnotationEntry>() ?: return null
@@ -80,13 +81,13 @@ internal class ConvertOptInMarkerToRequirementIntention :
         ) // inapplicable on those elements
             return null
 
-        val constructorSymbol = parentAnnotation.resolveSymbol() ?: return null
+        val constructorSymbol = parentAnnotation.resolveSuccessfulSymbol() ?: return null
         val classSymbol = constructorSymbol.containingSymbol as? KaNamedClassSymbol ?: return null
 
         if (classSymbol.classId != OptInNames.OPT_IN_CLASS_ID)
             return null
 
-        val klsSymbol = lit.resolveSymbol() ?: return null
+        val klsSymbol = lit.resolveSuccessfulSymbol() ?: return null
         val klsId = (klsSymbol as? KaNamedClassSymbol)?.classId ?: return null
 
         return Context(klsId, element)

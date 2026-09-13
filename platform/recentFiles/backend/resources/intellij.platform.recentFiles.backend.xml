@@ -11,10 +11,12 @@
     <module name="intellij.platform.editor.ui"/>
     <module name="intellij.platform.ide"/>
     <module name="intellij.platform.ide.core"/>
+    <module name="intellij.platform.ide.core.impl"/>
     <module name="intellij.platform.ide.impl"/>
     <module name="intellij.platform.indexing"/>
     <module name="intellij.platform.kernel.backend"/>
     <module name="intellij.platform.lang"/>
+    <module name="intellij.platform.project"/>
     <module name="intellij.platform.projectModel"/>
     <module name="intellij.platform.recentFiles"/>
     <module name="intellij.platform.statistics"/>

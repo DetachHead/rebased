@@ -8,7 +8,6 @@ import com.intellij.modcommand.Presentation
 import com.intellij.openapi.util.TextRange
 import com.intellij.psi.PsiElement
 import org.jetbrains.annotations.ApiStatus
-import org.jetbrains.kotlin.analysis.api.KaExperimentalApi
 import org.jetbrains.kotlin.analysis.api.KaSession
 import org.jetbrains.kotlin.analysis.api.components.KaDiagnosticCheckerFilter
 import org.jetbrains.kotlin.analysis.api.components.directDiagnostics
@@ -63,12 +62,12 @@ class AddNameToArgumentIntention :
                 element == argumentList.arguments.last { !it.isNamed() }
     }
 
-    override fun KaSession.prepareContext(element: KtValueArgument): Context? {
+    context(session: KaSession)
+    override fun prepareContext(element: KtValueArgument): Context? {
         if (element.getArgumentExpression()?.hasMixingDiagnosticsPresent() == true) return null
         return getStableNameFor(element)?.let { Context(it) }
     }
 
-    @OptIn(KaExperimentalApi::class)
     context(_: KaSession)
     private fun KtExpression.hasMixingDiagnosticsPresent(): Boolean {
         val diagnostics = directDiagnostics(KaDiagnosticCheckerFilter.ONLY_COMMON_CHECKERS)

@@ -2,11 +2,8 @@
 package com.intellij.openapi.wm.impl.status
 
 import com.intellij.icons.AllIcons
-import com.intellij.openapi.application.ApplicationManager
-import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.SmartModeScheduler
 import com.intellij.openapi.wm.IconWidgetPresentation
-import com.intellij.openapi.wm.StatusBar
 import com.intellij.openapi.wm.StatusBarWidgetFactory
 import com.intellij.openapi.wm.WidgetPresentation
 import com.intellij.openapi.wm.WidgetPresentationDataContext
@@ -16,28 +13,17 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
-import org.jetbrains.annotations.ApiStatus
 import javax.swing.Icon
+import kotlin.time.Duration.Companion.milliseconds
 
 private const val ID = "SmartModeIndicator"
 
-@ApiStatus.Internal
-class SmartModeIndicatorWidgetFactory : StatusBarWidgetFactory, WidgetPresentationFactory {
-  override fun getId(): String {
-    return ID
-  }
+internal class SmartModeIndicatorWidgetFactory : StatusBarWidgetFactory, WidgetPresentationFactory {
+  override fun getId(): String = ID
+  override fun getDisplayName(): String = UIBundle.message("status.bar.smart.mode.indicator.widget.name")
+  override fun isEnabledByDefault(): Boolean = false
+  override fun isInternal(): Boolean = true
 
-  override fun getDisplayName(): String {
-    return UIBundle.message("status.bar.smart.mode.indicator.widget.name")
-  }
-
-  override fun isEnabledByDefault(): Boolean {
-    return false
-  }
-
-  override fun isAvailable(project: Project): Boolean = ApplicationManager.getApplication().isInternal
-  override fun canBeEnabledOn(statusBar: StatusBar): Boolean = ApplicationManager.getApplication().isInternal
-  override fun isConfigurable(): Boolean = ApplicationManager.getApplication().isInternal
   override fun createPresentation(context: WidgetPresentationDataContext, scope: CoroutineScope): WidgetPresentation {
     return SmartModeIndicatorWidget(context)
   }
@@ -54,7 +40,7 @@ private class SmartModeIndicatorWidget(private val context: WidgetPresentationDa
              else -> AllIcons.Toolwindows.NoEvents
            })
 
-      delay(500)
+      delay(500.milliseconds)
     }
   }
 

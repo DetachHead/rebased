@@ -4,18 +4,20 @@ package com.intellij.python.test.env.junit5
 import com.intellij.execution.configurations.GeneralCommandLine
 import com.intellij.execution.process.CapturingProcessHandler
 import com.intellij.execution.process.ProcessNotCreatedException
-import com.intellij.ide.util.PropertiesComponent
 import com.intellij.openapi.diagnostic.Logger
-import com.intellij.python.community.impl.pipenv.pipenvPath
-import com.intellij.python.community.impl.poetry.common.poetryPath
+import com.intellij.platform.eel.provider.localEel
+import com.intellij.python.community.impl.pipenv.PipEnvPyTool
+import com.intellij.python.community.impl.poetry.backend.PoetryPyTool
 import com.intellij.python.junit5Tests.framework.env.PyEnvTestCase
 import com.intellij.python.junit5Tests.framework.env.RunOnEnvironments
 import com.intellij.python.junit5Tests.framework.resolvePythonTool
+import com.intellij.python.pytools.setCustomExecutablePath
 import com.intellij.python.test.env.core.PyEnvironment
 import com.intellij.python.test.env.core.PyEnvironmentSpec
+import com.intellij.python.uv.backend.UvPyTool
 import com.intellij.util.containers.orNull
 import com.jetbrains.python.PythonBinary
-import com.jetbrains.python.sdk.impl.resolvePythonHome
+import com.jetbrains.python.venvReader.VirtualEnvReader
 import kotlinx.coroutines.runBlocking
 import org.jetbrains.annotations.ApiStatus.Internal
 import org.junit.jupiter.api.extension.ClassTemplateInvocationContext
@@ -84,17 +86,17 @@ class RunOnEnvironmentsExtension : TestTemplateInvocationContextProvider, ClassT
       // by other extensions (e.g. @RequiresPoetry), to avoid overwriting a valid
       // path with a potentially broken one from an environment that doesn't ship the tool.
       val pythonBinary = env.pythonPath
-      checkAndGetToolPath(pythonBinary, "poetry", false)?.let { PropertiesComponent.getInstance().poetryPath = it }
-      checkAndGetToolPath(pythonBinary, "pipenv", false)?.let { PropertiesComponent.getInstance().pipenvPath = it }
+      checkAndGetToolPath(pythonBinary, "poetry", false)?.let { PoetryPyTool.getInstance().setCustomExecutablePath(localEel.descriptor, Path.of(it)) }
+      checkAndGetToolPath(pythonBinary, "pipenv", false)?.let { PipEnvPyTool.getInstance().setCustomExecutablePath(localEel.descriptor, Path.of(it)) }
 
-      val uv = pythonBinary.resolvePythonHome().resolvePythonTool("uv")
-      PropertiesComponent.getInstance().setValue("PyCharm.Uv.Path", uv.toString())
+      val uv = VirtualEnvReader().resolvePythonHomeFromPythonBinary(pythonBinary).resolvePythonTool("uv")
+      UvPyTool.getInstance().setCustomExecutablePath(localEel.descriptor, uv)
 
       return env
     }
 
     private fun checkAndGetToolPath(env: PythonBinary, toolName: String, toThrow: Boolean): String? {
-      val tool = env.resolvePythonHome().resolvePythonTool(toolName)
+      val tool = VirtualEnvReader().resolvePythonHomeFromPythonBinary(env).resolvePythonTool(toolName)
       if (checkedTools[toolName]?.contains(tool) != true) {
         val output = try {
           CapturingProcessHandler(GeneralCommandLine(tool.toString(), "--version")).runProcess(60_000, true)

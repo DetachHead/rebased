@@ -55,6 +55,7 @@ import com.intellij.openapi.ui.popup.JBPopupFactory
 import com.intellij.openapi.ui.popup.util.PopupUtil
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.util.Key
+import com.intellij.openapi.util.Pair
 import com.intellij.openapi.util.SystemInfo
 import com.intellij.openapi.util.io.FileUtil
 import com.intellij.openapi.util.io.toNioPathOrNull
@@ -524,17 +525,11 @@ object Switcher : BaseSwitcherAction(null) {
         val item = selectedList.model.getElementAt(selectedIndex)
         if (item is SwitcherVirtualFile) {
           val virtualFile: VirtualFile = item.file
-          val fileEditorManager = FileEditorManager.getInstance(project) as FileEditorManagerImpl
-          val window = findAppropriateWindow(item.window)
-          if (window == null) {
-            fileEditorManager.closeFile(virtualFile, false, false)
-          }
-          else {
-            fileEditorManager.closeFileWithChecks(virtualFile, window)
-          }
-          ListUtil.removeItem(files.model, selectedIndex)
-          if (item.window == null) {
-            EditorHistoryManager.getInstance(project).removeFile(virtualFile)
+          if (closeSwitcherVirtualFile(project, virtualFile, item.window)) {
+            ListUtil.removeItem(files.model, selectedIndex)
+            if (item.window == null) {
+              EditorHistoryManager.getInstance(project).removeFile(virtualFile)
+            }
           }
         }
         else item?.close(this)
@@ -697,19 +692,16 @@ object Switcher : BaseSwitcherAction(null) {
         IdeFocusManager.getInstance(project).doWhenFocusSettlesDown(
           {
             val manager = FileEditorManager.getInstance(project) as FileEditorManagerImpl
-            var splitWindow: EditorWindow? = null
-            for (value in values) {
-              if (value is SwitcherVirtualFile) {
-                val file = value.file
-                if (mode === FileEditorManagerImpl.OpenMode.RIGHT_SPLIT) {
-                  if (splitWindow == null) {
-                    splitWindow = openInRightSplit(project = project, file = file, element = null, requestFocus = true)
-                  }
-                  else {
-                    manager.openFile(file, splitWindow, FileEditorOpenOptions().withRequestFocus())
-                  }
+            if (mode === FileEditorManagerImpl.OpenMode.RIGHT_SPLIT) {
+              openInRightSplit(project = project, files = values.filterIsInstance<SwitcherVirtualFile>().map { it.file })
+            }
+            else {
+              for (value in values) {
+                if (value !is SwitcherVirtualFile) {
+                  continue
                 }
-                else if (mode == FileEditorManagerImpl.OpenMode.NEW_WINDOW) {
+                val file = value.file
+                if (mode == FileEditorManagerImpl.OpenMode.NEW_WINDOW) {
                   manager.openFileInNewWindow(file)
                 }
                 else if (value.window != null) {
@@ -850,6 +842,11 @@ object Switcher : BaseSwitcherAction(null) {
           forward = goForward,
         )
       }
+
+      @TestOnly
+      fun closeVirtualFileForTest(project: Project, file: VirtualFile, window: EditorWindow?): Boolean {
+        return closeSwitcherVirtualFile(project, file, window)
+      }
     }
   }
 }
@@ -955,6 +952,19 @@ private fun addSmartShortcut(window: SwitcherToolWindow, keymap: MutableMap<Stri
 private fun getIndexShortcut(index: Int): String? {
   if (index !in 0..35) return null
   return Strings.toUpperCase(index.toString(radix = (index + 1).coerceIn(2..36)))
+}
+
+private fun closeSwitcherVirtualFile(project: Project, file: VirtualFile, window: EditorWindow?): Boolean {
+  val fileEditorManager = FileEditorManager.getInstance(project) as FileEditorManagerImpl
+  val resolvedWindow = findAppropriateWindow(window)
+  if (resolvedWindow != null) {
+    return resolvedWindow.getComposite(file) == null || fileEditorManager.closeFileWithChecks(file, resolvedWindow)
+  }
+
+  val filesToClose = fileEditorManager.windows.mapNotNull { targetWindow ->
+    targetWindow.getComposite(file)?.let { Pair.create(it, targetWindow) }
+  }
+  return filesToClose.isEmpty() || fileEditorManager.closeFilesWithChecks(filesToClose)
 }
 
 private fun findAppropriateWindow(window: EditorWindow?): EditorWindow? {

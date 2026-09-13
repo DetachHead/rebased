@@ -24,11 +24,14 @@ import com.intellij.psi.search.searches.ReferencesSearch
 import com.intellij.psi.util.PsiTreeUtil
 import com.intellij.ui.awt.RelativePoint
 import com.intellij.util.Function
-import org.jetbrains.kotlin.analysis.api.KaExperimentalApi
-import org.jetbrains.kotlin.analysis.api.analyze
+import org.jetbrains.kotlin.analysis.api.session.analyze
 import org.jetbrains.kotlin.analysis.api.symbols.KaCallableSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaSymbolModality
 import org.jetbrains.kotlin.analysis.api.symbols.KaValueParameterSymbol
+import org.jetbrains.kotlin.analysis.api.symbols.allOverriddenSymbols
+import org.jetbrains.kotlin.analysis.api.symbols.directlyOverriddenSymbols
+import org.jetbrains.kotlin.analysis.api.symbols.getExpectsForActual
+import org.jetbrains.kotlin.analysis.api.symbols.symbol
 import org.jetbrains.kotlin.asJava.toLightClass
 import org.jetbrains.kotlin.idea.base.psi.isEffectivelyActual
 import org.jetbrains.kotlin.idea.base.resources.KotlinBundle
@@ -159,11 +162,10 @@ class KotlinLineMarkerProvider : AbstractKotlinLineMarkerProvider() {
             return
         }
 
-        @OptIn(KaExperimentalApi::class)
         analyze(declaration) {
             var callableSymbol = declaration.symbol as? KaCallableSymbol ?: return
             if (callableSymbol is KaValueParameterSymbol) {
-                callableSymbol = callableSymbol.generatedPrimaryConstructorProperty ?: return
+                callableSymbol = callableSymbol.primaryConstructorProperty ?: return
             }
             val allOverriddenSymbols = callableSymbol.allOverriddenSymbols.toList()
             if (allOverriddenSymbols.isEmpty() && callableSymbol.getExpectsForActual().isEmpty()) return
@@ -311,7 +313,7 @@ object CallableOverridingsTooltip : Function<PsiElement, String> {
         }
     }
 
-    fun isAbstract(declaration: KtCallableDeclaration, klass: KtClass) =
+    fun isAbstract(declaration: KtCallableDeclaration, klass: KtClass): Boolean =
         declaration.hasModifier(KtTokens.ABSTRACT_KEYWORD) ||
                 klass.isInterface() && if (declaration is KtDeclarationWithBody) !declaration.hasBody() else true
 }
@@ -320,11 +322,10 @@ object SuperDeclarationMarkerTooltip : Function<PsiElement, String> {
     override fun `fun`(element: PsiElement): String? {
         val declaration = element.getParentOfType<KtCallableDeclaration>(false) ?: return null
         if (!declaration.hasModifier(KtTokens.OVERRIDE_KEYWORD) && !declaration.isEffectivelyActual()) return null
-        @OptIn(KaExperimentalApi::class)
         analyze(declaration) {
             var callableSymbol = declaration.symbol as? KaCallableSymbol ?: return null
             if (callableSymbol is KaValueParameterSymbol) {
-                callableSymbol = callableSymbol.generatedPrimaryConstructorProperty ?: return null
+                callableSymbol = callableSymbol.primaryConstructorProperty ?: return null
             }
             val allOverriddenSymbols = callableSymbol.directlyOverriddenSymbols.toList()
             val expectSymbols = callableSymbol.getExpectsForActual()

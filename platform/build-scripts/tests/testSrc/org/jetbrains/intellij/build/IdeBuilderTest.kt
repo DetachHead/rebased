@@ -1,18 +1,151 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.intellij.build
 
+import kotlinx.collections.immutable.persistentListOf
+import kotlinx.coroutines.runBlocking
 import org.assertj.core.api.Assertions.assertThat
+import org.assertj.core.api.Assertions.assertThatThrownBy
 import org.jetbrains.intellij.build.BuildPaths.Companion.COMMUNITY_ROOT
 import org.jetbrains.intellij.build.dev.BuildRequest
+import org.jetbrains.intellij.build.dev.DevBuildComponentEntry
+import org.jetbrains.intellij.build.dev.DevBuildComponentManifest
+import org.jetbrains.intellij.build.dev.DevBuildFragment
+import org.jetbrains.intellij.build.dev.DevBuildOutput
+import org.jetbrains.intellij.build.dev.IdeFingerprintEntry
+import org.jetbrains.intellij.build.dev.PlatformJarSelector
+import org.jetbrains.intellij.build.dev.PluginFragmentSelector
+import org.jetbrains.intellij.build.dev.accepts
+import org.jetbrains.intellij.build.dev.checkNamesAreKnown
+import org.jetbrains.intellij.build.dev.computeIdeFingerprintFromComponents
+import org.jetbrains.intellij.build.dev.configureDevModeBuildOptions
+import org.jetbrains.intellij.build.dev.configureTargetPlatform
+import org.jetbrains.intellij.build.dev.computeIdeFingerprint
+import org.jetbrains.intellij.build.dev.copyWithDevBuildOverrides
+import org.jetbrains.intellij.build.dev.createDevBuildPaths
+import org.jetbrains.intellij.build.dev.formatCoreClasspath
+import org.jetbrains.intellij.build.dev.prepareOverriddenRunDir
+import org.jetbrains.intellij.build.dev.prepareScratchDir
+import org.jetbrains.intellij.build.impl.projectStructureMapping.CustomAssetEntry
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 import java.lang.reflect.Method
 import java.nio.file.Files
 import java.nio.file.Path
+import kotlin.io.path.invariantSeparatorsPathString
 
 class IdeBuilderTest {
   @TempDir
   lateinit var tempDir: Path
+
+  @Test
+  fun completeFragmentOwnsEverythingAndNeedsNoManifest() {
+    val complete = DevBuildFragment.COMPLETE
+
+    assertThat(complete.isComplete).isTrue()
+    assertThat(complete.platform).isEqualTo(PlatformJarSelector.ALL)
+    assertThat(complete.platformResources).isTrue()
+    assertThat(complete.plugins).isEqualTo(PluginFragmentSelector.All)
+    assertThat(
+      DevBuildFragment(
+        name = "platform_lib",
+        platform = PlatformJarSelector(jars = setOf("intellij.charts.jar"), mode = PlatformJarSelector.Mode.EXCLUDE),
+        platformResources = false,
+        plugins = null,
+      ).isComplete
+    ).isFalse()
+  }
+
+  @Test
+  fun componentOutputRejectsIncompleteComponentContracts() {
+    val pluginFragment = DevBuildFragment(
+      name = "plugins_air",
+      platform = null,
+      platformResources = false,
+      plugins = PluginFragmentSelector.Named(setOf("intellij.air.plugin")),
+    )
+
+    assertThatThrownBy {
+      DevBuildOutput.Component(
+        fragment = DevBuildFragment.COMPLETE,
+        manifestFile = tempDir.resolve("complete.json"),
+      )
+    }
+      .isInstanceOf(IllegalArgumentException::class.java)
+      .hasMessageContaining("must use DevBuildOutput.Complete")
+    assertThatThrownBy {
+      DevBuildOutput.Component(
+        fragment = pluginFragment,
+        manifestFile = tempDir.resolve("plugins.json"),
+      )
+    }
+      .isInstanceOf(IllegalArgumentException::class.java)
+      .hasMessageContaining("plugin-classpath part file")
+  }
+
+  @Test
+  fun theFragmentAndThePackedJarsComponentPartitionLibJars() {
+    val packed = setOf("intellij.libraries.asm.jar", "intellij.charts.jar")
+    val fragment = PlatformJarSelector(jars = packed, mode = PlatformJarSelector.Mode.EXCLUDE)
+    val reference = PlatformJarSelector(jars = packed, mode = PlatformJarSelector.Mode.ONLY)
+    val jars = listOf(
+      "app-backend.jar",
+      // Named by no module: a project library, or one packing kept in its own jar. The layout never mentions it.
+      "swingx.jar",
+      "intellij.libraries.asm.jar",
+      "intellij.platform.lang.impl.jar",
+      "intellij.charts.jar",
+    )
+
+    // Every jar belongs to exactly one side, so the fragment and the packed jars partition `lib` instead of
+    // overlapping or losing a jar.
+    for (jar in jars) {
+      val owners = listOf(fragment, reference).filter { it.accepts(jar) }
+      assertThat(owners).describedAs(jar).hasSize(1)
+      assertThat(PlatformJarSelector.ALL.accepts(jar)).describedAs(jar).isTrue()
+    }
+
+    assertThat(fragment.accepts("app-backend.jar")).isTrue()
+    // A jar nobody named is the fragment's, which is what keeps it out of no fragment at all - and is why ownership
+    // no longer has to be derived from what a jar holds.
+    assertThat(fragment.accepts("swingx.jar")).isTrue()
+    assertThat(fragment.accepts("")).isTrue()
+    assertThat(fragment.accepts("intellij.libraries.asm.jar")).isFalse()
+    assertThat(reference.accepts("intellij.charts.jar")).isTrue()
+    assertThat(reference.accepts("app-backend.jar")).isFalse()
+  }
+
+  @Test
+  fun onlyASelectorThatOwnsEveryJarMakesADistributionComplete() {
+    assertThat(PlatformJarSelector.ALL.isEverything).isTrue()
+    assertThat(
+      PlatformJarSelector(jars = setOf("intellij.charts.jar"), mode = PlatformJarSelector.Mode.EXCLUDE).isEverything
+    ).isFalse()
+    // A selector that owns only what it names and names nothing owns nothing, which is never what a caller meant.
+    assertThatThrownBy { PlatformJarSelector(jars = emptySet(), mode = PlatformJarSelector.Mode.ONLY) }
+      .isInstanceOf(IllegalArgumentException::class.java)
+      .hasMessageContaining("must name at least one")
+  }
+
+  @Test
+  fun pluginSelectorRejectsAPluginTheProductDoesNotBundle() {
+    assertThatThrownBy {
+      PluginFragmentSelector.Named(setOf("intellij.air.plugn")).checkNamesAreKnown(setOf("intellij.air.plugin"), "plugins_air")
+    }
+      .isInstanceOf(IllegalStateException::class.java)
+      .hasMessageContaining("intellij.air.plugn")
+  }
+
+  @Test
+  fun pluginSelectorsPartitionBundledPlugins() {
+    val named = PluginFragmentSelector.Named(setOf("intellij.air.plugin"))
+    val remaining = PluginFragmentSelector.Remaining(setOf("intellij.air.plugin"))
+
+    assertThat(named.accepts("intellij.air.plugin")).isTrue()
+    assertThat(named.accepts("intellij.vcs.git")).isFalse()
+    assertThat(remaining.accepts("intellij.air.plugin")).isFalse()
+    assertThat(remaining.accepts("intellij.vcs.git")).isTrue()
+    assertThat(PluginFragmentSelector.All.accepts("intellij.air.plugin")).isTrue()
+  }
 
   @Test
   fun createProjectDevBuildOptionsUsesRequestClassesOutputDirectoryOverride() {
@@ -64,6 +197,282 @@ class IdeBuilderTest {
     assertThat(options.buildNumber).isEqualTo("241.1")
     assertThat(options.isInDevelopmentMode).isFalse()
     assertThat(options.isTestBuild).isTrue()
+  }
+
+  @Test
+  fun configureDevModeBuildOptionsDisablesGitRevision() {
+    val options = BuildOptions().apply {
+      storeGitRevision = true
+    }
+
+    configureDevModeBuildOptions(
+      options = options,
+      request = createBuildRequest(),
+      buildOptionsTemplate = BuildOptions(),
+    )
+
+    assertThat(options.storeGitRevision).isFalse()
+  }
+
+  @Test
+  fun createProjectDevBuildOptionsUsesRequestBuildDateOverride() {
+    val buildDateInSeconds = 1_700_000_000L
+    val options = createProjectDevBuildOptions(
+      request = createBuildRequest(buildDateInSeconds = buildDateInSeconds),
+      buildDir = tempDir.resolve("dev-build"),
+      buildOptionsTemplate = BuildOptions(),
+    )
+
+    assertThat(options.buildDateInSeconds).isEqualTo(buildDateInSeconds)
+  }
+
+  @Test
+  fun createProjectDevBuildOptionsFallsBackToDevModeBuildDate() {
+    val options = createProjectDevBuildOptions(
+      request = createBuildRequest(),
+      buildDir = tempDir.resolve("dev-build"),
+      buildOptionsTemplate = BuildOptions(),
+    )
+
+    assertThat(options.buildDateInSeconds).isEqualTo(getDevModeOrTestBuildDateInSeconds())
+  }
+
+  @Test
+  fun theReferenceFragmentDoesNotInlineTheProductDescriptor() {
+    val options = BuildOptions()
+
+    configureDevModeBuildOptions(
+      options = options,
+      request = createBuildRequest(
+        fragment = DevBuildFragment(
+          name = "platform_lib",
+          platform = PlatformJarSelector(jars = setOf("intellij.charts.jar"), mode = PlatformJarSelector.Mode.ONLY),
+          platformResources = false,
+          plugins = null,
+        ),
+      ),
+      buildOptionsTemplate = BuildOptions(),
+    )
+
+    assertThat(options.embedProductContentModuleDescriptors).isFalse()
+  }
+
+  @Test
+  fun thePlatformFragmentInlinesTheProductDescriptorBecauseItPacksTheJarThatCarriesIt() {
+    val options = BuildOptions()
+
+    configureDevModeBuildOptions(
+      options = options,
+      request = createBuildRequest(
+        fragment = DevBuildFragment(
+          name = "platform_lib",
+          platform = PlatformJarSelector(jars = setOf("intellij.charts.jar"), mode = PlatformJarSelector.Mode.EXCLUDE),
+          platformResources = false,
+          plugins = null,
+        ),
+      ),
+      buildOptionsTemplate = BuildOptions(),
+    )
+
+    assertThat(options.embedProductContentModuleDescriptors).isTrue()
+  }
+
+  @Test
+  fun theFragmentWritingTheClasspathPrefixInlinesTheProductDescriptorWhateverElseItOwns() {
+    val options = BuildOptions()
+
+    configureDevModeBuildOptions(
+      options = options,
+      request = createBuildRequest(
+        fragment = DevBuildFragment(
+          name = "platform_lib",
+          platform = PlatformJarSelector(jars = setOf("intellij.charts.jar"), mode = PlatformJarSelector.Mode.ONLY),
+          platformResources = false,
+          plugins = null,
+        ),
+        pluginClasspathPrefixFile = tempDir.resolve("plugin-classpath-prefix"),
+      ),
+      buildOptionsTemplate = BuildOptions(),
+    )
+
+    assertThat(options.embedProductContentModuleDescriptors).isTrue()
+  }
+
+  @Test
+  fun aCompleteDistributionInlinesTheProductDescriptor() {
+    val options = BuildOptions()
+
+    configureDevModeBuildOptions(options = options, request = createBuildRequest(), buildOptionsTemplate = BuildOptions())
+
+    assertThat(options.embedProductContentModuleDescriptors).isTrue()
+  }
+
+  @Test
+  fun targetPlatformAppliesOsAndArchitectureTogether() {
+    val targetOs = if (OsFamily.currentOs == OsFamily.LINUX) OsFamily.MACOS else OsFamily.LINUX
+    val targetArch = if (JvmArchitecture.currentJvmArch == JvmArchitecture.aarch64) JvmArchitecture.x64 else JvmArchitecture.aarch64
+    val options = BuildOptions()
+
+    configureTargetPlatform(options, createBuildRequest(os = targetOs, arch = targetArch))
+
+    assertThat(options.targetOs).containsExactly(targetOs)
+    assertThat(options.targetArch).isEqualTo(targetArch)
+  }
+
+  @Test
+  fun targetPlatformReplacesInheritedTargetWithTheHostPlatform() {
+    val inheritedOs = if (OsFamily.currentOs == OsFamily.LINUX) OsFamily.MACOS else OsFamily.LINUX
+    val inheritedArch = if (JvmArchitecture.currentJvmArch == JvmArchitecture.aarch64) JvmArchitecture.x64 else JvmArchitecture.aarch64
+    val options = BuildOptions().apply {
+      targetOs = persistentListOf(inheritedOs)
+      targetArch = inheritedArch
+    }
+
+    configureTargetPlatform(options, createBuildRequest())
+
+    assertThat(options.targetOs).containsExactly(OsFamily.currentOs)
+    assertThat(options.targetArch).isEqualTo(JvmArchitecture.currentJvmArch)
+  }
+
+  // `createDevModeProductRunner` builds its options from an enclosing real build instead of from the project model.
+  // It used to carry its own copy of the override list, and that copy silently dropped the request's build date.
+  @Test
+  fun copyWithDevBuildOverridesKeepsTheEnclosingBuildDateWhenTheRequestHasNone() {
+    val enclosingBuildDateInSeconds = 1_600_000_000L
+
+    val options = BuildOptions(buildDateInSeconds = enclosingBuildDateInSeconds).copyWithDevBuildOverrides(
+      request = createBuildRequest(),
+      buildDir = tempDir.resolve("dev-build"),
+      defaultBuildDateInSeconds = enclosingBuildDateInSeconds,
+    )
+
+    assertThat(options.buildDateInSeconds).isEqualTo(enclosingBuildDateInSeconds)
+  }
+
+  @Test
+  fun copyWithDevBuildOverridesAppliesTheRequestBuildDateOverTheEnclosingOne() {
+    val enclosingBuildDateInSeconds = 1_600_000_000L
+    val requestedBuildDateInSeconds = 1_700_000_000L
+
+    val options = BuildOptions(buildDateInSeconds = enclosingBuildDateInSeconds).copyWithDevBuildOverrides(
+      request = createBuildRequest(buildDateInSeconds = requestedBuildDateInSeconds),
+      buildDir = tempDir.resolve("dev-build"),
+      defaultBuildDateInSeconds = enclosingBuildDateInSeconds,
+    )
+
+    assertThat(options.buildDateInSeconds).isEqualTo(requestedBuildDateInSeconds)
+  }
+
+  // IJAI-955: a dev distribution is launched, never shipped, and the build number it inherits from `build.txt` says
+  // nothing about that. `263.3889.SNAPSHOT` on an EAP branch made `isNightlyBuild` false and dropped every
+  // NOT_FOR_PUBLIC_BUILDS plugin the caller had asked for by name, while the same assembly on master kept them.
+  @Test
+  fun copyWithDevBuildOverridesTurnsOffTheReleaseCycleBundlingRestrictions() {
+    val options = BuildOptions().copyWithDevBuildOverrides(
+      request = createBuildRequest(),
+      buildDir = tempDir.resolve("dev-build"),
+      defaultBuildDateInSeconds = 1_600_000_000L,
+    )
+
+    assertThat(options.useReleaseCycleRelatedBundlingRestrictions).isFalse()
+    assertThat(BuildOptions().useReleaseCycleRelatedBundlingRestrictions).isTrue()
+  }
+
+  @Test
+  fun buildProductClearsThrowawayScratchDataButKeepsTheLog() {
+    val scratchDir = tempDir.resolve("scratch")
+    val staleTempFile = Files.createDirectories(scratchDir.resolve("temp/native")).resolve("libsqliteij.jnilib")
+    val staleArtifact = Files.createDirectories(scratchDir.resolve("artifacts")).resolve("dist.zip")
+    val logFile = Files.createDirectories(scratchDir.resolve("log")).resolve("debug.log")
+    Files.writeString(staleTempFile, "extracted by the previous build")
+    Files.writeString(staleArtifact, "built by the previous build")
+    Files.writeString(logFile, "the previous build")
+
+    runBlocking { prepareScratchDir(scratchDir) }
+
+    assertThat(scratchDir.resolve("temp")).doesNotExist()
+    assertThat(scratchDir.resolve("artifacts")).doesNotExist()
+    assertThat(logFile).exists()
+  }
+
+  @Test
+  fun prepareOverriddenRunDirCreatesAnAbsentDirectory() {
+    val runDir = tempDir.resolve("dist")
+
+    val result = runBlocking { prepareOverriddenRunDir(runDir) }
+
+    assertThat(result).isEqualTo(runDir)
+    assertThat(Files.isDirectory(runDir)).isTrue()
+  }
+
+  @Test
+  fun prepareOverriddenRunDirAcceptsAnEmptyDirectory() {
+    val runDir = Files.createDirectories(tempDir.resolve("dist"))
+
+    assertThat(runBlocking { prepareOverriddenRunDir(runDir) }).isEqualTo(runDir)
+  }
+
+  @Test
+  fun prepareOverriddenRunDirRejectsStaleContent() {
+    val runDir = Files.createDirectories(tempDir.resolve("dist"))
+    Files.writeString(runDir.resolve("core-classpath.txt"), "lib/stale.jar")
+
+    assertThatThrownBy { runBlocking { prepareOverriddenRunDir(runDir) } }
+      .isInstanceOf(IllegalStateException::class.java)
+      .hasMessageContaining("core-classpath.txt")
+  }
+
+  @Test
+  fun createProjectDevBuildOptionsPutsLogDirUnderScratchDir() {
+    val scratchDir = tempDir.resolve("scratch")
+    val options = createProjectDevBuildOptions(
+      request = createBuildRequest(scratchDir = scratchDir),
+      buildDir = tempDir.resolve("dev-build"),
+      buildOptionsTemplate = BuildOptions(),
+    )
+
+    assertThat(options.logDir).isEqualTo(scratchDir.resolve("log"))
+  }
+
+  @Test
+  fun createProjectDevBuildOptionsPutsLogDirUnderBuildDirWithoutScratchDir() {
+    val buildDir = tempDir.resolve("dev-build")
+    val options = createProjectDevBuildOptions(
+      request = createBuildRequest(),
+      buildDir = buildDir,
+      buildOptionsTemplate = BuildOptions(),
+    )
+
+    assertThat(options.logDir).isEqualTo(buildDir.resolve("log"))
+  }
+
+  @Test
+  fun createDevBuildPathsKeepsScratchDataOutOfTheDistributionDirectory() {
+    val buildDir = tempDir.resolve("dist")
+    val scratchDir = tempDir.resolve("scratch")
+
+    val paths = createDevBuildPaths(
+      projectDir = COMMUNITY_ROOT.communityRoot,
+      buildDir = buildDir,
+      logDir = scratchDir.resolve("log"),
+      scratchDir = scratchDir,
+    )
+
+    assertThat(paths.tempDir).isEqualTo(scratchDir.resolve("temp"))
+    assertThat(paths.artifactDir).isEqualTo(scratchDir.resolve("artifacts"))
+    assertThat(paths.buildOutputDir).isEqualTo(buildDir)
+    assertThat(paths.distAllDir).isEqualTo(buildDir)
+    assertThat(Files.exists(buildDir)).isFalse()
+  }
+
+  @Test
+  fun createDevBuildPathsRootsScratchDataInBuildDirByDefault() {
+    val buildDir = tempDir.resolve("dev-build")
+
+    val paths = createDevBuildPaths(projectDir = COMMUNITY_ROOT.communityRoot, buildDir = buildDir, logDir = buildDir.resolve("log"))
+
+    assertThat(paths.tempDir).isEqualTo(buildDir.resolve("temp"))
+    assertThat(paths.artifactDir).isEqualTo(buildDir.resolve("artifacts"))
   }
 
   @Test
@@ -160,12 +569,196 @@ class IdeBuilderTest {
     assertThat(getTestClassesOutputDirectory(classesOutputDirectory)).isEqualTo(classesOutputDirectory.resolve("test"))
   }
 
-  private fun createBuildRequest(classesOutputDirectory: Path? = null): BuildRequest {
+  @Test
+  fun formatCoreClasspathWritesEntriesUnderRunDirAsRelativePaths() {
+    val runDir = tempDir.resolve("run")
+
+    assertThat(formatCoreClasspath(listOf(runDir.resolve("lib/util.jar")), runDir)).isEqualTo("lib/util.jar")
+  }
+
+  @Test
+  fun formatCoreClasspathUsesForwardSlashesRegardlessOfOs() {
+    val runDir = tempDir.resolve("run")
+    val classPathString = formatCoreClasspath(listOf(runDir.resolve("lib").resolve("modules").resolve("util.jar")), runDir)
+
+    assertThat(classPathString).isEqualTo("lib/modules/util.jar")
+    assertThat(classPathString).doesNotContain("\\")
+  }
+
+  @Test
+  fun formatCoreClasspathKeepsEntriesOutsideRunDirAbsolute() {
+    val runDir = tempDir.resolve("run")
+    val jarCacheEntry = tempDir.resolve("jar-cache").resolve("payload.jar")
+
+    assertThat(formatCoreClasspath(listOf(jarCacheEntry), runDir)).isEqualTo(jarCacheEntry.invariantSeparatorsPathString)
+  }
+
+  @Test
+  fun formatCoreClasspathJoinsEntriesByNewlineInInputOrder() {
+    val runDir = tempDir.resolve("run")
+    val outsideEntry = tempDir.resolve("jar-cache").resolve("payload.jar")
+
+    val classPathString = formatCoreClasspath(
+      listOf(runDir.resolve("lib").resolve("app.jar"), outsideEntry, runDir.resolve("lib").resolve("util.jar")),
+      runDir,
+    )
+
+    assertThat(classPathString).isEqualTo("lib/app.jar\n${outsideEntry.invariantSeparatorsPathString}\nlib/util.jar")
+  }
+
+  @Test
+  fun formatCoreClasspathOfEmptyClassPathIsEmpty() {
+    assertThat(formatCoreClasspath(emptyList(), tempDir.resolve("run"))).isEmpty()
+  }
+
+  @Test
+  fun ideFingerprintIncludesPathTypeAndContentButNotInputOrder() {
+    val runDir = tempDir.resolve("run")
+    val projectDir = tempDir.resolve("project")
+    val first = CustomAssetEntry(path = runDir.resolve("lib/first.jar"), hash = 1)
+    val second = CustomAssetEntry(path = runDir.resolve("plugins/sample/lib/second.jar"), hash = 2)
+
+    val fingerprint = computeIdeFingerprint(sequenceOf(first, second), runDir, projectDir)
+
+    assertThat(fingerprint).startsWith("v5:")
+    assertThat(computeIdeFingerprint(sequenceOf(second, first), runDir, projectDir)).isEqualTo(fingerprint)
+    assertThat(computeIdeFingerprint(sequenceOf(first.copy(hash = 3), second), runDir, projectDir)).isNotEqualTo(fingerprint)
+    assertThat(
+      computeIdeFingerprint(
+        sequenceOf(first.copy(path = runDir.resolve("lib/renamed.jar"), distributionPath = runDir.resolve("lib/renamed.jar")), second),
+        runDir,
+        projectDir,
+      )
+    )
+      .isNotEqualTo(fingerprint)
+    assertThat(computeIdeFingerprint(sequenceOf(first.copy(relativeOutputFile = "lib/moved.jar"), second), runDir, projectDir))
+      .isEqualTo(fingerprint)
+  }
+
+  @Test
+  fun ideFingerprintNormalizesPathsAndIncludesEveryDuplicateContribution() {
+    val runDir = tempDir.resolve("run")
+    val projectDir = tempDir.resolve("project")
+    val first = CustomAssetEntry(path = runDir.resolve("lib/shared.jar"), hash = 1)
+    val second = CustomAssetEntry(
+      path = runDir.resolve("ignored.jar"),
+      hash = 2,
+      distributionPath = runDir.resolve("lib/../lib/shared.jar"),
+    )
+
+    val fingerprint = computeIdeFingerprint(sequenceOf(first, second), runDir, projectDir)
+
+    assertThat(computeIdeFingerprint(sequenceOf(second, first), runDir, projectDir)).isEqualTo(fingerprint)
+    assertThat(computeIdeFingerprint(sequenceOf(first, second.copy(hash = 3)), runDir, projectDir)).isNotEqualTo(fingerprint)
+    assertThat(computeIdeFingerprint(sequenceOf(first), runDir, projectDir)).isNotEqualTo(fingerprint)
+    assertThat(computeIdeFingerprint(sequenceOf(second), runDir, projectDir))
+      .isEqualTo(
+        computeIdeFingerprint(
+          sequenceOf(second.copy(distributionPath = runDir.resolve("lib/shared.jar"))),
+          runDir,
+          projectDir,
+        )
+      )
+  }
+
+  @Test
+  fun ideFingerprintUsesDistributionPathForExternalCacheAsset() {
+    val runDir = tempDir.resolve("run")
+    val projectDir = tempDir.resolve("project")
+    val distributionPath = runDir.resolve("plugins/rider-plugins-renderdoc")
+    val entry = CustomAssetEntry(
+      path = tempDir.resolve("maven/renderdoc-runtime-linux-aarch64.jar"),
+      hash = 1,
+      distributionPath = distributionPath,
+    )
+
+    val fingerprint = computeIdeFingerprint(sequenceOf(entry), runDir, projectDir)
+
+    assertThat(computeIdeFingerprint(sequenceOf(entry.copy(path = tempDir.resolve("other-cache/renderdoc.jar"))), runDir, projectDir))
+      .isEqualTo(fingerprint)
+    assertThat(
+      computeIdeFingerprint(
+        sequenceOf(entry.copy(distributionPath = runDir.resolve("plugins/renamed-renderdoc"))),
+        runDir,
+        projectDir,
+      )
+    ).isNotEqualTo(fingerprint)
+  }
+
+  @Test
+  fun ideFingerprintIncludesEntryTypeAndExecutableBitAndKeepsFieldsPrimitive() {
+    val fingerprint = computeIdeFingerprint(listOf(IdeFingerprintEntry("lib/asset.jar", "custom-asset", 1)))
+
+    assertThat(computeIdeFingerprint(listOf(IdeFingerprintEntry("lib/asset.jar", "module-output", 1)))).isNotEqualTo(fingerprint)
+    assertThat(computeIdeFingerprint(listOf(IdeFingerprintEntry("lib/asset.jar", "custom-asset", 1, executable = true))))
+      .isNotEqualTo(fingerprint)
+    assertThat(IdeFingerprintEntry::class.java.getDeclaredField("hash").type).isEqualTo(java.lang.Long.TYPE)
+    assertThat(IdeFingerprintEntry::class.java.getDeclaredField("executable").type).isEqualTo(java.lang.Boolean.TYPE)
+  }
+
+  @Test
+  fun componentFingerprintIsStableAcrossComponentOrderAndIncludesEntryMode() {
+    val platformEntry = DevBuildComponentEntry(relativePath = "lib/platform.jar", type = "module-output", hash = 1)
+    val pluginEntry = DevBuildComponentEntry(relativePath = "plugins/sample/lib/plugin.jar", type = "module-output", hash = 2)
+    val platform = componentManifest(kind = "platform", entries = listOf(platformEntry))
+    val plugins = componentManifest(kind = "plugins", entries = listOf(pluginEntry))
+
+    val fingerprint = computeIdeFingerprintFromComponents(listOf(platform, plugins))
+
+    assertThat(computeIdeFingerprintFromComponents(listOf(plugins, platform))).isEqualTo(fingerprint)
+    assertThat(
+      computeIdeFingerprintFromComponents(
+        listOf(platform.copy(entries = listOf(platformEntry.copy(executable = true))), plugins)
+      )
+    ).isNotEqualTo(fingerprint)
+  }
+
+  @Test
+  fun ideFingerprintRejectsAnEntryOutsideKnownRoots() {
+    val entry = CustomAssetEntry(path = tempDir.resolve("external/asset.zip"), hash = 1)
+
+    assertThatThrownBy { computeIdeFingerprint(sequenceOf(entry), tempDir.resolve("run"), tempDir.resolve("project")) }
+      .isInstanceOf(IllegalStateException::class.java)
+      .hasMessageContaining("outside the distribution and project roots")
+  }
+
+  private fun createBuildRequest(
+    classesOutputDirectory: Path? = null,
+    scratchDir: Path? = null,
+    buildDateInSeconds: Long? = null,
+    os: OsFamily = OsFamily.currentOs,
+    arch: JvmArchitecture = JvmArchitecture.currentJvmArch,
+    fragment: DevBuildFragment = DevBuildFragment.COMPLETE,
+    pluginClasspathPrefixFile: Path? = null,
+  ): BuildRequest {
     return BuildRequest(
       platformPrefix = "idea",
       additionalModules = emptyList(),
       projectDir = COMMUNITY_ROOT.communityRoot,
       classesOutputDirectory = classesOutputDirectory,
+      scratchDir = scratchDir,
+      buildDateInSeconds = buildDateInSeconds,
+      os = os,
+      arch = arch,
+      output = if (fragment.isComplete) DevBuildOutput.Complete else DevBuildOutput.Component(
+        fragment = fragment,
+        manifestFile = tempDir.resolve("${fragment.name}.component.json"),
+        pluginClasspathPartFile = if (fragment.ownsPlugins) tempDir.resolve("${fragment.name}.plugin-classpath-part") else null,
+        pluginClasspathPrefixFile = pluginClasspathPrefixFile,
+      ),
+    )
+  }
+
+  private fun componentManifest(kind: String, entries: List<DevBuildComponentEntry>): DevBuildComponentManifest {
+    return DevBuildComponentManifest(
+      kind = kind,
+      platformPrefix = "idea",
+      os = OsFamily.currentOs.osId,
+      arch = JvmArchitecture.currentJvmArch.name,
+      additionalModules = emptyList(),
+      mainClass = "com.intellij.idea.Main",
+      coreClassPath = emptyList(),
+      entries = entries,
     )
   }
 

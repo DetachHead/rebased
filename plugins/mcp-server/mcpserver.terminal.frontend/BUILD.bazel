@@ -1,7 +1,7 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
 ### auto-generated section `build intellij.mcpserver.terminal.frontend` start
-
 jvm_library(
     name = "mcpserver.terminal.frontend",
     srcs = glob(
@@ -20,9 +20,10 @@ jvm_library(
     visibility = ["//visibility:public"],
     deps = [
         # do not sort,
-        "@lib//:jetbrains-annotations",
+        "//libraries/jetbrains/annotations",
         "@lib//:kotlin-stdlib",
         "//plugins/mcp-server:mcpserver",
+        "//plugins/mcp-server/mcpserver.frontend",
         "//platform/core-api:core",
         "//platform/platform-frontend:frontend",
         "//platform/platform-api:ide",
@@ -36,8 +37,11 @@ jvm_library(
         "//plugins/terminal",
         "//plugins/terminal/frontend",
         "//libraries/kotlinx/coroutines/core",
+        "//platform/compose/swing-ui:swing",
     ],
 )
+
+content_module_jar(module = ":mcpserver.terminal.frontend")
 
 jvm_library(
     name = "mcpserver.terminal.frontend_test_lib",
@@ -51,7 +55,9 @@ jvm_library(
     runtime_deps = [
         # do not sort,
         ":mcpserver.terminal.frontend",
+        "//libraries/jetbrains/annotations:annotations_test_lib",
         "//plugins/mcp-server:mcpserver_test_lib",
+        "//plugins/mcp-server/mcpserver.frontend:mcpserver.frontend_test_lib",
         "//platform/core-api:core_test_lib",
         "//platform/platform-frontend:frontend_test_lib",
         "//platform/platform-api:ide_test_lib",
@@ -65,6 +71,7 @@ jvm_library(
         "//plugins/terminal:terminal_test_lib",
         "//plugins/terminal/frontend:frontend_test_lib",
         "//libraries/kotlinx/coroutines/core:core_test_lib",
+        "//platform/compose/swing-ui:swing_test_lib",
     ],
 )
 ### auto-generated section `build intellij.mcpserver.terminal.frontend` end
@@ -73,6 +80,7 @@ jvm_library(
 exports_files(
     [
         "intellij.mcpserver.terminal.frontend.iml",
+        "resources/intellij.mcpserver.terminal.frontend.xml",
     ],
     visibility = ["//visibility:public"],
 )

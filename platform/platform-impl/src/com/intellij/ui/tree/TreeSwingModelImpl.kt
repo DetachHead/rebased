@@ -645,7 +645,8 @@ private class CachedViewModel(
 }
 
 private fun buildCachedPresentation(treePresentation: CachedTreePresentation, cachedObject: Any): TreeNodePresentationImpl {
-  val builder = TreeNodePresentationBuilderImpl(treePresentation.isLeaf(cachedObject))
+  val builder = TreeNodePresentationBuilderImpl()
+  builder.setLeaf(treePresentation.isLeaf(cachedObject))
   buildPresentation(builder, cachedObject)
   return builder.build()
 }
@@ -659,7 +660,9 @@ private class LoadingDomainModel : TreeNodeDomainModel {
     icon = null,
     mainText = LoadingNode.getText(),
     fullText = listOf(TreeNodeTextFragment(LoadingNode.getText(), SimpleTextAttributes.GRAY_ATTRIBUTES)),
+    background = null,
     toolTip = null,
+    textAttributesKey = null,
   )
 
   override suspend fun computeIsLeaf(): Boolean = true

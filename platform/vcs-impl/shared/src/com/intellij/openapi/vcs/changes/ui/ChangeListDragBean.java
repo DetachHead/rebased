@@ -2,16 +2,20 @@
 
 package com.intellij.openapi.vcs.changes.ui;
 
+import com.intellij.ide.dnd.FileFlavorProvider;
 import com.intellij.openapi.vcs.FilePath;
 import com.intellij.openapi.vcs.changes.Change;
+import com.intellij.platform.vcs.changes.ChangesUtil;
 import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 import javax.swing.JComponent;
+import java.util.ArrayList;
 import java.util.List;
 
 @ApiStatus.Internal
-public class ChangeListDragBean {
+public class ChangeListDragBean implements FileFlavorProvider {
   private final JComponent mySourceComponent;
   private final List<Change> myChanges;
   private final List<FilePath> myUnversionedFiles;
@@ -50,5 +54,23 @@ public class ChangeListDragBean {
 
   public void setTargetNode(final ChangesBrowserNode targetNode) {
     myTargetNode = targetNode;
+  }
+
+  /**
+   * Exposes the dragged rows as local files. This lets a target outside the changes tree accept the drag.
+   * See {@link ChangesTreeFileDragBean#localFileList} for the mapping rule and the reason for a {@code null} result.
+   */
+  @Override
+  @SuppressWarnings({"IO_FILE_USAGE", "UnnecessaryFullyQualifiedName"})
+  public @Nullable List<java.io.File> asFileList() {
+    List<FilePath> paths = new ArrayList<>();
+    for (Change change : myChanges) {
+      // The after path is the location of the change on disk. A deletion has no after path, and the before
+      // path still names the file, so getFilePath keeps a deletion in the drag.
+      paths.add(ChangesUtil.getFilePath(change));
+    }
+    paths.addAll(myUnversionedFiles);
+    paths.addAll(myIgnoredFiles);
+    return ChangesTreeFileDragBean.localFileList(paths);
   }
 }

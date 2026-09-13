@@ -1,7 +1,7 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
 ### auto-generated section `build intellij.maven.jps.ide` start
-
 jvm_library(
     name = "ide",
     srcs = glob(
@@ -40,6 +40,8 @@ jvm_library(
     ],
 )
 
+content_module_jar(module = ":ide")
+
 jvm_library(
     name = "ide_test_lib",
     testonly = True,
@@ -76,6 +78,7 @@ jvm_library(
 exports_files(
     [
         "intellij.maven.jps.ide.iml",
+        "resources/intellij.maven.jps.ide.xml",
     ],
     visibility = ["//visibility:public"],
 )

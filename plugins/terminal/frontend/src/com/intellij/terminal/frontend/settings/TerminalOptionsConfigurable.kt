@@ -48,6 +48,8 @@ import com.intellij.platform.eel.provider.getEelDescriptor
 import com.intellij.platform.ide.productMode.IdeProductMode
 import com.intellij.platform.ide.progress.runWithModalProgressBlocking
 import com.intellij.terminal.TerminalUiSettingsManager
+import com.intellij.terminal.frontend.toolwindow.impl.migration.askForFeedbackIfSwitchedBackToClassicTerminal
+import com.intellij.terminal.updateActionShortcut
 import com.intellij.ui.DocumentAdapter
 import com.intellij.ui.ExperimentalUI
 import com.intellij.ui.FontComboBox
@@ -117,7 +119,6 @@ import org.jetbrains.plugins.terminal.runner.LocalShellIntegrationInjector
 import org.jetbrains.plugins.terminal.runner.LocalTerminalStartCommandBuilder
 import org.jetbrains.plugins.terminal.settings.TerminalApplicationTitleShowingMode
 import org.jetbrains.plugins.terminal.shellDetection.TerminalShellsDetectionService
-import org.jetbrains.plugins.terminal.util.updateActionShortcut
 import java.awt.Color
 import java.awt.Component
 import java.awt.event.ActionListener
@@ -176,7 +177,12 @@ internal class TerminalOptionsConfigurable(private val project: Project) : Bound
             .label(message("settings.terminal.engine"))
             .bindItem(
               getter = { optionsProvider.terminalEngine },
-              setter = { optionsProvider.terminalEngine = it!! }
+              setter = {
+                val oldEngine = optionsProvider.terminalEngine
+                val newEngine = it!!
+                optionsProvider.terminalEngine = newEngine
+                askForFeedbackIfSwitchedBackToClassicTerminal(project, oldEngine, newEngine)
+              }
             )
             .component
         }

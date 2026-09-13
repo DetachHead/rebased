@@ -1,7 +1,7 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
 ### auto-generated section `build intellij.properties.psi` start
-
 jvm_library(
     name = "psi",
     srcs = glob(
@@ -38,6 +38,8 @@ jvm_library(
         "//jps/model-api:model",
     ],
 )
+
+content_module_jar(module = ":psi")
 
 jvm_library(
     name = "psi_test_lib",
@@ -76,6 +78,7 @@ jvm_library(
 exports_files(
     [
         "intellij.properties.psi.iml",
+        "resources/intellij.properties.psi.xml",
     ],
     visibility = ["//visibility:public"],
 )

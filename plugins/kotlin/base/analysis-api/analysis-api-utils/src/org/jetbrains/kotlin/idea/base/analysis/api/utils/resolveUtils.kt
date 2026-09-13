@@ -1,32 +1,21 @@
 // Copyright 2000-2022 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.kotlin.idea.base.analysis.api.utils
 
-import org.jetbrains.kotlin.analysis.api.KaExperimentalApi
 import org.jetbrains.kotlin.analysis.api.KaSession
 import org.jetbrains.kotlin.analysis.api.annotations.KaAnnotationValue
 import org.jetbrains.kotlin.analysis.api.base.KaConstantValue
-import org.jetbrains.kotlin.analysis.api.components.KaSubtypingErrorTypePolicy
-import org.jetbrains.kotlin.analysis.api.components.KaUseSiteVisibilityChecker
-import org.jetbrains.kotlin.analysis.api.components.createUseSiteVisibilityChecker
-import org.jetbrains.kotlin.analysis.api.components.defaultType
-import org.jetbrains.kotlin.analysis.api.components.expandedSymbol
-import org.jetbrains.kotlin.analysis.api.components.expressionType
-import org.jetbrains.kotlin.analysis.api.components.isMarkedNullable
-import org.jetbrains.kotlin.analysis.api.components.isSubtypeOf
-import org.jetbrains.kotlin.analysis.api.components.resolveToCall
-import org.jetbrains.kotlin.analysis.api.components.resolveToCallCandidates
 import org.jetbrains.kotlin.analysis.api.components.resolveToSymbol
 import org.jetbrains.kotlin.analysis.api.components.scopeContext
-import org.jetbrains.kotlin.analysis.api.components.type
-import org.jetbrains.kotlin.analysis.api.components.typeCreator
-import org.jetbrains.kotlin.analysis.api.components.withNullability
-import org.jetbrains.kotlin.analysis.api.resolution.KaCallCandidateInfo
-import org.jetbrains.kotlin.analysis.api.resolution.KaCallableMemberCall
+import org.jetbrains.kotlin.analysis.api.expressions.expressionType
+import org.jetbrains.kotlin.analysis.api.resolution.KaCallCandidate
 import org.jetbrains.kotlin.analysis.api.resolution.KaFunctionCall
 import org.jetbrains.kotlin.analysis.api.resolution.KaImplicitReceiverValue
 import org.jetbrains.kotlin.analysis.api.resolution.KaReceiverValue
+import org.jetbrains.kotlin.analysis.api.resolution.KaSimpleCall
 import org.jetbrains.kotlin.analysis.api.resolution.KaSmartCastedReceiverValue
-import org.jetbrains.kotlin.analysis.api.resolution.singleFunctionCallOrNull
+import org.jetbrains.kotlin.analysis.api.resolution.function
+import org.jetbrains.kotlin.analysis.api.resolution.single
+import org.jetbrains.kotlin.analysis.api.resolution.tryResolveCall
 import org.jetbrains.kotlin.analysis.api.signatures.KaFunctionSignature
 import org.jetbrains.kotlin.analysis.api.symbols.KaFunctionSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaNamedClassSymbol
@@ -35,7 +24,17 @@ import org.jetbrains.kotlin.analysis.api.symbols.KaSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaTypeAliasSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.markers.KaAnnotatedSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.symbol
+import org.jetbrains.kotlin.analysis.api.types.KaSubtypingErrorTypePolicy
 import org.jetbrains.kotlin.analysis.api.types.KaType
+import org.jetbrains.kotlin.analysis.api.types.defaultType
+import org.jetbrains.kotlin.analysis.api.types.expandedSymbol
+import org.jetbrains.kotlin.analysis.api.types.isMarkedNullable
+import org.jetbrains.kotlin.analysis.api.types.isSubtypeOf
+import org.jetbrains.kotlin.analysis.api.types.type
+import org.jetbrains.kotlin.analysis.api.types.typeCreation.typeCreator
+import org.jetbrains.kotlin.analysis.api.types.withNullability
+import org.jetbrains.kotlin.analysis.api.visibility.KaUseSiteVisibilityChecker
+import org.jetbrains.kotlin.analysis.api.visibility.createUseSiteVisibilityChecker
 import org.jetbrains.kotlin.builtins.StandardNames
 import org.jetbrains.kotlin.idea.references.KtReference
 import org.jetbrains.kotlin.idea.references.mainReference
@@ -55,18 +54,18 @@ import org.jetbrains.kotlin.psi.psiUtil.referenceExpression
 import org.jetbrains.kotlin.resolve.ArrayFqNames
 import org.jetbrains.kotlin.utils.exceptions.errorWithAttachment
 import org.jetbrains.kotlin.utils.exceptions.withPsiEntry
+import org.jetbrains.kotlin.analysis.api.resolution.collectCallCandidates as collectAnalysisCallCandidates
 
 // Analogous to Call.resolveCandidates() in plugins/kotlin/core/src/org/jetbrains/kotlin/idea/core/Utils.kt
-@OptIn(KaExperimentalApi::class)
 context(_: KaSession)
-fun collectCallCandidates(callElement: KtElement): List<KaCallCandidateInfo> {
+fun collectCallCandidates(callElement: KtElement): List<KaCallCandidate> {
     val (candidates, explicitReceiver) = when (callElement) {
         is KtCallElement -> {
             val explicitReceiver = callElement.getQualifiedExpressionForSelector()?.receiverExpression
-            callElement.resolveToCallCandidates() to explicitReceiver
+            callElement.collectAnalysisCallCandidates() to explicitReceiver
         }
 
-        is KtArrayAccessExpression -> callElement.resolveToCallCandidates() to callElement.arrayExpression
+        is KtArrayAccessExpression -> callElement.collectAnalysisCallCandidates() to callElement.arrayExpression
         else -> return emptyList()
     }
 
@@ -76,21 +75,19 @@ fun collectCallCandidates(callElement: KtElement): List<KaCallCandidateInfo> {
     return candidates.filter { filterCandidate(it, callElement, explicitReceiver, visibilityChecker) }
 }
 
-@OptIn(KaExperimentalApi::class)
 context(_: KaSession)
 private fun filterCandidate(
-    candidateInfo: KaCallCandidateInfo,
+    candidateInfo: KaCallCandidate,
     callElement: KtElement,
     explicitReceiver: KtExpression?,
     visibilityChecker: KaUseSiteVisibilityChecker,
 ): Boolean {
     val candidateCall = candidateInfo.candidate
     if (candidateCall !is KaFunctionCall<*>) return false
-    val signature = candidateCall.partiallyAppliedSymbol.signature
+    val signature = candidateCall.signature
     return filterCandidateByReceiverTypeAndVisibility(signature, callElement, explicitReceiver, visibilityChecker)
 }
 
-@OptIn(KaExperimentalApi::class)
 context(_: KaSession)
 fun filterCandidateByReceiverTypeAndVisibility(
     signature: KaFunctionSignature<KaFunctionSymbol>,
@@ -184,7 +181,6 @@ fun collectReceiverTypesForExplicitReceiverExpression(explicitReceiver: KtExpres
     return listOf(adjustedType)
 }
 
-@OptIn(KaExperimentalApi::class)
 context(_: KaSession)
 private fun KaNamedClassSymbol.buildClassTypeBySymbolWithTypeArgumentsFromExpression(expression: KtExpression): KaType =
     typeCreator.classType(this) {
@@ -211,8 +207,8 @@ private val ARRAY_OF_FUNCTION_NAMES: Set<Name> = setOf(ArrayFqNames.ARRAY_OF_FUN
 
 context(_: KaSession)
 fun isArrayOfCall(callElement: KtCallElement): Boolean {
-    val resolvedCall = callElement.resolveToCall()?.singleFunctionCallOrNull() ?: return false
-    val callableId = resolvedCall.partiallyAppliedSymbol.signature.callableId ?: return false
+    val resolvedCall = callElement.tryResolveCall()?.single?.function ?: return false
+    val callableId = resolvedCall.signature.callableId ?: return false
     return callableId.packageName == StandardNames.BUILT_INS_PACKAGE_FQ_NAME && callableId.callableName in ARRAY_OF_FUNCTION_NAMES
 }
 
@@ -236,8 +232,8 @@ fun KtReference.resolveToExpandedSymbol(): KaSymbol? = when (val symbol = resolv
 /**
  * @return implicit receivers of [this], including implicit receivers with smart casts, which are unwrapped to [KaImplicitReceiverValue]
  */
-fun KaCallableMemberCall<*, *>.getImplicitReceivers(): List<KaImplicitReceiverValue> = partiallyAppliedSymbol
-    .let { listOfNotNull(it.dispatchReceiver, it.extensionReceiver) }
+fun KaSimpleCall<*, *>.getImplicitReceivers(): List<KaImplicitReceiverValue> =
+    listOfNotNull(dispatchReceiver, extensionReceiver)
     .map { it.unwrapSmartCasts() }
     .filterIsInstance<KaImplicitReceiverValue>()
 

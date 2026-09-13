@@ -22,4 +22,5 @@ public interface EventLogUploaderOptions {
   String TEST_SEND_ENDPOINT = "--test-send-endpoint";
   String TEST_CONFIG = "--test-config";
   String EAP_OPTION = "--eap";
+  String SNAPSHOT_FILTERING_DISABLED = "--snapshot-filtering-disabled";
 }

@@ -62,6 +62,7 @@ import com.intellij.openapi.util.ActionCallback;
 import com.intellij.openapi.util.BusyObject;
 import com.intellij.openapi.util.Comparing;
 import com.intellij.openapi.util.Disposer;
+import com.intellij.openapi.util.Key;
 import com.intellij.openapi.util.NlsActions.ActionText;
 import com.intellij.openapi.util.NlsSafe;
 import com.intellij.openapi.util.Pair;
@@ -77,6 +78,7 @@ import com.intellij.psi.SmartPsiElementPointer;
 import com.intellij.psi.util.PsiAwareObject;
 import com.intellij.psi.util.PsiUtilCore;
 import com.intellij.refactoring.move.MoveHandler;
+import com.intellij.ui.ClientProperty;
 import com.intellij.ui.tree.TreePathUtil;
 import com.intellij.ui.tree.TreeVisitor;
 import com.intellij.ui.tree.project.ProjectFileNode;
@@ -92,8 +94,6 @@ import com.intellij.util.concurrency.annotations.RequiresEdt;
 import com.intellij.util.concurrency.annotations.RequiresReadLock;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.containers.JBIterable;
-import com.intellij.util.ui.EmptyIcon;
-import com.intellij.util.ui.ImageUtil;
 import com.intellij.util.ui.tree.TreeUtil;
 import one.util.streamex.StreamEx;
 import org.jdom.Element;
@@ -110,22 +110,16 @@ import org.jetbrains.concurrency.Promises;
 
 import javax.swing.Icon;
 import javax.swing.JComponent;
-import javax.swing.JLabel;
 import javax.swing.JTree;
-import javax.swing.SwingConstants;
 import javax.swing.event.TreeExpansionEvent;
 import javax.swing.tree.TreeModel;
 import javax.swing.tree.TreeNode;
 import javax.swing.tree.TreePath;
-import java.awt.Component;
-import java.awt.Dimension;
-import java.awt.Graphics2D;
 import java.awt.Image;
 import java.awt.Point;
 import java.awt.Rectangle;
 import java.awt.datatransfer.Transferable;
 import java.awt.dnd.DnDConstants;
-import java.awt.image.BufferedImage;
 import java.io.File;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -135,6 +129,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.Function;
 import java.util.function.Predicate;
 
 import static com.intellij.ide.projectView.impl.ProjectViewUtilKt.getNodeElement;
@@ -155,6 +150,16 @@ public abstract class AbstractProjectViewPane implements UiCompatibleDataProvide
   private static final Logger LOG = Logger.getInstance(AbstractProjectViewPane.class);
   public static final ProjectExtensionPointName<AbstractProjectViewPane> EP
     = new ProjectExtensionPointName<>("com.intellij.projectViewPane");
+
+  /**
+   * Indicates that the tree is currently updating its selection as requested by the API.
+   * <p>
+   *   This is a hack to distinguish between selection changes caused by {@link #selectWithCallback(Object, VirtualFile, boolean)}
+   *   and all other selection changes (e.g., by clicking or changing selection in the tree selection model directly).
+   * </p>
+   */
+  @ApiStatus.Internal
+  public static final Key<Boolean> REAL_SELECTION_IN_PROGRESS = Key.create("REAL_SELECTION_IN_PROGRESS");
 
   protected final @NotNull Project myProject;
   protected DnDAwareTree myTree;
@@ -274,6 +279,16 @@ public abstract class AbstractProjectViewPane implements UiCompatibleDataProvide
   public JComponent getComponentToFocus() {
     return myTree;
   }
+  
+  @ApiStatus.Internal
+  public @Nullable DnDSource getDragSource() {
+    return myDragSource;
+  }
+  
+  @ApiStatus.Internal
+  public @Nullable DnDTarget getDropTarget() {
+    return myDropTarget;
+  }
 
   @Override
   public void dispose() {
@@ -345,7 +360,9 @@ public abstract class AbstractProjectViewPane implements UiCompatibleDataProvide
       return async.selectCB(element, file, requestFocus);
     }
     else {
+      ClientProperty.put(myTree, REAL_SELECTION_IN_PROGRESS, true);
       select(element, file, requestFocus);
+      ClientProperty.put(myTree, REAL_SELECTION_IN_PROGRESS, false);
       return ActionCallback.DONE;
     }
   }
@@ -604,15 +621,24 @@ public abstract class AbstractProjectViewPane implements UiCompatibleDataProvide
 
   public @Unmodifiable @NotNull List<PsiElement> getElementsFromNode(@Nullable Object node) {
     Object value = getValueFromNode(node);
+    return extractPsiElementsFromNodeOrUserObject(myProject, node, value);
+  }
+
+  @ApiStatus.Internal
+  public static @NotNull List<PsiElement> extractPsiElementsFromNodeOrUserObject(
+    @NotNull Project project,
+    @Nullable Object nodeOrUserObject,
+    @Nullable Object value
+  ) {
     JBIterable<?> it = value instanceof PsiElement || value instanceof VirtualFile || value instanceof PsiAwareObject ? JBIterable.of(value) :
                        value instanceof Object[] ? JBIterable.of((Object[])value) :
                        value instanceof Iterable ? JBIterable.from((Iterable<?>)value) :
-                       JBIterable.of(TreeUtil.getUserObject(node));
+                       JBIterable.of(TreeUtil.getUserObject(nodeOrUserObject));
     return it.flatten(o -> o instanceof RootsProvider ? ((RootsProvider)o).getRoots() : Collections.singleton(o))
       .map(o -> o instanceof VirtualFile
-                ? PsiUtilCore.findFileSystemItem(myProject, (VirtualFile)o)
+                ? PsiUtilCore.findFileSystemItem(project, (VirtualFile)o)
                 : o instanceof PsiAwareObject
-                  ? ((PsiAwareObject)o).findElement(myProject)
+                  ? ((PsiAwareObject)o).findElement(project)
                   : o)
       .filter(PsiElement.class)
       .filter(PsiElement::isValid)
@@ -808,8 +834,21 @@ public abstract class AbstractProjectViewPane implements UiCompatibleDataProvide
 
   @RequiresBackgroundThread(generateAssertion = false)
   protected PsiDirectory @NotNull [] getSelectedDirectories(Object @NotNull[] selectedUserObjects) {
+    return extractDirectories(
+      myProject,
+      selectedUserObjects,
+      this::getElementsFromNode
+    );
+  }
+
+  @ApiStatus.Internal
+  public static PsiDirectory @NotNull [] extractDirectories(
+    @NotNull Project project,
+    Object @NotNull[] userObjects,
+    @NotNull Function<@Nullable Object, @NotNull List<@NotNull PsiElement>> psiElementExtractor
+  ) {
     List<PsiDirectory> directories = new ArrayList<>();
-    for (Object obj : selectedUserObjects) {
+    for (Object obj : userObjects) {
       PsiDirectoryNode node = ObjectUtils.tryCast(obj, PsiDirectoryNode.class);
       if (node != null) {
         PsiDirectory directory = node.getValue();
@@ -832,9 +871,9 @@ public abstract class AbstractProjectViewPane implements UiCompatibleDataProvide
       return directories.toArray(PsiDirectory.EMPTY_ARRAY);
     }
 
-    List<PsiElement> elements = new ArrayList<>(selectedUserObjects.length);
-    for (Object node : selectedUserObjects) {
-      elements.addAll(getElementsFromNode(node));
+    List<PsiElement> elements = new ArrayList<>(userObjects.length);
+    for (Object node : userObjects) {
+      elements.addAll(psiElementExtractor.apply(node));
     }
 
     if (elements.size() == 1) {
@@ -864,20 +903,20 @@ public abstract class AbstractProjectViewPane implements UiCompatibleDataProvide
         }
       }
     }
-    else if (selectedUserObjects.length == 1) {
-      return getSelectedDirectoriesInAmbiguousCase(selectedUserObjects[0]);
+    else if (userObjects.length == 1) {
+      return getSelectedDirectoriesInAmbiguousCase(project, userObjects[0]);
     }
     return PsiDirectory.EMPTY_ARRAY;
   }
 
-  protected PsiDirectory @NotNull [] getSelectedDirectoriesInAmbiguousCase(Object userObject) {
+  private static PsiDirectory @NotNull [] getSelectedDirectoriesInAmbiguousCase(Project project, Object userObject) {
     if (userObject instanceof AbstractModuleNode) {
       final Module module = ((AbstractModuleNode)userObject).getValue();
       if (module != null && !module.isDisposed()) {
         final ModuleRootManager moduleRootManager = ModuleRootManager.getInstance(module);
         final VirtualFile[] sourceRoots = moduleRootManager.getSourceRoots();
         List<PsiDirectory> dirs = new ArrayList<>(sourceRoots.length);
-        final PsiManager psiManager = PsiManager.getInstance(myProject);
+        final PsiManager psiManager = PsiManager.getInstance(project);
         for (final VirtualFile sourceRoot : sourceRoots) {
           final PsiDirectory directory = psiManager.findDirectory(sourceRoot);
           if (directory != null) {
@@ -890,7 +929,7 @@ public abstract class AbstractProjectViewPane implements UiCompatibleDataProvide
     else if (userObject instanceof ProjectViewNode) {
       VirtualFile file = ((ProjectViewNode<?>)userObject).getVirtualFile();
       if (file != null && file.isValid() && file.isDirectory()) {
-        PsiDirectory directory = PsiManager.getInstance(myProject).findDirectory(file);
+        PsiDirectory directory = PsiManager.getInstance(project).findDirectory(file);
         if (directory != null) {
           return new PsiDirectory[]{directory};
         }
@@ -1066,123 +1105,7 @@ public abstract class AbstractProjectViewPane implements UiCompatibleDataProvide
 
     @Override
     public @Nullable Pair<Image, Point> createDraggedImage(DnDAction action, Point dragOrigin, @NotNull DnDDragStartBean bean) {
-      try {
-        ProjectViewRendererKt.setGrayedTextPaintingEnabled(false);
-        final TreePath[] paths = getSelectionPaths();
-        var tree = getTree();
-        if (tree == null || paths == null || paths.length == 0) return null;
-        var dragImageRows = createDragImageRows(tree, paths);
-        BufferedImage image = paintDragImageRows(tree, dragImageRows);
-        return new Pair<>(image, new Point());
-      }
-      finally {
-        ProjectViewRendererKt.setGrayedTextPaintingEnabled(true);
-      }
-    }
-
-    private static @NotNull ArrayList<DragImageRow> createDragImageRows(@NotNull JTree tree, @Nullable TreePath @NotNull [] paths) {
-      var count = 0;
-      int maxItemsToShow = paths.length < 20 ? paths.length : 10;
-      var dragImageRows = new ArrayList<DragImageRow>();
-      for (TreePath path : paths) {
-        dragImageRows.add(new NodeRow(tree, path));
-        count++;
-        if (count > maxItemsToShow) {
-          dragImageRows.add(new MoreFilesRow(tree, paths.length - maxItemsToShow));
-          break;
-        }
-      }
-      return dragImageRows;
-    }
-
-    private static @NotNull BufferedImage paintDragImageRows(@NotNull JTree tree, @NotNull ArrayList<DragImageRow> dragImageRows) {
-      var totalHeight = 0;
-      var maxWidth = 0;
-      for (var row : dragImageRows) {
-        var size = row.getSize();
-        maxWidth = Math.max(maxWidth, size.width);
-        totalHeight += size.height;
-      }
-      var gc = tree.getGraphicsConfiguration();
-      BufferedImage image = ImageUtil.createImage(gc, maxWidth, totalHeight, BufferedImage.TYPE_INT_ARGB);
-      Graphics2D g = (Graphics2D)image.getGraphics();
-      try {
-        for (var row : dragImageRows) {
-          row.paint(g);
-          g.translate(0, row.getSize().height);
-        }
-      }
-      finally {
-        g.dispose();
-      }
-      return image;
-    }
-
-    private abstract static class DragImageRow {
-      abstract @NotNull Dimension getSize();
-      abstract void paint(@NotNull Graphics2D g);
-    }
-
-    private static final class NodeRow extends DragImageRow {
-      private final @NotNull JTree tree;
-      private final @Nullable TreePath path;
-      private @Nullable Dimension size;
-
-      NodeRow(@NotNull JTree tree, @Nullable TreePath path) {
-        this.tree = tree;
-        this.path = path;
-      }
-
-      @Override
-      @NotNull
-      Dimension getSize() {
-        var size = this.size;
-        if (size == null) {
-          size = getRenderer(tree, path).getPreferredSize();
-          this.size = size;
-        }
-        return size;
-      }
-
-      @Override
-      void paint(@NotNull Graphics2D g) {
-        var renderer = getRenderer(tree, path);
-        renderer.setSize(getSize());
-        renderer.paint(g);
-      }
-
-      private static @NotNull Component getRenderer(@NotNull JTree tree, @Nullable TreePath path) {
-        return tree.getCellRenderer().getTreeCellRendererComponent(
-          tree,
-          TreeUtil.getLastUserObject(path),
-          false,
-          false,
-          true,
-          tree.getRowForPath(path),
-          false
-        );
-      }
-    }
-
-    private static final class MoreFilesRow extends MyDragSource.DragImageRow {
-      private final @NotNull JLabel moreLabel;
-
-      MoreFilesRow(JTree tree, int moreItemsCount) {
-        moreLabel = new JLabel(IdeBundle.message("label.more.files", moreItemsCount), EmptyIcon.ICON_16, SwingConstants.LEADING);
-        moreLabel.setFont(tree.getFont());
-        moreLabel.setSize(moreLabel.getPreferredSize());
-      }
-
-      @Override
-      @NotNull
-      Dimension getSize() {
-        return moreLabel.getSize();
-      }
-
-      @Override
-      void paint(@NotNull Graphics2D g) {
-        moreLabel.paint(g);
-      }
+      return ProjectViewDragImageUtil.createDraggedImage(getTree());
     }
   }
 

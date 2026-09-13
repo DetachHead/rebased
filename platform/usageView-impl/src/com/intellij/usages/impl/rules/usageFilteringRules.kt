@@ -21,18 +21,22 @@ fun platformUsageFilteringRules(project: Project): List<UsageFilteringRule> {
   val result = ArrayList<UsageFilteringRule>()
   result.add(ReadAccessFilteringRule)
   result.add(WriteAccessFilteringRule)
-  if (areGeneratedSourceUsageFiltersAvailable()) {
+  if (areGeneratedSourceUsageFiltersAvailable(project)) {
     result.add(UsageInGeneratedCodeFilteringRule(project))
   }
-  if (ImportFilteringRule.EP_NAME.hasAnyExtensions()) {
+  if (areImportUsageFiltersAvailable(project)) {
     result.add(ImportUsageFilteringRule)
   }
   result.add(CommentUsageFilteringRule)
   return result
 }
 
-private fun areGeneratedSourceUsageFiltersAvailable(): Boolean {
-  return GeneratedSourceUsageFilter.EP_NAME.extensionList.any(GeneratedSourceUsageFilter::isAvailable)
+private fun areGeneratedSourceUsageFiltersAvailable(project: Project): Boolean {
+  return GeneratedSourceUsageFilter.EP_NAME.findFirstSafe { it.isAvailable(project) } != null
+}
+
+private fun areImportUsageFiltersAvailable(project: Project): Boolean {
+  return ImportFilteringRule.EP_NAME.findFirstSafe { it.isAvailable(project) } != null
 }
 
 private fun fromExtensions(project: Project, result: MutableList<UsageFilteringRule>) {

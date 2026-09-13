@@ -6,13 +6,19 @@ import com.intellij.openapi.util.SystemInfo;
 import com.intellij.ui.JBColor;
 import com.intellij.ui.jcef.menu.CefContextMenuRunner;
 import com.intellij.util.messages.MessageBusConnection;
+import org.cef.CefSettings;
 import org.cef.browser.CefBrowser;
+import org.cef.handler.CefDisplayHandler;
+import org.cef.handler.CefDisplayHandlerAdapter;
 import org.cef.handler.CefFocusHandler;
 import org.cef.handler.CefFocusHandlerAdapter;
+import org.cef.misc.CefLog;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.JComponent;
+import javax.swing.JFrame;
+import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.SwingUtilities;
 import java.awt.AWTEvent;
@@ -22,6 +28,9 @@ import java.awt.Component;
 import java.awt.Container;
 import java.awt.Dimension;
 import java.awt.FocusTraversalPolicy;
+import java.awt.GraphicsConfiguration;
+import java.awt.GridBagConstraints;
+import java.awt.GridBagLayout;
 import java.awt.KeyboardFocusManager;
 import java.awt.event.ComponentAdapter;
 import java.awt.event.ComponentEvent;
@@ -103,6 +112,13 @@ public class JBCefBrowser extends JBCefBrowserBase {
       }
     }, myCefBrowser);
 
+    myCefClient.addDisplayHandler(myCefDisplayHandler = new CefDisplayHandlerAdapter() {
+      @Override
+      public void onFullscreenModeChange(CefBrowser browser, boolean fullscreen) {
+        setFullscreen(fullscreen);
+      }
+    }, myCefBrowser);
+
     if (isOffScreenRendering()) {
       CefContextMenuRunner contextMenuRunner = new CefContextMenuRunner();
       myCefClient.addContextMenuHandler(contextMenuRunner, myCefBrowser);
@@ -129,8 +145,10 @@ public class JBCefBrowser extends JBCefBrowserBase {
 
   private final @NotNull JPanel myComponent;
   private final @NotNull CefFocusHandler myCefFocusHandler;
+  private final @NotNull CefDisplayHandler myCefDisplayHandler;
   private volatile boolean myFirstShow = true;
   private MessageBusConnection myMsgBusConnection;
+  private @Nullable JFrame myFullscreenFrame;
 
   /**
    * Creates a browser builder.
@@ -243,13 +261,34 @@ public class JBCefBrowser extends JBCefBrowserBase {
     myMsgBusConnection = ApplicationManager.getApplication().getMessageBus().connect();
     myMsgBusConnection.subscribe(JBCefHealthMonitor.JBCefHealthCheckTopic.TOPIC,
                  new JBCefHealthMonitor.JBCefHealthCheckTopic() {
+                   private JBCefHealthMonitor.Status myPrevStatus = null;
                    @Override
                    public void onHealthHealthStatusChanged(JBCefHealthMonitor.@NotNull Status status) {
                      SwingUtilities.invokeLater(() -> {
-                       Component panel = JBCefNotifications.createStubPanel(status);
-                       if (panel != null) {
-                         resultPanel.setStubPanel(panel);
+                       Component stubComponent = null;
+                       if (status == JBCefHealthMonitor.Status.OK) {
+                         if (myPrevStatus == JBCefHealthMonitor.Status.GPU_PROCESS_FAILED ||
+                             myPrevStatus == JBCefHealthMonitor.Status.STARTUP_TEST_FAILED ||
+                             myPrevStatus == JBCefHealthMonitor.Status.CEF_SERVER_DISCONNECTED)
+                         {
+                           JPanel panel = new JPanel();
+                           panel.setLayout(new GridBagLayout());
+                           GridBagConstraints c = new GridBagConstraints();
+                           c.anchor = GridBagConstraints.CENTER;
+                           c.fill = GridBagConstraints.NONE;
+                           final String text = CefLog.GetLogLevel() == CefSettings.LogSeverity.LOGSEVERITY_VERBOSE ? JcefBundle.message(
+                             "notification.jcef.restarted_with_verbose_logging") : JcefBundle.message("notification.jcef.restarted");
+                           panel.add(new JLabel(text), c);
+                           stubComponent = panel;
+                         }
+                       } else {
+                         stubComponent = JBCefNotifications.createStubPanel(status);
                        }
+
+                       if (stubComponent != null) {
+                         resultPanel.setStubPanel(stubComponent);
+                       }
+                       myPrevStatus = status;
                      });
                    }
                  });
@@ -310,12 +349,63 @@ public class JBCefBrowser extends JBCefBrowserBase {
     return myComponent;
   }
 
+  private void setFullscreen(boolean fullscreen) {
+    SwingUtilities.invokeLater(() -> {
+      Component browserUI = getCefBrowser().getUIComponent();
+      if (browserUI == null) return;
+
+      if (fullscreen) {
+        if (myFullscreenFrame != null) return;
+
+        GraphicsConfiguration gc = myComponent.getGraphicsConfiguration();
+        if (gc == null) return;
+
+        JFrame frame = new JFrame(gc);
+        frame.setUndecorated(true);
+        frame.setBackground(getBackgroundColor());
+        frame.getContentPane().setBackground(getBackgroundColor());
+        frame.setBounds(gc.getBounds());
+        myFullscreenFrame = frame;
+
+        myComponent.remove(browserUI);
+        myComponent.revalidate();
+        myComponent.repaint();
+
+        frame.add(browserUI, BorderLayout.CENTER);
+        gc.getDevice().setFullScreenWindow(frame);
+        frame.setVisible(true);
+        frame.validate();
+      }
+      else {
+        JFrame frame = myFullscreenFrame;
+        if (frame == null) return;
+        myFullscreenFrame = null;
+
+        frame.remove(browserUI);
+        GraphicsConfiguration gc = frame.getGraphicsConfiguration();
+        if (gc != null) gc.getDevice().setFullScreenWindow(null);
+        frame.setVisible(false);
+        frame.dispose();
+
+        myComponent.add(browserUI, BorderLayout.CENTER);
+        myComponent.revalidate();
+        myComponent.repaint();
+      }
+      browserUI.requestFocusInWindow();
+      getCefBrowser().setFocus(true);
+    });
+  }
+
   @Override
   public void dispose() {
     if (myMsgBusConnection != null)
       myMsgBusConnection.disconnect();
+    if (myFullscreenFrame != null) {
+      setFullscreen(false);
+    }
     super.dispose(() -> {
       myCefClient.removeFocusHandler(myCefFocusHandler, myCefBrowser);
+      myCefClient.removeDisplayHandler(myCefDisplayHandler, myCefBrowser);
     });
   }
 

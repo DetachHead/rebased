@@ -1,7 +1,7 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
 ### auto-generated section `build intellij.platform.projectModel` start
-
 jvm_library(
     name = "projectModel",
     srcs = glob(
@@ -37,6 +37,15 @@ jvm_library(
         "//platform/util/base",
         "//platform/eel",
         "//platform/eel-nioFs",
+    ],
+)
+
+content_module_jar(
+    module = ":projectModel",
+    modules_before = [
+        # do not sort,
+        "//platform/backend/workspace",
+        "//platform/util/concurrency",
     ],
 )
 
@@ -78,6 +87,8 @@ jvm_library(
 exports_files(
     [
         "intellij.platform.projectModel.iml",
+        "resources/intellij.platform.projectModel.xml",
+        "module-content.yaml",
     ],
     visibility = ["//visibility:public"],
 )

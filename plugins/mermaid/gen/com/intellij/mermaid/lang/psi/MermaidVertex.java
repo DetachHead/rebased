@@ -11,6 +11,9 @@ public interface MermaidVertex extends MermaidPsiElement {
   MermaidComplexIdentifier getComplexIdentifier();
 
   @Nullable
+  MermaidMetadata getMetadata();
+
+  @Nullable
   MermaidVertexText getVertexText();
 
 }

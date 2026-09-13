@@ -36,12 +36,13 @@
     <orderEntry type="module" module-name="intellij.platform.credentialStore" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.editor.ui" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.ide" exported="" scope="TEST" />
+    <orderEntry type="module" module-name="intellij.platform.welcomeScreen" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.welcomeScreen.impl" scope="TEST" />
     <orderEntry type="module" module-name="intellij.libraries.oro.matcher" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.jps.model" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.jps.model.serialization" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.lang" scope="TEST" />
-    <orderEntry type="library" scope="TEST" name="jna" level="project" />
+    <orderEntry type="module" module-name="intellij.libraries.jna" scope="TEST" />
     <orderEntry type="module" module-name="intellij.libraries.winp" scope="TEST" />
     <orderEntry type="module" module-name="intellij.libraries.swingx" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.core.impl" scope="TEST" />
@@ -66,6 +67,7 @@
     <orderEntry type="module" module-name="intellij.platform.builtInServer" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.ide.observable" scope="TEST" />
     <orderEntry type="library" scope="TEST" name="kotlin-stdlib" level="project" />
+    <orderEntry type="library" scope="TEST" name="diogen-analysis" level="project" />
     <orderEntry type="library" scope="RUNTIME" name="slf4j-api" level="project" />
     <orderEntry type="library" scope="RUNTIME" name="slf4j-jdk14" level="project" />
     <orderEntry type="module" module-name="intellij.libraries.stream" scope="TEST" />
@@ -96,12 +98,10 @@
     <orderEntry type="module" module-name="intellij.platform.util.progress" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.concurrency" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.core.ui" scope="TEST" />
-    <orderEntry type="library" scope="TEST" name="zip-signer" level="project" />
     <orderEntry type="module" module-name="intellij.libraries.caffeine" scope="TEST" />
     <orderEntry type="module" module-name="intellij.libraries.classgraph" scope="TEST" />
     <orderEntry type="module" module-name="intellij.libraries.protobuf" scope="RUNTIME" />
     <orderEntry type="module" module-name="intellij.platform.util.zip" scope="TEST" />
-    <orderEntry type="module" module-name="intellij.libraries.icu4j" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.util.xmlDom" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.ide.core.impl" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.ide.core.plugins" scope="TEST" />
@@ -135,7 +135,8 @@
     <orderEntry type="module" module-name="intellij.libraries.pty4j" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.settings" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.util.coroutines" scope="TEST" />
-    <orderEntry type="library" scope="TEST" name="jetbrains-annotations" level="project" />
+    <orderEntry type="module" module-name="intellij.libraries.jetbrains.annotations" scope="TEST" />
+    <orderEntry type="library" scope="TEST" name="kotlinx-coroutines-test" level="project" />
     <orderEntry type="module" module-name="intellij.libraries.lz4" scope="TEST" />
     <orderEntry type="module" module-name="intellij.libraries.kotlinx.collections.immutable" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.util.io.storages" scope="TEST" />
@@ -163,6 +164,7 @@
     <orderEntry type="module" module-name="intellij.platform.syntax.tree" scope="RUNTIME" />
     <orderEntry type="module" module-name="intellij.platform.pasta" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.workspace.storage" scope="TEST" />
+    <orderEntry type="module" module-name="intellij.platform.pluginSystem.testFramework" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.pluginSystem.parser.impl" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.syntax.extensions" scope="RUNTIME" />
     <orderEntry type="module" module-name="intellij.platform.eel" scope="TEST" />
@@ -178,9 +180,10 @@
     <orderEntry type="module" module-name="intellij.libraries.rd.core" scope="TEST" />
     <orderEntry type="module" module-name="intellij.java.guiForms.rt" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.ide.impl" scope="TEST" />
-    <orderEntry type="module" module-name="fleet.rhizomedb" scope="RUNTIME" />
+    <orderEntry type="module" module-name="fleet.rhizomedb" scope="TEST" />
     <orderEntry type="module" module-name="intellij.libraries.junit5" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.testFramework.junit5" scope="TEST" />
+    <orderEntry type="module" module-name="intellij.platform.statistics.testFramework" scope="TEST" />
   </component>
   <component name="TestModuleProperties" production-module="intellij.platform.ide.impl" />
 </module>

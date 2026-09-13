@@ -4,21 +4,13 @@ project
 project.androidApp
 
 project.androidApp.androidTest
-    org.jetbrains.kotlin.mpp.tests:kmmLib-android-debug:1.0@aar (TEST)
+    org.jetbrains.kotlin.mpp.tests:kmmLib-android:1.0@aar (TEST)
 
 project.androidApp.main
-    org.jetbrains.kotlin.mpp.tests:kmmLib-android-debug:1.0@aar (COMPILE)
+    org.jetbrains.kotlin.mpp.tests:kmmLib-android:1.0@aar (COMPILE)
 
 project.androidApp.unitTest
-    org.jetbrains.kotlin.mpp.tests:kmmLib-android-debug:1.0@aar (TEST)
-
-project.androidTest
-    main (friend, TEST)
-
-project.main
-
-project.unitTest
-    main (friend, TEST)
+    org.jetbrains.kotlin.mpp.tests:kmmLib-android:1.0@aar (TEST)
 
 
 Test configuration:

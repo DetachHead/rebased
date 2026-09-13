@@ -1,7 +1,7 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
 ### auto-generated section `build intellij.devkit.smartupdate` start
-
 jvm_library(
     name = "smartupdate",
     srcs = glob(
@@ -32,6 +32,8 @@ jvm_library(
     ],
 )
 
+content_module_jar(module = ":smartupdate")
+
 jvm_library(
     name = "smartupdate_test_lib",
     testonly = True,
@@ -60,6 +62,7 @@ jvm_library(
 exports_files(
     [
         "intellij.devkit.smartupdate.iml",
+        "resources/intellij.devkit.smartupdate.xml",
     ],
     visibility = ["//visibility:public"],
 )

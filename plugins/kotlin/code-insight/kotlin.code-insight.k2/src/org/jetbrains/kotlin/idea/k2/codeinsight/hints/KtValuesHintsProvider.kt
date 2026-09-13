@@ -6,12 +6,16 @@ import com.intellij.codeInsight.hints.declarative.InlayTreeSink
 import com.intellij.codeInsight.hints.declarative.InlineInlayPosition
 import com.intellij.psi.PsiElement
 import org.jetbrains.kotlin.analysis.api.KaSession
-import org.jetbrains.kotlin.analysis.api.analyze
-import org.jetbrains.kotlin.analysis.api.components.DefaultTypeClassIds
-import org.jetbrains.kotlin.analysis.api.resolution.singleFunctionCallOrNull
-import org.jetbrains.kotlin.analysis.api.resolution.successfulVariableAccessCall
+import org.jetbrains.kotlin.analysis.api.expressions.expressionType
+import org.jetbrains.kotlin.analysis.api.resolution.function
+import org.jetbrains.kotlin.analysis.api.resolution.resolveSuccessfulSymbol
+import org.jetbrains.kotlin.analysis.api.resolution.single
 import org.jetbrains.kotlin.analysis.api.resolution.symbol
+import org.jetbrains.kotlin.analysis.api.resolution.tryResolveCall
+import org.jetbrains.kotlin.analysis.api.session.analyze
 import org.jetbrains.kotlin.analysis.api.types.KaClassType
+import org.jetbrains.kotlin.analysis.api.types.KaStandardTypeClassIds
+import org.jetbrains.kotlin.analysis.api.types.isSubtypeOf
 import org.jetbrains.kotlin.builtins.StandardNames
 import org.jetbrains.kotlin.idea.codeInsight.hints.SHOW_KOTLIN_TIME
 import org.jetbrains.kotlin.idea.codeInsight.hints.SHOW_RANGES
@@ -42,8 +46,7 @@ class KtValuesHintsProvider : AbstractKtInlayHintsProvider() {
 
         sink.whenOptionEnabled(SHOW_KOTLIN_TIME.name) {
             val callableId = analyze(expression) {
-                val variableAccessCall = expression.resolveToCall()?.successfulVariableAccessCall()
-                variableAccessCall?.symbol?.callableId
+                expression.resolveSuccessfulSymbol()?.callableId
             } ?: return@whenOptionEnabled
 
             if (callableId.classId.takeIf { it == DURATION_CLASS_ID || it == DURATION_COMPANION_CLASS_ID } == null) {
@@ -89,8 +92,9 @@ class KtValuesHintsProvider : AbstractKtInlayHintsProvider() {
         }
     }
 
-    private fun KaSession.isApplicableForRanges(binaryExpression: KtBinaryExpression, leftExp: KtExpression, rightExp: KtExpression): Boolean {
-        val functionCallOrNull = binaryExpression.resolveToCall()?.singleFunctionCallOrNull()
+    context(session: KaSession)
+    private fun isApplicableForRanges(binaryExpression: KtBinaryExpression, leftExp: KtExpression, rightExp: KtExpression): Boolean {
+        val functionCallOrNull = binaryExpression.tryResolveCall()?.single?.function
         functionCallOrNull?.symbol?.takeIf {
             val packageName = it.callableId?.packageName
             packageName == StandardNames.RANGES_PACKAGE_FQ_NAME || packageName == StandardNames.BUILT_INS_PACKAGE_FQ_NAME
@@ -99,7 +103,8 @@ class KtValuesHintsProvider : AbstractKtInlayHintsProvider() {
         return isComparable(leftExp) && isComparable(rightExp)
     }
 
-    private fun KaSession.isComparable(expression: KtExpression): Boolean =
+    context(session: KaSession)
+    private fun isComparable(expression: KtExpression): Boolean =
         with(this) {
             when (expression) {
                 is KtConstantExpression -> true
@@ -111,7 +116,7 @@ class KtValuesHintsProvider : AbstractKtInlayHintsProvider() {
 
                 else -> {
                     val type = expression.expressionType as? KaClassType ?: return false
-                    type.classId in DefaultTypeClassIds.PRIMITIVES || type.isSubtypeOf(StandardClassIds.Comparable)
+                    type.classId in KaStandardTypeClassIds.PRIMITIVES || type.isSubtypeOf(StandardClassIds.Comparable)
                 }
             }
         }

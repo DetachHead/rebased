@@ -1,7 +1,7 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
 ### auto-generated section `build intellij.platform.backend` start
-
 jvm_library(
     name = "backend",
     srcs = glob(
@@ -16,6 +16,8 @@ jvm_library(
     visibility = ["//visibility:public"],
 )
 
+content_module_jar(module = ":backend")
+
 jvm_library(
     name = "backend_test_lib",
     testonly = True,
@@ -23,6 +25,7 @@ jvm_library(
         [],
         allow_empty = True,
     ),
+    kotlinc_opts = "@community//:k8",
     module_name = "intellij.platform.backend",
     visibility = ["//visibility:public"],
     runtime_deps = [":backend"],
@@ -33,6 +36,8 @@ jvm_library(
 exports_files(
     [
         "intellij.platform.backend.iml",
+        "resources/intellij.platform.backend.xml",
+        "module-content.yaml",
     ],
     visibility = ["//visibility:public"],
 )

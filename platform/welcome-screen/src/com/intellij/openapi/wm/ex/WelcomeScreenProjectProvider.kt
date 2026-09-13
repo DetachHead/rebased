@@ -17,7 +17,6 @@ import kotlin.io.path.absolute
 
 private val LOG = logger<WelcomeScreenProjectProvider>()
 private val EP_NAME: ExtensionPointName<WelcomeScreenProjectProvider> = ExtensionPointName("com.intellij.welcomeScreenProjectProvider")
-private const val PROJECTS_DIR = "projects"
 private const val PROPERTY_PROJECT_PATH = "%s.project.path"
 
 @Volatile
@@ -39,9 +38,17 @@ fun getWelcomeScreenProjectProvider(): WelcomeScreenProjectProvider? {
 
 @Internal
 interface WelcomeScreenProjectSupport {
-  suspend fun createOrOpenWelcomeScreenProject(extension: WelcomeScreenProjectProvider, projectToClose: Project? = null): Project
+  /**
+   * @param forceOpenInNewFrame open the project in a frame of its own, without the "this window or a new one"
+   * question the platform asks while another project is open. An automatic open at IDE start passes `true`.
+   */
+  suspend fun createOrOpenWelcomeScreenProject(
+    extension: WelcomeScreenProjectProvider,
+    projectToClose: Project? = null,
+    forceOpenInNewFrame: Boolean = false,
+  ): Project
 
-  suspend fun openProject(path: Path): Project
+  suspend fun openProject(path: Path, name: String, forceOpenInNewFrame: Boolean = false): Project
 }
 
 /**
@@ -99,8 +106,16 @@ abstract class WelcomeScreenProjectProvider {
       return getWelcomeScreenProjectProvider()?.doGetStartupToolWindowIdToActivate()
     }
 
-    suspend fun createOrOpenWelcomeScreenProject(extension: WelcomeScreenProjectProvider, projectToClose: Project? = null): Project {
-      return serviceAsync<WelcomeScreenProjectSupport>().createOrOpenWelcomeScreenProject(extension, projectToClose)
+    fun getToolWindowIdsToExclusiveShowing(): Set<String> {
+      return getWelcomeScreenProjectProvider()?.getToolWindowIdsToExclusiveShowing() ?: emptySet()
+    }
+
+    suspend fun createOrOpenWelcomeScreenProject(
+      extension: WelcomeScreenProjectProvider,
+      projectToClose: Project? = null,
+      forceOpenInNewFrame: Boolean = false,
+    ): Project {
+      return serviceAsync<WelcomeScreenProjectSupport>().createOrOpenWelcomeScreenProject(extension, projectToClose, forceOpenInNewFrame)
     }
   }
 
@@ -117,7 +132,7 @@ abstract class WelcomeScreenProjectProvider {
   open fun shouldOpenInWelcomeScreenIfFileBelongsToProject(filePath: Path): Boolean = true
 
   protected open fun getWelcomeScreenProjectPath(): Path {
-    return Path.of(getProjectsBasePath(), getWelcomeScreenProjectName()).absolute()
+    return Path.of(getProjectsBasePath(), getWelcomeScreenProjectDirName()).absolute()
   }
 
   @Internal
@@ -125,9 +140,24 @@ abstract class WelcomeScreenProjectProvider {
     return getWelcomeScreenProjectPath()
   }
 
-  protected abstract fun getWelcomeScreenProjectName(): String
+  protected open fun getWelcomeScreenProjectDirName(): String {
+    val productName = if (PlatformUtils.isIntelliJ() || PlatformUtils.isMPS()) {
+      ApplicationNamesInfo.getInstance().lowercaseProductName
+    }
+    else {
+      ApplicationNamesInfo.getInstance().productName
+    }
+    return "${productName}Home"
+  }
 
-  protected abstract fun doIsWelcomeScreenProject(project: Project): Boolean
+  open fun getWelcomeScreenProjectName(): String {
+    return "${ApplicationNamesInfo.getInstance().fullProductName} Home"
+  }
+
+  protected open fun doIsWelcomeScreenProject(project: Project): Boolean {
+    val name = project.name
+    return name == getWelcomeScreenProjectName() || name == getWelcomeScreenProjectDirName()
+  }
 
   /**
    * Return true if your project is not only a welcome screen, but also a real project where the user can create, store and edit files.
@@ -153,7 +183,17 @@ abstract class WelcomeScreenProjectProvider {
   }
 
   protected open suspend fun doCreateOrOpenWelcomeScreenProject(path: Path, projectToClose: Project?): Project {
-    return serviceAsync<WelcomeScreenProjectSupport>().openProject(path)
+    return serviceAsync<WelcomeScreenProjectSupport>().openProject(path, getWelcomeScreenProjectName())
+  }
+
+  /**
+   * Opens the welcome project in a frame of its own, with no "this window or a new one" question.
+   *
+   * The default opens through [WelcomeScreenProjectSupport.openProject]. A product with an open of its own
+   * overrides this too when it can honour the flag; otherwise its own open runs and may ask.
+   */
+  protected open suspend fun doCreateOrOpenWelcomeScreenProjectInNewFrame(path: Path): Project {
+    return serviceAsync<WelcomeScreenProjectSupport>().openProject(path, getWelcomeScreenProjectName(), forceOpenInNewFrame = true)
   }
 
   @Internal
@@ -162,7 +202,10 @@ abstract class WelcomeScreenProjectProvider {
   }
 
   @Internal
-  suspend fun doCreateOrOpenWelcomeScreenProjectForInternalUsage(path: Path, projectToClose: Project?): Project {
+  suspend fun doCreateOrOpenWelcomeScreenProjectForInternalUsage(path: Path, projectToClose: Project?, forceOpenInNewFrame: Boolean = false): Project {
+    if (forceOpenInNewFrame) {
+      return doCreateOrOpenWelcomeScreenProjectInNewFrame(path)
+    }
     return doCreateOrOpenWelcomeScreenProject(path, projectToClose)
   }
 
@@ -171,6 +214,10 @@ abstract class WelcomeScreenProjectProvider {
   protected open fun doGetProjectPaneToActivateId(): String? = null
 
   protected open fun doGetStartupToolWindowIdToActivate(): String? = null
+
+  protected open fun getToolWindowIdsToExclusiveShowing(): Set<String> = emptySet()
+
+  open fun addWelcomeProjectNewAction(): Boolean = true
 
   @Internal
   fun isHiddenInRecentProjectsForInternalUsage(): Boolean = doIsHiddenInRecentProjects()
@@ -192,14 +239,11 @@ private fun getProjectsBasePath(): String {
       PathManager.getAbsolutePath(StringUtil.unquoteString(propertyValue, '"'))
     }
     else {
-      projectsDirDefault
+      getUserHomeProjectDir()
     }
   }
   return cachedProjectsBasePath!!
 }
-
-private val projectsDirDefault: String
-  get() = if (PlatformUtils.isDataGrip()) getUserHomeProjectDir() else Path.of(PathManager.getConfigPath(), PROJECTS_DIR).toString()
 
 private fun getUserHomeProjectDir(): String {
   val appNamesInfo = ApplicationNamesInfo.getInstance()

@@ -3,31 +3,40 @@
 
   <!-- region Generated dependencies - run `Generate Product Layouts` to regenerate -->
   <dependencies>
+    <module name="intellij.libraries.eclipse.lsp4j"/>
+    <module name="intellij.libraries.eclipse.lsp4j.jsonrpc"/>
     <module name="intellij.libraries.gson"/>
     <module name="intellij.platform.analysis"/>
     <module name="intellij.platform.codeStyle"/>
+    <module name="intellij.platform.codeStyle.impl"/>
     <module name="intellij.platform.core"/>
     <module name="intellij.platform.core.impl"/>
     <module name="intellij.platform.core.ui"/>
     <module name="intellij.platform.editor.ex"/>
     <module name="intellij.platform.editor.ui"/>
+    <module name="intellij.platform.execution"/>
     <module name="intellij.platform.execution.impl"/>
     <module name="intellij.platform.ide"/>
     <module name="intellij.platform.ide.core"/>
+    <module name="intellij.platform.ide.core.impl"/>
     <module name="intellij.platform.ide.impl"/>
+    <module name="intellij.platform.ide.progress"/>
     <module name="intellij.platform.indexing"/>
     <module name="intellij.platform.lang"/>
     <module name="intellij.platform.lang.impl"/>
     <module name="intellij.platform.lsp"/>
     <module name="intellij.platform.markdown.utils"/>
     <module name="intellij.platform.projectModel"/>
+    <module name="intellij.platform.refactoring"/>
     <module name="intellij.platform.statistics"/>
     <module name="intellij.platform.util.ui"/>
+    <module name="intellij.platform.workspace.jps"/>
   </dependencies>
   <!-- endregion -->
 
   <extensions defaultExtensionNs="com.intellij">
     <registryKey defaultValue="100" description="LSP server connect timeout" key="lsp.server.connect.timeout"/>
+    <registryKey defaultValue="5" description="Maximum log files count per LSP server" key="lsp.server.logging.maxLogFiles"/>
     <notificationGroup id="LSP window/showMessage"
                        displayType="BALLOON"
                        bundle="messages.LspBundle"
@@ -44,6 +53,9 @@
     <projectService serviceInterface="com.intellij.platform.lsp.api.LspClientManager"
                     serviceImplementation="com.intellij.platform.lsp.impl.LspClientManagerImpl"/>
 
+    <serviceViewContributor implementation="com.intellij.platform.lsp.impl.serviceView.LspServiceViewContributor"/>
+
+    <postStartupActivity implementation="com.intellij.platform.lsp.impl.platformListeners.LspStartupActivity"/>
     <editorFactoryDocumentListener id="LspDocumentListener"
                                    implementation="com.intellij.platform.lsp.impl.platformListeners.LspDocumentListener"/>
     <vfs.asyncListener id="LspFileListener"
@@ -77,6 +89,8 @@
     <psi.implicitReferenceProvider id="LspDocumentLinkReferenceProvider"
                                    implementation="com.intellij.platform.lsp.impl.features.navigation.LspDocumentLinkReferenceProvider"/>
     <lang.symbolTypeProvider id="LspSymbolTypeProvider" implementation="com.intellij.platform.lsp.impl.features.navigation.LspSymbolTypeProvider"/>
+    <pom.declarationSearcher implementation="com.intellij.platform.lsp.impl.features.navigation.LspImplementationDeclarationSearcher"/>
+    <definitionsScopedSearch implementation="com.intellij.platform.lsp.impl.features.navigation.LspDefinitionsScopedSearcher"/>
     <uiDataRule implementation="com.intellij.platform.lsp.impl.features.usages.LspSearchTargetsRule"/>
     <searcher forClass="com.intellij.find.usages.api.UsageSearchParameters"
               implementationClass="com.intellij.platform.lsp.impl.features.usages.LspUsageSearcher"/>

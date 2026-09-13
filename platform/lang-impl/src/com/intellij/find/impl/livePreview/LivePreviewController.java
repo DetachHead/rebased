@@ -22,10 +22,15 @@ import com.intellij.openapi.editor.event.DocumentListener;
 import com.intellij.openapi.editor.event.SelectionEvent;
 import com.intellij.openapi.editor.event.SelectionListener;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.util.Disposer;
+import com.intellij.openapi.util.Key;
 import com.intellij.openapi.util.TextRange;
 import com.intellij.openapi.vfs.ReadonlyStatusHandler;
+import com.intellij.testFramework.TestModeFlags;
 import com.intellij.util.Alarm;
+import com.intellij.util.concurrency.annotations.RequiresEdt;
 import com.intellij.util.containers.ContainerUtil;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -35,6 +40,17 @@ import java.util.List;
 public final class LivePreviewController implements LivePreview.Delegate, FindUtil.ReplaceDelegate {
   public static final int USER_ACTIVITY_TRIGGERING_DELAY = 30;
   public static final int MATCHES_LIMIT = 10000;
+
+  /**
+   * Makes an update in a test run where a production one runs - on the pooled alarm thread, which is the only place a
+   * search is {@linkplain SearchResults#updateThreadSafe chunked} - instead of running synchronously on the EDT.
+   * <p>
+   * The typing debounce goes with it: a test types far faster than a human, so keeping it would coalesce away the very
+   * updates the test means to trigger. A test that sets this has to pump the event queue for a search to make progress
+   * and for its chunks to be applied.
+   */
+  @ApiStatus.Internal
+  public static final Key<Boolean> ourTestingBackgroundUpdate = Key.create("find.live.preview.testing.background.update");
   private final SearchSession myComponent;
 
   private int myUserActivityDelay = USER_ACTIVITY_TRIGGERING_DELAY;
@@ -112,17 +128,29 @@ public final class LivePreviewController implements LivePreview.Delegate, FindUt
     return cursor == last;
   }
 
+  /**
+   * @param parentDisposable owns this controller: disposing it disposes the update alarm and the controller itself,
+   *                         which releases the {@link LivePreview} and with it the editor and the search results it
+   *                         holds. That is the only way to dispose a controller - a caller that wants an earlier
+   *                         disposal gives it a disposable of its own and disposes that one.
+   */
   public LivePreviewController(SearchResults searchResults, @Nullable SearchSession component, @NotNull Disposable parentDisposable) {
     mySearchResults = searchResults;
     myComponent = component;
     getEditor().getDocument().addDocumentListener(myDocumentListener);
     myLivePreviewAlarm = new Alarm(Alarm.ThreadToUse.POOLED_THREAD, parentDisposable);
+    Disposer.register(parentDisposable, this::dispose);
   }
 
   public void setUserActivityDelay(int userActivityDelay) {
     myUserActivityDelay = userActivityDelay;
   }
 
+  /**
+   * Has to be called on the EDT: it updates the search toolbar, and it is re-entered from the rejection handler below
+   * to run the search again, which is why {@link SearchResults#updateThreadSafe} completes its callback there.
+   */
+  @RequiresEdt
   public void updateInBackground(@NotNull FindModel findModel, final boolean allowedToChangedEditorSelection) {
     final int stamp = mySearchResults.getStamp();
     myLivePreviewAlarm.cancelAllRequests();
@@ -134,11 +162,12 @@ public final class LivePreviewController implements LivePreview.Delegate, FindUt
     }
     Runnable request = () -> mySearchResults.updateThreadSafe(copy, allowedToChangedEditorSelection, null, stamp)
       .doWhenRejected(() -> updateInBackground(findModel, allowedToChangedEditorSelection));
-    if (ApplicationManager.getApplication().isUnitTestMode()) {
+    boolean backgroundInTest = TestModeFlags.is(ourTestingBackgroundUpdate);
+    if (ApplicationManager.getApplication().isUnitTestMode() && !backgroundInTest) {
       request.run();
     }
     else {
-      myLivePreviewAlarm.addRequest(request, myUserActivityDelay);
+      myLivePreviewAlarm.addRequest(request, backgroundInTest ? 0 : myUserActivityDelay);
     }
   }
 
@@ -252,7 +281,7 @@ public final class LivePreviewController implements LivePreview.Delegate, FindUt
     }
   }
 
-  public void dispose() {
+  private void dispose() {
     if (myDisposed) return;
 
     off();
@@ -275,6 +304,17 @@ public final class LivePreviewController implements LivePreview.Delegate, FindUt
 
     var presentation = new EditorLivePreviewPresentation(getEditor().getColorsScheme());
     setLivePreview(new LivePreview(mySearchResults, presentation));
+  }
+
+  /**
+   * Removes only the cursor highlight (the frame around the current match), keeping match highlights intact.
+   * No-op if the live preview is not currently active.
+   */
+  @ApiStatus.Internal
+  public void clearCursorHighlight() {
+    if (myLivePreview != null) {
+      myLivePreview.clearCursorHighlight();
+    }
   }
 
   public void off() {

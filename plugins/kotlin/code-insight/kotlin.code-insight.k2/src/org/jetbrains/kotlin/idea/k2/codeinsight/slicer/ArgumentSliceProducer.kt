@@ -7,9 +7,9 @@ import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiMethod
 import com.intellij.slicer.SliceUsage
 import com.intellij.usageView.UsageInfo
-import org.jetbrains.kotlin.analysis.api.analyze
-import org.jetbrains.kotlin.analysis.api.resolution.KaSimpleFunctionCall
-import org.jetbrains.kotlin.analysis.api.resolution.successfulFunctionCallOrNull
+import org.jetbrains.kotlin.analysis.api.resolution.KaImplicitInvokeCall
+import org.jetbrains.kotlin.analysis.api.resolution.resolveSuccessfulCall
+import org.jetbrains.kotlin.analysis.api.session.analyze
 import org.jetbrains.kotlin.idea.base.analysis.api.utils.defaultValue
 import org.jetbrains.kotlin.idea.codeInsight.slicer.KotlinSliceAnalysisMode
 import org.jetbrains.kotlin.psi.KtCallElement
@@ -27,7 +27,7 @@ data class ArgumentSliceProducer(
         return listOf(KotlinSliceUsage(argumentExpression, parent, mode, forcedExpressionMode = true))
     }
 
-    override val testPresentation = "ARGUMENT #$parameterIndex".let { if (isExtension) "$it EXTENSION" else it }
+    override val testPresentation: String = "ARGUMENT #$parameterIndex".let { if (isExtension) "$it EXTENSION" else it }
 
     private fun extractArgumentExpression(refElement: PsiElement): PsiElement? {
         val refParent = refElement.parent
@@ -38,13 +38,13 @@ data class ArgumentSliceProducer(
                     ?: (refParent as? KtDotQualifiedExpression)?.selectorExpression as? KtCallElement
                     ?: return null
                 analyze(callElement) {
-                    val callInfo = callElement.resolveToCall()?.successfulFunctionCallOrNull() ?: return null
+                    val callInfo = callElement.resolveSuccessfulCall() ?: return null
 
-                    val parameterIndexToUse = parameterIndex + (if (isExtension && (callInfo as? KaSimpleFunctionCall)?.isImplicitInvoke == true) 1 else 0)
+                    val parameterIndexToUse = parameterIndex + (if (isExtension && (callInfo is KaImplicitInvokeCall)) 1 else 0)
 
-                    val variableSignature = callInfo.partiallyAppliedSymbol.signature.valueParameters[parameterIndexToUse]
+                    val variableSignature = callInfo.signature.valueParameters[parameterIndexToUse]
 
-                    callInfo.argumentMapping.entries.firstOrNull { (k, v) -> v == variableSignature }?.key ?: variableSignature.symbol.defaultValue
+                    callInfo.valueArgumentMapping.entries.firstOrNull { (_, v) -> v == variableSignature }?.key ?: variableSignature.symbol.defaultValue
                 }
             }
 

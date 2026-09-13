@@ -1,4 +1,4 @@
-// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package git4idea.checkin
 
 import com.google.common.collect.HashMultiset
@@ -44,6 +44,7 @@ import com.intellij.openapi.vcs.impl.PartialChangesUtil
 import com.intellij.openapi.vcs.ui.RefreshableOnComponent
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.platform.eel.provider.utils.EelPathUtils
+import com.intellij.platform.eel.provider.utils.EelProjectUtils
 import com.intellij.platform.vcs.impl.shared.commit.EditedCommitDetails
 import com.intellij.util.ArrayUtil
 import com.intellij.util.ThrowableConsumer
@@ -121,6 +122,7 @@ class GitCheckinEnvironment(private val myProject: Project) : CheckinEnvironment
       OS.Windows,
       OS.Linux,
       OS.FreeBSD,
+      OS.HarmonyOS,
       OS.Other -> GitBundle.message("commit.action.name")
     }
   }
@@ -886,7 +888,7 @@ class GitCheckinEnvironment(private val myProject: Project) : CheckinEnvironment
     fun createCommitMessageFile(project: Project, root: VirtualFile, message: @NonNls String): File {
       // filter comment lines
       val file = if (GitEelExecutableDetectionHelper.canUseEel()) {
-        EelPathUtils.createTemporaryFile(project, GIT_COMMIT_MSG_FILE_PREFIX, GIT_COMMIT_MSG_FILE_EXT, true)
+        EelProjectUtils.createTemporaryFile(project, GIT_COMMIT_MSG_FILE_PREFIX, GIT_COMMIT_MSG_FILE_EXT, true)
       }
       else {
         FileUtil.createTempFile(GIT_COMMIT_MSG_FILE_PREFIX, GIT_COMMIT_MSG_FILE_EXT).also {

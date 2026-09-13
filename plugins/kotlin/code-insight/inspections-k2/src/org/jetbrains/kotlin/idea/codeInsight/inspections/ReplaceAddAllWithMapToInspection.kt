@@ -9,10 +9,13 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.TextRange
 import com.intellij.util.runIf
 import org.jetbrains.kotlin.analysis.api.KaSession
-import org.jetbrains.kotlin.analysis.api.resolution.successfulFunctionCallOrNull
+import org.jetbrains.kotlin.analysis.api.resolution.function
 import org.jetbrains.kotlin.analysis.api.resolution.symbol
+import org.jetbrains.kotlin.analysis.api.symbols.KaCallableSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaFunctionSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.receiverType
+import org.jetbrains.kotlin.analysis.api.types.classId
+import org.jetbrains.kotlin.analysis.api.types.isSubtypeOf
 import org.jetbrains.kotlin.idea.base.analysis.api.utils.allOverriddenSymbolsWithSelf
 import org.jetbrains.kotlin.idea.base.psi.getOrCreateValueArgumentList
 import org.jetbrains.kotlin.idea.base.resources.KotlinBundle
@@ -21,6 +24,8 @@ import org.jetbrains.kotlin.idea.codeinsight.api.applicable.inspections.KotlinMo
 import org.jetbrains.kotlin.idea.codeinsight.api.applicators.ApplicabilityRange
 import org.jetbrains.kotlin.idea.codeinsight.utils.ImplicitReceiverInfo
 import org.jetbrains.kotlin.idea.codeinsight.utils.getImplicitReceiverInfo
+import org.jetbrains.kotlin.idea.util.resolveSuccessfulExpressionCall
+import org.jetbrains.kotlin.idea.util.resolveSuccessfulExpressionSymbol
 import org.jetbrains.kotlin.lexer.KtTokens
 import org.jetbrains.kotlin.name.CallableId
 import org.jetbrains.kotlin.name.Name
@@ -78,10 +83,10 @@ internal class ReplaceAddAllWithMapToInspection : KotlinApplicableInspectionBase
         }
     }
 
-    override fun KaSession.prepareContext(element: KtExpression): Context? {
-        val resolvedCall = element.resolveToCall()?.successfulFunctionCallOrNull() ?: return null
-        val partiallyAppliedSymbol = resolvedCall.partiallyAppliedSymbol
-        val symbol = partiallyAppliedSymbol.symbol
+    context(session: KaSession)
+    override fun prepareContext(element: KtExpression): Context? {
+        val resolvedCall = element.resolveSuccessfulExpressionCall()?.function ?: return null
+        val symbol = resolvedCall.symbol
 
         return when (element) {
             is KtBinaryExpression -> {
@@ -99,7 +104,7 @@ internal class ReplaceAddAllWithMapToInspection : KotlinApplicableInspectionBase
             }
 
             is KtCallExpression -> {
-                val dispatchReceiver = partiallyAppliedSymbol.dispatchReceiver
+                val dispatchReceiver = resolvedCall.dispatchReceiver
 
                 val addAllOperation = if (dispatchReceiver != null) {
                     if (!dispatchReceiver.type.isSubtypeOf(StandardClassIds.MutableCollection)) return null
@@ -125,16 +130,18 @@ internal class ReplaceAddAllWithMapToInspection : KotlinApplicableInspectionBase
         }
     }
 
-    private fun KaSession.isApplicablePlusAssign(symbol: KaFunctionSymbol): Boolean {
+    context(session: KaSession)
+    private fun isApplicablePlusAssign(symbol: KaFunctionSymbol): Boolean {
         if (symbol.callableId != plusAssignCallableId) return false
-        if (symbol.receiverType?.isClassType(StandardClassIds.MutableCollection) != true) return false
-        if (symbol.valueParameters.singleOrNull()?.returnType?.isClassType(StandardClassIds.Iterable) != true) return false
+        if (symbol.receiverType?.classId != StandardClassIds.MutableCollection) return false
+        if (symbol.valueParameters.singleOrNull()?.returnType?.classId != StandardClassIds.Iterable) return false
         return true
     }
 
-    private fun KaSession.replacementOperation(argument: KtExpression?): Name? {
-        val argumentCall = argument?.resolveToCall()?.successfulFunctionCallOrNull() ?: return null
-        return when (argumentCall.partiallyAppliedSymbol.symbol.callableId) {
+    context(session: KaSession)
+    private fun replacementOperation(argument: KtExpression?): Name? {
+        val symbol = argument?.resolveSuccessfulExpressionSymbol() as? KaCallableSymbol ?: return null
+        return when (symbol.callableId) {
             mapCallableId -> mapToName
             filterCallableId -> filterToName
             else -> null

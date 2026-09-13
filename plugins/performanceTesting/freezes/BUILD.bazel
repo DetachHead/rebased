@@ -1,7 +1,7 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
 ### auto-generated section `build intellij.performanceTesting.freezes` start
-
 jvm_library(
     name = "freezes",
     srcs = glob(
@@ -21,7 +21,7 @@ jvm_library(
     deps = [
         # do not sort,
         "@lib//:kotlin-stdlib",
-        "@lib//:performance_testing-freezes-com-hankcs-aho-corasick-double-array-trie",
+        "//platform/diagnostic/freezeAnalyzer",
         "//platform/platform-frontend:frontend",
         "//platform/core-api:core",
         "//platform/editor-ui-api:editor-ui",
@@ -41,6 +41,8 @@ jvm_library(
     ],
 )
 
+content_module_jar(module = ":freezes")
+
 jvm_library(
     name = "freezes_test_lib",
     testonly = True,
@@ -53,6 +55,7 @@ jvm_library(
     runtime_deps = [
         # do not sort,
         ":freezes",
+        "//platform/diagnostic/freezeAnalyzer:freezeAnalyzer_test_lib",
         "//platform/platform-frontend:frontend_test_lib",
         "//platform/core-api:core_test_lib",
         "//platform/editor-ui-api:editor-ui_test_lib",
@@ -77,6 +80,8 @@ jvm_library(
 exports_files(
     [
         "intellij.performanceTesting.freezes.iml",
+        "resources/intellij.performanceTesting.freezes.xml",
+        "module-content.yaml",
     ],
     visibility = ["//visibility:public"],
 )

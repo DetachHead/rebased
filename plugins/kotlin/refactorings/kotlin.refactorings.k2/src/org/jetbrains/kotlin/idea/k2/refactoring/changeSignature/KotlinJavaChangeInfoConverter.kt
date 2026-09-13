@@ -22,13 +22,18 @@ import com.intellij.refactoring.changeSignature.OverriderUsageInfo
 import com.intellij.refactoring.changeSignature.ParameterInfoImpl
 import com.intellij.refactoring.util.CanonicalTypes
 import com.intellij.usageView.UsageInfo
-import org.jetbrains.kotlin.analysis.api.KaExperimentalApi
-import org.jetbrains.kotlin.analysis.api.analyze
+import org.jetbrains.kotlin.analysis.api.components.asPsiType
+import org.jetbrains.kotlin.analysis.api.javaInterop.asKaType
 import org.jetbrains.kotlin.analysis.api.permissions.KaAllowAnalysisFromWriteAction
 import org.jetbrains.kotlin.analysis.api.permissions.KaAllowAnalysisOnEdt
 import org.jetbrains.kotlin.analysis.api.permissions.allowAnalysisFromWriteAction
 import org.jetbrains.kotlin.analysis.api.permissions.allowAnalysisOnEdt
+import org.jetbrains.kotlin.analysis.api.renderer.render
+import org.jetbrains.kotlin.analysis.api.session.analyze
 import org.jetbrains.kotlin.analysis.api.symbols.KaSymbolVisibility
+import org.jetbrains.kotlin.analysis.api.types.KaStandardTypeClassIds
+import org.jetbrains.kotlin.analysis.api.types.classId
+import org.jetbrains.kotlin.analysis.api.types.type
 import org.jetbrains.kotlin.asJava.toLightMethods
 import org.jetbrains.kotlin.asJava.unwrapped
 import org.jetbrains.kotlin.idea.KotlinLanguage
@@ -183,7 +188,7 @@ class KotlinJavaChangeInfoConverter: JavaChangeInfoConverter {
         )
     }
 
-    @OptIn(KaAllowAnalysisOnEdt::class, KaAllowAnalysisFromWriteAction::class, KaExperimentalApi::class)
+    @OptIn(KaAllowAnalysisOnEdt::class, KaAllowAnalysisFromWriteAction::class)
     private fun createPsiType(ktTypeText: String, originalFunction: PsiElement, unitToVoid: Boolean = false): PsiType {
         val project = originalFunction.project
         val codeFragment = KtPsiFactory(project).createTypeCodeFragment(ktTypeText, originalFunction)
@@ -191,7 +196,7 @@ class KotlinJavaChangeInfoConverter: JavaChangeInfoConverter {
             allowAnalysisFromWriteAction {
                 analyze(codeFragment) {
                     val ktType = codeFragment.getContentElement()?.type!!
-                    if (unitToVoid && ktType.isUnitType) PsiTypes.voidType() else ktType.asPsiType(originalFunction, true)!!
+                    if (unitToVoid && ktType.classId == KaStandardTypeClassIds.UNIT) PsiTypes.voidType() else ktType.asPsiType(originalFunction, true)!!
                 }
             }
         }
@@ -349,7 +354,7 @@ class KotlinJavaChangeInfoConverter: JavaChangeInfoConverter {
         }
     }
 
-    @OptIn(KaExperimentalApi::class, KaAllowAnalysisOnEdt::class, KaAllowAnalysisFromWriteAction::class)
+    @OptIn(KaAllowAnalysisOnEdt::class, KaAllowAnalysisFromWriteAction::class)
     private fun createKotlinTypeInfo(
         p: JavaParameterInfo,
         psiMethod: PsiMethod,

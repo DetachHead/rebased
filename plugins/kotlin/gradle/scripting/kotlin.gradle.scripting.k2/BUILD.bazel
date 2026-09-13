@@ -1,14 +1,14 @@
-load("@community//build:tests-options.bzl", "jps_test")
 load("@rules_jvm//:jvm.bzl", "jvm_library", "resourcegroup")
 load("//build:compiler-options.bzl", "create_kotlinc_options")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
 ### auto-generated section `build intellij.kotlin.gradle.scripting` start
-
 create_kotlinc_options(
     name = "custom_kotlin-gradle-scripting",
     opt_in = [
-        "org.jetbrains.kotlin.analysis.api.permissions.KaAllowProhibitedAnalyzeFromWriteAction",
+        "org.jetbrains.kotlin.analysis.api.KaExperimentalApi",
         "org.jetbrains.kotlin.analysis.api.KaIdeApi",
+        "org.jetbrains.kotlin.analysis.api.permissions.KaAllowProhibitedAnalyzeFromWriteAction",
         "org.jetbrains.kotlin.analysis.api.KaContextParameterApi",
     ],
     x_context_parameters = True,
@@ -55,9 +55,9 @@ jvm_library(
         "//platform/workspace/storage",
         "//plugins/kotlin/base/util",
         "//plugins/kotlin/base/scripting/scripting.k2:kotlin-base-scripting",
-        "@lib//:kotlinc-kotlin-scripting-jvm",
-        "@lib//:kotlinc-kotlin-scripting-compiler-impl",
-        "@lib//:kotlinc-kotlin-scripting-common",
+        "//libraries/kotlinc/kotlin-scripting-jvm:libraries-kotlinc-kotlin-scripting-jvm",
+        "//libraries/kotlinc/kotlin-scripting-compiler-impl:libraries-kotlinc-kotlin-scripting-compiler-impl",
+        "//libraries/kotlinc/kotlin-scripting-common:libraries-kotlinc-kotlin-scripting-common",
         "//platform/analysis-api:analysis",
         "//platform/external-system-impl:externalSystem-impl",
         "//platform/execution",
@@ -69,10 +69,10 @@ jvm_library(
         "//platform/util:util-ui",
         "//plugins/kotlin/gradle/gradle-java",
         "//plugins/kotlin/code-insight/api",
-        "@lib//:kotlinc-analysis-api",
-        "@lib//:kotlinc-analysis-api-k2",
+        "//plugins/kotlin/base/code-insight",
+        "//libraries/kotlinc/analysis-api:libraries-kotlinc-analysis-api",
         "//plugins/kotlin/references",
-        "@lib//:kotlinc-kotlin-compiler-common",
+        "//libraries/kotlinc/kotlin-compiler-common:libraries-kotlinc-kotlin-compiler-common",
         "//plugins/kotlin/code-insight/utils",
         "//plugins/kotlin/base/analysis-api/analysis-api-utils:kotlin-base-analysis-utils",
         "//java/java-psi-api:psi",
@@ -92,10 +92,11 @@ jvm_library(
         "//plugins/kotlin/code-insight/impl-base:kotlin-codeInsight-shared",
         "//plugins/kotlin/uast/uast-kotlin-base:kotlin-uast-base",
         "//platform/lang-api:lang",
-        "//plugins/gradle/java/properties",
-        "//plugins/properties/properties-psi-api:psi",
+        "//plugins/kotlin/scripting",
     ],
 )
+
+content_module_jar(module = ":kotlin-gradle-scripting")
 
 jvm_library(
     name = "kotlin-gradle-scripting_test_lib",
@@ -120,6 +121,9 @@ jvm_library(
         "//platform/workspace/storage:storage_test_lib",
         "//plugins/kotlin/base/util:util_test_lib",
         "//plugins/kotlin/base/scripting/scripting.k2:kotlin-base-scripting_test_lib",
+        "//libraries/kotlinc/kotlin-scripting-jvm:libraries-kotlinc-kotlin-scripting-jvm_test_lib",
+        "//libraries/kotlinc/kotlin-scripting-compiler-impl:libraries-kotlinc-kotlin-scripting-compiler-impl_test_lib",
+        "//libraries/kotlinc/kotlin-scripting-common:libraries-kotlinc-kotlin-scripting-common_test_lib",
         "//platform/analysis-api:analysis_test_lib",
         "//platform/external-system-impl:externalSystem-impl_test_lib",
         "//platform/execution:execution_test_lib",
@@ -131,7 +135,10 @@ jvm_library(
         "//platform/util:util-ui_test_lib",
         "//plugins/kotlin/gradle/gradle-java:gradle-java_test_lib",
         "//plugins/kotlin/code-insight/api:api_test_lib",
+        "//plugins/kotlin/base/code-insight:code-insight_test_lib",
+        "//libraries/kotlinc/analysis-api:libraries-kotlinc-analysis-api_test_lib",
         "//plugins/kotlin/references:references_test_lib",
+        "//libraries/kotlinc/kotlin-compiler-common:libraries-kotlinc-kotlin-compiler-common_test_lib",
         "//plugins/kotlin/code-insight/utils:utils_test_lib",
         "//plugins/kotlin/base/analysis-api/analysis-api-utils:kotlin-base-analysis-utils_test_lib",
         "//java/java-psi-api:psi_test_lib",
@@ -151,8 +158,7 @@ jvm_library(
         "//plugins/kotlin/code-insight/impl-base:kotlin-codeInsight-shared_test_lib",
         "//plugins/kotlin/uast/uast-kotlin-base:kotlin-uast-base_test_lib",
         "//platform/lang-api:lang_test_lib",
-        "//plugins/gradle/java/properties:properties_test_lib",
-        "//plugins/properties/properties-psi-api:psi_test_lib",
+        "//plugins/kotlin/scripting:scripting_test_lib",
     ],
 )
 ### auto-generated section `build intellij.kotlin.gradle.scripting` end
@@ -161,6 +167,7 @@ jvm_library(
 exports_files(
     [
         "intellij.kotlin.gradle.scripting.iml",
+        "resources/intellij.kotlin.gradle.scripting.xml",
     ],
     visibility = ["//visibility:public"],
 )

@@ -26,9 +26,6 @@ import com.intellij.openapi.actionSystem.KeyboardShortcut
 import com.intellij.openapi.actionSystem.PerformWithDocumentsCommitted
 import com.intellij.openapi.actionSystem.Presentation
 import com.intellij.openapi.actionSystem.ShortcutSet
-import com.intellij.openapi.actionSystem.ex.ActionUtil.SHOW_TEXT_IN_TOOLBAR
-import com.intellij.openapi.actionSystem.ex.ActionUtil.performAction
-import com.intellij.openapi.actionSystem.ex.ActionUtil.updateAction
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.keymap.KeymapUtil
@@ -49,10 +46,7 @@ import com.intellij.openapi.util.NlsSafe
 import com.intellij.openapi.util.ThrowableComputable
 import com.intellij.openapi.util.registry.Registry
 import com.intellij.openapi.util.text.StringUtil
-import com.intellij.platform.ide.core.permissions.Permission
-import com.intellij.platform.ide.core.permissions.PermissionDeniedException
-import com.intellij.platform.ide.core.permissions.RequiresPermissions
-import com.intellij.platform.ide.core.permissions.checkPermissionsGranted
+import com.intellij.platform.ide.productMode.IdeProductMode
 import com.intellij.ui.ClientProperty
 import com.intellij.util.ObjectUtils
 import com.intellij.util.SlowOperationCanceledException
@@ -94,6 +88,45 @@ object ActionUtil {
 
   @JvmField
   val TOOLTIP_TEXT: Key<@NlsContexts.Tooltip String> = Key.create(JComponent.TOOL_TIP_TEXT_KEY)
+
+  /**
+   * A stable [java.awt.Component.getName] for every component built from this action.
+   *
+   * An action's component is not the action's to keep: a toolbar discards and rebuilds its `ActionButton`s
+   * whenever an update forces a rebuild, and the action is handed no reference to either the old one or the
+   * new one. So a name set on the button from outside survives until the next update and no longer, which is
+   * exactly long enough to look reliable and not long enough to be. Setting it here instead re-applies it to
+   * every replacement.
+   *
+   * Honoured by [com.intellij.openapi.actionSystem.impl.ActionButton] and by the custom components an
+   * `ActionToolbar` builds — not by menus, whose items carry no name. It is read once, when the component is
+   * constructed; nothing re-reads it afterwards, and nothing clears a name already set.
+   *
+   * This is the identity a UI test should address a control by. The alternatives are all properties of
+   * something else: a localized text moves with the locale and is rarely unique, an icon is shared across
+   * unrelated buttons, an accessible name may be a value the test is *asserting*, and a position in the
+   * component tree is a layout detail. This name is assigned by the code that owns the control, and the
+   * remote driver's `@name` attribute reads it directly.
+   *
+   * `action.templatePresentation.putClientProperty(ActionUtil.COMPONENT_NAME, "my-plugin.my-control")`
+   *
+   * Set it on the **template** presentation. An ordinary presentation is honoured too, but it is not a durable
+   * place for this: [Presentation.copyFrom] reconciles the two client-property maps and drops any key the
+   * source lacks, so an update that copies from another action's presentation — a split button adopting its
+   * selected action's, for one — silently clears it, and the next rebuilt component comes up unnamed. Read it
+   * through [getComponentName], which falls back to the template for that reason.
+   */
+  // Qualified: `Presentation` stores client properties under `key.toString()` in one flat namespace, so a
+  // bare "COMPONENT_NAME" would collide with any same-named key of another type and fail as a ClassCastException.
+  @ApiStatus.Internal
+  @JvmField
+  val COMPONENT_NAME: Key<@NlsSafe String> = Key.create("ActionUtil.componentName")
+
+  /** The [COMPONENT_NAME] in force for [action], preferring [presentation] and falling back to its template. */
+  @ApiStatus.Internal
+  @JvmStatic
+  fun getComponentName(action: AnAction, presentation: Presentation): String? =
+    presentation.getClientProperty(COMPONENT_NAME) ?: action.templatePresentation.getClientProperty(COMPONENT_NAME)
 
   /**
    * By default, a "performable" non-empty popup action group menu item still shows a submenu.
@@ -190,10 +223,6 @@ object ActionUtil {
 
   @ApiStatus.Internal
   @JvmField
-  val UNSATISFIED_PERMISSIONS: Key<List<Permission>> = Key.create("UNSATISFIED_PERMISSIONS")
-
-  @ApiStatus.Internal
-  @JvmField
   val SKIP_ACTION_EXECUTION: Key<Boolean> = Key.create("SKIP_ACTION_EXECUTION")
 
   @JvmStatic
@@ -221,16 +250,22 @@ object ActionUtil {
   @JvmStatic
   fun getUnavailableMessage(action: String, plural: Boolean): @NlsContexts.PopupContent String {
     if (plural) {
-      return IdeBundle.message("popup.content.actions.not.available.while.updating.indices", action)
+      return IdeBundle.dumbModeMessage("popup.content.actions.not.available.while.updating.indices",
+                                       "popup.content.actions.not.available.in.light.mode", action)
     }
-    return IdeBundle.message("popup.content.action.not.available.while.updating.indices", action)
+    return IdeBundle.dumbModeMessage("popup.content.action.not.available.while.updating.indices",
+                                     "popup.content.action.not.available.in.light.mode", action)
   }
 
   @ApiStatus.Internal
   @JvmStatic
   fun getActionUnavailableMessage(@ActionText action: String?): @NlsContexts.PopupContent String {
-    if (action == null) return IdeBundle.message("popup.content.this.action.not.available.while.updating.indices")
-    return IdeBundle.message("popup.content.action.not.available.while.updating.indices", action)
+    if (action == null) {
+      return IdeBundle.dumbModeMessage("popup.content.this.action.not.available.while.updating.indices",
+                                       "popup.content.this.action.not.available.in.light.mode")
+    }
+    return IdeBundle.dumbModeMessage("popup.content.action.not.available.while.updating.indices",
+                                     "popup.content.action.not.available.in.light.mode", action)
   }
 
   @JvmStatic
@@ -238,8 +273,9 @@ object ActionUtil {
     return when {
       actionNames.isEmpty() -> getActionUnavailableMessage(null)
       actionNames.size == 1 -> getActionUnavailableMessage(actionNames[0])
-      else -> IdeBundle.message("popup.content.none.of.following.actions.are.available.while.updating.indices",
-                                actionNames.joinToString(", "))
+      else -> IdeBundle.dumbModeMessage("popup.content.none.of.following.actions.are.available.while.updating.indices",
+                                        "popup.content.none.of.following.actions.are.available.in.light.mode",
+                                        actionNames.joinToString(", "))
     }
   }
 
@@ -272,6 +308,12 @@ object ActionUtil {
       presentation.putClientProperty(WOULD_BE_VISIBLE_IF_NOT_DUMB_MODE, false)
       return AnActionResult.ignored("action is not compatible with LightEdit")
     }
+    if (IdeProductMode.isLight && !action.isDumbAware) {
+      presentation.isEnabledAndVisible = false
+      presentation.putClientProperty(WOULD_BE_ENABLED_IF_NOT_DUMB_MODE, false)
+      presentation.putClientProperty(WOULD_BE_VISIBLE_IF_NOT_DUMB_MODE, false)
+      return AnActionResult.ignored("action is not compatible with LightMode")
+    }
     val wasEnabledBefore = presentation.getClientProperty(WAS_ENABLED_BEFORE_DUMB)
     val dumbMode = isDumbMode(e.project)
     if (wasEnabledBefore != null && !dumbMode) {
@@ -303,10 +345,9 @@ object ActionUtil {
       presentation.putClientProperty(WOULD_BE_VISIBLE_IF_NOT_DUMB_MODE, !allowed && presentation.isVisible)
       presentation.isEnabled = presentation.isEnabled && (allowed || !e.isFromContextMenu)
       if (!allowed) {
-        presentation.putClientProperty(TOOLTIP_TEXT, IdeBundle.message("ide.action.waits.for.analysis.message", presentation.text))
-      }
-      if (presentation.isEnabled && action is RequiresPermissions) {
-        checkPermissionsGranted(*action.getRequiredPermissions().toTypedArray())
+        presentation.putClientProperty(TOOLTIP_TEXT, IdeBundle.dumbModeMessage("ide.action.waits.for.analysis.message",
+                                                                               "ide.action.is.not.available.in.light.mode",
+                                                                               presentation.text))
       }
     }
     catch (@Suppress("IncorrectCancellationExceptionHandling") ex: SlowOperationCanceledException) {
@@ -320,14 +361,6 @@ object ActionUtil {
         return AnActionResult.failed(ex)
       }
       throw ex
-    }
-    catch (pde: PermissionDeniedException) {
-      if (Registry.`is`("ide.permissions.api.enabled")) {
-        presentation.putClientProperty(UNSATISFIED_PERMISSIONS, pde.permissions)
-      }
-      else {
-        LOG.error(Throwable("PDE must not be thrown when `ide.permissions.api.enabled=false`", pde))
-      }
     }
     finally {
       if (!isPerformed) {
@@ -442,9 +475,6 @@ object ActionUtil {
     e: AnActionEvent,
     popupShow: Consumer<in JBPopup>?,
   ) {
-    if (action is RequiresPermissions) {
-      checkPermissionsGranted(*action.getRequiredPermissions().toTypedArray())
-    }
     if (action is ActionGroup && !e.presentation.isPerformGroup) {
       val dataContext = e.dataContext
       val place = ActionPlaces.getActionGroupPopupPlace(e.place)
@@ -753,4 +783,3 @@ object ActionUtil {
     ActionContextElement.reset(component, getActionThreadContext())
   }
 }
-

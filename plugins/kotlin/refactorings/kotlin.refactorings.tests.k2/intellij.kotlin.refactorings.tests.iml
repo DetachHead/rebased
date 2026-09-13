@@ -4,7 +4,7 @@
     <facet type="kotlin-language" name="Kotlin">
       <configuration version="5" platform="JVM 25" allPlatforms="JVM [25]" useProjectSettings="false">
         <compilerSettings>
-          <option name="additionalArguments" value="-Xjvm-default=all -Xcontext-parameters -opt-in=org.jetbrains.kotlin.analysis.api.permissions.KaAllowProhibitedAnalyzeFromWriteAction -XXLanguage:+AllowEagerSupertypeAccessibilityChecks -progressive" />
+          <option name="additionalArguments" value="-Xjvm-default=all -Xcontext-parameters -opt-in=org.jetbrains.kotlin.analysis.api.KaExperimentalApi -opt-in=org.jetbrains.kotlin.analysis.api.KaIdeApi -opt-in=org.jetbrains.kotlin.analysis.api.permissions.KaAllowProhibitedAnalyzeFromWriteAction -XXLanguage:+AllowEagerSupertypeAccessibilityChecks -progressive" />
         </compilerSettings>
         <compilerArguments>
           <stringArguments>
@@ -30,11 +30,11 @@
     <orderEntry type="module" module-name="intellij.platform.refactoring" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.lang.core" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.lang" scope="TEST" />
-    <orderEntry type="module" module-name="kotlin.plugin.k2" scope="TEST" />
+    <orderEntry type="module" module-name="intellij.kotlin.plugin.community.main" scope="RUNTIME" />
     <orderEntry type="module" module-name="intellij.kotlin.references" scope="TEST" />
     <orderEntry type="library" scope="TEST" name="kotlinc.kotlin-compiler-tests" level="project" />
-    <orderEntry type="library" scope="TEST" name="kotlinc.kotlin-compiler-common" level="project" />
-    <orderEntry type="library" scope="TEST" name="kotlinc.analysis-api" level="project" />
+    <orderEntry type="module" module-name="intellij.libraries.kotlinc.kotlin.compiler.common" scope="TEST" />
+    <orderEntry type="module" module-name="intellij.libraries.kotlinc.analysis.api" scope="TEST" />
     <orderEntry type="module" module-name="kotlin.fir" />
     <orderEntry type="module" module-name="intellij.java.testFramework" scope="TEST" />
     <orderEntry type="module" module-name="intellij.java.psi" scope="TEST" />
@@ -75,11 +75,14 @@
     <orderEntry type="module" module-name="intellij.kotlin.base.facet" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.ide.observable" scope="TEST" />
     <orderEntry type="module" module-name="intellij.java" scope="TEST" />
-    <orderEntry type="library" scope="TEST" name="kotlinc.analysis-api-platform-interface" level="project" />
+    <orderEntry type="module" module-name="intellij.libraries.kotlinc.analysis.api.platform.interface" scope="TEST" />
+    <orderEntry type="module" module-name="intellij.libraries.kotlinc.symbol.light.classes" />
     <orderEntry type="module" module-name="intellij.kotlin.base.externalSystem" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.util.jdom" scope="TEST" />
     <orderEntry type="module" module-name="intellij.java.indexing" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.codeStyle" scope="TEST" />
+    <orderEntry type="module" module-name="intellij.libraries.junit4" scope="TEST" />
+    <orderEntry type="module" module-name="intellij.libraries.junit5" scope="TEST" />
   </component>
   <component name="TestModuleProperties" production-module="intellij.kotlin.refactorings" />
 </module>

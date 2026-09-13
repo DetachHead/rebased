@@ -641,7 +641,7 @@ public abstract class BaseRefactoringProcessor implements Runnable {
           if (!DumbService.getInstance(myProject).isUsableInCurrentContext(helper)) continue;
 
           Object operation = ReadAction.computeBlocking(() -> {
-            return helper.prepareOperation(writableUsageInfos, ContainerUtil.filter(allElements, e -> e != null));
+            return helper.prepareOperation(writableUsageInfos, ContainerUtil.filter(allElements, e -> e != null), refactoringId);
           });
           preparedData.put(helper, operation);
         }

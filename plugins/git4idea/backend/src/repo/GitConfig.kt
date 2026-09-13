@@ -1,4 +1,4 @@
-// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package git4idea.repo
 
 import com.intellij.openapi.diagnostic.Logger
@@ -24,7 +24,15 @@ class GitConfig private constructor(
   private val remotes: List<Remote>,
   private val urlSubstitutions: List<UrlSubstitution>,
   private val trackedInfos: List<BranchConfig>,
-  private val core: Core,
+  val core: Core,
+  val objectFormat: GitObjectFormat,
+  /**
+   * Names of the hook events (see `githooks(5)`) that have at least one enabled config-based [Hook] attached to them.
+   *
+   * Hooks from the hookdir are not listed here, see [GitRepositoryFiles.getPreCommitHookFile] and friends.
+   */
+  @ApiStatus.Internal
+  val configuredHookEvents: Set<String>,
 ) {
   /**
    * Returns Git remotes defined in `.git/config`.
@@ -47,13 +55,13 @@ class GitConfig private constructor(
       .let { (fetch, pushOnly) -> fetch.convertToSortedList() to pushOnly.convertToSortedList() }
 
     return mapConfiguredRemotes { remote ->
-      val urls = remote.urls.substitutePrefixes(substitutions)
+      val urls = remote.urls.map { substitutions.substitutePrefix(it) ?: it }
       val pushUrls = if (remote.pushUrls.isNotEmpty()) {
         // for explicitly set pushUrls only insteadOf substitutions will be used
-        remote.pushUrls.substitutePrefixes(substitutions)
+        remote.pushUrls.map { substitutions.substitutePrefix(it) ?: it }
       }
       else if (pushOnlySubstitutions.isNotEmpty()) {
-        remote.urls.substitutePrefixes(pushOnlySubstitutions)
+        remote.urls.map { pushOnlySubstitutions.substitutePrefix(it) ?: substitutions.substitutePrefix(it) ?: it }
       }
       else urls
       createGitRemote(remote, urls, pushUrls)
@@ -69,9 +77,7 @@ class GitConfig private constructor(
   private fun List<UrlSubstitution>.convertToSortedList(): List<UrlSubstitution> =
     asSequence().distinctBy { it.prefix }.sortedByDescending { it.prefix.length }.toList()
 
-  private fun List<String>.substitutePrefixes(substitutions: List<UrlSubstitution>) = map { url ->
-    substitutions.find { url.startsWith(it.prefix) }?.substitutePrefix(url) ?: url
-  }
+  private fun List<UrlSubstitution>.substitutePrefix(url: String): String? = find { url.startsWith(it.prefix) }?.substitutePrefix(url)
 
   private fun UrlSubstitution.substitutePrefix(url: String) = substitution + url.substring(prefix.length)
 
@@ -87,13 +93,6 @@ class GitConfig private constructor(
       convertBranchConfig(config, localBranches, remoteBranches)
     }.toSet()
 
-  /**
-   * Return core info
-   */
-  fun parseCore(): Core {
-    return core
-  }
-
   private data class Remote(
     val name: String,
     val fetchSpecs: List<String>,
@@ -107,6 +106,18 @@ class GitConfig private constructor(
     // null means no entry, i.e. nothing to substitute. Empty string means substituting everything
     val substitution: String,
     val pushOnly: Boolean,
+  )
+
+  /**
+   * A config-based hook, supported since Git 2.54: `hook.<friendly-name>.command` is executed on every hook event
+   * listed in `hook.<friendly-name>.event`.
+   *
+   * Hooks from the hookdir (`.git/hooks`, see [Core.hooksPath]) are a separate mechanism and are not described by this class.
+   */
+  private data class Hook(
+    val command: String?,
+    val events: List<String>,
+    val isEnabled: Boolean,
   )
 
   private data class BranchConfig(
@@ -128,6 +139,8 @@ class GitConfig private constructor(
     private const val URL_SECTION = "url"
     private const val BRANCH_INFO_SECTION = "branch"
     private const val CORE_SECTION = "core"
+    private const val HOOK_SECTION = "hook"
+    private const val EXTENSIONS_SECTION = "extensions"
 
     /**
      * Creates an instance of GitConfig by reading information from the specified `.git/config` file.
@@ -141,12 +154,13 @@ class GitConfig private constructor(
         GitConfigUtil.getValues(project, root, null)
       }
       catch (_: VcsException) {
-        return GitConfig(listOf(), listOf(), listOf(), Core(null))
+        return GitConfig(listOf(), listOf(), listOf(), Core(null), GitObjectFormat.SHA1, emptySet())
       }
 
       val remotes = mutableListOf<Remote>()
       val urls = mutableListOf<UrlSubstitution>()
       val trackedInfos = mutableListOf<BranchConfig>()
+      val hooks = mutableListOf<Hook>()
       val core = createCore(configurations)
 
       val sectionVariables = configurations.keys.mapNotNull { parseSectionNameAndVariable(it) }.toSet()
@@ -156,10 +170,12 @@ class GitConfig private constructor(
           SVN_REMOTE_SECTION, GIT_REMOTE_SECTION -> remotes.add(createRemote(configurations, sectionName, sectionVariable))
           URL_SECTION -> urls.addAll(createUrl(configurations, sectionName, sectionVariable))
           BRANCH_INFO_SECTION -> trackedInfos.add(createBranchConfig(configurations, sectionName, sectionVariable))
+          HOOK_SECTION -> hooks.add(createHook(configurations, sectionName, sectionVariable))
         }
       }
 
-      return GitConfig(remotes, urls, trackedInfos, core)
+      val objectFormat = GitObjectFormat.parse(configurations["$EXTENSIONS_SECTION.objectformat"]?.lastOrNull())
+      return GitConfig(remotes, urls, trackedInfos, core, objectFormat, collectHookEvents(hooks))
     }
 
     private fun parseSectionNameAndVariable(key: String): Pair<String, String>? {
@@ -268,6 +284,35 @@ class GitConfig private constructor(
         }
       }
     }
+
+    private fun createHook(
+      configurations: Map<String, List<String>>,
+      sectionName: String,
+      hookName: String,
+    ): Hook {
+      val sectionKey = "$sectionName.$hookName"
+
+      // several `command` values are allowed, but git uses the last one parsed
+      val command = configurations["$sectionKey.command"]?.lastOrNull()
+
+      // `event` is multi-valued, and an empty value resets the events collected so far
+      val events = buildList {
+        configurations["$sectionKey.event"]?.forEach { event ->
+          if (event.isEmpty()) clear() else add(event)
+        }
+      }
+
+      // a hook is enabled unless explicitly disabled; git rejects a value that is not a boolean, so treat it as the default
+      val isEnabled = GitConfigUtil.getBooleanValue(configurations["$sectionKey.enabled"]?.lastOrNull()) != false
+
+      return Hook(command, events, isEnabled)
+    }
+
+    private fun collectHookEvents(hooks: List<Hook>): Set<String> =
+      hooks.asSequence()
+        .filter { it.isEnabled && it.command != null }
+        .flatMap { it.events }
+        .toSet()
 
     private fun createCore(configurations: Map<String, List<String>>) =
       Core(configurations["$CORE_SECTION.hookspath"]?.lastOrNull())

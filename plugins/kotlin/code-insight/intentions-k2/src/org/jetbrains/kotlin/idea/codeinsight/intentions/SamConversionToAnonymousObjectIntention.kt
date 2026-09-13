@@ -7,11 +7,16 @@ import com.intellij.modcommand.ActionContext
 import com.intellij.modcommand.ModPsiUpdater
 import com.intellij.modcommand.Presentation
 import com.intellij.openapi.util.TextRange
-import org.jetbrains.kotlin.analysis.api.KaExperimentalApi
 import org.jetbrains.kotlin.analysis.api.KaSession
+import org.jetbrains.kotlin.analysis.api.expressions.expressionType
+import org.jetbrains.kotlin.analysis.api.renderer.render
 import org.jetbrains.kotlin.analysis.api.symbols.KaNamedClassSymbol
+import org.jetbrains.kotlin.analysis.api.symbols.symbol
 import org.jetbrains.kotlin.analysis.api.types.KaClassType
 import org.jetbrains.kotlin.analysis.api.types.KaErrorType
+import org.jetbrains.kotlin.analysis.api.types.expandedSymbol
+import org.jetbrains.kotlin.analysis.api.types.isFunctionalInterface
+import org.jetbrains.kotlin.analysis.api.types.type
 import org.jetbrains.kotlin.idea.base.analysis.api.utils.findSamSymbolOrNull
 import org.jetbrains.kotlin.idea.base.resources.KotlinBundle
 import org.jetbrains.kotlin.idea.codeinsight.api.applicable.intentions.KotlinApplicableModCommandAction
@@ -22,6 +27,7 @@ import org.jetbrains.kotlin.idea.k2.codeinsight.getLambdaExpressionForSamConvers
 import org.jetbrains.kotlin.idea.k2.codeinsight.hasRecursiveSamCall
 import org.jetbrains.kotlin.idea.k2.codeinsight.isSamConversionAliasedWithVariance
 import org.jetbrains.kotlin.idea.k2.refactoring.util.LambdaToAnonymousFunctionUtil
+import org.jetbrains.kotlin.name.render
 import org.jetbrains.kotlin.psi.KtCallExpression
 import org.jetbrains.kotlin.types.Variance
 
@@ -42,7 +48,8 @@ internal class SamConversionToAnonymousObjectIntention :
     override fun getApplicableRanges(element: KtCallExpression): List<TextRange> =
         ApplicabilityRanges.calleeExpression(element)
 
-    override fun KaSession.prepareContext(element: KtCallExpression): SamConversionToAnonymousObjectContext? {
+    context(session: KaSession)
+    override fun prepareContext(element: KtCallExpression): SamConversionToAnonymousObjectContext? {
         val lambda = element.getLambdaExpressionForSamConversion() ?: return null
         val functionLiteral = lambda.functionLiteral
 
@@ -59,7 +66,7 @@ internal class SamConversionToAnonymousObjectIntention :
 
         if (lambdaParameters.any { it.returnType is KaErrorType }) return null
 
-        val samName = samMethod.name.asString()
+        val samName = samMethod.name.render()
         if (functionLiteral.hasRecursiveSamCall(samName, lambdaParameters)) return null
 
         val callee = element.calleeExpression
@@ -67,7 +74,7 @@ internal class SamConversionToAnonymousObjectIntention :
 
         val interfaceName = callType.getInterfaceName()
         val typeArgumentsText = computeTypeArguments(element, callType, classSymbol)
-        val samParameterNames = samMethod.valueParameters.map { it.name.asString() }
+        val samParameterNames = samMethod.valueParameters.map { it.name.render() }
 
         val functionText = LambdaToAnonymousFunctionUtil.prepareFunctionText(
             lambda = lambda,
@@ -94,10 +101,10 @@ internal class SamConversionToAnonymousObjectIntention :
 }
 
 private fun KaClassType.getInterfaceName(): String =
-    (abbreviation ?: this).classId.asFqNameString()
+    (abbreviation ?: this).classId.asSingleFqName().render()
 
-@OptIn(KaExperimentalApi::class)
-private fun KaSession.computeTypeArguments(
+context(session: KaSession)
+private fun computeTypeArguments(
     element: KtCallExpression,
     callType: KaClassType,
     classSymbol: KaNamedClassSymbol,

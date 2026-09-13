@@ -1,8 +1,17 @@
 load("@community//build:tests-options.bzl", "jps_test")
 load("@rules_jvm//:jvm.bzl", "jvm_library")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
+
+jps_test(
+    name = "structuralSearch-tests_test",
+    timeout = "moderate",
+    tags = ["community-aggregator"],
+    runtime_deps = [":structuralSearch-tests_test_lib"],
+)
+
+### skip generation section `test intellij.platform.structuralSearch.tests`
 
 ### auto-generated section `build intellij.platform.structuralSearch` start
-
 jvm_library(
     name = "structuralSearch",
     srcs = glob(
@@ -51,6 +60,8 @@ jvm_library(
     ],
 )
 
+content_module_jar(module = ":structuralSearch")
+
 jvm_library(
     name = "structuralSearch_test_lib",
     testonly = True,
@@ -98,13 +109,14 @@ jvm_library(
 exports_files(
     [
         "intellij.platform.structuralSearch.iml",
+        "resources/intellij.platform.structuralSearch.xml",
+        "module-content.yaml",
     ],
     visibility = ["//visibility:public"],
 )
 ### auto-generated section `iml intellij.platform.structuralSearch` end
 
 ### auto-generated section `build intellij.platform.structuralSearch.tests` start
-
 jvm_library(
     name = "structuralSearch-tests",
     srcs = glob(
@@ -115,6 +127,7 @@ jvm_library(
     visibility = ["//visibility:public"],
     runtime_deps = [
         # do not sort,
+        "//platform/platform-impl/internal",
         "//platform/structuralsearch:structuralSearch",
         "//platform/structuralsearch/plugin",
         "//xml/impl",
@@ -137,10 +150,12 @@ jvm_library(
     runtime_deps = [
         # do not sort,
         ":structuralSearch-tests",
+        "//platform/platform-impl/internal:internal_test_lib",
         "//platform/ide-core:ide-core_test_lib",
     ],
     deps = [
         # do not sort,
+        "//platform/platform-impl/internal",
         "//platform/analysis-api:analysis",
         "//platform/analysis-api:analysis_test_lib",
         "//platform/code-style-api:codeStyle",
@@ -172,6 +187,8 @@ jvm_library(
         "//platform/lang-api:lang",
         "//platform/lang-api:lang_test_lib",
         "//platform/ide-core",
+        "//libraries/junit4",
+        "//libraries/junit4:junit4_test_lib",
     ],
 )
 ### auto-generated section `build intellij.platform.structuralSearch.tests` end
@@ -184,11 +201,3 @@ exports_files(
     visibility = ["//visibility:public"],
 )
 ### auto-generated section `iml intellij.platform.structuralSearch.tests` end
-
-### auto-generated section `test intellij.platform.structuralSearch.tests` start
-
-jps_test(
-    name = "structuralSearch-tests_test",
-    runtime_deps = [":structuralSearch-tests_test_lib"],
-)
-### auto-generated section `test intellij.platform.structuralSearch.tests` end

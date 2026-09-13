@@ -1,8 +1,17 @@
 load("@community//build:tests-options.bzl", "jps_test")
 load("@rules_jvm//:jvm.bzl", "jvm_library")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
+
+jps_test(
+    name = "execution-tests_test",
+    timeout = "moderate",
+    tags = ["community-aggregator"],
+    runtime_deps = [":execution-tests_test_lib"],
+)
+
+### skip generation section `test intellij.platform.execution.tests`
 
 ### auto-generated section `build intellij.platform.execution.impl` start
-
 jvm_library(
     name = "execution-impl",
     srcs = glob(
@@ -21,6 +30,7 @@ jvm_library(
     visibility = ["//visibility:public"],
     deps = [
         # do not sort,
+        "//platform/kernel/rpc.lite",
         "@lib//:kotlin-stdlib",
         "//platform/analysis-api:analysis",
         "//platform/core-impl",
@@ -62,7 +72,6 @@ jvm_library(
         "//platform/util/jdom",
         "//platform/workspace/storage",
         "//libraries/kotlinx/coroutines/core",
-        "@lib//:jna",
         "//libraries/hash4j",
         "//platform/workspace/jps",
         "//platform/backend/workspace",
@@ -86,6 +95,11 @@ jvm_library(
     ],
 )
 
+content_module_jar(
+    module = ":execution-impl",
+    modules_after = ["//platform/wsl-impl"],
+)
+
 jvm_library(
     name = "execution-impl_test_lib",
     testonly = True,
@@ -98,6 +112,7 @@ jvm_library(
     runtime_deps = [
         # do not sort,
         ":execution-impl",
+        "//platform/kernel/rpc.lite:rpc.lite_test_lib",
         "//platform/analysis-api:analysis_test_lib",
         "//platform/core-impl:core-impl_test_lib",
         "//platform/core-api:core_test_lib",
@@ -134,7 +149,8 @@ jvm_library(
         "//libraries/jediterm-ui:jediterm-ui_test_lib",
         "//libraries/pty4j:pty4j_test_lib",
         "//platform/execution:execution_test_lib",
-        "@lib//:junit4",
+        "//libraries/junit4",
+        "//libraries/junit4:junit4_test_lib",
         "//platform/wsl-impl:wsl-impl_test_lib",
         "//platform/util/jdom:jdom_test_lib",
         "//platform/workspace/storage:storage_test_lib",
@@ -167,13 +183,15 @@ jvm_library(
 exports_files(
     [
         "intellij.platform.execution.impl.iml",
+        "resources/intellij.platform.execution.impl.actions.xml",
+        "resources/intellij.platform.execution.impl.xml",
+        "module-content.yaml",
     ],
     visibility = ["//visibility:public"],
 )
 ### auto-generated section `iml intellij.platform.execution.impl` end
 
 ### auto-generated section `build intellij.platform.execution.tests` start
-
 jvm_library(
     name = "execution-tests",
     srcs = glob(
@@ -225,6 +243,10 @@ jvm_library(
         "//platform/execution-impl:execution-impl_test_lib",
         "//platform/execution",
         "//platform/execution:execution_test_lib",
+        "//platform/lang-api:lang",
+        "//platform/lang-api:lang_test_lib",
+        "//platform/editor-ui-api:editor-ui",
+        "//platform/editor-ui-api:editor-ui_test_lib",
         "//platform/util/concurrency",
         "//platform/util/concurrency:concurrency_test_lib",
         "@lib//:kotlin-stdlib",
@@ -248,6 +270,10 @@ jvm_library(
         "//libraries/pty4j:pty4j_test_lib",
         "//platform/util/coroutines",
         "//platform/util/coroutines:coroutines_test_lib",
+        "//libraries/junit4",
+        "//libraries/junit4:junit4_test_lib",
+        "//libraries/junit5",
+        "//libraries/junit5:junit5_test_lib",
     ],
 )
 ### auto-generated section `build intellij.platform.execution.tests` end
@@ -260,11 +286,3 @@ exports_files(
     visibility = ["//visibility:public"],
 )
 ### auto-generated section `iml intellij.platform.execution.tests` end
-
-### auto-generated section `test intellij.platform.execution.tests` start
-
-jps_test(
-    name = "execution-tests_test",
-    runtime_deps = [":execution-tests_test_lib"],
-)
-### auto-generated section `test intellij.platform.execution.tests` end

@@ -11,17 +11,15 @@ import com.intellij.openapi.util.TextRange
 import com.intellij.psi.SmartPsiElementPointer
 import com.intellij.psi.createSmartPointer
 import org.jetbrains.kotlin.analysis.api.KaSession
-import org.jetbrains.kotlin.analysis.api.components.containingSymbol
-import org.jetbrains.kotlin.analysis.api.components.resolveToCall
-import org.jetbrains.kotlin.analysis.api.components.resolveToSymbol
-import org.jetbrains.kotlin.analysis.api.resolution.KaCallableMemberCall
 import org.jetbrains.kotlin.analysis.api.resolution.KaExplicitReceiverValue
 import org.jetbrains.kotlin.analysis.api.resolution.KaImplicitReceiverValue
 import org.jetbrains.kotlin.analysis.api.resolution.KaReceiverValue
-import org.jetbrains.kotlin.analysis.api.resolution.successfulCallOrNull
-import org.jetbrains.kotlin.analysis.api.resolution.successfulFunctionCallOrNull
-import org.jetbrains.kotlin.analysis.api.resolution.symbol
+import org.jetbrains.kotlin.analysis.api.resolution.resolveSuccessfulCall
+import org.jetbrains.kotlin.analysis.api.resolution.resolveSuccessfulSymbol
+import org.jetbrains.kotlin.analysis.api.resolution.simple
 import org.jetbrains.kotlin.analysis.api.symbols.KaValueParameterSymbol
+import org.jetbrains.kotlin.analysis.api.symbols.containingDeclaration
+import org.jetbrains.kotlin.analysis.api.symbols.containingSymbol
 import org.jetbrains.kotlin.idea.base.analysis.api.utils.isPossiblySubTypeOf
 import org.jetbrains.kotlin.idea.base.resources.KotlinBundle
 import org.jetbrains.kotlin.idea.codeinsight.api.applicable.inspections.KotlinApplicableInspectionBase
@@ -31,6 +29,7 @@ import org.jetbrains.kotlin.idea.codeinsight.utils.resolveExpression
 import org.jetbrains.kotlin.idea.codeinsights.impl.base.applicators.ApplicabilityRanges
 import org.jetbrains.kotlin.idea.k2.refactoring.getThisReceiverOwner
 import org.jetbrains.kotlin.idea.references.mainReference
+import org.jetbrains.kotlin.idea.util.resolveSuccessfulExpressionCall
 import org.jetbrains.kotlin.name.FqName
 import org.jetbrains.kotlin.psi.KtAnnotatedExpression
 import org.jetbrains.kotlin.psi.KtCallExpression
@@ -104,7 +103,8 @@ internal class SimplifyNestedEachInScopeFunctionInspection :
         context: Context,
     ): KotlinModCommandQuickFix<KtCallExpression> = SimplifyNestedEachFix(context.innerCallName, context.returnsToRelabel)
 
-    override fun KaSession.prepareContext(element: KtCallExpression): Context? {
+    context(session: KaSession)
+    override fun prepareContext(element: KtCallExpression): Context? {
         val scopeFunctionName = element.getCallingShortNameOrNull(scopeFunctions) ?: return null
         val lambdaArgument = element.valueArguments.singleOrNull() as? KtLambdaArgument ?: return null
         val (labelExpression, lambdaExpression) = lambdaArgument.getArgumentExpression()?.unpackLabelAndLambdaExpression() ?: return null
@@ -118,7 +118,7 @@ internal class SimplifyNestedEachInScopeFunctionInspection :
             ALSO_FUNCTION_NAME -> {
                 if (innerExpression !is KtDotQualifiedExpression) return null
                 val receiverExpression = innerExpression.receiverExpression as? KtReferenceExpression ?: return null
-                val receiverSymbol = receiverExpression.mainReference.resolveToSymbol() as? KaValueParameterSymbol ?: return null
+                val receiverSymbol = receiverExpression.resolveSuccessfulSymbol() as? KaValueParameterSymbol ?: return null
                 if (receiverSymbol.containingDeclaration?.psi != lambdaExpression.functionLiteral) return null
 
                 if (innerLambdaBody != null) {
@@ -215,7 +215,7 @@ private fun collectReturnsTargetingFunctionLiteral(
     return buildList {
         for (returnExpression in functionLiteral.collectDescendantsOfType<KtReturnExpression>()) {
             if (returnExpression.getLabelName() != FOR_EACH_FUNCTION_NAME) continue
-            if (returnExpression.getTargetLabel()?.mainReference?.resolveToSymbol()?.psi != functionLiteral) continue
+            if (returnExpression.getTargetLabel()?.resolveSuccessfulSymbol()?.psi != functionLiteral) continue
             add(returnExpression.createSmartPointer())
         }
     }
@@ -227,7 +227,7 @@ private fun KtExpression.referencesParameter(parameterSymbol: KaValueParameterSy
     accept(object : KtTreeVisitorVoid() {
         override fun visitSimpleNameExpression(expression: KtSimpleNameExpression) {
             if (referenced) return
-            if (expression.mainReference.resolveToSymbol() == parameterSymbol) {
+            if (expression.resolveSuccessfulSymbol() == parameterSymbol) {
                 referenced = true
                 return
             }
@@ -244,10 +244,9 @@ private fun KtExpression.referencesReceiver(functionLiteral: KtFunctionLiteral):
         override fun visitSimpleNameExpression(expression: KtSimpleNameExpression) {
             if (referenced) return
 
-            val resolvedCall = expression.resolveToCall()?.successfulCallOrNull<KaCallableMemberCall<*, *>>() ?: return
-            val partiallyAppliedSymbol = resolvedCall.partiallyAppliedSymbol
-            if (partiallyAppliedSymbol.dispatchReceiver.isReceiverFrom(functionLiteral) ||
-                partiallyAppliedSymbol.extensionReceiver.isReceiverFrom(functionLiteral)
+            val singleCall = expression.resolveSuccessfulExpressionCall()?.simple ?: return
+            if (singleCall.dispatchReceiver.isReceiverFrom(functionLiteral) ||
+                singleCall.extensionReceiver.isReceiverFrom(functionLiteral)
             ) {
                 referenced = true
                 return
@@ -297,8 +296,8 @@ context(_: KaSession)
 private fun KtCallExpression.getCallingShortNameOrNull(shortNamesToFqNames: Map<String, List<FqName>>): String? {
     val shortName = calleeExpression?.text ?: return null
     val fqNames = shortNamesToFqNames[shortName] ?: return null
-    val resolvedCall = resolveToCall()?.successfulFunctionCallOrNull() ?: return null
-    return shortName.takeIf { resolvedCall.symbol.callableId?.asSingleFqName() in fqNames }
+    val symbol = this.resolveSuccessfulSymbol() ?: return null
+    return shortName.takeIf { symbol.callableId?.asSingleFqName() in fqNames }
 }
 
 private fun KtExpression.asNestedCallExpression(): KtCallExpression? = when (this) {
@@ -319,7 +318,7 @@ private fun KtExpression.unpackLabelAndLambdaExpression(): Pair<KtLabeledExpress
 
 context(_: KaSession)
 private fun KtCallExpression.getReceiverType() =
-    resolveToCall()?.successfulCallOrNull<KaCallableMemberCall<*, *>>()?.partiallyAppliedSymbol?.let {
+    this.resolveSuccessfulCall()?.let {
         (it.dispatchReceiver ?: it.extensionReceiver)?.type
     }
 

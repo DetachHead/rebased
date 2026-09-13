@@ -10,12 +10,13 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.TextRange
 import com.intellij.psi.PsiWhiteSpace
 import org.jetbrains.kotlin.analysis.api.KaSession
+import org.jetbrains.kotlin.analysis.api.resolution.resolveSuccessfulSymbol
+import org.jetbrains.kotlin.analysis.api.symbols.symbol
 import org.jetbrains.kotlin.idea.base.resources.KotlinBundle
 import org.jetbrains.kotlin.idea.base.util.reformatted
 import org.jetbrains.kotlin.idea.codeinsight.api.applicable.asUnit
 import org.jetbrains.kotlin.idea.codeinsight.api.applicable.inspections.KotlinApplicableInspectionBase
 import org.jetbrains.kotlin.idea.codeinsight.api.applicable.inspections.KotlinModCommandQuickFix
-import org.jetbrains.kotlin.idea.references.mainReference
 import org.jetbrains.kotlin.idea.util.isBackingFieldRequired
 import org.jetbrains.kotlin.lexer.KtSingleValueToken
 import org.jetbrains.kotlin.lexer.KtTokens
@@ -27,11 +28,13 @@ import org.jetbrains.kotlin.psi.KtPropertyAccessor
 import org.jetbrains.kotlin.psi.KtPsiFactory
 import org.jetbrains.kotlin.psi.KtThrowExpression
 import org.jetbrains.kotlin.psi.KtUnaryExpression
+import org.jetbrains.kotlin.psi.createExpressionByPattern
 import org.jetbrains.kotlin.psi.propertyAccessorVisitor
 import org.jetbrains.kotlin.psi.psiUtil.anyDescendantOfType
 import org.jetbrains.kotlin.psi.psiUtil.endOffset
 import org.jetbrains.kotlin.psi.psiUtil.siblings
 import org.jetbrains.kotlin.psi.psiUtil.startOffset
+import org.jetbrains.kotlin.resolution.KtResolvable
 
 internal class SetterBackingFieldAssignmentInspection : KotlinApplicableInspectionBase.Simple<KtPropertyAccessor, Unit>(),
                                                         CleanupLocalInspectionTool {
@@ -57,7 +60,8 @@ internal class SetterBackingFieldAssignmentInspection : KotlinApplicableInspecti
         return listOf(range)
     }
 
-    override fun KaSession.prepareContext(element: KtPropertyAccessor): Unit? {
+    context(session: KaSession)
+    override fun prepareContext(element: KtPropertyAccessor): Unit? {
         val property = element.property
         if (!isBackingFieldRequired(property)) return null
         val parameter = element.valueParameters.singleOrNull() ?: return null
@@ -74,8 +78,7 @@ internal class SetterBackingFieldAssignmentInspection : KotlinApplicableInspecti
                 is KtCallExpression ->
                     expr.valueArguments.any { arg ->
                         val argumentSymbol = arg.getArgumentExpression()
-                            ?.mainReference
-                            ?.resolveToSymbol()
+                            ?.let { (it as? KtResolvable)?.resolveSuccessfulSymbol() }
 
                         argumentSymbol != null && argumentSymbol == parameter.symbol
                     }
@@ -110,7 +113,10 @@ internal class SetterBackingFieldAssignmentInspection : KotlinApplicableInspecti
             bodyExpression.removeRedundantWhiteSpace()
 
             val psiFactory = KtPsiFactory(project)
-            val assignment = psiFactory.createExpression("field = ${parameter.name}")
+            val assignment = psiFactory.createExpressionByPattern(
+                "field = $0",
+                parameter.nameAsSafeName,
+            )
             val lastStatement = bodyExpression.statements.lastOrNull()
             if (lastStatement != null) {
                 bodyExpression.addAfter(assignment, lastStatement)

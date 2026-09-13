@@ -7,12 +7,12 @@
       <sourceFolder url="file://$MODULE_DIR$/src" isTestSource="false" />
     </content>
     <orderEntry type="inheritedJdk" />
-    <orderEntry type="library" name="kotlinc.kotlin-compiler-common" level="project" />
-    <orderEntry type="library" name="kotlinc.kotlin-script-runtime" level="project" />
-    <orderEntry type="library" name="kotlinc.kotlin-scripting-common" level="project" />
+    <orderEntry type="module" module-name="intellij.libraries.kotlinc.kotlin.compiler.common" />
+    <orderEntry type="module" module-name="intellij.libraries.kotlinc.kotlin.script.runtime" />
+    <orderEntry type="module" module-name="intellij.libraries.kotlinc.kotlin.scripting.common" />
     <orderEntry type="module" module-name="intellij.platform.projectModel" />
-    <orderEntry type="library" name="kotlinc.kotlin-scripting-jvm" level="project" />
-    <orderEntry type="library" name="kotlinc.kotlin-scripting-compiler-impl" level="project" />
+    <orderEntry type="module" module-name="intellij.libraries.kotlinc.kotlin.scripting.jvm" />
+    <orderEntry type="module" module-name="intellij.libraries.kotlinc.kotlin.scripting.compiler.impl" />
     <orderEntry type="sourceFolder" forTests="false" />
     <orderEntry type="module" module-name="intellij.platform.core" />
     <orderEntry type="module" module-name="intellij.platform.core.impl" />
@@ -28,7 +28,7 @@
     <orderEntry type="module" module-name="intellij.platform.ide.impl" />
     <orderEntry type="module" module-name="kotlin.scripting" />
     <orderEntry type="module" module-name="intellij.kotlin.base.util" />
-    <orderEntry type="library" name="kotlinc.kotlin-jps-common" level="project" />
+    <orderEntry type="module" module-name="intellij.libraries.kotlinc.kotlin.jps.common" />
     <orderEntry type="module" module-name="intellij.platform.analysis" />
     <orderEntry type="module" module-name="intellij.platform.workspace.storage" />
     <orderEntry type="module" module-name="intellij.platform.backend.workspace" />
@@ -38,6 +38,5 @@
     <orderEntry type="module" module-name="intellij.platform.externalSystem.impl" />
     <orderEntry type="module" module-name="intellij.platform.externalSystem" />
     <orderEntry type="module" module-name="intellij.platform.execution" />
-    <orderEntry type="module" module-name="intellij.platform.statistics" />
   </component>
 </module>

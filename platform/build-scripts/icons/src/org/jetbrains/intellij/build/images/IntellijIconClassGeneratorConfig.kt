@@ -148,7 +148,7 @@ class IntellijIconClassGeneratorConfig : IconClasses() {
         className = "SwaggerCoreIcons",
         packageName = "com.intellij.swagger.core"
       )
-      "intellij.ml.llm.core" -> IntellijIconClassGeneratorModuleConfig(className = "MLLlmIcons", packageName = "com.intellij.ml.llm.core")
+      "intellij.ml.llm.core" -> IntellijIconClassGeneratorModuleConfig(className = "MLLlmIcons", packageName = "com.intellij.ml.llm")
       "intellij.llmInstaller" -> IntellijIconClassGeneratorModuleConfig(className = "LLMIcons", packageName = "com.intellij.llmInstaller")
 
       "intellij.dts" -> IntellijIconClassGeneratorModuleConfig(className = "DtsIcons", packageName = "com.intellij.dts")
@@ -168,6 +168,11 @@ class IntellijIconClassGeneratorConfig : IconClasses() {
       "intellij.vcs.git.backend" -> IntellijIconClassGeneratorModuleConfig(
         className = "GitIcons",
         packageName = "com.intellij.vcs.git.icons"
+      )
+
+      "intellij.vcs.gitlab.shared" -> IntellijIconClassGeneratorModuleConfig(
+        className = "GitlabIcons",
+        packageName = "com.intellij.vcs.gitlab.icons"
       )
 
       "intellij.vcs.github" -> IntellijIconClassGeneratorModuleConfig(

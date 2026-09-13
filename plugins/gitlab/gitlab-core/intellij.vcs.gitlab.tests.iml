@@ -53,12 +53,12 @@
     <orderEntry type="module" module-name="intellij.libraries.kotlinx.coroutines.core" scope="TEST" />
     <orderEntry type="module" module-name="intellij.libraries.kotlinx.serialization.core" scope="TEST" />
     <orderEntry type="module" module-name="intellij.libraries.kotlinx.serialization.json" scope="TEST" />
-    <orderEntry type="library" scope="PROVIDED" name="kotlinc.kotlinx-serialization-compiler-plugin" level="project" />
+    <orderEntry type="module" module-name="intellij.libraries.kotlinc.kotlinx.serialization.compiler.plugin" scope="PROVIDED" />
     <orderEntry type="module" module-name="intellij.libraries.jackson" scope="TEST" />
     <orderEntry type="module" module-name="intellij.libraries.jackson.module.kotlin" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.vcs.dvcs.impl" scope="TEST" />
     <orderEntry type="module" module-name="intellij.libraries.jackson.databind" scope="TEST" />
-    <orderEntry type="library" scope="TEST" name="JUnit4" level="project" />
+    <orderEntry type="module" module-name="intellij.libraries.junit4" scope="TEST" />
     <orderEntry type="module" module-name="intellij.libraries.kotlinx.coroutines.test" scope="TEST" />
     <orderEntry type="module" module-name="intellij.libraries.assertj.core" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.testFramework" scope="TEST" />
@@ -75,7 +75,7 @@
     <orderEntry type="module" module-name="intellij.platform.statistics" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.vcs.log" scope="TEST" />
     <orderEntry type="module" module-name="intellij.libraries.jsoup" scope="TEST" />
-    <orderEntry type="library" scope="TEST" name="testcontainers" level="project" />
+    <orderEntry type="module" module-name="intellij.libraries.testcontainers" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.testFramework.junit5" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.util.coroutines" scope="TEST" />
     <orderEntry type="module" module-name="intellij.libraries.mockk" scope="TEST" />
@@ -85,9 +85,15 @@
     <orderEntry type="module" module-name="intellij.platform.vcs.impl.shared" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.codeStyle" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.ide.observable" scope="TEST" />
-    <orderEntry type="module" module-name="intellij.vcs.gitlab" scope="TEST" />
+    <orderEntry type="module" module-name="intellij.vcs.gitlab.backend" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.collaborationTools.tests" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.testFramework.junit5.codeInsight" scope="TEST" />
+    <orderEntry type="module" module-name="intellij.libraries.junit5" scope="TEST" />
+    <orderEntry type="module" module-name="intellij.libraries.lucene.common" scope="RUNTIME" />
+    <orderEntry type="module" module-name="intellij.libraries.misc.plugin" scope="TEST" />
+    <orderEntry type="module" module-name="intellij.platform.vcs.plugin" scope="TEST" />
+    <orderEntry type="module" module-name="intellij.vcs.git" scope="TEST" />
+    <orderEntry type="module" module-name="intellij.vcs.gitlab" scope="TEST" />
   </component>
-  <component name="TestModuleProperties" production-module="intellij.vcs.gitlab" />
+  <component name="TestModuleProperties" production-module="intellij.vcs.gitlab.backend" />
 </module>

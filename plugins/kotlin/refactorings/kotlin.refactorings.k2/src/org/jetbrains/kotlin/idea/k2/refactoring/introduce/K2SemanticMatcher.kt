@@ -1,32 +1,29 @@
-// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.kotlin.idea.k2.refactoring.introduce
 
 import com.intellij.psi.PsiNamedElement
 import com.intellij.psi.tree.IElementType
 import com.intellij.psi.util.elementType
 import com.intellij.psi.util.startOffset
-import org.jetbrains.kotlin.analysis.api.KaExperimentalApi
 import org.jetbrains.kotlin.analysis.api.KaSession
-import org.jetbrains.kotlin.analysis.api.analyze
 import org.jetbrains.kotlin.analysis.api.base.KaConstantValue
-import org.jetbrains.kotlin.analysis.api.components.isMarkedNullable
-import org.jetbrains.kotlin.analysis.api.components.isSubtypeOf
-import org.jetbrains.kotlin.analysis.api.components.resolveToCall
-import org.jetbrains.kotlin.analysis.api.components.resolveToSymbol
 import org.jetbrains.kotlin.analysis.api.components.returnType
-import org.jetbrains.kotlin.analysis.api.components.semanticallyEquals
-import org.jetbrains.kotlin.analysis.api.components.targetSymbol
-import org.jetbrains.kotlin.analysis.api.components.type
+import org.jetbrains.kotlin.analysis.api.evaluation.evaluate
 import org.jetbrains.kotlin.analysis.api.fir.diagnostics.KaFirDiagnostic
-import org.jetbrains.kotlin.analysis.api.resolution.KaCallableMemberCall
-import org.jetbrains.kotlin.analysis.api.resolution.KaErrorCallInfo
+import org.jetbrains.kotlin.analysis.api.resolution.KaCallResolutionAttempt
 import org.jetbrains.kotlin.analysis.api.resolution.KaExplicitReceiverValue
 import org.jetbrains.kotlin.analysis.api.resolution.KaFunctionCall
 import org.jetbrains.kotlin.analysis.api.resolution.KaImplicitReceiverValue
 import org.jetbrains.kotlin.analysis.api.resolution.KaReceiverValue
+import org.jetbrains.kotlin.analysis.api.resolution.KaSimpleCall
 import org.jetbrains.kotlin.analysis.api.resolution.KaSmartCastedReceiverValue
 import org.jetbrains.kotlin.analysis.api.resolution.calls
+import org.jetbrains.kotlin.analysis.api.resolution.errors
+import org.jetbrains.kotlin.analysis.api.resolution.isSuccessful
+import org.jetbrains.kotlin.analysis.api.resolution.resolveSuccessfulSymbol
 import org.jetbrains.kotlin.analysis.api.resolution.symbol
+import org.jetbrains.kotlin.analysis.api.resolution.tryResolveCall
+import org.jetbrains.kotlin.analysis.api.session.analyze
 import org.jetbrains.kotlin.analysis.api.symbols.KaAnonymousFunctionSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaCallableSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaDestructuringDeclarationSymbol
@@ -38,14 +35,17 @@ import org.jetbrains.kotlin.analysis.api.symbols.KaValueParameterSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.markers.KaNamedSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.receiverType
 import org.jetbrains.kotlin.analysis.api.symbols.symbol
-import org.jetbrains.kotlin.analysis.api.symbols.typeParameters
 import org.jetbrains.kotlin.analysis.api.types.KaClassType
 import org.jetbrains.kotlin.analysis.api.types.KaErrorType
 import org.jetbrains.kotlin.analysis.api.types.KaFunctionType
 import org.jetbrains.kotlin.analysis.api.types.KaType
 import org.jetbrains.kotlin.analysis.api.types.KaTypeArgumentWithVariance
 import org.jetbrains.kotlin.analysis.api.types.KaTypeParameterType
+import org.jetbrains.kotlin.analysis.api.types.isMarkedNullable
+import org.jetbrains.kotlin.analysis.api.types.isSubtypeOf
+import org.jetbrains.kotlin.analysis.api.types.semanticallyEquals
 import org.jetbrains.kotlin.analysis.api.types.symbol
+import org.jetbrains.kotlin.analysis.api.types.type
 import org.jetbrains.kotlin.idea.base.analysis.api.utils.CallParameterInfoProvider.getArgumentOrIndexExpressions
 import org.jetbrains.kotlin.idea.base.analysis.api.utils.CallParameterInfoProvider.mapArgumentsToParameterIndices
 import org.jetbrains.kotlin.idea.base.psi.isInsideKtTypeReference
@@ -56,9 +56,6 @@ import org.jetbrains.kotlin.idea.base.psi.unifier.KotlinPsiUnificationResult.Suc
 import org.jetbrains.kotlin.idea.base.psi.unifier.toRange
 import org.jetbrains.kotlin.idea.codeinsight.utils.findRelevantLoopForExpression
 import org.jetbrains.kotlin.idea.refactoring.introduce.extractableSubstringInfo
-import org.jetbrains.kotlin.idea.references.KtReference
-import org.jetbrains.kotlin.idea.references.KtSimpleNameReference
-import org.jetbrains.kotlin.idea.references.mainReference
 import org.jetbrains.kotlin.lexer.KtTokens
 import org.jetbrains.kotlin.psi.KtAnnotatedExpression
 import org.jetbrains.kotlin.psi.KtAnonymousInitializer
@@ -83,7 +80,6 @@ import org.jetbrains.kotlin.psi.KtExpression
 import org.jetbrains.kotlin.psi.KtFunction
 import org.jetbrains.kotlin.psi.KtFunctionLiteral
 import org.jetbrains.kotlin.psi.KtIfExpression
-import org.jetbrains.kotlin.psi.KtInstanceExpressionWithLabel
 import org.jetbrains.kotlin.psi.KtIsExpression
 import org.jetbrains.kotlin.psi.KtLabeledExpression
 import org.jetbrains.kotlin.psi.KtLambdaExpression
@@ -127,6 +123,8 @@ import org.jetbrains.kotlin.psi.KtWhenConditionIsPattern
 import org.jetbrains.kotlin.psi.KtWhenConditionWithExpression
 import org.jetbrains.kotlin.psi.KtWhenExpression
 import org.jetbrains.kotlin.psi.psiUtil.getQualifiedExpressionForSelector
+import org.jetbrains.kotlin.resolution.KtResolvable
+import org.jetbrains.kotlin.resolution.KtResolvableCall
 import org.jetbrains.kotlin.resolve.calls.util.getCalleeExpressionIfAny
 import org.jetbrains.kotlin.utils.addToStdlib.zipWithNulls
 
@@ -492,7 +490,7 @@ object K2SemanticMatcher {
     private fun elementsMatchOrBothAreNull(targetElement: KtElement?, patternElement: KtElement?, context: MatchingContext): Boolean {
         if (targetElement == null || patternElement == null) return targetElement == null && patternElement == null
         if (patternElement is KtSimpleNameExpression) {
-            val param = patternElement.mainReference.resolveToSymbol()?.psi as? PsiNamedElement
+            val param = patternElement.resolveSuccessfulSymbol()?.psi as? PsiNamedElement
             if (param != null && context.parameterSubstitution.containsKey(param)) {
                 val oldElement = context.parameterSubstitution.put(param, targetElement)
                 return oldElement !is KtElement || oldElement.isSemanticMatch(targetElement)
@@ -526,7 +524,7 @@ object K2SemanticMatcher {
 
             if (dcl is KtFunction && patternDcl is KtFunction) {
                 if (dcl.isFunctionLiteralWithoutParameterSpecification() || patternDcl.isFunctionLiteralWithoutParameterSpecification()) {
-                    with(analysisSession) {
+                    context(analysisSession) {
                         if (!areFunctionsWithZeroOrOneParametersMatchingByResolve(dcl, patternDcl, context)) return false
                         context.associateSingleParameterSymbolsForAnonymousFunctions(dcl, patternDcl)
                     }
@@ -536,14 +534,14 @@ object K2SemanticMatcher {
             }
 
             if (dcl is KtCallableDeclaration && patternDcl is KtCallableDeclaration) {
-                with(analysisSession) {
+                context(analysisSession) {
                     if (!areReceiverParametersMatchingByResolve(dcl, patternDcl, context)) return false
                     if (!areReturnTypesOfDeclarationsMatchingByResolve(dcl, patternDcl, context)) return false
                     context.associateReceiverParameterSymbolsForCallables(dcl, patternDcl)
                 }
             }
 
-            with(analysisSession) {
+            context(analysisSession) {
                 context.associateSymbolsForDeclarations(dcl, patternDcl)
             }
 
@@ -587,7 +585,7 @@ object K2SemanticMatcher {
 
         override fun visitTypeParameter(parameter: KtTypeParameter, data: KtElement): Boolean {
             val patternParameter = data as? KtTypeParameter ?: return false
-            with(analysisSession) {
+            context(analysisSession) {
                 if (!areTypeParametersMatchingByResolve(parameter, patternParameter, context)) return false
             }
             return visitDeclaration(parameter, patternParameter)
@@ -613,7 +611,7 @@ object K2SemanticMatcher {
 
         override fun visitTypeReference(typeReference: KtTypeReference, data: KtElement): Boolean {
             val patternTypeReference = data as? KtTypeReference ?: return false
-            with(analysisSession) {
+            context(analysisSession) {
                 if (!areTypeReferencesMatchingByResolve(typeReference, patternTypeReference, context)) return false
             }
             return true
@@ -630,7 +628,7 @@ object K2SemanticMatcher {
             if (expression is KtSimpleNameExpression != patternExpression is KtSimpleNameExpression) return false
             if (patternExpression !is KtReferenceExpression && patternExpression !is KtOperationExpression) return false
 
-            with(analysisSession) {
+            context(analysisSession) {
                 if (!areCallsMatchingByResolve(expression, patternExpression, context)) return false
             }
             return true
@@ -640,7 +638,7 @@ object K2SemanticMatcher {
 
         override fun visitConstantExpression(expression: KtConstantExpression, data: KtElement): Boolean {
             val patternExpression = data.deparenthesized() as? KtConstantExpression ?: return false
-            val exprText = with(analysisSession) {
+            val exprText = context(analysisSession) {
                 val evaluatedExpression = expression.evaluate() ?: return false
                 if (evaluatedExpression.value is KaConstantValue.ErrorValue) return false
                 evaluatedExpression.render()
@@ -662,8 +660,8 @@ object K2SemanticMatcher {
             if (patternExpression is KtUnaryExpression) {
                 if (expression::class != patternExpression::class) return false
                 if (expression.operationToken != patternExpression.operationToken) return false
-                with(analysisSession) {
-                    if (!areReferencesMatchingByResolve(expression.mainReference, patternExpression.mainReference, context)) return false
+                context(analysisSession) {
+                    if (!areReferencesMatchingByResolve(expression, patternExpression, context)) return false
                 }
                 return elementsMatchOrBothAreNull(expression.baseExpression, patternExpression.baseExpression)
             }
@@ -674,8 +672,8 @@ object K2SemanticMatcher {
             val patternExpression = data.deparenthesized() as? KtExpression ?: return false
             if (patternExpression is KtBinaryExpression) {
                 if (expression.operationToken != patternExpression.operationToken) return false
-                with(analysisSession) {
-                    if (!areReferencesMatchingByResolve(expression.mainReference, patternExpression.mainReference, context)) return false
+                context(analysisSession) {
+                    if (!areReferencesMatchingByResolve(expression, patternExpression, context)) return false
                 }
                 return elementsMatchOrBothAreNull(expression.left, patternExpression.left) &&
                         elementsMatchOrBothAreNull(expression.right, patternExpression.right)
@@ -685,7 +683,7 @@ object K2SemanticMatcher {
 
         override fun visitReturnExpression(expression: KtReturnExpression, data: KtElement): Boolean {
             val patternExpression = data.deparenthesized() as? KtReturnExpression ?: return false
-            with(analysisSession) {
+            context(analysisSession) {
                 if (!areReturnTargetsMatchingByResolve(expression, patternExpression, context)) return false
             }
             return elementsMatchOrBothAreNull(expression.returnedExpression, patternExpression.returnedExpression)
@@ -763,7 +761,7 @@ object K2SemanticMatcher {
             val patternFunction = patternExpression.parent as? KtFunction
             if (targetFunction != null || patternFunction != null) {
                 if (targetFunction == null || patternFunction == null) return false
-                with(analysisSession) { context.associateSymbolsForBlockBodyOwners(targetFunction, patternFunction) }
+                context(analysisSession) { context.associateSymbolsForBlockBodyOwners(targetFunction, patternFunction) }
             }
 
             for ((targetStatement, patternStatement) in expression.statements.zip(patternExpression.statements)) {
@@ -783,16 +781,16 @@ object K2SemanticMatcher {
 
         override fun visitThisExpression(expression: KtThisExpression, data: KtElement): Boolean {
             val patternExpression = data.deparenthesized() as? KtThisExpression ?: return false
-            with(analysisSession) {
-                if (!areReferencesMatchingByResolve(expression.mainReference, patternExpression.mainReference, context)) return false
+            context(analysisSession) {
+                if (!areReferencesMatchingByResolve(expression, patternExpression, context)) return false
             }
             return true
         }
 
         override fun visitSuperExpression(expression: KtSuperExpression, data: KtElement): Boolean {
             val patternExpression = data.deparenthesized() as? KtSuperExpression ?: return false
-            with(analysisSession) {
-                if (!areReferencesMatchingByResolve(expression.mainReference, patternExpression.mainReference, context)) return false
+            context(analysisSession) {
+                if (!areReferencesMatchingByResolve(expression, patternExpression, context)) return false
             }
             return true
         }
@@ -884,8 +882,8 @@ object K2SemanticMatcher {
     ): Boolean {
         if (areNonCallsMatchingByResolve(targetExpression, patternExpression, context)) return true
 
-        val targetCallInfo = targetExpression.resolveToCall()
-        val patternCallInfo = patternExpression.resolveToCall()
+        val targetCallInfo = (targetExpression as? KtResolvableCall)?.tryResolveCall()
+        val patternCallInfo = (patternExpression as? KtResolvableCall)?.tryResolveCall()
 
         if (targetCallInfo == null && patternCallInfo == null) {
             return areUnresolvedCallsMatchingByResolve(targetExpression, patternExpression, context)
@@ -893,7 +891,7 @@ object K2SemanticMatcher {
             return false
         }
 
-        if (targetCallInfo is KaErrorCallInfo && patternCallInfo is KaErrorCallInfo) {
+        if (!targetCallInfo.isSuccessful && !patternCallInfo.isSuccessful) {
             if (targetCallInfo.isUnresolvedCall() != patternCallInfo.isUnresolvedCall()) return false
             if (targetCallInfo.isUnresolvedCall() && patternCallInfo.isUnresolvedCall()) {
                 if (!areUnresolvedCallsMatchingByResolve(targetExpression, patternExpression, context)) return false
@@ -912,9 +910,7 @@ object K2SemanticMatcher {
             return false
         }
 
-        if (targetCall is KaCallableMemberCall<*, *> && patternCall is KaCallableMemberCall<*, *>) {
-            val targetAppliedSymbol = targetCall.partiallyAppliedSymbol
-            val patternAppliedSymbol = patternCall.partiallyAppliedSymbol
+        if (targetCall is KaSimpleCall<*, *> && patternCall is KaSimpleCall<*, *>) {
 
             if (!context.areSymbolsEqualOrAssociated(targetCall.symbol, patternCall.symbol)) return false
 
@@ -922,8 +918,8 @@ object K2SemanticMatcher {
                 if (!context.areTypesEqualOrAssociated(targetTypeArgument, patternTypeArgument)) return false
             }
 
-            if (!areReceiversMatching(targetAppliedSymbol.dispatchReceiver, patternAppliedSymbol.dispatchReceiver, context)) return false
-            if (!areReceiversMatching(targetAppliedSymbol.extensionReceiver, patternAppliedSymbol.extensionReceiver, context)) return false
+            if (!areReceiversMatching(targetCall.dispatchReceiver, patternCall.dispatchReceiver, context)) return false
+            if (!areReceiversMatching(targetCall.extensionReceiver, patternCall.extensionReceiver, context)) return false
         }
 
         val targetArguments = targetExpression.getArgumentsAndSortThemIfCallIsPresent(targetCall as? KaFunctionCall<*>)
@@ -944,8 +940,8 @@ object K2SemanticMatcher {
     ): Boolean {
         if (targetExpression !is KtNameReferenceExpression || patternExpression !is KtNameReferenceExpression) return false
 
-        val targetSymbol = targetExpression.mainReference.resolveToSymbol().takeUnless { it is KaCallableSymbol } ?: return false
-        val patternSymbol = patternExpression.mainReference.resolveToSymbol().takeUnless { it is KaCallableSymbol } ?: return false
+        val targetSymbol = targetExpression.resolveSuccessfulSymbol().takeUnless { it is KaCallableSymbol } ?: return false
+        val patternSymbol = patternExpression.resolveSuccessfulSymbol().takeUnless { it is KaCallableSymbol } ?: return false
 
         return context.areSymbolsEqualOrAssociated(targetSymbol, patternSymbol)
     }
@@ -956,8 +952,8 @@ object K2SemanticMatcher {
 
         if (call == null) return allArguments
 
-        val signature = call.partiallyAppliedSymbol.signature
-        val mappedArguments = mapArgumentsToParameterIndices(sourceElement = this, signature, call.argumentMapping)
+        val signature = call.signature
+        val mappedArguments = mapArgumentsToParameterIndices(sourceElement = this, signature, call.valueArgumentMapping)
         val sortedMappedArguments = mappedArguments.toList()
             .sortedWith(compareBy({ (_, parameterIndex) -> parameterIndex }, { (argument, _) -> argument.startOffset }))
             .map { (argument, _) -> argument }
@@ -1022,20 +1018,22 @@ object K2SemanticMatcher {
         null -> patternReceiver == null
     }
 
-    @OptIn(KaExperimentalApi::class)
     context(_: KaSession)
-    private fun KaCallableMemberCall<*, *>.getTypeArguments(): List<KaType?> = symbol.typeParameters.map { typeArgumentsMapping[it] }
+    private fun KaSimpleCall<*, *>.getTypeArguments(): List<KaType?> = symbol.typeParameters.map { typeArgumentsMapping[it] }
 
     context(_: KaSession)
     private fun KaExplicitReceiverValue.getSymbolForThisExpressionOrNull(): KaSymbol? =
-        (expression as? KtThisExpression)?.mainReference?.resolveToSymbol()
+        (expression as? KtThisExpression)?.resolveSuccessfulSymbol()
 
     context(_: KaSession)
     private fun areReferencesMatchingByResolve(
-        targetReference: KtReference,
-        patternReference: KtReference,
+        targetReference: KtExpression,
+        patternReference: KtExpression,
         context: MatchingContext,
-    ): Boolean = context.areSymbolsEqualOrAssociated(targetReference.resolveToSymbol(), patternReference.resolveToSymbol())
+    ): Boolean = context.areSymbolsEqualOrAssociated(
+        (targetReference as? KtResolvable)?.resolveSuccessfulSymbol(),
+        (patternReference as? KtResolvable)?.resolveSuccessfulSymbol(),
+    )
 
     context(_: KaSession)
     private fun areReturnTargetsMatchingByResolve(
@@ -1043,8 +1041,8 @@ object K2SemanticMatcher {
         patternExpression: KtReturnExpression,
         context: MatchingContext,
     ): Boolean {
-        val targetReturnTargetSymbol = targetExpression.targetSymbol as? KaFunctionSymbol ?: return false
-        val patternReturnTargetSymbol = patternExpression.targetSymbol as? KaFunctionSymbol ?: return false
+        val targetReturnTargetSymbol = targetExpression.resolveSuccessfulSymbol() ?: return false
+        val patternReturnTargetSymbol = patternExpression.resolveSuccessfulSymbol() ?: return false
 
         return context.areBlockBodyOwnersEqualOrAssociated(targetReturnTargetSymbol, patternReturnTargetSymbol)
     }
@@ -1121,10 +1119,6 @@ object K2SemanticMatcher {
     context(_: KaSession)
     private fun KtCallableDeclaration.getCallableSymbol(): KaCallableSymbol = symbol as KaCallableSymbol
 
-    private val KtInstanceExpressionWithLabel.mainReference: KtReference get() = instanceReference.mainReference
-
-    private val KtOperationExpression.mainReference: KtSimpleNameReference get() = operationReference.mainReference
-
     private val KtOperationExpression.operationToken: IElementType get() = operationReference.getReferencedNameElementType()
 
     private fun KtElement.deparenthesized(): KtElement = when (this) {
@@ -1140,7 +1134,7 @@ object K2SemanticMatcher {
     private fun KtCallableDeclaration.isFunctionLiteralWithoutParameterSpecification(): Boolean =
         this is KtFunctionLiteral && !this.hasParameterSpecification()
 
-    private fun KaErrorCallInfo.isUnresolvedCall(): Boolean = diagnostic is KaFirDiagnostic.UnresolvedReference
+    private fun KaCallResolutionAttempt.isUnresolvedCall(): Boolean = errors.firstOrNull()?.diagnostic is KaFirDiagnostic.UnresolvedReference
 
     private fun KtExpression.isCalleeInCall(): Boolean = this == (parent as? KtCallElement)?.calleeExpression
 

@@ -30,7 +30,8 @@ class ValToObjectIntention: KotlinApplicableModCommandAction<KtProperty, Unit>(K
         return element.getter == null && element.annotationEntries.isEmpty()
     }
 
-    override fun KaSession.prepareContext(element: KtProperty): Unit? {
+    context(session: KaSession)
+    override fun prepareContext(element: KtProperty): Unit? {
         // disable if has non-Kotlin usages
         return if (ReferencesSearch.search(element).asIterable().all { it is KtReference && it.element.parent !is KtCallableReferenceExpression }) {
             Unit
@@ -45,7 +46,7 @@ class ValToObjectIntention: KotlinApplicableModCommandAction<KtProperty, Unit>(K
         elementContext: Unit,
         updater: ModPsiUpdater
     ) {
-        val name = element.name ?: return
+        val name = element.nameIdentifier?.text ?: return
         val objectLiteral = element.initializer as? KtObjectLiteralExpression ?: return
         val declaration = objectLiteral.objectDeclaration
         val superTypeList = declaration.getSuperTypeList()

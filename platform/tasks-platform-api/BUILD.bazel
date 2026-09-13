@@ -1,7 +1,7 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
 ### auto-generated section `build intellij.platform.tasks` start
-
 jvm_library(
     name = "tasks",
     srcs = glob(
@@ -28,6 +28,8 @@ jvm_library(
     ],
 )
 
+content_module_jar(module = ":tasks")
+
 jvm_library(
     name = "tasks_test_lib",
     testonly = True,
@@ -53,6 +55,8 @@ jvm_library(
 exports_files(
     [
         "intellij.platform.tasks.iml",
+        "resources/intellij.platform.tasks.xml",
+        "module-content.yaml",
     ],
     visibility = ["//visibility:public"],
 )

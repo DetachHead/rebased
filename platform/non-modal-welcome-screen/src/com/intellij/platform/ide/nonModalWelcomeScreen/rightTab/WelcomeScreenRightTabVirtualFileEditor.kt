@@ -1,8 +1,11 @@
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.platform.ide.nonModalWelcomeScreen.rightTab
 
 import com.intellij.openapi.fileEditor.FileEditor
 import com.intellij.openapi.fileEditor.FileEditorManagerKeys
 import com.intellij.openapi.fileEditor.FileEditorState
+import com.intellij.openapi.project.Project
+import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.util.Key
 import com.intellij.openapi.util.UserDataHolder
 import com.intellij.openapi.util.UserDataHolderBase
@@ -12,8 +15,18 @@ import org.jetbrains.annotations.Nls
 import java.beans.PropertyChangeListener
 import javax.swing.JComponent
 
-internal class WelcomeScreenRightTabVirtualFileEditor(private val newProjectFile: WelcomeScreenRightTabVirtualFile) : FileEditor {
+/**
+ * The editor of the welcome tab. It owns the tab UI: it builds [WelcomeScreenRightTabImpl] and disposes it with
+ * itself, so a tab the platform restores from the editor state gets its UI the same way an opened tab does.
+ */
+internal class WelcomeScreenRightTabVirtualFileEditor(
+  project: Project,
+  private val file: WelcomeScreenRightTabVirtualFile,
+  contentProvider: WelcomeRightTabContentProvider,
+) : FileEditor {
   private val userDataHolder: UserDataHolder = UserDataHolderBase()
+
+  private val tab: WelcomeScreenRightTab = WelcomeScreenRightTabImpl(project, contentProvider)
 
   init {
     userDataHolder.putUserData(FileEditorManagerKeys.DUMB_AWARE, true)
@@ -21,11 +34,11 @@ internal class WelcomeScreenRightTabVirtualFileEditor(private val newProjectFile
     userDataHolder.putUserData(FileEditorManagerKeys.SINGLETON_EDITOR_IN_WINDOW, true)
   }
 
-  override fun getFile(): VirtualFile = newProjectFile
+  override fun getFile(): VirtualFile = file
 
-  override fun getComponent(): JComponent = newProjectFile.window.component
+  override fun getComponent(): JComponent = tab.component
 
-  override fun getPreferredFocusedComponent(): JComponent = newProjectFile.window.component
+  override fun getPreferredFocusedComponent(): JComponent = tab.getPreferredFocusedComponent()
 
   override fun getName(): @Nls(capitalization = Nls.Capitalization.Title) String =
     NonModalWelcomeScreenBundle.message("welcome.screen.editor.name")
@@ -41,14 +54,14 @@ internal class WelcomeScreenRightTabVirtualFileEditor(private val newProjectFile
   override fun removePropertyChangeListener(listener: PropertyChangeListener) = Unit
 
   override fun dispose() {
-    // TODO
+    Disposer.dispose(tab)
   }
 
-  override fun <T : Any?> getUserData(key: Key<T?>): T? {
+  override fun <T> getUserData(key: Key<T?>): T? {
     return userDataHolder.getUserData(key)
   }
 
-  override fun <T : Any?> putUserData(key: Key<T?>, value: T?) {
+  override fun <T> putUserData(key: Key<T?>, value: T?) {
     userDataHolder.putUserData(key, value)
   }
 }

@@ -11,6 +11,7 @@ import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.actionSystem.CommonDataKeys;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.wm.ex.WelcomeScreenProjectProvider;
 import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -22,7 +23,10 @@ import static com.intellij.ide.actions.searcheverywhere.footer.ExtendedInfoImplK
 
 /**
  * @author Konstantin Bulenkov
+ * @deprecated The old Search Everywhere is being sunset in favor of the new (Split) Search Everywhere
+ * ({@code com.intellij.platform.searchEverywhere}).
  */
+@Deprecated
 public class SymbolSearchEverywhereContributor extends AbstractGotoSEContributor implements PossibleSlowContributor,
                                                                                             SearchEverywherePreviewProvider {
 
@@ -103,6 +107,13 @@ public class SymbolSearchEverywhereContributor extends AbstractGotoSEContributor
     @Override
     public @NotNull SearchEverywhereContributor<Object> createContributor(@NotNull AnActionEvent initEvent) {
       return PSIPresentationBgRendererWrapper.wrapIfNecessary(new SymbolSearchEverywhereContributor(initEvent));
+    }
+
+    @Override
+    public boolean isAvailable(Project project) {
+      // The welcome-screen project has no source, so the contributor can never return a result.
+      return !WelcomeScreenProjectProvider.Companion.isWelcomeScreenProject(project) &&
+             GotoContributorsAvailabilityService.hasLocalSymbolContributors(project);
     }
   }
 }

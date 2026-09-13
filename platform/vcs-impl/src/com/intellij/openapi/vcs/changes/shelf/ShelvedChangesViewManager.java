@@ -25,6 +25,7 @@ import com.intellij.notification.NotificationAction;
 import com.intellij.notification.NotificationType;
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.ListSelection;
+import com.intellij.openapi.application.CoroutinesKt;
 import com.intellij.openapi.actionSystem.ActionGroup;
 import com.intellij.openapi.actionSystem.ActionManager;
 import com.intellij.openapi.actionSystem.ActionToolbar;
@@ -50,7 +51,6 @@ import com.intellij.openapi.ui.SimpleToolWindowPanel;
 import com.intellij.openapi.util.Disposer;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.registry.Registry;
-import com.intellij.openapi.util.registry.RegistryValue;
 import com.intellij.openapi.util.text.HtmlChunk;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vcs.AbstractVcs;
@@ -102,7 +102,6 @@ import com.intellij.ui.SimpleTextAttributes;
 import com.intellij.ui.awt.RelativeRectangle;
 import com.intellij.ui.components.panels.Wrapper;
 import com.intellij.ui.content.Content;
-import com.intellij.util.Alarm;
 import com.intellij.util.Consumer;
 import com.intellij.util.ModalityUiUtil;
 import com.intellij.util.ObjectUtils;
@@ -112,9 +111,11 @@ import com.intellij.util.messages.MessageBusConnection;
 import com.intellij.util.text.DateFormatUtil;
 import com.intellij.util.ui.JBUI;
 import com.intellij.util.ui.tree.TreeUtil;
-import com.intellij.util.ui.update.MergingUpdateQueue;
-import com.intellij.util.ui.update.Update;
+import com.intellij.util.ui.update.DebouncedUpdates;
+import com.intellij.util.ui.update.UpdateQueue;
 import kotlinx.coroutines.CoroutineScope;
+import kotlinx.coroutines.Dispatchers;
+import kotlin.Unit;
 import one.util.streamex.StreamEx;
 import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.Nls;
@@ -166,7 +167,7 @@ import static com.intellij.util.containers.ContainerUtil.sorted;
 import static java.util.Comparator.comparing;
 import static java.util.Objects.requireNonNull;
 
-public class ShelvedChangesViewManager implements Disposable {
+public class ShelvedChangesViewManager {
   private static final Logger LOG = Logger.getInstance(ShelvedChangesViewManager.class);
   static final @NonNls String SHELF_CONTEXT_MENU = "Vcs.Shelf.ContextMenu";
   private static final String SHELVE_PREVIEW_SPLITTER_PROPORTION = "ShelvedChangesViewManager.DETAILS_SPLITTER_PROPORTION"; //NON-NLS
@@ -174,7 +175,7 @@ public class ShelvedChangesViewManager implements Disposable {
   static final @NonNls String SHELVED_CHANGES_TOOLBAR = "ShelvedChangesToolbar";
 
   private final Project myProject;
-  private final MergingUpdateQueue myUpdateQueue;
+  private final UpdateQueue<Unit> myUpdateQueue;
   private final List<Runnable> myPostUpdateEdtActivity = new ArrayList<>();
 
   private @Nullable ShelfToolWindowPanel myPanel = null;
@@ -198,13 +199,15 @@ public class ShelvedChangesViewManager implements Disposable {
 
   ShelvedChangesViewManager(@NotNull Project project, @NotNull CoroutineScope coroutineScope) {
     myProject = project;
-    myUpdateQueue = new MergingUpdateQueue("Update Shelf Content", 200, true, null, myProject, null, Alarm.ThreadToUse.SWING_THREAD, coroutineScope);
+    myUpdateQueue = DebouncedUpdates.<Unit>forScope(coroutineScope, "Update Shelf Content", 200)
+      .withContext(CoroutinesKt.getEDT(Dispatchers.INSTANCE))
+      .runLatest(__ -> updateTreeModel());
 
     project.getMessageBus().connect(coroutineScope).subscribe(ShelveChangesManager.SHELF_TOPIC, () -> scheduleTreeUpdate());
   }
 
   private void scheduleTreeUpdate() {
-    myUpdateQueue.queue(Update.create("update", () -> updateTreeModel()));
+    myUpdateQueue.queue(Unit.INSTANCE);
   }
 
   @RequiresEdt
@@ -373,15 +376,10 @@ public class ShelvedChangesViewManager implements Disposable {
   private void activateAndUpdate(@NotNull Runnable postUpdateRunnable) {
     ModalityUiUtil.invokeLaterIfNeeded(ModalityState.nonModal(), myProject.getDisposed(), () -> {
       activateContent();
-      myUpdateQueue.cancelAllUpdates();
+      myUpdateQueue.cancelPending();
       myPostUpdateEdtActivity.add(postUpdateRunnable);
       updateTreeModel();
     });
-  }
-
-  @Override
-  public void dispose() {
-    myUpdateQueue.cancelAllUpdates();
   }
 
   public void updateOnVcsMappingsChanged() {
@@ -752,9 +750,6 @@ public class ShelvedChangesViewManager implements Disposable {
   }
 
   private static final class ShelfToolWindowPanel extends SimpleToolWindowPanel implements Disposable {
-    private static final @NotNull RegistryValue isOpenEditorDiffPreviewWithSingleClick =
-      Registry.get("show.diff.preview.as.editor.tab.with.single.click");
-
     private final Project myProject;
     private final ShelveChangesManager myShelveChangesManager;
     private final VcsConfiguration myVcsConfiguration;
@@ -871,17 +866,6 @@ public class ShelvedChangesViewManager implements Disposable {
                ? VcsBundle.message("shelve.editor.diff.preview.title", wrapper.getPresentableName())
                : VcsBundle.message("shelved.version.name");
       }
-
-      @Override
-      protected boolean isOpenPreviewWithSingleClickEnabled() {
-        return isOpenEditorDiffPreviewWithSingleClick.asBoolean();
-      }
-
-      @Override
-      protected boolean isOpenPreviewWithSingleClick() {
-        if (mySplitterDiffPreview != null && myVcsConfiguration.SHELVE_DETAILS_PREVIEW_SHOWN) return false;
-        return super.isOpenPreviewWithSingleClick();
-      }
     }
 
     private class ShelveSplitterDiffPreview implements DiffPreview, Disposable {
@@ -984,7 +968,7 @@ public class ShelvedChangesViewManager implements Disposable {
       @Override
       public void update(@NotNull AnActionEvent e) {
         super.update(e);
-        e.getPresentation().setEnabledAndVisible(mySplitterDiffPreview != null || isOpenEditorDiffPreviewWithSingleClick.asBoolean());
+        e.getPresentation().setEnabledAndVisible(mySplitterDiffPreview != null);
       }
 
       @Override

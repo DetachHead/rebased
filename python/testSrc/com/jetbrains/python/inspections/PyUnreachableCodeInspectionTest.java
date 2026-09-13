@@ -15,10 +15,16 @@
  */
 package com.jetbrains.python.inspections;
 
+import com.intellij.idea.TestFor;
+import com.jetbrains.python.allure.Layers;
+import com.jetbrains.python.allure.Subsystems;
+
 import com.jetbrains.python.fixtures.PyInspectionTestCase;
 import com.jetbrains.python.psi.LanguageLevel;
 import org.jetbrains.annotations.NotNull;
 
+@Subsystems.Inspections
+@Layers.Functional
 public class PyUnreachableCodeInspectionTest extends PyInspectionTestCase {
   // All previous unreachable tests, feel free to split them
   public void testUnreachable() {
@@ -739,6 +745,108 @@ async def nosupAssertFalse(b):
         else:
             y: list[str] = ['a', 'b']"""
     );
+  }
+
+  /**
+   * The suppression half, and on its own it asserts nothing: before the fix the compound condition could not be
+   * evaluated at all, so nothing was unreachable and no warning was reported either. Keep it paired with
+   * {@link #testShortCircuitedConditionIsReportedUnreachable()}, which is the half that discriminates.
+   */
+  @TestFor(issues="PY-85200")
+  public void testTypeCheckingCompoundCondition() {
+    doTestByText(
+      """
+        from typing import TYPE_CHECKING
+
+        def use_extensions() -> bool: ...
+
+        if TYPE_CHECKING or not use_extensions():
+            x: int = 1
+        else:
+            x: str = "ab"
+
+        if not TYPE_CHECKING and use_extensions():
+            y: list[int] = [1, 2]
+        else:
+            y: list[str] = ['a', 'b']"""
+    );
+  }
+
+  /**
+   * The reporting half: the same short-circuit with no {@code TYPE_CHECKING}, so the dead branch is dead for
+   * everyone and the warning is owed. Fails without the fix. {@code PyEvaluatorTest.testBooleanShortCircuit}
+   * covers the evaluator; this covers the inspection consuming its result.
+   */
+  @TestFor(issues="PY-85200")
+  public void testShortCircuitedConditionIsReportedUnreachable() {
+    doTestByText(
+      """
+        def use_extensions() -> bool: ...
+
+        if False and use_extensions():
+            <warning descr="This code is unreachable">print("never runs")</warning>
+
+        if True or use_extensions():
+            print("always runs")
+        else:
+            <warning descr="This code is unreachable">print("never runs either")</warning>"""
+    );
+  }
+
+  // PY-90011
+  public void testIsInstanceIntWithIntEnumAnnotatedClassObject() {
+    doTestByText(
+      """
+        from enum import IntEnum, Enum
+
+
+        def test_enum(x: type[Enum]):
+            if isinstance(x, int):
+                print("first")
+            else:
+                print("second")
+
+
+        def test_int_enum(x: type[IntEnum]):
+            if isinstance(x, int):
+                print("first")
+            else:
+                print("second")"""
+    );
+  }
+
+  // PY-83726
+  public void testInspectionSuppressInElseBlock() {
+    doTestByText("""
+      import typing as _tp
+
+      def foo(v: _tp.Literal["foo", "bar"]):
+          if v == "foo":
+              raise Exception()
+          elif v == "bar":
+              raise Exception()
+          else:
+              # noinspection PyUnreachableCode
+              return False
+                   """);
+  }
+
+  // PY-83726
+  public void testInspectionSuppressInMatchCaseBlock() {
+    doTestByText("""
+      def foo(error: ArithmeticError):
+          match error:
+              case OverflowError():
+                  return "foo"
+
+              case ArithmeticError():
+                  return "bar"
+
+              case _:
+                  # noinspection PyUnreachableCode
+                  err: str = f"Expected ArithmeticError, got {type(error).__name__}: {error}"
+                  raise TypeError(err)
+                   """);
   }
 
   @NotNull

@@ -1,7 +1,7 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
 ### auto-generated section `build intellij.searchEverywhereLucene.performanceTesting` start
-
 jvm_library(
     name = "searchEverywhereLucene-performanceTesting",
     srcs = glob(
@@ -28,6 +28,8 @@ jvm_library(
     ],
 )
 
+content_module_jar(module = ":searchEverywhereLucene-performanceTesting")
+
 jvm_library(
     name = "searchEverywhereLucene-performanceTesting_test_lib",
     testonly = True,
@@ -52,6 +54,7 @@ jvm_library(
 exports_files(
     [
         "intellij.searchEverywhereLucene.performanceTesting.iml",
+        "resources/intellij.searchEverywhereLucene.performanceTesting.xml",
     ],
     visibility = ["//visibility:public"],
 )

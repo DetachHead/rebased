@@ -8,23 +8,31 @@ import com.intellij.codeInspection.ProblemsHolder
 import com.intellij.modcommand.ModPsiUpdater
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.TextRange
-import org.jetbrains.kotlin.analysis.api.KaExperimentalApi
 import org.jetbrains.kotlin.analysis.api.KaSession
-import org.jetbrains.kotlin.analysis.api.resolution.successfulFunctionCallOrNull
+import org.jetbrains.kotlin.analysis.api.expressions.isUsedAsExpression
+import org.jetbrains.kotlin.analysis.api.renderer.render
+import org.jetbrains.kotlin.analysis.api.resolution.resolveSuccessfulCall
+import org.jetbrains.kotlin.analysis.api.resolution.resolveSuccessfulSymbol
 import org.jetbrains.kotlin.analysis.api.resolution.symbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaClassSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaFunctionSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaValueParameterSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaVariableSymbol
+import org.jetbrains.kotlin.analysis.api.symbols.containingSymbol
+import org.jetbrains.kotlin.analysis.api.symbols.symbol
 import org.jetbrains.kotlin.analysis.api.types.KaFunctionType
 import org.jetbrains.kotlin.analysis.api.types.KaType
 import org.jetbrains.kotlin.analysis.api.types.KaTypeParameterType
 import org.jetbrains.kotlin.analysis.api.types.KaUsualClassType
+import org.jetbrains.kotlin.analysis.api.types.allSupertypes
+import org.jetbrains.kotlin.analysis.api.types.defaultType
+import org.jetbrains.kotlin.analysis.api.types.isFunctionType
+import org.jetbrains.kotlin.analysis.api.types.isSuspendFunctionType
+import org.jetbrains.kotlin.analysis.api.types.semanticallyEquals
 import org.jetbrains.kotlin.idea.base.codeInsight.ShortenReferencesFacility
 import org.jetbrains.kotlin.idea.base.resources.KotlinBundle
 import org.jetbrains.kotlin.idea.codeinsight.api.applicable.inspections.KotlinApplicableInspectionBase
 import org.jetbrains.kotlin.idea.codeinsight.api.applicable.inspections.KotlinModCommandQuickFix
-import org.jetbrains.kotlin.idea.references.mainReference
 import org.jetbrains.kotlin.name.FqName
 import org.jetbrains.kotlin.name.Name
 import org.jetbrains.kotlin.psi.KtCallExpression
@@ -44,6 +52,7 @@ import org.jetbrains.kotlin.psi.ValueArgument
 import org.jetbrains.kotlin.psi.buildValueArgumentList
 import org.jetbrains.kotlin.psi.psiUtil.getQualifiedExpressionForSelectorOrThis
 import org.jetbrains.kotlin.psi.psiUtil.getStrictParentOfType
+import org.jetbrains.kotlin.resolution.KtResolvable
 import org.jetbrains.kotlin.types.Variance
 
 class SuspiciousCallableReferenceInLambdaInspection : KotlinApplicableInspectionBase<KtLambdaExpression, SuspiciousCallableReferenceInLambdaInspection.Context>() {
@@ -64,7 +73,8 @@ class SuspiciousCallableReferenceInLambdaInspection : KotlinApplicableInspection
     override fun isApplicableByPsi(element: KtLambdaExpression): Boolean =
         element.bodyExpression?.statements?.singleOrNull() is KtCallableReferenceExpression
 
-    override fun KaSession.prepareContext(element: KtLambdaExpression): Context? {
+    context(session: KaSession)
+    override fun prepareContext(element: KtLambdaExpression): Context? {
         if (!isValidFunctionCallContext(element)) return null
         if (!isValidExpressionUsageContext(element)) return null
 
@@ -92,7 +102,6 @@ class SuspiciousCallableReferenceInLambdaInspection : KotlinApplicableInspection
         )
     }
 
-    @OptIn(KaExperimentalApi::class)
     private fun shouldUseNamedArguments(
         params: List<KaValueParameterSymbol>,
         args: List<KtValueArgument>
@@ -102,9 +111,10 @@ class SuspiciousCallableReferenceInLambdaInspection : KotlinApplicableInspection
         return hasDefaults && params.size - 1 > args.size || argsAreNamed
     }
 
-    private fun KaSession.isValidFunctionCallContext(element: KtLambdaExpression): Boolean {
+    context(session: KaSession)
+    private fun isValidFunctionCallContext(element: KtLambdaExpression): Boolean {
         val functionCall = element.getStrictParentOfType<KtCallExpression>()
-            ?.resolveToCall()?.successfulFunctionCallOrNull() ?: return true
+            ?.resolveSuccessfulCall() ?: return true
 
         val argumentExpression = (element.parent as? ValueArgument)?.getArgumentExpression()
         val parameter = functionCall.valueArgumentMapping.entries.firstOrNull { it.key == argumentExpression }?.value
@@ -118,7 +128,8 @@ class SuspiciousCallableReferenceInLambdaInspection : KotlinApplicableInspection
                 (originalReturnType !is KaTypeParameterType || originalReturnType.allSupertypes.none { it.isFunctionInterfaceOrPropertyType() })
     }
 
-    private fun KaSession.isValidExpressionUsageContext(element: KtLambdaExpression): Boolean {
+    context(session: KaSession)
+    private fun isValidExpressionUsageContext(element: KtLambdaExpression): Boolean {
         val callElement = element.getStrictParentOfType<KtCallExpression>() as? KtExpression ?: element
         if (!callElement.isUsedAsExpression) return true
 
@@ -199,16 +210,16 @@ class SuspiciousCallableReferenceInLambdaInspection : KotlinApplicableInspection
     }
 }
 
-@OptIn(KaExperimentalApi::class)
-private fun KaSession.buildReferenceText(element: KtLambdaExpression, callableRefExpr: KtCallableReferenceExpression): String {
+context(session: KaSession)
+private fun buildReferenceText(element: KtLambdaExpression, callableRefExpr: KtCallableReferenceExpression): String {
     val callableReference = callableRefExpr.callableReference
     val receiverExpression = callableRefExpr.receiverExpression ?: return "::${callableReference.text.trim()}"
 
-    val receiverSymbol = receiverExpression.mainReference?.resolveToSymbol()
+    val receiverSymbol = (receiverExpression as? KtResolvable)?.resolveSuccessfulSymbol()
     val lambdaSymbol = element.functionLiteral.symbol
 
     return if ((receiverSymbol == null || receiverSymbol is KaValueParameterSymbol) && receiverSymbol?.containingSymbol == lambdaSymbol) {
-        val callableReferenceCall = callableRefExpr.resolveToCall()?.successfulFunctionCallOrNull()
+        val callableReferenceCall = callableRefExpr.resolveSuccessfulCall()
         val receiverType =
             callableReferenceCall?.let { it.extensionReceiver?.type ?: it.dispatchReceiver?.type }
         val typeText = receiverType?.render(position = Variance.INVARIANT)?.substringAfterLast('.') ?: ""
@@ -218,7 +229,8 @@ private fun KaSession.buildReferenceText(element: KtLambdaExpression, callableRe
     }
 }
 
-private fun KaSession.canMove(lambdaExpression: KtLambdaExpression): Boolean {
+context(session: KaSession)
+private fun canMove(lambdaExpression: KtLambdaExpression): Boolean {
     val body = lambdaExpression.bodyExpression?.statements?.singleOrNull() as? KtCallableReferenceExpression ?: return false
     val lambdaSymbol = lambdaExpression.functionLiteral.symbol
     val lambdaParam = lambdaSymbol.receiverParameter ?: lambdaSymbol.valueParameters.singleOrNull()
@@ -226,7 +238,7 @@ private fun KaSession.canMove(lambdaExpression: KtLambdaExpression): Boolean {
 
     // No parameters in lambda and in reference
     if (lambdaParamType == null) {
-        val target = body.callableReference.mainReference.resolveToSymbol() ?: return false
+        val target = body.resolveSuccessfulSymbol() ?: return false
         return when (target) {
             is KaVariableSymbol -> (target.returnType as? KaFunctionType)?.parameterTypes?.isEmpty() == true
             is KaFunctionSymbol -> target.valueParameters.isEmpty()
@@ -235,7 +247,7 @@ private fun KaSession.canMove(lambdaExpression: KtLambdaExpression): Boolean {
     }
 
     // Receiver in reference matches parameter
-    val receiverSymbol = body.receiverExpression?.mainReference?.resolveToSymbol()
+    val receiverSymbol = (body.receiverExpression as? KtResolvable)?.resolveSuccessfulSymbol()
     if (receiverSymbol == lambdaParam) return true
 
     val receiverType = when (receiverSymbol) {
@@ -255,7 +267,7 @@ private fun KaSession.canMove(lambdaExpression: KtLambdaExpression): Boolean {
     }
 
     // Fallback to function resolution
-    val funcSymbol = body.callableReference.mainReference.resolveToSymbol() as? KaFunctionSymbol ?: return false
+    val funcSymbol = body.resolveSuccessfulSymbol() as? KaFunctionSymbol ?: return false
     val paramType = funcSymbol.valueParameters.firstOrNull()?.returnType ?: return false
     return paramType.semanticallyEquals(lambdaParamType)
 }

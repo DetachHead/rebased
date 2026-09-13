@@ -44,6 +44,7 @@ import com.intellij.util.concurrency.AppExecutorUtil;
 import com.intellij.util.concurrency.EdtScheduledExecutorService;
 import com.intellij.util.concurrency.Semaphore;
 import com.intellij.util.concurrency.ThreadingAssertions;
+import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.ui.UIUtil;
 import org.jetbrains.annotations.NotNull;
 import org.junit.Assume;
@@ -55,6 +56,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Queue;
 import java.util.Random;
+import java.util.Set;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.CountDownLatch;
@@ -222,7 +224,7 @@ public class JobUtilTest extends LightPlatformTestCase {
           }
       };
       if (runInReadAction) {
-        ReadAction.run(runnable);
+        ReadAction.runBlocking(runnable);
       }
       else {
         runnable.run();
@@ -440,7 +442,7 @@ public class JobUtilTest extends LightPlatformTestCase {
       ProgressIndicator wrapper = new DaemonProgressIndicator();
       try {
         // avoid "attach listener"/"write action" race
-        ReadAction.run(() -> {
+        ReadAction.runBlocking(() -> {
           wrapper.start();
           ProgressIndicatorUtils.forceWriteActionPriority(wrapper, disposable);
           // there is a chance we are racing with write action, in which case just registered listener might not be called, retry.
@@ -450,7 +452,7 @@ public class JobUtilTest extends LightPlatformTestCase {
         });
         // use wrapper here to cancel early when write action start but do not affect the original indicator
         ((JobLauncherImpl)JobLauncher.getInstance()).processQueue(queue, failedQueue, wrapper, TOMB_STONE, _ -> {
-          ReadAction.run(() -> {
+          ReadAction.runBlocking(() -> {
             ProgressManager.checkCanceled();
             //TimeoutUtil.sleep(1);
             ProgressManager.checkCanceled();
@@ -760,7 +762,7 @@ public class JobUtilTest extends LightPlatformTestCase {
   }
   public void testPCEThrownFromProcessorMustPropagateOutwards() {
     List<Integer> ints = IntStream.range(1, 123_271).boxed().collect(Collectors.toList());
-    int N = 100;
+    int N = 1000;
     for (int i=0; i<N; i++) {
       assertThrows(ProcessCanceledException.class, () -> JobLauncher.getInstance().invokeConcurrentlyUnderProgress(ints, new DaemonProgressIndicator(), _ -> {
         throw new ProcessCanceledException(new RuntimeException("xxx"));
@@ -960,5 +962,26 @@ public class JobUtilTest extends LightPlatformTestCase {
         pool.shutdownNow();
       }
     }
+  }
+
+  // a restart after a write action re-enters processQueue() with `things` drained down to the tombstone
+  // and the real work sitting in `failedToProcess` - it must still process that work in parallel
+  public void testProcessQueueAccountsForFailedQueueWhenChoosingParallelism() throws Exception {
+    Assume.assumeTrue(JobSchedulerImpl.getJobPoolParallelism() > 2);
+    String TOMB_STONE = "TOMB_STONE";
+    BlockingQueue<String> things = new ArrayBlockingQueue<>(100);
+    things.put(TOMB_STONE);                                  // producer already finished
+    Queue<String> failed = new LinkedBlockingQueue<>();
+    for (int i = 0; i < 50; i++) failed.add("e" + i);        // left over from the interrupted pass
+    Set<Thread> threads = ContainerUtil.newConcurrentSet();
+    ProgressIndicator wrapper = new DaemonProgressIndicator();
+    wrapper.start();
+    ((JobLauncherImpl)JobLauncher.getInstance()).processQueue(things, failed, wrapper, TOMB_STONE, e -> {
+      threads.add(Thread.currentThread());
+      TimeoutUtil.sleep(20);                                 // keep several elements in flight
+      return true;
+    });
+    assertTrue("expected parallel processing, got threads: " + threads, threads.size() > 1);
+    assertTrue("elements left unprocessed: " + failed, failed.isEmpty());
   }
 }

@@ -1,7 +1,6 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
 
 ### auto-generated section `build intellij.dotenv.python` start
-
 jvm_library(
     name = "python",
     srcs = glob(
@@ -59,6 +58,7 @@ jvm_library(
 exports_files(
     [
         "intellij.dotenv.python.iml",
+        "resources/intellij.dotenv.python.xml",
     ],
     visibility = ["//visibility:public"],
 )

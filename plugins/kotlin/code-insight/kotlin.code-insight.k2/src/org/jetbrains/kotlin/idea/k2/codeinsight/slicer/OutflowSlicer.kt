@@ -11,17 +11,19 @@ import com.intellij.slicer.SliceUsage
 import com.intellij.usageView.UsageInfo
 import com.intellij.util.Processor
 import org.jetbrains.kotlin.analysis.api.KaSession
-import org.jetbrains.kotlin.analysis.api.analyze
-import org.jetbrains.kotlin.analysis.api.resolution.KaCallableMemberCall
-import org.jetbrains.kotlin.analysis.api.resolution.KaCompoundArrayAccessCall
-import org.jetbrains.kotlin.analysis.api.resolution.KaCompoundVariableAccessCall
+import org.jetbrains.kotlin.analysis.api.resolution.KaCompoundAccessCall
 import org.jetbrains.kotlin.analysis.api.resolution.KaExplicitReceiverValue
-import org.jetbrains.kotlin.analysis.api.resolution.KaSimpleFunctionCall
-import org.jetbrains.kotlin.analysis.api.resolution.KaSuccessCallInfo
-import org.jetbrains.kotlin.analysis.api.resolution.singleCallOrNull
-import org.jetbrains.kotlin.analysis.api.resolution.successfulFunctionCallOrNull
-import org.jetbrains.kotlin.analysis.api.resolution.successfulVariableAccessCall
+import org.jetbrains.kotlin.analysis.api.resolution.KaImplicitInvokeCall
+import org.jetbrains.kotlin.analysis.api.resolution.KaSimpleCall
+import org.jetbrains.kotlin.analysis.api.resolution.resolveSuccessfulCall
+import org.jetbrains.kotlin.analysis.api.resolution.resolveSuccessfulSymbol
+import org.jetbrains.kotlin.analysis.api.resolution.simple
+import org.jetbrains.kotlin.analysis.api.resolution.single
+import org.jetbrains.kotlin.analysis.api.resolution.successful
 import org.jetbrains.kotlin.analysis.api.resolution.symbol
+import org.jetbrains.kotlin.analysis.api.resolution.tryResolveCall
+import org.jetbrains.kotlin.analysis.api.resolution.variable
+import org.jetbrains.kotlin.analysis.api.session.analyze
 import org.jetbrains.kotlin.analysis.api.symbols.KaCallableSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaNamedFunctionSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.symbol
@@ -33,6 +35,8 @@ import org.jetbrains.kotlin.idea.findUsages.KotlinFindUsagesSupport
 import org.jetbrains.kotlin.idea.references.mainReference
 import org.jetbrains.kotlin.idea.search.ExpectActualUtils.actualsForExpect
 import org.jetbrains.kotlin.idea.search.ideaExtensions.KotlinReadWriteAccessDetector
+import org.jetbrains.kotlin.idea.util.resolveSuccessfulExpressionCall
+import org.jetbrains.kotlin.idea.util.tryResolveExpressionCall
 import org.jetbrains.kotlin.lexer.KtTokens
 import org.jetbrains.kotlin.psi.KtArrayAccessExpression
 import org.jetbrains.kotlin.psi.KtBinaryExpression
@@ -66,6 +70,7 @@ import org.jetbrains.kotlin.psi.KtWhenEntry
 import org.jetbrains.kotlin.psi.KtWhenExpression
 import org.jetbrains.kotlin.psi.psiUtil.isExpectDeclaration
 import org.jetbrains.kotlin.psi.psiUtil.parameterIndex
+import org.jetbrains.kotlin.resolution.KtResolvableCall
 
 class OutflowSlicer(
     element: KtElement, processor: Processor<in SliceUsage>, parentUsage: AbstractKotlinSliceUsage
@@ -254,9 +259,9 @@ class OutflowSlicer(
             is KtValueArgument -> {
                 val callExpression = parent.parentOfType<KtCallExpression>() ?: return
                 analyze(callExpression) {
-                    val functionCall = callExpression.resolveToCall()?.successfulFunctionCallOrNull() ?: return
+                    val functionCall = callExpression.resolveSuccessfulCall() ?: return
                     val parameterSymbol =
-                        functionCall.argumentMapping.filter { entry -> entry.key == expressionWithValue }.values.firstOrNull()?.symbol
+                        functionCall.valueArgumentMapping.filter { entry -> entry.key == expressionWithValue }.values.firstOrNull()?.symbol
                     val functionSymbol = functionCall.symbol as? KaNamedFunctionSymbol
                     if (functionSymbol?.isBuiltinFunctionInvoke == true) {
                         processImplicitInvokeCall(
@@ -288,7 +293,7 @@ class OutflowSlicer(
 
             is KtReturnExpression -> {
                 analyze(parent) {
-                    val target = parent.targetSymbol?.psi
+                    val target = parent.resolveSuccessfulSymbol()?.psi
                     if (target is KtNamedFunction) {
                         val (newMode, callElement) = mode.popInlineFunctionCall(target)
                         if (newMode != null) {
@@ -325,17 +330,16 @@ class OutflowSlicer(
 
     fun processSelectorExpression(selectorExpression: KtExpression, expressionWithValue: KtExpression) {
         analyze(selectorExpression) {
-            val functionalCall = selectorExpression.resolveToCall()?.singleCallOrNull<KaCallableMemberCall<*, *>>()
-            val symbol = functionalCall?.partiallyAppliedSymbol?.symbol
+            val singleCall = selectorExpression.tryResolveExpressionCall()?.single?.simple
+            val symbol = singleCall?.symbol
             if (symbol is KaNamedFunctionSymbol && symbol.isBuiltinFunctionInvoke) {
-                if ((functionalCall.partiallyAppliedSymbol.dispatchReceiver as? KaExplicitReceiverValue)?.expression == expressionWithValue.safeDeparenthesize()) {
+                if ((singleCall.dispatchReceiver as? KaExplicitReceiverValue)?.expression == expressionWithValue.safeDeparenthesize()) {
                     if (mode.currentBehaviour is LambdaCallsBehaviour) {
                         selectorExpression.passToProcessor(mode)
                     }
-                } else if ((functionalCall.partiallyAppliedSymbol.extensionReceiver as? KaExplicitReceiverValue)?.expression == expressionWithValue.safeDeparenthesize()) {
+                } else if ((singleCall.extensionReceiver as? KaExplicitReceiverValue)?.expression == expressionWithValue.safeDeparenthesize()) {
                     val successfulVariableAccessCall =
-                        (selectorExpression as? KtCallExpression)?.calleeExpression?.resolveToCall()
-                            ?.successfulVariableAccessCall()
+                        (selectorExpression as? KtCallExpression)?.calleeExpression?.resolveSuccessfulExpressionCall()?.variable
                     successfulVariableAccessCall?.symbol?.psi?.passToProcessor(mode.withBehaviour(LambdaReceiverInflowBehaviour))
                 }
             } else {
@@ -346,11 +350,11 @@ class OutflowSlicer(
     }
 
     context(_: KaSession)
-    private fun processImplicitInvokeCall(functionCall: KaCallableMemberCall<*, *>, idx: Int) {
-        val receiverValue = functionCall.partiallyAppliedSymbol.dispatchReceiver as? KaExplicitReceiverValue ?: return
+    private fun processImplicitInvokeCall(functionCall: KaSimpleCall<*, *>, idx: Int) {
+        val receiverValue = functionCall.dispatchReceiver as? KaExplicitReceiverValue ?: return
         var receiverType: KaType? = receiverValue.type
         var receiverExpression = receiverValue.expression
-        if (receiverExpression is KtReferenceExpression && functionCall is KaSimpleFunctionCall && functionCall.isImplicitInvoke) {
+        if (receiverExpression is KtReferenceExpression && functionCall is KaImplicitInvokeCall) {
             val target = receiverExpression.mainReference.resolve()
             if (target is KtCallableDeclaration) {
                 receiverType = (target.symbol as? KaCallableSymbol)?.returnType
@@ -369,21 +373,23 @@ class OutflowSlicer(
         if (!parentUsage.params.showInstanceDereferences) return
 
         val parent = parent
-        analyze(this) {
-            val callInfo = ((parent as? KtSafeQualifiedExpression)?.selectorExpression ?: parent as? KtExpression)?.resolveToCall()
-            if (callInfo is KaSuccessCallInfo) {
-                val call = callInfo.call
-                val partiallyAppliedSymbol = when (call) {
-                    is KaCallableMemberCall<*, *> -> call.partiallyAppliedSymbol
-                    is KaCompoundVariableAccessCall, is KaCompoundArrayAccessCall -> call.compoundOperation.operationPartiallyAppliedSymbol
-                    else -> return
-                }
+        val expression = analyze(this) {
+            val ktExpression = (parent as? KtSafeQualifiedExpression)?.selectorExpression ?: parent as? KtExpression
 
-                val expression = (partiallyAppliedSymbol.dispatchReceiver as? KaExplicitReceiverValue)?.expression
-                if (expression == (this@processDereferences).safeDeparenthesize()) {
-                    processor.process(KotlinSliceDereferenceUsage(this@processDereferences, parentUsage, mode))
-                }
-            }
+            val resolutionAttempt = (ktExpression as? KtResolvableCall)?.tryResolveCall()
+            val call = resolutionAttempt?.successful ?: return
+
+            val targetCall = when (call) {
+                is KaSimpleCall<*, *> -> call
+                is KaCompoundAccessCall -> call.operationCall
+                else -> null
+            } ?: return
+
+            (targetCall.dispatchReceiver as? KaExplicitReceiverValue)?.expression
+        }
+
+        if (expression == this.safeDeparenthesize()) {
+            processor.process(KotlinSliceDereferenceUsage(this, parentUsage, mode))
         }
     }
 }

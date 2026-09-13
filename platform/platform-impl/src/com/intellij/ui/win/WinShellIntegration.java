@@ -2,7 +2,6 @@
 package com.intellij.ui.win;
 
 import com.intellij.openapi.Disposable;
-import com.intellij.openapi.application.ApplicationInfo;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.PathManager;
 import com.intellij.openapi.components.Service;
@@ -12,7 +11,6 @@ import com.intellij.util.system.OS;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import java.nio.file.Path;
 import java.util.concurrent.Future;
 import java.util.concurrent.ThreadPoolExecutor;
 
@@ -20,10 +18,9 @@ import java.util.concurrent.ThreadPoolExecutor;
 /// It has an asynchronous interface because most of the methods should be invoked strictly inside the internal thread.
 ///
 /// Typical usage is something like the following:
-///
 /// ```
-///   if (WinShellIntegration.isAvailable) {
-///     WinShellIntegration wsi = WinShellIntegration.getInstance();
+///   WinShellIntegration wsi = WinShellIntegration.getInstance();
+///   if (wsi != null) {
 ///     Future<> future = wsi.postShellTask((WinShellIntegration.ShellContext ctx) -> {
 ///       ctx.someMethod1();
 ///       ctx.someMethod2();
@@ -37,6 +34,7 @@ final class WinShellIntegration implements Disposable {
       parent.clearRecentTasksList();
     }
 
+    @SuppressWarnings("SSBasedInspection")
     void setRecentTasksList(@NotNull JumpTask @NotNull [] recentTasks) {
       parent.setRecentTasksList(recentTasks);
     }
@@ -53,12 +51,10 @@ final class WinShellIntegration implements Disposable {
     void run(@NotNull ShellContext ctx);
   }
 
-  /// Indicates the features provided by this class are available to use.
-  /// If `false`, then [#getInstance] will return `null` always.
-  static final boolean isAvailable =
+  private static final boolean isAvailable =
     OS.CURRENT == OS.Windows && Boolean.getBoolean("ide.native.launcher") && !Boolean.getBoolean("ide.win.shell.integration.disabled");
 
-  /// @return `null` if ![#isAvailable]
+  /// @return `null` if the service is unavailable
   static @Nullable WinShellIntegration getInstance() {
     return isAvailable ? ApplicationManager.getApplication().getService(WinShellIntegration.class) : null;
   }
@@ -105,9 +101,6 @@ final class WinShellIntegration implements Disposable {
         return;
       }
 
-      var appId = ApplicationInfo.getInstance().getFullApplicationName();
-      setAppUserModelIdNative(appId);
-
       initializeNative();
 
       nativeIsInitialized = true;
@@ -116,16 +109,13 @@ final class WinShellIntegration implements Disposable {
     private final ThreadPoolExecutor comExecutor = ConcurrencyUtil.newSingleThreadExecutor("Windows Shell integration");
     private boolean nativeIsInitialized = false;
 
-    // NB: does not require native to be initialized
-    private native void setAppUserModelIdNative(String appUserModelId);
-
     private native void initializeNative();
     private native void clearRecentTasksListNative();
     private native void setRecentTasksListNative(JumpTask[] recentTasks);
 
     static {
       var lib = PathManager.findBinFile("WinShellIntegrationBridge.dll");
-      assert lib != null : "Shell Integration lib missing; bin=" + NioFiles.list(Path.of(PathManager.getBinPath()));
+      if (lib == null) throw new IllegalStateException("Shell Integration lib is not in " + NioFiles.list(PathManager.getBinDir()));
       System.load(lib.toString());
     }
   }

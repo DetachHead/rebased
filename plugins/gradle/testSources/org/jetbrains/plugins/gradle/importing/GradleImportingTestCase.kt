@@ -5,7 +5,6 @@ import com.intellij.concurrency.IdeaForkJoinWorkerThreadFactory
 import com.intellij.execution.RunManagerEx
 import com.intellij.execution.process.ProcessOutputType
 import com.intellij.gradle.toolingExtension.util.GradleVersionUtil
-import com.intellij.testFramework.CompilerBuildTestUtil
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.PathManager
 import com.intellij.openapi.application.WriteAction
@@ -45,6 +44,7 @@ import com.intellij.platform.eel.provider.getEelDescriptor
 import com.intellij.platform.testFramework.eelJava.EelTestJdkProvider
 import com.intellij.platform.testFramework.eelJava.EelTestUtil
 import com.intellij.platform.testFramework.io.ExternalResourcesChecker.reportUnavailability
+import com.intellij.testFramework.CompilerBuildTestUtil
 import com.intellij.testFramework.ExtensionTestUtil.maskExtensions
 import com.intellij.testFramework.RunAll.Companion.runAll
 import com.intellij.testFramework.common.ThreadLeakTracker
@@ -69,7 +69,7 @@ import org.jetbrains.plugins.gradle.settings.DistributionType
 import org.jetbrains.plugins.gradle.settings.GradleProjectSettings
 import org.jetbrains.plugins.gradle.settings.GradleSettings
 import org.jetbrains.plugins.gradle.settings.GradleSystemSettings
-import org.jetbrains.plugins.gradle.tooling.GradleJvmResolver.Companion.resolveGradleJvmHomePath
+import org.jetbrains.plugins.gradle.tooling.GradleJvmResolver
 import org.jetbrains.plugins.gradle.tooling.JavaVersionRestriction
 import org.jetbrains.plugins.gradle.tooling.TargetJavaVersionWatcher
 import org.jetbrains.plugins.gradle.tooling.VersionMatcherRule
@@ -84,9 +84,11 @@ import org.junit.rules.TestName
 import org.junit.runner.RunWith
 import org.junit.runners.Parameterized
 import java.io.IOException
+import java.nio.file.LinkOption
 import java.nio.file.Path
 import java.util.function.Consumer
 import kotlin.io.path.exists
+import kotlin.io.path.isSameFileAs
 
 @RunWith(Parameterized::class)
 abstract class GradleImportingTestCase : JavaExternalSystemImportingTestCase() {
@@ -431,12 +433,18 @@ abstract class GradleImportingTestCase : JavaExternalSystemImportingTestCase() {
 
     if (EelTestUtil.isLocalRun() && !gradleJarPath.exists()) {
       val localDistributionRoot = getLocalGradleDistributionRoot(currentGradleVersion)
-      if (localDistributionRoot != gradleDistributionRootPath && localDistributionRoot.exists()) {
+      if (localDistributionRoot.exists() && !isSameFile(localDistributionRoot, gradleDistributionRootPath)) {
         gradleDistributionRootPath.delete(true)
         localDistributionRoot.copyRecursively(gradleDistributionRootPath)
       }
     }
     return gradleDistributionRootPath
+  }
+
+  private fun isSameFile(first: Path, second: Path): Boolean {
+    if (first == second) return true
+    if (!first.exists(LinkOption.NOFOLLOW_LINKS) || !second.exists(LinkOption.NOFOLLOW_LINKS)) return false
+    return first.isSameFileAs(second)
   }
 
   private fun tearDownGradleVmOptions() {
@@ -520,7 +528,7 @@ abstract class GradleImportingTestCase : JavaExternalSystemImportingTestCase() {
       }
       // fix exception of FJP at JavaHomeFinder.suggestHomePaths => ... => EnvironmentUtil.getEnvironmentMap => CompletableFuture.<clinit>
       IdeaForkJoinWorkerThreadFactory.setupForkJoinCommonPool(true)
-      return resolveGradleJvmHomePath(gradleVersion, javaVersionRestriction)
+      return GradleJvmResolver.resolveGradleJvmHomePath(gradleVersion, javaVersionRestriction)
     }
 
     @JvmStatic

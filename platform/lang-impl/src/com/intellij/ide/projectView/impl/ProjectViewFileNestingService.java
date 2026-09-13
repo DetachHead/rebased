@@ -28,7 +28,7 @@ import java.util.List;
   storages = @Storage("ui.lnf.xml"),
   category = SettingsCategory.UI
 )
-public final class ProjectViewFileNestingService implements PersistentStateComponent<ProjectViewFileNestingService.MyState>, ModificationTracker {
+public final class ProjectViewFileNestingService implements PersistentStateComponent<ProjectViewFileNestingService.MyState>, ModificationTracker, ProjectViewFileNestingModel {
   private static final Logger LOG = Logger.getInstance(ProjectViewFileNestingService.class);
 
   private static final ExtensionPointName<ProjectViewNestingRulesProvider> EP_NAME =
@@ -74,14 +74,22 @@ public final class ProjectViewFileNestingService implements PersistentStateCompo
    * This list of rules is used for serialization and for UI.
    * See also {@link NestingTreeStructureProvider}, it adjusts this list of rules to match its needs
    */
+  @Override
   public @NotNull List<NestingRule> getRules() {
     return myState.myRules;
   }
 
+  @Override
   public void setRules(final @NotNull List<NestingRule> rules) {
     myState.myRules.clear();
     myState.myRules.addAll(rules);
     myModCount++;
+  }
+
+  @ApiStatus.Internal
+  @Override
+  public @NotNull List<@NotNull NestingRule> getDefaultRules() {
+    return loadDefaultNestingRules();
   }
 
   @Override

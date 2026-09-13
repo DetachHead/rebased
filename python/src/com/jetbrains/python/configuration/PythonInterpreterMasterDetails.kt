@@ -14,10 +14,15 @@ import com.intellij.openapi.diagnostic.thisLogger
 import com.intellij.openapi.fileChooser.FileChooserDescriptorFactory
 import com.intellij.openapi.options.Configurable
 import com.intellij.openapi.project.DumbAwareAction
+import com.intellij.platform.ide.progress.ModalTaskOwner
+import com.intellij.platform.ide.progress.runWithModalProgressBlocking
+import com.intellij.python.sdk.backend.pyInterpreterItems
+import com.intellij.python.sdk.common.PyInterpreterItem
 import com.intellij.openapi.project.DumbAwareToggleAction
 import com.intellij.openapi.projectRoots.ProjectJdkTable
 import com.intellij.openapi.projectRoots.Sdk
 import com.intellij.openapi.roots.OrderRootType
+import com.intellij.openapi.roots.ui.configuration.projectRoot.ProjectSdksModel
 import com.intellij.openapi.ui.InputValidatorEx
 import com.intellij.openapi.ui.MasterDetailsComponent
 import com.intellij.openapi.ui.Messages
@@ -32,6 +37,7 @@ import com.jetbrains.python.sdk.ModuleOrProject.ProjectOnly
 import com.jetbrains.python.sdk.PythonSdkUpdater
 import com.jetbrains.python.sdk.collectAddInterpreterActions
 import com.jetbrains.python.sdk.customizeWithSdkValue
+import com.jetbrains.python.sdk.filterAssignablePythonSdks
 import com.jetbrains.python.sdk.isAssociatedWithAnotherModule
 import com.jetbrains.python.sdk.legacy.PythonSdkUtil
 import com.jetbrains.python.sdk.noInterpreterMarker
@@ -48,8 +54,6 @@ import javax.swing.tree.TreePath
  * the list.
  */
 internal class PythonInterpreterMasterDetails(private val moduleOrProject: ModuleOrProject, private val parentConfigurable: Configurable) : MasterDetailsComponent() {
-  private val pythonConfigurableInterpreterList: PyConfigurableInterpreterList = PyConfigurableInterpreterList.getInstance(moduleOrProject.project)
-
   private val project = moduleOrProject.project
 
   // Temporary hack as lots of legacy code accept nullable module. Remove after legacy code migrated to ModuleOrProject.
@@ -58,7 +62,9 @@ internal class PythonInterpreterMasterDetails(private val moduleOrProject: Modul
     is ProjectOnly -> null
   }
 
-  internal val projectSdksModel = pythonConfigurableInterpreterList.model
+  // The dialog owns a short-lived editable SDK model instead of sharing a cached project-level one. It is reloaded
+  // from the live SDK table in `reset()` and disposed in `disposeUIResources()` (PY-90077).
+  internal val projectSdksModel = ProjectSdksModel()
 
   /**
    * Indicates whether Python paths of one or more interpreters have been changed by user via Python Paths dialog.
@@ -104,8 +110,7 @@ internal class PythonInterpreterMasterDetails(private val moduleOrProject: Modul
       hasFocus: Boolean,
     ) {
       val configurable = (value as? DefaultMutableTreeNode)?.userObject as? PythonInterpreterDetailsConfigurable
-      val sdk = configurable?.sdk
-      customizeWithSdkValue(sdk, noInterpreterMarker, nullSdkValue = null)
+      customizeWithSdkValue(configurable?.item, noInterpreterMarker, nullItem = null)
     }
   }
 
@@ -116,10 +121,14 @@ internal class PythonInterpreterMasterDetails(private val moduleOrProject: Modul
   }
 
   private val allPythonSdksInEdit: List<Sdk>
-    get() = pythonConfigurableInterpreterList.getAllPythonSdks(module)
+    get() = project.filterAssignablePythonSdks(projectSdksModel.sdks.toList(), module)
 
   override fun reset() {
     pythonPathsModified = false
+
+    // Reload the editable model from the live SDK table so interpreters added elsewhere (e.g. the "Add Interpreter"
+    // link or the status-bar widget) appear immediately; the tree is then built from these editable copies.
+    projectSdksModel.reset(project)
 
     myRoot.removeAllChildren()
 
@@ -127,20 +136,30 @@ internal class PythonInterpreterMasterDetails(private val moduleOrProject: Modul
       hideOtherProjectVirtualenvs -> allPythonSdksInEdit.filter { !it.isAssociatedWithAnotherModule(module) }
       else -> allPythonSdksInEdit
     }
-    visiblePythonSdks.forEach(::addSdkNode)
+    // One progress for the whole list, because a row states whether its interpreter is usable and only the interpreter
+    // can answer that. Before PY-91967 every row probed the file system while it was being painted, under a modal
+    // progress of its own.
+    val items = interpreterItems(visiblePythonSdks)
+    visiblePythonSdks.zip(items).forEach { (sdk, item) -> addSdkNode(sdk, item) }
 
     super.reset()
   }
 
+  /** These SDKs as the tree holds them. Runs each interpreter, so it is done under a progress rather than on the EDT. */
+  private fun interpreterItems(sdks: List<Sdk>): List<PyInterpreterItem> =
+    runWithModalProgressBlocking(ModalTaskOwner.component(myTree), PyBundle.message("python.interpreters.reading.interpreters.progress")) {
+      sdks.pyInterpreterItems()
+    }
+
   /**
    * Suits for incremental addition [sdk] to the tree: it preserves a selection and inserts the provided [sdk] to the proper place.
    */
-  private fun addSdkNode(sdk: Sdk) {
-    addNode(MyNode(PythonInterpreterDetailsConfigurable(project, module, sdk, parentConfigurable)), myRoot)
+  private fun addSdkNode(sdk: Sdk, item: PyInterpreterItem) {
+    addNode(MyNode(PythonInterpreterDetailsConfigurable(project, module, sdk, item, parentConfigurable)), myRoot)
   }
 
   private fun addSdkNodeAndSelect(sdk: Sdk) {
-    addSdkNode(sdk)
+    addSdkNode(sdk, interpreterItems(listOf(sdk)).single())
     selectNodeInTree(sdk)
   }
 
@@ -150,6 +169,11 @@ internal class PythonInterpreterMasterDetails(private val moduleOrProject: Modul
     // Do not use `projectSdksModel.isModified` flag solely to optimize the method, because `isModified` remains `false` in case of
     // non-structural changes (f.e. if a JDK has been changed)
     projectSdksModel.apply(this)
+  }
+
+  override fun disposeUIResources() {
+    super.disposeUIResources()
+    projectSdksModel.disposeUIResources()
   }
 
   override fun createActions(fromPopup: Boolean): List<AnAction> =
@@ -275,7 +299,8 @@ internal class PythonInterpreterMasterDetails(private val moduleOrProject: Modul
     override fun setSelected(e: AnActionEvent, state: Boolean) {
       if (hideOtherProjectVirtualenvs && !state) {
         // reveal other virtualenvs
-        allPythonSdksInEdit.filter { it.isAssociatedWithAnotherModule(module) }.forEach(::addSdkNode)
+        val revealed = allPythonSdksInEdit.filter { it.isAssociatedWithAnotherModule(module) }
+        revealed.zip(interpreterItems(revealed)).forEach { (sdk, item) -> addSdkNode(sdk, item) }
       }
       else if (!hideOtherProjectVirtualenvs && state) {
         // hide other virtualenvs

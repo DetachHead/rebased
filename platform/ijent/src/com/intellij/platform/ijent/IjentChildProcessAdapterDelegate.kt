@@ -31,29 +31,27 @@ internal class IjentChildProcessAdapterDelegate(
   val errorStream: InputStream = ijentChildProcess.stderr.consumeAsInputStream(coroutineScope.coroutineContext)
 
   @Throws(InterruptedException::class)
-  fun waitFor(): Int =
-    runBlockingInContext {
+  fun waitFor(): Int = runBlockingInContext {
+    try {
+      ijentChildProcess.exitCode.await()
+    }
+    catch (err: SafeDeferred.DeferredException) {
+      throw IOException("Can't wait for the process", err)
+    }
+  }
+
+  @Throws(InterruptedException::class)
+  fun waitFor(timeout: Long, unit: TimeUnit): Boolean = runBlockingInContext {
+    withTimeoutOrNull(unit.toMillis(timeout).milliseconds) {
       try {
         ijentChildProcess.exitCode.await()
       }
       catch (err: SafeDeferred.DeferredException) {
         throw IOException("Can't wait for the process", err)
       }
-    }
-
-  @Throws(InterruptedException::class)
-  fun waitFor(timeout: Long, unit: TimeUnit): Boolean =
-    runBlockingInContext {
-      withTimeoutOrNull(unit.toMillis(timeout).milliseconds) {
-        try {
-          ijentChildProcess.exitCode.await()
-        }
-        catch (err: SafeDeferred.DeferredException) {
-          throw IOException("Can't wait for the process", err)
-        }
-        true
-      } == true
-    }
+      true
+    } == true
+  }
 
   fun destroyForcibly() {
     coroutineScope.launch {
@@ -61,24 +59,19 @@ internal class IjentChildProcessAdapterDelegate(
     }
   }
 
-  fun isAlive(): Boolean =
-    when (ijentChildProcess.exitCode.state) {
-      SafeDeferred.State.Active -> true
-      is SafeDeferred.State.Canceled, is SafeDeferred.State.Completed<*>, is SafeDeferred.State.Failed -> false
-    }
+  fun isAlive(): Boolean = when (ijentChildProcess.exitCode.state) {
+    SafeDeferred.State.Active -> true
+    is SafeDeferred.State.Canceled, is SafeDeferred.State.Completed<*>, is SafeDeferred.State.Failed -> false
+  }
 
   fun onExit(): CompletableFuture<Any?> =
-    @Suppress("UNCHECKED_CAST")
-    (ijentChildProcess.exitCode.asCompletableFuture() as CompletableFuture<Any?>)
+    @Suppress("UNCHECKED_CAST") (ijentChildProcess.exitCode.asCompletableFuture() as CompletableFuture<Any?>)
 
-  fun exitValue(): Int =
-    when (val s = ijentChildProcess.exitCode.state) {
-      is SafeDeferred.State.Completed ->
-        s.value
+  fun exitValue(): Int = when (val s = ijentChildProcess.exitCode.state) {
+    is SafeDeferred.State.Completed -> s.value
 
-      SafeDeferred.State.Active, is SafeDeferred.State.Canceled, is SafeDeferred.State.Failed ->
-        throw IllegalThreadStateException()
-    }
+    SafeDeferred.State.Active, is SafeDeferred.State.Canceled, is SafeDeferred.State.Failed -> throw IllegalThreadStateException()
+  }
 
   fun destroy() {
     coroutineScope.launch {
@@ -90,11 +83,10 @@ internal class IjentChildProcessAdapterDelegate(
   }
 
   @Throws(InterruptedException::class)
-  fun <T> runBlockingInContext(body: suspend () -> T): T =
-    @Suppress("SSBasedInspection") runBlocking(coroutineScope.coroutineContext) {
-      IjentThreadPool.checkCurrentThreadIsInPool()
-      body()
-    }
+  fun <T> runBlockingInContext(body: suspend () -> T): T = @Suppress("SSBasedInspection") runBlocking(coroutineScope.coroutineContext) {
+    IjentThreadPool.checkCurrentThreadIsInPool()
+    body()
+  }
 
   @OptIn(DelicateCoroutinesApi::class)
   fun tryDestroyGracefully(): Boolean {
@@ -104,9 +96,8 @@ internal class IjentChildProcessAdapterDelegate(
     return true
   }
 
-  fun supportsNormalTermination(): Boolean =
-    when (ijentChildProcess) {
-      is EelPosixProcess -> true
-      is EelWindowsProcess -> false
-    }
+  fun supportsNormalTermination(): Boolean = when (ijentChildProcess) {
+    is EelPosixProcess -> true
+    is EelWindowsProcess -> false
+  }
 }

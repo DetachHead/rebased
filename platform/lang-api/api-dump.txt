@@ -89,6 +89,7 @@ com.intellij.build.eventBuilders.FinishEventBuilder
 com.intellij.build.eventBuilders.MessageEventBuilder
 - a:build():com.intellij.build.events.MessageEvent
 - a:withDescription(java.lang.String):com.intellij.build.eventBuilders.MessageEventBuilder
+- a:withFilePosition(com.intellij.build.FilePosition):com.intellij.build.eventBuilders.MessageEventBuilder
 - a:withGroup(java.lang.String):com.intellij.build.eventBuilders.MessageEventBuilder
 - a:withHint(java.lang.String):com.intellij.build.eventBuilders.MessageEventBuilder
 - a:withId(java.lang.Object):com.intellij.build.eventBuilders.MessageEventBuilder
@@ -214,6 +215,10 @@ com.intellij.build.output.BuildOutputInstantReader
 - a:pushBack():V
 - a:pushBack(I):V
 - a:readLine():java.lang.String
+com.intellij.build.output.BuildOutputMulticaster
+- sf:Companion:com.intellij.build.output.BuildOutputMulticaster$Companion
+- a:notifyBuildEvent(com.intellij.build.events.BuildEvent):V
+f:com.intellij.build.output.BuildOutputMulticaster$Companion
 com.intellij.build.output.BuildOutputParser
 - a:parse(java.lang.String,com.intellij.build.output.BuildOutputInstantReader,java.util.function.Consumer):Z
 a:com.intellij.build.process.BuildProcessHandler
@@ -1116,8 +1121,6 @@ com.intellij.ide.actions.searcheverywhere.SearchEverywhereContributor
 com.intellij.ide.actions.searcheverywhere.SearchEverywhereContributorFactory
 - a:createContributor(com.intellij.openapi.actionSystem.AnActionEvent):com.intellij.ide.actions.searcheverywhere.SearchEverywhereContributor
 - isAvailable(com.intellij.openapi.project.Project):Z
-com.intellij.ide.actions.searcheverywhere.SearchFieldActionsContributor
-- a:createRightActions(kotlin.jvm.functions.Function1,java.lang.Runnable):java.util.List
 com.intellij.ide.actions.searcheverywhere.WeightedSearchEverywhereContributor
 - com.intellij.ide.actions.searcheverywhere.SearchEverywhereContributor
 - fetchElements(java.lang.String,com.intellij.openapi.progress.ProgressIndicator,com.intellij.util.Processor):V
@@ -1591,6 +1594,7 @@ com.intellij.navigation.ChooseByNameContributor
 - sf:SYMBOL_EP_NAME:com.intellij.openapi.extensions.ExtensionPointName
 - a:getItemsByName(java.lang.String,java.lang.String,com.intellij.openapi.project.Project,Z):com.intellij.navigation.NavigationItem[]
 - a:getNames(com.intellij.openapi.project.Project,Z):java.lang.String[]
+- isAvailableNow(com.intellij.openapi.project.Project):Z
 f:com.intellij.navigation.ChooseByNameRegistry
 - getClassModelContributorList():java.util.List
 - getClassModelContributors():com.intellij.navigation.ChooseByNameContributor[]

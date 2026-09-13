@@ -3,13 +3,16 @@ package com.intellij.terminal.tests.runner
 
 import com.intellij.execution.Platform
 import com.intellij.execution.configuration.EnvironmentVariablesData
+import com.intellij.ide.trustedProjects.TrustedProjects
 import com.intellij.idea.TestFor
+import com.intellij.openapi.components.PathMacroManager
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.util.registry.Registry
 import com.intellij.openapi.vfs.impl.wsl.WslConstants
+import com.intellij.testFramework.TrustedProjectsTestUtil
+import com.intellij.testFramework.common.withEnvVars
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
 import com.intellij.testFramework.utils.io.deleteRecursively
-import com.intellij.util.EnvironmentUtil
 import com.intellij.util.containers.CollectionFactory
 import com.intellij.util.system.LowLevelLocalMachineAccess
 import com.intellij.util.system.OS
@@ -94,8 +97,8 @@ internal class LocalOptionsConfigurerTest : BasePlatformTestCase() {
   }
 
   fun testBashDefaults() {
-    TerminalProjectOptionsProvider.getInstance(project).startingDirectory = tempDirectory.pathString
-    TerminalProjectOptionsProvider.getInstance(project).shellPath = "/bin/bash"
+    setDefaultStartingDirectory(tempDirectory.pathString)
+    setDefaultShellPath("/bin/bash")
 
     val actual = LocalOptionsConfigurer.configureStartupOptions(
       ShellStartupOptions.Builder()
@@ -118,17 +121,18 @@ internal class LocalOptionsConfigurerTest : BasePlatformTestCase() {
 
     val probeName = "TERMINAL_MINIMAL_ENV_PROBE_${System.nanoTime()}"
     assertThat(System.getenv()).doesNotContainKey(probeName)
-    setEnvironmentMapForTest(EnvironmentUtil.getEnvironmentMap() + (probeName to "DEFAULT_ENV_VALUE"))
+    withEnvVars(probeName to "DEFAULT_ENV_VALUE") {
 
-    val actual = LocalOptionsConfigurer.configureStartupOptions(
-      ShellStartupOptions.Builder()
-        .shellCommand(listOf("some-shell"))
-        .processType(TerminalProcessType.SHELL)
-        .build(),
-      project
-    )
+      val actual = LocalOptionsConfigurer.configureStartupOptions(
+        ShellStartupOptions.Builder()
+          .shellCommand(listOf("some-shell"))
+          .processType(TerminalProcessType.SHELL)
+          .build(),
+        project
+      )
 
-    assertThat(actual.envVariables).doesNotContainKey(probeName)
+      assertThat(actual.envVariables).doesNotContainKey(probeName)
+    }
   }
 
   fun testNonShellTerminalProcessTypeUsesEnvironmentMap() {
@@ -137,17 +141,17 @@ internal class LocalOptionsConfigurerTest : BasePlatformTestCase() {
     val probeName = "TERMINAL_DEFAULT_ENV_PROBE_${System.nanoTime()}"
     val probeValue = "DEFAULT_ENV_VALUE"
     assertThat(System.getenv()).doesNotContainKey(probeName)
-    setEnvironmentMapForTest(EnvironmentUtil.getEnvironmentMap() + (probeName to probeValue))
+    withEnvVars(probeName to probeValue) {
+      val actual = LocalOptionsConfigurer.configureStartupOptions(
+        ShellStartupOptions.Builder()
+          .shellCommand(listOf("non-shell"))
+          .processType(TerminalProcessType.NON_SHELL)
+          .build(),
+        project
+      )
 
-    val actual = LocalOptionsConfigurer.configureStartupOptions(
-      ShellStartupOptions.Builder()
-        .shellCommand(listOf("non-shell"))
-        .processType(TerminalProcessType.NON_SHELL)
-        .build(),
-      project
-    )
-
-    assertEquals(probeValue, actual.envVariables[probeName])
+      assertEquals(probeValue, actual.envVariables[probeName])
+    }
   }
 
   fun testEnvVariableIsAddedToResultingEnv() {
@@ -169,18 +173,56 @@ internal class LocalOptionsConfigurerTest : BasePlatformTestCase() {
 
     val probeName = "TERMINAL_ENV_OVERRIDE_PROBE_${System.nanoTime()}"
     assertThat(System.getenv()).doesNotContainKey(probeName)
-    setEnvironmentMapForTest(EnvironmentUtil.getEnvironmentMap() + (probeName to "BASE_VALUE"))
+    withEnvVars(probeName to "BASE_VALUE") {
+
+      val actual = LocalOptionsConfigurer.configureStartupOptions(
+        ShellStartupOptions.Builder()
+          .shellCommand(listOf("non-shell"))
+          .processType(TerminalProcessType.NON_SHELL)
+          .envVariables(mapOf(probeName to "OVERRIDE_VALUE"))
+          .build(),
+        project
+      )
+
+      assertThat(actual.envVariables).containsEntry(probeName, "OVERRIDE_VALUE")
+    }
+  }
+
+  fun testUserDefinedEnvValueIsMacroExpanded() {
+    setDefaultStartingDirectory(tempDirectory.pathString)
+    setEnvDataForTest(EnvironmentVariablesData.create(mapOf("MY_ENV_WITH_MACRO" to $$"$PROJECT_DIR$/sub"), true))
 
     val actual = LocalOptionsConfigurer.configureStartupOptions(
       ShellStartupOptions.Builder()
-        .shellCommand(listOf("non-shell"))
-        .processType(TerminalProcessType.NON_SHELL)
-        .envVariables(mapOf(probeName to "OVERRIDE_VALUE"))
+        .shellCommand(listOf("some-shell"))
         .build(),
       project
     )
 
-    assertThat(actual.envVariables).containsEntry(probeName, "OVERRIDE_VALUE")
+    val expanded = PathMacroManager.getInstance(project).expandPath($$"$PROJECT_DIR$/sub")
+    assertThat(expanded).doesNotContain("PROJECT_DIR")
+    assertThat(actual.envVariables).containsEntry("MY_ENV_WITH_MACRO", expanded)
+  }
+
+  fun testUserDefinedEnvsNotPassedForUntrustedProject() {
+    setDefaultStartingDirectory(tempDirectory.pathString)
+    setEnvDataForTest(EnvironmentVariablesData.create(mapOf("MY_UNTRUSTED_ENV" to "value"), true))
+    TrustedProjectsTestUtil.withTrustedProjectsCheckEnabled {
+      TrustedProjects.setProjectTrusted(project, false)
+      try {
+        val actual = LocalOptionsConfigurer.configureStartupOptions(
+          ShellStartupOptions.Builder()
+            .shellCommand(listOf("some-shell"))
+            .build(),
+          project
+        )
+        assertThat(actual.envVariables).doesNotContainKey("MY_UNTRUSTED_ENV")
+      }
+      finally {
+        // the light project is shared between tests, and the explicit trusted state is application-level
+        TrustedProjects.setProjectTrusted(project, true)
+      }
+    }
   }
 
   fun testPlatformEnvVariablesCannotBeOverridden() {
@@ -361,11 +403,13 @@ internal class LocalOptionsConfigurerTest : BasePlatformTestCase() {
     }
   }
 
-  private fun setEnvironmentMapForTest(environmentMap: Map<String, String>) {
-    val previous = EnvironmentUtil.getEnvironmentMap()
-    EnvironmentUtil.setEnvironmentLoader { environmentMap }
+  private fun setEnvDataForTest(envData: EnvironmentVariablesData) {
+    val provider = TerminalProjectOptionsProvider.getInstance(project)
+    val prevValue = provider.getEnvData()
+    provider.setEnvData(envData)
     Disposer.register(testRootDisposable) {
-      EnvironmentUtil.setEnvironmentLoader { previous }
+      provider.setEnvData(prevValue)
     }
   }
+
 }

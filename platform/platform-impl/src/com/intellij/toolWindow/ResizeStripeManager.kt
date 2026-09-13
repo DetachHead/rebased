@@ -12,15 +12,16 @@ import com.intellij.openapi.ui.Splittable
 import com.intellij.openapi.wm.ToolWindowAnchor
 import com.intellij.openapi.wm.ex.ToolWindowManagerEx
 import com.intellij.openapi.wm.impl.SquareStripeButton
+import com.intellij.toolWindow.extendedToolWindowsUi.ToolWindowStripeExtension
 import com.intellij.ui.PopupHandler
 import com.intellij.util.ui.JBUI
+import org.jetbrains.annotations.ApiStatus
 import java.awt.BorderLayout
 import java.awt.Component
 import java.awt.Container
 import java.awt.Dimension
 import java.awt.Graphics
 import java.awt.event.MouseEvent
-import org.jetbrains.annotations.ApiStatus
 
 /**
  * @author Alexander Lobas
@@ -46,17 +47,17 @@ class ResizeStripeManager(private val myComponent: ToolWindowToolbar) : Splittab
   private var myCurrentScale = 0f
 
   init {
-    myComponent.addMouseListener(object : PopupHandler() {
-      override fun invokePopup(component: Component, x: Int, y: Int) {
-        if (enabled()) {
+    if (!ToolWindowStripeExtension.exists) {
+      myComponent.addMouseListener(object : PopupHandler() {
+        override fun invokePopup(component: Component, x: Int, y: Int) {
           val action = ActionManager.getInstance().getAction("ToolWindowShowNamesAction")!!
           val group = object : ActionGroup() {
             override fun getChildren(e: AnActionEvent?) = arrayOf(action)
           }
           showPopup(group, component, x, y)
         }
-      }
-    })
+      })
+    }
   }
 
   fun createLayout(): BorderLayout {
@@ -87,8 +88,8 @@ class ResizeStripeManager(private val myComponent: ToolWindowToolbar) : Splittab
 
   fun updateState(toolbar: ToolWindowToolbar?) {
     if (toolbar == null) {
-      val enabled = isShowNames()
-      if (enabled) {
+      val stripeResizable = isStripeResizable()
+      if (stripeResizable) {
         myCustomWidth = getSideCustomWidth(myComponent.anchor)
         myCurrentScale = UISettings.getInstance().currentIdeScale
         myComponent.add(mySplitter)
@@ -97,7 +98,7 @@ class ResizeStripeManager(private val myComponent: ToolWindowToolbar) : Splittab
         myCustomWidth = 0
         myComponent.remove(mySplitter)
       }
-      mySplitter.setResizeEnabled(enabled)
+      mySplitter.setResizeEnabled(stripeResizable)
     }
     else if (toolbar === myComponent || toolbar.anchor != myComponent.anchor) {
       return
@@ -203,15 +204,12 @@ class ResizeStripeManager(private val myComponent: ToolWindowToolbar) : Splittab
 
   @ApiStatus.Internal
   companion object {
-    fun enabled(): Boolean {
-      return true
-    }
 
-    fun isShowNames(): Boolean = enabled() && UISettings.getInstance().showToolWindowsNames
+    fun isShowNames(): Boolean = UISettings.getInstance().showToolWindowsNames
 
-    fun setShowNames(value: Boolean) {
-      UISettings.getInstance().showToolWindowsNames = value
-      applyShowNames()
+    private fun isStripeResizable(): Boolean {
+      val extension = ToolWindowStripeExtension.getInstance() ?: return isShowNames()
+      return extension.isStripeResizable()
     }
 
     fun applyShowNames() {

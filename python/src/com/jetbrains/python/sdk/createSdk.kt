@@ -30,8 +30,6 @@ import com.jetbrains.python.target.ui.TargetPanelExtension
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.jetbrains.annotations.ApiStatus
-import java.nio.file.InvalidPathException
-import kotlin.io.path.Path
 
 // Those are tools to create SDK
 // As PyCharm developer, do not call `addSdk` directly: use these tools only.
@@ -41,8 +39,7 @@ import kotlin.io.path.Path
  * Request to create a sdk either eel or target-based.
  * Once created, call [createSdk]
  */
-@ApiStatus.Internal
-sealed interface SdkCreationRequest<P, D : SdkAdditionalData> {
+internal sealed interface SdkCreationRequest<P, D : SdkAdditionalData> {
   val path: P
   val data: D
 
@@ -79,7 +76,8 @@ suspend fun createSdk(
   sdkAdditionalData: PythonSdkAdditionalData,
   suggestedSdkName: String? = null,
   advancedOpts: SdkCreationAdvancedOpts = SdkCreationAdvancedOpts.DEFAULT,
-): Result<Sdk, MessageError> = createSdkImpl(SdkCreationRequest.EelSdk(pythonBinaryPath.path, sdkAdditionalData), suggestedSdkName, advancedOpts)
+): Result<Sdk, MessageError> =
+  createSdkImpl(SdkCreationRequest.EelSdk(pythonBinaryPath.path, sdkAdditionalData), suggestedSdkName, advancedOpts)
 
 /**
  * Kinda low-level API to create SDK. Use [com.jetbrains.python.sdk.add.v2.FileSystem.setupSdk] if possible.
@@ -96,8 +94,7 @@ suspend fun createSdk(
 /**
  * Please use [com.jetbrains.python.sdk.add.v2.FileSystem.setupSdk] instead
  */
-@ApiStatus.Internal
-suspend fun SdkCreationRequest<*, *>.createSdk(
+internal suspend fun SdkCreationRequest<*, *>.createSdk(
   suggestedSdkName: String? = null,
   advancedOpts: SdkCreationAdvancedOpts = SdkCreationAdvancedOpts.DEFAULT,
 ): Result<Sdk, MessageError> = createSdkImpl(this, suggestedSdkName, advancedOpts)
@@ -111,9 +108,13 @@ suspend fun SdkCreationRequest<*, *>.createSdk(
 suspend fun createLocalSdkGuessingTypeByPath(
   homePath: PythonBinary,
   moduleOrProject: ModuleOrProject,
-  suggestedSdkName: String? = null
+  suggestedSdkName: String? = null,
 ): PyResult<Sdk> =
-  createSdkGuessingTypeByPath(PathHolder.Eel(homePath), EelFileSystem(homePath.getEelDescriptor().toEelApi()), moduleOrProject, null, true, suggestedSdkName)
+  createSdkGuessingTypeByPath(PathHolder.Eel(homePath),
+                              EelFileSystem(homePath.getEelDescriptor().toEelApi()),
+                              moduleOrProject,
+                              null,
+                              suggestedSdkName)
 
 
 /**
@@ -124,8 +125,7 @@ internal suspend fun <P : PathHolder> createSdkGuessingTypeByPath(
   fileSystem: FileSystem<P>,
   moduleOrProject: ModuleOrProject,
   targetPanelExtension: TargetPanelExtension?,
-  isAssociateWithModule: Boolean,
-  suggestedSdkName: String? = null
+  suggestedSdkName: String? = null,
 ): PyResult<Sdk> {
   val flavorAndData = when (homePath) {
     is PathHolder.Eel -> withContext(Dispatchers.IO) {
@@ -144,17 +144,22 @@ internal suspend fun <P : PathHolder> createSdkGuessingTypeByPath(
     is PathHolder.Target -> PyFlavorAndData(PyFlavorData.Empty, UnixPythonSdkFlavor.getInstance())
   }
 
+  val workingDirectory = moduleOrProject.workingDirectory
+                         ?: return PyResult.localizedError(PyBundle.message("python.sdk.project.working.directory.not.found"))
 
   val newSdk = fileSystem.setupSdk(
     project = moduleOrProject.project,
     pythonBinaryPath = homePath,
-    sdkAdditionalData = PythonSdkAdditionalData(flavorAndData),
+    sdkAdditionalData = PythonSdkAdditionalData(
+      flavorAndData,
+      workingDirectory,
+    ),
     targetPanelExtension = targetPanelExtension,
     suggestedSdkName = suggestedSdkName
   ).getOr { return it }
 
   val module = PyProjectCreateHelpers.getModule(moduleOrProject, newSdk.homeDirectory)
-  if (isAssociateWithModule && module != null) {
+  if (module != null) {
     newSdk.setAssociationToModule(module)
   }
 
@@ -176,20 +181,14 @@ private suspend fun createSdkImpl(
       val sdkAdditionalData = request.data
       val pythonBinaryPath = request.path
 
-      // for remote sdks we can't distinguish target environment configurations (docker the worst case)
-      existingSdks.find {
-
-        // Paths can't be compared as strings as c:\windows != c:/Windows, so we convert then to NIO Paths.
-        val homePath = try {
-          it.homePath?.let { home -> Path(home) }
+      // A usual interpreter has one SDK, and it may exist already. A remote one never reuses an SDK. Its path names
+      // a file on a machine that the path does not identify. So two remote SDKs can share a path and still be
+      // different interpreters. Docker is the worst case.
+      if (sdkAdditionalData !is PyRemoteSdkAdditionalDataMarker) {
+        val reused = findSdkToAdopt(pythonBinaryPath, existingSdks) {
+          suggestedSdkName ?: sdkType.suggestSdkName(null, pythonBinaryPath.toString())
         }
-        catch (_: InvalidPathException) {
-          null
-        }
-
-        it.sdkAdditionalData?.javaClass == sdkAdditionalData.javaClass && homePath == pythonBinaryPath
-      }?.let {
-        return PyResult.success(it)
+        if (reused != null) return PyResult.success(reused.adoptData(sdkAdditionalData))
       }
 
       val pythonBinaryVirtualFile = withContext(Dispatchers.IO) {
@@ -222,6 +221,44 @@ private suspend fun createSdkImpl(
     sdkType.setupSdkPaths(sdk)
   }
   return Result.success(sdk)
+}
+
+/**
+ * The usual SDK that already stands for the interpreter at [pythonBinaryPath], or `null` when none does. A usual SDK is
+ * one whose data carries no [PyRemoteSdkAdditionalDataMarker].
+ *
+ * The IDE keeps one usual SDK for each interpreter, not one for each interpreter and tool. A `.venv` that poetry
+ * created, and uv then adopted, is one environment. A second SDK for it reads as a second interpreter in every list the
+ * IDE shows. A remote SDK is never a candidate, because its path does not say which machine holds the file. Two remote
+ * SDKs can share a path and still be different interpreters.
+ *
+ * Older builds also keyed on the tool, so one path can carry several SDKs already. The SDK named [preferredName] wins,
+ * because that is the name a new SDK gets here. If no SDK has that name, the first one wins, so the answer is stable.
+ * [preferredName] is read only when there is more than one candidate, because it reads the file system.
+ */
+private fun findSdkToAdopt(pythonBinaryPath: PythonBinary, existingSdks: List<Sdk>, preferredName: () -> String): Sdk? {
+  // Compared as paths, not as strings, because `c:\windows` and `c:/Windows` name one file.
+  val candidates = existingSdks.filter {
+    it.sdkAdditionalData !is PyRemoteSdkAdditionalDataMarker && it.pythonBinaryPath().successOrNull == pythonBinaryPath
+  }
+  if (candidates.size < 2) return candidates.firstOrNull()
+  val name = preferredName()
+  return candidates.firstOrNull { it.name == name } ?: candidates.first()
+}
+
+/**
+ * Points this SDK at [data] and returns it. The SDK keeps the name it has.
+ *
+ * The name is how the user refers to this interpreter, in each run configuration and in every list the IDE shows. The
+ * environment it names has not moved. Only what the IDE records about that environment changes: the tool that manages
+ * it now, and that tool's own data.
+ */
+private suspend fun Sdk.adoptData(data: PythonSdkAdditionalData): Sdk = apply {
+  edtWriteAction {
+    val modificator = sdkModificator
+    modificator.sdkAdditionalData = data
+    modificator.commitChanges()
+  }
 }
 
 @RequiresWriteLock

@@ -24,16 +24,18 @@ import com.intellij.util.Alarm
 import com.intellij.util.ui.JBUI
 import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.kotlin.analysis.api.KaExperimentalApi
-import org.jetbrains.kotlin.analysis.api.KaIdeApi
 import org.jetbrains.kotlin.analysis.api.KaSession
-import org.jetbrains.kotlin.analysis.api.analyze
-import org.jetbrains.kotlin.analysis.api.components.KaCompilationOptionsBuilder
-import org.jetbrains.kotlin.analysis.api.components.KaCompilationResult
-import org.jetbrains.kotlin.analysis.api.components.KaCompilationTarget
-import org.jetbrains.kotlin.analysis.api.components.KaCompiledFile
-import org.jetbrains.kotlin.analysis.api.components.isClassFile
+import org.jetbrains.kotlin.analysis.api.compilation.KaCompilationOptions
+import org.jetbrains.kotlin.analysis.api.compilation.KaCompilationOptionsBuilder
+import org.jetbrains.kotlin.analysis.api.compilation.KaCompilationResult
+import org.jetbrains.kotlin.analysis.api.compilation.KaCompilationTarget
+import org.jetbrains.kotlin.analysis.api.compilation.KaCompiledFile
+import org.jetbrains.kotlin.analysis.api.compilation.compile
+import org.jetbrains.kotlin.analysis.api.compilation.createCompilationOptions
+import org.jetbrains.kotlin.analysis.api.compilation.isClassFile
 import org.jetbrains.kotlin.analysis.api.diagnostics.KaDiagnosticWithPsi
 import org.jetbrains.kotlin.analysis.api.projectStructure.KaJvmTarget
+import org.jetbrains.kotlin.analysis.api.session.analyze
 import org.jetbrains.kotlin.config.JvmTarget
 import org.jetbrains.kotlin.idea.base.codeInsight.compiler.KotlinCompilerIdeAllowedErrorFilter
 import org.jetbrains.kotlin.idea.base.projectStructure.RootKindFilter
@@ -114,7 +116,6 @@ class KotlinBytecodeToolWindow(
         override fun processRequest(location: Location): BytecodeGenerationResult {
             val ktFile = location.kFile!!
 
-            @OptIn(KaExperimentalApi::class, KaIdeApi::class)
             return getBytecodeForFile(ktFile, showOffsets = showOffsets.isSelected) {
                 val containingModule = ktFile.module
                 if (containingModule != null) {
@@ -296,7 +297,6 @@ class KotlinBytecodeToolWindow(
                 "No Kotlin source file is opened.\n" +
                 "*/"
 
-        @OptIn(KaExperimentalApi::class)
         fun getBytecodeForFile(
             ktFile: KtFile,
             showOffsets: Boolean,
@@ -386,13 +386,14 @@ class KotlinBytecodeToolWindow(
 
         @KaExperimentalApi
         @ApiStatus.Internal
-        fun KaSession.compileSingleFile(
+        context(session: KaSession)
+        fun compileSingleFile(
             ktFile: KtFile,
             configurator: KaCompilationOptionsBuilder.() -> Unit = {}
         ): Pair<KaCompilationResult, ClassFileOrigins>? {
             val classFileOrigins = mutableMapOf<String, MutableSet<PsiFile>>()
 
-            val options = createCompilationOptions {
+            val options: KaCompilationOptions = createCompilationOptions {
                 target(KaCompilationTarget.JVM)
                 allowedErrorFilter(KotlinCompilerIdeAllowedErrorFilter.getInstance())
 

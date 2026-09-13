@@ -10,6 +10,7 @@ import com.intellij.internal.statistic.eventLog.events.EventFields.StringValidat
 import com.intellij.internal.statistic.eventLog.events.EventFields.Version
 import com.intellij.internal.statistic.service.fus.collectors.ApplicationUsagesCollector
 import com.intellij.util.system.LowLevelLocalMachineAccess
+import com.intellij.util.system.GlibcVersion
 import com.intellij.util.system.OS
 import java.nio.file.Path
 import java.time.OffsetDateTime
@@ -18,9 +19,9 @@ import kotlin.io.path.name
 
 @OptIn(LowLevelLocalMachineAccess::class)
 internal class OsDataCollector : ApplicationUsagesCollector() {
-  private val GROUP = EventLogGroup("system.os", 22)
+  private val GROUP = EventLogGroup("system.os", 23)
 
-  private val OS_NAMES = listOf("Windows", "Mac", "Linux", "FreeBSD", "Other")
+  private val OS_NAMES = listOf("Windows", "Mac", "Linux", "FreeBSD", "HarmonyOS", "Other")
 
   private val LOCALES = listOf(
     "am", "ar", "as", "az", "bn", "cs", "da", "de", "el", "en", "es", "fa", "fr", "gu", "ha", "hi", "hu", "ig", "in", "it", "ja", "kk",
@@ -70,7 +71,7 @@ internal class OsDataCollector : ApplicationUsagesCollector() {
         HAS_GDBUS.with(PathEnvironmentVariableUtil.isOnPath("gdbus")),
         HAS_XDG_OPEN.with(PathEnvironmentVariableUtil.isOnPath("xdg-open")),
       )
-      osInfo.glibcVersion?.let {
+      GlibcVersion.current?.let {
         linuxMetrics.add(GLIBC.with(it))
       }
       metrics += LINUX.metric(*linuxMetrics.toTypedArray())
@@ -86,6 +87,7 @@ internal class OsDataCollector : ApplicationUsagesCollector() {
     OS.macOS -> "Mac"
     OS.Linux -> "Linux"
     OS.FreeBSD -> "FreeBSD"
+    OS.HarmonyOS -> "HarmonyOS"
     OS.Other -> "Other"
   }
 

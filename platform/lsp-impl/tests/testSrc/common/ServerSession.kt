@@ -10,12 +10,18 @@ import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.future.await
+import java.util.concurrent.CompletableFuture
 
 internal suspend fun CoroutineScope.configureServerSession(
   project: Project,
   file: VirtualFile,
 ): ServerSession {
   awaitFileOpenedByLspServer(project, file)
+  return currentServerSession(project)
+}
+
+/** The session of the already started fake server. Use when no local file open can settle the start. */
+internal fun CoroutineScope.currentServerSession(project: Project): ServerSession {
   val servers = LspServerManager.getInstance(project).getServersForProvider(FakeLspServerSupportProvider::class.java)
   val descriptor = servers.first().descriptor as FakeLspServerDescriptor
   return ServerSessionImpl(descriptor, this)
@@ -34,6 +40,17 @@ internal abstract class ServerSession : ServerSessionProtocolScope(), CoroutineS
     method: ClientToServerLspRequest<Params, Response>,
     predicate: (Params) -> Boolean = { true },
     result: (Params) -> Response,
+  ): Deferred<Unit>
+
+  /**
+   * Like [expectRequest], but [result] returns a [CompletableFuture] that the fake server sends back as is.
+   * A test can keep the future pending to delay the response, complete it exceptionally to simulate a server
+   * error, or assert [CompletableFuture.isCancelled] to observe a `$/cancelRequest` from the client.
+   */
+  abstract fun <Params : Any, Response> expectRequestAsync(
+    method: ClientToServerLspRequest<Params, Response>,
+    predicate: (Params) -> Boolean = { true },
+    result: (Params) -> CompletableFuture<Response>,
   ): Deferred<Unit>
 
   abstract suspend fun <Params : Any> awaitNotification(
@@ -94,6 +111,18 @@ private class ServerSessionImpl(
     method: ClientToServerLspRequest<Params, Response>,
     predicate: (Params) -> Boolean,
     result: (Params) -> Response,
+  ): Deferred<Unit> = doExpectRequest(method, predicate, result)
+
+  override fun <Params : Any, Response> expectRequestAsync(
+    method: ClientToServerLspRequest<Params, Response>,
+    predicate: (Params) -> Boolean,
+    result: (Params) -> CompletableFuture<Response>,
+  ): Deferred<Unit> = doExpectRequest(method, predicate, result)
+
+  private fun <Params : Any> doExpectRequest(
+    method: ClientToServerLspRequest<Params, *>,
+    predicate: (Params) -> Boolean,
+    result: (Params) -> Any?,
   ): Deferred<Unit> {
     val deferred = CompletableDeferred<Unit>()
     @Suppress("UNCHECKED_CAST")

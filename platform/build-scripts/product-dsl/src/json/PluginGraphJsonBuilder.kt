@@ -4,9 +4,13 @@ package org.jetbrains.intellij.build.productLayout.json
 import com.intellij.platform.pluginGraph.PluginGraph
 import kotlinx.coroutines.coroutineScope
 import org.jetbrains.intellij.build.productLayout.discovery.ModuleSetGenerationConfig
+import org.jetbrains.intellij.build.productLayout.generator.ContentModuleDependencyPlanner
 import org.jetbrains.intellij.build.productLayout.model.ErrorSink
+import org.jetbrains.intellij.build.productLayout.pipeline.ComputeContextImpl
 import org.jetbrains.intellij.build.productLayout.pipeline.DiscoveryStage
 import org.jetbrains.intellij.build.productLayout.pipeline.ModelBuildingStage
+import org.jetbrains.intellij.build.productLayout.pipeline.NodeIds
+import org.jetbrains.intellij.build.productLayout.pipeline.Slots
 
 suspend fun buildPluginGraphForJson(config: ModuleSetGenerationConfig): PluginGraph {
   return coroutineScope {
@@ -19,7 +23,12 @@ suspend fun buildPluginGraphForJson(config: ModuleSetGenerationConfig): PluginGr
       updateSuppressions = false,
       commitChanges = false,
       errorSink = errorSink,
+      // this path builds a graph for the JSON output, and it reports no timing
+      phaseTimings = ArrayList(),
     )
+    val context = ComputeContextImpl(model)
+    context.initSlot(Slots.CONTENT_MODULE_PLAN)
+    ContentModuleDependencyPlanner.execute(context.forNode(NodeIds.CONTENT_MODULE_DEPS))
     model.pluginGraph
   }
 }

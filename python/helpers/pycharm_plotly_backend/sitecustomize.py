@@ -13,7 +13,7 @@ def debug(message):
 
 
 def init_plotly_render():
-    from datalore.display import display, debug
+    from datalore.display import display
 
     is_python_3_or_higher = sys.version_info[0] >= 3
     if not is_python_3_or_higher:

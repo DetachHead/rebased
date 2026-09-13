@@ -1,8 +1,5 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.execution.process
-
-import com.intellij.execution.process.UnixSignal.Companion.EXIT_CODE_OFFSET
-
 
 /**
  * Signals used by Linux and DarwinBSD (Mac OS X).
@@ -69,7 +66,7 @@ enum class UnixSignal(val darwinCode: Int, val linuxCode: Int) {
      * [isDarwin] (Linux otherwise)
      */
     @JvmStatic
-    fun fromExitCode(isDarwin: Boolean, code: Int): UnixSignal? = UnixSignal.values().firstOrNull { it.asExitCode(isDarwin) == code }
+    fun fromExitCode(isDarwin: Boolean, code: Int): UnixSignal? = entries.firstOrNull { it.asExitCode(isDarwin) == code }
   }
 
   fun getSignalNumber(isDarwin: Boolean): Int = if (isDarwin) darwinCode else linuxCode

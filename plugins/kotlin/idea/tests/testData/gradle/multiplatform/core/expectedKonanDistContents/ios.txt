@@ -141,6 +141,7 @@ Kotlin/Native: Security
 Kotlin/Native: SecurityUI
 Kotlin/Native: SensitiveContentAnalysis
 Kotlin/Native: SensorKit
+Kotlin/Native: ServicesAccountLinking
 Kotlin/Native: SharedWithYou
 Kotlin/Native: SharedWithYouCore
 Kotlin/Native: ShazamKit
@@ -174,3 +175,4 @@ Kotlin/Native: iconv
 Kotlin/Native: objc
 Kotlin/Native: posix
 Kotlin/Native: zlib
+Kotlin/Native: ServicesAccountLinking

@@ -2,7 +2,6 @@
 package com.intellij.platform.debugger.impl.shared.proxy
 
 import com.intellij.openapi.actionSystem.DataKey
-import com.intellij.openapi.editor.markup.GutterDraggableObject
 import com.intellij.openapi.editor.markup.GutterIconRenderer
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.NlsSafe
@@ -31,6 +30,8 @@ interface XBreakpointProxy : Comparable<XBreakpointProxy> {
   fun getIcon(): Icon
   fun isEnabled(): Boolean
   fun setEnabled(enabled: Boolean)
+  fun isTemporary(): Boolean
+  fun setTemporary(isTemporary: Boolean)
   fun getSourcePosition(): XSourcePosition?
   fun getNavigatable(): Navigatable?
   fun canNavigate(): Boolean
@@ -88,13 +89,7 @@ interface XBreakpointProxy : Comparable<XBreakpointProxy> {
 
   fun getCustomizedPresentationForCurrentSession(): CustomizedBreakpointPresentation?
   fun isDisposed(): Boolean
-
-  fun dispose()
-
-  fun createGutterIconRenderer(): GutterIconRenderer?
   fun getGutterIconRenderer(): GutterIconRenderer?
-
-  fun createBreakpointDraggableObject(): GutterDraggableObject?
 
   companion object {
     @JvmField

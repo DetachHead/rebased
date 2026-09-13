@@ -36,11 +36,14 @@
 *:com.intellij.ide.lightEdit.LightEditCompatible
 com.intellij.ide.plugins.DynamicPluginListener
 - *:beforePluginsLoaded():V
+- *:beforePluginsUnloaded():V
 - *:pluginsLoaded():V
+- *:pluginsUnloaded():V
 *e:com.intellij.ide.plugins.IdeaPluginOsRequirement
 - java.lang.Enum
 - *sf:Companion:com.intellij.ide.plugins.IdeaPluginOsRequirement$Companion
 - sf:FreeBSD:com.intellij.ide.plugins.IdeaPluginOsRequirement
+- sf:HarmonyOS:com.intellij.ide.plugins.IdeaPluginOsRequirement
 - sf:Linux:com.intellij.ide.plugins.IdeaPluginOsRequirement
 - sf:Mac:com.intellij.ide.plugins.IdeaPluginOsRequirement
 - sf:Unix:com.intellij.ide.plugins.IdeaPluginOsRequirement
@@ -55,6 +58,7 @@ com.intellij.ide.plugins.DynamicPluginListener
 - s:values():com.intellij.ide.plugins.IdeaPluginOsRequirement[]
 *f:com.intellij.ide.plugins.IdeaPluginOsRequirement$Companion
 - f:fromModuleId(com.intellij.openapi.extensions.PluginId):com.intellij.ide.plugins.IdeaPluginOsRequirement
+- f:fromOs(com.intellij.util.system.OS):com.intellij.ide.plugins.IdeaPluginOsRequirement
 - f:getHostOsModuleIds():java.util.List
 *a:com.intellij.lang.LanguageMatcher
 - s:match(com.intellij.lang.Language):com.intellij.lang.LanguageMatcher
@@ -240,7 +244,14 @@ c:com.intellij.openapi.editor.markup.TextAttributes
 - *:withAdditionalEffect(com.intellij.openapi.editor.markup.EffectType,java.awt.Color):V
 a:com.intellij.openapi.fileEditor.FileDocumentManager
 - com.intellij.openapi.vfs.SavingRequestor
-- *:overrideConflictsSolverEnabled(Z,com.intellij.openapi.Disposable):V
+- *:overrideConflictResolution(com.intellij.openapi.fileEditor.FileDocumentManager$ConflictResolution,com.intellij.openapi.Disposable):V
+*e:com.intellij.openapi.fileEditor.FileDocumentManager$ConflictResolution
+- java.lang.Enum
+- sf:ASK:com.intellij.openapi.fileEditor.FileDocumentManager$ConflictResolution
+- sf:KEEP_MEMORY_CHANGES:com.intellij.openapi.fileEditor.FileDocumentManager$ConflictResolution
+- sf:MERGE:com.intellij.openapi.fileEditor.FileDocumentManager$ConflictResolution
+- s:valueOf(java.lang.String):com.intellij.openapi.fileEditor.FileDocumentManager$ConflictResolution
+- s:values():com.intellij.openapi.fileEditor.FileDocumentManager$ConflictResolution[]
 *:com.intellij.openapi.fileEditor.FileDocumentManagerListenerBackgroundable
 - com.intellij.openapi.fileEditor.FileDocumentManagerListener
 - *sf:Companion:com.intellij.openapi.fileEditor.FileDocumentManagerListenerBackgroundable$Companion
@@ -274,6 +285,10 @@ a:com.intellij.openapi.progress.Task
 - com.intellij.openapi.progress.Progressive
 - com.intellij.openapi.progress.TaskInfo
 - *:getId():java.lang.Object
+f:com.intellij.openapi.progress.util.ProgressIndicatorUtilsCore
+- *sf:awaitWithCheckCanceled(kotlinx.coroutines.Deferred):java.lang.Object
+- *sf:runWithCheckCanceled(kotlin.coroutines.CoroutineContext,kotlin.jvm.functions.Function2):java.lang.Object
+- *bs:runWithCheckCanceled$default(kotlin.coroutines.CoroutineContext,kotlin.jvm.functions.Function2,I,java.lang.Object):java.lang.Object
 f:com.intellij.openapi.project.DumbKt
 - *sf:waitForSmartMode(com.intellij.openapi.project.Project,kotlin.coroutines.Continuation):java.lang.Object
 *:com.intellij.openapi.project.DumbModeListenerBackgroundable
@@ -348,6 +363,7 @@ a:com.intellij.openapi.vfs.VirtualFile
 *:com.intellij.openapi.vfs.VirtualFilePreCloseCheck
 - *sf:Companion:com.intellij.openapi.vfs.VirtualFilePreCloseCheck$Companion
 - a:canCloseFile(com.intellij.openapi.vfs.VirtualFile):Z
+- canCloseFiles(java.util.Collection):Z
 *f:com.intellij.openapi.vfs.VirtualFilePreCloseCheck$Companion
 - f:getEP_NAME():com.intellij.openapi.extensions.ExtensionPointName
 f:com.intellij.openapi.vfs.VirtualFileUtil

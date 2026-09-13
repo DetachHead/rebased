@@ -73,12 +73,9 @@ internal open class MarkdownWrappingFormattingBlock(
     return result
   }
 
-  private fun createWrapForChildren(): Wrap? {
-    val wrapType = when {
-      obtainCustomSettings().WRAP_TEXT_IF_LONG -> WrapType.NORMAL
-      else -> WrapType.NONE
-    }
-    return Wrap.createWrap(wrapType, false)
+  protected fun createWrapForChildren(wrapFirstElement: Boolean = false): Wrap {
+    val wrapType = if (MarkdownBlocks.shouldWrapText(node, settings)) WrapType.NORMAL else WrapType.NONE
+    return Wrap.createWrap(wrapType, wrapFirstElement)
   }
 
   protected open fun processTextElement(result: MutableCollection<Block>, node: ASTNode, wrapping: Wrap?, wrapFirstElement: Boolean) {
@@ -93,9 +90,10 @@ internal open class MarkdownWrappingFormattingBlock(
       // In all of those cases the punctuation shouldn't be wrapped at all.
       // (had to check more than one character for '...'-like punctuation)
       val isPunctuation = split.subSequence(text).all { it.isPunctuation() }
+      val isOrderedListMarker = split.subSequence(text).isOrderedListMarker()
       val isNonWrappingFirstElement = index == 0 && !wrapFirstElement
       val actualWrapping = when {
-        isPunctuation || isNonWrappingFirstElement -> noneWrapping
+        isPunctuation || isOrderedListMarker || isNonWrappingFirstElement -> noneWrapping
         else -> wrapping
       }
       val range = split.shiftRight(shift)
@@ -104,6 +102,10 @@ internal open class MarkdownWrappingFormattingBlock(
     }
   }
 
+}
+
+private fun CharSequence.isOrderedListMarker(): Boolean {
+  return length in 2..10 && (last() == '.' || last() == ')') && dropLast(1).all { it in '0'..'9' }
 }
 
 private fun splitTextForWrapping(text: String): Sequence<TextRange> {

@@ -1,8 +1,16 @@
 load("@community//build:tests-options.bzl", "jps_test")
 load("@rules_jvm//:jvm.bzl", "jvm_library")
 
-### auto-generated section `build intellij.platform.sqlite` start
+jps_test(
+    name = "sqlite-tests_test",
+    timeout = "moderate",
+    tags = ["community-aggregator"],
+    runtime_deps = [":sqlite-tests_test_lib"],
+)
 
+### skip generation section `test intellij.platform.sqlite.tests`
+
+### auto-generated section `build intellij.platform.sqlite` start
 jvm_library(
     name = "sqlite",
     srcs = glob(
@@ -19,7 +27,7 @@ jvm_library(
         ["resources/**/*"],
     ),
     visibility = ["//visibility:public"],
-    runtime_deps = ["@lib//:sqlite-native"],
+    runtime_deps = ["//libraries/sqlite-native"],
     deps = [
         # do not sort,
         "//platform/util",
@@ -40,6 +48,7 @@ jvm_library(
     runtime_deps = [
         # do not sort,
         ":sqlite",
+        "//libraries/sqlite-native:sqlite-native_test_lib",
         "//platform/util:util_test_lib",
         "//platform/util-ex:util-ex_test_lib",
         "//libraries/junit5",
@@ -56,13 +65,14 @@ jvm_library(
 exports_files(
     [
         "intellij.platform.sqlite.iml",
+        "resources/intellij.platform.sqlite.xml",
+        "module-content.yaml",
     ],
     visibility = ["//visibility:public"],
 )
 ### auto-generated section `iml intellij.platform.sqlite` end
 
 ### auto-generated section `build intellij.platform.sqlite.tests` start
-
 jvm_library(
     name = "sqlite-tests",
     srcs = glob(
@@ -71,7 +81,7 @@ jvm_library(
     ),
     module_name = "intellij.platform.sqlite.tests",
     visibility = ["//visibility:public"],
-    runtime_deps = ["@lib//:sqlite-native"],
+    runtime_deps = ["//libraries/sqlite-native"],
 )
 
 jvm_library(
@@ -90,7 +100,11 @@ jvm_library(
         "//platform/sqlite:sqlite_test_lib",
     ],
     visibility = ["//visibility:public"],
-    runtime_deps = [":sqlite-tests"],
+    runtime_deps = [
+        # do not sort,
+        ":sqlite-tests",
+        "//libraries/sqlite-native:sqlite-native_test_lib",
+    ],
     deps = [
         # do not sort,
         "//platform/util",
@@ -116,11 +130,3 @@ exports_files(
     visibility = ["//visibility:public"],
 )
 ### auto-generated section `iml intellij.platform.sqlite.tests` end
-
-### auto-generated section `test intellij.platform.sqlite.tests` start
-
-jps_test(
-    name = "sqlite-tests_test",
-    runtime_deps = [":sqlite-tests_test_lib"],
-)
-### auto-generated section `test intellij.platform.sqlite.tests` end

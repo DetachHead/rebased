@@ -9,6 +9,7 @@ import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.editor.EditorFactory
 import com.intellij.openapi.extensions.ExtensionPointName
 import com.intellij.openapi.project.Project
+import fleet.rpc.client.RpcClientDisconnectedException
 import fleet.util.UID
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -35,11 +36,14 @@ fun Document.bindToBackend(
   service<BackendBasedDocumentCoroutineScopeProvider>().cs.launch(Dispatchers.EDT) {
     val builder = BackendDocumentBindBuilder().apply(builder)
     val backendDocumentIdProvider = builder.backendDocumentIdProvider
-    if (backendDocumentIdProvider != null) {
-      bindToBackend(backendDocumentIdProvider, builder.onBindingDispose)
+    val documentBound = if (backendDocumentIdProvider != null) {
+      bindToBackend(backendDocumentIdProvider, builder.onBindingDispose, builder.bindEditors)
+    }
+    else {
+      true
     }
 
-    if (builder.bindEditors) {
+    if (documentBound && builder.bindEditors && backendDocumentIdProvider == null) {
       // mark the document, so future editors will be bind
       bindEditorsToBackend()
       // bind current editors (since they might be created during backends' documents initialization)
@@ -87,14 +91,18 @@ private fun Document.bindCurrentEditors() {
 private suspend fun Document.bindToBackend(
   backendDocumentIdProvider: suspend (FrontendDocumentId) -> BackendDocumentId?,
   onBindingDispose: (() -> Unit)?,
-) {
+  bindEditors: Boolean,
+): Boolean {
   val frontendDocument = this
   val frontendDocumentId = FrontendDocumentId(UID.random())
   val registry = FrontendDocumentIdRegistry.EP_NAME.extensionList.firstOrNull()
-  registry?.registerFrontendDocumentId(frontendDocumentId, frontendDocument, onBindingDispose)
+  registry?.registerFrontendDocumentId(frontendDocumentId, frontendDocument, onBindingDispose, bindEditors)
   var backendDocumentId: BackendDocumentId? = null
   try {
     backendDocumentId = backendDocumentIdProvider(frontendDocumentId)
+  }
+  catch (_: RpcClientDisconnectedException) {
+    // Binding can race with backend/frontend disconnect; the frontend id is unregistered below.
   }
   finally {
     if (backendDocumentId == null) {
@@ -102,6 +110,7 @@ private suspend fun Document.bindToBackend(
       registry?.unregisterFrontendDocumentId(frontendDocumentId)
     }
   }
+  return backendDocumentId != null
 }
 
 @ApiStatus.Internal
@@ -160,7 +169,12 @@ interface FrontendDocumentIdRegistry {
 
   // TODO: should we deal with session here,
   //  so that it will be registered for session not not app level?
-  fun registerFrontendDocumentId(frontendDocumentId: FrontendDocumentId, frontendDocument: Document, onBindingDispose: (() -> Unit)?)
+  fun registerFrontendDocumentId(
+    frontendDocumentId: FrontendDocumentId,
+    frontendDocument: Document,
+    onBindingDispose: (() -> Unit)?,
+    bindEditors: Boolean,
+  )
 
   fun unregisterFrontendDocumentId(frontendDocumentId: FrontendDocumentId)
 }

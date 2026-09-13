@@ -9,10 +9,12 @@ import com.intellij.modcommand.ModPsiUpdater
 import com.intellij.modcommand.Presentation
 import com.intellij.openapi.util.TextRange
 import com.intellij.psi.util.startOffset
-import org.jetbrains.kotlin.analysis.api.KaExperimentalApi
 import org.jetbrains.kotlin.analysis.api.KaSession
-import org.jetbrains.kotlin.analysis.api.analyze
+import org.jetbrains.kotlin.analysis.api.expressions.expressionType
+import org.jetbrains.kotlin.analysis.api.expressions.isUsedAsExpression
+import org.jetbrains.kotlin.analysis.api.renderer.render
 import org.jetbrains.kotlin.analysis.api.renderer.types.impl.KaTypeRendererForSource
+import org.jetbrains.kotlin.analysis.api.session.analyze
 import org.jetbrains.kotlin.analysis.api.types.KaClassType
 import org.jetbrains.kotlin.idea.base.codeInsight.KotlinDeclarationNameValidator
 import org.jetbrains.kotlin.idea.base.codeInsight.KotlinNameSuggester
@@ -86,19 +88,17 @@ internal class IterateExpressionIntention : KotlinApplicableModCommandAction<KtE
         }
     }
 
-    override fun KaSession.prepareContext(element: KtExpression): Unit? {
+    context(session: KaSession)
+    override fun prepareContext(element: KtExpression): Unit? {
         if (element.parent !is KtBlockExpression) return null
 
-        return analyze(element) {
-            val expressionType = element.expressionType as? KaClassType ?: return null
-            if (element.isUsedAsExpression || !canBeIterated(expressionType)) return null
-            Unit
-        }
+        val expressionType = element.expressionType as? KaClassType ?: return null
+        if (element.isUsedAsExpression || !canBeIterated(expressionType)) return null
+        return Unit
     }
 
     override fun getFamilyName(): @IntentionFamilyName String = KotlinBundle.message("iterate.over.collection")
 
-    @OptIn(KaExperimentalApi::class)
     override fun getActionPresentation(
         context: ActionContext,
         element: KtExpression,

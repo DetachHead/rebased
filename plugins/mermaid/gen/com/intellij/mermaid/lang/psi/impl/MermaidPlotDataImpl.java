@@ -27,4 +27,10 @@ public class MermaidPlotDataImpl extends ASTWrapperPsiElement implements Mermaid
     else super.accept(visitor);
   }
 
+  @Override
+  @NotNull
+  public List<MermaidPlotPoint> getPlotPointList() {
+    return PsiTreeUtil.getChildrenOfTypeAsList(this, MermaidPlotPoint.class);
+  }
+
 }

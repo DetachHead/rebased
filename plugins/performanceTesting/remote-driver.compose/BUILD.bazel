@@ -1,8 +1,7 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
-load("//build:compiler-options.bzl", "create_kotlinc_options")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
 ### auto-generated section `build intellij.performanceTesting.remoteDriver.compose` start
-
 jvm_library(
     name = "remote-driver.compose",
     srcs = glob(
@@ -32,6 +31,8 @@ jvm_library(
     ],
 )
 
+content_module_jar(module = ":remote-driver.compose")
+
 jvm_library(
     name = "remote-driver.compose_test_lib",
     testonly = True,
@@ -59,6 +60,7 @@ jvm_library(
 exports_files(
     [
         "intellij.performanceTesting.remoteDriver.compose.iml",
+        "resources/intellij.performanceTesting.remoteDriver.compose.xml",
     ],
     visibility = ["//visibility:public"],
 )

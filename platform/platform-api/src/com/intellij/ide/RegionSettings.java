@@ -2,14 +2,17 @@
 package com.intellij.ide;
 
 import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.util.SlowOperations;
+import com.intellij.util.concurrency.annotations.RequiresBackgroundThread;
+import com.intellij.util.concurrency.annotations.RequiresReadLockAbsence;
 import com.intellij.util.messages.Topic;
 import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 
 /**
  * @see Region
+ * @see RegionSettingsService for more convenient access from EDT and read actions
  */
-@ApiStatus.Experimental
 public final class RegionSettings {
   /**
    * A Preferences key to access region code
@@ -30,7 +33,15 @@ public final class RegionSettings {
     }
   }
 
+  /**
+   * @see RegionSettingsService for more convenient access from EDT and read actions
+   */
+  @RequiresReadLockAbsence(generateAssertion = false)
+  @RequiresBackgroundThread(generateAssertion = false)
   public static @NotNull Region getRegion() {
+    // it reads files and Windows Registry, slow IO
+    SlowOperations.assertNonCancelableSlowOperationsAreAllowed();
+
     String name = Prefs.get(REGION_CODE_KEY, Region.NOT_SET.externalName());
     return Region.fromExternalName(name);
   }
@@ -49,7 +60,6 @@ public final class RegionSettings {
   }
 
   @ApiStatus.Experimental
-  @ApiStatus.Internal
   public interface RegionSettingsListener {
     @Topic.AppLevel
     Topic<RegionSettingsListener> UPDATE_TOPIC = new Topic<>(RegionSettingsListener.class, Topic.BroadcastDirection.NONE, true);

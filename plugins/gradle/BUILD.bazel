@@ -1,8 +1,8 @@
 load("@community//build:tests-options.bzl", "jps_test")
 load("@rules_jvm//:jvm.bzl", "jvm_library", "jvm_provided_library", "resourcegroup")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
 ### auto-generated section `build intellij.gradle` start
-
 resourcegroup(
     name = "gradle_resources",
     srcs = glob(
@@ -47,10 +47,11 @@ jvm_library(
         "//plugins/gradle/tooling-extension-api:toolingExtension",
         "@lib//:slf4j-api",
         "@lib//:slf4j-jdk14",
-        "@lib//:gradle",
+        "//libraries/gradle",
     ],
     deps = [
         # do not sort,
+        "//libraries/kryo5",
         "//plugins/gradle/settings",
         "//platform/analysis-api:analysis",
         "//platform/util/concurrency",
@@ -67,6 +68,7 @@ jvm_library(
         "//platform/lang-api:lang",
         "//platform/lang-core",
         "//platform/lang-impl",
+        "//platform/refactoring",
         "//platform/projectModel-api:projectModel",
         "//platform/projectModel-impl",
         "//platform/smRunner",
@@ -75,7 +77,7 @@ jvm_library(
         "@lib//:slf4j-jdk14",
         "//platform/ide-core-impl",
         "//platform/ide-core",
-        "@lib//:gradle",
+        "//libraries/gradle",
         "//libraries/gson",
         "//platform/object-serializer:objectSerializer-annotations",
         "//libraries/ion",
@@ -117,6 +119,8 @@ jvm_library(
     ],
 )
 
+content_module_jar(module = ":gradle")
+
 jvm_library(
     name = "gradle_test_lib",
     testonly = True,
@@ -136,11 +140,13 @@ jvm_library(
         "//plugins/gradle/tooling-extension-api:toolingExtension_test_lib",
         "@lib//:slf4j-api",
         "@lib//:slf4j-jdk14",
-        "@lib//:gradle",
+        "//libraries/gradle",
+        "//libraries/gradle:gradle_test_lib",
     ],
     runtime_deps = [
         # do not sort,
         ":gradle",
+        "//libraries/kryo5:kryo5_test_lib",
         "//plugins/gradle/settings:settings_test_lib",
         "//platform/analysis-api:analysis_test_lib",
         "//platform/util/concurrency:concurrency_test_lib",
@@ -157,12 +163,14 @@ jvm_library(
         "//platform/lang-api:lang_test_lib",
         "//platform/lang-core:lang-core_test_lib",
         "//platform/lang-impl:lang-impl_test_lib",
+        "//platform/refactoring:refactoring_test_lib",
         "//platform/projectModel-api:projectModel_test_lib",
         "//platform/projectModel-impl:projectModel-impl_test_lib",
         "//platform/smRunner:smRunner_test_lib",
         "//platform/util/progress:progress_test_lib",
         "//platform/ide-core-impl:ide-core-impl_test_lib",
         "//platform/ide-core:ide-core_test_lib",
+        "//libraries/gradle:gradle_test_lib",
         "//libraries/gson:gson_test_lib",
         "//platform/object-serializer:objectSerializer-annotations_test_lib",
         "//libraries/ion:ion_test_lib",
@@ -211,13 +219,13 @@ jvm_library(
 exports_files(
     [
         "intellij.gradle.iml",
+        "plugin-resources/intellij.gradle.xml",
     ],
     visibility = ["//visibility:public"],
 )
 ### auto-generated section `iml intellij.gradle` end
 
 ### auto-generated section `build intellij.gradle.common` start
-
 jvm_library(
     name = "gradle-common",
     srcs = glob(
@@ -262,7 +270,6 @@ exports_files(
 ### auto-generated section `iml intellij.gradle.common` end
 
 ### auto-generated section `build intellij.gradle.tests` start
-
 jvm_library(
     name = "gradle-tests",
     srcs = glob(
@@ -331,8 +338,10 @@ jvm_library(
         "@lib//:jmock-legacy",
         "//libraries/mockito",
         "//libraries/mockito:mockito_test_lib",
-        "@lib//:mockito-kotlin",
-        "@lib//:junit4",
+        "//libraries/mockito-kotlin",
+        "//libraries/mockito-kotlin:mockito-kotlin_test_lib",
+        "//libraries/junit4",
+        "//libraries/junit4:junit4_test_lib",
         "//plugins/gradle",
         "//plugins/gradle:gradle_test_lib",
         "//plugins/gradle:gradle-common",
@@ -368,6 +377,8 @@ jvm_library(
         "//jps/model-api:model_test_lib",
         "//platform/lang-core",
         "//platform/lang-core:lang-core_test_lib",
+        "//platform/refactoring",
+        "//platform/refactoring:refactoring_test_lib",
         "//platform/projectModel-api:projectModel",
         "//platform/projectModel-api:projectModel_test_lib",
         "//platform/testFramework",
@@ -414,8 +425,6 @@ jvm_library(
         "//platform/workspace/jps:jps_test_lib",
         "//platform/workspace/storage",
         "//platform/workspace/storage:storage_test_lib",
-        "//tools/intellij.tools.ide.metrics.benchmark:ide-metrics-benchmark",
-        "//tools/intellij.tools.ide.metrics.benchmark:ide-metrics-benchmark_test_lib",
         "//platform/backend/observation",
         "//platform/backend/observation:observation_test_lib",
         "//platform/xdebugger-api:debugger",
@@ -456,6 +465,10 @@ jvm_library(
         "//plugins/groovy:groovy-tests_test_lib",
         "//platform/statistics",
         "//platform/statistics:statistics_test_lib",
+        "//libraries/junit5",
+        "//libraries/junit5:junit5_test_lib",
+        "//libraries/junit5-params",
+        "//libraries/junit5-params:junit5-params_test_lib",
     ],
 )
 ### auto-generated section `build intellij.gradle.tests` end
@@ -470,7 +483,6 @@ exports_files(
 ### auto-generated section `iml intellij.gradle.tests` end
 
 ### auto-generated section `test intellij.gradle.tests` start
-
 jps_test(
     name = "gradle-tests_test",
     runtime_deps = [":gradle-tests_test_lib"],

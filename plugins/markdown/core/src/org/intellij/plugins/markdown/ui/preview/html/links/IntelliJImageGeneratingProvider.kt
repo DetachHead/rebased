@@ -8,7 +8,7 @@ import org.intellij.markdown.ast.getTextInNode
 import org.intellij.markdown.html.HtmlGenerator
 import org.intellij.markdown.parser.LinkMap
 
-internal class IntelliJImageGeneratingProvider(linkMap: LinkMap) : LinkGeneratingProvider() {
+class IntelliJImageGeneratingProvider(linkMap: LinkMap) : LinkGeneratingProvider() {
   companion object {
     private val REGEX = Regex("[^a-zA-Z0-9 ]")
 
@@ -17,10 +17,17 @@ internal class IntelliJImageGeneratingProvider(linkMap: LinkMap) : LinkGeneratin
     }
 
     @JvmStatic
-    val generatedAttributeName = "__idea-generated"
+    val generatedAttributeName: String = "__idea-generated"
 
     @JvmStatic
-    val ignorePathProcessingAttributeName = "md-do-not-process-path"
+    val ignorePathProcessingAttributeName: String = "md-do-not-process-path"
+
+    private fun clearAngleBrackets(destination: CharSequence): CharSequence {
+      if (destination.length >= 2 && destination.first() == '<' && destination.last() == '>') {
+        return destination.subSequence(1, destination.length - 1)
+      }
+      return destination
+    }
   }
 
   private val referenceLinkProvider = ReferenceLinksGeneratingProvider(linkMap)
@@ -39,7 +46,7 @@ internal class IntelliJImageGeneratingProvider(linkMap: LinkMap) : LinkGeneratin
     visitor.consumeTagOpen(
       node,
       "img",
-      "src=\"${info.destination}\"",
+      "src=\"${clearAngleBrackets(info.destination)}\"",
       "alt=\"${getPlainTextFrom(info.label, text)}\"",
       info.title?.let { "title=\"$it\"" },
       "$generatedAttributeName=\"true\"",

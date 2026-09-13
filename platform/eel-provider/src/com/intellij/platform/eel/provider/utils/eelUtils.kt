@@ -1,4 +1,4 @@
-// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.platform.eel.provider.utils
 
 import com.intellij.openapi.progress.runBlockingMaybeCancellable
@@ -10,18 +10,20 @@ import com.intellij.util.system.CpuArch
 import com.intellij.util.system.OS
 import org.jetbrains.annotations.ApiStatus
 
-@ApiStatus.Internal
+@ApiStatus.Experimental
+@ApiStatus.Obsolete
 fun EelExecApi.fetchLoginShellEnvVariablesBlocking(): Map<String, String> {
   return runBlockingMaybeCancellable { fetchLoginShellEnvVariables() }
 }
 
-@ApiStatus.Internal
+@ApiStatus.Experimental
 fun EelPlatform.toOs(): OS {
   return when (this) {
     is EelPlatform.Windows -> OS.Windows
     is EelPlatform.Linux -> OS.Linux
     is EelPlatform.Darwin -> OS.macOS
     is EelPlatform.FreeBSD -> OS.FreeBSD
+    is EelPlatform.HarmonyOS -> OS.HarmonyOS
   }
 }
 
@@ -36,11 +38,11 @@ private val archMap by lazy {
   }
 }
 
-@ApiStatus.Internal
+@ApiStatus.Experimental
 fun CpuArch.toEelArch(): EelPlatform.Arch = archMap[this] ?: EelPlatform.Arch.Unknown
 
-@ApiStatus.Internal
+@ApiStatus.Experimental
 fun EelPlatform.Arch.toCpuArch(): CpuArch = archMap.getKeysByValue(this)?.single() ?: CpuArch.UNKNOWN
 
-@ApiStatus.Internal
+@ApiStatus.Experimental
 fun EelApi.systemOs(): OS = platform.toOs()

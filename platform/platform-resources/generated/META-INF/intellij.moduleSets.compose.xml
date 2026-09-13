@@ -6,8 +6,10 @@
   <content namespace="jetbrains">
     <module name="intellij.libraries.skiko"/>
     <module name="intellij.libraries.coil"/>
+    <module name="intellij.libraries.compose.swing"/>
     <module name="intellij.platform.compose"/>
     <module name="intellij.platform.compose.markdown"/>
+    <module name="intellij.platform.compose.swing"/>
     <module name="intellij.platform.jewel.foundation"/>
     <module name="intellij.libraries.compose.foundation.desktop"/>
     <module name="intellij.libraries.compose.runtime.desktop"/>
@@ -18,6 +20,7 @@
     <module name="intellij.platform.jewel.markdown.extensions.gfmAlerts"/>
     <module name="intellij.platform.jewel.markdown.extensions.gfmTables"/>
     <module name="intellij.platform.jewel.markdown.extensions.gfmStrikethrough"/>
+    <module name="intellij.platform.jewel.markdown.extensions.frontMatter"/>
     <module name="intellij.platform.jewel.markdown.extensions.images"/>
     <module name="intellij.platform.jewel.markdown.core"/>
   </content>

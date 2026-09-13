@@ -27,6 +27,7 @@ import org.eclipse.lsp4j.DocumentSymbol
 import org.eclipse.lsp4j.DocumentSymbolParams
 import org.eclipse.lsp4j.Hover
 import org.eclipse.lsp4j.HoverParams
+import org.eclipse.lsp4j.ImplementationParams
 import org.eclipse.lsp4j.LocationLink
 import org.eclipse.lsp4j.SelectionRange
 import org.eclipse.lsp4j.SelectionRangeParams
@@ -48,9 +49,11 @@ class LspRequestExecutor(
 
   private val hoverResultCache = register(HoverResultCache(lspClient.project))
   private val workspaceSymbolCache = register(LspSingleSlotCache<String, List<WorkspaceSymbol>>(lspClient.project))
-  private val documentSymbolCache = register(LspPerFileCache<Unit, List<DocumentSymbol>>(lspClient.project))
+  // documentSymbol and selectionRange results depend only on the requested document,
+  // so a change in another file must not evict them.
+  private val documentSymbolCache = register(LspPerFileCache<Unit, List<DocumentSymbol>>(lspClient.project, invalidateOnlyOnDocumentChange = true))
   private val documentHighlightCache = register(LspDocumentHighlightCache(lspClient.project))
-  private val selectionRangeCache = register(LspPerFileCache<Int, SelectionRange>(lspClient.project))
+  private val selectionRangeCache = register(LspPerFileCache<Int, SelectionRange>(lspClient.project, invalidateOnlyOnDocumentChange = true))
 
   private fun <T : LspCache> register(cache: T): T {
     allCaches.add(cache)
@@ -74,8 +77,28 @@ class LspRequestExecutor(
     val completionContext = createCompletionContext(lspClient, host.hostDocument, host.hostOffset, isAutoPopup)
     return documentMapping.withDocumentAtOffset(host.hostFile, host.hostDocument, host.hostOffset) { lspDocument, position ->
       val params = CompletionParams(lspDocument.id, position, completionContext)
-      val future = doSendRequestAsync { it.textDocumentService.completion(params) } ?: CompletableFuture.completedFuture(null)
-      future.thenApply { lsp4jResponse -> lsp4jResponse?.toCompletionList() }
+      val source = doSendRequestAsync { it.textDocumentService.completion(params) }
+                   ?: return@withDocumentAtOffset CompletableFuture.completedFuture(null)
+
+      val result = CompletableFuture<CompletionList?>()
+      source.whenComplete { lsp4jResponse, throwable ->
+        if (throwable != null) {
+          result.completeExceptionally(throwable)
+        }
+        else {
+          try {
+            result.complete(lsp4jResponse?.toCompletionList())
+          }
+          catch (t: Throwable) {
+            result.completeExceptionally(t)
+          }
+        }
+      }
+      // CompletableFuture cancellation does not propagate upstream through derived stages.
+      // Wire it explicitly: a cancellation of `result` (the caller typed on, or the coroutine got cancelled)
+      // cancels `source`, and doSendRequestAsync then sends $/cancelRequest to the server.
+      result.whenComplete { _, _ -> if (result.isCancelled) source.cancel(true) }
+      result
     } ?: CompletableFuture.completedFuture(null)
   }
 
@@ -106,6 +129,18 @@ class LspRequestExecutor(
     return documentMapping.withDocumentAtFileOffset(file, offset) { lspDocument, position ->
       val params = TypeDefinitionParams(lspDocument.id, position)
       val lsp4jResponse = sendRequestSync { it.textDocumentService.typeDefinition(params) }
+                          ?: return@withDocumentAtFileOffset emptyList()
+      val locationLinks = lsp4jResponse.map({ items -> items.map { it.toLocationLink() } }, { it })
+      locationLinks.map { documentMapping.findDocumentByUrl(it.targetUri)?.mapLocationLink(it) ?: it }.distinct()
+    } ?: emptyList()
+  }
+
+  @RequiresReadLock
+  @RequiresBackgroundThread
+  internal fun getImplementations(file: VirtualFile, offset: Int): List<LocationLink> {
+    return documentMapping.withDocumentAtFileOffset(file, offset) { lspDocument, position ->
+      val params = ImplementationParams(lspDocument.id, position)
+      val lsp4jResponse = sendRequestSync { it.textDocumentService.implementation(params) }
                           ?: return@withDocumentAtFileOffset emptyList()
       val locationLinks = lsp4jResponse.map({ items -> items.map { it.toLocationLink() } }, { it })
       locationLinks.map { documentMapping.findDocumentByUrl(it.targetUri)?.mapLocationLink(it) ?: it }.distinct()

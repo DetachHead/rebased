@@ -1,7 +1,7 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
 ### auto-generated section `build intellij.java.frontback.impl` start
-
 jvm_library(
     name = "frontback-impl",
     srcs = glob(
@@ -55,6 +55,8 @@ jvm_library(
         "//platform/util/concurrency",
     ],
 )
+
+content_module_jar(module = ":frontback-impl")
 
 jvm_library(
     name = "frontback-impl_test_lib",
@@ -113,6 +115,7 @@ jvm_library(
 exports_files(
     [
         "intellij.java.frontback.impl.iml",
+        "resource/intellij.java.frontback.impl.xml",
     ],
     visibility = ["//visibility:public"],
 )

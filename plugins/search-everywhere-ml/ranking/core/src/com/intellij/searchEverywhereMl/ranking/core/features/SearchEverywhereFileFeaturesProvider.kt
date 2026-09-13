@@ -1,17 +1,17 @@
 // Copyright 2000-2021 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.searchEverywhereMl.ranking.core.features
 
-import com.intellij.ide.actions.GotoFileItemProvider
 import com.intellij.ide.actions.searcheverywhere.FileSearchEverywhereContributor
 import com.intellij.ide.actions.searcheverywhere.RecentFilesSEContributor
 import com.intellij.ide.actions.searcheverywhere.SearchEverywhereSpellCheckResult
 import com.intellij.ide.bookmark.BookmarksManager
 import com.intellij.ide.bookmark.FileBookmark
-import com.intellij.internal.statistic.collectors.fus.fileTypes.FileTypeUsagesCollector
+import com.intellij.ide.util.gotoByName.DefaultChooseByNameItemProvider
 import com.intellij.internal.statistic.eventLog.events.EventField
 import com.intellij.internal.statistic.eventLog.events.EventFields
 import com.intellij.internal.statistic.eventLog.events.EventPair
 import com.intellij.openapi.application.ReadAction
+import com.intellij.openapi.fileTypes.impl.FileTypeValidationRule
 import com.intellij.openapi.project.guessProjectDir
 import com.intellij.openapi.util.io.toNioPathOrNull
 import com.intellij.openapi.vfs.VirtualFile
@@ -34,7 +34,7 @@ class SearchEverywhereFileFeaturesProvider
   : SearchEverywhereElementFeaturesProvider(FileSearchEverywhereContributor::class.java, RecentFilesSEContributor::class.java) {
 
   object Fields {
-    val FILETYPE_DATA_KEY = EventFields.StringValidatedByCustomRule("file_type", FileTypeUsagesCollector.ValidationRule::class.java)
+    val FILETYPE_DATA_KEY = EventFields.StringValidatedByCustomRule("file_type", FileTypeValidationRule::class.java)
     val IS_BOOKMARK_DATA_KEY = EventFields.Boolean("is_bookmark")
 
     val IS_DIRECTORY_DATA_KEY = EventFields.Boolean("is_directory")
@@ -95,7 +95,7 @@ class SearchEverywhereFileFeaturesProvider
 
   private fun isExactMatch(item: PsiFileSystemItem, searchQuery: String, elementPriority: Int): Boolean {
     /*
-    The exact match feature is based on the same logic that is used in GotoFileItemProvider to add the
+    The exact match feature is based on the same logic that DefaultChooseByNameItemProvider uses to add the
     exact match degree on top of the matching score. Note that even though the score gets added on top
     of the matching degree, the priority can be lower than EXACT_MATCH_DEGREE, but we can still have
     an exact match. This is because the score also contains a gap penalty, which can lower the final priority.
@@ -113,7 +113,7 @@ class SearchEverywhereFileFeaturesProvider
          but
          '/foo.ext' and 'foo.ext' are not
     */
-    if (elementPriority == GotoFileItemProvider.EXACT_MATCH_DEGREE) return true  // Absolute path
+    if (elementPriority == DefaultChooseByNameItemProvider.EXACT_MATCH_DEGREE) return true  // Absolute path
 
     val filePath = item.virtualFile.path
     val fileName = item.virtualFile.name

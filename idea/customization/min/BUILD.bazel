@@ -1,7 +1,7 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
 ### auto-generated section `build intellij.platform.customization.min` start
-
 jvm_library(
     name = "min",
     srcs = glob(
@@ -14,7 +14,15 @@ jvm_library(
         ["resources/**/*"],
     ),
     visibility = ["//visibility:public"],
+    runtime_deps = [
+        # do not sort,
+        "//platform/ide-core",
+        "//platform/platform-impl:ide-impl",
+        "//platform/lang-impl",
+    ],
 )
+
+content_module_jar(module = ":min")
 
 jvm_library(
     name = "min_test_lib",
@@ -25,7 +33,13 @@ jvm_library(
     ),
     module_name = "intellij.platform.customization.min",
     visibility = ["//visibility:public"],
-    runtime_deps = [":min"],
+    runtime_deps = [
+        # do not sort,
+        ":min",
+        "//platform/ide-core:ide-core_test_lib",
+        "//platform/platform-impl:ide-impl_test_lib",
+        "//platform/lang-impl:lang-impl_test_lib",
+    ],
 )
 ### auto-generated section `build intellij.platform.customization.min` end
 
@@ -33,6 +47,8 @@ jvm_library(
 exports_files(
     [
         "intellij.platform.customization.min.iml",
+        "resources/intellij.platform.customization.min.xml",
+        "module-content.yaml",
     ],
     visibility = ["//visibility:public"],
 )

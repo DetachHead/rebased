@@ -136,6 +136,7 @@ public interface Git {
                             boolean force,
                             boolean detach,
                             boolean withReset,
+                            boolean ignoreOtherWorktrees,
                             GitLineHandlerListener @NotNull ... listeners);
 
   @NotNull
@@ -353,7 +354,21 @@ public interface Git {
   GitCommandResult createWorkingTree(@NotNull GitRepository repository,
                                      @NotNull FilePath workingTreePath,
                                      @NotNull GitReference sourceRef,
-                                     @Nullable String newBranchName);
+                                     @Nullable String newBranchName,
+                                     boolean force);
+
   @NotNull
   GitCommandResult pruneWorktrees(@NotNull GitRepository repository);
+
+  @NotNull
+  GitCommandResult lockWorkingTree(@NotNull GitRepository repository, @NotNull GitWorkingTree tree);
+
+  @NotNull
+  GitCommandResult unlockWorkingTree(@NotNull GitRepository repository, @NotNull GitWorkingTree tree);
+
+  @NotNull
+  GitCommandResult runHook(@NotNull GitRepository repository,
+                           @NotNull String hookName,
+                           @NotNull List<String> hookArgs,
+                           @NotNull List<String> stdinLines);
 }

@@ -5,19 +5,19 @@ import com.intellij.lang.PsiBuilder;
 import com.intellij.lang.PsiBuilderFactory;
 import com.intellij.lexer.Lexer;
 import com.intellij.openapi.diagnostic.Logger;
-import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.ParsingDiagnostics;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiFile;
 import com.intellij.psi.tree.ILazyParseableElementType;
 import org.intellij.markdown.flavours.MarkdownFlavourDescriptor;
 import org.intellij.plugins.markdown.lang.lexer.MarkdownMergingLexer;
+import org.intellij.plugins.markdown.lang.parser.CancellableText;
 import org.intellij.plugins.markdown.lang.parser.MarkdownFlavourUtil;
 import org.intellij.plugins.markdown.lang.parser.MarkdownParserManager;
 import org.intellij.plugins.markdown.lang.parser.PsiBuilderFillingVisitor;
 import org.intellij.plugins.markdown.lang.psi.impl.MarkdownFile;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 
@@ -34,12 +34,7 @@ public class MarkdownLazyElementType extends ILazyParseableElementType {
   protected ASTNode doParseContents(@NotNull ASTNode chameleon, @NotNull PsiElement psi) {
     final Project project = psi.getProject();
     final Lexer lexer = new MarkdownMergingLexer();
-    final CharSequence chars = new StringUtil.BombedCharSequence(chameleon.getChars()) {
-      @Override
-      protected void checkCanceled() {
-        ProgressManager.checkCanceled();
-      }
-    };
+    final CharSequence chars = CancellableText.of(chameleon.getChars());
 
     final var file = psi.getContainingFile();
     Objects.requireNonNull(file, () -> "Expected a non-null containing file for " + psi);
@@ -67,7 +62,8 @@ public class MarkdownLazyElementType extends ILazyParseableElementType {
     return actualElement;
   }
 
-  private static @NotNull MarkdownFlavourDescriptor obtainFlavour(@NotNull PsiFile file) {
+  @ApiStatus.Internal
+  public static @NotNull MarkdownFlavourDescriptor obtainFlavour(@NotNull PsiFile file) {
     if (file instanceof MarkdownFile markdownFile) {
       return markdownFile.getFlavour();
     }

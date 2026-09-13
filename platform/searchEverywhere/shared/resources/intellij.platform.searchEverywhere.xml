@@ -2,6 +2,7 @@
   <!-- region Generated dependencies - run `Generate Product Layouts` to regenerate -->
   <dependencies>
     <module name="fleet.rhizomedb"/>
+    <module name="intellij.libraries.jetbrains.annotations"/>
     <module name="intellij.libraries.kotlinx.coroutines.core"/>
     <module name="intellij.libraries.kotlinx.serialization.core"/>
     <module name="intellij.platform.core"/>
@@ -12,13 +13,19 @@
     <module name="intellij.platform.ide"/>
     <module name="intellij.platform.ide.core"/>
     <module name="intellij.platform.ide.impl"/>
+    <module name="intellij.platform.indexing"/>
     <module name="intellij.platform.kernel"/>
     <module name="intellij.platform.lang"/>
     <module name="intellij.platform.lang.impl"/>
+    <module name="intellij.platform.project"/>
+    <module name="intellij.platform.projectModel"/>
+    <module name="intellij.platform.refactoring"/>
+    <module name="intellij.platform.rpc.lite"/>
     <module name="intellij.platform.scopes"/>
     <module name="intellij.platform.statistics"/>
     <module name="intellij.platform.usageView"/>
     <module name="intellij.platform.util.ui"/>
+    <module name="intellij.platform.welcomeScreen"/>
   </dependencies>
   <!-- endregion -->
   <extensionPoints>
@@ -36,5 +43,24 @@
     <remote.customDataContextSerializer implementation="com.intellij.platform.searchEverywhere.data.SeSelectedItemsDataContextSerializer" />
     <remote.customDataContextSerializer implementation="com.intellij.platform.searchEverywhere.data.SeSessionDataContextSerializer" />
     <remote.customDataContextSerializer implementation="com.intellij.platform.searchEverywhere.data.SeIsAllTabDataContextSerializer" />
+
+    <!-- We need "goto file" in monolith, light and RD backend.
+         This declaration here will also bring the provider to ThinClient where it will be de-prioritized in favor of BE implementation -->
+    <searchEverywhere.itemsProviderFactory
+      implementation="com.intellij.platform.searchEverywhere.providers.nonIndexableFiles.SeNonIndexableFilesProviderFactory"/>
+
+    <!-- Text search wraps TextSearchContributor, which runs locally in monolith, light and RD backend.
+         Same as for the provider above, this declaration also brings it to ThinClient,
+         where it is de-prioritized in favor of the BE one -->
+    <searchEverywhere.itemsProviderFactory
+      implementation="com.intellij.platform.searchEverywhere.providers.text.SeTextItemsProviderFactory"/>
+
+    <!-- The classes and symbols providers wrap legacy contributors from lang-impl, which runs locally in monolith, light and RD backend.
+         Same as for the provider above, these declarations also bring them to ThinClient,
+         where they are de-prioritized in favor of the BE ones -->
+    <searchEverywhere.itemsProviderFactory
+      implementation="com.intellij.platform.searchEverywhere.providers.classes.SeClassesProviderFactory"/>
+    <searchEverywhere.itemsProviderFactory
+      implementation="com.intellij.platform.searchEverywhere.providers.symbols.SeSymbolsProviderFactory"/>
   </extensions>
 </idea-plugin>

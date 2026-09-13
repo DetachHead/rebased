@@ -2,9 +2,9 @@
 package org.jetbrains.kotlin.idea.k2.codeinsight.fixes
 
 import org.jetbrains.kotlin.analysis.api.fir.diagnostics.KaFirDiagnostic
+import org.jetbrains.kotlin.analysis.api.resolution.resolveSuccessfulSymbol
 import org.jetbrains.kotlin.idea.codeinsight.api.applicators.fixes.KotlinQuickFixFactory
 import org.jetbrains.kotlin.idea.quickfix.RemoveNameFromFunctionExpressionFix
-import org.jetbrains.kotlin.idea.references.mainReference
 import org.jetbrains.kotlin.psi.KtNamedFunction
 import org.jetbrains.kotlin.psi.KtReturnExpression
 import org.jetbrains.kotlin.psi.psiUtil.forEachDescendantOfType
@@ -17,7 +17,7 @@ internal object AnonymousFunctionWithNameFixFactories {
 
         element.forEachDescendantOfType<KtReturnExpression> {
             if (!wereAutoLabelUsages && it.getLabelNameAsName() == name) {
-                wereAutoLabelUsages = it.getTargetLabel()?.mainReference?.resolveToSymbol()?.psi == element
+                wereAutoLabelUsages = it.resolveSuccessfulSymbol()?.psi == element
             }
         }
 

@@ -5,12 +5,12 @@ from builtins import object as _object
 from collections.abc import AsyncGenerator, Callable, Sequence
 from io import TextIOWrapper
 from types import FrameType, ModuleType, SimpleNamespace, TracebackType
-from typing import Any, Final, Literal, NoReturn, Protocol, TextIO, TypeAlias, TypeVar, final, overload, type_check_only
-from typing_extensions import LiteralString, deprecated
+from typing import Any, Final, Literal, Protocol, TextIO, TypeAlias, TypeVar, final, overload, type_check_only
+from typing_extensions import LiteralString, Never, deprecated
 
 _T = TypeVar("_T")
 _LazyImportMode: TypeAlias = Literal["normal", "all", "none"]
-_LazyImportFilter: TypeAlias = Callable[[str, str, tuple[str, ...] | None], bool]
+_LazyImportFilter: TypeAlias = Callable[[str | None, str, tuple[str, ...] | None], bool]
 
 # see https://github.com/python/typeshed/issues/8513#issue-1333671093 for the rationale behind this alias
 _ExitCode: TypeAlias = str | int | None
@@ -42,6 +42,7 @@ excepthook: Callable[[type[BaseException], BaseException, TracebackType | None],
 exec_prefix: str
 executable: str
 float_repr_style: Literal["short", "legacy"]
+_framework: str  # empty string on non-macOS platforms
 hexversion: int
 last_type: type[BaseException] | None
 last_value: BaseException | None
@@ -53,7 +54,7 @@ maxunicode: int
 meta_path: list[MetaPathFinderProtocol]
 modules: dict[str, ModuleType]
 if sys.version_info >= (3, 15):
-    lazy_modules: dict[str, set[str]]
+    lazy_modules: set[str]
 orig_argv: list[str]
 path: list[str]
 path_hooks: list[Callable[[str], PathEntryFinderProtocol]]
@@ -377,7 +378,7 @@ def exc_info() -> OptExcInfo: ...
 if sys.version_info >= (3, 11):
     def exception() -> BaseException | None: ...
 
-def exit(status: _ExitCode = None, /) -> NoReturn: ...
+def exit(status: _ExitCode = None, /) -> Never: ...
 
 if sys.platform == "android":  # noqa: Y008
     def getandroidapilevel() -> int: ...
@@ -521,7 +522,7 @@ if sys.version_info >= (3, 12):
     if sys.platform == "linux":
         def activate_stack_trampoline(backend: str, /) -> None: ...
     else:
-        def activate_stack_trampoline(backend: str, /) -> NoReturn: ...
+        def activate_stack_trampoline(backend: str, /) -> Never: ...
 
     from . import _monitoring
 

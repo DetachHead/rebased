@@ -10,13 +10,15 @@ import com.intellij.psi.PsiRecursiveVisitor
 import org.jetbrains.kotlin.analysis.api.KaSession
 import org.jetbrains.kotlin.analysis.api.annotations.KaAnnotation
 import org.jetbrains.kotlin.analysis.api.annotations.KaAnnotationValue
-import org.jetbrains.kotlin.analysis.api.components.importableFqName
-import org.jetbrains.kotlin.analysis.api.components.isUnitType
-import org.jetbrains.kotlin.analysis.api.components.resolveToSymbol
 import org.jetbrains.kotlin.analysis.api.components.returnType
+import org.jetbrains.kotlin.analysis.api.resolution.resolveSuccessfulSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaCallableSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaDeclarationSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaSymbolVisibility
+import org.jetbrains.kotlin.analysis.api.symbols.importableFqName
+import org.jetbrains.kotlin.analysis.api.symbols.symbol
+import org.jetbrains.kotlin.analysis.api.types.KaStandardTypeClassIds
+import org.jetbrains.kotlin.analysis.api.types.classId
 import org.jetbrains.kotlin.idea.base.analysis.api.utils.shortenReferences
 import org.jetbrains.kotlin.idea.base.psi.textRangeIn
 import org.jetbrains.kotlin.idea.base.resources.KotlinBundle
@@ -73,7 +75,8 @@ internal class DeprecatedCallableAddReplaceWithInspection :
         context: ReplaceWithData,
     ): KotlinModCommandQuickFix<KtCallableDeclaration> = AddReplaceWithFix(context)
 
-    override fun KaSession.prepareContext(element: KtCallableDeclaration): ReplaceWithData? {
+    context(session: KaSession)
+    override fun prepareContext(element: KtCallableDeclaration): ReplaceWithData? {
         element.symbol.deprecatedAnnotationWithNoReplaceWith() ?: return null
         val replacementExpression = element.suggestReplacementExpression() ?: return null
         return buildReplaceWithData(replacementExpression)
@@ -107,8 +110,8 @@ internal class DeprecatedCallableAddReplaceWithInspection :
 
             override fun visitSimpleNameExpression(expression: KtSimpleNameExpression) {
                 val symbol = (
-                    expression.mainReference.resolveCompanionObjectShortReferenceToContainingClassSymbol()
-                        ?: expression.mainReference.resolveToSymbol()
+                        expression.mainReference.resolveCompanionObjectShortReferenceToContainingClassSymbol()
+                            ?: expression.resolveSuccessfulSymbol()
                     ) as? KaDeclarationSymbol ?: return
                 if (symbol.visibility == KaSymbolVisibility.PRIVATE) {
                     isGood = false
@@ -147,8 +150,8 @@ internal class DeprecatedCallableAddReplaceWithInspection :
 
     context(_: KaSession)
     private fun KtCallableDeclaration.suggestReplacementExpression(): KtExpression? = when (this) {
-        is KtNamedFunction -> replacementExpressionFromBody(returnType.isUnitType)
-        is KtProperty -> getter?.replacementExpressionFromBody(returnType.isUnitType)
+        is KtNamedFunction -> replacementExpressionFromBody(returnType.classId == KaStandardTypeClassIds.UNIT)
+        is KtProperty -> getter?.replacementExpressionFromBody(returnType.classId == KaStandardTypeClassIds.UNIT)
         else -> null
     }
 

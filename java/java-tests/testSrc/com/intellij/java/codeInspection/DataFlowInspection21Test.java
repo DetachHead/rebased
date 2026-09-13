@@ -1,4 +1,4 @@
-// Copyright 2000-2021 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.java.codeInspection;
 
 import com.intellij.JavaTestUtil;
@@ -216,6 +216,11 @@ public class DataFlowInspection21Test extends DataFlowInspectionTestCase {
   public void testJSpecifyIntersectionBound() {
     addJSpecifyNullMarked(myFixture);
     setupTypeUseAnnotations("org.jspecify.annotations", myFixture);
+    myFixture.addClass("""
+                         package org.jspecify.annotations;
+                         import java.lang.annotation.*;
+
+                         @Target(ElementType.TYPE_USE) public @interface NullnessUnspecified { }""");
     doTest();
   }
   
@@ -296,6 +301,62 @@ public class DataFlowInspection21Test extends DataFlowInspectionTestCase {
     doTest();
   }
 
+  public void testJSpecifyNullLiteralToTypeVariable() {
+    addJSpecifyNullMarked(myFixture);
+    setupTypeUseAnnotations("org.jspecify.annotations", myFixture);
+    doTest();
+  }
+
+  public void testJSpecifyNullLiteralToMethodTypeVariable() {
+    addJSpecifyNullMarked(myFixture);
+    setupTypeUseAnnotations("org.jspecify.annotations", myFixture);
+    doTest();
+  }
+
+  public void testJSpecifyPlainTypeVariableReturnOptionOff() {
+    addJSpecifyNullMarked(myFixture);
+    setupTypeUseAnnotations("org.jspecify.annotations", myFixture);
+    doTest();
+  }
+
+  public void testJSpecifyPlainTypeVariableReturnOptionOn() {
+    addJSpecifyNullMarked(myFixture);
+    setupTypeUseAnnotations("org.jspecify.annotations", myFixture);
+    doTestWith((insp, _) -> insp.REPORT_UNSPECIFIED_PARAMETRIC_NULLNESS = true);
+  }
+
+  public void testJSpecifyParametricNullableField() {
+    addJSpecifyNullMarked(myFixture);
+    setupTypeUseAnnotations("org.jspecify.annotations", myFixture);
+    doTest();
+  }
+
+  public void testJSpecifyPlainTypeVariableFieldOptionOn() {
+    addJSpecifyNullMarked(myFixture);
+    setupTypeUseAnnotations("org.jspecify.annotations", myFixture);
+    doTestWith((insp, _) -> insp.REPORT_UNSPECIFIED_PARAMETRIC_NULLNESS = true);
+  }
+
+  public void testJSpecifyUnboundedWildcardBoundFromUnmarkedScope() {
+    addJSpecifyNullMarked(myFixture);
+    setupTypeUseAnnotations("org.jspecify.annotations", myFixture);
+    doTest();
+  }
+
+  private void addNullnessUnspecified() {
+    myFixture.addClass("""
+                         package org.jspecify.annotations;
+                         import java.lang.annotation.*;
+
+                         @Target(ElementType.TYPE_USE) public @interface NullnessUnspecified { }""");
+  }
+
+  public void testFlowMethodTests() {
+    addJSpecifyNullMarked(myFixture);
+    setupTypeUseAnnotations("org.jspecify.annotations", myFixture);
+    doTest();
+  }
+
   public void testNullableArrayLocalVariable() {
     addJSpecifyNullMarked(myFixture);
     setupTypeUseAnnotations("org.jspecify.annotations", myFixture);
@@ -309,6 +370,42 @@ public class DataFlowInspection21Test extends DataFlowInspectionTestCase {
   
   @TestFor(issues = "IDEA-389893")
   public void testUnboxedMethodReferenceVoidType() {
+    doTest();
+  }
+
+  public void testNullMarkedPutIfAbsent() {
+    addJSpecifyNullMarked(myFixture);
+    doTest();
+  }
+
+  public void testJSpecifyNullableReturnInference() {
+    addJSpecifyNullMarked(myFixture);
+    setupTypeUseAnnotations("org.jspecify.annotations", myFixture);
+    myFixture.addClass("""
+                         package org.assertj.core.api;
+                         public class AbstractAssert {}""");
+    myFixture.addClass("""
+                         package org.assertj.core.api;
+                         public class ObjectAssert<T> extends AbstractAssert {
+                           public ObjectAssert(T obj) {}
+                           public ObjectAssert<T> isNull() { return this; }
+                           public ObjectAssert<T> isNotNull() { return this; }
+                         }""");
+    myFixture.addClass("""
+                         package org.assertj.core.api;
+                         public class Assertions {
+                           public static <T> ObjectAssert<T> assertThat(T actual) { return new ObjectAssert<>(actual); }
+                         }""");
+    // The stub above is source, so the suggestion would report every nullable argument of assertThat
+    doTestWith((dfi, cvi) -> {
+      dfi.SUGGEST_NULLABLE_ANNOTATIONS = false;
+      cvi.REPORT_CONSTANT_REFERENCE_VALUES = false;
+    });
+  }
+
+  public void testJSpecifyDeconstructionTypeArgument() {
+    addJSpecifyNullMarked(myFixture);
+    setupTypeUseAnnotations("org.jspecify.annotations", myFixture);
     doTest();
   }
 }

@@ -1,0 +1,145 @@
+package com.intellij.mcpserver.frontend.widget
+
+import androidx.compose.runtime.Stable
+import com.intellij.execution.services.ServiceViewManager
+import com.intellij.ide.BrowserUtil
+import com.intellij.mcpserver.McpServerBundle
+import com.intellij.mcpserver.clients.McpClient
+import com.intellij.mcpserver.createSseServerJsonEntry
+import com.intellij.mcpserver.createStdioMcpServerJsonConfiguration
+import com.intellij.mcpserver.createStreamableServerJsonEntry
+import com.intellij.mcpserver.frontend.services.McpServiceViewContributor
+import com.intellij.mcpserver.frontend.util.getConsentDialog
+import com.intellij.mcpserver.impl.McpClientDetector
+import com.intellij.mcpserver.impl.McpServerService
+import com.intellij.mcpserver.impl.util.network.McpServerConnectionAddressProvider
+import com.intellij.mcpserver.settings.McpServerSettings
+import com.intellij.mcpserver.toolwindow.McpDiagnosticService
+import com.intellij.mcpserver.util.getHelpLink
+import com.intellij.mcpserver.util.getPathForMcp
+import com.intellij.openapi.application.EDT
+import com.intellij.openapi.components.service
+import com.intellij.openapi.diagnostic.logger
+import com.intellij.openapi.ide.CopyPasteManager
+import com.intellij.openapi.project.Project
+import com.intellij.openapi.wm.ToolWindowManager
+import com.intellij.util.ui.TextTransferable
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+
+@Stable
+internal interface McpServerPopupModel {
+  val initialEnabled: Boolean
+  val braveMode: Boolean
+  val sseUrl: String?
+  val streamUrl: String?
+  val unconfiguredMessage: String?
+  val helpLink: String
+  val detectedClientNames: List<String>
+  val activeConnectionCount: Int
+
+  fun tryEnable(): Boolean
+  fun disable()
+  fun setBraveMode(value: Boolean)
+  fun copySseConfig(): Boolean
+  fun copyStdioConfig(): Boolean
+  fun copyStreamConfig(): Boolean
+  fun browseUrl(url: String)
+  fun onSettingsClick()
+  fun showInServiceView()
+}
+
+private val LOG = logger<McpServerPopupModelImpl>()
+
+internal class McpServerPopupModelImpl(
+  private val project: Project,
+  private val coroutineScope: CoroutineScope,
+  private val onSettingsClickAction: () -> Unit,
+  private val onStateChangedAction: () -> Unit,
+) : McpServerPopupModel {
+  private val addressProvider = McpServerConnectionAddressProvider.getInstanceOrNull()
+
+  private fun copyToClipboard(text: String): Boolean = try {
+    CopyPasteManager.getInstance().setContents(TextTransferable(text as CharSequence))
+    true
+  }
+  catch (e: Exception) {
+    LOG.error("Failed to copy MCP configuration to clipboard", e)
+    false
+  }
+
+  override val initialEnabled: Boolean get() = McpServerSettings.getInstance().enableMcpServer
+  override val braveMode: Boolean get() = McpServerSettings.getInstance().enableBraveMode
+  override val sseUrl: String? get() = if (McpServerService.getInstance().isRunning) addressProvider?.serverSseUrl else null
+  override val streamUrl: String? get() = if (McpServerService.getInstance().isRunning) addressProvider?.serverStreamUrl else null
+
+  override val activeConnectionCount: Int get() = service<McpDiagnosticService>().activeSessionCount
+
+  override val helpLink: String get() = getHelpLink("mcp-server.html#supported-tools")
+
+  override val detectedClientNames: List<String> by lazy {
+    McpClientDetector.detectGlobalMcpClients().map { it.mcpClientInfo.displayName }
+  }
+
+  override val unconfiguredMessage: String? by lazy {
+    val unconfigured = McpClientDetector.detectGlobalMcpClients()
+      .filter { !it.isConnectedToThisIde() }
+      .map { it.mcpClientInfo.displayName }
+    if (unconfigured.isNotEmpty()) {
+      McpServerBundle.message("mcp.unconfigured.clients.detected.notification.message", unconfigured.joinToString(", "))
+    }
+    else null
+  }
+
+  override fun tryEnable(): Boolean {
+    val consented = getConsentDialog(project)
+    if (!consented) return false
+
+    coroutineScope.launch {
+      McpServerSettings.getInstance().enableMcpServer = true
+      McpServerService.getInstance().settingsChanged(true)
+      withContext(Dispatchers.EDT) {
+        onStateChangedAction()
+      }
+    }
+    return true
+  }
+
+  override fun disable() {
+    coroutineScope.launch {
+      McpServerSettings.getInstance().enableMcpServer = false
+      McpServerService.getInstance().settingsChanged(false)
+      withContext(Dispatchers.EDT) {
+        onStateChangedAction()
+      }
+    }
+  }
+
+  override fun setBraveMode(value: Boolean) {
+    McpServerSettings.getInstance().enableBraveMode = value
+  }
+
+  override fun copySseConfig(): Boolean =
+    copyToClipboard(McpClient.json.encodeToString(createSseServerJsonEntry(McpServerService.getInstance().port, project.getPathForMcp())))
+
+  override fun copyStdioConfig(): Boolean =
+    copyToClipboard(McpClient.json.encodeToString(createStdioMcpServerJsonConfiguration(McpServerService.getInstance().port, project.getPathForMcp())))
+
+  override fun copyStreamConfig(): Boolean =
+    copyToClipboard(McpClient.json.encodeToString(createStreamableServerJsonEntry(McpServerService.getInstance().port, project.getPathForMcp())))
+
+  override fun browseUrl(url: String) {
+    BrowserUtil.browse(url)
+  }
+
+  override fun onSettingsClick() {
+    onSettingsClickAction()
+  }
+
+  override fun showInServiceView() {
+    val toolWindowId = ServiceViewManager.getInstance(project).getToolWindowId(McpServiceViewContributor::class.java)
+    ToolWindowManager.getInstance(project).getToolWindow(toolWindowId)?.activate(null)
+  }
+}

@@ -1,7 +1,7 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
 ### auto-generated section `build intellij.libraries.hdr.histogram` start
-
 jvm_library(
     name = "hdr-histogram",
     srcs = glob(
@@ -16,6 +16,11 @@ jvm_library(
     visibility = ["//visibility:public"],
     exports = ["@lib//:libraries-hdr-histogram-_hdr_histogram"],
     runtime_deps = ["@lib//:libraries-hdr-histogram-_hdr_histogram"],
+)
+
+content_module_jar(
+    libraries = ["@lib//:libraries-hdr-histogram-_hdr_histogram"],
+    module = ":hdr-histogram",
 )
 
 jvm_library(
@@ -37,6 +42,8 @@ jvm_library(
 exports_files(
     [
         "intellij.libraries.hdr.histogram.iml",
+        "resources/intellij.libraries.hdr.histogram.xml",
+        "module-content.yaml",
     ],
     visibility = ["//visibility:public"],
 )

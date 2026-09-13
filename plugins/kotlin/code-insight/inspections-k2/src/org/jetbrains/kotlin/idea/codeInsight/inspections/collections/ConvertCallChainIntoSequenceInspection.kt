@@ -14,16 +14,17 @@ import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiWhiteSpace
 import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.kotlin.analysis.api.KaSession
-import org.jetbrains.kotlin.analysis.api.analyze
-import org.jetbrains.kotlin.analysis.api.components.fullyExpandedType
 import org.jetbrains.kotlin.analysis.api.components.isClassType
-import org.jetbrains.kotlin.analysis.api.components.isSubtypeOf
-import org.jetbrains.kotlin.analysis.api.resolution.KaCallableMemberCall
 import org.jetbrains.kotlin.analysis.api.resolution.KaImplicitReceiverValue
-import org.jetbrains.kotlin.analysis.api.resolution.singleCallOrNull
+import org.jetbrains.kotlin.analysis.api.resolution.simple
+import org.jetbrains.kotlin.analysis.api.resolution.single
 import org.jetbrains.kotlin.analysis.api.resolution.symbol
+import org.jetbrains.kotlin.analysis.api.resolution.tryResolveCall
+import org.jetbrains.kotlin.analysis.api.session.analyze
 import org.jetbrains.kotlin.analysis.api.types.KaClassType
 import org.jetbrains.kotlin.analysis.api.types.KaType
+import org.jetbrains.kotlin.analysis.api.types.fullyExpandedType
+import org.jetbrains.kotlin.analysis.api.types.isSubtypeOf
 import org.jetbrains.kotlin.idea.base.psi.replaced
 import org.jetbrains.kotlin.idea.base.resources.KotlinBundle
 import org.jetbrains.kotlin.idea.codeinsight.api.classic.inspections.AbstractKotlinInspection
@@ -45,7 +46,6 @@ import org.jetbrains.kotlin.psi.psiUtil.getQualifiedExpressionForSelector
 import org.jetbrains.kotlin.psi.psiUtil.siblings
 import org.jetbrains.kotlin.psi.psiUtil.startOffset
 import org.jetbrains.kotlin.psi.qualifiedExpressionVisitor
-import kotlin.collections.get
 
 class ConvertCallChainIntoSequenceInspection : AbstractKotlinInspection() {
     private val defaultCallChainLength = 5
@@ -159,15 +159,15 @@ private fun KtQualifiedExpression.findCallChain(): CallChain? {
 private fun collectCallExpression(expression: KtQualifiedExpression): List<KtCallExpression> {
     val calls = mutableListOf<KtCallExpression>()
 
-    fun KaSession.collect(qualified: KtQualifiedExpression) {
+    context(session: KaSession)
+    fun collect(qualified: KtQualifiedExpression) {
         val call = qualified.callExpression ?: return
         calls.add(call)
         val receiver = qualified.receiverExpression
         if (receiver is KtCallExpression) {
-            val partiallyAppliedSymbol =
-                receiver.resolveToCall()?.singleCallOrNull<KaCallableMemberCall<*, *>>()?.partiallyAppliedSymbol
+            val singleCall = receiver.tryResolveCall()?.single?.simple
             val implicitReceiverValue =
-                (partiallyAppliedSymbol?.extensionReceiver ?: partiallyAppliedSymbol?.dispatchReceiver) as? KaImplicitReceiverValue
+                (singleCall?.extensionReceiver ?: singleCall?.dispatchReceiver) as? KaImplicitReceiverValue
             val hasImplicitReceiver = implicitReceiverValue != null
             if (hasImplicitReceiver) {
                 calls.add(receiver)
@@ -187,9 +187,9 @@ private fun collectCallExpression(expression: KtQualifiedExpression): List<KtCal
             .asSequence()
             .map { call ->
                 val partiallySymbol = transformationAndTerminations[call.calleeText()]?.let { fqName ->
-                    val partiallySymbol = call.resolveToCall()?.singleCallOrNull<KaCallableMemberCall<*, *>>()?.partiallyAppliedSymbol
-                    val symbolCallableId = partiallySymbol?.symbol?.callableId?.asSingleFqName()
-                    partiallySymbol?.takeIf { symbolCallableId == fqName }
+                    val singleCall = call.tryResolveCall()?.single?.simple
+                    val symbolCallableId = singleCall?.symbol?.callableId?.asSingleFqName()
+                    singleCall?.takeIf { symbolCallableId == fqName }
                 }
                 call to partiallySymbol
             }

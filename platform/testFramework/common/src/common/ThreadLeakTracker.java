@@ -6,14 +6,19 @@ import com.intellij.diagnostic.JVMResponsivenessMonitor;
 import com.intellij.diagnostic.PerformanceWatcher;
 import com.intellij.execution.process.ProcessIOExecutorService;
 import com.intellij.openapi.Disposable;
+import com.intellij.openapi.application.Application;
+import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.impl.TestOnlyThreading;
 import com.intellij.openapi.diagnostic.AsyncLogKt;
 import com.intellij.openapi.util.Disposer;
 import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.util.ShutDownTracker;
+import com.intellij.psi.stubs.StubIndex;
+import com.intellij.psi.stubs.StubIndexImpl;
 import com.intellij.util.FlushingDaemon;
 import com.intellij.util.containers.ContainerUtil;
-import com.intellij.util.io.FilePageCacheLockFree;
+import com.intellij.util.indexing.FileBasedIndex;
+import com.intellij.util.indexing.FileBasedIndexEx;
 import com.intellij.util.ui.EDT;
 import com.intellij.util.ui.UIUtil;
 import org.jetbrains.annotations.ApiStatus.Internal;
@@ -71,7 +76,7 @@ public final class ThreadLeakTracker {
   private static final Set<String> wellKnownOffenders;
 
   static {
-    @SuppressWarnings({"deprecation", "SpellCheckingInspection"}) List<String> offenders = List.of(
+    @SuppressWarnings("deprecation") List<String> offenders = List.of(
       "ApplicationImpl pooled thread ", // com.intellij.util.concurrency.AppScheduledExecutorService.POOLED_THREAD_PREFIX
       "AWT-EventQueue-",
       "AWT-Shutdown",
@@ -92,9 +97,9 @@ public final class ThreadLeakTracker {
       "embeddings-server",
       "EventQueueMonitor-ComponentEvtDispatch", // com.sun.java.accessibility.util.ComponentEvtDispatchThread
       "External compiler",
-      FilePageCacheLockFree.DEFAULT_HOUSEKEEPER_THREAD_NAME,
       "Finalizer",
       FlushingDaemon.NAME,
+      "FrontendToBackend",
       "grpc-default-worker-",  // grpc_netty_shaded
       "grpc-nio-worker-",
       "HttpClient-",  // JRE's HttpClient thread pool is not supposed to be disposed - to reuse connections
@@ -111,6 +116,10 @@ public final class ThreadLeakTracker {
       JVMResponsivenessMonitor.MONITOR_THREAD_NAME,
       "Keep-Alive-SocketCleaner", // Thread[Keep-Alive-SocketCleaner,8,InnocuousThreadGroup], JBR-11
       "Keep-Alive-Timer",
+      // com.intellij.remoteDev.tests.LambdaTestsConstants#protocolName - the rd wire to a lambda-framework IDE.
+      // That IDE is shared by every test class of a launch, so its sender and receiver outlive any one of them;
+      // the first class to run would otherwise report them as its own leak. Same case as "FrontendToBackend".
+      "LambdaTestProtocol",
       "LocalEventBusServerThread", // com.intellij.tools.ide.starter.bus.shared.server.LocalEventBusServer
       "main",
       "Monitor Ctrl-Break",
@@ -129,6 +138,8 @@ public final class ThreadLeakTracker {
       "rd throttler", // daemon thread created by com.jetbrains.rd.util.AdditionalApiKt.getTimer
       "Reference Handler",
       "Rider.Backend", // ignore process + io threads because backend follows application lifecycle and can be started during the test
+      "Rider.LightweightBackend", // same as Rider.Backend, but for the lightweight backend process
+      "RiderStub", // same as Rider.Backend, but for the single-file backend host, whose command line has no "Rider.Backend" in it
       "RMI GC Daemon",
       "RMI TCP ",
       "Save classpath indexes for file loader",
@@ -143,6 +154,7 @@ public final class ThreadLeakTracker {
       "UserActivityMonitor thread",
       "VM Periodic Task Thread",
       "VM Thread",
+      "WriteAheadLogFlusher",
       "YJPAgent-Telemetry"
     );
     validateWhitelistedThreads(offenders);
@@ -169,6 +181,7 @@ public final class ThreadLeakTracker {
   }
 
   public static void checkLeak(@NotNull Map<String, Thread> threadsBefore) throws AssertionError {
+    waitForIndexInitialization();
     // compare threads by name because BoundedTaskExecutor reuses application thread pool for different bounded pools,
     // leaks of which we want to find
     Map<String, Thread> all = getThreads();
@@ -243,6 +256,22 @@ public final class ThreadLeakTracker {
     );
   }
 
+  // index initialization belongs to the shared application, not to the finished test; let it settle before the thread comparison
+  private static void waitForIndexInitialization() {
+    Application app = ApplicationManager.getApplication();
+    if (app == null || app.isDisposed()) {
+      return;
+    }
+    FileBasedIndex fileBasedIndex = app.getServiceIfCreated(FileBasedIndex.class);
+    if (fileBasedIndex instanceof FileBasedIndexEx) {
+      ((FileBasedIndexEx)fileBasedIndex).waitUntilIndicesAreInitialized();
+    }
+    StubIndex stubIndex = app.getServiceIfCreated(StubIndex.class);
+    if (stubIndex instanceof StubIndexImpl) {
+      ((StubIndexImpl)stubIndex).waitUntilStubIndexedInitialized();
+    }
+  }
+
   private static boolean shouldWaitForThread(Thread thread) {
     if (thread == Thread.currentThread()) {
       return false;
@@ -270,6 +299,7 @@ public final class ThreadLeakTracker {
            || isJMXRemoteCall(stackTrace)
            || isBuildLogCall(stackTrace)
            || isVirtualThreadUnblocker(stackTrace)
+           || isVirtualThreadPoller(stackTrace)
            || isJfrPeriodicTasks(stackTrace)
            || isIjentMediatorThread(stackTrace)
            || windowsCompletionPortLeakForDocker(stackTrace)
@@ -448,6 +478,19 @@ public final class ThreadLeakTracker {
     // at java.base/jdk.internal.misc.InnocuousThread.run(InnocuousThread.java:148)
     return stackTrace[0].getClassName().equals("java.lang.VirtualThread") && stackTrace[0].getMethodName().equals("takeVirtualThreadListToUnblock")
       && stackTrace[1].getClassName().equals("java.lang.VirtualThread") && stackTrace[1].getMethodName().equals("unblockVirtualThreads");
+  }
+
+  /**
+   * The JDK starts the poller threads ("MasterPoller", "Read-Poller", "Write-Poller") when a virtual thread first blocks on a socket.
+   * They live until the JVM exits.
+   */
+  private static boolean isVirtualThreadPoller(StackTraceElement[] stackTrace) {
+    // at java.base/sun.nio.ch.EPoll.wait(Native Method)
+    // at java.base/sun.nio.ch.EPollPoller.poll(EPollPoller.java:74)
+    // at java.base/sun.nio.ch.Poller.pollerLoop(Poller.java:248)
+    // at java.base/java.lang.Thread.run(Thread.java:1474)
+    // at java.base/jdk.internal.misc.InnocuousThread.run(InnocuousThread.java:148)
+    return ContainerUtil.exists(stackTrace, element -> element.getClassName().equals("sun.nio.ch.Poller"));
   }
 
   /**

@@ -2,12 +2,10 @@
 
 package org.jetbrains.kotlin.idea.references.impl
 
-import org.jetbrains.kotlin.analysis.api.KaExperimentalApi
 import org.jetbrains.kotlin.analysis.api.KaSession
 import org.jetbrains.kotlin.analysis.api.resolution.symbols
 import org.jetbrains.kotlin.analysis.api.symbols.KaSymbol
 import org.jetbrains.kotlin.idea.references.KtPropertyDelegationMethodsReference
-import org.jetbrains.kotlin.psi.KtExperimentalApi
 import org.jetbrains.kotlin.psi.KtImplementationDetail
 import org.jetbrains.kotlin.psi.KtImportAlias
 import org.jetbrains.kotlin.psi.KtPropertyDelegate
@@ -17,7 +15,6 @@ import org.jetbrains.kotlin.references.KotlinPsiReferenceProviderContributor
 internal class KaBasePropertyDelegationMethodsReference(
     element: KtPropertyDelegate,
 ) : KtPropertyDelegationMethodsReference(element), KaBaseReference {
-    @OptIn(KtExperimentalApi::class, KaExperimentalApi::class)
     override fun KaSession.resolveToSymbols(): Collection<KaSymbol> {
         return element.tryResolveSymbols()?.symbols.orEmpty()
     }

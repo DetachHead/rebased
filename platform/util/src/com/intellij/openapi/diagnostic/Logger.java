@@ -12,7 +12,6 @@ import org.jetbrains.annotations.TestOnly;
 
 import java.lang.reflect.Constructor;
 import java.util.Collection;
-import java.util.concurrent.CancellationException;
 import java.util.function.Function;
 
 /**
@@ -498,20 +497,14 @@ public abstract class Logger {
 
   private static final boolean ourRethrowCE = "true".equals(System.getProperty("idea.log.rethrow.ce", "true"));
 
-  @SuppressWarnings("SpellCheckingInspection")
-  static boolean isRethrowable(@NotNull Throwable t) {
-    return t instanceof ControlFlowException ||
-           t instanceof CancellationException;
-  }
-
   /**
    * Do not use in applied code.
    *
-   * @see LoggerKt#rethrowControlFlowException(Throwable)
+   * @see com.intellij.diagnostic.ControlFlowExceptionsKt#rethrowControlFlowException(Throwable)
    */
   @ApiStatus.Internal
   public static boolean shouldRethrow(@NotNull Throwable t) {
-    return isRethrowable(t) && ourRethrowCE;
+    return ControlFlowExceptionKt.isControlFlowException(t) && ourRethrowCE;
   }
 
   @Contract("null -> null; !null -> !null")
@@ -526,6 +519,7 @@ public abstract class Logger {
   public static void setUnitTestMode() {
     isUnitTestMode = true;
   }
+
   @TestOnly
   @ApiStatus.Internal
   public static void setInStressTest(boolean value) {

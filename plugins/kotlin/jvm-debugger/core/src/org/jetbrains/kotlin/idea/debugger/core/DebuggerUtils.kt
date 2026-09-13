@@ -24,7 +24,7 @@ import com.sun.jdi.Location
 import com.sun.jdi.ReferenceType
 import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.annotations.TestOnly
-import org.jetbrains.kotlin.analysis.api.resolution.successfulFunctionCallOrNull
+import org.jetbrains.kotlin.analysis.api.resolution.function
 import org.jetbrains.kotlin.asJava.finder.JavaElementFinder
 import org.jetbrains.kotlin.idea.base.facet.platform.platform
 import org.jetbrains.kotlin.idea.base.indices.KotlinPackageIndexUtils.findFilesWithExactPackage
@@ -35,6 +35,7 @@ import org.jetbrains.kotlin.idea.debugger.base.util.KotlinSourceMapCache
 import org.jetbrains.kotlin.idea.debugger.base.util.fqnToInternalName
 import org.jetbrains.kotlin.idea.debugger.base.util.runDumbAnalyze
 import org.jetbrains.kotlin.idea.stubindex.KotlinFileFacadeFqNameIndex
+import org.jetbrains.kotlin.idea.util.resolveSuccessfulExpressionCall
 import org.jetbrains.kotlin.lexer.KtTokens
 import org.jetbrains.kotlin.load.kotlin.PackagePartClassUtils
 import org.jetbrains.kotlin.name.FqName
@@ -276,8 +277,8 @@ object DebuggerUtils {
         val callExpression = KtPsiUtil.getParentCallIfPresent(argumentExpression) ?: return false
 
         return runDumbAnalyze(callExpression, fallback = false) f@ {
-            val call = callExpression.resolveToCall()?.successfulFunctionCallOrNull() ?: return@f false
-            val parameter = call.argumentMapping[argumentExpression]?.symbol ?: return@f false
+            val call = callExpression.resolveSuccessfulExpressionCall()?.function ?: return@f false
+            val parameter = call.valueArgumentMapping[argumentExpression]?.symbol ?: return@f false
             return@f parameter.isCrossinline
         }
     }

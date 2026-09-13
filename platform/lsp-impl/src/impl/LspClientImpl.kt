@@ -6,7 +6,7 @@ import com.intellij.openapi.application.ReadAction
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.editor.Document
 import com.intellij.openapi.editor.event.DocumentEvent
-import com.intellij.openapi.editor.ex.DocumentEx
+import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.roots.ProjectFileIndex
 import com.intellij.openapi.util.io.FileUtilRt
@@ -14,10 +14,9 @@ import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.platform.lsp.api.Lsp4jServer
 import com.intellij.platform.lsp.api.LspClientDescriptor
 import com.intellij.platform.lsp.api.LspClientManagerListener
-import com.intellij.platform.lsp.api.LspIntegrationProvider
 import com.intellij.platform.lsp.api.LspCommunicationChannel
 import com.intellij.platform.lsp.api.LspCommunicationChannel.StdIO
-import com.intellij.platform.lsp.api.LspServerNotificationsHandler
+import com.intellij.platform.lsp.api.LspIntegrationProvider
 import com.intellij.platform.lsp.api.LspServerState
 import com.intellij.platform.lsp.impl.connector.Lsp4jServerConnector
 import com.intellij.platform.lsp.impl.connector.Lsp4jServerConnectorSocket
@@ -28,10 +27,12 @@ import com.intellij.platform.lsp.impl.features.LspFeaturesRefreshing
 import com.intellij.platform.lsp.impl.features.highlighting.DiagnosticAndQuickFixes
 import com.intellij.platform.lsp.impl.features.highlighting.LspDocumentLink
 import com.intellij.platform.lsp.impl.features.highlighting.LspHighlightingApplier
-import com.intellij.platform.lsp.impl.features.inlayCommon.LspInlayApplier
 import com.intellij.platform.lsp.impl.features.highlighting.LspSemanticToken
 import com.intellij.platform.lsp.impl.features.highlightingCommon.LspCachedHighlighting
 import com.intellij.platform.lsp.impl.features.highlightingCommon.LspHighlightingCacheRegistry
+import com.intellij.platform.lsp.impl.features.inlayCommon.LspInlayApplier
+import com.intellij.platform.lsp.impl.features.navigation.LspLibraryFiles
+import com.intellij.platform.lsp.impl.features.navigation.getFileUriForRequests
 import com.intellij.platform.lsp.impl.fileEvents.LspWatchedFiles
 import com.intellij.serviceContainer.AlreadyDisposedException
 import com.intellij.util.concurrency.annotations.RequiresBackgroundThread
@@ -50,6 +51,7 @@ import org.eclipse.lsp4j.TextDocumentRegistrationOptions
 import org.eclipse.lsp4j.TextDocumentSyncKind
 import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.annotations.NonNls
+import org.jetbrains.annotations.VisibleForTesting
 import java.util.Collections
 import java.util.concurrent.CompletableFuture
 import kotlin.time.DurationUnit
@@ -87,10 +89,11 @@ class LspClientImpl internal constructor(
   val requestExecutor: LspRequestExecutor = LspRequestExecutor(this, documentMapping)
   internal val globMatcher: LspGlobMatcher = LspGlobMatcher()
   internal val dynamicCapabilities: LspDynamicCapabilities = LspDynamicCapabilities()
-  internal val serverNotificationsHandler: LspServerNotificationsHandler = LspServerNotificationsHandlerImpl(this)
+  internal val serverNotificationsHandler: LspServerNotificationsHandlerImpl = LspServerNotificationsHandlerImpl(this)
 
   internal val documentSyncManager = LspDocumentSyncManager(this)
   internal val watchedFiles = LspWatchedFiles(this)
+  internal val libraryFiles = LspLibraryFiles(this)
   private val unsupportedFilePaths: MutableSet<String> = Collections.synchronizedSet(HashSet())
   private val highlightingCacheRegistry = LspHighlightingCacheRegistry(this)
 
@@ -108,8 +111,7 @@ class LspClientImpl internal constructor(
     get() = if (state == LspServerState.Running) initializeResult?.capabilities else null
 
   internal val textDocumentSyncKind: TextDocumentSyncKind?
-    @Suppress("RemoveExplicitTypeArguments")
-    get() = serverCapabilities?.textDocumentSync?.map<TextDocumentSyncKind?>({ it }, { it.change })
+    get() = serverCapabilities?.textDocumentSync?.map({ it }, { it.change })
 
   internal fun isFileOpened(file: VirtualFile): Boolean = documentSyncManager.isFileOpened(file)
 
@@ -133,10 +135,17 @@ class LspClientImpl internal constructor(
     requestExecutor.sendRequestSync(timeoutMs, lsp4jSender)
 
   override fun getDocumentIdentifier(file: VirtualFile): TextDocumentIdentifier =
-    TextDocumentIdentifier(descriptor.getFileUri(file))
+    TextDocumentIdentifier(getFileUriForRequests(file))
 
-  override fun getDocumentVersion(document: Document): Int =
-    (document as? DocumentEx)?.modificationSequence ?: document.modificationStamp.toInt()
+  override fun getDocumentVersion(document: Document): Int {
+    val file = FileDocumentManager.getInstance().getFile(document) ?: return -1
+    return documentSyncManager.currentDocumentVersion(file)
+  }
+
+  override fun nextDocumentVersion(document: Document): Int {
+    val file = FileDocumentManager.getInstance().getFile(document) ?: return -1
+    return documentSyncManager.nextDocumentVersion(file)
+  }
 
   @RequiresReadLock
   @RequiresBackgroundThread
@@ -156,6 +165,11 @@ class LspClientImpl internal constructor(
   internal fun fileEdited(file: VirtualFile, e: DocumentEvent) {
     highlightingCacheRegistry.fileEdited(file, e)
     eventBroadcaster.fileEdited(this, file)
+    if (isFileOpened(file)) {
+      // Re-apply the cached highlightings with the edit-adjusted ranges. Without this, highlightings
+      // applied before the edit keep their pre-edit offsets until the next daemon pass.
+      LspHighlightingApplier.getInstance(project).scheduleHighlightingRefresh(file)
+    }
   }
 
   internal fun refreshSemanticTokens() {
@@ -177,12 +191,25 @@ class LspClientImpl internal constructor(
     }
   }
 
+  /**
+   * Handles a server-forced `workspace/diagnostic/refresh`: re-pulls diagnostics for every opened file even without
+   * a document edit. Invalidating the cache keeps the current diagnostics on screen (no flicker);
+   * [LspHighlightingApplier.scheduleHighlightingRefresh] kicks the re-pull and applies the fresh results once they land.
+   */
+  internal fun refreshDiagnostics() {
+    forEachOpenedFile { file ->
+      highlightingCacheRegistry.pullDiagnosticsCache.serverForcedRefresh(file)
+      LspHighlightingApplier.getInstance(project).scheduleHighlightingRefresh(file)
+    }
+  }
+
   @RequiresBackgroundThread
   @RequiresReadLock
   internal fun getSemanticTokens(file: VirtualFile): List<LspCachedHighlighting<LspSemanticToken>> =
     highlightingCacheRegistry.semanticTokensCache.getHighlightings(file)
 
   @RequiresBackgroundThread
+  @VisibleForTesting
   fun getDiagnosticsAndQuickFixes(file: VirtualFile): List<DiagnosticAndQuickFixes> =
     highlightingCacheRegistry.getDiagnosticsAndQuickFixes(file)
 
@@ -265,11 +292,11 @@ class LspClientImpl internal constructor(
         }
         logWarn("Failed to start LSP server", exToLog)
 
-        val lspServerManager = ReadAction.computeBlocking<LspClientManagerImpl?, Throwable> {
+        val manager = ReadAction.computeBlocking<LspClientManagerImpl?, Throwable> {
           if (!project.isDisposed) LspClientManagerImpl.getInstanceImpl(project) else null
         }
         val text = (if (e is LspInitializationException) "$e\nCaused by:\n" else "") + exToLog.stackTraceToString()
-        lspServerManager?.handleMaybeUnexpectedServerStop(this, text)
+        manager?.handleMaybeUnexpectedServerStop(this, text)
       }
     }
   }
@@ -288,12 +315,15 @@ class LspClientImpl internal constructor(
       logInfo("Stopping LSP server ${if (explicitStop) "normally" else "unexpectedly"}")
       state = if (explicitStop) LspServerState.ShutdownNormally else LspServerState.ShutdownUnexpectedly
 
-      forEachOpenedFile { file ->
-        LspHighlightingApplier.getInstance(project).scheduleHighlightingRefresh(file)
-        LspInlayApplier.getInstance(project).scheduleRefresh(file)
+      if (!project.isDisposed) {
+        forEachOpenedFile { file ->
+          LspHighlightingApplier.getInstance(project).scheduleHighlightingRefresh(file)
+          LspInlayApplier.getInstance(project).scheduleRefresh(file)
+        }
       }
-      documentSyncManager.clearOpenedFiles()
+      documentSyncManager.shutdown()
       requestExecutor.shutdownNow()
+      serverNotificationsHandler.cancelAllProgress()
 
       highlightingCacheRegistry.clearCache()
 
@@ -302,13 +332,15 @@ class LspClientImpl internal constructor(
       }
     }
 
-    shutdownAndExit()
+    // A graceful `shutdown`/`exit` handshake only makes sense for an explicit stop of a still-responsive server.
+    // On an unexpected stop the server-to-IDE channel is already dead, so skip the handshake and just disconnect.
+    shutdownAndExit(graceful = explicitStop)
   }
 
-  private fun shutdownAndExit() {
+  private fun shutdownAndExit(graceful: Boolean) {
     val shutdownAndExit = Runnable {
       synchronized(connectorLock) {
-        if (::lsp4jServerConnector.isInitialized) lsp4jServerConnector.shutdownExitDisconnect()
+        if (::lsp4jServerConnector.isInitialized) lsp4jServerConnector.shutdownExitDisconnect(graceful)
       }
     }
 
@@ -353,7 +385,14 @@ class LspClientImpl internal constructor(
 
   internal fun supportsGotoTypeDefinition(): Boolean = serverCapabilities?.typeDefinitionProvider?.let { it.left ?: true } == true
 
+  internal fun supportsGotoImplementation(file: VirtualFile): Boolean =
+    serverCapabilities?.implementationProvider?.let { it.left ?: true }
+    ?: hasDynamicCapabilityToHandleThisFile(file, LspDynamicCapabilities.implementation)
+
   internal fun supportsHover(): Boolean = serverCapabilities?.hoverProvider?.let { it.left ?: true } == true
+
+  internal fun supportsCommand(command: String): Boolean =
+    serverCapabilities?.executeCommandProvider?.commands?.contains(command) == true
 
   internal fun supportsFindReferences(file: VirtualFile): Boolean =
     serverCapabilities?.referencesProvider?.let { it.left ?: true }
@@ -496,7 +535,13 @@ class LspClientImpl internal constructor(
         if (filter.scheme != null && filter.scheme != "file") continue
 
         val language = filter.language
-        val pattern = filter.pattern
+        val filterPattern = filter.pattern
+        if (filterPattern != null && filterPattern.isRight) {
+          // A RelativePattern needs its baseUri resolved against the workspace folders. The IDE does not support it yet.
+          logWarn("Ignoring the document filter, its pattern is relative: ${filterPattern.right}")
+          continue
+        }
+        val pattern = filterPattern?.left
         if (language == null && pattern == null) continue
         if (language != null && language != descriptor.getLanguageId(file)) continue
 

@@ -1,7 +1,6 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
 
 ### auto-generated section `build intellij.performanceTesting.remoteDriver` start
-
 jvm_library(
     name = "remote-driver",
     srcs = glob(
@@ -28,7 +27,7 @@ jvm_library(
         "@lib//:kotlin-stdlib",
         "//plugins/performanceTesting/core:performanceTesting",
         "//libraries/assertj-core",
-        "@lib//:assertj-swing",
+        "//libraries/assertj-swing",
         "//platform/editor-ui-api:editor-ui",
         "//platform/platform-util-netty:ide-util-netty",
         "//platform/built-in-server-api:builtInServer",
@@ -68,6 +67,7 @@ jvm_library(
         ":remote-driver",
         "//plugins/performanceTesting/core:performanceTesting_test_lib",
         "//libraries/assertj-core:assertj-core_test_lib",
+        "//libraries/assertj-swing:assertj-swing_test_lib",
         "//platform/editor-ui-api:editor-ui_test_lib",
         "//platform/platform-util-netty:ide-util-netty_test_lib",
         "//platform/built-in-server-api:builtInServer_test_lib",
@@ -91,6 +91,7 @@ jvm_library(
 exports_files(
     [
         "intellij.performanceTesting.remoteDriver.iml",
+        "resources/intellij.performanceTesting.remoteDriver.xml",
     ],
     visibility = ["//visibility:public"],
 )

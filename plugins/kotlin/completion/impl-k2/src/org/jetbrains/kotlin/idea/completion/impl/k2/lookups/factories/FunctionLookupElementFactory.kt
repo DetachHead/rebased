@@ -4,7 +4,6 @@ package org.jetbrains.kotlin.idea.completion.impl.k2.lookups.factories
 
 import com.intellij.codeInsight.AutoPopupController
 import com.intellij.codeInsight.completion.InsertionContext
-import com.intellij.codeInsight.lookup.Lookup
 import com.intellij.codeInsight.lookup.LookupElement
 import com.intellij.codeInsight.lookup.LookupElementBuilder
 import com.intellij.openapi.util.TextRange
@@ -13,14 +12,9 @@ import com.intellij.psi.PsiElement
 import com.intellij.psi.util.endOffset
 import kotlinx.serialization.Serializable
 import org.jetbrains.annotations.ApiStatus
-import org.jetbrains.kotlin.analysis.api.KaExperimentalApi
 import org.jetbrains.kotlin.analysis.api.KaSession
 import org.jetbrains.kotlin.analysis.api.annotations.KaAnnotationValue
 import org.jetbrains.kotlin.analysis.api.base.KaConstantValue
-import org.jetbrains.kotlin.analysis.api.components.createSubstitutor
-import org.jetbrains.kotlin.analysis.api.components.lowerBoundIfFlexible
-import org.jetbrains.kotlin.analysis.api.components.samConstructor
-import org.jetbrains.kotlin.analysis.api.components.upperBoundIfFlexible
 import org.jetbrains.kotlin.analysis.api.signatures.KaCallableSignature
 import org.jetbrains.kotlin.analysis.api.signatures.KaFunctionSignature
 import org.jetbrains.kotlin.analysis.api.signatures.KaVariableSignature
@@ -29,12 +23,15 @@ import org.jetbrains.kotlin.analysis.api.symbols.KaNamedClassSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaNamedFunctionSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaTypeParameterSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaValueParameterSymbol
-import org.jetbrains.kotlin.analysis.api.symbols.typeParameters
+import org.jetbrains.kotlin.analysis.api.symbols.samConstructor
 import org.jetbrains.kotlin.analysis.api.types.KaClassType
 import org.jetbrains.kotlin.analysis.api.types.KaFunctionType
 import org.jetbrains.kotlin.analysis.api.types.KaType
 import org.jetbrains.kotlin.analysis.api.types.KaTypeParameterType
 import org.jetbrains.kotlin.analysis.api.types.KaUsualClassType
+import org.jetbrains.kotlin.analysis.api.types.createSubstitutor
+import org.jetbrains.kotlin.analysis.api.types.lowerBoundIfFlexible
+import org.jetbrains.kotlin.analysis.api.types.upperBoundIfFlexible
 import org.jetbrains.kotlin.builtins.StandardNames
 import org.jetbrains.kotlin.idea.base.analysis.api.utils.findSamSymbolOrNull
 import org.jetbrains.kotlin.idea.base.analysis.api.utils.isPossiblySubTypeOf
@@ -43,9 +40,9 @@ import org.jetbrains.kotlin.idea.base.analysis.withRootPrefixIfNeeded
 import org.jetbrains.kotlin.idea.base.serialization.names.KotlinNameSerializer
 import org.jetbrains.kotlin.idea.completion.acceptOpeningBrace
 import org.jetbrains.kotlin.idea.completion.handlers.isCharAt
-import org.jetbrains.kotlin.idea.completion.impl.k2.contributors.toMatchingVariadicCallableOrNull
 import org.jetbrains.kotlin.idea.completion.impl.k2.contributors.helpers.insertString
 import org.jetbrains.kotlin.idea.completion.impl.k2.contributors.helpers.insertStringAndInvokeCompletion
+import org.jetbrains.kotlin.idea.completion.impl.k2.contributors.toMatchingVariadicCallableOrNull
 import org.jetbrains.kotlin.idea.completion.impl.k2.handlers.TrailingLambdaInsertionHandlerFactory
 import org.jetbrains.kotlin.idea.completion.impl.k2.lookups.CallableInsertionOptions
 import org.jetbrains.kotlin.idea.completion.impl.k2.lookups.CallableInsertionStrategy
@@ -61,11 +58,10 @@ import org.jetbrains.kotlin.idea.completion.impl.k2.lookups.skipSpaces
 import org.jetbrains.kotlin.idea.completion.impl.k2.lookups.updateLookupElementBuilderToInsertTypeQualifierOnSuper
 import org.jetbrains.kotlin.idea.completion.impl.k2.lookups.withCallableSignatureInfo
 import org.jetbrains.kotlin.idea.completion.impl.k2.weighers.TrailingLambdaWeigher.hasTrailingLambda
-import org.jetbrains.kotlin.lexer.KtTokens
 import org.jetbrains.kotlin.name.Name
+import org.jetbrains.kotlin.name.render
 import org.jetbrains.kotlin.psi.KtFile
 import org.jetbrains.kotlin.psi.KtTypeArgumentList
-import org.jetbrains.kotlin.renderer.render
 
 internal object FunctionLookupElementFactory {
 
@@ -97,7 +93,6 @@ internal object FunctionLookupElementFactory {
         return createLookupElement(signature, lookupObject, useFqNameInTailText = aliasName != null)
     }
 
-    @OptIn(KaExperimentalApi::class)
     context(_: KaSession)
     internal fun getTrailingFunctionSignature(
         signature: KaFunctionSignature<*>,
@@ -135,7 +130,7 @@ internal object FunctionLookupElementFactory {
                     .zip(type.typeArguments.mapNotNull { it.type })
                     .toMap()
 
-                val functionType = (@OptIn(KaExperimentalApi::class) createSubstitutor(mappings)
+                val functionType = (createSubstitutor(mappings)
                     .substitute(samConstructorType)) as? KaFunctionType
                     ?: return null
 
@@ -149,7 +144,6 @@ internal object FunctionLookupElementFactory {
         }
     }
 
-    @OptIn(KaExperimentalApi::class)
     @ApiStatus.Experimental
     context(_: KaSession)
     fun createLookupWithTrailingLambda(
@@ -248,7 +242,6 @@ internal data class WithCallArgsInsertionHandler(
 }
 
 object FunctionInsertionHelper {
-    @OptIn(KaExperimentalApi::class)
     context(_: KaSession)
     fun functionCanBeCalledWithoutExplicitTypeArguments(
         symbol: KaFunctionSymbol,
@@ -356,38 +349,28 @@ internal object FunctionInsertionHandler : QuotedNamesAwareInsertionHandler() {
         var offset = context.tailOffset
         val document = context.document
         val editor = context.editor
-        val project = context.project
         val chars = document.charsSequence
 
-        val isSmartEnterCompletion = completionChar == Lookup.COMPLETE_STATEMENT_SELECT_CHAR
-        val isReplaceCompletion = completionChar == Lookup.REPLACE_SELECT_CHAR
-        val isNormalCompletion = completionChar == Lookup.NORMAL_SELECT_CHAR
+        var insertTypeArguments = lookupObject.inputTypeArgumentsAreRequired && completionChar.isWhiteSpaceCompletionChar()
 
-        var insertTypeArguments = lookupObject.inputTypeArgumentsAreRequired &&
-                (isNormalCompletion || isReplaceCompletion || isSmartEnterCompletion)
-
-        val preferParentheses = completionChar == '(' || isReplaceCompletion && chars.isCharAt(offset, '(')
+        val preferParentheses = completionChar == '(' || completionChar.isReplaceCompletion() && chars.isCharAt(offset, '(')
         val insertLambda = !preferParentheses && lookupObject.inputTrailingLambdaIsRequired
         val (openingBracket, closingBracket) = if (insertLambda) '{' to '}' else '(' to ')'
 
         val offset1 = chars.skipSpaces(offset)
         var skipParentheses = false
-        if (offset1 < chars.length) {
-            if (chars[offset1] == '<') {
-                val token = context.file.findElementAt(offset1)!!
-                if (token.node.elementType == KtTokens.LT) {
-                    val parent = token.parent
-                    /* if type argument list is on multiple lines this is more likely wrong parsing*/
-                    if (parent is KtTypeArgumentList && parent.getText().indexOf('\n') < 0) {
-                        if (isReplaceCompletion) {
-                            offset = parent.endOffset
-                        } else {
-                            offset = offset1
-                            skipParentheses = true
-                        }
-                        insertTypeArguments = false
-                    }
+        if (offset1 < chars.length && chars[offset1] == '<') {
+            val token = context.file.findElementAt(offset1)!!
+            val parent = token.parent
+            /* if type argument list is on multiple lines this is more likely wrong parsing*/
+            if (parent is KtTypeArgumentList && parent.text.indexOf('\n') < 0) {
+                if (completionChar.isReplaceCompletion()) {
+                    offset = parent.endOffset
+                } else {
+                    offset = offset1
+                    skipParentheses = true
                 }
+                insertTypeArguments = false
             }
         }
 
@@ -400,7 +383,6 @@ internal object FunctionInsertionHandler : QuotedNamesAwareInsertionHandler() {
 
         var openingBracketOffset = chars.indexOfSkippingSpace(openingBracket, offset)
         var closeBracketOffset = openingBracketOffset?.let { chars.indexOfSkippingSpace(closingBracket, it + 1) }
-        var inBracketsShift = 0
 
         if (openingBracketOffset == null) {
             val text = if (insertLambda) {
@@ -408,31 +390,30 @@ internal object FunctionInsertionHandler : QuotedNamesAwareInsertionHandler() {
                     context.setAddCompletionChar(false)
                 }
 
-                inBracketsShift = 1
                 " {  }"
             } else if (!skipParentheses) {
-                if (isSmartEnterCompletion) "("
+                if (completionChar.isSmartEnterCompletion()) "("
                 else "()"
             } else ""
             document.insertString(offset, text)
             context.commitDocument()
 
-            openingBracketOffset = document.charsSequence.indexOfSkippingSpace(openingBracket, offset)
+            openingBracketOffset = chars.indexOfSkippingSpace(openingBracket, offset)
             closeBracketOffset = openingBracketOffset?.let {
-                document.charsSequence.indexOfSkippingSpace(closingBracket, openingBracketOffset + 1)
+                chars.indexOfSkippingSpace(closingBracket, it + 1)
             }
         }
 
         if (!insertTypeArguments) {
             if (shouldPlaceCaretInBrackets(completionChar, lookupObject) || closeBracketOffset == null) {
-                val additionalOffset = if (insertLambda) 2 else 1
                 if (openingBracketOffset != null) {
+                    val additionalOffset = if (insertLambda) 2 else 1
                     caretModel.moveToOffset(openingBracketOffset + additionalOffset)
                 }
 
                 if (!insertLambda) {
                     context.laterRunnable = Runnable {
-                        AutoPopupController.getInstance(project)
+                        AutoPopupController.getInstance(context.project)
                             .autoPopupParameterInfo(editor, offsetElement)
                     }
                 }

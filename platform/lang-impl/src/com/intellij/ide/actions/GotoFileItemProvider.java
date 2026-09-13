@@ -18,11 +18,15 @@ import com.intellij.openapi.project.DumbService;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.roots.ProjectFileIndex;
 import com.intellij.openapi.util.Ref;
+import com.intellij.openapi.util.SystemInfo;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.io.FileUtilRt;
+import com.intellij.openapi.util.io.OSAgnosticPathUtil;
+import com.intellij.openapi.util.registry.Registry;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.LocalFileSystem;
 import com.intellij.openapi.vfs.VirtualFile;
+import com.intellij.openapi.vfs.newvfs.CacheAvoidingVirtualFile;
 import com.intellij.psi.PsiDirectory;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiFileSystemItem;
@@ -70,7 +74,6 @@ import static com.intellij.ide.util.gotoByName.FuzzyFileSearchExperimentOptionKt
 public class GotoFileItemProvider extends DefaultChooseByNameItemProvider {
   private static final Logger LOG = Logger.getInstance(GotoFileItemProvider.class);
 
-  public static final int EXACT_MATCH_DEGREE = 5000;
   private static final int DIRECTORY_MATCH_DEGREE = 0;
   private static final int DIR_CHILD_MATCH_DEGREE = 0;
 
@@ -375,21 +378,79 @@ public class GotoFileItemProvider extends DefaultChooseByNameItemProvider {
   }
 
   private @Nullable PsiFileSystemItem getFileByAbsolutePath(@NotNull String pattern) {
-    if (pattern.contains("/") || pattern.contains("\\")) {
-      String path = FileUtil.toSystemIndependentName(ChooseByNamePopup.getTransformedPattern(pattern, myModel));
-      VirtualFile vFile = LocalFileSystem.getInstance().findFileByPathIfCached(path);
-      if (vFile == null) {
-        path = unitePaths(myProject.getBasePath(), path);
-        if (path != null) vFile = LocalFileSystem.getInstance().findFileByPathIfCached(path);
+    if (!pattern.contains("/") && !pattern.contains("\\")) {
+      return null;
+    }
+
+    String path = FileUtil.toSystemIndependentName(ChooseByNamePopup.getTransformedPattern(pattern, myModel));
+    if (Registry.is("search.everywhere.absolute.path.outside.project")) {
+      if (!SystemInfo.isWindows) {
+        // '~' is a shell convention, not a Windows one
+        path = OSAgnosticPathUtil.expandUserHome(path);
       }
-      if (vFile != null) {
-        ProjectFileIndex index = ProjectFileIndex.getInstance(myProject);
-        if (index.isInContent(vFile) || index.isInLibrary(vFile)) {
-          return PsiUtilCore.findFileSystemItem(myProject, vFile);
-        }
+      // the filesystem root is not a meaningful exact match, and being one it would outrank every real candidate
+      if (OSAgnosticPathUtil.isAbsolute(path) && !isFileSystemRoot(path)) {
+        // an absolute path is an explicit navigation request, so the file doesn't have to belong to the project
+        VirtualFile vFile = findFileByAbsolutePathWithoutCaching(path);
+        return vFile == null ? null : PsiUtilCore.findFileSystemItem(myProject, vFile);
+      }
+    }
+
+    VirtualFile vFile = LocalFileSystem.getInstance().findFileByPathIfCached(path);
+    if (vFile == null) {
+      String unitedPath = unitePaths(myProject.getBasePath(), path);
+      if (unitedPath != null) vFile = LocalFileSystem.getInstance().findFileByPathIfCached(unitedPath);
+    }
+    if (vFile != null) {
+      ProjectFileIndex index = ProjectFileIndex.getInstance(myProject);
+      if (index.isInContent(vFile) || index.isInLibrary(vFile)) {
+        return PsiUtilCore.findFileSystemItem(myProject, vFile);
       }
     }
     return null;
+  }
+
+  /**
+   * Resolves an absolute path that may well point outside the project, without putting it into the VFS cache.
+   * <p>
+   * A file that is already cached is returned as a regular {@link VirtualFile}; everything else is resolved via
+   * {@code findFileByPathWithoutCaching} and stays a {@link CacheAvoidingVirtualFile}, so neither the many incomplete
+   * paths produced while the user is typing, nor the paths the user never opens, clutter the VFS cache.
+   * Such a file is turned into a regular one ({@link CacheAvoidingVirtualFile#asCacheable()}) only when the user
+   * actually navigates to it, see {@code SearchEverywhereNavigationHandler}.
+   *
+   * @return an existing {@link VirtualFile} for the path, possibly a {@link CacheAvoidingVirtualFile},
+   * or {@code null} if there is no such file
+   */
+  private static @Nullable VirtualFile findFileByAbsolutePathWithoutCaching(@NotNull String path) {
+    LocalFileSystem fileSystem = LocalFileSystem.getInstance();
+    VirtualFile cached = fileSystem.findFileByPathIfCached(path);
+    if (cached != null) {
+      return cached;
+    }
+
+    if (path.startsWith("//")) {
+      // a UNC path that is not cached yet: resolving it could block on the network
+      return null;
+    }
+
+    VirtualFile file = fileSystem.findFileByPathWithoutCaching(path);
+    // path resolution itself doesn't check existence: every not-yet-cached segment resolves to a transient file
+    // regardless of whether anything is there, so a non-existent path has to be filtered out here
+    if (file == null || !file.isValid()) {
+      return null;
+    }
+    // if the file happens to be cached already, there is nothing to avoid: unwrap it to get the full VirtualFile contract
+    if (file instanceof CacheAvoidingVirtualFile cacheAvoiding && cacheAvoiding.isCached()) {
+      return cacheAvoiding.asCacheable();
+    }
+    return file;
+  }
+
+  /** @return true for {@code "/"}, {@code "//"} and a bare DOS drive root such as {@code "C:/"} */
+  private static boolean isFileSystemRoot(@NotNull String path) {
+    String trimmed = UriUtil.trimTrailingSlashes(path);
+    return trimmed.isEmpty() || trimmed.length() == 2 && OSAgnosticPathUtil.startsWithWindowsDrive(trimmed);
   }
 
   public static String unitePaths(String projectPathStr, String filePathStr) {

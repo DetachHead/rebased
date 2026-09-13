@@ -6,12 +6,16 @@ import com.intellij.modcommand.ActionContext
 import com.intellij.modcommand.ModPsiUpdater
 import com.intellij.modcommand.Presentation
 import org.jetbrains.kotlin.analysis.api.KaSession
+import org.jetbrains.kotlin.analysis.api.resolution.resolveSuccessfulCall
+import org.jetbrains.kotlin.analysis.api.resolution.resolveSuccessfulSymbol
+import org.jetbrains.kotlin.analysis.api.resolution.simple
+import org.jetbrains.kotlin.analysis.api.resolution.symbol
 import org.jetbrains.kotlin.idea.base.resources.KotlinBundle
 import org.jetbrains.kotlin.idea.codeinsight.api.applicable.intentions.KotlinApplicableModCommandAction
 import org.jetbrains.kotlin.idea.codeinsight.utils.AddQualifiersUtil
-import org.jetbrains.kotlin.idea.references.mainReference
 import org.jetbrains.kotlin.name.FqName
 import org.jetbrains.kotlin.psi.KtNameReferenceExpression
+import org.jetbrains.kotlin.resolution.KtResolvableCall
 
 internal class AddFullQualifierIntention :
     KotlinApplicableModCommandAction<KtNameReferenceExpression, AddFullQualifierIntention.Context>(KtNameReferenceExpression::class) {
@@ -24,14 +28,17 @@ internal class AddFullQualifierIntention :
     override fun getActionPresentation(context: ActionContext, element: KtNameReferenceExpression): Presentation =
         Presentation.of(familyName).withPriority(PriorityAction.Priority.LOW)
 
-    override fun KaSession.prepareContext(element: KtNameReferenceExpression): Context? {
-        val contextSymbol = element.mainReference.resolveToSymbols().singleOrNull()
-        if (contextSymbol != null && AddQualifiersUtil.isApplicableTo(element, contextSymbol)) {
+    context(session: KaSession)
+    override fun prepareContext(element: KtNameReferenceExpression): Context? {
+        val contextSymbol =
+            (element as? KtResolvableCall)?.resolveSuccessfulCall()?.simple?.symbol ?: element.resolveSuccessfulSymbol()
+        return if (contextSymbol != null && AddQualifiersUtil.isApplicableTo(element, contextSymbol)) {
             val fqName = AddQualifiersUtil.getFqName(contextSymbol)
             require(fqName != null)
-            return Context(fqName)
+            Context(fqName)
+        } else {
+            null
         }
-        return null
     }
 
     override fun invoke(

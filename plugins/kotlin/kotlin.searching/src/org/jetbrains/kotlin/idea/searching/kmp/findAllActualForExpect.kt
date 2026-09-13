@@ -8,14 +8,15 @@ import com.intellij.psi.search.GlobalSearchScope
 import com.intellij.psi.search.SearchScope
 import com.intellij.psi.util.parentOfType
 import com.intellij.util.concurrency.annotations.RequiresBackgroundThread
-import org.jetbrains.kotlin.analysis.api.KaExperimentalApi
-import org.jetbrains.kotlin.analysis.api.analyze
+import org.jetbrains.kotlin.analysis.api.session.analyze
 import org.jetbrains.kotlin.analysis.api.symbols.KaDeclarationSymbol
+import org.jetbrains.kotlin.analysis.api.symbols.getExpectsForActual
+import org.jetbrains.kotlin.analysis.api.symbols.symbol
 import org.jetbrains.kotlin.idea.base.psi.isEffectivelyActual
 import org.jetbrains.kotlin.idea.stubindex.KotlinFullClassNameIndex
+import org.jetbrains.kotlin.idea.stubindex.KotlinFullTypeAliasNameIndex
 import org.jetbrains.kotlin.idea.stubindex.KotlinTopLevelFunctionFqnNameIndex
 import org.jetbrains.kotlin.idea.stubindex.KotlinTopLevelPropertyFqnNameIndex
-import org.jetbrains.kotlin.idea.stubindex.KotlinTopLevelTypeAliasFqNameIndex
 import org.jetbrains.kotlin.name.Name
 import org.jetbrains.kotlin.psi.KtClass
 import org.jetbrains.kotlin.psi.KtClassOrObject
@@ -36,7 +37,7 @@ fun KtDeclaration.findAllActualForExpect(searchScope: SearchScope = runReadActio
         val fqNameAsString = fqName.asString()
         val targetDeclarations = KotlinFullClassNameIndex.getAllElements(fqNameAsString, project, scope) {
             it.matchesWithExpect(containingClassOrObjectOrSelf, compatibleOnly)
-        } + KotlinTopLevelTypeAliasFqNameIndex.getAllElements(fqNameAsString, project, scope) {
+        } + KotlinFullTypeAliasNameIndex.getAllElements(fqNameAsString, project, scope) {
             it.matchesWithExpect(containingClassOrObjectOrSelf, compatibleOnly)
         }
 
@@ -86,7 +87,6 @@ fun KtDeclaration.findAllActualForExpect(searchScope: SearchScope = runReadActio
     }.map { it.createSmartPointer() }
 }
 
-@OptIn(KaExperimentalApi::class)
 private fun KtDeclaration.matchesWithExpect(expectDeclaration: KtDeclaration, compatibleOnly: Boolean): Boolean {
     val declaration = this
     if (compatibleOnly) {

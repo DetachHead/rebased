@@ -1,7 +1,7 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
 ### auto-generated section `build intellij.gradle.java.groovy` start
-
 jvm_library(
     name = "groovy",
     srcs = glob(
@@ -21,7 +21,7 @@ jvm_library(
     deps = [
         # do not sort,
         "@lib//:kotlin-stdlib",
-        "@lib//:jetbrains-annotations",
+        "//libraries/jetbrains/annotations",
         "//libraries/kotlinx/coroutines/core",
         "//plugins/gradle/java",
         "//platform/core-api:core",
@@ -63,9 +63,11 @@ jvm_library(
         "//platform/platform-util-io:ide-util-io",
         "//platform/ide-core",
         "//platform/testRunner",
-        "//plugins/gradle/java/properties",
+        "//plugins/gradle/properties",
     ],
 )
+
+content_module_jar(module = ":groovy")
 
 jvm_library(
     name = "groovy_test_lib",
@@ -79,6 +81,7 @@ jvm_library(
     runtime_deps = [
         # do not sort,
         ":groovy",
+        "//libraries/jetbrains/annotations:annotations_test_lib",
         "//libraries/kotlinx/coroutines/core:core_test_lib",
         "//plugins/gradle/java:java_test_lib",
         "//platform/core-api:core_test_lib",
@@ -120,7 +123,7 @@ jvm_library(
         "//platform/platform-util-io:ide-util-io_test_lib",
         "//platform/ide-core:ide-core_test_lib",
         "//platform/testRunner:testRunner_test_lib",
-        "//plugins/gradle/java/properties:properties_test_lib",
+        "//plugins/gradle/properties:properties_test_lib",
     ],
 )
 ### auto-generated section `build intellij.gradle.java.groovy` end
@@ -129,6 +132,7 @@ jvm_library(
 exports_files(
     [
         "intellij.gradle.java.groovy.iml",
+        "resources/intellij.gradle.java.groovy.xml",
     ],
     visibility = ["//visibility:public"],
 )

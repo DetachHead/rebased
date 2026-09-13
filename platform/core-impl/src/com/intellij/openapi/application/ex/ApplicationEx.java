@@ -229,28 +229,22 @@ public interface ApplicationEx extends Application {
   @ApiStatus.Internal
   default void addReadActionListener(@NotNull ReadActionListener listener, @NotNull Disposable parentDisposable) {
     ThreadingSupport threadingSupport = getThreadingSupport();
-    if (threadingSupport != null) {
-      threadingSupport.addReadActionListener(listener);
-      Disposer.register(parentDisposable, () -> threadingSupport.removeReadActionListener(listener));
-    }
+    threadingSupport.addReadActionListener(listener);
+    Disposer.register(parentDisposable, () -> threadingSupport.removeReadActionListener(listener));
   }
 
   @ApiStatus.Experimental
   default void addWriteActionListener(@NotNull WriteActionListener listener, @NotNull Disposable parentDisposable) {
     ThreadingSupport threadingSupport = getThreadingSupport();
-    if (threadingSupport != null) {
-      threadingSupport.addWriteActionListener(listener);
-      Disposer.register(parentDisposable, () -> threadingSupport.removeWriteActionListener(listener));
-    }
+    threadingSupport.addWriteActionListener(listener);
+    Disposer.register(parentDisposable, () -> threadingSupport.removeWriteActionListener(listener));
   }
 
   @ApiStatus.Internal
   default void addWriteIntentReadActionListener(@NotNull WriteIntentReadActionListener listener, @NotNull Disposable parentDisposable) {
     ThreadingSupport threadingSupport = getThreadingSupport();
-    if (threadingSupport != null) {
-      threadingSupport.addWriteIntentReadActionListener(listener);
-      Disposer.register(parentDisposable, () -> threadingSupport.removeWriteIntentReadActionListener(listener));
-    }
+    threadingSupport.addWriteIntentReadActionListener(listener);
+    Disposer.register(parentDisposable, () -> threadingSupport.removeWriteIntentReadActionListener(listener));
   }
 
   @ApiStatus.Internal
@@ -260,6 +254,11 @@ public interface ApplicationEx extends Application {
   @ApiStatus.Internal
   default <T> T withLocksProhibited(@NotNull @NlsSafe String advice, @NotNull Supplier<T> action) {
     return action.get();
+  }
+
+  @ApiStatus.Internal
+  default <T> T withLocksSoftlyProhibited(@NotNull @NlsSafe String advice, @NotNull Consumer<@NotNull Throwable> logger, @NotNull Supplier<T> action) {
+    return withLocksProhibited(advice, action);
   }
 
   /**

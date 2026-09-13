@@ -1,7 +1,7 @@
+load("@community//platform/build-scripts/bazel-rules:dev_dist_plugin.bzl", "dev_dist_plugin")
 load("@rules_jvm//:jvm.bzl", "jvm_library")
 
 ### auto-generated section `build intellij.tasks.core` start
-
 jvm_library(
     name = "core",
     srcs = glob(
@@ -36,7 +36,7 @@ jvm_library(
         "//platform/vcs-impl",
         "//plugins/tasks/tasks-core/lib:tasks-core-axis-1-4",
         "//libraries/gson",
-        "//xml/impl",
+        "//xml/xml-psi-impl:psi-impl",
         "//platform/core-api:core",
         "//platform/lang-api:lang",
         "//RegExpSupport:regexp",
@@ -46,7 +46,7 @@ jvm_library(
         "//platform/tasks-platform-impl:tasks-impl",
         "//platform/tasks-platform-api:tasks",
         "//plugins/tasks/tasks-compatibility:compatibility",
-        "@lib//:tasks-core-commons-discovery",
+        "//plugins/tasks/tasks-core/libraries:tasks-core-libraries-commonsDiscovery",
         "//libraries/javax/annotation",
         "//platform/core-ui",
         "//libraries/jsonpath",
@@ -89,7 +89,7 @@ jvm_library(
         "//platform/lang-impl:lang-impl_test_lib",
         "//platform/vcs-impl:vcs-impl_test_lib",
         "//libraries/gson:gson_test_lib",
-        "//xml/impl:impl_test_lib",
+        "//xml/xml-psi-impl:psi-impl_test_lib",
         "//platform/core-api:core_test_lib",
         "//platform/lang-api:lang_test_lib",
         "//RegExpSupport:regexp_test_lib",
@@ -99,6 +99,7 @@ jvm_library(
         "//platform/tasks-platform-impl:tasks-impl_test_lib",
         "//platform/tasks-platform-api:tasks_test_lib",
         "//plugins/tasks/tasks-compatibility:compatibility_test_lib",
+        "//plugins/tasks/tasks-core/libraries:tasks-core-libraries-commonsDiscovery_test_lib",
         "//libraries/javax/annotation:annotation_test_lib",
         "//platform/core-ui:core-ui_test_lib",
         "//libraries/jsonpath:jsonpath_test_lib",
@@ -121,7 +122,34 @@ jvm_library(
 exports_files(
     [
         "intellij.tasks.core.iml",
+        "resources/META-INF/plugin.xml",
+        "resources/com/intellij/tasks/generic/connectors/asana.xml",
+        "resources/com/intellij/tasks/generic/connectors/assembla.xml",
+        "resources/com/intellij/tasks/generic/connectors/sprintly.xml",
     ],
     visibility = ["//visibility:public"],
 )
 ### auto-generated section `iml intellij.tasks.core` end
+
+### auto-generated section `dev intellij.tasks.core` start
+dev_dist_plugin(
+    content_modules = [
+        "//plugins/tasks/tasks-api:tasks",
+        "//plugins/tasks/tasks-compatibility:compatibility",
+        "//plugins/tasks/tasks-core/libraries:tasks-core-libraries-commonsDiscovery",
+    ],
+    descriptor_module = ":core",
+    libraries = [
+        "//plugins/tasks/tasks-core/lib:tasks-core-axis-1-4",
+        "@lib//:tasks-compatibility-http-client-3-1",
+        "@lib//:tasks-core-libraries-commons_discovery-commons-discovery",
+    ],
+    prepacked_content_modules = [
+        "//libraries/xml-rpc:xml-rpc_content_module_jar",
+        "//plugins/tasks/tasks-core/bugzilla:bugzilla_content_module_jar",
+        "//plugins/tasks/tasks-core/jira:jira_content_module_jar",
+        "//plugins/tasks/tasks-core/trac:trac_content_module_jar",
+        "//plugins/tasks/tasks-java:java_content_module_jar",
+    ],
+)
+### auto-generated section `dev intellij.tasks.core` end

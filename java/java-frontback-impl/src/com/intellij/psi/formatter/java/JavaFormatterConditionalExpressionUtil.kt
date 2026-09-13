@@ -2,32 +2,42 @@
 package com.intellij.psi.formatter.java
 
 import com.intellij.lang.ASTNode
-import com.intellij.psi.PsiConditionalExpression
-import com.intellij.psi.PsiLocalVariable
-import com.intellij.psi.PsiMethod
-import com.intellij.psi.PsiPolyadicExpression
-import com.intellij.psi.impl.source.SourceTreeToPsiMap
+import com.intellij.psi.impl.source.tree.ChildRole
 import com.intellij.psi.impl.source.tree.CompositeElement
-import com.intellij.psi.util.PsiTreeUtil
+import com.intellij.psi.impl.source.tree.JavaElementType
+import com.intellij.psi.tree.TokenSet
 
 internal object JavaFormatterConditionalExpressionUtil {
+  private val STOP_TYPES: TokenSet = TokenSet.create(
+    JavaElementType.METHOD,
+    JavaElementType.ANNOTATION_METHOD,
+    JavaElementType.LOCAL_VARIABLE,
+    JavaElementType.RESOURCE_VARIABLE,
+  )
+
+  private val BINARY_EXPRESSION_TYPES: TokenSet = TokenSet.create(
+    JavaElementType.POLYADIC_EXPRESSION,
+    JavaElementType.BINARY_EXPRESSION,
+  )
 
   /**
    * Checks if the given AST node is inside a conditional expression then or else branch.
    */
   @JvmStatic
   fun isInsideConditionalExpression(node: ASTNode): Boolean {
-    val psi = SourceTreeToPsiMap.treeElementToPsi(node)
-    val child = PsiTreeUtil.findFirstParent(psi) {
-      it.parent is PsiConditionalExpression ||
-      it.parent is PsiMethod ||
-      it.parent is PsiLocalVariable
+    var child: ASTNode = node
+    var parent: ASTNode? = child.treeParent
+    while (parent != null) {
+      val parentType = parent.elementType
+      if (parentType == JavaElementType.CONDITIONAL_EXPRESSION) {
+        if (parent !is CompositeElement) return false
+        return parent.getChildRole(child) != ChildRole.CONDITION
+      }
+      if (STOP_TYPES.contains(parentType)) return false
+      child = parent
+      parent = child.treeParent
     }
-    if (child == null) return false
-    val parent = child.parent
-    if (parent !is PsiConditionalExpression) return false
-    if (parent !is CompositeElement) return false
-    return parent.condition != child
+    return false
   }
 
   /**
@@ -35,13 +45,13 @@ internal object JavaFormatterConditionalExpressionUtil {
    */
   @JvmStatic
   fun isInsideBinaryExpression(node: ASTNode): Boolean {
-    val psi = SourceTreeToPsiMap.treeElementToPsi(node)
-    val child = PsiTreeUtil.findFirstParent(psi) {
-      it.parent is PsiPolyadicExpression ||
-      it.parent is PsiConditionalExpression
+    var parent: ASTNode? = node.treeParent
+    while (parent != null) {
+      val parentType = parent.elementType
+      if (BINARY_EXPRESSION_TYPES.contains(parentType)) return true
+      if (parentType == JavaElementType.CONDITIONAL_EXPRESSION) return false
+      parent = parent.treeParent
     }
-    if (child == null) return false
-    val parent = child.parent
-    return parent is PsiPolyadicExpression
+    return false
   }
 }

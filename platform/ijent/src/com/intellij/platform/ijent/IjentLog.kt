@@ -1,6 +1,7 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.platform.ijent
 
+import com.intellij.platform.util.annotations.VisibleToClasses
 import org.jetbrains.annotations.ApiStatus
 import java.lang.reflect.Method
 import java.util.logging.Level
@@ -14,9 +15,11 @@ import java.util.logging.Logger as JulLogger
  * reflectively routes every call through it — so logs go through the standard pipeline including the test
  * frameworks that hook `LoggedErrorProcessor`. When the platform Logger is absent (lightweight contexts),
  * IjentLog falls back to `java.util.logging` directly.
+ *
+ * See also [IjentLogger].
  */
 @ApiStatus.Internal
-class IjentLog private constructor(private val backend: Backend) {
+class IjentLog internal constructor(private val backend: Backend) {
   fun trace(message: () -> String) {
     if (backend.isTraceEnabled) backend.trace(message())
   }
@@ -82,17 +85,21 @@ class IjentLog private constructor(private val backend: Backend) {
   val name: String get() = backend.name
 
   companion object {
-    @JvmStatic
-    fun getInstance(name: String): IjentLog = IjentLog(createBackend(name))
+    val globalLogLevel: IjentSession.LogLevel
+      get() {
+        val logger = createBackend("com.intellij.platform.ijent")
+        return when {
+          logger.isTraceEnabled -> IjentSession.LogLevel.TRACE
+          logger.isDebugEnabled -> IjentSession.LogLevel.DEBUG
+          else -> IjentSession.LogLevel.INFO
+        }
+      }
 
-    @JvmStatic
-    fun getInstance(clazz: Class<*>): IjentLog = getInstance("#${clazz.name}")
-
-    inline fun <reified T : Any> getInstance(): IjentLog = getInstance(T::class.java)
+    // Please don't add methods like `getInstance`, use `IjentLogger`. You may add a new category there.
   }
 }
 
-private abstract class Backend {
+internal abstract class Backend {
   abstract val name: String
   abstract val isDebugEnabled: Boolean
   abstract val isTraceEnabled: Boolean
@@ -111,7 +118,7 @@ private abstract class Backend {
  */
 private val PLATFORM_OPS: PlatformLoggerOps? = runCatching { PlatformLoggerOps() }.getOrNull()
 
-private fun createBackend(name: String): Backend =
+internal fun createBackend(name: String): Backend =
   PLATFORM_OPS?.let { PlatformBackend(name, it) } ?: JulBackend(name)
 
 private class PlatformLoggerOps {

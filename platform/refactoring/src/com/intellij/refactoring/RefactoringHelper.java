@@ -7,6 +7,7 @@ import com.intellij.openapi.project.Project;
 import com.intellij.psi.PsiElement;
 import com.intellij.usageView.UsageInfo;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 import java.util.List;
 
@@ -23,6 +24,16 @@ public interface RefactoringHelper<T> {
    * @param elements the elements the refactoring will be called on
    */
   T prepareOperation(UsageInfo @NotNull [] usages, @NotNull List<? extends @NotNull PsiElement> elements);
+
+  /**
+   * Same as {@link #prepareOperation(UsageInfo[], List)} with the id of the running refactoring.
+   * @param refactoringId the {@link BaseRefactoringProcessor#getRefactoringId()} of the running refactoring, or null
+   */
+  default T prepareOperation(UsageInfo @NotNull [] usages,
+                             @NotNull List<? extends @NotNull PsiElement> elements,
+                             @Nullable String refactoringId) {
+    return prepareOperation(usages, elements);
+  }
 
   /**
    * Is invoked in EDT, without WriteAction after refactoring is performed

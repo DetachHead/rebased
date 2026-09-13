@@ -28,8 +28,8 @@ import com.intellij.internal.statistic.utils.PluginInfoDetectorKt;
 import com.intellij.lang.Language;
 import com.intellij.lang.documentation.ide.impl.DocumentationPopupListener;
 import com.intellij.openapi.actionSystem.PlatformDataKeys;
-import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.editor.EditorKind;
+import com.intellij.openapi.editor.elf.Elf;
 import com.intellij.openapi.editor.ex.util.EditorUtil;
 import com.intellij.openapi.project.DumbService;
 import com.intellij.openapi.project.IncompleteDependenciesService;
@@ -37,6 +37,7 @@ import com.intellij.openapi.project.IncompleteDependenciesService.DependenciesSt
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.PsiFile;
 import com.intellij.psi.util.PsiUtilCore;
+import com.intellij.psi.util.PsiVersioningService;
 import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -57,7 +58,7 @@ import static com.intellij.ide.actions.ToolwindowFusEventFields.TOOLWINDOW;
 public final class LookupUsageTracker extends CounterUsagesCollector {
   public static final String FINISHED_EVENT_ID = "finished";
   public static final String GROUP_ID = "completion";
-  public static final EventLogGroup GROUP = new EventLogGroup(GROUP_ID, 43);
+  public static final EventLogGroup GROUP = new EventLogGroup(GROUP_ID, 44);
   private static final EventField<String> SCHEMA = EventFields.StringValidatedByCustomRule("schema", FileTypeSchemaValidator.class);
   private static final BooleanEventField ALPHABETICALLY = EventFields.Boolean("alphabetically");
   private static final EnumEventField<EditorKind> EDITOR_KIND = EventFields.Enum("editor_kind", EditorKind.class);
@@ -245,7 +246,11 @@ public final class LookupUsageTracker extends CounterUsagesCollector {
 
     private void triggerLookupUsed(@NotNull FinishType finishType, @Nullable LookupElement currentItem,
                                    char completionChar) {
-      List<EventPair<?>> data = ReadAction.computeBlocking(() -> getCommonUsageInfo(finishType, currentItem, completionChar));
+      if (Elf.getElf().isUnsupportedOperationGuardActive()) {
+        // TODO: why fus is collected on EDT during typing?
+        return;
+      }
+      List<EventPair<?>> data = PsiVersioningService.freezePsiVersion(() -> getCommonUsageInfo(finishType, currentItem, completionChar));
 
       final List<EventPair<?>> additionalData = new ArrayList<>();
       LookupUsageDescriptor.EP_NAME.forEachExtensionSafe(usageDescriptor -> {
@@ -336,7 +341,7 @@ public final class LookupUsageTracker extends CounterUsagesCollector {
       data.add(DUMB_START.with(myIsDumbStart));
       data.add(DUMB_FINISH.with(DumbService.isDumb(myLookup.getProject())));
       data.add(INCOMPLETE_DEPENDENCIES_MODE_ON_START.with(myIncompleteDependenciesStateStart));
-      data.add(INCOMPLETE_DEPENDENCIES_MODE_ON_FINISH.with(myLookup.getProject().getService(IncompleteDependenciesService.class).getState()));
+      data.add(INCOMPLETE_DEPENDENCIES_MODE_ON_FINISH.with(myLookup.getProject().getService(IncompleteDependenciesService.class).getStateUnsafe()));
 
       // Quick doc
       data.add(QUICK_DOC_SHOWN.with(myIsQuickDocShown));

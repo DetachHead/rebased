@@ -6,9 +6,8 @@ import com.intellij.modcommand.PsiUpdateModCommandQuickFix
 import com.intellij.openapi.project.Project
 import com.intellij.psi.PsiElement
 import com.intellij.psi.util.parentsOfType
-import org.jetbrains.kotlin.analysis.api.analyze
-import org.jetbrains.kotlin.analysis.api.resolution.KaCall
-import org.jetbrains.kotlin.analysis.api.resolution.successfulCallOrNull
+import org.jetbrains.kotlin.analysis.api.resolution.resolveSuccessfulCall
+import org.jetbrains.kotlin.analysis.api.session.analyze
 import org.jetbrains.kotlin.idea.base.psi.replaced
 import org.jetbrains.kotlin.idea.base.resources.KotlinBundle
 import org.jetbrains.kotlin.psi.KtCallExpression
@@ -27,7 +26,7 @@ internal class ChangeContextFix : PsiUpdateModCommandQuickFix() {
 
         val ktPsiFactory = KtPsiFactory(project, true)
         val replacedArgument = analyze(callExpression) {
-            callExpression.resolveToCall()?.successfulCallOrNull<KaCall>()
+            callExpression.resolveSuccessfulCall()
                 ?.getFirstArgumentExpression()
                 ?.replaced(ktPsiFactory.createExpression("kotlinx.coroutines.Dispatchers.IO")) ?: return
         }

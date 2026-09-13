@@ -4,32 +4,28 @@ package org.jetbrains.kotlin.idea.k2.refactoring.util
 import com.intellij.psi.createSmartPointer
 import com.intellij.psi.util.elementType
 import org.jetbrains.kotlin.KtNodeTypes
-import org.jetbrains.kotlin.analysis.api.KaExperimentalApi
 import org.jetbrains.kotlin.analysis.api.KaSession
-import org.jetbrains.kotlin.analysis.api.components.containingDeclaration
-import org.jetbrains.kotlin.analysis.api.components.lowerBoundIfFlexible
-import org.jetbrains.kotlin.analysis.api.components.receiverType
-import org.jetbrains.kotlin.analysis.api.components.render
-import org.jetbrains.kotlin.analysis.api.components.resolveToCall
-import org.jetbrains.kotlin.analysis.api.components.resolveToSymbol
-import org.jetbrains.kotlin.analysis.api.resolution.successfulFunctionCallOrNull
+import org.jetbrains.kotlin.analysis.api.renderer.render
+import org.jetbrains.kotlin.analysis.api.resolution.resolveSuccessfulCall
+import org.jetbrains.kotlin.analysis.api.resolution.resolveSuccessfulSymbol
+import org.jetbrains.kotlin.analysis.api.resolution.simple
 import org.jetbrains.kotlin.analysis.api.resolution.symbol
-import org.jetbrains.kotlin.analysis.api.symbols.KaCallableSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaClassSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaFunctionSymbol
-import org.jetbrains.kotlin.analysis.api.symbols.KaNamedClassSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaNamedFunctionSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaPropertySymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaValueParameterSymbol
+import org.jetbrains.kotlin.analysis.api.symbols.containingDeclaration
 import org.jetbrains.kotlin.analysis.api.types.KaClassType
 import org.jetbrains.kotlin.analysis.api.types.KaFunctionType
+import org.jetbrains.kotlin.analysis.api.types.lowerBoundIfFlexible
+import org.jetbrains.kotlin.analysis.api.types.receiverType
 import org.jetbrains.kotlin.builtins.StandardNames
 import org.jetbrains.kotlin.idea.base.analysis.api.utils.shortenReferences
 import org.jetbrains.kotlin.idea.base.codeInsight.KotlinNameSuggester
 import org.jetbrains.kotlin.idea.base.psi.replaced
 import org.jetbrains.kotlin.idea.k2.refactoring.moveFunctionLiteralOutsideParenthesesIfPossible
 import org.jetbrains.kotlin.idea.refactoring.getLastLambdaExpression
-import org.jetbrains.kotlin.idea.references.mainReference
 import org.jetbrains.kotlin.psi.KtCallExpression
 import org.jetbrains.kotlin.psi.KtCallableReferenceExpression
 import org.jetbrains.kotlin.psi.KtExpression
@@ -37,35 +33,39 @@ import org.jetbrains.kotlin.psi.KtPsiFactory
 import org.jetbrains.kotlin.psi.KtValueArgument
 import org.jetbrains.kotlin.psi.createExpressionByPattern
 import org.jetbrains.kotlin.psi.psiUtil.getQualifiedElementSelector
+import org.jetbrains.kotlin.resolution.KtResolvable
+import org.jetbrains.kotlin.resolution.KtResolvableCall
 import org.jetbrains.kotlin.types.Variance
 
 object ConvertReferenceToLambdaUtil {
 
-    @OptIn(KaExperimentalApi::class)
-    context(_: KaSession)
+    context(s: KaSession)
     fun prepareLambdaExpressionText(
         element: KtCallableReferenceExpression,
     ): String? {
         val valueArgumentParent = element.parent as? KtValueArgument
         val callGrandParent = valueArgumentParent?.parent?.parent as? KtCallExpression
-        val resolvedCall = callGrandParent?.resolveToCall()?.successfulFunctionCallOrNull()
-        val matchingParameterType = resolvedCall?.argumentMapping?.get(element)?.returnType
+        val resolvedCall = callGrandParent?.resolveSuccessfulCall()
+        val matchingParameterType = resolvedCall?.valueArgumentMapping?.get(element)?.returnType
         val matchingParameterIsExtension = matchingParameterType is KaFunctionType && matchingParameterType.receiverType != null
 
         val receiverExpression = element.receiverExpression
         val receiverType = element.receiverType
 
-        val symbol = element.callableReference.mainReference.resolveToSymbol() ?: return null
+        val callableSymbol = element.resolveSuccessfulSymbol()?.let { symbol ->
+            (symbol as? KaValueParameterSymbol)?.primaryConstructorProperty ?: symbol
+        } ?: return null
 
-        val callableSymbol = (symbol as? KaCallableSymbol)?.let {
-            (it as? KaValueParameterSymbol)?.generatedPrimaryConstructorProperty ?: it
-        }
+        val receiverExpressionSelector = receiverExpression?.getQualifiedElementSelector()
+        val receiverSymbol =
+            (receiverExpressionSelector as? KtResolvableCall)?.resolveSuccessfulCall()?.simple?.symbol
+                ?: (receiverExpressionSelector as? KtResolvable)?.resolveSuccessfulSymbol()
 
-        val receiverSymbol = receiverExpression?.getQualifiedElementSelector()?.mainReference?.resolveToSymbol()
-        val acceptsReceiverAsParameter = receiverSymbol is KaClassSymbol &&
+        val acceptsReceiverAsParameter =
                 !matchingParameterIsExtension &&
-                (callableSymbol as? KaNamedFunctionSymbol)?.isStatic != true && !receiverSymbol.classKind.isObject &&
-                (callableSymbol?.containingDeclaration != null || callableSymbol?.isExtension == true || symbol is KaNamedClassSymbol && symbol.isInner)
+                receiverSymbol is KaClassSymbol && !receiverSymbol.classKind.isObject &&
+                (callableSymbol as? KaNamedFunctionSymbol)?.isStatic != true &&
+                (callableSymbol.containingDeclaration != null || callableSymbol.isExtension)
 
         val parameterNamesAndTypes =
             if (callableSymbol is KaFunctionSymbol) {

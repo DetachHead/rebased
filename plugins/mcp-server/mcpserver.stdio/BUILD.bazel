@@ -1,7 +1,6 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
 
 ### auto-generated section `build intellij.mcpserver.stdio` start
-
 jvm_library(
     name = "mcpserver.stdio",
     srcs = glob(
@@ -13,14 +12,18 @@ jvm_library(
         allow_empty = True,
     ),
     module_name = "intellij.mcpserver.stdio",
+    resource_strip_prefix = "resources",
+    resources = glob(
+        ["resources/**/*"],
+    ),
     visibility = ["//visibility:public"],
     exports = [
         # do not sort,
         "@lib//:slf4j-api",
         "@lib//:slf4j-jdk14",
-        "@lib//:ktor-server-sse-jvm",
-        "@lib//:io-modelcontextprotocol-kotlin-sdk",
-        "@lib//:io-github-oshai-kotlin-logging-jvm",
+        "//libraries/ktor/server-sse:libraries-ktor-server-sse",
+        "//libraries/mcp-kotlin-sdk",
+        "//libraries/kotlin/logging",
     ],
     deps = [
         # do not sort,
@@ -30,9 +33,9 @@ jvm_library(
         "//libraries/kotlinx/serialization/json",
         "@lib//:slf4j-api",
         "@lib//:slf4j-jdk14",
-        "@lib//:ktor-server-sse-jvm",
-        "@lib//:io-modelcontextprotocol-kotlin-sdk",
-        "@lib//:io-github-oshai-kotlin-logging-jvm",
+        "//libraries/ktor/server-sse:libraries-ktor-server-sse",
+        "//libraries/mcp-kotlin-sdk",
+        "//libraries/kotlin/logging",
         "//libraries/io",
         "//libraries/ktor/client",
     ],
@@ -51,9 +54,12 @@ jvm_library(
         # do not sort,
         "@lib//:slf4j-api",
         "@lib//:slf4j-jdk14",
-        "@lib//:ktor-server-sse-jvm",
-        "@lib//:io-modelcontextprotocol-kotlin-sdk",
-        "@lib//:io-github-oshai-kotlin-logging-jvm",
+        "//libraries/ktor/server-sse:libraries-ktor-server-sse",
+        "//libraries/ktor/server-sse:libraries-ktor-server-sse_test_lib",
+        "//libraries/mcp-kotlin-sdk",
+        "//libraries/mcp-kotlin-sdk:mcp-kotlin-sdk_test_lib",
+        "//libraries/kotlin/logging",
+        "//libraries/kotlin/logging:logging_test_lib",
     ],
     runtime_deps = [
         # do not sort,
@@ -61,6 +67,9 @@ jvm_library(
         "//libraries/kotlinx/coroutines/core:core_test_lib",
         "//libraries/kotlinx/serialization/core:core_test_lib",
         "//libraries/kotlinx/serialization/json:json_test_lib",
+        "//libraries/ktor/server-sse:libraries-ktor-server-sse_test_lib",
+        "//libraries/mcp-kotlin-sdk:mcp-kotlin-sdk_test_lib",
+        "//libraries/kotlin/logging:logging_test_lib",
         "//libraries/io:io_test_lib",
         "//libraries/ktor/client:client_test_lib",
     ],
@@ -71,6 +80,8 @@ jvm_library(
 exports_files(
     [
         "intellij.mcpserver.stdio.iml",
+        "resources/intellij.mcpserver.stdio.xml",
+        "module-content.yaml",
     ],
     visibility = ["//visibility:public"],
 )

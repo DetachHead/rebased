@@ -21,6 +21,7 @@ import com.intellij.openapi.wm.WindowInfo;
 import com.intellij.openapi.wm.impl.SquareStripeButton;
 import com.intellij.openapi.wm.impl.ToolWindowImpl;
 import com.intellij.toolWindow.ToolWindowDragHelper;
+import com.intellij.toolWindow.extendedToolWindowsUi.ToolWindowStripeExtension;
 import com.intellij.ui.ExperimentalUI;
 import com.intellij.ui.UIBundle;
 import org.jetbrains.annotations.ApiStatus;
@@ -34,7 +35,6 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 
-@ApiStatus.Internal
 public final class ToolWindowMoveAction extends DumbAwareAction implements FusAwareAction, ActionRemoteBehaviorSpecification.Frontend {
   public enum Anchor {
     LeftTop, LeftBottom, BottomLeft, BottomRight, RightBottom, RightTop, TopRight, TopLeft;
@@ -150,12 +150,14 @@ public final class ToolWindowMoveAction extends DumbAwareAction implements FusAw
 
   private final @NotNull Anchor myAnchor;
 
+  @ApiStatus.Internal
   public ToolWindowMoveAction(@NotNull Anchor anchor) {
     super(() -> anchor.toString(), null, () -> anchor.getIcon());
 
     myAnchor = anchor;
   }
 
+  @ApiStatus.Internal
   @Override
   public void actionPerformed(@NotNull AnActionEvent e) {
     ToolWindow toolWindow = getToolWindow(e);
@@ -164,6 +166,7 @@ public final class ToolWindowMoveAction extends DumbAwareAction implements FusAw
     }
   }
 
+  @ApiStatus.Internal
   @Override
   public void update(@NotNull AnActionEvent e) {
     ToolWindow toolWindow = getToolWindow(e);
@@ -171,11 +174,13 @@ public final class ToolWindowMoveAction extends DumbAwareAction implements FusAw
     e.getPresentation().setEnabled(toolWindow != null && !myAnchor.isApplied(toolWindow));
   }
 
+  @ApiStatus.Internal
   @Override
   public @NotNull ActionUpdateThread getActionUpdateThread() {
     return ActionUpdateThread.EDT;
   }
 
+  @ApiStatus.Internal
   @Override
   public @NotNull List<EventPair<?>> getAdditionalUsageData(@NotNull AnActionEvent event) {
     ToolWindow toolWindow = getToolWindow(event);
@@ -200,7 +205,8 @@ public final class ToolWindowMoveAction extends DumbAwareAction implements FusAw
     }
 
     private static boolean isAllowed(Anchor anchor) {
-      if (ExperimentalUI.isNewUI()) {
+      // The New UI has no TOP stripe unless a ToolWindowStripeExtension provides real Top/Bottom bars.
+      if (ExperimentalUI.isNewUI() && !ToolWindowStripeExtension.exists()) {
         return anchor != Anchor.TopLeft && anchor != Anchor.TopRight;
       }
 

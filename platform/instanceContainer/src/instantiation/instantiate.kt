@@ -11,12 +11,12 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
-import java.lang.invoke.MethodHandle
-import java.lang.invoke.MethodHandles
 import java.lang.invoke.MethodType
 import java.lang.reflect.Constructor
+import java.lang.reflect.InvocationTargetException
 
 /**
  * Instantiates [instanceClass] using [resolver] to find instances for constructor parameter types.
@@ -43,30 +43,48 @@ suspend fun <T> instantiate(
     }
     is ResolutionResult.Resolved -> {
       return instantiate(parentScope, instanceClass, result.arguments) { args ->
-        if (args.isEmpty()) {
-          @Suppress("UNCHECKED_CAST")
-          constructor.invoke() as T
-        }
-        else {
-          @Suppress("UNCHECKED_CAST")
-          constructor.invokeWithArguments(*args) as T
-        }
+        @Suppress("UNCHECKED_CAST")
+        constructor.newInstanceOrThrow(args) as T
       }
     }
   }
 }
 
-private fun findConstructor(instanceClass: Class<*>, signatures: List<MethodType>): Pair<MethodType, MethodHandle> {
-  val lookup = MethodHandles.privateLookupIn(instanceClass, MethodHandles.lookup())
+/**
+ * Finds the first constructor of [instanceClass] whose parameter list matches one of [signatures], in priority order.
+ *
+ * Scans a single [Class.getDeclaredConstructors] snapshot and matches parameter types directly, instead of calling
+ * [java.lang.invoke.MethodHandles.Lookup.findConstructor] per signature. That method throws (and fills a stack trace)
+ * [NoSuchMethodException] for every absent signature, which is the common case while probing the prioritized list on the
+ * startup-hot service instantiation path. Fetching the constructor list once also avoids a [java.lang.invoke.MethodHandles.privateLookupIn]
+ * per probed signature.
+ */
+private fun findConstructor(instanceClass: Class<*>, signatures: List<MethodType>): Pair<MethodType, Constructor<*>> {
+  val constructors = instanceClass.declaredConstructors
   for (signature in signatures) {
-    try {
-      return signature to lookup.findConstructor(instanceClass, signature)
+    val parameterTypes = signature.parameterArray()
+    for (constructor in constructors) {
+      if (constructor.parameterCount == parameterTypes.size && constructor.parameterTypes.contentEquals(parameterTypes)) {
+        constructor.isAccessible = true
+        return signature to constructor
+      }
     }
-    catch (_: NoSuchMethodException) { }
-    catch (_: IllegalAccessException) { }
-    catch (e: Throwable) { throw e }
   }
   throw InstantiationException("Class '$instanceClass' does not define any of supported signatures '$signatures'")
+}
+
+/**
+ * Instantiates via this constructor, unwrapping [InvocationTargetException] so a throwable raised by the constructor body
+ * (e.g. `ProcessCanceledException` or an `ExtensionNotApplicableException`) propagates directly, matching the behavior of
+ * the previously used `MethodHandle.invoke`.
+ */
+private fun Constructor<*>.newInstanceOrThrow(args: Array<out Any>): Any {
+  try {
+    return newInstance(*args)
+  }
+  catch (e: InvocationTargetException) {
+    throw e.cause ?: e
+  }
 }
 
 /**
@@ -257,6 +275,7 @@ private suspend fun <T> instantiate(
   lazyArgs: List<Argument>,
   instantiate: (Array<out Any>) -> T,
 ): T {
+  var instanceScope: CoroutineScope? = null
   val args: Array<Any> = if (lazyArgs.isEmpty()) {
     ArrayUtilRt.EMPTY_OBJECT_ARRAY
   }
@@ -277,7 +296,7 @@ private suspend fun <T> instantiate(
       .toArray(ArrayUtilRt.EMPTY_OBJECT_ARRAY)
       .also { args ->
         replaceScopeMarkerWithScope(args) {
-          parentScope.childScope(instanceClass.name)
+          parentScope.childScope(instanceClass.name).also { instanceScope = it }
         }
       }
   }
@@ -289,10 +308,18 @@ private suspend fun <T> instantiate(
   // Non-cancellable section is required to silence throwIfImpatient().
   // In general, we want initialization to be cancellable, and it must be canceled only on parent scope cancellation,
   // which happens only on project/application shutdown, or on plugin unload.
-  Cancellation.withNonCancelableSection().use {
-    return withStoredTemporaryContext(parentScope) {
-      instantiate(args)
+  try {
+    Cancellation.withNonCancelableSection().use {
+      return withStoredTemporaryContext(parentScope) {
+        instantiate(args)
+      }
     }
+  }
+  catch (e: Throwable) {
+    // A failed constructor returns no instance, so only this cancellation can release
+    // what the constructor tied to the scope.
+    instanceScope?.cancel()
+    throw e
   }
 }
 

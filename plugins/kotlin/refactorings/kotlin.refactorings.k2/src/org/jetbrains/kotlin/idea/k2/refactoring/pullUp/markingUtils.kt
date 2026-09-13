@@ -3,17 +3,22 @@ package org.jetbrains.kotlin.idea.k2.refactoring.pullUp
 
 import com.intellij.openapi.util.Key
 import com.intellij.psi.PsiElement
-import org.jetbrains.kotlin.analysis.api.KaExperimentalApi
 import org.jetbrains.kotlin.analysis.api.KaSession
-import org.jetbrains.kotlin.analysis.api.resolution.KaCallableMemberCall
-import org.jetbrains.kotlin.analysis.api.resolution.successfulCallOrNull
-import org.jetbrains.kotlin.analysis.api.resolution.symbol
+import org.jetbrains.kotlin.analysis.api.renderer.render
+import org.jetbrains.kotlin.analysis.api.resolution.simple
 import org.jetbrains.kotlin.analysis.api.symbols.KaClassKind
+import org.jetbrains.kotlin.analysis.api.symbols.containingDeclaration
+import org.jetbrains.kotlin.analysis.api.symbols.importableFqName
+import org.jetbrains.kotlin.analysis.api.symbols.symbol
 import org.jetbrains.kotlin.analysis.api.types.KaSubstitutor
+import org.jetbrains.kotlin.analysis.api.types.expandedSymbol
+import org.jetbrains.kotlin.analysis.api.types.type
 import org.jetbrains.kotlin.idea.base.analysis.api.utils.shortenReferences
 import org.jetbrains.kotlin.idea.base.codeInsight.ShortenOptionsForIde
 import org.jetbrains.kotlin.idea.base.util.quoteIfNeeded
 import org.jetbrains.kotlin.idea.references.mainReference
+import org.jetbrains.kotlin.idea.util.resolveSuccessfulExpressionCall
+import org.jetbrains.kotlin.idea.util.resolveSuccessfulExpressionSymbol
 import org.jetbrains.kotlin.name.FqName
 import org.jetbrains.kotlin.psi.CopyablePsiUserDataProperty
 import org.jetbrains.kotlin.psi.KtClassOrObject
@@ -38,8 +43,8 @@ private var KtElement.newFqName: FqName? by CopyablePsiUserDataProperty(Key.crea
 private var KtElement.replaceWithTargetThis: Boolean? by CopyablePsiUserDataProperty(Key.create("REPLACE_WITH_TARGET_THIS"))
 private var KtElement.newTypeTextByTargetClass: MutableMap<FqName, () -> String?>? by CopyablePsiUserDataProperty(Key.create("NEW_TYPE_TEXT_MAP"))
 
-@OptIn(KaExperimentalApi::class)
-internal fun KaSession.markElements(
+context(session: KaSession)
+internal fun markElements(
     declaration: KtNamedDeclaration,
     sourceClass: KtClassOrObject,
     targetClass: KtClassOrObject,
@@ -55,7 +60,7 @@ internal fun KaSession.markElements(
 
             private fun visitSuperOrThis(expression: KtInstanceExpressionWithLabel) {
                 val callee = expression.getQualifiedExpressionForReceiver()?.selectorExpression?.getCalleeExpressionIfAny() ?: return
-                val calleeTarget = callee.resolveToCall()?.successfulCallOrNull<KaCallableMemberCall<*, *>>()?.symbol ?: return
+                val calleeTarget = callee.resolveSuccessfulExpressionSymbol() ?: return
                 if (calleeTarget.containingDeclaration == targetClass.symbol) {
                     expression.replaceWithTargetThis = true
                     affectedElements.add(expression)
@@ -63,9 +68,8 @@ internal fun KaSession.markElements(
             }
 
             override fun visitSimpleNameExpression(expression: KtSimpleNameExpression) {
-                val resolvedCall = expression.resolveToCall()?.successfulCallOrNull<KaCallableMemberCall<*, *>>() ?: return
-                val partiallyAppliedSymbol = resolvedCall.partiallyAppliedSymbol
-                val receiverValue = partiallyAppliedSymbol.extensionReceiver ?: partiallyAppliedSymbol.dispatchReceiver ?: return
+                val resolvedCall = expression.resolveSuccessfulExpressionCall()?.simple ?: return
+                val receiverValue = resolvedCall.extensionReceiver ?: resolvedCall.dispatchReceiver ?: return
 
                 val implicitThis = receiverValue.type.expandedSymbol ?: return
                 val implicitThisElement = implicitThis.psi ?: return

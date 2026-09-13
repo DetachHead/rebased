@@ -2,6 +2,11 @@
 package com.intellij.python.junit5Tests.unit.alsoWin.pyproject.model
 
 import com.intellij.openapi.application.edtWriteAction
+import com.intellij.openapi.application.readAction
+import com.intellij.openapi.module.ModuleManager
+import com.intellij.openapi.roots.ModuleRootManager
+import com.intellij.openapi.vfs.VfsUtilCore
+import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.platform.backend.workspace.workspaceModel
 import com.intellij.platform.workspace.jps.entities.ContentRootEntity
 import com.intellij.platform.workspace.jps.entities.ExcludeUrlEntity
@@ -12,11 +17,9 @@ import com.intellij.platform.workspace.jps.entities.SourceRootEntity
 import com.intellij.platform.workspace.jps.entities.SourceRootTypeId
 import com.intellij.platform.workspace.jps.entities.modifyContentRootEntity
 import com.intellij.platform.workspace.storage.impl.url.toVirtualFileUrl
-import com.intellij.python.junit5Tests.unit.alsoWin.pyproject.SEP
+import com.intellij.python.junit5Tests.unit.alsoWin.pyproject.div
 import com.intellij.testFramework.common.timeoutRunBlocking
 import com.intellij.testFramework.junit5.TestApplication
-import com.intellij.testFramework.junit5.fixture.projectFixture
-import com.intellij.testFramework.junit5.fixture.tempPathFixture
 import com.intellij.testFramework.utils.vfs.createDirectory
 import com.intellij.workspaceModel.ide.legacyBridge.LegacyBridgeJpsEntitySourceFactory
 import org.junit.jupiter.api.Test
@@ -29,9 +32,7 @@ import kotlin.time.Duration.Companion.seconds
 @TestApplication
 internal class PyProjectTomlRelocationTest {
 
-  private val tempDirFixture = tempPathFixture()
-  private val projectFixture = projectFixture(pathFixture = tempDirFixture)
-  private val f by pyProjectTomlSyncFixture(projectFixture, tempDirFixture)
+  private val f by pyProjectTomlSyncFixture()
 
   /**
    * PY-89073: a non-pyproject Python module at the root with source and exclude roots inside
@@ -45,14 +46,14 @@ internal class PyProjectTomlRelocationTest {
       val a = f.root.createDirectory("lib-a")
       a.createDirectory("src")
       a.createDirectory(".venv")
-      a.writePyprojectToml("lib-a")
+      a.writePyprojectTomlWithProject("lib-a")
       a
     }
     val libBDir = edtWriteAction {
       val b = f.root.createDirectory("lib-b")
       b.createDirectory("tests")
       b.createDirectory(".cache")
-      b.writePyprojectToml("lib-b")
+      b.writePyprojectTomlWithProject("lib-b")
       b
     }
 
@@ -84,8 +85,8 @@ internal class PyProjectTomlRelocationTest {
 
     f.reloadProject()
     f.assertProjectStructure(
-      ExpectedModule("lib-a", contentRoot = "lib-a", sourceRoots = listOf("lib-a${SEP}src"), excludedFolders = listOf("lib-a${SEP}.venv")),
-      ExpectedModule("lib-b", contentRoot = "lib-b", sourceRoots = listOf("lib-b${SEP}tests"), excludedFolders = listOf("lib-b${SEP}.cache")),
+      ExpectedModule("lib-a", contentRoot = "lib-a", sourceRoots = listOf("lib-a" / "src"), excludedFolders = listOf("lib-a" / ".venv")),
+      ExpectedModule("lib-b", contentRoot = "lib-b", sourceRoots = listOf("lib-b" / "tests"), excludedFolders = listOf("lib-b" / ".cache")),
       ExpectedModule("root-py", type = PYTHON, contentRoot = "."),
     )
   }
@@ -97,15 +98,15 @@ internal class PyProjectTomlRelocationTest {
   @Test
   fun `source roots in sub-project are relocated to child module`(): Unit = timeoutRunBlocking(30.seconds) {
     edtWriteAction {
-      f.root.writePyprojectToml("parent")
+      f.root.writePyprojectTomlWithProject("parent")
       val sub = f.root.createDirectory("sub")
-      sub.writePyprojectToml("child")
+      sub.writePyprojectTomlWithProject("child")
       sub.createDirectory("src")
     }
 
     f.reloadProject()
     f.assertProjectStructure(
-      ExpectedModule("child", contentRoot = "sub", sourceRoots = listOf("sub${SEP}src")),
+      ExpectedModule("child", contentRoot = "sub", sourceRoots = listOf("sub" / "src")),
       ExpectedModule("parent", contentRoot = "."),
     )
   }
@@ -117,9 +118,9 @@ internal class PyProjectTomlRelocationTest {
   @Test
   fun `template and resource roots in sub-project are relocated to child module`(): Unit = timeoutRunBlocking(30.seconds) {
     edtWriteAction {
-      f.root.writePyprojectToml("parent")
+      f.root.writePyprojectTomlWithProject("parent")
       val sub = f.root.createDirectory("sub")
-      sub.writePyprojectToml("child")
+      sub.writePyprojectTomlWithProject("child")
       sub.createDirectory("templates")
       sub.createDirectory("resources")
     }
@@ -151,7 +152,7 @@ internal class PyProjectTomlRelocationTest {
     // Second sync should relocate the roots to the child module
     f.reloadProject()
     f.assertProjectStructure(
-      ExpectedModule("child", contentRoot = "sub", sourceRoots = listOf("sub${SEP}templates", "sub${SEP}resources")),
+      ExpectedModule("child", contentRoot = "sub", sourceRoots = listOf("sub" / "templates", "sub" / "resources")),
       ExpectedModule("parent", contentRoot = "."),
     )
   }
@@ -162,9 +163,9 @@ internal class PyProjectTomlRelocationTest {
   @Test
   fun `excluded folders in sub-project are relocated to child module`(): Unit = timeoutRunBlocking(30.seconds) {
     edtWriteAction {
-      f.root.writePyprojectToml("parent")
+      f.root.writePyprojectTomlWithProject("parent")
       val sub = f.root.createDirectory("sub")
-      sub.writePyprojectToml("child")
+      sub.writePyprojectTomlWithProject("child")
       sub.createDirectory(".venv")
     }
 
@@ -191,8 +192,60 @@ internal class PyProjectTomlRelocationTest {
     // Second sync should relocate the exclude to the child module
     f.reloadProject()
     f.assertProjectStructure(
-      ExpectedModule("child", contentRoot = "sub", excludedFolders = listOf("sub${SEP}.venv")),
+      ExpectedModule("child", contentRoot = "sub", excludedFolders = listOf("sub" / ".venv")),
       ExpectedModule("parent", contentRoot = "."),
     )
+  }
+
+  @Test
+  fun `exclude relocated into a module survives a relocation out of the same module`(): Unit = timeoutRunBlocking(30.seconds) {
+    edtWriteAction {
+      f.root.writePyprojectTomlWithProject("parent")
+      f.root.createDirectory("build")
+      val mid = f.root.createDirectory("mid")
+      mid.writePyprojectTomlWithProject("middle")
+      mid.createDirectory("cache")
+      val deep = mid.createDirectory("deep")
+      deep.writePyprojectTomlWithProject("leaf")
+      deep.createDirectory("out")
+    }
+
+    // First sync creates the three modules
+    f.reloadProject()
+    f.assertProjectStructure(
+      ExpectedModule("leaf", contentRoot = "mid" / "deep"),
+      ExpectedModule("middle", contentRoot = "mid"),
+      ExpectedModule("parent", contentRoot = "."),
+    )
+
+    // Mark the folders as excluded, as the settings window does
+    val mid = f.root.findChild("mid")!!
+    excludeFolderOnModule("parent", f.root.findChild("build")!!)
+    excludeFolderOnModule("parent", mid.findChild("cache")!!)
+    excludeFolderOnModule("middle", mid.findChild("deep")!!.findChild("out")!!)
+
+    // The second sync moves each excluded folder to the module that owns the directory
+    f.reloadProject()
+    f.assertProjectStructure(
+      ExpectedModule("leaf", contentRoot = "mid" / "deep", excludedFolders = listOf("mid" / "deep" / "out")),
+      ExpectedModule("middle", contentRoot = "mid", excludedFolders = listOf("mid" / "cache")),
+      ExpectedModule("parent", contentRoot = ".", excludedFolders = listOf("build")),
+    )
+  }
+
+  /**
+   * Marks [dir] as excluded on the module named [moduleName].
+   * This uses [com.intellij.openapi.roots.ModifiableRootModel], as the project settings window does.
+   */
+  private suspend fun excludeFolderOnModule(moduleName: String, dir: VirtualFile) {
+    val module = readAction { ModuleManager.getInstance(f.project).findModuleByName(moduleName)!! }
+    edtWriteAction {
+      val model = ModuleRootManager.getInstance(module).modifiableModel
+      val contentEntry = model.contentEntries.first { entry ->
+        entry.file?.let { VfsUtilCore.isAncestor(it, dir, false) } == true
+      }
+      contentEntry.addExcludeFolder(dir)
+      model.commit()
+    }
   }
 }

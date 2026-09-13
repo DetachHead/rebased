@@ -1,7 +1,7 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
 ### auto-generated section `build intellij.java.execution.impl.backend` start
-
 jvm_library(
     name = "backend",
     srcs = glob(
@@ -29,6 +29,7 @@ jvm_library(
         "//platform/editor-ui-api:editor-ui",
         "//platform/execution-impl",
         "//platform/kernel/backend",
+        "//platform/kernel/rpc.backend",
         "//platform/platform-api:ide",
         "//platform/platform-impl/rpc",
         "//platform/project/shared:project",
@@ -42,6 +43,8 @@ jvm_library(
         "//fleet/rhizomedb",
     ],
 )
+
+content_module_jar(module = ":backend")
 
 jvm_library(
     name = "backend_test_lib",
@@ -64,6 +67,7 @@ jvm_library(
         "//platform/editor-ui-api:editor-ui_test_lib",
         "//platform/execution-impl:execution-impl_test_lib",
         "//platform/kernel/backend:backend_test_lib",
+        "//platform/kernel/rpc.backend:rpc.backend_test_lib",
         "//platform/platform-api:ide_test_lib",
         "//platform/platform-impl/rpc:rpc_test_lib",
         "//platform/project/shared:project_test_lib",
@@ -83,6 +87,7 @@ jvm_library(
 exports_files(
     [
         "intellij.java.execution.impl.backend.iml",
+        "resources/intellij.java.execution.impl.backend.xml",
     ],
     visibility = ["//visibility:public"],
 )

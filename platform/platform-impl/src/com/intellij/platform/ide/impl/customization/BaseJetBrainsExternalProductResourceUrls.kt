@@ -2,11 +2,11 @@
 package com.intellij.platform.ide.impl.customization
 
 import com.intellij.ide.Region
-import com.intellij.ide.RegionSettings
+import com.intellij.ide.RegionSettingsService
 import com.intellij.l10n.LocalizationStateService
 import com.intellij.openapi.application.ApplicationInfo
 import com.intellij.openapi.updateSettings.impl.PatchInfo
-import com.intellij.openapi.updateSettings.impl.UpdateRequestParametersProvider
+import com.intellij.openapi.updateSettings.impl.UpdateRequestParametersContributor
 import com.intellij.openapi.util.BuildNumber
 import com.intellij.platform.ide.customization.ExternalProductResourceUrls
 import com.intellij.platform.ide.customization.FeedbackReporter
@@ -71,8 +71,8 @@ abstract class BaseJetBrainsExternalProductResourceUrls : ExternalProductResourc
         "de" to "de-de"
       )
 
-      val currentRegion = RegionSettings.getRegion()
       val selectedLocale = LocalizationStateService.getInstance()?.selectedLocale?.lowercase()
+      val currentRegion = RegionSettingsService.getInstance().getCurrentRegionIfKnown() ?: Region.NOT_SET
 
       return Urls.newFromEncoded(
         buildString {
@@ -112,7 +112,7 @@ abstract class BaseJetBrainsExternalProductResourceUrls : ExternalProductResourc
   override val updateMetadataUrl: Url
     get() = System.getProperty("idea.updates.url", "https://www.jetbrains.com/updates/updates.xml")
       .let { Urls.newFromEncoded(it) }
-      .let { UpdateRequestParametersProvider.passUpdateParameters(it) }
+      .let { UpdateRequestParametersContributor.passUpdateParameters(it) }
 
   final override fun computePatchUrl(from: BuildNumber, to: BuildNumber): Url {
     val url = System.getProperty("idea.patches.url")?.let { Urls.newFromEncoded(it) } ?: basePatchDownloadUrl

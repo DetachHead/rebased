@@ -4,9 +4,7 @@ package org.jetbrains.intellij.build.jarCache
 import io.opentelemetry.api.common.AttributeKey
 import io.opentelemetry.api.common.Attributes
 import io.opentelemetry.api.trace.Span
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.withContext
 import org.jetbrains.intellij.build.Source
 import org.jetbrains.intellij.build.SourceAndCacheStrategy
 import org.jetbrains.intellij.build.ZipSource
@@ -73,7 +71,7 @@ internal fun tryUseCacheEntry(
   }
   else {
     try {
-      createLinkOrCopy(targetFile = targetFile, cacheFile = paths.payloadFile)
+      copyCacheEntryPayload(targetFile = targetFile, cacheFile = paths.payloadFile)
       targetFile
     }
     catch (e: IOException) {
@@ -108,7 +106,7 @@ internal suspend fun produceAndCache(
   tempFilePrefix: String,
   metadataTouchTracker: MetadataTouchTracker,
   cleanupCandidateIndex: CleanupCandidateIndex,
-): Path = withContext(Dispatchers.IO) {
+): Path {
   Files.createDirectories(paths.entryShardDir)
   val tempPayloadFileName = buildTempSiblingFileName(
     baseFileName = paths.payloadFile.fileName.toString(),
@@ -154,10 +152,10 @@ internal suspend fun produceAndCache(
   notifyAboutMetadata(sources = sourceCacheItems, items = items, nativeFiles = nativeFiles, producer = producer)
 
   if (!producer.useCacheAsTargetFile) {
-    createLinkOrCopy(targetFile = targetFile, cacheFile = paths.payloadFile)
+    copyCacheEntryPayload(targetFile = targetFile, cacheFile = paths.payloadFile)
   }
 
-  if (producer.useCacheAsTargetFile) paths.payloadFile else targetFile
+  return if (producer.useCacheAsTargetFile) paths.payloadFile else targetFile
 }
 
 private suspend fun reconcileMetadataPublishFailure(
@@ -187,19 +185,21 @@ private suspend fun reconcileMetadataPublishFailure(
   return false
 }
 
-private fun createLinkOrCopy(targetFile: Path, cacheFile: Path) {
+/**
+ * Copies a cache payload to [targetFile], so that the layout owns bytes the cache does not share.
+ *
+ * This is the only path by which a module or library jar reaches a distribution, so it is also the one place where
+ * [StandardCopyOption.COPY_ATTRIBUTES] earns the whole jar set: the option is what makes the JDK attempt the host's
+ * copy-on-write path (see `org.jetbrains.intellij.build.io.copyFile`), turning the copy into a metadata-only clone on
+ * APFS or a reflinking Linux filesystem. Dropping it would make every dev build write the whole jar set again.
+ */
+private fun copyCacheEntryPayload(targetFile: Path, cacheFile: Path) {
   if (targetFile == cacheFile) {
     return
   }
 
   Files.createDirectories(targetFile.parent)
-  try {
-    Files.deleteIfExists(targetFile)
-    Files.createLink(targetFile, cacheFile)
-  }
-  catch (_: IOException) {
-    Files.copy(cacheFile, targetFile, StandardCopyOption.REPLACE_EXISTING)
-  }
+  Files.copy(cacheFile, targetFile, StandardCopyOption.COPY_ATTRIBUTES, StandardCopyOption.REPLACE_EXISTING)
 }
 
 private fun touchMetadataFileIfRequired(paths: CacheEntryPaths, span: Span, metadataTouchTracker: MetadataTouchTracker): Boolean {

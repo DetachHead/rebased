@@ -3,32 +3,31 @@ package org.jetbrains.kotlin.idea.codeinsights.impl.base.inspection
 
 import com.intellij.codeInspection.LocalInspectionToolSession
 import com.intellij.codeInspection.LocalQuickFix
-import com.intellij.codeInspection.ProblemDescriptor
 import com.intellij.codeInspection.ProblemsHolder
+import com.intellij.modcommand.ModPsiUpdater
 import com.intellij.openapi.project.Project
 import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiElementVisitor
 import com.intellij.psi.util.findParentOfType
 import org.jetbrains.kotlin.analysis.api.KaSession
-import org.jetbrains.kotlin.analysis.api.analyze
-import org.jetbrains.kotlin.analysis.api.components.containingDeclaration
-import org.jetbrains.kotlin.analysis.api.components.expandedSymbol
-import org.jetbrains.kotlin.analysis.api.components.resolveToCall
-import org.jetbrains.kotlin.analysis.api.resolution.KaCallableMemberCall
-import org.jetbrains.kotlin.analysis.api.resolution.successfulCallOrNull
-import org.jetbrains.kotlin.analysis.api.resolution.successfulFunctionCallOrNull
+import org.jetbrains.kotlin.analysis.api.resolution.resolveSuccessfulCall
 import org.jetbrains.kotlin.analysis.api.resolution.symbol
+import org.jetbrains.kotlin.analysis.api.session.analyze
+import org.jetbrains.kotlin.analysis.api.symbols.KaCallableSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaClassSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaFunctionSymbol
+import org.jetbrains.kotlin.analysis.api.symbols.containingDeclaration
+import org.jetbrains.kotlin.analysis.api.types.expandedSymbol
 import org.jetbrains.kotlin.idea.base.codeInsight.ShortenReferencesFacility
 import org.jetbrains.kotlin.idea.base.codeInsight.getEntriesPropertyOfEnumClass
 import org.jetbrains.kotlin.idea.base.codeInsight.isEnumValuesSoftDeprecateEnabled
 import org.jetbrains.kotlin.idea.base.codeInsight.isSoftDeprecatedEnumValuesMethod
 import org.jetbrains.kotlin.idea.base.projectStructure.languageVersionSettings
 import org.jetbrains.kotlin.idea.base.resources.KotlinBundle
+import org.jetbrains.kotlin.idea.codeinsight.api.applicable.inspections.KotlinModCommandQuickFix
 import org.jetbrains.kotlin.idea.codeinsight.api.classic.inspections.AbstractKotlinInspection
 import org.jetbrains.kotlin.idea.codeinsights.impl.base.isOptInRequired
-import org.jetbrains.kotlin.idea.statistics.KotlinLanguageFeaturesFUSCollector
+import org.jetbrains.kotlin.idea.util.resolveSuccessfulExpressionSymbol
 import org.jetbrains.kotlin.name.ClassId
 import org.jetbrains.kotlin.psi.KtArrayAccessExpression
 import org.jetbrains.kotlin.psi.KtBinaryExpression
@@ -37,6 +36,7 @@ import org.jetbrains.kotlin.psi.KtCallExpression
 import org.jetbrains.kotlin.psi.KtContainerNode
 import org.jetbrains.kotlin.psi.KtDotQualifiedExpression
 import org.jetbrains.kotlin.psi.KtElement
+import org.jetbrains.kotlin.psi.KtExpression
 import org.jetbrains.kotlin.psi.KtFile
 import org.jetbrains.kotlin.psi.KtForExpression
 import org.jetbrains.kotlin.psi.KtNamedFunction
@@ -64,8 +64,7 @@ abstract class EnumValuesSoftDeprecateInspectionBase : AbstractKotlinInspection(
             if (!isDeprecatedExpression(callExpression)) return
 
             analyze(callExpression) {
-                val resolvedCall = callExpression.resolveToCall()?.successfulFunctionCallOrNull() ?: return
-                val resolvedCallSymbol = resolvedCall.partiallyAppliedSymbol.symbol
+                val resolvedCallSymbol = callExpression.resolveSuccessfulCall()?.symbol ?: return
 
                 if (!isSoftDeprecatedEnumValuesCall(resolvedCallSymbol)) return
 
@@ -154,9 +153,8 @@ abstract class EnumValuesSoftDeprecateInspectionBase : AbstractKotlinInspection(
     }
 
     context(_: KaSession)
-    private fun getCallableMethodIdString(expression: KtElement?): String? {
-        val resolvedCall = expression?.resolveToCall()?.successfulCallOrNull<KaCallableMemberCall<*, *>>()
-        return resolvedCall?.partiallyAppliedSymbol?.symbol?.callableId?.toString()
+    private fun getCallableMethodIdString(expression: KtExpression?): String? {
+        return (expression?.resolveSuccessfulExpressionSymbol() as? KaCallableSymbol)?.callableId?.toString()
     }
 
     protected enum class ReplaceFixType {
@@ -170,16 +168,15 @@ abstract class EnumValuesSoftDeprecateInspectionBase : AbstractKotlinInspection(
         private val fixType: ReplaceFixType,
         private val replacementName: String,
         private val fixExpression: String
-    ) : LocalQuickFix {
+    ) : KotlinModCommandQuickFix<KtCallExpression>() {
         override fun getFamilyName(): String = KotlinBundle.message("replace.with.0", replacementName)
 
-        override fun applyFix(project: Project, descriptor: ProblemDescriptor) {
-            val qualifiedOrSimpleCall = descriptor.psiElement.qualifiedOrSimpleValuesCall()
+        override fun applyFix(project: Project, element: KtCallExpression, updater: ModPsiUpdater) {
+            val qualifiedOrSimpleCall = element.qualifiedOrSimpleValuesCall()
             val entriesCallStr = when (fixType) {
                 ReplaceFixType.WITH_CAST -> "$fixExpression.toTypedArray()"
                 else -> fixExpression
             }
-            KotlinLanguageFeaturesFUSCollector.enumEntriesCollector.logQuickFixApplied(qualifiedOrSimpleCall.containingFile)
             var replaced = qualifiedOrSimpleCall.replace(KtPsiFactory(project).createExpression(entriesCallStr))
             replaced = applyRemovalsIfNeeded(replaced)
 

@@ -51,7 +51,6 @@
     <orderEntry type="module" module-name="intellij.platform.vcs.dvcs.impl" />
     <orderEntry type="module" module-name="intellij.platform.vcs.dvcs" />
     <orderEntry type="module" module-name="intellij.platform.testFramework" scope="TEST" />
-    <orderEntry type="module" module-name="intellij.xml.impl" />
     <orderEntry type="module" module-name="intellij.platform.vcs.log" />
     <orderEntry type="module" module-name="intellij.platform.vcs.log.impl" />
     <orderEntry type="module" module-name="intellij.platform.util.progress" />
@@ -84,11 +83,11 @@
     <orderEntry type="module" module-name="intellij.platform.util.jdom" scope="TEST" />
     <orderEntry type="module" module-name="intellij.libraries.kotlinx.serialization.core" />
     <orderEntry type="module" module-name="intellij.libraries.kotlinx.serialization.json" />
-    <orderEntry type="library" scope="PROVIDED" name="kotlinc.kotlinx-serialization-compiler-plugin" level="project" />
+    <orderEntry type="module" module-name="intellij.libraries.kotlinc.kotlinx.serialization.compiler.plugin" scope="PROVIDED" />
     <orderEntry type="module" module-name="intellij.platform.util.coroutines" />
     <orderEntry type="module" module-name="intellij.platform.util.ui" />
     <orderEntry type="module" module-name="intellij.platform.util.ex" />
-    <orderEntry type="library" scope="TEST" name="JUnit4" level="project" />
+    <orderEntry type="module" module-name="intellij.libraries.junit4" scope="TEST" />
     <orderEntry type="module" module-name="intellij.libraries.kotlinx.coroutines.test" scope="TEST" />
     <orderEntry type="module" module-name="intellij.libraries.mockk" scope="TEST" />
     <orderEntry type="module" module-name="intellij.libraries.mockk.jvm" scope="TEST" />
@@ -144,5 +143,7 @@
     <orderEntry type="module" module-name="intellij.platform.testFramework.junit5" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.lang" />
     <orderEntry type="module" module-name="intellij.platform.concurrency" />
+    <orderEntry type="module" module-name="intellij.platform.eel.provider" />
+    <orderEntry type="module" module-name="intellij.platform.eel" />
   </component>
 </module>

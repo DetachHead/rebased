@@ -4,7 +4,7 @@
     <facet type="kotlin-language" name="Kotlin">
       <configuration version="5" platform="JVM 25" allPlatforms="JVM [25]" useProjectSettings="false">
         <compilerSettings>
-          <option name="additionalArguments" value="-Xjvm-default=all -opt-in=org.jetbrains.kotlin.analysis.api.permissions.KaAllowProhibitedAnalyzeFromWriteAction -opt-in=org.jetbrains.kotlin.analysis.api.KaPlatformInterface -opt-in=org.jetbrains.kotlin.analysis.api.KaContextParameterApi -Xcontext-parameters -XXLanguage:+AllowEagerSupertypeAccessibilityChecks -progressive" />
+          <option name="additionalArguments" value="-Xjvm-default=all -opt-in=org.jetbrains.kotlin.analysis.api.permissions.KaAllowProhibitedAnalyzeFromWriteAction -opt-in=org.jetbrains.kotlin.analysis.api.KaPlatformInterface -opt-in=org.jetbrains.kotlin.analysis.api.KaContextParameterApi -Xcontext-parameters -opt-in=org.jetbrains.kotlin.analysis.api.KaExperimentalApi -opt-in=org.jetbrains.kotlin.analysis.api.KaIdeApi -XXLanguage:+AllowEagerSupertypeAccessibilityChecks -progressive" />
         </compilerSettings>
         <compilerArguments>
           <stringArguments>
@@ -32,14 +32,14 @@
     <orderEntry type="module" module-name="intellij.platform.lang.core" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.projectModel" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.workspace.storage" scope="TEST" />
-    <orderEntry type="module" module-name="kotlin.plugin.k2" scope="TEST" />
+    <orderEntry type="module" module-name="intellij.kotlin.plugin.community.main" scope="RUNTIME" />
     <orderEntry type="library" scope="TEST" name="kotlin-stdlib" level="project" />
-    <orderEntry type="library" scope="TEST" name="kotlinc.kotlin-compiler-common" level="project" />
-    <orderEntry type="library" scope="TEST" name="kotlinc.kotlin-compiler-fir" level="project" />
-    <orderEntry type="library" scope="TEST" name="kotlinc.analysis-api-platform-interface" level="project" />
-    <orderEntry type="library" scope="TEST" name="kotlinc.analysis-api" level="project" />
-    <orderEntry type="library" scope="TEST" name="kotlinc.analysis-api-k2" level="project" />
-    <orderEntry type="library" scope="TEST" name="kotlinc.low-level-api-fir" level="project" />
+    <orderEntry type="module" module-name="intellij.libraries.kotlinc.kotlin.compiler.common" scope="TEST" />
+    <orderEntry type="module" module-name="intellij.libraries.kotlinc.kotlin.compiler.fir" scope="TEST" />
+    <orderEntry type="module" module-name="intellij.libraries.kotlinc.analysis.api.platform.interface" scope="TEST" />
+    <orderEntry type="module" module-name="intellij.libraries.kotlinc.analysis.api" scope="TEST" />
+    <orderEntry type="module" module-name="intellij.libraries.kotlinc.analysis.api.k2" scope="TEST" />
+    <orderEntry type="module" module-name="intellij.libraries.kotlinc.low.level.api.fir" scope="TEST" />
     <orderEntry type="library" scope="TEST" name="kotlinc.kotlin-compiler-tests" level="project" />
     <orderEntry type="module-library" scope="TEST">
       <library name="ehcache.sizeof" type="repository">
@@ -92,6 +92,8 @@
     <orderEntry type="module" module-name="intellij.kotlin.analysis.platform" scope="TEST" />
     <orderEntry type="module" module-name="intellij.kotlin.projectStructure.tests" scope="TEST" />
     <orderEntry type="module" module-name="intellij.kotlin.base.plugin.testFramework" scope="TEST" />
+    <orderEntry type="module" module-name="intellij.libraries.junit4" scope="TEST" />
+    <orderEntry type="module" module-name="intellij.libraries.junit5" scope="TEST" />
   </component>
   <component name="TestModuleProperties" production-module="intellij.kotlin.analysis.platform" />
 </module>

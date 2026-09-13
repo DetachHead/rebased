@@ -24,6 +24,7 @@ import com.intellij.openapi.fileEditor.FileEditorProvider
 import com.intellij.openapi.fileEditor.FileEditorState
 import com.intellij.openapi.fileEditor.FileEditorStateLevel
 import com.intellij.openapi.fileEditor.TextEditor
+import com.intellij.openapi.fileEditor.createdFileEditorSink
 import com.intellij.openapi.fileEditor.ex.StructureViewFileEditorProvider
 import com.intellij.openapi.fileEditor.impl.DefaultPlatformFileEditorProvider
 import com.intellij.openapi.fileTypes.BinaryFileTypeDecompilers
@@ -109,23 +110,31 @@ open class TextEditorProvider : DefaultPlatformFileEditorProvider, TextBasedFile
     document: Document?,
     editorCoroutineScope: CoroutineScope,
   ): TextEditor {
+    val interceptedEditor = ImplicitSplitModeEditorBinder.tryBindSuppliedEditorToBackendAsync(this, project, file, document, editorCoroutineScope)
+    if (interceptedEditor != null) return interceptedEditor
+
     val asyncLoader = createAsyncEditorLoader(
       provider = this@TextEditorProvider,
       project = project,
       fileForTelemetry = file,
       editorCoroutineScope = editorCoroutineScope,
     )
+    // if cancellation lands between the editor creation and the consumption of the result, withContext discards the created editor
+    val createdEditors = createdFileEditorSink()
     return withContext(Dispatchers.EDT) {
       val editor = createEditorImpl(project = project, file = file, asyncLoader = asyncLoader).first
       TextEditorImpl(
         project = project,
         file = file,
         componentAndLoader = TextEditorComponent(file = file, editorImpl = editor) to asyncLoader,
-      )
+      ).also { createdEditors?.register(it) }
     }
   }
 
   override fun createEditor(project: Project, file: VirtualFile): FileEditor {
+    val interceptedEditor = ImplicitSplitModeEditorBinder.tryBindSuppliedEditorToBackend(this, project, file)
+    if (interceptedEditor != null) return interceptedEditor
+
     val asyncLoader = createAsyncEditorLoader(provider = this, project = project, fileForTelemetry = file, editorCoroutineScope = null)
     val editor = createEditorImpl(project = project, file = file, asyncLoader = asyncLoader).first
     return TextEditorImpl(
@@ -135,7 +144,19 @@ open class TextEditorProvider : DefaultPlatformFileEditorProvider, TextBasedFile
     )
   }
 
-  override fun readState(element: Element, project: Project, file: VirtualFile): FileEditorState {
+  @Deprecated("Implemented to keep compatibility, do not call directly")
+  override fun readState(
+    element: Element,
+    project: Project,
+    file: VirtualFile,
+  ): FileEditorState {
+    if (element.isEmpty) {
+      return TextEditorState()
+    }
+    return TextEditorState(readCarets(element), readRelativeCaretPosition(element))
+  }
+
+  override fun readState(element: Element, project: Project, file: Lazy<VirtualFile?>): FileEditorState {
     if (element.isEmpty) {
       return TextEditorState()
     }

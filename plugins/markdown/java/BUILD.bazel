@@ -1,7 +1,7 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
 ### auto-generated section `build intellij.markdown.java` start
-
 jvm_library(
     name = "java",
     srcs = glob(
@@ -32,8 +32,11 @@ jvm_library(
         "//java/java-psi-impl:psi-impl",
         "//platform/core-impl",
         "//platform/lang-api:lang",
+        "//platform/analysis-impl",
     ],
 )
+
+content_module_jar(module = ":java")
 
 jvm_library(
     name = "java_test_lib",
@@ -58,6 +61,7 @@ jvm_library(
         "//java/java-psi-impl:psi-impl_test_lib",
         "//platform/core-impl:core-impl_test_lib",
         "//platform/lang-api:lang_test_lib",
+        "//platform/analysis-impl:analysis-impl_test_lib",
     ],
 )
 ### auto-generated section `build intellij.markdown.java` end
@@ -66,6 +70,7 @@ jvm_library(
 exports_files(
     [
         "intellij.markdown.java.iml",
+        "resources/intellij.markdown.java.xml",
     ],
     visibility = ["//visibility:public"],
 )

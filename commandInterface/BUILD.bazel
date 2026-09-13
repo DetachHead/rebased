@@ -1,7 +1,6 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
 
 ### auto-generated section `build intellij.commandInterface` start
-
 jvm_library(
     name = "commandInterface",
     srcs = glob(
@@ -63,6 +62,7 @@ jvm_library(
 exports_files(
     [
         "intellij.commandInterface.iml",
+        "resources/intellij.commandInterface.xml",
     ],
     visibility = ["//visibility:public"],
 )

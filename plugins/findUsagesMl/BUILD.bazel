@@ -1,8 +1,17 @@
 load("@community//build:tests-options.bzl", "jps_test")
+load("@community//platform/build-scripts/bazel-rules:dev_dist_plugin.bzl", "dev_dist_plugin")
+load("@community//platform/build-scripts/bazel-rules:ij_plugin.bzl", "ij_plugin")
 load("@rules_jvm//:jvm.bzl", "jvm_library")
 
-### auto-generated section `build intellij.findUsagesMl` start
+jps_test(
+    name = "findUsagesMl-tests_test",
+    timeout = "moderate",
+    tags = ["community-aggregator"],
+    runtime_deps = [":findUsagesMl-tests_test_lib"],
+)
+### skip generation section `test intellij.findUsagesMl.tests`
 
+### auto-generated section `build intellij.findUsagesMl` start
 jvm_library(
     name = "findUsagesMl",
     srcs = glob(
@@ -63,19 +72,33 @@ jvm_library(
         "//platform/core-impl:core-impl_test_lib",
     ],
 )
+
+ij_plugin(
+    name = "findUsagesMl_plugin",
+    descriptor_module = ":findUsagesMl",
+    visibility = ["//visibility:public"],
+)
 ### auto-generated section `build intellij.findUsagesMl` end
 
 ### auto-generated section `iml intellij.findUsagesMl` start
 exports_files(
     [
         "intellij.findUsagesMl.iml",
+        "resources/META-INF/plugin.xml",
     ],
     visibility = ["//visibility:public"],
 )
 ### auto-generated section `iml intellij.findUsagesMl` end
 
-### auto-generated section `build intellij.findUsagesMl.tests` start
+### auto-generated section `dev intellij.findUsagesMl` start
+dev_dist_plugin(
+    descriptor = "resources/META-INF/plugin.xml",
+    descriptor_module = ":findUsagesMl",
+    main_module = "intellij.findUsagesMl",
+)
+### auto-generated section `dev intellij.findUsagesMl` end
 
+### auto-generated section `build intellij.findUsagesMl.tests` start
 jvm_library(
     name = "findUsagesMl-tests",
     srcs = glob(
@@ -145,11 +168,3 @@ exports_files(
     visibility = ["//visibility:public"],
 )
 ### auto-generated section `iml intellij.findUsagesMl.tests` end
-
-### auto-generated section `test intellij.findUsagesMl.tests` start
-
-jps_test(
-    name = "findUsagesMl-tests_test",
-    runtime_deps = [":findUsagesMl-tests_test_lib"],
-)
-### auto-generated section `test intellij.findUsagesMl.tests` end

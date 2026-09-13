@@ -3,10 +3,11 @@ package org.jetbrains.kotlin.idea.k2.codeinsight.fixes
 
 import com.intellij.modcommand.ModCommandAction
 import org.jetbrains.kotlin.analysis.api.KaSession
-import org.jetbrains.kotlin.analysis.api.components.resolveToCall
 import org.jetbrains.kotlin.analysis.api.fir.diagnostics.KaFirDiagnostic
-import org.jetbrains.kotlin.analysis.api.resolution.singleConstructorCallOrNull
+import org.jetbrains.kotlin.analysis.api.resolution.constructor
+import org.jetbrains.kotlin.analysis.api.resolution.single
 import org.jetbrains.kotlin.analysis.api.resolution.symbol
+import org.jetbrains.kotlin.analysis.api.resolution.tryResolveCall
 import org.jetbrains.kotlin.fir.psi
 import org.jetbrains.kotlin.idea.codeinsight.api.applicators.fixes.KotlinQuickFixFactory
 import org.jetbrains.kotlin.idea.quickfix.ActualAnnotationsNotMatchExpectFixFactoryCommon
@@ -18,7 +19,8 @@ internal object ActualAnnotationsNotMatchExpectFixFactory {
 
     val factory = KotlinQuickFixFactory.ModCommandBased { diagnostics: KaFirDiagnostic.ActualAnnotationsNotMatchExpect -> createQuickFixes(diagnostics) }
 
-    private fun KaSession.createQuickFixes(diagnostic: KaFirDiagnostic.ActualAnnotationsNotMatchExpect): List<ModCommandAction> {
+    context(session: KaSession)
+    private fun createQuickFixes(diagnostic: KaFirDiagnostic.ActualAnnotationsNotMatchExpect): List<ModCommandAction> {
         val expectAnnotationEntry = diagnostic.incompatibilityType.expectAnnotation.psi as? KtAnnotationEntry
             ?: return emptyList()
 
@@ -50,7 +52,7 @@ internal object ActualAnnotationsNotMatchExpectFixFactory {
 
     context (_: KaSession)
     private fun KtAnnotationEntry.getAnnotationClassId(): ClassId? {
-        val resolvedExpectAnnotationCall = resolveToCall()?.singleConstructorCallOrNull() ?: return null
+        val resolvedExpectAnnotationCall = tryResolveCall()?.single?.constructor ?: return null
         return resolvedExpectAnnotationCall.symbol.containingClassId
     }
 }

@@ -1,8 +1,8 @@
 <idea-plugin>
   <extensions defaultExtensionNs="com.intellij">
+    <!--suppress PluginXmlReferencesModuleReachability (the inspection resolves the EP to a copy in a library jar, not to intellij.platform.core) -->
     <applicationService serviceInterface="com.intellij.openapi.application.IdeUrlTrackingParametersProvider"
-                        serviceImplementation="com.intellij.ide.customization.UtmIdeUrlTrackingParametersProvider"
-                        overrides="true"/>
+                        serviceImplementation="com.intellij.ide.customization.UtmIdeUrlTrackingParametersProvider"/>
     <ide.newUiOnboarding ideHelpName="idea"/>
     <tipAndTrick file="CommandCompletion.html"/>
   </extensions>

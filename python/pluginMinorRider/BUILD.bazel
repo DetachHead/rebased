@@ -1,6 +1,13 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
+load("//build:compiler-options.bzl", "create_kotlinc_options")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
 ### auto-generated section `build intellij.python.community.plugin.minorRider` start
+create_kotlinc_options(
+    name = "custom_community-plugin-minorRider",
+    warn = "error",
+    x_warning_level = ["DEPRECATION:warning"],
+)
 
 jvm_library(
     name = "community-plugin-minorRider",
@@ -12,6 +19,7 @@ jvm_library(
         ],
         allow_empty = True,
     ),
+    kotlinc_opts = ":custom_community-plugin-minorRider",
     module_name = "intellij.python.community.plugin.minorRider",
     resource_strip_prefix = "resources",
     resources = glob(
@@ -27,6 +35,8 @@ jvm_library(
     ],
 )
 
+content_module_jar(module = ":community-plugin-minorRider")
+
 jvm_library(
     name = "community-plugin-minorRider_test_lib",
     testonly = True,
@@ -34,6 +44,7 @@ jvm_library(
         [],
         allow_empty = True,
     ),
+    kotlinc_opts = ":custom_community-plugin-minorRider",
     module_name = "intellij.python.community.plugin.minorRider",
     visibility = ["//visibility:public"],
     runtime_deps = [
@@ -51,6 +62,7 @@ jvm_library(
 exports_files(
     [
         "intellij.python.community.plugin.minorRider.iml",
+        "resources/intellij.python.community.plugin.minorRider.xml",
     ],
     visibility = ["//visibility:public"],
 )

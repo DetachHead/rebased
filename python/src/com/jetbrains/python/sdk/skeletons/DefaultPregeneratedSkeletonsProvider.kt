@@ -1,8 +1,4 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
-// Converted from Java. Notes on the conversion:
-//  - Static helpers became top-level functions: extension classes registered through extension
-//    points may not carry non-trivial companion objects (lint rule), so they cannot live on the class.
-//  - File I/O migrated from `java.io.File` to `java.nio.file.Path`
 package com.jetbrains.python.sdk.skeletons
 
 import com.google.common.annotations.VisibleForTesting
@@ -16,11 +12,11 @@ import com.intellij.openapi.util.text.StringUtil
 import com.intellij.openapi.vfs.JarFileSystem
 import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.openapi.vfs.VirtualFile
+import com.intellij.python.community.impl.conda.environment.CondaEnvironment
+import com.intellij.python.sdk.backend.pythonInterpreter
 import com.intellij.util.io.ZipUtil
 import com.jetbrains.python.PyBundle
-import com.jetbrains.python.sdk.PythonEnvironment
 import com.jetbrains.python.sdk.legacy.PythonSdkUtil
-import com.jetbrains.python.sdk.pyRichSdk
 import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.annotations.NonNls
 import java.io.IOException
@@ -76,7 +72,7 @@ private fun findPregeneratedSkeletonsRoot(): Path? {
 }
 
 @VisibleForTesting
-fun isApplicableZippedSkeletonsFileName(prebuiltSkeletonsName: String, fileName: String): Boolean = try {
+internal fun isApplicableZippedSkeletonsFileName(prebuiltSkeletonsName: String, fileName: String): Boolean = try {
   fileName.matches(Regex(".*$prebuiltSkeletonsName\\.?\\d*\\.zip"))
 }
 catch (_: PatternSyntaxException) {
@@ -92,11 +88,8 @@ fun getPregeneratedSkeletonsName(
 ): String? {
   if (PythonSdkUtil.isRemote(sdk)) return null
   @NonNls val versionString = sdk.versionString ?: return null
-  val rich = sdk.pyRichSdk(false)
-  val effectiveVersion = when (rich.pythonEnvironment) {
-    is PythonEnvironment.Conda -> "Anaconda-$versionString"
-    is PythonEnvironment.Venv, is PythonEnvironment.SystemPython, null -> versionString
-  }
+  val rich = sdk.pythonInterpreter(false)
+  val effectiveVersion = if (rich.pythonEnvironment is CondaEnvironment) "Anaconda-$versionString" else versionString
   return getPrebuiltSkeletonsName(generatorVersion, effectiveVersion, withMinorVersion, withExtension)
 }
 
@@ -135,12 +128,12 @@ fun getPrebuiltSkeletonsName(
 }
 
 private class ArchivedSkeletons(private val archiveRoot: VirtualFile) : PyPregeneratedSkeletons {
-  override fun unpackPreGeneratedSkeletons(skeletonDir: String) {
+  override fun unpackPreGeneratedSkeletons(skeletonDir: Path) {
     ProgressManager.progress(PyBundle.message("python.sdk.unpacking.pre.generated.skeletons"))
     try {
       val jar = JarFileSystem.getInstance().getVirtualFileForJar(archiveRoot)
       if (jar != null) {
-        ZipUtil.extract(Path.of(jar.path), Path.of(skeletonDir), null)
+        ZipUtil.extract(Path.of(jar.path), skeletonDir, null)
       }
     }
     catch (e: IOException) {

@@ -1,12 +1,19 @@
 // Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.kotlin.idea.k2.refactoring.pullUp
 
-import org.jetbrains.kotlin.analysis.api.KaExperimentalApi
 import org.jetbrains.kotlin.analysis.api.KaSession
+import org.jetbrains.kotlin.analysis.api.renderer.render
 import org.jetbrains.kotlin.analysis.api.symbols.KaCallableSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaClassSymbol
+import org.jetbrains.kotlin.analysis.api.symbols.isDirectSubClassOf
+import org.jetbrains.kotlin.analysis.api.symbols.symbol
 import org.jetbrains.kotlin.analysis.api.types.KaErrorType
+import org.jetbrains.kotlin.analysis.api.types.KaStandardTypeClassIds
 import org.jetbrains.kotlin.analysis.api.types.KaSubstitutor
+import org.jetbrains.kotlin.analysis.api.types.builtinTypes
+import org.jetbrains.kotlin.analysis.api.types.classId
+import org.jetbrains.kotlin.analysis.api.types.expandedSymbol
+import org.jetbrains.kotlin.analysis.api.types.type
 import org.jetbrains.kotlin.lexer.KtTokens
 import org.jetbrains.kotlin.psi.KtCallableDeclaration
 import org.jetbrains.kotlin.psi.KtClass
@@ -17,8 +24,8 @@ import org.jetbrains.kotlin.psi.KtPsiFactory
 import org.jetbrains.kotlin.psi.KtSuperTypeListEntry
 import org.jetbrains.kotlin.types.Variance
 
-@OptIn(KaExperimentalApi::class)
-internal fun KaSession.createSuperTypeEntryForAddition(
+context(session: KaSession)
+internal fun createSuperTypeEntryForAddition(
     delegator: KtSuperTypeListEntry,
     targetClass: KtClassOrObject,
     substitutor: KaSubstitutor,
@@ -36,8 +43,8 @@ internal fun KaSession.createSuperTypeEntryForAddition(
     return KtPsiFactory(targetClass.project).createSuperTypeEntry(renderedType)
 }
 
-@OptIn(KaExperimentalApi::class)
-internal fun KaSession.computeAndRenderReturnType(
+context(session: KaSession)
+internal fun computeAndRenderReturnType(
     originalCallableSymbol: KaCallableSymbol,
     copiedDeclaration: KtCallableDeclaration,
     substitutor: KaSubstitutor,
@@ -50,7 +57,7 @@ internal fun KaSession.computeAndRenderReturnType(
     } else {
         returnType = substitutor.substitute(returnType)
     }
-    return if (copiedDeclaration is KtProperty || !returnType.isUnitType) {
+    return if (copiedDeclaration is KtProperty || returnType.classId != KaStandardTypeClassIds.UNIT) {
         returnType.render(position = Variance.INVARIANT)
     } else {
         null

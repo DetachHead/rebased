@@ -1,8 +1,17 @@
 load("@community//build:tests-options.bzl", "jps_test")
 load("@rules_jvm//:jvm.bzl", "jvm_library")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
+
+jps_test(
+    name = "vcs-dvcs-impl-tests_test",
+    timeout = "moderate",
+    tags = ["community-aggregator"],
+    runtime_deps = [":vcs-dvcs-impl-tests_test_lib"],
+)
+
+### skip generation section `test intellij.platform.vcs.dvcs.impl.tests`
 
 ### auto-generated section `build intellij.platform.vcs.dvcs.impl` start
-
 jvm_library(
     name = "vcs-dvcs-impl",
     srcs = glob(
@@ -55,11 +64,14 @@ jvm_library(
         "//platform/workspace/storage",
         "//platform/dvcs-impl/shared",
         "//platform/kernel/backend",
+        "//platform/kernel/rpc.backend",
         "//jps/model-api:model",
         "//platform/lang-core",
         "//fleet/rhizomedb",
     ],
 )
+
+content_module_jar(module = ":vcs-dvcs-impl")
 
 jvm_library(
     name = "vcs-dvcs-impl_test_lib",
@@ -113,6 +125,7 @@ jvm_library(
         "//platform/workspace/storage:storage_test_lib",
         "//platform/dvcs-impl/shared:shared_test_lib",
         "//platform/kernel/backend:backend_test_lib",
+        "//platform/kernel/rpc.backend:rpc.backend_test_lib",
         "//jps/model-api:model_test_lib",
         "//platform/lang-core:lang-core_test_lib",
         "//fleet/rhizomedb:rhizomedb_test_lib",
@@ -124,13 +137,15 @@ jvm_library(
 exports_files(
     [
         "intellij.platform.vcs.dvcs.impl.iml",
+        "resources/VcsProductivityFeatures.xml",
+        "resources/intellij.platform.vcs.dvcs.impl.xml",
+        "module-content.yaml",
     ],
     visibility = ["//visibility:public"],
 )
 ### auto-generated section `iml intellij.platform.vcs.dvcs.impl` end
 
 ### auto-generated section `build intellij.platform.vcs.dvcs.impl.tests` start
-
 jvm_library(
     name = "vcs-dvcs-impl-tests",
     srcs = glob(
@@ -239,6 +254,10 @@ jvm_library(
         "//platform/lang-core:lang-core_test_lib",
         "//fleet/rhizomedb",
         "//fleet/rhizomedb:rhizomedb_test_lib",
+        "//libraries/junit4",
+        "//libraries/junit4:junit4_test_lib",
+        "//libraries/junit5",
+        "//libraries/junit5:junit5_test_lib",
     ],
 )
 ### auto-generated section `build intellij.platform.vcs.dvcs.impl.tests` end
@@ -251,11 +270,3 @@ exports_files(
     visibility = ["//visibility:public"],
 )
 ### auto-generated section `iml intellij.platform.vcs.dvcs.impl.tests` end
-
-### auto-generated section `test intellij.platform.vcs.dvcs.impl.tests` start
-
-jps_test(
-    name = "vcs-dvcs-impl-tests_test",
-    runtime_deps = [":vcs-dvcs-impl-tests_test_lib"],
-)
-### auto-generated section `test intellij.platform.vcs.dvcs.impl.tests` end

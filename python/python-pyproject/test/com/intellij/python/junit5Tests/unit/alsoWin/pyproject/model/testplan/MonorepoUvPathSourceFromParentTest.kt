@@ -3,13 +3,12 @@ package com.intellij.python.junit5Tests.unit.alsoWin.pyproject.model.testplan
 
 import com.intellij.python.junit5Tests.framework.PyDefaultTestApplication
 import com.intellij.python.junit5Tests.framework.metaInfo.TestClassInfo
-import com.intellij.python.junit5Tests.unit.alsoWin.pyproject.SEP
+import com.intellij.python.junit5Tests.unit.alsoWin.pyproject.div
 import com.intellij.python.junit5Tests.unit.alsoWin.pyproject.model.ExpectedModule
 import com.intellij.python.junit5Tests.unit.alsoWin.pyproject.model.pyProjectTomlSyncFixture
 import com.intellij.testFramework.TestDataPath
 import com.intellij.testFramework.common.timeoutRunBlocking
 import com.intellij.testFramework.junit5.fixture.projectFixture
-import com.intellij.testFramework.junit5.fixture.tempPathFixture
 import org.junit.jupiter.api.Test
 
 /**
@@ -22,11 +21,10 @@ import org.junit.jupiter.api.Test
 @TestDataPath($$"$CONTENT_ROOT/../testData/monorepo/8840337-uv-workspace-path-from-parent")
 internal class MonorepoUvPathSourceFromParentTest {
   companion object {
-    private val tempDirFixture = tempPathFixture()
-    private val projectFixture = projectFixture(pathFixture = tempDirFixture)
+    private val projectFixture = projectFixture()
   }
 
-  private val f by pyProjectTomlSyncFixture(projectFixture, tempDirFixture)
+  private val f by pyProjectTomlSyncFixture(projectFixture)
 
   @Test
   fun pathSourceOnParentIsResolvedAgainstParentRoot(): Unit = timeoutRunBlocking {
@@ -38,7 +36,7 @@ internal class MonorepoUvPathSourceFromParentTest {
     f.assertProjectStructure(
       ExpectedModule("monorepo-root", contentRoot = ".", sourceRoots = listOf("."), deps = listOf("external_lib")),
       ExpectedModule("external_lib", contentRoot = "external_lib"),
-      ExpectedModule("frontend", contentRoot = "apps${SEP}frontend", deps = listOf("external_lib")),
+      ExpectedModule("frontend", contentRoot = "apps" / "frontend", deps = listOf("external_lib")),
     )
   }
 }

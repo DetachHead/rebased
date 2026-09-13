@@ -8,13 +8,17 @@ import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.project.Project
 import com.intellij.psi.createSmartPointer
 import com.intellij.util.application
-import org.jetbrains.kotlin.analysis.api.KaExperimentalApi
 import org.jetbrains.kotlin.analysis.api.KaSession
 import org.jetbrains.kotlin.analysis.api.fir.diagnostics.KaFirDiagnostic
+import org.jetbrains.kotlin.analysis.api.renderer.render
 import org.jetbrains.kotlin.analysis.api.renderer.types.impl.KaTypeRendererForSource
 import org.jetbrains.kotlin.analysis.api.symbols.KaSymbolOrigin
 import org.jetbrains.kotlin.analysis.api.types.KaFunctionType
 import org.jetbrains.kotlin.analysis.api.types.KaType
+import org.jetbrains.kotlin.analysis.api.types.allSupertypes
+import org.jetbrains.kotlin.analysis.api.types.expandedSymbol
+import org.jetbrains.kotlin.analysis.api.types.semanticallyEquals
+import org.jetbrains.kotlin.analysis.api.types.withNullability
 import org.jetbrains.kotlin.idea.base.codeInsight.ShortenReferencesFacility
 import org.jetbrains.kotlin.idea.base.resources.KotlinBundle
 import org.jetbrains.kotlin.idea.codeinsight.api.applicators.fixes.KotlinQuickFixFactory
@@ -56,7 +60,8 @@ internal object LetImplementInterfaceFixFactories {
         )
     }
 
-    private fun KaSession.createFixIfAvailable(
+    context(session: KaSession)
+    private fun createFixIfAvailable(
         expectedType: KaType,
         actualType: KaType,
     ): LetImplementInterfaceFix? {
@@ -83,8 +88,8 @@ internal object LetImplementInterfaceFixFactories {
         return LetImplementInterfaceFix(expressionTypeDeclaration, elementContext)
     }
 
-    @OptIn(KaExperimentalApi::class)
-    private fun KaSession.buildElementContext(
+    context(session: KaSession)
+    private fun buildElementContext(
         element: KtClassOrObject,
         expectedType: KaType,
         actualType: KaType,
@@ -112,8 +117,8 @@ internal object LetImplementInterfaceFixFactories {
         )
     }
 
-    @OptIn(KaExperimentalApi::class)
-    private fun KaSession.renderShort(type: KaType): String = type.render(
+    context(session: KaSession)
+    private fun renderShort(type: KaType): String = type.render(
         renderer = KaTypeRendererForSource.WITH_SHORT_NAMES,
         position = Variance.INVARIANT
     )

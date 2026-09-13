@@ -2,24 +2,23 @@
 package org.jetbrains.intellij.build
 
 import kotlinx.collections.immutable.persistentListOf
-import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.assertj.core.api.Assertions.assertThat
 import org.assertj.core.api.Assertions.assertThatThrownBy
 import org.jetbrains.intellij.build.BuildPaths.Companion.COMMUNITY_ROOT
+import org.jetbrains.intellij.build.dev.isPluginApplicable as isDevModePluginApplicable
 import org.jetbrains.intellij.build.impl.DistributionBuilderState
 import org.jetbrains.intellij.build.impl.PluginLayout
 import org.jetbrains.intellij.build.impl.SupportedDistribution
 import org.jetbrains.intellij.build.impl.createTestDistributionBuilderState
-import org.jetbrains.intellij.build.impl.projectStructureMapping.DistributionFileEntry
+import org.jetbrains.intellij.build.impl.plugins.collectOsSpecificBundledPluginBuildTasks
 import org.jetbrains.intellij.build.impl.testBuildBundledPluginsForAllPlatforms
 import org.jetbrains.intellij.build.impl.testLayoutBundledPlugins
 import org.junit.jupiter.api.Test
 import org.mockito.Mockito.mock
 import org.mockito.Mockito.`when`
-import java.lang.reflect.Method
 import java.nio.file.Path
 import kotlin.time.Duration.Companion.seconds
 
@@ -73,14 +72,10 @@ class BundledPluginBuilderTest {
     assertThatThrownBy {
       runBlocking(Dispatchers.Default) {
         val (context, state) = createMinimalBundledPluginBuildState()
-        val buildPlatformJob = CompletableDeferred<List<DistributionFileEntry>>().also {
-          it.completeExceptionally(IllegalStateException(failureMessage))
-        }
-
         testBuildBundledPluginsForAllPlatforms(
           state = state,
           pluginLayouts = emptySet(),
-          buildPlatformJob = buildPlatformJob,
+          platformEntriesProvider = { throw IllegalStateException(failureMessage) },
           descriptorCacheContainer = state.platformLayout.descriptorCacheContainer,
           context = context,
           includeAdditionalPlugins = false,
@@ -110,6 +105,74 @@ class BundledPluginBuilderTest {
     }
   }
 
+  @Test
+  fun `dev mode plugin applicability uses requested target os`() {
+    val macOnlyPlugin = PluginLayout.pluginAuto(listOf("mac.only.plugin")) {
+      it.bundlingRestrictions.supportedOs = persistentListOf(OsFamily.MACOS)
+    }
+    val applicationInfo = mock(ApplicationInfoProperties::class.java)
+    val context = mock(BuildContext::class.java)
+    `when`(applicationInfo.isEAP).thenReturn(false)
+    `when`(context.options).thenReturn(BuildOptions())
+    `when`(context.applicationInfo).thenReturn(applicationInfo)
+    `when`(context.isNightlyBuild).thenReturn(false)
+
+    assertThat(
+      isDevModePluginApplicable(
+        bundledMainModuleNames = setOf(macOnlyPlugin.mainModule),
+        plugin = macOnlyPlugin,
+        os = OsFamily.MACOS,
+        arch = JvmArchitecture.x64,
+        context = context,
+      )
+    ).isTrue()
+
+    assertThat(
+      isDevModePluginApplicable(
+        bundledMainModuleNames = setOf(macOnlyPlugin.mainModule),
+        plugin = macOnlyPlugin,
+        os = OsFamily.LINUX,
+        arch = JvmArchitecture.x64,
+        context = context,
+      )
+    ).isFalse()
+  }
+
+  @Test
+  fun `a plugin that is not for public builds survives without release-cycle restrictions`() {
+    val internalPlugin = PluginLayout.pluginAuto(listOf("internal.plugin")) {
+      it.bundlingRestrictions.includeInDistribution = PluginDistribution.NOT_FOR_PUBLIC_BUILDS
+    }
+    val applicationInfo = mock(ApplicationInfoProperties::class.java)
+    val context = mock(BuildContext::class.java)
+    `when`(applicationInfo.isEAP).thenReturn(true)
+    `when`(context.applicationInfo).thenReturn(applicationInfo)
+    `when`(context.isNightlyBuild).thenReturn(false)
+
+    `when`(context.options).thenReturn(BuildOptions(useReleaseCycleRelatedBundlingRestrictions = false))
+    assertThat(
+      isDevModePluginApplicable(
+        bundledMainModuleNames = setOf(internalPlugin.mainModule),
+        plugin = internalPlugin,
+        os = OsFamily.MACOS,
+        arch = JvmArchitecture.x64,
+        context = context,
+      )
+    ).isTrue()
+
+    // what a shipped build does is unchanged
+    `when`(context.options).thenReturn(BuildOptions())
+    assertThat(
+      isDevModePluginApplicable(
+        bundledMainModuleNames = setOf(internalPlugin.mainModule),
+        plugin = internalPlugin,
+        os = OsFamily.MACOS,
+        arch = JvmArchitecture.x64,
+        context = context,
+      )
+    ).isFalse()
+  }
+
   private fun createMinimalBundledPluginBuildState(): Pair<BuildContext, DistributionBuilderState> {
     val applicationInfo = mock(ApplicationInfoProperties::class.java)
     val context = mock(BuildContext::class.java)
@@ -137,14 +200,8 @@ class BundledPluginBuilderTest {
     pluginLayouts: Collection<PluginLayout>,
     context: BuildContext,
   ): List<OsSpecificTaskDescription> {
-    val tasks = collectOsSpecificBundledPluginBuildTasksMethod.invoke(null, pluginDirs, pluginLayouts, context) as List<*>
-    return tasks.map { task ->
-      val taskClass = checkNotNull(task).javaClass
-      @Suppress("UNCHECKED_CAST")
-      val dist = taskClass.getField("dist").get(task) as SupportedDistribution
-      @Suppress("UNCHECKED_CAST")
-      val plugins = taskClass.getField("plugins").get(task) as List<PluginLayout>
-      OsSpecificTaskDescription(dist = dist, pluginModules = plugins.map { it.mainModule })
+    return collectOsSpecificBundledPluginBuildTasks(pluginDirs, pluginLayouts, context).map { task ->
+      OsSpecificTaskDescription(dist = task.dist, pluginModules = task.plugins.map { it.mainModule })
     }
   }
 
@@ -153,9 +210,4 @@ class BundledPluginBuilderTest {
     val pluginModules: List<String>,
   )
 
-  companion object {
-    private val collectOsSpecificBundledPluginBuildTasksMethod: Method = Class
-      .forName("org.jetbrains.intellij.build.impl.plugins.BundledPluginBuilderKt")
-      .getDeclaredMethod("collectOsSpecificBundledPluginBuildTasks", List::class.java, Collection::class.java, BuildContext::class.java)
-  }
 }

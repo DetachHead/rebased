@@ -29,9 +29,11 @@ import com.intellij.util.system.OS
 import org.jdom.Element
 import org.jetbrains.annotations.VisibleForTesting
 import org.jetbrains.jps.util.JpsPathUtil
+import java.io.IOException
 import java.nio.file.AccessDeniedException
 import java.nio.file.Files
 import java.nio.file.Path
+import java.nio.file.attribute.BasicFileAttributes
 import java.nio.file.Paths
 import kotlin.io.path.div
 
@@ -71,13 +73,21 @@ internal class NestedProjectStorePathManager : ProjectStorePathManager {
       return IprProjectStoreDescriptor(userBaseDir, projectRoot)
     }
 
-    return if (Files.isRegularFile(projectRoot)) {
+    // One stat call answers both the isRegularFile and the isDirectory checks below.
+    // Each separate check costs a network round trip on a remote Eel path.
+    val attributes = try {
+      Files.readAttributes(projectRoot, BasicFileAttributes::class.java)
+    }
+    catch (_: IOException) {
+      null
+    }
+    return if (attributes != null && attributes.isRegularFile) {
       DotIdeaProjectStoreDescriptor(
         projectIdentityFile = projectRoot.parent,
         historicalProjectBasePath = projectRoot.parent,
       )
     }
-    else if (Files.isDirectory(projectRoot)
+    else if (attributes != null && attributes.isDirectory
              && System.getProperty("store.basedir.parent.detection", "true").toBoolean()
              && (projectRoot.fileName?.toString()?.startsWith("${Project.DIRECTORY_STORE_FOLDER}.") == true)) {
       DotIdeaProjectStoreDescriptor(

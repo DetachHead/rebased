@@ -69,6 +69,7 @@ import org.jetbrains.annotations.Nullable;
 import javax.swing.Icon;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -78,6 +79,7 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 import static com.jetbrains.python.psi.types.PyNoneTypeKt.isNoneType;
+import static com.jetbrains.python.psi.types.PyTypeUtilKt.isUnknown;
 
 
 public class PyNamedParameterImpl extends PyBaseElementImpl<PyNamedParameterStub> implements PyNamedParameter, ContributedReferenceHost {
@@ -213,11 +215,9 @@ public class PyNamedParameterImpl extends PyBaseElementImpl<PyNamedParameterStub
       var callable = getContainingCallable((PyParameterList)parent);
       if (callable != null) {
         if (callable instanceof PyFunction func) {
-          for (PyTypeProvider provider : PyTypeProvider.EP_NAME.getExtensionList()) {
-            final Ref<PyType> resultRef = provider.getParameterType(this, func, context);
-            if (resultRef != null) {
-              return resultRef.get();
-            }
+          final Ref<PyType> resultRef = getTypeFromProviders(this, func, context);
+          if (resultRef != null) {
+            return resultRef.get();
           }
           if (isSelf()) {
             // must be 'self' or 'cls'
@@ -259,10 +259,9 @@ public class PyNamedParameterImpl extends PyBaseElementImpl<PyNamedParameterStub
             }
           }
         }
-        // Guess the type under an assumed type to prevent recursion
-        final PyType assumedResult = context.assumeType(this, null, ctx -> {
-          // Guess the type from file-local calls
-          if (ctx.allowCallContext(this)) {
+        // Guess the type from file-local calls under an assumed type to prevent recursion.
+        if (context.allowCallContext(this)) {
+          final PyType assumedResult = context.assumeType(this, PyAnyType.getUnknown(), ctx -> {
             final List<PyType> types = new ArrayList<>();
             final PyResolveContext resolveContext = PyResolveContext.defaultContext(ctx);
             final PyCallableParameter parameter = PyCallableParameterImpl.psi(this);
@@ -276,30 +275,46 @@ public class PyNamedParameterImpl extends PyBaseElementImpl<PyNamedParameterStub
                   .map(Map.Entry::getKey)
                   .nonNull()
                   .map(ctx::getType)
-                  .nonNull()
+                  .filter(it -> !isUnknown(it))
                   .forEach(types::add);
                 return true;
               }
             );
 
-            if (!types.isEmpty()) {
-              return PyUnionType.createWeakType(PyUnionType.union(types));
-            }
+            return types.isEmpty() ? null : PyUnionType.createWeakType(PyUnionType.union(types));
+          });
+          if (assumedResult != null) {
+            return assumedResult;
           }
-          if (ctx.maySwitchToAST(this)) {
-            final PyType typeFromUsages = getTypeFromUsages(ctx);
-            if (typeFromUsages != null) {
-              return typeFromUsages;
-            }
+        }
+        if (context.maySwitchToAST(this)) {
+          final PyType typeFromUsages = getTypeFromUsages(context, new HashSet<>());
+          if (typeFromUsages != null) {
+            return typeFromUsages;
           }
-          return null;
-        });
-        if (assumedResult != null) {
-          return assumedResult;
         }
       }
     }
     return PyAnyType.getUnknown();
+  }
+
+  private static boolean isGuessedParameter(@NotNull PyNamedParameter parameter) {
+    return parameter.getAnnotationValue() == null &&
+           parameter.getTypeCommentAnnotation() == null &&
+           !parameter.hasDefaultValue() &&
+           !parameter.isSelf() &&
+           !parameter.isPositionalContainer() &&
+           !parameter.isKeywordContainer();
+  }
+
+  private static @Nullable Ref<PyType> getTypeFromProviders(@NotNull PyNamedParameter parameter,
+                                                            @NotNull PyFunction function,
+                                                            @NotNull TypeEvalContext context) {
+    for (PyTypeProvider provider : PyTypeProvider.EP_NAME.getExtensionList()) {
+      final Ref<PyType> resultRef = provider.getParameterType(parameter, function, context);
+      if (resultRef != null) return resultRef;
+    }
+    return null;
   }
 
   @Override
@@ -307,9 +322,25 @@ public class PyNamedParameterImpl extends PyBaseElementImpl<PyNamedParameterStub
     return new PyElementPresentation(this);
   }
 
-  private @Nullable PyType getTypeFromUsages(@NotNull TypeEvalContext context) {
-    final Set<String> usedAttributes = new LinkedHashSet<>();
+  private static @Nullable PyType getForwardedParameterType(@NotNull PyCallableParameter callableParameter,
+                                                            @NotNull TypeEvalContext context,
+                                                            @NotNull Set<PyNamedParameter> visited) {
+    if (!(callableParameter.getParameter() instanceof PyNamedParameterImpl parameter) || !isGuessedParameter(parameter)) {
+      return callableParameter.getType(context);
+    }
 
+    final PsiElement parent = parameter.getParentByStub();
+    if (parent instanceof PyParameterList parameterList && parameterList.getContainingCallable() instanceof PyFunction function) {
+      final Ref<PyType> resultRef = getTypeFromProviders(parameter, function, context);
+      if (resultRef != null) return resultRef.get();
+    }
+    return parameter.getTypeFromUsages(context, visited);
+  }
+
+  private @Nullable PyType getTypeFromUsages(@NotNull TypeEvalContext context, @NotNull Set<PyNamedParameter> visited) {
+    if (!visited.add(this)) return null;
+
+    final Set<String> usedAttributes = new LinkedHashSet<>();
     final ScopeOwner owner = ScopeUtil.getScopeOwner(this);
     final String name = getName();
 
@@ -340,7 +371,7 @@ public class PyNamedParameterImpl extends PyBaseElementImpl<PyNamedParameterStub
             else if (isReferenceToParameter(expr)) {
               StreamEx.of(getParametersByCallArgument(expr, context))
                 .nonNull()
-                .map(parameter -> parameter.getType(context))
+                .map(parameter -> getForwardedParameterType(parameter, context, visited))
                 .select(PyStructuralType.class)
                 .forEach(type -> usedAttributes.addAll(type.getAttributeNames()));
             }

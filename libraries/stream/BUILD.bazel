@@ -1,7 +1,7 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
 ### auto-generated section `build intellij.libraries.stream` start
-
 jvm_library(
     name = "stream",
     srcs = glob(
@@ -16,6 +16,11 @@ jvm_library(
     visibility = ["//visibility:public"],
     exports = ["@lib//:libraries-stream-_stream_ex"],
     runtime_deps = ["@lib//:libraries-stream-_stream_ex"],
+)
+
+content_module_jar(
+    libraries = ["@lib//:libraries-stream-_stream_ex"],
+    module = ":stream",
 )
 
 jvm_library(
@@ -37,6 +42,8 @@ jvm_library(
 exports_files(
     [
         "intellij.libraries.stream.iml",
+        "resources/intellij.libraries.stream.xml",
+        "module-content.yaml",
     ],
     visibility = ["//visibility:public"],
 )

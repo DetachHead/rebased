@@ -1,15 +1,16 @@
-load("@community//build:tests-options.bzl", "jps_test")
 load("@rules_jvm//:jvm.bzl", "jvm_library")
 load("//build:compiler-options.bzl", "create_kotlinc_options")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
 ### auto-generated section `build intellij.kotlin.analysis.platform` start
-
 create_kotlinc_options(
     name = "custom_kotlin-analysis-platform",
     opt_in = [
         "org.jetbrains.kotlin.analysis.api.permissions.KaAllowProhibitedAnalyzeFromWriteAction",
         "org.jetbrains.kotlin.analysis.api.KaPlatformInterface",
         "org.jetbrains.kotlin.analysis.api.KaContextParameterApi",
+        "org.jetbrains.kotlin.analysis.api.KaExperimentalApi",
+        "org.jetbrains.kotlin.analysis.api.KaIdeApi",
     ],
     x_context_parameters = True,
 )
@@ -40,12 +41,12 @@ jvm_library(
         "//platform/projectModel-api:projectModel",
         "//platform/workspace/storage",
         "@lib//:kotlin-stdlib",
-        "@lib//:kotlinc-kotlin-compiler-common",
-        "@lib//:kotlinc-kotlin-compiler-fir",
-        "@lib//:kotlinc-analysis-api-platform-interface",
-        "@lib//:kotlinc-analysis-api",
-        "@lib//:kotlinc-analysis-api-k2",
-        "@lib//:kotlinc-low-level-api-fir",
+        "//libraries/kotlinc/kotlin-compiler-common:libraries-kotlinc-kotlin-compiler-common",
+        "//libraries/kotlinc/kotlin-compiler-fir:libraries-kotlinc-kotlin-compiler-fir",
+        "//libraries/kotlinc/analysis-api-platform-interface:libraries-kotlinc-analysis-api-platform-interface",
+        "//libraries/kotlinc/analysis-api:libraries-kotlinc-analysis-api",
+        "//libraries/kotlinc/analysis-api-k2:libraries-kotlinc-analysis-api-k2",
+        "//libraries/kotlinc/low-level-api-fir:libraries-kotlinc-low-level-api-fir",
         "@lib//:kotlin-analysis-platform-ehcache-sizeof",
         "//plugins/kotlin/base/util",
         "//plugins/kotlin/base/project-structure",
@@ -67,6 +68,11 @@ jvm_library(
     ],
 )
 
+content_module_jar(
+    libraries = ["@lib//:kotlin-analysis-platform-ehcache-sizeof"],
+    module = ":kotlin-analysis-platform",
+)
+
 jvm_library(
     name = "kotlin-analysis-platform_test_lib",
     testonly = True,
@@ -86,6 +92,12 @@ jvm_library(
         "//jps/model-api:model_test_lib",
         "//platform/projectModel-api:projectModel_test_lib",
         "//platform/workspace/storage:storage_test_lib",
+        "//libraries/kotlinc/kotlin-compiler-common:libraries-kotlinc-kotlin-compiler-common_test_lib",
+        "//libraries/kotlinc/kotlin-compiler-fir:libraries-kotlinc-kotlin-compiler-fir_test_lib",
+        "//libraries/kotlinc/analysis-api-platform-interface:libraries-kotlinc-analysis-api-platform-interface_test_lib",
+        "//libraries/kotlinc/analysis-api:libraries-kotlinc-analysis-api_test_lib",
+        "//libraries/kotlinc/analysis-api-k2:libraries-kotlinc-analysis-api-k2_test_lib",
+        "//libraries/kotlinc/low-level-api-fir:libraries-kotlinc-low-level-api-fir_test_lib",
         "//plugins/kotlin/base/util:util_test_lib",
         "//plugins/kotlin/base/project-structure:project-structure_test_lib",
         "//plugins/kotlin/base/analysis:analysis_test_lib",
@@ -111,6 +123,7 @@ jvm_library(
 exports_files(
     [
         "intellij.kotlin.analysis.platform.iml",
+        "resources/intellij.kotlin.analysis.platform.xml",
     ],
     visibility = ["//visibility:public"],
 )

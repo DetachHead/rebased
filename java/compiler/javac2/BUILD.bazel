@@ -1,7 +1,7 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
 ### auto-generated section `build intellij.java.compiler.antTasks` start
-
 jvm_library(
     name = "java-compiler-antTasks",
     srcs = glob(
@@ -30,6 +30,8 @@ jvm_library(
     ],
 )
 
+content_module_jar(module = ":java-compiler-antTasks")
+
 jvm_library(
     name = "java-compiler-antTasks_test_lib",
     testonly = True,
@@ -57,6 +59,7 @@ jvm_library(
 exports_files(
     [
         "intellij.java.compiler.antTasks.iml",
+        "resources/intellij.java.compiler.antTasks.xml",
     ],
     visibility = ["//visibility:public"],
 )

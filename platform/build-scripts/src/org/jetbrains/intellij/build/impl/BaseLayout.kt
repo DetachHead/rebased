@@ -11,7 +11,7 @@ import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.persistentMapOf
 import kotlinx.collections.immutable.persistentSetOf
 import kotlinx.collections.immutable.plus
-import org.jetbrains.annotations.TestOnly
+import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.intellij.build.BuildContext
 import java.lang.StackWalker.Option
 import kotlin.streams.asSequence
@@ -36,6 +36,9 @@ sealed class BaseLayout {
   internal var moduleExcludes: PersistentMap<String, MutableList<String>> = persistentMapOf()
     private set
 
+  @ApiStatus.Internal
+  fun getModuleExcludesModuleNames(): Set<String> = moduleExcludes.keys
+
   @JvmField
   internal val includedProjectLibraries: ObjectLinkedOpenHashSet<ProjectLibraryData> = ObjectLinkedOpenHashSet()
 
@@ -55,10 +58,22 @@ sealed class BaseLayout {
 
   fun hasLibrary(name: String): Boolean = includedProjectLibraries.any { it.libraryName == name }
 
-  fun findProjectLibrary(name: String): ProjectLibraryData? = includedProjectLibraries.firstOrNull { it.libraryName == name }
+  /**
+   * The names of the project libraries this layout declares.
+   *
+   * A test that states a classpath from the layout needs the names, and the collection itself is internal. The
+   * accessor answers the names alone, because a name is what a library root lookup takes.
+   */
+  @ApiStatus.Internal
+  fun getIncludedProjectLibraryNames(): List<String> = includedProjectLibraries.map { it.libraryName }
 
-  @TestOnly
-  fun includedProjectLibraryNames(): Sequence<String> = includedProjectLibraries.asSequence().map { it.libraryName }
+  /**
+   * The module libraries this layout declares, as the library name with the module that owns it.
+   *
+   * See [getIncludedProjectLibraryNames] for why the accessor exists.
+   */
+  @ApiStatus.Internal
+  fun getIncludedModuleLibraryNames(): List<Pair<String, String>> = includedModuleLibraries.map { it.libraryName to it.moduleName }
 
   fun filteredIncludedModuleNames(excludedRelativeJarPath: String, includeFromSubdirectories: Boolean = true): Sequence<String> {
     return _includedModules.asSequence().filter {

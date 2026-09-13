@@ -22,12 +22,15 @@ import com.intellij.psi.util.endOffset
 import com.intellij.psi.util.prevLeafs
 import com.intellij.psi.util.startOffset
 import org.jetbrains.kotlin.analysis.api.KaSession
-import org.jetbrains.kotlin.analysis.api.components.containingDeclaration
-import org.jetbrains.kotlin.analysis.api.components.importableFqName
-import org.jetbrains.kotlin.analysis.api.components.isUsedAsExpression
-import org.jetbrains.kotlin.analysis.api.resolution.successfulFunctionCallOrNull
-import org.jetbrains.kotlin.analysis.api.resolution.symbol
+import org.jetbrains.kotlin.analysis.api.expressions.expressionType
+import org.jetbrains.kotlin.analysis.api.expressions.isUsedAsExpression
+import org.jetbrains.kotlin.analysis.api.resolution.resolveSuccessfulSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaSymbol
+import org.jetbrains.kotlin.analysis.api.symbols.containingDeclaration
+import org.jetbrains.kotlin.analysis.api.symbols.importableFqName
+import org.jetbrains.kotlin.analysis.api.types.KaStandardTypeClassIds
+import org.jetbrains.kotlin.analysis.api.types.classId
+import org.jetbrains.kotlin.analysis.api.types.semanticallyEquals
 import org.jetbrains.kotlin.idea.base.resources.KotlinBundle
 import org.jetbrains.kotlin.idea.codeinsight.api.applicable.inspections.KotlinApplicableInspectionBase
 import org.jetbrains.kotlin.idea.codeinsight.api.applicators.ApplicabilityRange
@@ -72,13 +75,14 @@ internal class UnusedUnaryOperatorInspection : KotlinApplicableInspectionBase<Kt
         return true
     }
 
-    override fun KaSession.prepareContext(element: KtExpression): Context? {
+    context(session: KaSession)
+    override fun prepareContext(element: KtExpression): Context? {
         val prefix = element.getPrefix() ?: return null
         val parentBinary = element as? KtBinaryExpression
         if (isUsedAsExpression(prefix, parentBinary)) return null
 
         val operationReference = prefix.operationReference
-        val referencedSymbol = operationReference.resolveToCall()?.successfulFunctionCallOrNull()?.symbol
+        val referencedSymbol = operationReference.resolveSuccessfulSymbol()
 
         val isUnaryOperatorCallOnPrimitiveType = referencedSymbol?.isUnderKotlinPackage()
                                                  ?: isUnaryOperatorOnIntLiteralReference(operationReference.mainReference)
@@ -89,7 +93,8 @@ internal class UnusedUnaryOperatorInspection : KotlinApplicableInspectionBase<Kt
         return Context(addMoveUnaryOperatorFix)
     }
 
-    private fun KaSession.isAddMoveUnaryOperatorFixNeeded(element: KtExpression, prefix: KtPrefixExpression): Boolean {
+    context(session: KaSession)
+    private fun isAddMoveUnaryOperatorFixNeeded(element: KtExpression, prefix: KtPrefixExpression): Boolean {
         val prevLeaf = element.getPrevLeafIgnoringWhitespaceAndComments() ?: return false
         val prevOperandExpression = prevLeaf.getStrictParentOfType<KtExpression>() ?: return false
         val prevOperandType = prevOperandExpression.expressionType ?: return false
@@ -97,10 +102,10 @@ internal class UnusedUnaryOperatorInspection : KotlinApplicableInspectionBase<Kt
         val currentOperandType = element.expressionType
 
         if (currentOperandType == null) {
-            return prevOperandType.isPrimitive && isUnaryOperatorOnIntLiteralReference(prefix.operationReference.mainReference)
+            return prevOperandType.classId in KaStandardTypeClassIds.PRIMITIVES && isUnaryOperatorOnIntLiteralReference(prefix.operationReference.mainReference)
         }
 
-        return currentOperandType.isPrimitive && prevOperandType.isPrimitive ||
+        return currentOperandType.classId in KaStandardTypeClassIds.PRIMITIVES && prevOperandType.classId in KaStandardTypeClassIds.PRIMITIVES ||
                currentOperandType.semanticallyEquals(prevOperandType)
     }
 

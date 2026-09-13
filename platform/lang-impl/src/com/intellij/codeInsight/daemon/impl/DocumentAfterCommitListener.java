@@ -11,8 +11,9 @@ import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Key;
 import com.intellij.psi.PsiDocumentManager;
 import com.intellij.psi.PsiFile;
-import com.intellij.psi.impl.PsiDocumentManagerImpl;
+import com.intellij.psi.impl.PsiDocumentManagerEx;
 import com.intellij.psi.impl.PsiDocumentTransactionListener;
+import kotlinx.coroutines.CoroutineScope;
 import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 
@@ -24,8 +25,9 @@ public final class DocumentAfterCommitListener {
    * Allows to listen for {@link Document} commit events and fire {@code documentCommittedListener} after the PSI commit finished
    */
   public static void listen(@NotNull Project project,
-                            @NotNull Disposable parentDisposable,
-                            @NotNull Consumer<? super Document> documentCommittedListener) {
+                             @NotNull Disposable parentDisposable,
+                             @NotNull CoroutineScope coroutineScope,
+                             @NotNull Consumer<? super Document> documentCommittedListener) {
     /*NOT STATIC!!!*/ final Key<Boolean> UPDATE_ON_COMMIT_ENGAGED = Key.create("UPDATE_ON_COMMIT_ENGAGED"); // not static because we could have several DocumentAfterCommitListener instances with different listeners
     EditorFactory.getInstance().getEventMulticaster().addDocumentListener(
       ProjectDisposeAwareDocumentListener.create(project, new DocumentListener() {
@@ -33,13 +35,13 @@ public final class DocumentAfterCommitListener {
       public void beforeDocumentChange(@NotNull DocumentEvent event) {
         if (project.isDisposed()) return;
         Document document = event.getDocument();
-        PsiDocumentManagerImpl documentManager = (PsiDocumentManagerImpl)PsiDocumentManager.getInstance(project);
+        PsiDocumentManagerEx documentManager = (PsiDocumentManagerEx)PsiDocumentManager.getInstance(project);
         if (documentManager.getSynchronizer().isInSynchronization(document)) {
           return;
         }
 
         PsiFile psi = documentManager.getCachedPsiFile(document);
-        if (psi == null || !psi.getViewProvider().isEventSystemEnabled()) {
+        if (psi == null || !psi.getViewProvider().supportsSendingPsiEvents()) {
           return;
         }
 
@@ -55,7 +57,7 @@ public final class DocumentAfterCommitListener {
       }
     }), parentDisposable);
 
-    project.getMessageBus().connect().subscribe(PsiDocumentTransactionListener.TOPIC, new PsiDocumentTransactionListener() {
+    project.getMessageBus().connect(coroutineScope).subscribe(PsiDocumentTransactionListener.TOPIC, new PsiDocumentTransactionListener() {
       @Override
       public void transactionStarted(@NotNull Document doc, @NotNull PsiFile psiFile) {
       }

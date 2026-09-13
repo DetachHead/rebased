@@ -1,8 +1,8 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
 load("//build:compiler-options.bzl", "create_kotlinc_options")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
 ### auto-generated section `build intellij.platform.ide.updateChecker` start
-
 create_kotlinc_options(
     name = "custom_update-checker",
     opt_in = ["kotlin.ExperimentalStdlibApi"],
@@ -20,6 +20,10 @@ jvm_library(
     ),
     kotlinc_opts = ":custom_update-checker",
     module_name = "intellij.platform.ide.updateChecker",
+    resource_strip_prefix = "resources",
+    resources = glob(
+        ["resources/**/*"],
+    ),
     visibility = ["//visibility:public"],
     deps = [
         # do not sort,
@@ -48,6 +52,8 @@ jvm_library(
         "//platform/editor-ui-api:editor-ui",
     ],
 )
+
+content_module_jar(module = ":update-checker")
 
 jvm_library(
     name = "update-checker_test_lib",
@@ -93,6 +99,8 @@ jvm_library(
 exports_files(
     [
         "intellij.platform.ide.updateChecker.iml",
+        "resources/intellij.platform.ide.updateChecker.xml",
+        "module-content.yaml",
     ],
     visibility = ["//visibility:public"],
 )

@@ -1,6 +1,7 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.xdebugger;
 
+import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.util.JDOMUtil;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.util.containers.ContainerUtil;
@@ -29,6 +30,7 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -71,6 +73,7 @@ public class XBreakpointManagerTest extends XBreakpointsTestCase {
     breakpoint.setLogExpression("log");
     breakpoint.setSuspendPolicy(SuspendPolicy.NONE);
     breakpoint.setLogMessage(true);
+    breakpoint.setTemporary(true);
     addBreakpoint(myBreakpointManager, new MyBreakpointProperties("z2"));
 
     reload();
@@ -88,11 +91,35 @@ public class XBreakpointManagerTest extends XBreakpointsTestCase {
     assertEquals("cond", lineBreakpoint.getConditionExpression().getExpression());
     assertEquals("log", lineBreakpoint.getLogExpressionObject().getExpression());
     assertTrue(lineBreakpoint.isLogMessage());
+    assertTrue(lineBreakpoint.isTemporary());
     assertEquals(SuspendPolicy.NONE, lineBreakpoint.getSuspendPolicy());
 
     assertEquals("z2", assertInstanceOf(breakpoints.get(2).getProperties(), MyBreakpointProperties.class).myOption);
     assertEquals(SuspendPolicy.ALL, breakpoints.get(2).getSuspendPolicy());
     assertFalse(breakpoints.get(2).isLogMessage());
+  }
+
+  @Test
+  public void testCopyLineBreakpointCopiesStateAndDependency() {
+    XLineBreakpoint<MyBreakpointProperties> master =
+      addLineBreakpoint(myBreakpointManager, "file://master", 1, new MyBreakpointProperties("master"));
+    XLineBreakpoint<MyBreakpointProperties> source =
+      addLineBreakpoint(myBreakpointManager, "file://source", 2, new MyBreakpointProperties("source"));
+    source.setCondition("condition");
+    source.setSuspendPolicy(SuspendPolicy.THREAD);
+    myBreakpointManager.getDependentBreakpointManager().setMasterBreakpoint(source, master, true);
+
+    XLineBreakpoint<MyBreakpointProperties> copy = myBreakpointManager.copyLineBreakpoint(source, "file://copy", 3);
+
+    assertNotNull(copy);
+    assertEquals("file://copy", copy.getFileUrl());
+    assertEquals(3, copy.getLine());
+    assertEquals("source", copy.getProperties().myOption);
+    assertNotSame(source.getProperties(), copy.getProperties());
+    assertEquals("condition", copy.getConditionExpression().getExpression());
+    assertEquals(SuspendPolicy.THREAD, copy.getSuspendPolicy());
+    assertSame(master, myBreakpointManager.getDependentBreakpointManager().getMasterBreakpoint(copy));
+    assertTrue(myBreakpointManager.getDependentBreakpointManager().isLeaveEnabled(copy));
   }
 
   @Test
@@ -148,6 +175,23 @@ public class XBreakpointManagerTest extends XBreakpointsTestCase {
     assertSame(onLine, assertOneElement(myBreakpointManager.findBreakpointsAtLine(MY_LINE_BREAKPOINT_TYPE, file, 0)));
     assertSame(restored, assertOneElement(myBreakpointManager.findBreakpointsAtLine(MY_LINE_BREAKPOINT_TYPE, file, 0,
                                                                                     XLineBreakpointVerticalPlacement.INTER_LINE)));
+  }
+
+  @Test
+  public void testRestoreRemovedBreakpointRestoresDependency() {
+    VirtualFile file = getTempDir().createVirtualFile("dependent-breakpoints.txt");
+    XLineBreakpoint<MyBreakpointProperties> master =
+      addLineBreakpoint(myBreakpointManager, file.getUrl(), 0, new MyBreakpointProperties("master"));
+    XLineBreakpoint<MyBreakpointProperties> slave =
+      addLineBreakpoint(myBreakpointManager, file.getUrl(), 1, new MyBreakpointProperties("slave"));
+    myBreakpointManager.getDependentBreakpointManager().setMasterBreakpoint(slave, master, true);
+
+    myBreakpointManager.rememberRemovedBreakpoint((XBreakpointBase<?, ?, ?>)slave);
+    removeBreakPoint(myBreakpointManager, slave);
+    XLineBreakpoint<?> restored = assertInstanceOf(myBreakpointManager.restoreLastRemovedBreakpoint(), XLineBreakpoint.class);
+
+    assertSame(master, myBreakpointManager.getDependentBreakpointManager().getMasterBreakpoint(restored));
+    assertTrue(myBreakpointManager.getDependentBreakpointManager().isLeaveEnabled(restored));
   }
 
   @Test
@@ -304,6 +348,58 @@ public class XBreakpointManagerTest extends XBreakpointsTestCase {
   }
 
   @Test
+  public void testLoadStateCallsPropertiesOutsideManagerLock() throws Exception {
+    AtomicBoolean propertiesLoaded = new AtomicBoolean();
+    XBreakpointType<XBreakpoint<MyBreakpointProperties>, MyBreakpointProperties> type =
+      new XBreakpointType<>("testLoadStateCallsPropertiesOutsideManagerLock", "BP") {
+        @Override
+        public String getDisplayText(XBreakpoint<MyBreakpointProperties> breakpoint) {
+          return "";
+        }
+
+        @Override
+        public MyBreakpointProperties createProperties() {
+          assertFalse(ApplicationManager.getApplication().isReadAccessAllowed());
+          assertBreakpointManagerIsAvailable();
+          return new MyBreakpointProperties() {
+            @Override
+            public void loadState(@NotNull MyBreakpointProperties state) {
+              assertFalse(ApplicationManager.getApplication().isReadAccessAllowed());
+              assertBreakpointManagerIsAvailable();
+              super.loadState(state);
+              propertiesLoaded.set(true);
+            }
+          };
+        }
+      };
+    XBreakpointType.EXTENSION_POINT_NAME.getPoint().registerExtension(type, getTestRootDisposable());
+    myBreakpointManager.addBreakpoint(type, new MyBreakpointProperties("loaded"));
+
+    BreakpointManagerState state = new BreakpointManagerState();
+    myBreakpointManager.saveState(state);
+    ApplicationManager.getApplication().executeOnPooledThread(() -> myBreakpointManager.loadState(state)).get();
+
+    assertTrue(propertiesLoaded.get());
+  }
+
+  private void assertBreakpointManagerIsAvailable() {
+    var access = ApplicationManager.getApplication().executeOnPooledThread(myBreakpointManager::getAllBreakpoints);
+    try {
+      access.get(5, java.util.concurrent.TimeUnit.SECONDS);
+    }
+    catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
+      throw new AssertionError(e);
+    }
+    catch (Exception e) {
+      throw new AssertionError("The breakpoint manager lock is held during a plug-in callback", e);
+    }
+    finally {
+      access.cancel(true);
+    }
+  }
+
+  @Test
   public void testExtensionAddedAddsDefaultBreakpointWhenStatesDiffer() {
     XBreakpointType<XBreakpoint<MyBreakpointProperties>, MyBreakpointProperties> type =
       createExtensionType("from-extension", SuspendPolicy.NONE);
@@ -395,6 +491,7 @@ public class XBreakpointManagerTest extends XBreakpointsTestCase {
     "<breakpoints>" +
     "<line-breakpoint enabled=\"true\" type=\"" + MY_LINE_BREAKPOINT_TYPE.getId() + "\">" +
     "      <condition>" + condition + "</condition>" +
+    "      <option name=\"temporary\" value=\"true\" />" +
     "      <url>url</url>" +
     "      <log-expression>" + logExpression + "</log-expression>" +
     "</line-breakpoint>" +
@@ -405,6 +502,7 @@ public class XBreakpointManagerTest extends XBreakpointsTestCase {
     XLineBreakpoint<MyBreakpointProperties> breakpoint = assertOneElement(myBreakpointManager.getBreakpoints(MY_LINE_BREAKPOINT_TYPE));
     assertEquals(condition, breakpoint.getConditionExpression().getExpression());
     assertEquals(logExpression, breakpoint.getLogExpressionObject().getExpression());
+    assertTrue(breakpoint.isTemporary());
   }
 
   private XBreakpoint<MyBreakpointProperties> getSingleBreakpoint() {

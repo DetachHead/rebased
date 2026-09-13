@@ -2,10 +2,15 @@
 package com.intellij.openapi.wm.ex
 
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.util.Key
 import org.jetbrains.annotations.ApiStatus.Internal
 
 /**
- * Opens a welcome-screen tab alongside regular editor tabs during startup.
+ * Opens the welcome tab when a project restores no editor tabs.
+ *
+ * A welcome tab that was open at exit restores through the editor state like any other tab, and a tab the user
+ * closed stays closed while other tabs remain. So the platform asks this service only when the editor area is
+ * empty after the restore.
  *
  * Implementations run earlier than [com.intellij.openapi.startup.ProjectActivity], which is too
  * late for this initialization stage.
@@ -18,6 +23,7 @@ interface WelcomeScreenTabService {
   suspend fun openTab()
 
   companion object {
+    val WELCOME_TAB_FILE_MARKER: Key<Boolean> = Key("WELCOME_SCREEN_TAB_FILE")
     /**
      * Returns the project-level implementation.
      */

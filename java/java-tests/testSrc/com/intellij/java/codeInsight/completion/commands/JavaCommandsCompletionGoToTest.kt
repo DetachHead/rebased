@@ -1,4 +1,4 @@
-// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.java.codeInsight.completion.commands
 
 import com.intellij.codeInsight.completion.LightFixtureCompletionTestCase
@@ -6,6 +6,7 @@ import com.intellij.ide.highlighter.JavaFileType
 import com.intellij.openapi.application.impl.NonBlockingReadActionImpl
 import com.intellij.openapi.util.registry.Registry
 import com.intellij.testFramework.NeedsIndex
+import com.intellij.testFramework.awaitPendingNavigation
 
 @NeedsIndex.SmartMode(reason = "it requires highlighting")
 class JavaCommandsCompletionGoToTest : LightFixtureCompletionTestCase() {
@@ -30,6 +31,7 @@ class JavaCommandsCompletionGoToTest : LightFixtureCompletionTestCase() {
     val elements = myFixture.completeBasic()
     selectItem(elements.first { element -> element.lookupString.contains("Go to dec", ignoreCase = true) })
     NonBlockingReadActionImpl.waitForAsyncTaskCompletion()
+    awaitPendingNavigation(project)
     myFixture.checkResult("""
       class A { 
         void foo() {
@@ -59,6 +61,7 @@ class JavaCommandsCompletionGoToTest : LightFixtureCompletionTestCase() {
       """.trimIndent())
     val elements = myFixture.completeBasic()
     selectItem(elements.first { element -> element.lookupString.contains("Go to super", ignoreCase = true) })
+    awaitPendingNavigation(project)
     myFixture.checkResult("""
         public class TestSuper {
         
@@ -93,6 +96,42 @@ class JavaCommandsCompletionGoToTest : LightFixtureCompletionTestCase() {
     val elements = myFixture.completeBasic()
     selectItem(elements.first { element -> element.lookupString.contains("Go to impl", ignoreCase = true) })
     NonBlockingReadActionImpl.waitForAsyncTaskCompletion()
+    awaitPendingNavigation(project)
+    myFixture.checkResult("""
+      interface A{
+
+          public void a();
+
+          class B implements A{
+
+              @Override
+              public void a<caret>() {
+
+              }
+          }
+      }      
+      """.trimIndent())
+  }
+
+  fun testCommandsOnlyGoToImplementationAfterSemicolon() {
+    myFixture.configureByText(JavaFileType.INSTANCE, """
+      interface A{
+
+          public void a();.<caret>
+
+          class B implements A{
+
+              @Override
+              public void a() {
+
+              }
+          }
+      }      
+      """.trimIndent())
+    val elements = myFixture.completeBasic()
+    selectItem(elements.first { element -> element.lookupString.contains("Go to impl", ignoreCase = true) })
+    NonBlockingReadActionImpl.waitForAsyncTaskCompletion()
+    awaitPendingNavigation(project)
     myFixture.checkResult("""
       interface A{
 

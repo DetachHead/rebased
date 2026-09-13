@@ -3,36 +3,32 @@
 package org.jetbrains.kotlin.idea.references.impl
 
 import com.intellij.psi.PsiElement
-import org.jetbrains.kotlin.analysis.api.KaExperimentalApi
 import org.jetbrains.kotlin.analysis.api.KaSession
 import org.jetbrains.kotlin.analysis.api.resolution.symbols
 import org.jetbrains.kotlin.analysis.api.symbols.KaSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaSyntheticJavaPropertySymbol
 import org.jetbrains.kotlin.idea.references.KDocReference
 import org.jetbrains.kotlin.kdoc.psi.impl.KDocName
-import org.jetbrains.kotlin.psi.KtExperimentalApi
 import org.jetbrains.kotlin.psi.KtImplementationDetail
 import org.jetbrains.kotlin.psi.KtImportAlias
 import org.jetbrains.kotlin.references.KotlinPsiReferenceProviderContributor
 
 @OptIn(KtImplementationDetail::class)
 internal class KaBaseKDocReference(element: KDocName) : KDocReference(element), KaBaseReference {
-    @OptIn(KtExperimentalApi::class, KaExperimentalApi::class)
     override fun KaSession.resolveToSymbols(): Collection<KaSymbol> {
         return element.tryResolveSymbols()?.symbols.orEmpty()
     }
 
+    context(session: KaSession)
     override fun getResolvedToPsi(
-        analysisSession: KaSession,
         referenceTargetSymbols: Collection<KaSymbol>,
-    ): Collection<PsiElement> = with(analysisSession) {
+    ): Collection<PsiElement> =
         referenceTargetSymbols.flatMap { symbol ->
             when (symbol) {
                 is KaSyntheticJavaPropertySymbol -> listOfNotNull(symbol.javaGetterSymbol.psi, symbol.javaSetterSymbol?.psi)
-                is KaSymbol -> getPsiDeclarations(symbol)
+                is KaSymbol -> symbol.getPsiDeclarations()
             }
         }
-    }
 
     override fun isReferenceToImportAlias(alias: KtImportAlias): Boolean {
         return super<KaBaseReference>.isReferenceToImportAlias(alias)

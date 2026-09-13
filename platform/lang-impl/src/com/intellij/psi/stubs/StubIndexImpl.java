@@ -37,11 +37,13 @@ import com.intellij.util.indexing.UpdatableIndex;
 import com.intellij.util.indexing.diagnostic.IndexStatisticGroup;
 import com.intellij.util.indexing.impl.IndexStorage;
 import com.intellij.util.indexing.impl.MapInputDataDiffBuilder;
+import com.intellij.util.indexing.impl.storage.DefaultIndexStorageLayoutProviderKt;
 import com.intellij.util.indexing.impl.storage.TransientFileContentIndex;
 import com.intellij.util.indexing.impl.storage.VfsAwareMapIndexStorage;
 import com.intellij.util.indexing.memory.InMemoryIndexStorage;
 import com.intellij.util.indexing.storage.VfsAwareIndexStorageLayout;
 import com.intellij.util.io.IOUtil;
+import com.intellij.util.io.StorageLockContext;
 import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.TestOnly;
@@ -252,7 +254,7 @@ public final class StubIndexImpl extends StubIndexEx {
 
   @Override
   @ApiStatus.Internal
-  public void initializeStubIndexes() {
+  public void initializeStubIndexes(boolean isInitialStubUpdatingIndexBuild) {
     assert !myInitialized;
 
     myPerFileElementTypeStubModificationTracker.undispose();
@@ -263,7 +265,7 @@ public final class StubIndexImpl extends StubIndexEx {
       FileBasedIndex.getInstance();
 
       myStateFuture = new CompletableFuture<>();
-      myGenesisFuture = IndexDataInitializer.submitGenesisTask(new StubIndexInitialization());
+      myGenesisFuture = IndexDataInitializer.submitGenesisTask(new StubIndexInitialization(isInitialStubUpdatingIndexBuild));
     }
   }
 
@@ -358,6 +360,7 @@ public final class StubIndexImpl extends StubIndexEx {
       }
 
       Path storageFile = IndexInfrastructure.getStorageFile(myIndexKey);
+      StorageLockContext storageLockContext = DefaultIndexStorageLayoutProviderKt.newStorageLockContext();
       try {
         return new VfsAwareMapIndexStorage<>(
           storageFile,
@@ -366,7 +369,8 @@ public final class StubIndexImpl extends StubIndexEx {
           myWrappedExtension.getCacheSize(),
           myWrappedExtension.keyIsUniqueForIndexedFile(),
           myWrappedExtension.traceKeyHashToVirtualFileMapping(),
-          myWrappedExtension.enableWal()
+          myWrappedExtension.enableWal(),
+          storageLockContext
         );
       }
       catch (IOException e) {
@@ -382,11 +386,13 @@ public final class StubIndexImpl extends StubIndexEx {
   }
 
   private final class StubIndexInitialization extends IndexDataInitializer<AsyncState> {
+    private final boolean myIsInitialStubUpdatingIndexBuild;
     private final AsyncState state = new AsyncState();
     private final IndexVersionRegistrationSink indicesRegistrationSink = new IndexVersionRegistrationSink();
 
-    StubIndexInitialization() {
+    StubIndexInitialization(boolean isInitialStubUpdatingIndexBuild) {
       super("stub index");
+      myIsInitialStubUpdatingIndexBuild = isInitialStubUpdatingIndexBuild;
     }
 
     @Override
@@ -394,7 +400,7 @@ public final class StubIndexImpl extends StubIndexEx {
       indicesRegistrationSink.logChangedAndFullyBuiltIndices(LOG, "Following stub indices will be updated:",
                                                              "Following stub indices will be built:");
 
-      if (indicesRegistrationSink.hasChangedIndexes()) {
+      if (indicesRegistrationSink.hasChangedIndexes() || !myIsInitialStubUpdatingIndexBuild && indicesRegistrationSink.hasNewIndexes()) {
         final Throwable e = new Throwable(indicesRegistrationSink.changedIndices());
         // avoid direct forceRebuild as it produces dependency cycle (IDEA-105485)
         AppUIExecutor.onWriteThread(ModalityState.nonModal()).later().submit(() -> forceRebuild(e));

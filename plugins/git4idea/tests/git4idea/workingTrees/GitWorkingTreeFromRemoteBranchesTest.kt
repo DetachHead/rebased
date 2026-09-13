@@ -1,84 +1,94 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package git4idea.workingTrees
 
-import com.intellij.ide.impl.OpenProjectTask
 import com.intellij.openapi.project.Project
-import com.intellij.openapi.project.ex.ProjectManagerEx
-import com.intellij.openapi.vcs.Executor.touch
+import com.intellij.openapi.vcs.Executor
 import com.intellij.openapi.vcs.LocalFilePath
+import com.intellij.testFramework.junit5.TestApplication
+import com.intellij.testFramework.junit5.fixture.TestFixture
 import git4idea.GitWorkingTree
-import git4idea.actions.workingTree.GitWorkingTreeDialogData
+import git4idea.workingTrees.dialog.GitWorktreeCreationRequest
+import git4idea.workingTrees.dialog.WorktreeBranchSpec
 import git4idea.repo.GitRefUtil
 import git4idea.repo.GitRepository
+import git4idea.test.GitPlatformTestContext
 import git4idea.test.cloneRepo
 import git4idea.test.git
+import git4idea.test.gitPlatformContextFixture
 import git4idea.test.initRepo
 import git4idea.test.registerRepo
-import kotlinx.coroutines.runBlocking
+import org.junit.jupiter.api.BeforeEach
+import org.junit.jupiter.api.Test
 import java.nio.file.Files
-import java.nio.file.Path
 
+private const val REMOTE_BRANCH_NAME = "remoteBranch"
+private const val REMOTE_REPO_RELATIVE_PATH = "remoteRepo"
+private const val PROJECT_DIR_NAME = "project"
+
+@TestApplication
 internal class GitWorkingTreeFromRemoteBranchesTest : GitWorkingTreeTestBase() {
+  private val fixture: TestFixture<GitPlatformTestContext> = gitPlatformContextFixture()
+  private val context: GitPlatformTestContext get() = fixture.get()
+  private lateinit var repo: GitRepository
 
-  val remoteBranchName = "remoteBranch"
-  val remoteRepoRelativePath = "remoteRepo"
-  lateinit var lastCommitInRemoteBranch: String
+  /**
+   * Creates a repository with a [REMOTE_BRANCH_NAME] branch in `<testRoot>/remoteRepo` and clones it into
+   * `<testRoot>/project`, which then becomes the project directory.
+   */
+  @BeforeEach
+  fun setUp() {
+    with(context) {
+      val projectPath = testNioRoot.resolve(PROJECT_DIR_NAME)
+      val remoteRepoPath = testNioRoot.resolve(REMOTE_REPO_RELATIVE_PATH)
 
-  override val mainRepoPath: Path
-    get() = projectNioRoot
+      initRepo(project = null, remoteRepoPath, makeInitialCommit = true)
+      val file = "a.txt"
+      Executor.touch(file, "content" + Math.random())
+      git(null, "add $file")
+      git(null, "commit -m initial")
+      git(null, "branch $REMOTE_BRANCH_NAME")
 
-  override fun doCreateAndOpenProject(): Project {
-    val remoteRepoPath = testNioRoot.resolve(remoteRepoRelativePath)
-    initRepo(null, remoteRepoPath, true)
-    val file = "a.txt"
-    touch(file, "content" + Math.random())
-    git(null, "add $file")
-    git(null, "commit -m initial")
-    lastCommitInRemoteBranch = git(null, "log -1 --pretty=%H")
-    git(null, "branch $remoteBranchName")
+      cloneRepo(project = null, remoteRepoPath.toString(), projectPath.toString(), bare = false)
+      // makes `projectFixture` open the prepared directory instead of creating a new project
+      Files.createDirectories(projectPath.resolve(Project.DIRECTORY_STORE_FOLDER))
 
-    val projectRootPath = getProjectDirOrFile(true)
-    cloneRepo(remoteRepoPath.toString(), projectRootPath.toString(), false)
-
-    Files.createDirectories(projectRootPath.resolve(Project.DIRECTORY_STORE_FOLDER))
-    return runBlocking {
-      ProjectManagerEx.getInstanceEx().openProjectAsync(projectIdentityFile = projectRootPath, options = OpenProjectTask {})!!
+      repo = registerRepo(project, projectNioRoot)
     }
   }
 
-  override fun createRepository(): GitRepository {
-    return registerRepo(project, projectNioRoot)
-  }
-
-  override fun getExpectedDefaultWorkingTrees(): List<GitWorkingTree> {
+  private fun getExpectedDefaultWorkingTrees(): List<GitWorkingTree> {
     return listOf(
       GitWorkingTree(repo.toString(), "refs/heads/master", true, true)
     )
   }
 
+  @Test
   fun `test creating a worktree from remote branch`() {
-    doTestWorkingTreeFromRemoteBranchCreation(false)
+    doTestWorkingTreeFromRemoteBranchCreation(withNewBranch = false)
   }
 
-  fun `ignore test creating a worktree from remote branch with custom name`() {
-    doTestWorkingTreeFromRemoteBranchCreation(true)
+  @Test
+  fun `test creating a worktree from remote branch with custom name`() {
+    doTestWorkingTreeFromRemoteBranchCreation(withNewBranch = true)
   }
 
-  private fun doTestWorkingTreeFromRemoteBranchCreation(withNewBranch: Boolean) {
-    val remoteBranch = repo.branches.findRemoteBranch("origin/$remoteBranchName")!!
+  private fun doTestWorkingTreeFromRemoteBranchCreation(withNewBranch: Boolean): Unit = with(context) {
+    val remoteBranch = repo.branches.findRemoteBranch("origin/$REMOTE_BRANCH_NAME")!!
+    val lastCommitInRemoteBranch = git("log -1 --pretty=%H origin/$REMOTE_BRANCH_NAME")
+
     val workingTreeDataPath = LocalFilePath(testNioRoot.resolve("treeRoot"), true)
-    val data = if (withNewBranch) {
-      GitWorkingTreeDialogData.createForNewBranch(workingTreeDataPath, remoteBranch, remoteBranchName)
-    }
-    else {
-      GitWorkingTreeDialogData.createForExistingBranch(workingTreeDataPath, remoteBranch)
-    }
+    val branch = if (withNewBranch) WorktreeBranchSpec.CreateNewBranch(remoteBranch, REMOTE_BRANCH_NAME)
+    else WorktreeBranchSpec.CheckoutExisting(remoteBranch)
+    val request = GitWorktreeCreationRequest(repo, workingTreeDataPath, branch)
 
-    doTestWorkingTreeCreation(data,
-                              GitWorkingTree(data.workingTreePath.path,
-                                             GitRefUtil.addRefsHeadsPrefixIfNeeded(remoteBranchName)!!,
-                                             false, false),
-                              remoteBranchName,
-                              lastCommitInRemoteBranch)
+    repo.doTestWorkingTreeCreation(
+      request,
+      projectNioRoot,
+      GitWorkingTree(request.workingTreePath.path,
+                     GitRefUtil.addRefsHeadsPrefixIfNeeded(REMOTE_BRANCH_NAME)!!,
+                     false, false),
+      REMOTE_BRANCH_NAME,
+      lastCommitInRemoteBranch, getExpectedDefaultWorkingTrees())
   }
 }
+

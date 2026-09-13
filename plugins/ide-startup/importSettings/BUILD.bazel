@@ -1,8 +1,16 @@
 load("@community//build:tests-options.bzl", "jps_test")
 load("@rules_jvm//:jvm.bzl", "jvm_library")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
+
+jps_test(
+    name = "ide-startup-importSettings-tests_test",
+    timeout = "moderate",
+    tags = ["community-aggregator"],
+    runtime_deps = [":ide-startup-importSettings-tests_test_lib"],
+)
+### skip generation section `test intellij.ide.startup.importSettings.tests`
 
 ### auto-generated section `build intellij.ide.startup.importSettings` start
-
 jvm_library(
     name = "importSettings",
     srcs = glob(
@@ -48,8 +56,8 @@ jvm_library(
         "//libraries/miglayout-swing",
         "//libraries/kotlinx/serialization/json",
         "//libraries/kotlinx/serialization/core",
-        "@lib//:jna",
-        "@lib//:sqlite",
+        "//libraries/jna",
+        "//libraries/sqlite",
         "//libraries/classgraph",
         "//platform/util:util-ui",
         "//platform/lang-impl",
@@ -61,6 +69,8 @@ jvm_library(
         "//platform/pluginSystem/parser/impl",
     ],
 )
+
+content_module_jar(module = ":importSettings")
 
 jvm_library(
     name = "importSettings_test_lib",
@@ -100,6 +110,8 @@ jvm_library(
         "//libraries/miglayout-swing:miglayout-swing_test_lib",
         "//libraries/kotlinx/serialization/json:json_test_lib",
         "//libraries/kotlinx/serialization/core:core_test_lib",
+        "//libraries/jna:jna_test_lib",
+        "//libraries/sqlite:sqlite_test_lib",
         "//libraries/classgraph:classgraph_test_lib",
         "//platform/util:util-ui_test_lib",
         "//platform/testFramework",
@@ -121,13 +133,14 @@ jvm_library(
 exports_files(
     [
         "intellij.ide.startup.importSettings.iml",
+        "resources/intellij.ide.startup.importSettings.xml",
+        "module-content.yaml",
     ],
     visibility = ["//visibility:public"],
 )
 ### auto-generated section `iml intellij.ide.startup.importSettings` end
 
 ### auto-generated section `build intellij.ide.startup.importSettings.tests` start
-
 jvm_library(
     name = "ide-startup-importSettings-tests",
     srcs = glob(
@@ -213,8 +226,10 @@ jvm_library(
         "//libraries/kotlinx/serialization/json:json_test_lib",
         "//libraries/kotlinx/serialization/core",
         "//libraries/kotlinx/serialization/core:core_test_lib",
-        "@lib//:jna",
-        "@lib//:sqlite",
+        "//libraries/jna",
+        "//libraries/jna:jna_test_lib",
+        "//libraries/sqlite",
+        "//libraries/sqlite:sqlite_test_lib",
         "//libraries/classgraph",
         "//libraries/classgraph:classgraph_test_lib",
         "//platform/util:util-ui",
@@ -231,6 +246,8 @@ jvm_library(
         "//platform/platform-impl/initial-config-import",
         "//platform/pluginSystem/parser/impl",
         "//platform/pluginSystem/parser/impl:impl_test_lib",
+        "//libraries/junit5",
+        "//libraries/junit5:junit5_test_lib",
     ],
 )
 ### auto-generated section `build intellij.ide.startup.importSettings.tests` end
@@ -243,11 +260,3 @@ exports_files(
     visibility = ["//visibility:public"],
 )
 ### auto-generated section `iml intellij.ide.startup.importSettings.tests` end
-
-### auto-generated section `test intellij.ide.startup.importSettings.tests` start
-
-jps_test(
-    name = "ide-startup-importSettings-tests_test",
-    runtime_deps = [":ide-startup-importSettings-tests_test_lib"],
-)
-### auto-generated section `test intellij.ide.startup.importSettings.tests` end

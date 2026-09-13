@@ -1,0 +1,77 @@
+load("@rules_jvm//:jvm.bzl", "jvm_library")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
+
+### auto-generated section `build intellij.completionMlRankingModels.libraries` start
+jvm_library(
+    name = "libraries",
+    srcs = glob(
+        [],
+        allow_empty = True,
+    ),
+    module_name = "intellij.completionMlRankingModels.libraries",
+    resource_strip_prefix = "resources",
+    resources = glob(
+        ["resources/**/*"],
+    ),
+    visibility = ["//visibility:public"],
+    exports = [
+        # do not sort,
+        "@lib//:completion_ml_ranking_models-libraries-completion-ranking-css-exp",
+        "@lib//:completion_ml_ranking_models-libraries-completion-ranking-dart-exp",
+        "@lib//:completion_ml_ranking_models-libraries-completion-ranking-html-exp",
+        "@lib//:completion_ml_ranking_models-libraries-completion-ranking-python-exp",
+        "@lib//:completion_ml_ranking_models-libraries-completion-ranking-scala-exp",
+    ],
+    runtime_deps = [
+        # do not sort,
+        "@lib//:completion_ml_ranking_models-libraries-completion-ranking-css-exp",
+        "@lib//:completion_ml_ranking_models-libraries-completion-ranking-dart-exp",
+        "@lib//:completion_ml_ranking_models-libraries-completion-ranking-html-exp",
+        "@lib//:completion_ml_ranking_models-libraries-completion-ranking-python-exp",
+        "@lib//:completion_ml_ranking_models-libraries-completion-ranking-scala-exp",
+    ],
+)
+
+content_module_jar(
+    libraries = [
+        # do not sort,
+        "@lib//:completion_ml_ranking_models-libraries-completion-ranking-css-exp",
+        "@lib//:completion_ml_ranking_models-libraries-completion-ranking-dart-exp",
+        "@lib//:completion_ml_ranking_models-libraries-completion-ranking-html-exp",
+        "@lib//:completion_ml_ranking_models-libraries-completion-ranking-python-exp",
+        "@lib//:completion_ml_ranking_models-libraries-completion-ranking-scala-exp",
+    ],
+    module = ":libraries",
+)
+
+jvm_library(
+    name = "libraries_test_lib",
+    testonly = True,
+    srcs = glob(
+        [],
+        allow_empty = True,
+    ),
+    module_name = "intellij.completionMlRankingModels.libraries",
+    visibility = ["//visibility:public"],
+    exports = [
+        # do not sort,
+        "@lib//:completion_ml_ranking_models-libraries-completion-ranking-css-exp",
+        "@lib//:completion_ml_ranking_models-libraries-completion-ranking-dart-exp",
+        "@lib//:completion_ml_ranking_models-libraries-completion-ranking-html-exp",
+        "@lib//:completion_ml_ranking_models-libraries-completion-ranking-python-exp",
+        "@lib//:completion_ml_ranking_models-libraries-completion-ranking-scala-exp",
+    ],
+    runtime_deps = [":libraries"],
+)
+### auto-generated section `build intellij.completionMlRankingModels.libraries` end
+
+### auto-generated section `iml intellij.completionMlRankingModels.libraries` start
+exports_files(
+    [
+        "intellij.completionMlRankingModels.libraries.iml",
+        "resources/intellij.completionMlRankingModels.libraries.xml",
+        "module-content.yaml",
+    ],
+    visibility = ["//visibility:public"],
+)
+### auto-generated section `iml intellij.completionMlRankingModels.libraries` end

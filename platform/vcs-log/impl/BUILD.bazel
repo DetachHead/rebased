@@ -1,8 +1,8 @@
 load("@community//build:tests-options.bzl", "jps_test")
 load("@rules_jvm//:jvm.bzl", "jvm_library")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
 ### auto-generated section `build intellij.platform.vcs.log.impl` start
-
 jvm_library(
     name = "impl",
     srcs = glob(
@@ -72,6 +72,8 @@ jvm_library(
     ],
 )
 
+content_module_jar(module = ":impl")
+
 jvm_library(
     name = "impl_test_lib",
     testonly = True,
@@ -106,7 +108,8 @@ jvm_library(
         "//platform/analysis-impl:analysis-impl_test_lib",
         "//platform/vcs-impl:vcs-impl_test_lib",
         "//libraries/guava:guava_test_lib",
-        "@lib//:junit4",
+        "//libraries/junit4",
+        "//libraries/junit4:junit4_test_lib",
         "//platform/lang-impl:lang-impl_test_lib",
         "//platform/vcs-log/graph-api:vcs-log-graph_test_lib",
         "//platform/testFramework",
@@ -148,13 +151,14 @@ jvm_library(
 exports_files(
     [
         "intellij.platform.vcs.log.impl.iml",
+        "resources/intellij.platform.vcs.log.impl.xml",
+        "module-content.yaml",
     ],
     visibility = ["//visibility:public"],
 )
 ### auto-generated section `iml intellij.platform.vcs.log.impl` end
 
 ### auto-generated section `build intellij.platform.vcs.log.impl.tests` start
-
 jvm_library(
     name = "vcs-log-impl-tests",
     srcs = glob(
@@ -229,7 +233,8 @@ jvm_library(
         "//platform/vcs-impl:vcs-impl_test_lib",
         "//libraries/guava",
         "//libraries/guava:guava_test_lib",
-        "@lib//:junit4",
+        "//libraries/junit4",
+        "//libraries/junit4:junit4_test_lib",
         "//platform/lang-impl",
         "//platform/lang-impl:lang-impl_test_lib",
         "//platform/vcs-log/graph-api:vcs-log-graph",
@@ -291,6 +296,12 @@ jvm_library(
         "//libraries/kotlinx/collections-immutable:libraries-kotlinx-collections-immutable_test_lib",
         "//platform/vcs-log/graph:vcs-log-graph-impl-tests",
         "//platform/vcs-log/graph:vcs-log-graph-impl-tests_test_lib",
+        "//platform/testFramework/junit5",
+        "//platform/testFramework/junit5:junit5_test_lib",
+        "//libraries/junit5",
+        "//libraries/junit5:junit5_test_lib",
+        "//libraries/mockito-kotlin",
+        "//libraries/mockito-kotlin:mockito-kotlin_test_lib",
     ],
 )
 ### auto-generated section `build intellij.platform.vcs.log.impl.tests` end
@@ -305,7 +316,6 @@ exports_files(
 ### auto-generated section `iml intellij.platform.vcs.log.impl.tests` end
 
 ### auto-generated section `test intellij.platform.vcs.log.impl.tests` start
-
 jps_test(
     name = "vcs-log-impl-tests_test",
     runtime_deps = [":vcs-log-impl-tests_test_lib"],

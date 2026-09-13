@@ -1,36 +1,41 @@
 package com.intellij.python.processOutput.frontend
 
-import androidx.compose.runtime.remember
-import com.intellij.openapi.components.service
 import com.intellij.openapi.project.DumbAware
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.wm.ToolWindow
-import com.intellij.python.common.sdk.SdkAwareToolWindowFactory
+import com.intellij.python.community.common.sdk.SdkAwareToolWindowFactory
 import com.intellij.python.processOutput.frontend.ProcessOutputBundle.message
-import com.intellij.python.processOutput.frontend.ui.components.ToolWindow
-import org.jetbrains.annotations.ApiStatus
-import org.jetbrains.jewel.bridge.addComposeTab
+import com.intellij.python.processOutput.frontend.ui.UIEventListener
+import com.intellij.python.processOutput.frontend.ui.components.ProcessOutputToolWindow
+import com.intellij.ui.content.ContentFactory
 
-internal const val TOOL_WINDOW_ID = "PythonProcessOutput"
+internal class ProcessOutputToolWindowFactory : SdkAwareToolWindowFactory(), DumbAware {
+  private lateinit var processOutputToolWindow: ProcessOutputToolWindow
 
-@ApiStatus.Internal
-class ProcessOutputToolWindowFactory : SdkAwareToolWindowFactory(), DumbAware {
-    override fun init(toolWindow: ToolWindow) {
-        // pre-initialize the service to warm up the logged processes flow
-        toolWindow.project.service<ProcessOutputControllerService>()
+  override fun init(toolWindow: ToolWindow) {
+    processOutputToolWindow = ProcessOutputToolWindow(toolWindow)
 
-        toolWindow.setStripeTitleProvider { message("process.output.title") }
-        toolWindow.setStripeShortTitleProvider { message("process.output.title") }
-    }
+    // start listening to UI events
+    // also pre-initialize the service to warm up the logged processes flow
+    UIEventListener(processOutputToolWindow.uiContext, toolWindow).launch()
 
-    override fun createToolWindowContent(
-        project: Project,
-        toolWindow: ToolWindow,
-    ) {
-        toolWindow.addComposeTab(focusOnClickInside = true) {
-            val service = remember { project.service<ProcessOutputControllerService>() }
+    toolWindow.setStripeTitleProvider { message("process.output.title") }
+    toolWindow.setStripeShortTitleProvider { message("process.output.title") }
+  }
 
-            ToolWindow(service)
-        }
-    }
+  override fun createToolWindowContent(
+    project: Project,
+    toolWindow: ToolWindow,
+  ) {
+    val content =
+      ContentFactory
+        .getInstance()
+        .createContent(
+          processOutputToolWindow.component,
+          null,
+          false
+        )
+
+    toolWindow.contentManager.addContent(content)
+  }
 }

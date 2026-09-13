@@ -32,6 +32,7 @@ import com.intellij.psi.impl.PsiCachedValue;
 import com.intellij.util.containers.CollectionFactory;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.keyFMap.KeyFMap;
+import com.intellij.util.ui.EDT;
 import it.unimi.dsi.fastutil.ints.IntArrayList;
 import it.unimi.dsi.fastutil.ints.IntList;
 import it.unimi.dsi.fastutil.ints.IntSet;
@@ -55,7 +56,6 @@ import java.util.List;
 import java.util.Set;
 import java.util.function.BiConsumer;
 
-import static com.intellij.openapi.vfs.newvfs.events.VFileEvent.REFRESH_REQUESTOR;
 import static com.intellij.util.SystemProperties.getBooleanProperty;
 import static com.intellij.util.SystemProperties.getIntProperty;
 import static java.util.concurrent.TimeUnit.SECONDS;
@@ -231,6 +231,14 @@ public class VirtualDirectoryImpl extends VirtualFileSystemEntry {
                                                              boolean isCaseSensitive) {
     VirtualFileSystemEntry newlyLoadedChild;
     synchronized (directoryData) {
+      VfsData vfsData = getVfsData();
+      if (!vfsData.isFileValid(getId()) ) {
+        //Accessing !valid file must be filtered above, but some VFS ops are still executed outside RA/WA framework
+        // => vfile could be deleted concurrently => re-check it here, before potentially doing something unnatural
+        // to dead file's .children:
+        return null;
+      }
+
       // usually we come here after unsuccessful findInCachedChildren() -- but maybe another findChild() sneaked in the middle?
       VirtualFileSystemEntry existingChild = findInCachedChildren(name, isCaseSensitive);
       if (existingChild != null) return existingChild; // including NULL_VIRTUAL_FILE
@@ -238,7 +246,6 @@ public class VirtualDirectoryImpl extends VirtualFileSystemEntry {
         return null;//all children loaded, but child not found -> not exist
       }
 
-      VfsData vfsData = getVfsData();
       PersistentFSImpl pFS = vfsData.owningPersistentFS();
       ChildInfo childInfo = pFS.findChildInfo(this, name, fileSystem);
       if (childInfo == null) {
@@ -270,7 +277,7 @@ public class VirtualDirectoryImpl extends VirtualFileSystemEntry {
           if (ensureCanonicalName) {
             //It is definitely possible for childId to be in this.children list, but not found by name, if
             // ensureCanonicalName=false -- because of file name normalisation intricacies.
-            // But same for ensureCanonicalName=true it is a suspicious case: why didn't we find a child by name then?
+            // But the same for ensureCanonicalName=true it is a suspicious case: why didn't we find a child by name then?
             logChildLookupFailure(pFS, childId, childNameId, name);
           }
         }
@@ -281,10 +288,12 @@ public class VirtualDirectoryImpl extends VirtualFileSystemEntry {
       }
       else {
         if (!vfsData.isFileValid(childId)) {
-          //If childId was already deleted, it should be removed from ChildrenIds list first,
-          // see PersistentFSImpl.executeDelete() -- but here we are, with childId from findChildInfo(),
-          // executed under the directoryLock:
-          throw new FileDeletedException(childId, "file is deleted, but still in [" + getId() + "].children list");
+          //If childId was already deleted, it should be removed from ChildrenIds list first, see PersistentFSImpl.executeDelete()
+          // -- but here we are, with childId from findChildInfo(), executed under the directoryLock:
+          throw new FileDeletedException(
+            childId,
+            "file is deleted, but still in [" + getId() + "].children list: " + directoryData.children
+          );
         }
         newlyLoadedChild = getCachedOrLoadChild(childId, vfsData);
         addChild(newlyLoadedChild);
@@ -412,43 +421,32 @@ public class VirtualDirectoryImpl extends VirtualFileSystemEntry {
 
   private @Nullable VirtualFileSystemEntry createChildAndFireCreationEvent(@NotNull String childName) {
     FakeVirtualFile fake = new FakeVirtualFile(this, childName);
+
+    // If file does not exist, do not run vfs refresh. It is required to avoid exception when running under read lock.
+    // Trying to do vfs refresh under read lock will result in exception, see [com.intellij.openapi.vfs.newvfs.RefreshQueueImpl.execute]
+    // Unfortunately, this method does not check for read action at the beginning, and does not call vfs refresh in all cases.
+    // So this check is required to keep compatibility, and keep old code running successfully
+    if ((ApplicationManager.getApplication().holdsReadLock() || EDT.isCurrentThreadEdt()) && fileSystem.getAttributes(fake) == null) {
+      return null;
+    }
+
     String canonicallyCasedName = fileSystem.getCanonicallyCasedName(fake);
 
-    VFileCreateEvent event = createCreateEvent(this, fake, canonicallyCasedName, fileSystem);
-
-    if (event == null) {
-      return null; // file does not exist on disk
-    }
-    RefreshQueue.getInstance().processEvents(/*async: */ false, List.of(event));
+    var session = RefreshQueue.getInstance().createSession(false, false, null);
+    session.addNewChildren(this, Collections.singleton(childName));
+    session.launch();
 
     VirtualFileSystemEntry child = findChild(canonicallyCasedName);
     if (child == null) {
-      LOG.warn(this + "/[" + childName + "|" + canonicallyCasedName + "]: exists (attributes: " + fileSystem.getAttributes(fake) + "), " +
-               "but somehow still absent after refresh (adopted: " + directoryData.getAdoptedNames() + ")");
+      var attributes = fileSystem.getAttributes(fake);
+      if (attributes != null) {
+        LOG.warn(this + "/[" + childName + "|" + canonicallyCasedName + "]: exists (attributes: " + attributes + "), " +
+                 "but somehow still absent after refresh (adopted: " + directoryData.getAdoptedNames() + ")");
+      }
     }
     return child;
   }
 
-  public static @Nullable VFileCreateEvent createCreateEvent(
-    @NotNull VirtualFile directory,
-    @NotNull FakeVirtualFile fakeChild,
-    @NotNull String canonicallyCasedName,
-    @NotNull NewVirtualFileSystem fileSystem
-  ) {
-    if (!directory.isDirectory()) {
-      throw new IllegalArgumentException("directory[" + directory + "] must be a directory");
-    }
-    var attributes = fileSystem.getAttributes(fakeChild);
-    if (attributes == null) {
-      return null;
-    }
-
-    var isDirectory = attributes.isDirectory();
-    var isEmptyDirectory = isDirectory && !fileSystem.hasChildren(fakeChild);
-    var symlinkTarget = attributes.isSymLink() ? fileSystem.resolveSymLink(fakeChild) : null;
-    var children = isEmptyDirectory ? ChildInfo.EMPTY_ARRAY : null;
-    return new VFileCreateEvent(REFRESH_REQUESTOR, directory, canonicallyCasedName, isDirectory, attributes, symlinkTarget, children);
-  }
 
   private void updateCaseSensitivityIfUnknown(@NotNull String childName) {
     PersistentFSImpl pFS = owningPersistentFS();
@@ -553,6 +551,10 @@ public class VirtualDirectoryImpl extends VirtualFileSystemEntry {
   }
 
   private VirtualFile @NotNull [] loadAllChildren(boolean sortChildrenOnLoading) {
+    if (directoryData.children.isInvalidated()) {
+      return VirtualFile.EMPTY_ARRAY;
+    }
+
     VfsData vfsData = getVfsData();
     PersistentFSImpl pFS = vfsData.owningPersistentFS();
 
@@ -566,6 +568,10 @@ public class VirtualDirectoryImpl extends VirtualFileSystemEntry {
     pFS.listAll(this);
 
     synchronized (directoryData) {
+      if (directoryData.children.isInvalidated()) {
+        return VirtualFile.EMPTY_ARRAY;
+      }
+
       List<? extends ChildInfo> childrenInfo = pFS.listAll(this);
       if (childrenInfo.isEmpty()) {
         directoryData.clearAdoptedNames();
@@ -695,6 +701,11 @@ public class VirtualDirectoryImpl extends VirtualFileSystemEntry {
     }
 
     synchronized (directoryData) {
+      VfsData.ChildrenIds children = directoryData.children;
+      if (children.isInvalidated()) {
+        return null;
+      }
+
       if (child == null) {//childId hasn't been loaded from persistence yet: load it
         if (!vfsData.isFileValid(childId)) {
           return null;
@@ -703,7 +714,6 @@ public class VirtualDirectoryImpl extends VirtualFileSystemEntry {
       }
 
       //now check child is indeed a child of this dir:
-      VfsData.ChildrenIds children = directoryData.children;
 
       //MAYBE RC: the code below is similar to addChild(child) -- how to reduce code duplication?
 
@@ -816,6 +826,10 @@ public class VirtualDirectoryImpl extends VirtualFileSystemEntry {
     int addedSize = added.size();
     if (addedSize <= 1) {//fast-path:
       synchronized (directoryData) {
+        if (directoryData.children.isInvalidated()) {
+          return;
+        }
+
         for (int i = 0; i < addedSize; i++) {
           ChildInfo info = added.get(i);
           assert info.getId() > 0 : info;
@@ -849,6 +863,10 @@ public class VirtualDirectoryImpl extends VirtualFileSystemEntry {
 
     FSRecordsImpl vfsPeer = owningPersistentFS().peer();
     synchronized (directoryData) {
+      if (directoryData.children.isInvalidated()) {
+        return;
+      }
+
       //TODO RC: if children is not sorted -- we could still work with unsorted, merge the lists by-id
       VfsData.ChildrenIds oldChildren = ensureChildrenSorted(isCaseSensitive);
       IntList mergedIds = new IntArrayList(oldChildren.size() + addedSize);
@@ -905,9 +923,13 @@ public class VirtualDirectoryImpl extends VirtualFileSystemEntry {
 
     String childName = child.getName();
     synchronized (directoryData) {
+      VfsData.ChildrenIds children = directoryData.children;
+      if (children.isInvalidated()) {
+        return;
+      }
+
       directoryData.removeAdoptedName(childName);
 
-      VfsData.ChildrenIds children = directoryData.children;
       if (children.isSorted() && worthBinarySearch(children)) {
         //If children are sorted => 99% caseSensitivity _is_ known; otherwise how could children be sorted?
         // The only exception is children.size=1, but this is rejected by .worthBinarySearch(). But lets be on a safe side:
@@ -938,6 +960,9 @@ public class VirtualDirectoryImpl extends VirtualFileSystemEntry {
     int childId = child.getId();
     synchronized (directoryData) {
       VfsData.ChildrenIds children = directoryData.children;
+      if (children.isInvalidated()) {
+        return;
+      }
 
       int childIndex;
       if (children.isSorted() && worthBinarySearch(children)) {
@@ -967,6 +992,10 @@ public class VirtualDirectoryImpl extends VirtualFileSystemEntry {
   public void removeChildren(@NotNull IntSet idsToRemove, @NotNull List<? extends CharSequence> namesToRemove) {
     boolean isCaseSensitive = isCaseSensitive();
     synchronized (directoryData) {
+      if (directoryData.children.isInvalidated()) {
+        return;
+      }
+
       directoryData.children = directoryData.children.removeIds(idsToRemove);
 
       if (!allChildrenLoaded()) {
@@ -1082,7 +1111,10 @@ public class VirtualDirectoryImpl extends VirtualFileSystemEntry {
   @Override
   public void invalidate(@NotNull Object source, @NotNull Object reason) {
     super.invalidate(source, reason);
-    directoryData.children = VfsData.ChildrenIds.EMPTY;
+    synchronized (directoryData) {
+      directoryData.clearAdoptedNames();
+      directoryData.children = VfsData.ChildrenIds.INVALIDATED;
+    }
   }
 
   // optimization: do not travel up unnecessarily
@@ -1199,7 +1231,7 @@ public class VirtualDirectoryImpl extends VirtualFileSystemEntry {
     if (PersistentFSRecordAccessor.hasDeletedFlag(childAttributes)) {
       //It is an error to come here with childId which was already deleted -- such childId should be removed from ChildrenIds
       // list first, see PersistentFSImpl.executeDelete()
-      throw new FileDeletedException(childId, "file is deleted, but still in [" + getId() + "].children list. " + cachedChild);
+      throw new FileDeletedException(childId, "file is deleted, but still in [" + getId() + "].children list " + directoryData.children);
     }
 
     int childNameId = vfsPeer.getNameIdByFileId(childId);

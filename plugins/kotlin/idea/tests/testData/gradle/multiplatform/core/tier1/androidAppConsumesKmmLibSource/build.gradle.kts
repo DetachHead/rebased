@@ -1,9 +1,7 @@
 plugins {
     kotlin("multiplatform") apply false
-    id("com.android.library")
+    {{android_root_plugins_apply_false}}
 }
-
-{{default_android_block}}
 
 allprojects {
     repositories {

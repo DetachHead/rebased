@@ -1,9 +1,14 @@
 // Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.openapi.wm.impl
 
+import com.intellij.icons.AllIcons
 import com.intellij.ui.UIBundle
+import com.intellij.ui.components.SplitButtonHalf
+import com.intellij.ui.components.SplitButtonZones
 import com.intellij.util.ui.JBInsets
+import java.awt.Component
 import java.awt.Insets
+import java.awt.Rectangle
 import java.awt.event.ActionEvent
 import java.awt.event.ActionListener
 import javax.accessibility.Accessible
@@ -14,14 +19,52 @@ import javax.swing.UIManager
 import kotlin.properties.Delegates
 import org.jetbrains.annotations.ApiStatus
 
+/** The separator the UI reserves between the two zones; part of the geometry, so both owners read it here. */
+internal const val TOOLBAR_SPLIT_BUTTON_SEPARATOR_WIDTH: Int = 1
+
 @ApiStatus.Internal
-open class ToolbarSplitButton(val model: ToolbarSplitButtonModel) : AbstractToolbarCombo(), Accessible {
+open class ToolbarSplitButton(val model: ToolbarSplitButtonModel) : AbstractToolbarCombo(), Accessible, SplitButtonZones {
 
   var separatorMargin: Insets by Delegates.observable(JBInsets.emptyInsets(), this::fireUpdateEvents)
   var leftPartMargin: Insets by Delegates.observable(JBInsets.emptyInsets(), this::fireUpdateEvents)
   var rightPartMargin: Insets by Delegates.observable(JBInsets.emptyInsets(), this::fireUpdateEvents)
 
   override fun getUIClassID(): String = "ToolbarSplitButtonUI"
+
+  /** The half a press runs [doAction] from — everything left of the separator. See [SplitButtonZones]. */
+  @ApiStatus.Internal
+  fun actionZone(): Rectangle = splitButtonZone(SplitButtonHalf.ACTION)
+
+  /** The chevron half a press runs [doExpand] from. See [actionZone]. */
+  @ApiStatus.Internal
+  fun expandZone(): Rectangle = splitButtonZone(SplitButtonHalf.EXPAND)
+
+  override fun splitButtonZone(half: SplitButtonHalf): Rectangle = zones().let { (action, expand) ->
+    when (half) {
+      SplitButtonHalf.ACTION -> action
+      SplitButtonHalf.EXPAND -> expand
+    }
+  }
+
+  /** This button paints both halves and decides the pressed one from the point, so it owns both halves' listeners. */
+  override fun splitButtonHalfComponent(half: SplitButtonHalf): Component = this
+
+  /**
+   * Both halves at once, which is how every caller wants them — hit testing asks which half a point is in, and
+   * hover painting fills whichever is under the pointer. Computing one from the other is what makes them
+   * consistent: the action half is "everything the chevron half and the separator leave over".
+   */
+  @ApiStatus.Internal
+  fun zones(): Pair<Rectangle, Rectangle> {
+    val insets = insets
+    val zoneHeight = height - insets.top - insets.bottom
+    val chevronWidth = AllIcons.General.ChevronDown.iconWidth
+    val expandWidth = chevronWidth + rightPartMargin.left + rightPartMargin.right
+    val expandZone = Rectangle(width - insets.right - expandWidth, insets.top, expandWidth, zoneHeight)
+    val actionWidth = width - expandWidth - separatorMargin.right - TOOLBAR_SPLIT_BUTTON_SEPARATOR_WIDTH -
+                      separatorMargin.left - insets.left - insets.right
+    return Rectangle(insets.left, insets.top, actionWidth, zoneHeight) to expandZone
+  }
 
   init {
     updateUI()

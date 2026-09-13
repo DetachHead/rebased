@@ -4,13 +4,13 @@ package com.intellij.diagnostic
 import com.intellij.errorreport.error.InternalEAPException
 import com.intellij.errorreport.error.UpdateAvailableException
 import com.intellij.ide.plugins.PluginManagerCore
+import com.intellij.ide.plugins.ProductLoadingStrategy
 import com.intellij.idea.AppMode
 import com.intellij.internal.statistic.DeviceIdManager
 import com.intellij.internal.statistic.utils.getPluginInfoById
 import com.intellij.openapi.application.ApplicationNamesInfo
 import com.intellij.openapi.application.PathManager
 import com.intellij.openapi.application.ex.ApplicationInfoEx
-import com.intellij.openapi.components.Service
 import com.intellij.openapi.diagnostic.IdeaLoggingEvent
 import com.intellij.openapi.diagnostic.UnhandledException
 import com.intellij.openapi.diagnostic.logger
@@ -20,15 +20,14 @@ import com.intellij.openapi.util.io.BufferExposingByteArrayOutputStream
 import com.intellij.openapi.util.registry.Registry
 import com.intellij.platform.buildData.productInfo.CustomPropertyNames
 import com.intellij.platform.ide.productInfo.IdeProductInfo
-import com.intellij.platform.util.coroutines.childScope
 import com.intellij.ui.JBAccountInfoService
 import com.intellij.ui.LicensingFacade
+import com.intellij.util.net.PlatformHttpClient
 import com.intellij.util.net.ssl.CertificateManager
 import com.intellij.util.system.CpuArch
 import com.intellij.util.system.LowLevelLocalMachineAccess
 import com.intellij.util.system.OS
 import kotlinx.coroutines.CoroutineDispatcher
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
@@ -36,16 +35,17 @@ import org.jetbrains.annotations.ApiStatus
 import tools.jackson.core.JsonToken
 import tools.jackson.core.ObjectReadContext
 import tools.jackson.core.json.JsonFactory
+import java.io.FilterWriter
+import java.io.IOException
 import java.io.OutputStreamWriter
+import java.io.Writer
 import java.net.HttpURLConnection
 import java.net.URI
 import java.net.URLEncoder
-import java.net.http.HttpClient
 import java.net.http.HttpRequest
 import java.net.http.HttpResponse
 import java.nio.charset.StandardCharsets
 import java.security.KeyStore
-import java.time.Duration
 import java.util.Base64
 import java.util.zip.GZIPOutputStream
 import javax.net.ssl.SSLContext
@@ -55,13 +55,9 @@ import javax.net.ssl.X509TrustManager
 import kotlin.io.path.Path
 import kotlin.io.path.bufferedReader
 
-@Service
-internal class ITNProxyCoroutineScopeHolder(coroutineScope: CoroutineScope) {
+internal object DiagnosticDispatchers {
   @JvmField
-  val dispatcher: CoroutineDispatcher = Dispatchers.IO.limitedParallelism(2)
-
-  @JvmField
-  internal val coroutineScope: CoroutineScope = coroutineScope.childScope("ITNProxy call", dispatcher)
+  val Default: CoroutineDispatcher = Dispatchers.IO.limitedParallelism(2)
 }
 
 @ApiStatus.Internal
@@ -97,11 +93,13 @@ object ITNProxy {
     template["protocol.version"] = "1.1"
     template["user.login"] = "idea_anonymous"
     template["user.password"] = "guest"
-    template["os.cpu.arch"] = if (CpuArch.isEmulated()) "${CpuArch.CURRENT}(emulated)" else "${CpuArch.CURRENT}"
-    template["os.name"] = OS.CURRENT.name
-    template["os.version"] = OS.CURRENT.version()
     template["java.version"] = SystemInfo.JAVA_RUNTIME_VERSION
     template["java.vm.vendor"] = SystemInfo.JAVA_VENDOR
+    template["os.name"] = OS.CURRENT.name
+    template["os.version"] = OS.CURRENT.version()
+    template["os.cpu.arch"] = if (CpuArch.isEmulated()) "${CpuArch.CURRENT}(emulated)" else "${CpuArch.CURRENT}"
+    template["os.cpu.count"] = Runtime.getRuntime().availableProcessors().toString()
+    template["coroutines.default.pool.max.size"] = coroutineDefaultPoolMaxSize().toString()
     template
   }
 
@@ -129,16 +127,16 @@ object ITNProxy {
     template
   }
 
-  private fun appendEarlyAppData(builder: StringBuilder) {
+  private fun appendEarlyAppData(builder: Appendable) {
     @Suppress("TestOnlyProblems")
     val homeDir = System.getProperty("idea.home.path")?.let { Path(it) }
-      ?: PathManager.getHomeDirFor(ITNProxy::class.java)
-      ?: throw RuntimeException("Cannot detect the IDE home directory")
+                  ?: PathManager.getHomeDirFor(ITNProxy::class.java)
+                  ?: throw RuntimeException("Cannot detect the IDE home directory")
     val appDataFile = homeDir.resolve(when {
-      AppMode.isRunningFromDevBuild() -> "bin/product-info.json"
-      OS.CURRENT == OS.macOS -> "Resources/product-info.json"
-      else -> "product-info.json"
-    })
+                                        AppMode.isRunningFromDevBuild() -> "bin/product-info.json"
+                                        OS.CURRENT == OS.macOS -> "Resources/product-info.json"
+                                        else -> "product-info.json"
+                                      })
 
     try {
       var appName = null as String?
@@ -171,6 +169,7 @@ object ITNProxy {
       append(builder, "app.version.major", versionParts[0])
       append(builder, "app.version.minor", versionParts.getOrNull(1) ?: "0")
       append(builder, "app.product.code", productCode)
+      append(builder, "app.product.mode", ProductLoadingStrategy.strategy.currentModeId)
       append(builder, "app.build.number", buildNumber)
     }
     catch (e: Exception) {
@@ -204,20 +203,13 @@ object ITNProxy {
     val trustManagerFactory = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm())
     trustManagerFactory.init(null as KeyStore?)
     trustManagerFactory.trustManagers.filterIsInstance<X509TrustManager>().firstOrNull()
-      ?: error("No X509TrustManager available")
-  }
-
-  private val defaultHttpClient by lazy {
-    HttpClient.newBuilder()
-      .followRedirects(HttpClient.Redirect.NORMAL)
-      .connectTimeout(Duration.ofMinutes(2))
-      .build()
+    ?: error("No X509TrustManager available")
   }
 
   @Throws(Exception::class)
-  internal suspend fun sendError(error: ErrorBean, postUrl: URI?): Long {
+  internal suspend fun sendError(errorBean: ErrorBean, postUrl: URI?): Long {
     val context = currentCoroutineContext()
-    val request = createRequest(error.event, error)
+    val request = createRequest(errorBean.event, errorBean)
     val response = post(resolveReportEndpoint(postUrl), request)
     context.ensureActive()
     val reportId = handleResponse(response)
@@ -301,123 +293,148 @@ object ITNProxy {
   internal val appInfoString: String
     get() = StringBuilder().apply { appendAppInfo(this) }.toString()
 
-  private fun appendAppInfo(builder: StringBuilder) {
+  @Throws(Exception::class)
+  private fun appendAppInfo(builder: Appendable) {
     TEMPLATE_SAFE.forEach { (key, value) -> append(builder, key, value) }
     TEMPLATE_APP.forEach { (key, value) -> append(builder, key, value) }
+    // product mode may change in runtime. E.g. light > frontend
+    append(builder, "app.product.mode", ProductLoadingStrategy.strategy.currentModeId)
   }
 
-  private fun createRequest(event: IdeaLoggingEvent, errorBean: ErrorBean?): StringBuilder {
-    val builder = StringBuilder(8192)
+  @Throws(Exception::class)
+  private fun createRequest(event: IdeaLoggingEvent, errorBean: ErrorBean?): BufferExposingByteArrayOutputStream {
+    val compressed = BufferExposingByteArrayOutputStream(8192)
 
-    if (errorBean != null) {
-      val appInfo = (event.data as? AbstractMessage)?.appInfo
-      if (appInfo != null) {
-        builder.append(appInfo)
+    TrackingStreamWriter(OutputStreamWriter(GZIPOutputStream(compressed), StandardCharsets.UTF_8)).use { builder ->
+      if (errorBean != null) {
+        val appInfo = (event.data as? AbstractMessage)?.appInfo
+        if (appInfo != null) {
+          builder.append(appInfo)
+        }
+        else {
+          appendAppInfo(builder)
+          append(builder, "report.startup.error", "true")
+        }
       }
       else {
-        appendAppInfo(builder)
-        append(builder, "report.startup.error", "true")
-      }
-    }
-    else {
-      TEMPLATE_SAFE.forEach { (key, value) -> append(builder, key, value) }
-      appendEarlyAppData(builder)
-    }
-
-    append(builder, "error.message", event.message?.trim { it <= ' ' } ?: "")
-    append(builder, "error.stacktrace", event.throwableText)
-    (event.throwable as? UnhandledException)?.let {
-      append(builder, "error.unhandled.interactive", it.isInteractive.toString())
-    }
-    if (event.throwable is RecoveredThrowable) {
-      append(builder, "error.redacted", "true")
-    }
-
-    for (attachment in event.attachments) {
-      append(builder, "attachment.name", attachment.name)
-      append(builder, "attachment.value", attachment.encodedBytes)
-    }
-
-    // optional fields; added only when the app is loaded
-    if (errorBean != null) {
-      JBAccountInfoService.getInstance()?.userData?.email?.takeIf { it.endsWith("@jetbrains.com", ignoreCase = true) }?.let {
-        append(builder, "user.email", it)
+        TEMPLATE_SAFE.forEach { (key, value) -> append(builder, key, value) }
+        appendEarlyAppData(builder)
       }
 
-      val updateSettings = UpdateSettings.getInstance()
-      append(builder, "update.channel.status", updateSettings.selectedChannelStatus.code)
-      append(builder, "update.ignored.builds", updateSettings.ignoredBuildNumbers.joinToString(","))
+      append(builder, "error.message", event.message?.trim { it <= ' ' } ?: "")
+      append(builder, "error.stacktrace", event.throwableText)
+      (event.throwable as? UnhandledException)?.let {
+        append(builder, "error.unhandled.interactive", it.isInteractive.toString())
+      }
+      if (event.throwable is RecoveredThrowable) {
+        append(builder, "error.redacted", "true")
+      }
 
-      append(builder, "plugin.id", errorBean.pluginId)
-      append(builder, "plugin.name", errorBean.pluginName)
-      append(builder, "plugin.version", errorBean.pluginVersion)
-      append(builder, "last.action", errorBean.lastActionId)
+      for (attachment in event.attachments) {
+        append(builder, "attachment.name", attachment.name)
+        attachment.openContentStream().use { input ->
+          builder.append("&attachment.value=")
+          val buffer = ByteArray(8190) // a multiple of 3
+          while (true) {
+            val n = input.readNBytes(buffer, 0, buffer.size)
+            if (n <= 0) break
+            val chunk = if (n == buffer.size) buffer else buffer.copyOf(n)
+            builder.append(URLEncoder.encode(Base64.getEncoder().encodeToString(chunk), StandardCharsets.UTF_8))
+          }
+        }
+      }
 
-      append(builder, "error.description", errorBean.comment)
+      // optional fields; added only when the app is loaded
+      if (errorBean != null) {
+        JBAccountInfoService.getInstance()?.userData?.email?.takeIf { it.endsWith("@jetbrains.com", ignoreCase = true) }?.let {
+          append(builder, "user.email", it)
+        }
 
-      PluginManagerCore.loadedPlugins.asSequence()
-        .filter { !it.isBundled && !PluginManagerCore.isUpdatedBundledPlugin(it) }
-        .map { it.pluginId }
-        .filter { getPluginInfoById(it).isSafeToReport() }
-        .toList()
-        .takeIf { it.isNotEmpty() }
-        ?.joinToString(",") { it.idString }
-        ?.let { append(builder, "plugins.nonbundled", it) }
-      appendDynamicPluginUnloadInfo(builder, event)
+        val updateSettings = UpdateSettings.getInstance()
+        append(builder, "update.channel.status", updateSettings.selectedChannelStatus.code)
+        append(builder, "update.ignored.builds", updateSettings.ignoredBuildNumbers.joinToString(","))
 
-      if (errorBean.isAutoReportedByPlatform) {
-        append(builder, "report.automatic", "true")
-        append(builder, "report.automatic.source", ExceptionAutoReportUtil.getAutoReportSource(event.throwable))
+        append(builder, "plugin.id", errorBean.pluginId)
+        append(builder, "plugin.name", errorBean.pluginName)
+        append(builder, "plugin.version", errorBean.pluginVersion)
+        append(builder, "last.action", errorBean.lastActionId)
 
-        ExceptionAutoReportUtil.getAutoReportTag()?.let {
-          append(builder, "report.automatic.tag", it)
+        append(builder, "error.description", errorBean.comment)
+
+        PluginManagerCore.loadedPlugins.asSequence()
+          .filter { !it.isBundled && !PluginManagerCore.isUpdatedBundledPlugin(it) }
+          .map { it.pluginId }
+          .filter { getPluginInfoById(it).isSafeToReport() }
+          .toList()
+          .takeIf { it.isNotEmpty() }
+          ?.joinToString(",") { it.idString }
+          ?.let { append(builder, "plugins.nonbundled", it) }
+        appendDynamicPluginUnloadInfo(builder, event)
+
+        if (errorBean.isAutoReportedByPlatform) {
+          append(builder, "report.automatic", "true")
+          append(builder, "report.automatic.source", ExceptionAutoReportUtil.getAutoReportSource(event.throwable))
+          ExceptionAutoReportUtil.getAutoReportTag()?.let {
+            append(builder, "report.automatic.tag", it)
+          }
         }
       }
     }
 
-    return builder
+    return compressed
   }
 
-  private fun appendDynamicPluginUnloadInfo(builder: StringBuilder, event: IdeaLoggingEvent) {
+  @Throws(Exception::class)
+  private fun appendDynamicPluginUnloadInfo(builder: Appendable, event: IdeaLoggingEvent) {
     val message = event.data as? AbstractMessage ?: return
     if (DynamicPluginUnloadDiagnosticState.wasUnloadAttemptedBefore(message.date.time)) {
       append(builder, "plugins.dynamic.unload.attempted", "true")
     }
   }
 
-  private fun append(builder: StringBuilder, key: String, value: String?) {
+  private fun coroutineDefaultPoolMaxSize(): Int =
+    System.getProperty("kotlinx.coroutines.scheduler.core.pool.size")?.trim()?.toIntOrNull()
+    ?: maxOf(2, Runtime.getRuntime().availableProcessors())
+
+  @Throws(Exception::class)
+  private fun append(builder: Appendable, key: String, value: String?) {
     if (!value.isNullOrEmpty()) {
-      if (builder.isNotEmpty()) builder.append('&')
-      builder.append(key).append('=').append(URLEncoder.encode(value, StandardCharsets.UTF_8))
+      val empty = when (builder) {
+        is TrackingStreamWriter -> builder.isEmpty
+        is StringBuilder -> builder.isEmpty()
+        else -> throw IllegalStateException("Unexpected: ${builder.javaClass}")
+      }
+      try {
+        if (!empty) builder.append('&')
+        builder.append(key).append('=').append(URLEncoder.encode(value, StandardCharsets.UTF_8))
+      }
+      catch (e: OutOfMemoryError) {
+        LOG.warn(e)
+        throw IOException("The report is too large (last key: '${key}', size: ${value.length})", e)
+      }
     }
   }
 
   @Throws(Exception::class)
-  private fun post(endpoint: Endpoint, formData: CharSequence): HttpResponse<String> {
-    val compressed = BufferExposingByteArrayOutputStream(formData.length)
-    OutputStreamWriter(GZIPOutputStream(compressed), StandardCharsets.UTF_8).use { writer ->
-      for (element in formData) {
-        writer.write(element.code)
-      }
-    }
+  private fun post(endpoint: Endpoint, formData: BufferExposingByteArrayOutputStream): HttpResponse<String> {
     val (url, pinnedPublicKey) = endpoint
     val request = HttpRequest.newBuilder(url)
       .header("Content-Type", "application/x-www-form-urlencoded; charset=" + StandardCharsets.UTF_8.name())
       .header("Content-Encoding", "gzip")
-      .POST(HttpRequest.BodyPublishers.ofByteArray(compressed.toByteArray(), 0, compressed.size()))
+      .POST(HttpRequest.BodyPublishers.ofByteArray(formData.internalBuffer, 0, formData.size()))
       .build()
-    val client = if (pinnedPublicKey != null) createPinnedHttpClient(pinnedPublicKey) else defaultHttpClient
-    return client.send(request, HttpResponse.BodyHandlers.ofString())
-  }
-
-  private fun createPinnedHttpClient(expectedPublicKey: ByteArray): HttpClient {
-    val sslContext = SSLContext.getInstance("TLS")
-    sslContext.init(null, arrayOf<TrustManager>(PinnedPublicKeyTrustManager(getEndpointTrustManager(), expectedPublicKey)), null)
-    return HttpClient.newBuilder()
-      .followRedirects(HttpClient.Redirect.NORMAL)
-      .connectTimeout(Duration.ofMinutes(2))
-      .sslContext(sslContext)
+    val client = PlatformHttpClient.clientBuilder()
+      .apply {
+        if (pinnedPublicKey != null) {
+          val sslContext = SSLContext.getInstance("TLS")
+          sslContext.init(null, arrayOf<TrustManager>(PinnedPublicKeyTrustManager(getEndpointTrustManager(), pinnedPublicKey)), null)
+          this.sslContext(sslContext)
+        }
+      }
       .build()
+    return client.use {
+      PlatformHttpClient.response(it, request, HttpResponse.BodyHandlers.ofString())
+    }
   }
 
   private fun getEndpointTrustManager(): X509TrustManager {
@@ -428,5 +445,25 @@ object ITNProxy {
         ?.let { return it }
     }
     return jdkDefaultTrustManager
+  }
+
+  private class TrackingStreamWriter(out: Writer) : FilterWriter(out) {
+    @JvmField
+    var isEmpty = true
+
+    override fun write(c: Int) {
+      super.write(c)
+      isEmpty = false
+    }
+
+    override fun write(cbuf: CharArray, off: Int, len: Int) {
+      super.write(cbuf, off, len)
+      isEmpty = false
+    }
+
+    override fun write(str: String, off: Int, len: Int) {
+      super.write(str, off, len)
+      isEmpty = false
+    }
   }
 }

@@ -1,7 +1,7 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
 ### auto-generated section `build intellij.kotlin.base.compilerConfiguration.ui` start
-
 jvm_library(
     name = "kotlin-base-compilerConfiguration-ui",
     srcs = glob(
@@ -22,8 +22,8 @@ jvm_library(
         # do not sort,
         "@lib//:kotlin-stdlib",
         "//libraries/kotlin/reflect",
-        "@lib//:kotlinc-kotlin-compiler-common",
-        "@lib//:kotlinc-kotlin-jps-common",
+        "//libraries/kotlinc/kotlin-compiler-common:libraries-kotlinc-kotlin-compiler-common",
+        "//libraries/kotlinc/kotlin-jps-common:libraries-kotlinc-kotlin-jps-common",
         "//platform/core-api:core",
         "//platform/lang-api:lang",
         "//jps/model-api:model",
@@ -49,6 +49,8 @@ jvm_library(
     ],
 )
 
+content_module_jar(module = ":kotlin-base-compilerConfiguration-ui")
+
 jvm_library(
     name = "kotlin-base-compilerConfiguration-ui_test_lib",
     testonly = True,
@@ -62,6 +64,8 @@ jvm_library(
         # do not sort,
         ":kotlin-base-compilerConfiguration-ui",
         "//libraries/kotlin/reflect:reflect_test_lib",
+        "//libraries/kotlinc/kotlin-compiler-common:libraries-kotlinc-kotlin-compiler-common_test_lib",
+        "//libraries/kotlinc/kotlin-jps-common:libraries-kotlinc-kotlin-jps-common_test_lib",
         "//platform/core-api:core_test_lib",
         "//platform/lang-api:lang_test_lib",
         "//jps/model-api:model_test_lib",
@@ -92,6 +96,7 @@ jvm_library(
 exports_files(
     [
         "intellij.kotlin.base.compilerConfiguration.ui.iml",
+        "resources/intellij.kotlin.base.compilerConfiguration.ui.xml",
     ],
     visibility = ["//visibility:public"],
 )

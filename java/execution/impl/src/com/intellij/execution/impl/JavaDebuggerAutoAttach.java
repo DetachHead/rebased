@@ -16,7 +16,7 @@ import com.intellij.openapi.application.ModalityState;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Key;
 import com.intellij.openapi.util.registry.Registry;
-import com.intellij.platform.eel.provider.utils.EelPathUtils;
+import com.intellij.platform.eel.provider.utils.EelProjectUtils;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -44,7 +44,11 @@ public final class JavaDebuggerAutoAttach extends RunConfigurationExtension {
             Project project = configuration.getProject();
 
             ApplicationManager.getApplication().invokeLater(
-              () -> JavaAttachDebuggerProvider.attach(transport, address, null, project),
+              () -> {
+                if (!JavaDebuggerConsoleFilterProvider.isDebuggerAttached(transport, address, project)) {
+                  JavaAttachDebuggerProvider.attach(transport, address, null, project);
+                }
+              },
               ModalityState.any());
           }
         }
@@ -54,6 +58,6 @@ public final class JavaDebuggerAutoAttach extends RunConfigurationExtension {
 
   @Override
   public boolean isApplicableFor(@NotNull RunConfigurationBase<?> configuration) {
-    return EelPathUtils.isProjectLocal(configuration.getProject());
+    return EelProjectUtils.isProjectLocal(configuration.getProject());
   }
 }

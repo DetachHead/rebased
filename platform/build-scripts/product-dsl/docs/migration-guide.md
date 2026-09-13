@@ -147,14 +147,10 @@ override fun getProductContentDescriptor() = productModules {
 }
 ```
 
-**Fix:** Use Plugin Model Analyzer MCP to check transitive deps:
+**Fix:** Use the Plugin Model Analyzer skill to check transitive deps through the Bazel JSON analyzer:
 
-```kotlin
-// Check ALL transitive dependencies
-get_module_dependencies(
-  moduleName = "fleet.andel",
-  includeTransitive = true
-)
+```bash
+bazel run --ui_event_filters=-info --noshow_progress //platform/buildScripts:plugin-model-tool -- --json='{"filter":"moduleDependencies","module":"fleet.andel","includeTransitive":true}'
 ```
 
 **Pitfall 3: Forgetting includeDependencies only gets implementation modules**
@@ -172,13 +168,13 @@ embeddedModule("fleet.andel", includeDependencies = true)
 
 Before committing changes:
 
-1. **Run Generate Product Layouts**
+1. **Run the generator**
    ```bash
-   # Via JetBrains MCP
-   execute_run_configuration(name="Generate Product Layouts")
-   
-   # Or directly
+   # Preferred
    bazel run //platform/buildScripts:plugin-model-tool
+   
+   # Or via JetBrains MCP
+   execute_run_configuration(name="Generate Product Layouts")
    ```
 
 2. **Check for duplicate content modules**
@@ -187,7 +183,7 @@ Before committing changes:
 
 3. **Verify tests pass**
    ```bash
-   ./tests.cmd -Dintellij.build.test.patterns=com.intellij.idea.ultimate.build.smokeTests.AllProductsPackagingTest
+   ./bazel.cmd test //build:all-products-packaging_test
    ```
 
 4. **Use MCP to analyze transitive dependencies**
@@ -255,10 +251,8 @@ override fun getProductContentDescriptor(): ProductModulesContentSpec = productM
   alias("com.intellij.codeServer")
   
   // Only XML includes - modules not available at runtime
-  deprecatedInclude("intellij.platform.analysis", "META-INF/Analysis.xml")
-  deprecatedInclude("intellij.platform.core", "META-INF/Core.xml")
-  deprecatedInclude("intellij.platform.projectModel", "META-INF/ProjectModel.xml")
-  // ... 11 more deprecatedInclude calls
+  deprecatedInclude("intellij.platform.resources", "META-INF/ProjectModel.xml")
+  // ... more deprecatedInclude calls
   
   // Only 5 modules total
   module("intellij.grid")
@@ -274,13 +268,12 @@ override fun getProductContentDescriptor(): ProductModulesContentSpec = productM
   // Use corePlatform for analysis tools (core platform without language editing)
   moduleSet(CommunityModuleSets.corePlatform())
   
-  // Keep deprecatedInclude only for modules NOT in corePlatform
-  deprecatedInclude("intellij.platform.indexing", "META-INF/Indexing.xml")
-  deprecatedInclude("intellij.platform.codeStyle.impl", "META-INF/CodeStyle.xml")
-  deprecatedInclude("intellij.platform.refactoring", "META-INF/RefactoringExtensionPoints.xml")
-  deprecatedInclude("intellij.codeServer.core", "META-INF/codeserver-customization.xml")
+  // Product-specific customization lives in a dedicated embedded content module
+  embeddedModule("intellij.codeServer.ide.customization")
   
   // Product-specific modules
+  embeddedModule("intellij.platform.codeStyle.impl")
+  embeddedModule("intellij.platform.refactoring")
   module("intellij.grid")
   module("intellij.grid.types")
   module("intellij.grid.csv.core.impl")

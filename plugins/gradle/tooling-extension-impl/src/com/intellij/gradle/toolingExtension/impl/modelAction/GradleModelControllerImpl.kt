@@ -25,12 +25,37 @@ class GradleModelControllerImpl(
   private val buildController: BuildController,
 ) : GradleModelController {
 
-  override fun <Model : Any> fetchModel(modelClass: Class<Model>): Model {
+  /**
+   * Fetches a required global Gradle model.
+   *
+   * @param modelClass the model type requested from the Tooling API.
+   *
+   * This method follows the Gradle Tooling API failure semantics when the requested model is not available.
+   */
+  fun <Model : Any> fetchRequiredModel(
+    modelClass: Class<Model>,
+    isValidModel: (Model) -> Boolean = { true },
+  ): Model {
     if (!isResilientModelFetchApiUsed()) {
       return buildController.getModel(modelClass)
     }
-    return buildController.fetch(modelClass).getModel()
-           ?: buildController.getModel(modelClass)
+
+    val result = buildController.fetch(modelClass)
+    val model = result.model
+
+    if (model == null || !isValidModel(model)) {
+      // The resilient API can return a partial required model together with failures.
+      // Fall back to strict getModel() to surface the original Gradle failure instead of
+      // continuing with an invalid root model and failing later with an unrelated NPE.
+      buildController.getModel(modelClass)
+
+      // getModel() is expected to throw. Reaching this point means Gradle returned an unusable
+      // required model without reporting the original failure.
+      error("Strict Gradle model fetch unexpectedly returned invalid model for ${modelClass.name}")
+    }
+
+    sendModelFetchFailures(null, result, false)
+    return model
   }
 
   override fun <M : Any> fetchModelOrNull(modelClass: Class<M>): M? {
@@ -38,7 +63,7 @@ class GradleModelControllerImpl(
       return buildController.findModel(modelClass)
     }
     return buildController.fetch(modelClass)
-      .alsoSendModelFetchFailures()
+      .also { sendModelFetchFailures(null, it, false) }
       .getModel()
   }
 
@@ -46,23 +71,19 @@ class GradleModelControllerImpl(
     target: Target,
     modelClass: Class<Model>,
     modelParameter: GradleModelParameter<*>?,
+    suppressFailures: Boolean,
   ): Model? {
     if (modelParameter != null) {
-      return fetchModelOrNull(target, modelClass, modelParameter.parameterClass, modelParameter.parameterInitializer)
+      return fetchModelOrNull(target, modelClass, modelParameter.parameterClass, modelParameter.parameterInitializer, suppressFailures)
     }
-    return fetchModelOrNull(target, modelClass)
+    return fetchModelOrNull(target, modelClass, suppressFailures)
   }
 
   override fun <Target : GradleModel, Model : Any> fetchModelOrNull(
     target: Target,
     modelClass: Class<Model>,
   ): Model? {
-    if (!isResilientModelFetchApiUsed()) {
-      return buildController.findModel(target, modelClass)
-    }
-    return buildController.fetch(target, modelClass)
-      .alsoSendModelFetchFailures()
-      .getModel()
+    return fetchModelOrNull(target, modelClass, false)
   }
 
   override fun <Target : GradleModel, Model : Any, Parameter : Any> fetchModelOrNull(
@@ -71,11 +92,38 @@ class GradleModelControllerImpl(
     modelParameterClass: Class<Parameter>,
     modelParameterInitializer: Action<in Parameter>,
   ): Model? {
+    return fetchModelOrNull(target, modelClass, modelParameterClass, modelParameterInitializer, false)
+  }
+
+  private fun <Target : GradleModel, Model : Any> fetchModelOrNull(
+    target: Target,
+    modelClass: Class<Model>,
+    suppressFailures: Boolean,
+  ): Model? {
     if (!isResilientModelFetchApiUsed()) {
-      return buildController.findModel(target, modelClass, modelParameterClass, modelParameterInitializer)
+      return handleModelFetchFailures(suppressFailures) {
+        buildController.findModel(target, modelClass)
+      }
+    }
+    return buildController.fetch(target, modelClass)
+      .also { sendModelFetchFailures(target, it, suppressFailures) }
+      .getModel()
+  }
+
+  private fun <Target : GradleModel, Model : Any, Parameter : Any> fetchModelOrNull(
+    target: Target,
+    modelClass: Class<Model>,
+    modelParameterClass: Class<Parameter>,
+    modelParameterInitializer: Action<in Parameter>,
+    suppressFailures: Boolean,
+  ): Model? {
+    if (!isResilientModelFetchApiUsed()) {
+      return handleModelFetchFailures(suppressFailures) {
+        buildController.findModel(target, modelClass, modelParameterClass, modelParameterInitializer)
+      }
     }
     return buildController.fetch(target, modelClass, modelParameterClass, modelParameterInitializer)
-      .alsoSendModelFetchFailures()
+      .also { sendModelFetchFailures(target, it, suppressFailures) }
       .getModel()
   }
 
@@ -84,14 +132,35 @@ class GradleModelControllerImpl(
 
   private fun <Model : Any> fetchModels(request: GradleModelFetchRequestImpl<Model>, modelConsumer: GradleModelConsumer) {
 
+    fun <Target : GradleModel> fetchTargetModelsInParallel(targets: Collection<Target>, consumer: (Target, Model, Class<Model>) -> Unit) {
+      val buildActions = targets.map { target ->
+        BuildAction { innerBuildController ->
+          val innerController = GradleModelControllerImpl(innerBuildController)
+          val model = innerController.fetchModelOrNull(target, request.modelClass, request.modelParameter, request.suppressFailures)
+          target to model
+        }
+      }
+      val models = buildController.run(buildActions)
+      for ((target, model) in models) {
+        consumer(target, model ?: continue, request.modelClass)
+      }
+    }
+
+    fun <Target : GradleModel> fetchTargetModelsInSequence(targets: Collection<Target>, consumer: (Target, Model, Class<Model>) -> Unit) {
+      for (target in targets) {
+        val model = fetchModelOrNull(target, request.modelClass, request.modelParameter, request.suppressFailures)
+        consumer(target, model ?: continue, request.modelClass)
+      }
+    }
+
     fun <Target : GradleModel> fetchModels(targets: Collection<Target>, consumer: (Target, Model, Class<Model>) -> Unit) {
       when (request.executionMode) {
         GradleExecutionMode.DEFAULT -> when (isParallelModelFetchEnabled()) {
-          true -> fetchTargetModelsInParallel(targets, request.modelClass, request.modelParameter, consumer)
-          else -> fetchTargetModelsInSequence(targets, request.modelClass, request.modelParameter, consumer)
+          true -> fetchTargetModelsInParallel(targets, consumer)
+          else -> fetchTargetModelsInSequence(targets, consumer)
         }
-        GradleExecutionMode.PARALLEL -> fetchTargetModelsInParallel(targets, request.modelClass, request.modelParameter, consumer)
-        GradleExecutionMode.SEQUENTIAL -> fetchTargetModelsInSequence(targets, request.modelClass, request.modelParameter, consumer)
+        GradleExecutionMode.PARALLEL -> fetchTargetModelsInParallel(targets, consumer)
+        GradleExecutionMode.SEQUENTIAL -> fetchTargetModelsInSequence(targets, consumer)
       }
     }
 
@@ -106,39 +175,6 @@ class GradleModelControllerImpl(
         }
         fetchModels(projectModels, modelConsumer::consumeProjectModel)
       }
-    }
-  }
-
-  private fun <Target : GradleModel, Model : Any> fetchTargetModelsInParallel(
-    targets: Collection<Target>,
-    modelClass: Class<Model>,
-    modelParameter: GradleModelParameter<*>?,
-    modelConsumer: (Target, Model, Class<Model>) -> Unit,
-  ) {
-    val buildActions = targets.map { target ->
-      BuildAction { innerBuildController ->
-        val innerController = GradleModelControllerImpl(innerBuildController)
-        val model = innerController.fetchModelOrNull(target, modelClass, modelParameter)
-        target to (model ?: return@BuildAction null)
-      }
-    }
-    val models = buildController.run(buildActions)
-    for (model in models) {
-      if (model != null) {
-        modelConsumer(model.first, model.second, modelClass)
-      }
-    }
-  }
-
-  private fun <Target : GradleModel, Model : Any> fetchTargetModelsInSequence(
-    targets: Collection<Target>,
-    modelClass: Class<Model>,
-    modelParameter: GradleModelParameter<*>?,
-    modelConsumer: (Target, Model, Class<Model>) -> Unit,
-  ) {
-    for (target in targets) {
-      val model = fetchModelOrNull(target, modelClass, modelParameter) ?: continue
-      modelConsumer(target, model, modelClass)
     }
   }
 
@@ -171,9 +207,19 @@ class GradleModelControllerImpl(
     return buildModel.projects.filter { it.parent == null }
   }
 
-  private fun <T : FetchModelResult<*>> T.alsoSendModelFetchFailures(): T = also { result ->
-    val failures = result.failures.takeIf { it.isNotEmpty() } ?: return@also
-    buildController.send(GradleModelFetchFailureState(failures.map { GradleModelFetchFailure(it) }))
+  private fun <Model : Any> handleModelFetchFailures(suppressFailures: Boolean, action: () -> Model?): Model? {
+    return runCatching(action).getOrElse { if (!suppressFailures) throw it else null }
+  }
+
+  private fun sendModelFetchFailures(target: GradleModel?, result: FetchModelResult<*>, suppressFailures: Boolean) {
+    val failures = result.failures.takeIf { it.isNotEmpty() && !suppressFailures } ?: return
+    val targetPath = when (target) {
+      is BasicGradleProject -> target.projectDirectory
+      is GradleBuild -> target.buildIdentifier.rootDir
+      else -> null
+    }
+    val failureResult = GradleModelFetchFailureResult(targetPath, failures.map { GradleModelFetchFailure(it) })
+    buildController.send(GradleModelFetchFailureState(failureResult))
   }
 
   private data class GradleModelFetchRequestImpl<Model : Any>(
@@ -184,6 +230,7 @@ class GradleModelControllerImpl(
     val executionMode: GradleExecutionMode = GradleExecutionMode.DEFAULT,
     val targetLevel: GradleModelLevel = GradleModelLevel.PROJECT,
     val projectTraversal: GradleTraversalMode = GradleTraversalMode.DIRECT,
+    val suppressFailures: Boolean = false,
   ) : GradleModelFetchRequest<Model> {
 
     override fun modelLevel(targetLevel: GradleModelLevel): GradleModelFetchRequest<Model> =
@@ -200,6 +247,9 @@ class GradleModelControllerImpl(
       parameterInitializer: Action<in Parameter>,
     ): GradleModelFetchRequest<Model> =
       copy(modelParameter = GradleModelParameter(parameterClass, parameterInitializer))
+
+    override fun suppressFailures(): GradleModelFetchRequest<Model> =
+      copy(suppressFailures = true)
 
     override fun execute(modelConsumer: GradleModelConsumer): Unit =
       modelController.fetchModels(this, modelConsumer)

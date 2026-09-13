@@ -132,7 +132,6 @@ internal fun MutableTWorkspace.generateK2IntentionTests() {
             model("${idea}intentions/introduceVariable", pattern = pattern)
             model("${idea}intentions/convertToMultiDollarString", pattern = pattern)
             model("${idea}intentions/convertToIndexedFunctionCall", pattern = pattern)
-            model("${idea}/intentions/concatenationToBuildCollection", pattern = pattern)
 
             //model("${idea}intentions/loopToCallChain", pattern = pattern, isIgnored = true)
             //model("${idea}intentions/loopToCallChain/forEach", pattern = pattern, isIgnored = true)
@@ -180,6 +179,7 @@ internal fun MutableTWorkspace.generateK2IntentionTests() {
             model("${idea}intentions/replaceRepeatWithForLoop", pattern = pattern)
             model("${idea}intentions/replaceForLoopWithRepeat", pattern = pattern)
             model("${idea}intentions/replaceForEachWithRepeat", pattern = pattern)
+            model("${idea}intentions/addParameterNameAtAllCallsites", pattern = pattern)
         }
 
         testClass<AbstractK2IntentionInInjectionTest> {

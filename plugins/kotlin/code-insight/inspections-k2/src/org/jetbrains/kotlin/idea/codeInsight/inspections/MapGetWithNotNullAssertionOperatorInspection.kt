@@ -11,7 +11,7 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.TextRange
 import com.intellij.psi.PsiDocumentManager
 import org.jetbrains.kotlin.analysis.api.KaSession
-import org.jetbrains.kotlin.analysis.api.resolution.successfulFunctionCallOrNull
+import org.jetbrains.kotlin.analysis.api.resolution.function
 import org.jetbrains.kotlin.analysis.api.resolution.symbol
 import org.jetbrains.kotlin.idea.base.psi.replaced
 import org.jetbrains.kotlin.idea.base.resources.KotlinBundle
@@ -20,6 +20,7 @@ import org.jetbrains.kotlin.idea.codeinsight.api.applicable.inspections.KotlinAp
 import org.jetbrains.kotlin.idea.codeinsight.api.applicators.ApplicabilityRange
 import org.jetbrains.kotlin.idea.codeinsight.utils.callExpression
 import org.jetbrains.kotlin.idea.codeinsight.utils.findExistingEditor
+import org.jetbrains.kotlin.idea.util.resolveSuccessfulExpressionCall
 import org.jetbrains.kotlin.lexer.KtTokens
 import org.jetbrains.kotlin.name.FqName
 import org.jetbrains.kotlin.psi.KtArrayAccessExpression
@@ -49,11 +50,9 @@ class MapGetWithNotNullAssertionOperatorInspection : KotlinApplicableInspectionB
     override fun isApplicableByPsi(element: KtPostfixExpression): Boolean =
         element.operationToken == KtTokens.EXCLEXCL && element.getReplacementData() != null
 
-    override fun KaSession.prepareContext(element: KtPostfixExpression): Unit? =
-        (element.baseExpression
-            ?.resolveToCall()
-            ?.successfulFunctionCallOrNull()
-            ?.symbol
+    context(session: KaSession)
+    override fun prepareContext(element: KtPostfixExpression): Unit? =
+        (element.baseExpression?.resolveSuccessfulExpressionCall()?.function?.symbol
             ?.callableId
             ?.asSingleFqName() == MAP_GET_FQ_NAME).asUnit
 

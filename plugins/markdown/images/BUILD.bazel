@@ -1,7 +1,7 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
 ### auto-generated section `build intellij.markdown.images` start
-
 jvm_library(
     name = "images",
     srcs = glob(
@@ -42,6 +42,8 @@ jvm_library(
     ],
 )
 
+content_module_jar(module = ":images")
+
 jvm_library(
     name = "images_test_lib",
     testonly = True,
@@ -80,6 +82,7 @@ jvm_library(
 exports_files(
     [
         "intellij.markdown.images.iml",
+        "src/main/resources/intellij.markdown.images.xml",
     ],
     visibility = ["//visibility:public"],
 )

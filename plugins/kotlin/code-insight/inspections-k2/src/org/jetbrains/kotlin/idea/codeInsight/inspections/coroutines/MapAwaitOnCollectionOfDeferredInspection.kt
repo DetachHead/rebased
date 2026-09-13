@@ -6,10 +6,12 @@ import com.intellij.codeInspection.util.InspectionMessage
 import com.intellij.codeInspection.util.IntentionFamilyName
 import com.intellij.modcommand.ModPsiUpdater
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.util.TextRange
 import org.jetbrains.kotlin.analysis.api.KaSession
 import org.jetbrains.kotlin.idea.base.resources.KotlinBundle
 import org.jetbrains.kotlin.idea.codeinsight.api.applicable.inspections.KotlinApplicableInspectionBase
 import org.jetbrains.kotlin.idea.codeinsight.api.applicable.inspections.KotlinModCommandQuickFix
+import org.jetbrains.kotlin.idea.codeinsights.impl.base.applicators.ApplicabilityRanges
 import org.jetbrains.kotlin.idea.imports.addImportFor
 import org.jetbrains.kotlin.idea.refactoring.singleLambdaArgumentExpression
 import org.jetbrains.kotlin.psi.KtCallExpression
@@ -35,7 +37,8 @@ internal class MapAwaitOnCollectionOfDeferredInspection : KotlinApplicableInspec
         visitTargetElement(callExpression, holder, isOnTheFly)
     }
 
-    override fun KaSession.prepareContext(element: KtCallExpression): Unit? {
+    context(session: KaSession)
+    override fun prepareContext(element: KtCallExpression): Unit? {
         val lambdaArgument = element.singleLambdaArgumentExpression() ?: return null
 
         if (!isIterableMapFunctionCall(element)) return null
@@ -63,5 +66,9 @@ internal class MapAwaitOnCollectionOfDeferredInspection : KotlinApplicableInspec
                 element.replace(KtPsiFactory(project).createExpression("${CoroutinesIds.awaitAll.callableName}()"))
             }
         }
+    }
+
+    override fun getApplicableRanges(element: KtCallExpression): List<TextRange> {
+        return ApplicabilityRanges.calleeExpression(element)
     }
 }

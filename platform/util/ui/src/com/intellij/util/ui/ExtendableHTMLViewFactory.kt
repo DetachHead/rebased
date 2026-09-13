@@ -5,6 +5,7 @@ package com.intellij.util.ui
 
 import com.intellij.openapi.diagnostic.thisLogger
 import com.intellij.openapi.util.ScalableIcon
+import com.intellij.openapi.util.UtilThreadingAssertions
 import com.intellij.openapi.util.findIconUsingNewImplementation
 import com.intellij.openapi.util.text.HtmlChunk
 import com.intellij.ui.IconManager
@@ -80,6 +81,8 @@ class ExtendableHTMLViewFactory internal constructor(
   internal constructor(vararg extensions: (Element, View) -> View?) : this(extensions.asList())
 
   override fun create(element: Element): View {
+    UtilThreadingAssertions.softAssertAwtOperationsThread()
+
     val defaultView = base.create(element)
     for (extension in extensions) {
       val view = extension(element, defaultView)
@@ -290,8 +293,9 @@ private class JBIconView(elem: Element, private val icon: Icon) : View(elem) {
   override fun getAlignment(axis: Int): Float {
     // 12 is a "standard" font height that has a user scale of 1
     val scaleFactor = container.asSafely<ExtendableHTMLViewFactory.ScaledHtmlJEditorPane>()?.contentsScaleFactor ?: 1f
-    val fontSize = container.font.size
-    return if (axis == Y_AXIS) JBUIScale.scale(fontSize) / (icon.iconHeight.toFloat() * scaleFactor) else super.getAlignment(axis)
+    val fontSize = container?.font?.size
+    return if (axis == Y_AXIS && fontSize != null) JBUIScale.scale(fontSize) / (icon.iconHeight.toFloat() * scaleFactor)
+    else super.getAlignment(axis)
   }
 
   override fun getToolTipText(x: Float, y: Float, allocation: Shape): String? {

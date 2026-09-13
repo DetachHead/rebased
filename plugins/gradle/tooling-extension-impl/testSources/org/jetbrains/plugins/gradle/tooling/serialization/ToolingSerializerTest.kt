@@ -61,7 +61,7 @@ class ToolingSerializerTest {
   fun setUp() {
     myRandomParameters = EasyRandomParameters()
       .seed(Random.nextLong())
-      .collectionSizeRange(Random.nextInt(0, 2), 3)
+      .collectionSizeRange(Random.nextInt(2), 3)
       .objectPoolSize(5)
       .objectFactory(MyObjectFactory())
       .overrideDefaultInitialization(true)
@@ -77,7 +77,7 @@ class ToolingSerializerTest {
     myRandomParameters.randomize(DefaultGradleBuildScriptClasspathModel::class.java) {
       val result = DefaultGradleBuildScriptClasspathModel()
       result.gradleVersion = myRandom.nextObject(String::class.java)
-      result.classpath = myRandom.objects(ClasspathEntryModel::class.java, myRandom.nextInt(1, 10))
+      result.classpath = myRandom.objects(ClasspathEntryModel::class.java, myRandom.nextInt(9) + 1)
         .collect(Collectors.toList())
       return@randomize result
     }
@@ -104,7 +104,7 @@ class ToolingSerializerTest {
   fun `repository models serialization test`() {
     myRandomParameters.randomize(DefaultRepositoryModels::class.java) {
       DefaultRepositoryModels(myRandom
-                                .objects(MavenRepositoryModel::class.java, myRandom.nextInt(1, 10))
+                                .objects(MavenRepositoryModel::class.java, myRandom.nextInt(9) + 1)
                                 .collect(Collectors.toList()))
     }
     doTest(DefaultRepositoryModels::class.java)
@@ -156,22 +156,22 @@ class ToolingSerializerTest {
 
     val projectDependencies = ProjectDependenciesImpl()
     val mainCompileDependencies = DependencyScopeNode(1, "compileClasspath", "project : (compileClasspath)", "")
-    val mainRuntimeDependencies = DependencyScopeNode(1, "runtimeClasspath", "project : (runtimeClasspath)", "")
-    val mainDependency = ArtifactDependencyNodeImpl(2, "dep", "dep", "1.0")
-    val mainNestedDependency = ArtifactDependencyNodeImpl(3, "nestedDep", "nestedDep", "1.1")
+    val mainRuntimeDependencies = DependencyScopeNode(2, "runtimeClasspath", "project : (runtimeClasspath)", "")
+    val mainDependency = ArtifactDependencyNodeImpl(3, "dep", "dep", "1.0")
+    val mainNestedDependency = ArtifactDependencyNodeImpl(4, "nestedDep", "nestedDep", "1.1")
     mainDependency.dependencies.add(mainNestedDependency)
     mainRuntimeDependencies.dependencies.add(mainDependency)
-    mainRuntimeDependencies.dependencies.add(ReferenceNode(3))
+    mainRuntimeDependencies.dependencies.add(ReferenceNode(4))
     val mainComponentDependencies = ComponentDependenciesImpl("main", mainCompileDependencies, mainRuntimeDependencies)
     projectDependencies.add(mainComponentDependencies)
 
-    val testCompileDependencies = DependencyScopeNode(1, "testCompileClasspath", "project : (testCompileClasspath)", "")
-    val testRuntimeDependencies = DependencyScopeNode(1, "testRuntimeClasspath", "project : (testRuntimeClasspath)", "")
-    val testDependency = ArtifactDependencyNodeImpl(2, "dep", "dep", "1.0")
-    val testNestedDependency = ArtifactDependencyNodeImpl(3, "nestedDep", "nestedDep", "1.0")
+    val testCompileDependencies = DependencyScopeNode(5, "testCompileClasspath", "project : (testCompileClasspath)", "")
+    val testRuntimeDependencies = DependencyScopeNode(6, "testRuntimeClasspath", "project : (testRuntimeClasspath)", "")
+    val testDependency = ArtifactDependencyNodeImpl(7, "dep", "dep", "1.0")
+    val testNestedDependency = ArtifactDependencyNodeImpl(8, "nestedDep", "nestedDep", "1.0")
     testDependency.dependencies.add(testNestedDependency)
     testRuntimeDependencies.dependencies.add(testDependency)
-    testRuntimeDependencies.dependencies.add(ReferenceNode(3))
+    testRuntimeDependencies.dependencies.add(ReferenceNode(8))
     val testComponentDependencies = ComponentDependenciesImpl("test", testCompileDependencies, testRuntimeDependencies)
     projectDependencies.add(testComponentDependencies)
 

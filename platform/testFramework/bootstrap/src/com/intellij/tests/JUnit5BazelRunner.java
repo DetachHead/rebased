@@ -5,7 +5,6 @@ import com.intellij.platform.bazel.runfiles.BazelRunfilesManifest;
 import com.intellij.tests.bazel.BazelJUnitOutputListener;
 import com.intellij.tests.bazel.IjSmTestExecutionListener;
 import com.intellij.tests.bazel.TestExecutionOutputDecorator;
-import com.intellij.tests.bazel.bucketing.BucketsPostDiscoveryFilter;
 import com.intellij.util.ArrayUtil;
 import org.junit.platform.engine.DiscoverySelector;
 import org.junit.platform.engine.Filter;
@@ -16,7 +15,6 @@ import org.junit.platform.engine.discovery.ClassNameFilter;
 import org.junit.platform.engine.discovery.DiscoverySelectors;
 import org.junit.platform.engine.discovery.MethodSelector;
 import org.junit.platform.engine.discovery.UniqueIdSelector;
-import org.junit.platform.launcher.EngineFilter;
 import org.junit.platform.launcher.Launcher;
 import org.junit.platform.launcher.LauncherDiscoveryRequest;
 import org.junit.platform.launcher.PostDiscoveryFilter;
@@ -25,7 +23,6 @@ import org.junit.platform.launcher.TestIdentifier;
 import org.junit.platform.launcher.TestPlan;
 import org.junit.platform.launcher.core.LauncherDiscoveryRequestBuilder;
 import org.junit.platform.launcher.core.LauncherFactory;
-import org.junit.vintage.engine.descriptor.VintageTestDescriptor;
 
 import java.io.File;
 import java.io.IOException;
@@ -96,6 +93,9 @@ public final class JUnit5BazelRunner {
   // Allow test target to specify test jar explicitly. Android Studio runs tests from a external targets so SELF_LOCATION can't be used
   private static final String jbEnvTestJar = "JB_TEST_JAR";
 
+  // Test-only escape hatch for runner self-tests: build the real request while ignoring filters inherited from the outer Bazel run.
+  private static final String intellijBuildTestRunnerIgnoreInheritedFilters = "intellij.build.test.runner.ignore.inherited.filters";
+
   private static final String intellijBuildTestGroups = "intellij.build.test.groups";
   private static final String intellijBuildTestGroupRoots = "test.group.roots";
   private static final String commonTestGroupsResourceName = "tests/testGroups.properties";
@@ -103,23 +103,34 @@ public final class JUnit5BazelRunner {
   private static final ClassLoader ourClassLoader = Thread.currentThread().getContextClassLoader();
   private static final Launcher launcher = LauncherFactory.create();
 
-  private static final BucketsPostDiscoveryFilter bucketingPostDiscoveryFilter = new BucketsPostDiscoveryFilter();
+  private static JUnit5TeamCityRunner.BucketingClassNameFilter bucketingClassNameFilter;
   private static final PostDiscoveryFilter performancePostDiscoveryFilter = new JUnit5TeamCityRunner.PerformancePostDiscoveryFilter();
   private static final PostDiscoveryFilter ignorePostDiscoveryFilter = new JUnit5TeamCityRunner.IgnorePostDiscoveryFilter();
+  private static final PostDiscoveryFilter headlessPostDiscoveryFilter = new JUnit5TeamCityRunner.HeadlessPostDiscoveryFilter();
   private static final PostDiscoveryFilter shardFilter = ShardFilter.create();
+
+  private static JUnit5TeamCityRunner.BucketingClassNameFilter getBucketingClassNameFilter() {
+    if (bucketingClassNameFilter == null) {
+      bucketingClassNameFilter = new JUnit5TeamCityRunner.BucketingClassNameFilter();
+    }
+    return bucketingClassNameFilter;
+  }
 
   private static LauncherDiscoveryRequest getDiscoveryRequest() throws Throwable {
     List<? extends DiscoverySelector> bazelTestSelectors = getTestsSelectors(ourClassLoader);
-    return createDiscoveryRequest(bazelTestSelectors, System.getProperty("intellij.build.test.engine.vintage"));
+    return createDiscoveryRequest(bazelTestSelectors);
   }
 
-  public static LauncherDiscoveryRequest createDiscoveryRequest(List<? extends DiscoverySelector> bazelTestSelectors, String engineVintage) {
+  public static LauncherDiscoveryRequest createDiscoveryRequest(List<? extends DiscoverySelector> bazelTestSelectors) {
+    boolean ignoreInheritedFilters = Boolean.getBoolean(intellijBuildTestRunnerIgnoreInheritedFilters);
     LauncherDiscoveryRequestBuilder builder = LauncherDiscoveryRequestBuilder.request()
       .configurationParameter("junit.jupiter.extensions.autodetection.enabled", "true")
-      .selectors(bazelTestSelectors)
-      .filters(getTestFilters(bazelTestSelectors))
-      .filters(generateFiltersFromJbEnv().toArray(new Filter[0]))
-      .filters(getEngineFilters(engineVintage));
+      .selectors(bazelTestSelectors);
+    if (!ignoreInheritedFilters) {
+      builder
+        .filters(getTestFilters(bazelTestSelectors))
+        .filters(generateFiltersFromJbEnv().toArray(new Filter[0]));
+    }
 
     if (!"true".equals(System.getenv(jbEnvIdeSmRun))) {
       builder
@@ -127,9 +138,7 @@ public final class JUnit5BazelRunner {
         .configurationParameter(CAPTURE_STDERR_PROPERTY_NAME, "true");
     }
 
-    if (!"false".equals(engineVintage)) {
-      builder = builder.filters(ignorePostDiscoveryFilter);
-    }
+    builder = builder.filters(ignorePostDiscoveryFilter);
 
     return builder.build();
   }
@@ -218,6 +227,11 @@ public final class JUnit5BazelRunner {
 
         // org/jetbrains/intellij/build/dependencies/BuildDependenciesCommunityRoot.kt -> ctor
         Files.writeString(ideaHome.resolve("intellij.idea.community.main.iml"), "");
+
+        // the real home may be a read-only mount inside bazel's sandbox
+        Path userHome = tempDir.resolve("userHome");
+        Files.createDirectories(userHome);
+        System.setProperty("user.home", userHome.toString());
       }
       else {
         // Traditional arts: idea.home is set to monorepo checkout root
@@ -232,12 +246,13 @@ public final class JUnit5BazelRunner {
       System.out.println("Number of test engines: " + ServiceLoader.load(TestEngine.class).stream().count());
 
       var xmlOutputFile = getXmlOutputFile();
+      var bucketingClassNameFilter = getBucketingClassNameFilter();
 
       // If bucketing filters out all tests, we emit a minimal JUnit XML with a single testsuite named "Bucketing".
       // See: com.intellij.tests.JUnit5BazelRunner.xmlReportBucketingTestsFilteringOut
       TestPlan testPlan = getTestPlan();
       if (!testPlan.containsTests()) {
-        if (!bucketingPostDiscoveryFilter.hasExcludedClasses() && !bucketingPostDiscoveryFilter.hasIncludedClasses()) {
+        if (!bucketingClassNameFilter.hasExcludedClasses() && !bucketingClassNameFilter.hasIncludedClasses()) {
           //see org.jetbrains.intellij.build.impl.TestingTasksImpl.NO_TESTS_ERROR
           System.err.println("No tests found");
           System.exit(42);
@@ -408,8 +423,9 @@ public final class JUnit5BazelRunner {
       }
       filters.add(new JUnit5TeamCityRunner.CommonTestClassesFilter());
     }
-    filters.add(bucketingPostDiscoveryFilter);
+    filters.add(getBucketingClassNameFilter()); // bucketing
     filters.add(performancePostDiscoveryFilter);
+    filters.add(headlessPostDiscoveryFilter);
     if (shardFilter != null) {
       filters.add(shardFilter);
     }
@@ -506,17 +522,6 @@ public final class JUnit5BazelRunner {
     Path testGroupRootsDir = root.resolve("test-group-roots");
     Files.createDirectories(testGroupRootsDir);
     return testGroupRootsDir;
-  }
-
-  private static Filter<?>[] getEngineFilters(String engineVintage) {
-    if (engineVintage == null) {
-      return new Filter[0];
-    }
-    return switch (engineVintage) {
-      case "false" -> new Filter[]{EngineFilter.excludeEngines(VintageTestDescriptor.ENGINE_ID)};
-      case "only" -> new Filter[]{EngineFilter.includeEngines(VintageTestDescriptor.ENGINE_ID)};
-      default -> throw new RuntimeException("Unsupported engine value: " + engineVintage);
-    };
   }
 
   private static List<? extends DiscoverySelector> getTestsSelectors(ClassLoader classLoader) throws Throwable {

@@ -87,7 +87,7 @@ private class AsteriskStripperLexer(
   /** Enables markdown mode if necessary  */
   fun selectLexerMode(buffer: CharSequence, startOffset: Int) {
     myMarkdownMode = buffer.startsWith("///", startOffset)
-    myFlex.setMarkdownMode(myMarkdownMode)
+    myFlex._reset(myMarkdownMode)
   }
 
   fun doLocateToken() {
@@ -130,7 +130,7 @@ private class AsteriskStripperLexer(
 
       val state = myFlex.yystate()
       if (state == _JavaDocLexer.COMMENT_DATA ||
-          state != _JavaDocLexer.SNIPPET_TAG_BODY_DATA && myTokenEndOffset < myBufferEndOffset && myBuffer[myTokenEndOffset].let { it == '@' || it == '{' || it == '\"' || it == '<' }
+          state != _JavaDocLexer.INLINE_TAG_LITERAL_TEXT && myTokenEndOffset < myBufferEndOffset && myBuffer[myTokenEndOffset].let { it == '@' || it == '{' || it == '\"' || it == '<' }
       ) {
         myFlex.yybegin(_JavaDocLexer.COMMENT_DATA_START)
       }

@@ -34,6 +34,8 @@ import com.intellij.openapi.ui.DialogPanel
 import com.intellij.openapi.ui.getParentOfType
 import com.intellij.openapi.util.NlsContexts
 import com.intellij.openapi.wm.IdeFocusManager
+import com.intellij.platform.ide.progress.ModalTaskOwner
+import com.intellij.platform.ide.progress.runWithModalProgressBlocking
 import com.intellij.psi.codeStyle.NameUtil
 import com.intellij.ui.CollectionComboBoxModel
 import com.intellij.ui.DocumentAdapter
@@ -257,23 +259,30 @@ class StyleConfigurable : BoundConfigurable(GrazieBundle.message("grazie.setting
 
   private fun trackNewLanguageAddition() {
     GrazieConfig.subscribe(this) {
-      val newLanguages = loadLanguages() ?: return@subscribe
+      SwingUtilities.invokeLater {
+        val newLanguages = loadLanguages() ?: return@invokeLater
 
-      val lang = if (langComboModel.selected != null && langComboModel.selected in newLanguages) {
-        langComboModel.selected!!
-      } else {
-        GrazieConfig.get().availableLanguages.first { it.isEnglish() }
+        val lang = if (langComboModel.selected != null && langComboModel.selected in newLanguages) {
+          langComboModel.selected!!
+        } else {
+          GrazieConfig.get().availableLanguages.first { it.isEnglish() }
+        }
+        val language = lang.toLanguage()
+        settings.clear()
+        settings.addTextStyle(textStyle, language, filterComponent)
+        repaintSettings(textStyle, language)
+        langCombo.selected = lang
       }
-      val language = lang.toLanguage()
-      settings.clear()
-      settings.addTextStyle(textStyle, language, filterComponent)
-      repaintSettings(textStyle, language)
-      langCombo.selected = lang
     }
   }
 
   private fun loadLanguages(): Set<Lang>? {
-    val langs = GrazieConfig.get().availableLanguages
+    val langs = runWithModalProgressBlocking(
+      ModalTaskOwner.guess(),
+      GrazieBundle.message("grazie.settings.grammar.tabs.rules.loading.message"),
+    ) {
+      GrazieConfig.get().availableLanguages
+    }
     if (langComboModel.items == langs) return null
     langComboModel.removeAll()
     langComboModel.add(langs.toList())

@@ -1,7 +1,7 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
 ### auto-generated section `build intellij.kotlin.git` start
-
 jvm_library(
     name = "git",
     srcs = glob(
@@ -31,6 +31,8 @@ jvm_library(
     ],
 )
 
+content_module_jar(module = ":git")
+
 jvm_library(
     name = "git_test_lib",
     testonly = True,
@@ -58,6 +60,7 @@ jvm_library(
 exports_files(
     [
         "intellij.kotlin.git.iml",
+        "resources/intellij.kotlin.git.xml",
     ],
     visibility = ["//visibility:public"],
 )

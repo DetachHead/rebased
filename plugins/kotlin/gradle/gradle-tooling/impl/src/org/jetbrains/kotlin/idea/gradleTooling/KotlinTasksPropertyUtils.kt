@@ -57,9 +57,10 @@ private fun Task.getPureKotlinSourceRoots(sourceSet: String, disambiguationClass
         val kotlinExtensionClass = project.extensions.findByType(javaClass.classLoader.loadClass(KOTLIN_PROJECT_EXTENSION_CLASS))
         val getKotlinMethod = javaClass.classLoader.loadClass(KOTLIN_SOURCE_SET_CLASS).getMethod("getKotlin")
         val classifier = if (disambiguationClassifier == "metadata") "common" else disambiguationClassifier
+        val compilationFullName = compilationFullName(sourceSet, classifier)
         val kotlinSourceSet = (kotlinExtensionClass?.javaClass?.getMethod("getSourceSets")?.invoke(kotlinExtensionClass)
-                as? FactoryNamedDomainObjectContainer<Any>)?.asMap?.get(compilationFullName(sourceSet, classifier)) ?: return null
-        val pureJava: Set<File>? = getJavaSourceRoot(project, sourceSet)
+                as? FactoryNamedDomainObjectContainer<Any>)?.asMap?.get(compilationFullName) ?: return null
+        val pureJava: Set<File>? = getJavaSourceRoot(project, compilationFullName)
         return (getKotlinMethod.invoke(kotlinSourceSet) as? SourceDirectorySet)?.srcDirs?.filter {
             !(pureJava?.contains(it) ?: false)
         }?.toList()
@@ -70,7 +71,7 @@ private fun Task.getPureKotlinSourceRoots(sourceSet: String, disambiguationClass
 
 private fun getJavaSourceRoot(project: Project, sourceSet: String): Set<File>? {
     val javaSourceSet: SourceSet? = if (GradleVersionUtil.isGradleAtLeast(project.gradle.gradleVersion, "8.2")) {
-        project.extensions.getByType(JavaPluginExtension::class.java).sourceSets.asMap[sourceSet] as SourceSet
+        project.extensions.getByType(JavaPluginExtension::class.java).sourceSets.asMap[sourceSet]
     } else {
         ConventionJavaPluginAccessor(project).sourceSetContainer?.asMap[sourceSet]
     }

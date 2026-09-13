@@ -1,8 +1,8 @@
 load("@community//build:tests-options.bzl", "jps_test")
 load("@rules_jvm//:jvm.bzl", "jvm_library")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
 ### auto-generated section `build intellij.kotlin.base.scripting` start
-
 jvm_library(
     name = "kotlin-base-scripting",
     srcs = glob(
@@ -26,14 +26,14 @@ jvm_library(
         "//platform/core-api:core",
         "//platform/projectModel-api:projectModel",
         "@lib//:kotlin-stdlib",
-        "@lib//:kotlinc-kotlin-compiler-common",
-        "@lib//:kotlinc-kotlin-jps-common",
-        "@lib//:kotlinc-analysis-api",
-        "@lib//:kotlinc-analysis-api-platform-interface",
-        "@lib//:kotlinc-kotlin-script-runtime",
-        "@lib//:kotlinc-kotlin-scripting-common",
-        "@lib//:kotlinc-kotlin-scripting-jvm",
-        "@lib//:kotlinc-kotlin-scripting-compiler-impl",
+        "//platform/execution-impl",
+        "//libraries/kotlinc/kotlin-compiler-common:libraries-kotlinc-kotlin-compiler-common",
+        "//libraries/kotlinc/analysis-api:libraries-kotlinc-analysis-api",
+        "//libraries/kotlinc/analysis-api-platform-interface:libraries-kotlinc-analysis-api-platform-interface",
+        "//libraries/kotlinc/kotlin-scripting-common:libraries-kotlinc-kotlin-scripting-common",
+        "//platform/platform-util-io:ide-util-io",
+        "//libraries/kotlinc/kotlin-scripting-jvm:libraries-kotlinc-kotlin-scripting-jvm",
+        "//libraries/kotlinc/kotlin-scripting-compiler-impl:libraries-kotlinc-kotlin-scripting-compiler-impl",
         "//libraries/kotlinx/coroutines/core",
         "//plugins/kotlin/base/compiler-configuration",
         "//platform/util/progress",
@@ -64,11 +64,12 @@ jvm_library(
         "//platform/backend/workspace",
         "//plugins/kotlin/code-insight/utils",
         "//plugins/kotlin/code-insight/api",
+        "//plugins/kotlin/code-insight/kotlin.code-insight.k2:kotlin-codeInsight",
         "//platform/workspace/jps",
         "//platform/external-system-impl:externalSystem-impl",
         "//java/idea-ui:ui",
         "//java/java-frontback-psi-api:frontback-psi",
-        "@lib//:kotlinc-kotlin-scripting-dependencies",
+        "//libraries/kotlinc/kotlin-scripting-dependencies:libraries-kotlinc-kotlin-scripting-dependencies",
         "//platform/observable",
         "//platform/progress/shared:ide-progress",
         "//jps/model-api:model",
@@ -84,8 +85,15 @@ jvm_library(
         "//platform/util",
         "//platform/eel-provider",
         "//plugins/kotlin/scripting",
+        "//platform/statistics",
+        "//java/execution/impl",
+        "//plugins/kotlin/run-configurations/jvm",
+        "//platform/forms_rt:java-guiForms-rt",
+        "//plugins/kotlin/base/code-insight",
     ],
 )
+
+content_module_jar(module = ":kotlin-base-scripting")
 
 jvm_library(
     name = "kotlin-base-scripting_test_lib",
@@ -101,6 +109,14 @@ jvm_library(
         ":kotlin-base-scripting",
         "//platform/core-api:core_test_lib",
         "//platform/projectModel-api:projectModel_test_lib",
+        "//platform/execution-impl:execution-impl_test_lib",
+        "//libraries/kotlinc/kotlin-compiler-common:libraries-kotlinc-kotlin-compiler-common_test_lib",
+        "//libraries/kotlinc/analysis-api:libraries-kotlinc-analysis-api_test_lib",
+        "//libraries/kotlinc/analysis-api-platform-interface:libraries-kotlinc-analysis-api-platform-interface_test_lib",
+        "//libraries/kotlinc/kotlin-scripting-common:libraries-kotlinc-kotlin-scripting-common_test_lib",
+        "//platform/platform-util-io:ide-util-io_test_lib",
+        "//libraries/kotlinc/kotlin-scripting-jvm:libraries-kotlinc-kotlin-scripting-jvm_test_lib",
+        "//libraries/kotlinc/kotlin-scripting-compiler-impl:libraries-kotlinc-kotlin-scripting-compiler-impl_test_lib",
         "//libraries/kotlinx/coroutines/core:core_test_lib",
         "//plugins/kotlin/base/compiler-configuration:compiler-configuration_test_lib",
         "//platform/util/progress:progress_test_lib",
@@ -131,10 +147,12 @@ jvm_library(
         "//platform/backend/workspace:workspace_test_lib",
         "//plugins/kotlin/code-insight/utils:utils_test_lib",
         "//plugins/kotlin/code-insight/api:api_test_lib",
+        "//plugins/kotlin/code-insight/kotlin.code-insight.k2:kotlin-codeInsight_test_lib",
         "//platform/workspace/jps:jps_test_lib",
         "//platform/external-system-impl:externalSystem-impl_test_lib",
         "//java/idea-ui:ui_test_lib",
         "//java/java-frontback-psi-api:frontback-psi_test_lib",
+        "//libraries/kotlinc/kotlin-scripting-dependencies:libraries-kotlinc-kotlin-scripting-dependencies_test_lib",
         "//platform/observable:observable_test_lib",
         "//platform/progress/shared:ide-progress_test_lib",
         "//jps/model-api:model_test_lib",
@@ -150,6 +168,11 @@ jvm_library(
         "//platform/util:util_test_lib",
         "//platform/eel-provider:eel-provider_test_lib",
         "//plugins/kotlin/scripting:scripting_test_lib",
+        "//platform/statistics:statistics_test_lib",
+        "//java/execution/impl:impl_test_lib",
+        "//plugins/kotlin/run-configurations/jvm:jvm_test_lib",
+        "//platform/forms_rt:java-guiForms-rt_test_lib",
+        "//plugins/kotlin/base/code-insight:code-insight_test_lib",
     ],
 )
 ### auto-generated section `build intellij.kotlin.base.scripting` end
@@ -158,13 +181,13 @@ jvm_library(
 exports_files(
     [
         "intellij.kotlin.base.scripting.iml",
+        "resources/intellij.kotlin.base.scripting.xml",
     ],
     visibility = ["//visibility:public"],
 )
 ### auto-generated section `iml intellij.kotlin.base.scripting` end
 
 ### auto-generated section `build intellij.kotlin.base.scripting.tests` start
-
 jvm_library(
     name = "kotlin-base-scripting-tests",
     srcs = glob(
@@ -173,6 +196,7 @@ jvm_library(
     ),
     module_name = "intellij.kotlin.base.scripting.tests",
     visibility = ["//visibility:public"],
+    runtime_deps = ["//plugins/kotlin:kotlin-plugin-community-main"],
 )
 
 jvm_library(
@@ -194,28 +218,36 @@ jvm_library(
     runtime_deps = [
         # do not sort,
         ":kotlin-base-scripting-tests",
+        "//plugins/kotlin:kotlin-plugin-community-main_test_lib",
         "//platform/platform-impl:ide-impl_test_lib",
         "//platform/ide-core:ide-core_test_lib",
         "//platform/ide-core-impl:ide-core-impl_test_lib",
         "//platform/observable:observable_test_lib",
+        "//platform/platform-util-io:ide-util-io_test_lib",
     ],
     deps = [
         # do not sort,
-        "//plugins/kotlin/plugin/k2",
-        "//plugins/kotlin/plugin/k2:k2_test_lib",
         "//platform/core-api:core",
         "//platform/core-api:core_test_lib",
         "//platform/projectModel-api:projectModel",
         "//platform/projectModel-api:projectModel_test_lib",
         "@lib//:kotlin-stdlib",
-        "@lib//:kotlinc-kotlin-compiler-common",
-        "@lib//:kotlinc-kotlin-jps-common",
-        "@lib//:kotlinc-analysis-api",
-        "@lib//:kotlinc-analysis-api-platform-interface",
-        "@lib//:kotlinc-kotlin-script-runtime",
-        "@lib//:kotlinc-kotlin-scripting-common",
-        "@lib//:kotlinc-kotlin-scripting-jvm",
-        "@lib//:kotlinc-kotlin-scripting-compiler-impl",
+        "//libraries/kotlinc/kotlin-compiler-common:libraries-kotlinc-kotlin-compiler-common",
+        "//libraries/kotlinc/kotlin-compiler-common:libraries-kotlinc-kotlin-compiler-common_test_lib",
+        "//libraries/kotlinc/kotlin-jps-common:libraries-kotlinc-kotlin-jps-common",
+        "//libraries/kotlinc/kotlin-jps-common:libraries-kotlinc-kotlin-jps-common_test_lib",
+        "//libraries/kotlinc/analysis-api:libraries-kotlinc-analysis-api",
+        "//libraries/kotlinc/analysis-api:libraries-kotlinc-analysis-api_test_lib",
+        "//libraries/kotlinc/analysis-api-platform-interface:libraries-kotlinc-analysis-api-platform-interface",
+        "//libraries/kotlinc/analysis-api-platform-interface:libraries-kotlinc-analysis-api-platform-interface_test_lib",
+        "//libraries/kotlinc/kotlin-script-runtime:libraries-kotlinc-kotlin-script-runtime",
+        "//libraries/kotlinc/kotlin-script-runtime:libraries-kotlinc-kotlin-script-runtime_test_lib",
+        "//libraries/kotlinc/kotlin-scripting-common:libraries-kotlinc-kotlin-scripting-common",
+        "//libraries/kotlinc/kotlin-scripting-common:libraries-kotlinc-kotlin-scripting-common_test_lib",
+        "//libraries/kotlinc/kotlin-scripting-jvm:libraries-kotlinc-kotlin-scripting-jvm",
+        "//libraries/kotlinc/kotlin-scripting-jvm:libraries-kotlinc-kotlin-scripting-jvm_test_lib",
+        "//libraries/kotlinc/kotlin-scripting-compiler-impl:libraries-kotlinc-kotlin-scripting-compiler-impl",
+        "//libraries/kotlinc/kotlin-scripting-compiler-impl:libraries-kotlinc-kotlin-scripting-compiler-impl_test_lib",
         "//libraries/kotlinx/coroutines/core",
         "//libraries/kotlinx/coroutines/core:core_test_lib",
         "//libraries/junit5",
@@ -279,7 +311,8 @@ jvm_library(
         "//platform/external-system-impl:externalSystem-impl_test_lib",
         "//java/idea-ui:ui",
         "//java/idea-ui:ui_test_lib",
-        "@lib//:kotlinc-kotlin-scripting-dependencies",
+        "//libraries/kotlinc/kotlin-scripting-dependencies:libraries-kotlinc-kotlin-scripting-dependencies",
+        "//libraries/kotlinc/kotlin-scripting-dependencies:libraries-kotlinc-kotlin-scripting-dependencies_test_lib",
         "//platform/observable",
         "//jps/model-api:model",
         "//jps/model-api:model_test_lib",
@@ -324,8 +357,21 @@ jvm_library(
         "@lib//:kotlinc-kotlin-compiler-tests",
         "//plugins/kotlin/scripting",
         "//plugins/kotlin/scripting:scripting_test_lib",
+        "//platform/statistics",
+        "//platform/statistics:statistics_test_lib",
+        "//platform/statistics/testFramework",
+        "//platform/statistics/testFramework:testFramework_test_lib",
         "//plugins/kotlin/base/facet/tests",
         "//plugins/kotlin/base/facet/tests:tests_test_lib",
+        "//libraries/junit4",
+        "//libraries/junit4:junit4_test_lib",
+        "//plugins/kotlin/run-configurations/jvm",
+        "//plugins/kotlin/run-configurations/jvm:jvm_test_lib",
+        "//java/execution/impl",
+        "//java/execution/impl:impl_test_lib",
+        "//platform/execution-impl",
+        "//platform/execution-impl:execution-impl_test_lib",
+        "//platform/platform-util-io:ide-util-io",
     ],
 )
 ### auto-generated section `build intellij.kotlin.base.scripting.tests` end
@@ -340,7 +386,6 @@ exports_files(
 ### auto-generated section `iml intellij.kotlin.base.scripting.tests` end
 
 ### auto-generated section `test intellij.kotlin.base.scripting.tests` start
-
 jps_test(
     name = "kotlin-base-scripting-tests_test",
     runtime_deps = [":kotlin-base-scripting-tests_test_lib"],

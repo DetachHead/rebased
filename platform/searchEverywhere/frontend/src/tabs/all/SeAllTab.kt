@@ -21,11 +21,14 @@ import com.intellij.platform.searchEverywhere.frontend.AutoToggleAction
 import com.intellij.platform.searchEverywhere.frontend.SeEmptyResultInfo
 import com.intellij.platform.searchEverywhere.frontend.SeEmptyResultInfoProvider
 import com.intellij.platform.searchEverywhere.frontend.SeFilterEditor
+import com.intellij.platform.searchEverywhere.frontend.SeTabsCustomizer
 import com.intellij.platform.searchEverywhere.frontend.resultsProcessing.SeTabDelegate
 import com.intellij.platform.searchEverywhere.frontend.tabs.SeDefaultTabBase
 import com.intellij.platform.searchEverywhere.frontend.tabs.utils.SeFilterEditorBase
 import com.intellij.platform.searchEverywhere.presentations.SeItemPresentation
 import com.intellij.platform.searchEverywhere.providers.SeEverywhereFilter
+import com.intellij.platform.searchEverywhere.providers.SeEverywhereFilterImpl
+import com.intellij.platform.searchEverywhere.providers.cloneWith
 import com.intellij.platform.searchEverywhere.utils.SuspendLazyProperty
 import com.intellij.platform.searchEverywhere.utils.initAsync
 import com.intellij.ui.IdeUICustomization
@@ -42,11 +45,11 @@ class SeAllTab(delegate: SeTabDelegate) : SeDefaultTabBase(delegate) {
 
   override val id: String get() = ID
   private val filterEditor: SuspendLazyProperty<SeFilterEditor> = initAsync(delegate.scope) {
-    SeAllFilterEditor(delegate.getProvidersIdToName())
+    SeAllFilterEditor(delegate.getProvidersIdToName(), delegate.shouldHaveScopesFilter())
   }
 
   override fun getItems(params: SeParams): Flow<SeResultEvent> {
-    val allTabFilter = SeEverywhereFilter.from(params.filter)
+    val allTabFilter = SeEverywhereFilterImpl.from(params.filter)
     return delegate.getItems(params, allTabFilter.disabledProviderIds)
   }
 
@@ -59,7 +62,7 @@ class SeAllTab(delegate: SeTabDelegate) : SeDefaultTabBase(delegate) {
   }
 
   override suspend fun openInFindToolWindow(session: SeSession, params: SeParams): Boolean {
-    val allTabFilter = SeEverywhereFilter.from(params.filter)
+    val allTabFilter = SeEverywhereFilterImpl.from(params.filter)
     return delegate.openInFindToolWindow(session, params, true, allTabFilter.disabledProviderIds)
   }
 
@@ -87,8 +90,12 @@ class SeAllTab(delegate: SeTabDelegate) : SeDefaultTabBase(delegate) {
   }
 }
 
-private class SeAllFilterEditor(providersIdToName: Map<SeProviderId, @Nls String>) : SeFilterEditorBase<SeEverywhereFilter>(SeEverywhereFilter(true, false, disabledProviders)) {
-  private val actions = listOf(getEverywhereToggleAction(), PreviewAction(), getFilterTypesAction(providersIdToName))
+private class SeAllFilterEditor(providersIdToName: Map<SeProviderId, @Nls String>, withScopeFilter: Boolean) :
+  SeFilterEditorBase<SeEverywhereFilter>(SeEverywhereFilterImpl(true, false, disabledProviders))
+{
+  private val actions = listOfNotNull(if (withScopeFilter) getEverywhereToggleAction() else null,
+                                      PreviewAction(),
+                                      if (isTypeFilterEnabled) getFilterTypesAction(providersIdToName) else null)
   override fun getHeaderActions(): List<AnAction> = actions
 
   private fun getEverywhereToggleAction() = object : CheckBoxSearchEverywhereToggleAction(IdeUICustomization.getInstance().projectMessage("checkbox.include.non.project.items")), AutoToggleAction {
@@ -133,8 +140,10 @@ private class SeAllFilterEditor(providersIdToName: Map<SeProviderId, @Nls String
   }
 
   companion object {
+    private val isTypeFilterEnabled get() = SeTabsCustomizer.getInstance().isTypeFilterEnabled(SeAllTab.ID)
+
     val disabledProviders: List<SeProviderId>
       get() =
-        SearchEverywhereConfiguration.getInstance().state?.filteredOutFileTypeNames?.map { SeProviderId(it) } ?: emptyList()
+        SearchEverywhereConfiguration.getInstance().takeIf { isTypeFilterEnabled }?.state?.filteredOutFileTypeNames?.map { SeProviderId(it) } ?: emptyList()
   }
 }

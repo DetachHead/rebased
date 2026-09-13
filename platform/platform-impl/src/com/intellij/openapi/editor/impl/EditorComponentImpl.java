@@ -1,6 +1,7 @@
-// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.openapi.editor.impl;
 
+import com.intellij.diagnostic.PluginException;
 import com.intellij.ide.CutProvider;
 import com.intellij.ide.DataManager;
 import com.intellij.ide.IdeEventQueue;
@@ -23,9 +24,11 @@ import com.intellij.openapi.application.ModalityState;
 import com.intellij.openapi.application.TransactionGuard;
 import com.intellij.openapi.application.WriteAction;
 import com.intellij.openapi.application.WriteIntentReadAction;
+import com.intellij.openapi.application.ex.ApplicationManagerEx;
 import com.intellij.openapi.command.CommandProcessor;
 import com.intellij.openapi.command.UndoConfirmationPolicy;
 import com.intellij.openapi.diagnostic.Logger;
+import com.intellij.openapi.diagnostic.ThrottledLogger;
 import com.intellij.openapi.editor.Caret;
 import com.intellij.openapi.editor.CaretActionListener;
 import com.intellij.openapi.editor.Document;
@@ -51,7 +54,7 @@ import com.intellij.openapi.editor.event.DocumentListener;
 import com.intellij.openapi.editor.ex.DocumentEx;
 import com.intellij.openapi.editor.ex.EditorSettingsExternalizable;
 import com.intellij.openapi.editor.ex.util.EditorUIUtil;
-import com.intellij.openapi.editor.ex.util.EditorUtil;
+import com.intellij.openapi.extensions.PluginDescriptor;
 import com.intellij.openapi.fileEditor.FileDocumentManager;
 import com.intellij.openapi.fileEditor.impl.EditorsSplittersKt;
 import com.intellij.openapi.project.Project;
@@ -67,8 +70,8 @@ import com.intellij.ui.DirtyUI;
 import com.intellij.ui.Grayer;
 import com.intellij.ui.components.Magnificator;
 import com.intellij.ui.paint.PaintUtil;
-import com.intellij.ui.paint.PaintUtil.RoundingMode;
 import com.intellij.util.ArrayUtil;
+import com.intellij.util.ObjectUtils;
 import com.intellij.util.concurrency.ThreadingAssertions;
 import com.intellij.util.concurrency.annotations.RequiresEdt;
 import com.intellij.util.ui.EdtInvocationManager;
@@ -77,6 +80,7 @@ import com.intellij.util.ui.accessibility.AccessibleContextDelegateWithContextMe
 import com.intellij.util.ui.accessibility.AccessibleContextUtil;
 import com.intellij.util.ui.accessibility.ScreenReader;
 import org.intellij.lang.annotations.MagicConstant;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -93,7 +97,6 @@ import javax.accessibility.AccessibleText;
 import javax.accessibility.AccessibleTextSequence;
 import javax.swing.JViewport;
 import javax.swing.Scrollable;
-import javax.swing.SwingConstants;
 import javax.swing.event.UndoableEditListener;
 import javax.swing.plaf.TextUI;
 import javax.swing.text.AttributeSet;
@@ -123,20 +126,26 @@ import java.awt.event.InputMethodListener;
 import java.awt.event.MouseEvent;
 import java.awt.event.MouseListener;
 import java.awt.geom.AffineTransform;
+import java.awt.geom.Point2D;
 import java.awt.im.InputMethodRequests;
 import java.lang.ref.WeakReference;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
 
 @DirtyUI
 public final class EditorComponentImpl extends JTextComponent implements Scrollable, UiCompatibleDataProvider, Queryable, TypingTarget, Accessible,
                                                                          UISettingsListener, UiInspectorPreciseContextProvider {
   private static final Logger LOG = Logger.getInstance(EditorComponentImpl.class);
+  private static final ThrottledLogger THROTTLED_LOGGER = new ThrottledLogger(LOG, TimeUnit.HOURS.toMillis(1));
+  private static final ThreadLocal<PluginDescriptor> currentDescriptor = ThreadLocal.withInitial(() -> null);
 
   private final EditorImpl editor;
 
   private @Nullable Runnable myRepaintCallback;
+
+  private @NotNull Point2D alignment = new Point2D.Double();
 
   public EditorComponentImpl(@NotNull EditorImpl editor) {
     this.editor = editor;
@@ -239,11 +248,21 @@ public final class EditorComponentImpl extends JTextComponent implements Scrolla
     sink.set(CommonDataKeys.EDITOR, editor);
     sink.set(CommonDataKeys.CARET, editor.getCaretModel().getCurrentCaret());
 
-    LogicalPosition location = editor.myLastMousePressedLocation;
-    if (location == null) {
-        location = editor.getCaretModel().getLogicalPosition();
+    LogicalPosition pressedLocation = editor.myLastMousePressedLocation;
+    LogicalPosition location = pressedLocation != null ? pressedLocation : editor.getCaretModel().getLogicalPosition();
+    boolean virtualSpace = EditorCoreUtil.inVirtualSpace(editor, location);
+    // IJPL-52267: log whenever EDITOR_VIRTUAL_SPACE is derived from a retained mouse-press location instead
+    // of the caret. When the press location is virtual but the caret is not, this is precisely the value that
+    // wrongly disables keyboard Go To Declaration / Find Usages — correlate the "press #N" with the
+    // GotoDeclarationAction:trace "reason=virtualSpace" line and the focusLost trace for the same press.
+    if (pressedLocation != null && EditorImpl.MOUSE_PRESS_LOG.isTraceEnabled()) {
+      LogicalPosition caret = editor.getCaretModel().getLogicalPosition();
+      EditorImpl.MOUSE_PRESS_LOG.trace("[press #" + editor.myMousePressSeq + "] EDITOR_VIRTUAL_SPACE served from press location=" +
+                                       pressedLocation + " virtualSpace=" + virtualSpace +
+                                       " caret=" + caret + " caretVirtualSpace=" + EditorCoreUtil.inVirtualSpace(editor, caret) +
+                                       " ageMs=" + (System.nanoTime() - editor.myMousePressTimestampNanos) / 1_000_000);
     }
-    sink.set(CommonDataKeys.EDITOR_VIRTUAL_SPACE, EditorCoreUtil.inVirtualSpace(editor, location));
+    sink.set(CommonDataKeys.EDITOR_VIRTUAL_SPACE, virtualSpace);
   }
 
   @DirtyUI
@@ -333,15 +352,29 @@ public final class EditorComponentImpl extends JTextComponent implements Scrolla
     editor.measureTypingLatency();
 
     Graphics2D gg = (Graphics2D)g;
-    if (editor.useEditorAntialiasing()) {
-      EditorUIUtil.setupAntialiasing(gg);
+    EditorUIUtil.setupEditorPainting(gg, editor.useEditorAntialiasing());
+    AffineTransform origTx = PaintUtil.alignTxToInt(gg, PaintUtil.insets2offset(getInsets()), true, false, PaintUtil.RoundingMode.FLOOR);
+    if (!editor.isStickyLinePainting() && !editor.isPaintingDumbBuffer()) { // sticky lines and the offscreen dumb buffer might have a different alignment from the main area
+      alignment = ObjectUtils.notNull(PaintUtil.getUserSpacePixelOffset(gg), Point2D.Double::new);
     }
-    else {
-      UISettings.setupAntialiasing(gg);
-    }
-    gg.setRenderingHint(RenderingHints.KEY_FRACTIONALMETRICS, UISettings.getEditorFractionalMetricsHint());
-    AffineTransform origTx = PaintUtil.alignTxToInt(gg, PaintUtil.insets2offset(getInsets()), true, false, RoundingMode.FLOOR);
-    editor.paint(gg);
+
+    ApplicationManagerEx.getApplicationEx().withLocksSoftlyProhibited(
+      "The Read/Write lock is disallowed during paint. Usage of the R/W lock can lead to UI freezes.\n" +
+      "Consider using `PsiVersioningService.freezePsiVersion` for accessing PSI trees"
+      , t -> {
+        PluginDescriptor violatingDescriptor = currentDescriptor.get();
+        Throwable exception;
+        if (violatingDescriptor != null) {
+          exception = new PluginException(t, violatingDescriptor.getPluginId());
+        } else {
+          exception = t;
+        }
+        THROTTLED_LOGGER.error(exception);
+      }, () -> {
+      editor.paint(gg);
+      return null;
+    });
+
     if (origTx != null) {
       gg.setTransform(origTx);
     }
@@ -352,6 +385,31 @@ public final class EditorComponentImpl extends JTextComponent implements Scrolla
     }
   }
 
+  @ApiStatus.Internal
+  public static void withStoredDescriptor(@Nullable PluginDescriptor descriptor, @NotNull Runnable action) {
+    PluginDescriptor previousValue = currentDescriptor.get();
+    currentDescriptor.set(descriptor);
+    try {
+      action.run();
+    } finally {
+      currentDescriptor.set(previousValue);
+    }
+  }
+
+  /**
+   * Returns the offset from the nearest device pixel coordinate to the editor painting origin.
+   * <p>
+   *   Note that the current implementation always aligns X to an integer coordinate, so only the Y can be non-zero.
+   *   But as this can change at any moment, it's best to use both coordinates.
+   * </p>
+   * @return the unscaled (user space) offset used for the last painting operation, zero if no painting was performed yet or no fractional scaling is used
+   * @see PaintUtil#getUserSpacePixelOffset(Graphics2D)
+   */
+  @ApiStatus.Internal
+  public @NotNull Point2D getCurrentAlignment() {
+    return alignment;
+  }
+
   public void repaintEditorComponent(int x, int y, int width, int height) {
     int topOverhang = Math.max(0, editor.myView.getTopOverhang());
     int bottomOverhang = Math.max(0, editor.myView.getBottomOverhang());
@@ -359,6 +417,19 @@ public final class EditorComponentImpl extends JTextComponent implements Scrolla
     if (myRepaintCallback != null && isShowing() && width > 0 && height > 0) {
       myRepaintCallback.run();
     }
+  }
+
+  @Override
+  public void repaint(long tm, int x, int y, int width, int height) {
+    ApplicationManager.getApplication().invokeLater(() -> {
+      editor.invalidateAnimationCaches(new Rectangle(x, y, width, height));
+    });
+    super.repaint(tm, x, y, width, height);
+  }
+
+  @ApiStatus.Internal
+  public void repaintCaret(int x, int y, int width, int height) {
+    super.repaint(0L, x, y, width, height);
   }
 
   //--implementation of Scrollable interface--------------------------------------
@@ -371,31 +442,15 @@ public final class EditorComponentImpl extends JTextComponent implements Scrolla
   @DirtyUI
   @Override
   public int getScrollableUnitIncrement(Rectangle visibleRect, int orientation, int direction) {
-    return EditorThreading.compute(() -> {
-      if (orientation == SwingConstants.VERTICAL) {
-        return editor.getLineHeight();
-      }
-      // if orientation == SwingConstants.HORIZONTAL
-      return EditorUtil.getSpaceWidth(Font.PLAIN, editor);
-    });
+    return EditorThreading.compute(
+      () -> editor.getScrollableIncrementProvider().getScrollableUnitIncrement(editor, visibleRect, orientation, direction)
+    );
   }
 
   @DirtyUI
   @Override
   public int getScrollableBlockIncrement(Rectangle visibleRect, int orientation, int direction) {
-    if (orientation == SwingConstants.VERTICAL) {
-      int lineHeight = editor.getLineHeight();
-      if (direction > 0) {
-        int lineNumber = (visibleRect.y + visibleRect.height) / lineHeight;
-        return lineHeight * lineNumber - visibleRect.y;
-      }
-      else {
-        int lineNumber = (visibleRect.y - visibleRect.height) / lineHeight;
-        return visibleRect.y - lineHeight * lineNumber;
-      }
-    }
-    // if orientation == SwingConstants.HORIZONTAL
-    return visibleRect.width;
+    return editor.getScrollableIncrementProvider().getScrollableBlockIncrement(editor, visibleRect, orientation, direction);
   }
 
   @Override
@@ -1272,7 +1327,7 @@ public final class EditorComponentImpl extends JTextComponent implements Scrolla
     @Override
     public String getAccessibleDescription() {
       String description = super.getAccessibleDescription();
-      if (description == null && StringUtil.isEmpty(getText())) {
+      if (description == null && editor.getDocument().getTextLength() == 0) {
         //noinspection HardCodedStringLiteral
         CharSequence emptyText = getEditor().getPlaceholder();
         if (emptyText != null && !emptyText.isEmpty()) {

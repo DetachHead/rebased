@@ -32,6 +32,7 @@ import git4idea.config.GitVersionSpecialty
 import git4idea.log.GitLogProvider
 import git4idea.push.GitPushSource
 import git4idea.push.GitPushTarget
+import git4idea.repo.GitObjectFormat
 import git4idea.repo.GitRepository
 import kotlinx.coroutines.runBlocking
 import org.assertj.core.api.Assertions.assertThat
@@ -88,10 +89,10 @@ fun createFileStructure(rootDir: VirtualFile, vararg paths: String) {
   rootDir.refresh(false, true)
 }
 
-internal fun initRepo(project: Project?, repoRoot: Path, makeInitialCommit: Boolean) {
+internal fun initRepo(project: Project?, repoRoot: Path, makeInitialCommit: Boolean, objectFormat: GitObjectFormat = GitObjectFormat.SHA1) {
   Files.createDirectories(repoRoot)
   cd(repoRoot.toString())
-  gitInit(project)
+  gitInit(project, "--object-format=${objectFormat.value}")
   setupDefaultUsername(project)
   setupLocalIgnore(repoRoot)
   if (makeInitialCommit) {
@@ -106,15 +107,19 @@ internal fun setupLocalIgnore(repoRoot: Path) {
 }
 
 fun GitPlatformTest.cloneRepo(source: String, destination: String, bare: Boolean) {
+  cloneRepo(project, source, destination, bare)
+}
+
+internal fun cloneRepo(project: Project?, source: String, destination: String, bare: Boolean) {
   cd(source)
   if (bare) {
-    git("clone --bare -- . $destination")
+    git(project, "clone --bare -- . $destination")
   }
   else {
-    git("clone -- . $destination")
+    git(project, "clone -- . $destination")
   }
   cd(destination)
-  setupDefaultUsername()
+  setupDefaultUsername(project)
 }
 
 internal fun setupDefaultUsername(project: Project?) {
@@ -122,6 +127,10 @@ internal fun setupDefaultUsername(project: Project?) {
 }
 
 internal fun GitPlatformTest.setupDefaultUsername() {
+  setupDefaultUsername(project)
+}
+
+internal fun VcsPlatformTestContext.setupDefaultUsername() {
   setupDefaultUsername(project)
 }
 
@@ -141,10 +150,11 @@ private fun disableGitGc(project: Project) {
  * registers it in the Settings;
  * return the [GitRepository] object for this newly created repository.
  */
-fun createRepository(project: Project, root: String) = createRepository(project, Paths.get(root), true)
+@JvmOverloads
+fun createRepository(project: Project, root: String, makeInitialCommit: Boolean = true) = createRepository(project, Paths.get(root), makeInitialCommit)
 
-internal fun createRepository(project: Project, root: Path, makeInitialCommit: Boolean): GitRepository {
-  initRepo(project, root, makeInitialCommit)
+internal fun createRepository(project: Project, root: Path, makeInitialCommit: Boolean, objectFormat: GitObjectFormat = GitObjectFormat.SHA1): GitRepository {
+  initRepo(project, root, makeInitialCommit, objectFormat)
   LocalFileSystem.getInstance().refreshAndFindFileByNioFile(root.resolve(GitUtil.DOT_GIT))!!
   return registerRepo(project, root)
 }
@@ -183,7 +193,13 @@ fun assumeSupportedGitVersion(vcs: GitVcs) {
   assumeTrue("Unsupported Git version: $version", version.isSupported)
 }
 
-fun GitPlatformTest.readAllRefs(root: VirtualFile, objectsFactory: VcsLogObjectsFactory): Set<VcsRef> {
+fun GitPlatformTest.readAllRefs(root: VirtualFile, objectsFactory: VcsLogObjectsFactory): Set<VcsRef> =
+  readAllRefs(root, objectsFactory) { git(it) }
+
+fun VcsPlatformTestContext.readAllRefs(root: VirtualFile, objectsFactory: VcsLogObjectsFactory): Set<VcsRef> =
+  readAllRefs(root, objectsFactory) { git(it) }
+
+private fun readAllRefs(root: VirtualFile, objectsFactory: VcsLogObjectsFactory, git: (String) -> String): Set<VcsRef> {
   val refs = git("log --branches --tags --no-walk --format=%H%d --decorate=full").lines()
   val result = mutableSetOf<VcsRef>()
   for (ref in refs) {
@@ -198,7 +214,20 @@ fun GitPlatformTest.makeCommit(file: String): String {
   return last()
 }
 
+fun GitPlatformTestContext.makeCommit(file: String): String {
+  append(file, "some content")
+  addCommit("some message")
+  return last()
+}
+
 fun GitPlatformTest.makeCommit(author: VcsUser, file: String): String {
+  setupUsername(project, author.name, author.email)
+  val commit = modify(file)
+  setupDefaultUsername(project)
+  return commit
+}
+
+fun GitPlatformTestContext.makeCommit(author: VcsUser, file: String): String {
   setupUsername(project, author.name, author.email)
   val commit = modify(file)
   setupDefaultUsername(project)

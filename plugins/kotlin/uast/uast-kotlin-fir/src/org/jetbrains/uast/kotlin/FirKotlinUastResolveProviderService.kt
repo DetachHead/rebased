@@ -1,4 +1,4 @@
-// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 
 package org.jetbrains.uast.kotlin
 
@@ -12,23 +12,31 @@ import com.intellij.psi.impl.compiled.ClsMemberImpl
 import com.intellij.psi.impl.file.PsiPackageImpl
 import com.intellij.util.SmartList
 import com.intellij.util.containers.addIfNotNull
-import org.jetbrains.kotlin.analysis.api.KaExperimentalApi
 import org.jetbrains.kotlin.analysis.api.KaSession
 import org.jetbrains.kotlin.analysis.api.annotations.KaAnnotation
+import org.jetbrains.kotlin.analysis.api.components.asPsiType
+import org.jetbrains.kotlin.analysis.api.components.resolveToSymbol
+import org.jetbrains.kotlin.analysis.api.components.returnType
+import org.jetbrains.kotlin.analysis.api.expressions.expectedType
+import org.jetbrains.kotlin.analysis.api.expressions.expressionType
+import org.jetbrains.kotlin.analysis.api.expressions.functionType
 import org.jetbrains.kotlin.analysis.api.projectStructure.KaLibraryModule
-import org.jetbrains.kotlin.analysis.api.projectStructure.KaModuleProvider
 import org.jetbrains.kotlin.analysis.api.projectStructure.KaSourceModule
+import org.jetbrains.kotlin.analysis.api.projectStructure.kaModule
 import org.jetbrains.kotlin.analysis.api.resolution.KaAnnotationCall
+import org.jetbrains.kotlin.analysis.api.resolution.KaCompoundAccessCall
 import org.jetbrains.kotlin.analysis.api.resolution.KaCompoundArrayAccessCall
 import org.jetbrains.kotlin.analysis.api.resolution.KaCompoundVariableAccessCall
 import org.jetbrains.kotlin.analysis.api.resolution.KaFunctionCall
-import org.jetbrains.kotlin.analysis.api.resolution.KaSimpleVariableAccess
-import org.jetbrains.kotlin.analysis.api.resolution.KaSimpleVariableAccessCall
 import org.jetbrains.kotlin.analysis.api.resolution.KaVariableAccessCall
-import org.jetbrains.kotlin.analysis.api.resolution.singleCallOrNull
-import org.jetbrains.kotlin.analysis.api.resolution.singleConstructorCallOrNull
-import org.jetbrains.kotlin.analysis.api.resolution.singleFunctionCallOrNull
+import org.jetbrains.kotlin.analysis.api.resolution.collectCallCandidates
+import org.jetbrains.kotlin.analysis.api.resolution.constructor
+import org.jetbrains.kotlin.analysis.api.resolution.function
+import org.jetbrains.kotlin.analysis.api.resolution.single
 import org.jetbrains.kotlin.analysis.api.resolution.symbol
+import org.jetbrains.kotlin.analysis.api.resolution.tryResolveCall
+import org.jetbrains.kotlin.analysis.api.resolution.variable
+import org.jetbrains.kotlin.analysis.api.session.canBeAnalysed
 import org.jetbrains.kotlin.analysis.api.symbols.KaAnonymousFunctionSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaBackingFieldSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaCallableSymbol
@@ -45,12 +53,26 @@ import org.jetbrains.kotlin.analysis.api.symbols.KaSymbolModality
 import org.jetbrains.kotlin.analysis.api.symbols.KaSyntheticJavaPropertySymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaValueParameterSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaVariableSymbol
+import org.jetbrains.kotlin.analysis.api.symbols.classSymbol
+import org.jetbrains.kotlin.analysis.api.symbols.containingDeclaration
 import org.jetbrains.kotlin.analysis.api.symbols.markers.KaNamedSymbol
+import org.jetbrains.kotlin.analysis.api.symbols.pointers.restoreSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.receiverType
+import org.jetbrains.kotlin.analysis.api.symbols.symbol
 import org.jetbrains.kotlin.analysis.api.types.KaErrorType
+import org.jetbrains.kotlin.analysis.api.types.KaStandardTypeClassIds
 import org.jetbrains.kotlin.analysis.api.types.KaType
 import org.jetbrains.kotlin.analysis.api.types.KaTypeMappingMode
+import org.jetbrains.kotlin.analysis.api.types.classId
+import org.jetbrains.kotlin.analysis.api.types.commonSupertype
+import org.jetbrains.kotlin.analysis.api.types.fullyExpandedType
+import org.jetbrains.kotlin.analysis.api.types.isFunctionalInterface
+import org.jetbrains.kotlin.analysis.api.types.isMarkedNullable
+import org.jetbrains.kotlin.analysis.api.types.lowerBoundIfFlexible
+import org.jetbrains.kotlin.analysis.api.types.receiverType
 import org.jetbrains.kotlin.analysis.api.types.symbol
+import org.jetbrains.kotlin.analysis.api.types.type
+import org.jetbrains.kotlin.analysis.api.types.typeCreation.typeCreator
 import org.jetbrains.kotlin.asJava.toLightAnnotation
 import org.jetbrains.kotlin.descriptors.Modality
 import org.jetbrains.kotlin.idea.references.mainReference
@@ -96,6 +118,7 @@ import org.jetbrains.kotlin.psi.KtWhenEntry
 import org.jetbrains.kotlin.psi.ValueArgument
 import org.jetbrains.kotlin.psi.psiUtil.getStrictParentOfType
 import org.jetbrains.kotlin.psi.psiUtil.parents
+import org.jetbrains.kotlin.resolution.KtResolvableCall
 import org.jetbrains.kotlin.utils.exceptions.errorWithAttachment
 import org.jetbrains.kotlin.utils.exceptions.withPsiEntry
 import org.jetbrains.kotlin.utils.yieldIfNotNull
@@ -179,7 +202,7 @@ interface FirKotlinUastResolveProviderService : BaseKotlinUastResolveProviderSer
 
     override fun convertValueArguments(ktCallElement: KtCallElement, parent: UElement): List<UNamedExpression>? {
         analyzeForUast(ktCallElement) {
-            val argumentMapping = ktCallElement.resolveToCall()?.singleFunctionCallOrNull()?.argumentMapping ?: return null
+            val argumentMapping = ktCallElement.tryResolveCall()?.single?.function?.valueArgumentMapping ?: return null
             val handledParameters = mutableSetOf<KaValueParameterSymbol>()
             val valueArguments = SmartList<UNamedExpression>()
             // NB: we need a loop over call element's value arguments to preserve their order.
@@ -208,8 +231,8 @@ interface FirKotlinUastResolveProviderService : BaseKotlinUastResolveProviderSer
     override fun findAttributeValueExpression(uAnnotation: KotlinUAnnotation, arg: ValueArgument): UExpression? {
         val annotationEntry = uAnnotation.sourcePsi
         analyzeForUast(annotationEntry) {
-            val resolvedAnnotationCall = annotationEntry.resolveToCall()?.singleCallOrNull<KaAnnotationCall>() ?: return null
-            val parameter = resolvedAnnotationCall.argumentMapping[arg.getArgumentExpression()]?.symbol ?: return null
+            val resolvedAnnotationCall = annotationEntry.tryResolveCall()?.single as? KaAnnotationCall ?: return null
+            val parameter = resolvedAnnotationCall.valueArgumentMapping[arg.getArgumentExpression()]?.symbol ?: return null
             val namedExpression = uAnnotation.attributeValues.find { it.name == parameter.name.asString() }
             return namedExpression?.expression as? KotlinUVarargExpression ?: namedExpression
         }
@@ -218,7 +241,7 @@ interface FirKotlinUastResolveProviderService : BaseKotlinUastResolveProviderSer
     override fun findDefaultValueForAnnotationAttribute(ktCallElement: KtCallElement, name: String): UExpression? {
         analyzeForUast(ktCallElement) {
             val resolvedAnnotationConstructorSymbol =
-                ktCallElement.resolveToCall()?.singleConstructorCallOrNull()?.symbol ?: return null
+                ktCallElement.tryResolveCall()?.single?.constructor?.symbol ?: return null
             val psi = resolvedAnnotationConstructorSymbol.psi
             if (psi is PsiClass) {
                 // a usage Java annotation
@@ -231,11 +254,11 @@ interface FirKotlinUastResolveProviderService : BaseKotlinUastResolveProviderSer
 
     override fun getArgumentForParameter(ktCallElement: KtCallElement, index: Int, parent: UElement): UExpression? {
         analyzeForUast(ktCallElement) {
-            val resolvedFunctionCall = ktCallElement.resolveToCall()?.singleFunctionCallOrNull()
+            val resolvedFunctionCall = ktCallElement.tryResolveCall()?.single?.function
             val resolvedFunctionLikeSymbol =
                 resolvedFunctionCall?.symbol ?: return null
             val parameter = resolvedFunctionLikeSymbol.valueParameters.getOrNull(index) ?: return null
-            val arguments = resolvedFunctionCall.argumentMapping.entries
+            val arguments = resolvedFunctionCall.valueArgumentMapping.entries
                 .filter { (_, param) -> param.symbol == parameter }
                 .mapNotNull { (arg, _) -> arg.parentValueArgument }
             return when {
@@ -254,7 +277,6 @@ interface FirKotlinUastResolveProviderService : BaseKotlinUastResolveProviderSer
         }
     }
 
-    @OptIn(KaExperimentalApi::class)
     override fun getImplicitParameters(
         ktLambdaExpression: KtLambdaExpression,
         parent: UElement,
@@ -321,15 +343,16 @@ interface FirKotlinUastResolveProviderService : BaseKotlinUastResolveProviderSer
 
     override fun getReferenceVariants(ktExpression: KtExpression, nameHint: String): Sequence<PsiElement> {
         val candidates = analyzeForUast(ktExpression) {
+            val resolvableCall = ktExpression as? KtResolvableCall ?: return@analyzeForUast emptyList()
             buildList {
-                ktExpression.resolveToCallCandidates().forEach { candidateInfo ->
+                resolvableCall.collectCallCandidates().forEach { candidateInfo ->
                     when (val candidate = candidateInfo.candidate) {
                         is KaFunctionCall<*> -> {
-                            add(candidate.partiallyAppliedSymbol.symbol)
+                            add(candidate.symbol)
                         }
 
                         is KaCompoundVariableAccessCall -> {
-                            when (val variableSymbol = candidate.variablePartiallyAppliedSymbol.symbol) {
+                            when (val variableSymbol = candidate.variableCall.symbol) {
                                 is KaSyntheticJavaPropertySymbol -> {
                                     add(variableSymbol.javaGetterSymbol)
                                     addIfNotNull(variableSymbol.javaSetterSymbol)
@@ -341,13 +364,13 @@ interface FirKotlinUastResolveProviderService : BaseKotlinUastResolveProviderSer
                                 else ->
                                     add(variableSymbol)
                             }
-                            add(candidate.compoundOperation.operationPartiallyAppliedSymbol.symbol)
+                            add(candidate.operationCall.symbol)
                         }
 
                         is KaCompoundArrayAccessCall -> {
-                            add(candidate.getPartiallyAppliedSymbol.symbol)
-                            add(candidate.setPartiallyAppliedSymbol.symbol)
-                            add(candidate.compoundOperation.operationPartiallyAppliedSymbol.symbol)
+                            add(candidate.getterCall.symbol)
+                            add(candidate.setterCall.symbol)
+                            add(candidate.operationCall.symbol)
                         }
 
                         else -> {}
@@ -373,7 +396,7 @@ interface FirKotlinUastResolveProviderService : BaseKotlinUastResolveProviderSer
     override fun resolveBitwiseOperators(ktBinaryExpression: KtBinaryExpression): UastBinaryOperator {
         val other = UastBinaryOperator.OTHER
         analyzeForUast(ktBinaryExpression) {
-            val resolvedCall = ktBinaryExpression.resolveToCall()?.singleFunctionCallOrNull() ?: return other
+            val resolvedCall = ktBinaryExpression.tryResolveCall()?.single?.function ?: return other
             val operatorName = resolvedCall.symbol.callableId?.callableName?.asString() ?: return other
             return KotlinUBinaryExpression.BITWISE_OPERATORS[operatorName] ?: other
         }
@@ -381,22 +404,25 @@ interface FirKotlinUastResolveProviderService : BaseKotlinUastResolveProviderSer
 
     override fun resolveCall(ktElement: KtElement): PsiMethod? {
         analyzeForUast(ktElement) {
-            val kaCallInfo = ktElement.resolveToCall() ?: return null
-            kaCallInfo.singleFunctionCallOrNull()
-                ?.symbol
-                ?.let { return toPsiMethod(it, ktElement, kaCallInfo) }
+            val resolutionAttempt = (ktElement as? KtResolvableCall)?.tryResolveCall() ?: return null
+
+            resolutionAttempt.single?.function?.let { functionCall ->
+                return toPsiMethod(functionCall.symbol, ktElement, functionCall)
+            }
+
             // Simple access: =
-            kaCallInfo.singleCallOrNull<KaSimpleVariableAccessCall>()?.let { variableAccessCall ->
+            resolutionAttempt.single?.variable?.let { variableAccessCall ->
                 (variableAccessCall.symbol as? KaPropertySymbol)?.let { propertySymbol ->
-                    when (variableAccessCall.simpleAccess) {
-                        is KaSimpleVariableAccess.Read -> {
+                    when (variableAccessCall.kind) {
+                        is KaVariableAccessCall.Kind.Read -> {
                             propertySymbol.getter?.let {
-                                return toPsiMethod(it, ktElement, kaCallInfo)
+                                return toPsiMethod(it, ktElement, variableAccessCall)
                             }
                         }
-                        is KaSimpleVariableAccess.Write -> {
+
+                        is KaVariableAccessCall.Kind.Write -> {
                             propertySymbol.setter?.let {
-                                return toPsiMethod(it, ktElement, kaCallInfo)
+                                return toPsiMethod(it, ktElement, variableAccessCall)
                             }
                         }
                     }
@@ -407,12 +433,12 @@ interface FirKotlinUastResolveProviderService : BaseKotlinUastResolveProviderSer
                 is KtBinaryExpression,
                 is KtPrefixExpression,
                 is KtPostfixExpression -> {
-                    kaCallInfo.singleCallOrNull<KaCompoundVariableAccessCall>()
-                        ?.compoundOperation
-                        ?.operationPartiallyAppliedSymbol
+                    val operationCall =
+                        (resolutionAttempt.single as? KaCompoundAccessCall)?.operationCall
+                    operationCall
                         ?.signature
                         ?.symbol
-                        ?.let { toPsiMethod(it, ktElement, kaCallInfo) }
+                        ?.let { toPsiMethod(it, ktElement, operationCall) }
                 }
 
                 else -> null
@@ -422,15 +448,15 @@ interface FirKotlinUastResolveProviderService : BaseKotlinUastResolveProviderSer
 
     override fun resolveSyntheticJavaPropertyAccessorCall(ktSimpleNameExpression: KtSimpleNameExpression): PsiMethod? {
         return analyzeForUast(ktSimpleNameExpression) {
-            val kaCallInfo = ktSimpleNameExpression.resolveToCall() ?: return null
-            val variableAccessCall = kaCallInfo.singleCallOrNull<KaSimpleVariableAccessCall>() ?: return null
+            val variableAccessCall =
+                (ktSimpleNameExpression as? KtResolvableCall)?.tryResolveCall()?.single?.variable ?: return null
             val propertySymbol = variableAccessCall.symbol as? KaSyntheticJavaPropertySymbol ?: return null
-            when (variableAccessCall.simpleAccess) {
-                is KaSimpleVariableAccess.Read -> {
-                    toPsiMethod(propertySymbol.javaGetterSymbol, ktSimpleNameExpression, kaCallInfo)
+            when (variableAccessCall.kind) {
+                is KaVariableAccessCall.Kind.Read -> {
+                    toPsiMethod(propertySymbol.javaGetterSymbol, ktSimpleNameExpression, variableAccessCall)
                 }
-                is KaSimpleVariableAccess.Write -> {
-                    toPsiMethod(propertySymbol.javaSetterSymbol?: return null, ktSimpleNameExpression, kaCallInfo)
+                is KaVariableAccessCall.Kind.Write -> {
+                    toPsiMethod(propertySymbol.javaSetterSymbol?: return null, ktSimpleNameExpression, variableAccessCall)
                 }
             }
         }
@@ -446,14 +472,14 @@ interface FirKotlinUastResolveProviderService : BaseKotlinUastResolveProviderSer
         }
 
         analyzeForUast(ktCallElement) {
-            val ktCall = ktCallElement.resolveToCall()?.singleFunctionCallOrNull() ?: return false
+            val ktCall = ktCallElement.tryResolveCall()?.single?.function ?: return false
             return ktCall.symbol.isExtension
         }
     }
 
     override fun resolvedFunctionName(ktCallElement: KtCallElement): String? {
         analyzeForUast(ktCallElement) {
-            val resolvedFunctionLikeSymbol = ktCallElement.resolveToCall()?.singleFunctionCallOrNull()?.symbol ?: return null
+            val resolvedFunctionLikeSymbol = ktCallElement.tryResolveCall()?.single?.function?.symbol ?: return null
             return (resolvedFunctionLikeSymbol as? KaNamedSymbol)?.name?.identifierOrNullIfSpecial
                 ?: (resolvedFunctionLikeSymbol as? KaConstructorSymbol)?.let { SpecialNames.INIT.asString() }
         }
@@ -462,7 +488,7 @@ interface FirKotlinUastResolveProviderService : BaseKotlinUastResolveProviderSer
     override fun qualifiedAnnotationName(ktCallElement: KtCallElement): String? {
         analyzeForUast(ktCallElement) {
             val resolvedAnnotationConstructorSymbol =
-                ktCallElement.resolveToCall()?.singleConstructorCallOrNull()?.symbol ?: return null
+                ktCallElement.tryResolveCall()?.single?.constructor?.symbol ?: return null
             val type = resolvedAnnotationConstructorSymbol.returnType.fullyExpandedType
             return type.symbol?.classId
                 ?.asSingleFqName()
@@ -481,7 +507,7 @@ interface FirKotlinUastResolveProviderService : BaseKotlinUastResolveProviderSer
 
         analyzeForUast(ktCallElement) {
             val resolvedFunctionLikeSymbol =
-                ktCallElement.resolveToCall()?.singleFunctionCallOrNull()?.symbol ?: return UastCallKind.METHOD_CALL
+                ktCallElement.tryResolveCall()?.single?.function?.symbol ?: return UastCallKind.METHOD_CALL
             val fqName = resolvedFunctionLikeSymbol.callableId?.asSingleFqName()
             return when {
                 resolvedFunctionLikeSymbol is KaSamConstructorSymbol ||
@@ -505,7 +531,7 @@ interface FirKotlinUastResolveProviderService : BaseKotlinUastResolveProviderSer
 
         analyzeForUast(ktCallElement) {
             val resolvedAnnotationConstructorSymbol =
-                ktCallElement.resolveToCall()?.singleConstructorCallOrNull()?.symbol ?: return false
+                ktCallElement.tryResolveCall()?.single?.constructor?.symbol ?: return false
             val classSymbol = resolvedAnnotationConstructorSymbol.containingDeclaration as? KaNamedClassSymbol ?: return false
             return classSymbol.classKind == KaClassKind.ANNOTATION_CLASS
         }
@@ -513,7 +539,7 @@ interface FirKotlinUastResolveProviderService : BaseKotlinUastResolveProviderSer
 
     override fun resolveToClassIfConstructorCall(ktCallElement: KtCallElement, source: UElement): PsiClass? {
         analyzeForUast(ktCallElement) {
-            val resolvedFunctionLikeSymbol = ktCallElement.resolveToCall()?.singleFunctionCallOrNull()?.symbol ?: return null
+            val resolvedFunctionLikeSymbol = ktCallElement.tryResolveCall()?.single?.function?.symbol ?: return null
             return when (resolvedFunctionLikeSymbol) {
                 is KaConstructorSymbol -> {
                     val context = containingKtClass(resolvedFunctionLikeSymbol) ?: ktCallElement
@@ -531,7 +557,7 @@ interface FirKotlinUastResolveProviderService : BaseKotlinUastResolveProviderSer
 
     override fun resolveToClass(ktAnnotationEntry: KtAnnotationEntry, source: UElement): PsiClass? {
         analyzeForUast(ktAnnotationEntry) {
-            val resolvedAnnotationCall = ktAnnotationEntry.resolveToCall()?.singleCallOrNull<KaAnnotationCall>() ?: return null
+            val resolvedAnnotationCall = ktAnnotationEntry.tryResolveCall()?.single as? KaAnnotationCall ?: return null
             val resolvedAnnotationConstructorSymbol = resolvedAnnotationCall.symbol
             val ktType = resolvedAnnotationConstructorSymbol.returnType
             val context = containingKtClass(resolvedAnnotationConstructorSymbol) ?: ktAnnotationEntry
@@ -576,8 +602,6 @@ interface FirKotlinUastResolveProviderService : BaseKotlinUastResolveProviderSer
                 return resolveSyntheticJavaPropertyAccessorCall(ktExpression)
             }
 
-            val project = ktExpression.project
-
             val resolvedTargetElement =
                 when (resolvedTargetSymbol) {
                     is KaBackingFieldSymbol -> {
@@ -608,7 +632,7 @@ interface FirKotlinUastResolveProviderService : BaseKotlinUastResolveProviderSer
             }
 
             if (resolvedTargetElement != null) {
-                when (KaModuleProvider.getModule(project, resolvedTargetElement, useSiteModule = null)) {
+                when (resolvedTargetElement.kaModule) {
                     is KaSourceModule -> {
                         // `getMaybeLightElement` tries light element conversion first, and then something else for local declarations.
                         resolvedTargetElement.getMaybeLightElement(ktExpression)?.let { return it }
@@ -626,12 +650,10 @@ interface FirKotlinUastResolveProviderService : BaseKotlinUastResolveProviderSer
             fun resolveToPsiClassOrEnumEntry(classOrObject: KtClassOrObject): PsiElement? {
                 val ktType = when (classOrObject) {
                     is KtEnumEntry -> {
-                        @OptIn(KaExperimentalApi::class)
                         classOrObject.symbol.callableId?.classId?.let(typeCreator::classType)
                     }
                     else -> {
                         // NB: Avoid symbol creation/retrieval
-                        @OptIn(KaExperimentalApi::class)
                         classOrObject.getClassId()?.let(typeCreator::classType)
                         // Fallback option for local class
                             ?: classOrObject.classSymbol?.let(typeCreator::classType)
@@ -666,7 +688,6 @@ interface FirKotlinUastResolveProviderService : BaseKotlinUastResolveProviderSer
                 }
 
                 is KtTypeParameter -> {
-                    @OptIn(KaExperimentalApi::class)
                     val ktType = typeCreator.typeParameterType(resolvedTargetElement.symbol)
                     toPsiClass(
                         ktType,
@@ -762,14 +783,14 @@ interface FirKotlinUastResolveProviderService : BaseKotlinUastResolveProviderSer
 
     override fun getReceiverType(ktCallElement: KtCallElement, source: UElement): PsiType? {
         analyzeForUast(ktCallElement) {
-            val ktCall = ktCallElement.resolveToCall()?.singleFunctionCallOrNull() ?: return null
+            val ktCall = ktCallElement.tryResolveCall()?.single?.function ?: return null
             return receiverType(ktCall, source, ktCallElement)
         }
     }
 
     override fun getAccessorReceiverType(ktSimpleNameExpression: KtSimpleNameExpression, source: UElement): PsiType? {
         analyzeForUast(ktSimpleNameExpression) {
-            val ktCall = ktSimpleNameExpression.resolveToCall()?.singleCallOrNull<KaVariableAccessCall>() ?: return null
+            val ktCall = (ktSimpleNameExpression as? KtResolvableCall)?.tryResolveCall()?.single?.variable ?: return null
             return receiverType(ktCall, source, ktSimpleNameExpression)
         }
     }
@@ -823,7 +844,7 @@ interface FirKotlinUastResolveProviderService : BaseKotlinUastResolveProviderSer
             val ktType = ktExpression.expressionType.takeUnless { it is KaErrorType } ?: return null
             // Again, Analysis API returns [Unit] for statements, so we need to filter out
             // some cases that are not actually expression's return type.
-            if (ktType.isUnitType) {
+            if (ktType.classId == KaStandardTypeClassIds.UNIT) {
                 // E.g., AnnotationTarget.FIELD, reference to enum class is resolved to the constructor call,
                 // and then returned as Unit expression type. Same for path segments in a fully qualified name
                 if ((parent is KtQualifiedExpression || parent is KtDoubleColonExpression) &&
@@ -899,7 +920,6 @@ interface FirKotlinUastResolveProviderService : BaseKotlinUastResolveProviderSer
         analyzeForUast(suspendFunction) {
             val symbol = suspendFunction.symbol as? KaNamedFunctionSymbol ?: return null
             if (!symbol.isSuspend) return null
-            @OptIn(KaExperimentalApi::class)
             val continuationType = typeCreator.classType(StandardClassIds.Continuation) {
                 invariantTypeArgument(symbol.returnType)
             }
@@ -954,7 +974,7 @@ interface FirKotlinUastResolveProviderService : BaseKotlinUastResolveProviderSer
     private inline fun <R> getTargetType(
         psiElement: PsiElement,
         defaultValue: R,
-        typeConsumer: KaSession.(KaType?) -> R,
+        typeConsumer: context(KaSession) (KaType?) -> R,
     ): R {
         return when (psiElement) {
             is KtTypeReference -> {

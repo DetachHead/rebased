@@ -1,18 +1,22 @@
 // Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
-package org.jetbrains.kotlin.idea.codeinsights.impl.base.inspections
+package org.jetbrains.kotlin.idea.refactoring.intentions
 
 import org.jetbrains.annotations.NonNls
-import org.jetbrains.kotlin.analysis.api.analyze
+import org.jetbrains.kotlin.analysis.api.expressions.expressionType
 import org.jetbrains.kotlin.analysis.api.permissions.KaAllowAnalysisFromWriteAction
 import org.jetbrains.kotlin.analysis.api.permissions.KaAllowAnalysisOnEdt
 import org.jetbrains.kotlin.analysis.api.permissions.allowAnalysisFromWriteAction
 import org.jetbrains.kotlin.analysis.api.permissions.allowAnalysisOnEdt
 import org.jetbrains.kotlin.analysis.api.resolution.KaImplicitReceiverValue
-import org.jetbrains.kotlin.analysis.api.resolution.singleFunctionCallOrNull
-import org.jetbrains.kotlin.analysis.api.resolution.successfulFunctionCallOrNull
+import org.jetbrains.kotlin.analysis.api.resolution.function
+import org.jetbrains.kotlin.analysis.api.resolution.resolveSuccessfulCall
+import org.jetbrains.kotlin.analysis.api.resolution.single
 import org.jetbrains.kotlin.analysis.api.resolution.symbol
+import org.jetbrains.kotlin.analysis.api.resolution.tryResolveCall
+import org.jetbrains.kotlin.analysis.api.session.analyze
 import org.jetbrains.kotlin.analysis.api.symbols.KaReceiverParameterSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.markers.KaNamedSymbol
+import org.jetbrains.kotlin.analysis.api.types.isMarkedNullable
 import org.jetbrains.kotlin.idea.base.psi.copied
 import org.jetbrains.kotlin.idea.base.psi.replaced
 import org.jetbrains.kotlin.idea.base.psi.safeDeparenthesize
@@ -118,18 +122,18 @@ object OperatorToFunctionConverter {
         val left = element.left!!
         val right = element.right!!
 
-        if (op == KtTokens.EQ) {
-            if (left is KtArrayAccessExpression) {
-                convertArrayAccess(left)
-            }
-            return element
-        }
-
         val functionName = getCalledFunctionName(element)?.asString()
         val receiverIsNullable = isOfNullableType(left)
 
         @NonNls
         val pattern = when (op) {
+            KtTokens.EQ -> {
+                when (left) {
+                    // for `=` only array assignment is applicable
+                    is KtArrayAccessExpression -> return convertArrayAccess(left)
+                    else -> return element
+                }
+            }
             KtTokens.PLUS -> "$0.plus($1)"
             KtTokens.MINUS -> "$0.minus($1)"
             KtTokens.MUL -> "$0.times($1)"
@@ -179,8 +183,8 @@ object OperatorToFunctionConverter {
         @OptIn(KaAllowAnalysisFromWriteAction::class)
         allowAnalysisFromWriteAction {
             analyze(element) {
-                val resolvedCall = element.resolveToCall()?.singleFunctionCallOrNull()
-                val targetSymbol = resolvedCall?.partiallyAppliedSymbol?.symbol
+                val resolvedCall = element.tryResolveCall()?.single?.function
+                val targetSymbol = resolvedCall?.symbol
 
                 (targetSymbol as? KaNamedSymbol)?.name
             }
@@ -219,7 +223,7 @@ object OperatorToFunctionConverter {
         allowAnalysisOnEdt {
             allowAnalysisFromWriteAction {
                 analyze(element) {
-                    val argumentMapping = element.resolveToCall()?.singleFunctionCallOrNull()?.argumentMapping.orEmpty()
+                    val argumentMapping = element.tryResolveCall()?.single?.function?.valueArgumentMapping.orEmpty()
                     if (argumentMapping[element.indexExpressions.firstOrNull()]?.symbol?.isVararg == true) {
                         argumentMapping[(element.parent as KtBinaryExpression).right]?.symbol?.name?.asString()
                             .let { pattern.appendFixedText("$it = ") }
@@ -351,8 +355,8 @@ object OperatorToFunctionConverter {
         val owner = allowAnalysisOnEdt {
             allowAnalysisFromWriteAction {
                 analyze(callee) {
-                    val partiallyAppliedSymbol = element.resolveToCall()?.successfulFunctionCallOrNull()?.partiallyAppliedSymbol
-                    val symbol = (partiallyAppliedSymbol?.extensionReceiver as? KaImplicitReceiverValue)?.symbol
+                    val functionCall = element.resolveSuccessfulCall()
+                    val symbol = (functionCall?.extensionReceiver as? KaImplicitReceiverValue)?.symbol
                     (symbol as? KaReceiverParameterSymbol)?.owningCallableSymbol?.psi
                 }
             }

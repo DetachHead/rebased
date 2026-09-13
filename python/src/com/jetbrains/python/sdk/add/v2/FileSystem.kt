@@ -21,26 +21,34 @@ import com.intellij.openapi.util.UserDataHolder
 import com.intellij.openapi.util.UserDataHolderBase
 import com.intellij.openapi.util.io.FileUtil
 import com.intellij.platform.eel.EelApi
+import com.intellij.platform.eel.EelDescriptor
 import com.intellij.platform.eel.EelExecApi
 import com.intellij.platform.eel.environmentVariables
-import com.intellij.platform.eel.isWindows
 import com.intellij.platform.eel.provider.asNioPath
 import com.intellij.platform.eel.provider.getEelDescriptor
 import com.intellij.platform.eel.provider.localEel
 import com.intellij.platform.eel.provider.toEelApi
-import com.intellij.platform.eel.where
 import com.intellij.python.community.execService.Args
 import com.intellij.python.community.execService.BinOnEel
 import com.intellij.python.community.execService.BinOnTarget
 import com.intellij.python.community.execService.BinaryToExec
 import com.intellij.python.community.execService.ExecService
 import com.intellij.python.community.execService.execGetStdout
+import com.intellij.python.community.execService.python.getLanguageLevelFromVersionStringSafe
+import com.intellij.python.community.execService.python.getVersionFromVersionStringSafe
 import com.intellij.python.community.execService.python.validatePythonAndGetInfo
+import com.intellij.python.sdk.backend.detectPythonEnvironment
+import com.intellij.python.sdk.backend.getPythonInfo
 import com.intellij.python.community.services.internal.impl.VanillaPythonWithPythonInfoImpl
 import com.intellij.python.community.services.shared.VanillaPythonWithPythonInfo
 import com.intellij.python.community.services.systemPython.SysPythonRegisterError
 import com.intellij.python.community.services.systemPython.SystemPython
 import com.intellij.python.community.services.systemPython.SystemPythonService
+import com.intellij.python.pytools.ToolCommandSpec
+import com.intellij.python.pytools.ToolSearchPath
+import com.intellij.python.pytools.impl.detectExecutableOnEel
+import com.intellij.python.sdk.backend.PySdkBundle
+import com.intellij.python.sdk.backend.resolvePythonBinary
 import com.intellij.python.venv.sdk.flavors.VirtualEnvSdkFlavor
 import com.intellij.util.SlowOperations
 import com.intellij.util.concurrency.annotations.RequiresEdt
@@ -65,19 +73,19 @@ import com.jetbrains.python.sdk.PySdkSettings
 import com.jetbrains.python.sdk.PythonSdkAdditionalData
 import com.jetbrains.python.sdk.PythonSdkType
 import com.jetbrains.python.sdk.PythonSdkUtil
+import com.jetbrains.python.sdk.ToolProbeResult
 import com.jetbrains.python.sdk.asBinToExecute
 import com.jetbrains.python.sdk.associatedModulePath
 import com.jetbrains.python.sdk.createSdk
 import com.jetbrains.python.sdk.getSdksToInstall
-import com.jetbrains.python.sdk.impl.PySdkBundle
-import com.jetbrains.python.sdk.impl.resolvePythonBinary
-import com.jetbrains.python.sdk.impl.resolvePythonHome
 import com.jetbrains.python.sdk.isSystemWide
 import com.jetbrains.python.target.PyTargetAwareAdditionalData
 import com.jetbrains.python.target.PythonLanguageRuntimeConfiguration
 import com.jetbrains.python.target.ui.TargetPanelExtension
 import com.jetbrains.python.venvReader.VirtualEnvReader
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import org.jetbrains.annotations.Nls
 import org.jetbrains.annotations.NonNls
@@ -103,8 +111,10 @@ data class EelFileSystem(
   override val isBrowsable: Boolean = true
   override val isReadOnly: Boolean = false
   override val isLocal: Boolean = eelApi == localEel
+  override val toolPathCanBePersisted: Boolean = isLocal
   override val userReadableName: @NonNls String = eelApi.descriptor.name
   override val platformAndRoot: PlatformAndRoot = eelApi.getPlatformAndRoot()
+  override val eelDescriptor: EelDescriptor = eelApi.descriptor
 
   override fun getBinaryToExec(path: PathHolder.Eel, workingDir: Path?): BinaryToExec {
     return BinOnEel(path.path, workingDir)
@@ -137,6 +147,7 @@ data class EelFileSystem(
     targetPanelExtension: TargetPanelExtension?,
     suggestedSdkName: String?,
   ): PyResult<Sdk> {
+    require(sdkAdditionalData.hasValidWorkingDirectory()) { "Python SDK working directory must be initialized before setup" }
     return createSdk(pythonBinaryPath, sdkAdditionalData, suggestedSdkName)
   }
 
@@ -273,9 +284,8 @@ data class EelFileSystem(
     return pythonHome.path.resolvePythonBinary()?.let { PathHolder.Eel(it) }
   }
 
-  override fun resolvePythonHome(pythonBinary: PathHolder.Eel): PathHolder.Eel {
-    return PathHolder.Eel(pythonBinary.path.resolvePythonHome())
-  }
+  override fun resolvePythonHome(pythonHomeOrBinary: PathHolder.Eel): PathHolder.Eel =
+    PathHolder.Eel(VirtualEnvReader().resolvePythonHomeFromBinaryOrDir(pythonHomeOrBinary.path))
 
   override fun getVenvName(pythonHome: PathHolder.Eel): String? {
     return resolvePythonBinary(pythonHome)?.let { VirtualEnvReader().getVenvName(it.path) }
@@ -294,7 +304,8 @@ data class EelFileSystem(
     return withContext(Dispatchers.IO) {
       workingDir.listDirectoryEntries().filter { it.isDirectory() }.mapNotNull { possibleVenvHome ->
         val pythonBinary = resolvePythonBinary(PathHolder.Eel(possibleVenvHome)) ?: return@mapNotNull null
-        val pythonInfo = pythonBinary.path.validatePythonAndGetInfo().successOrNull ?: return@mapNotNull null
+        val pythonInfo = pythonBinary.path.detectPythonEnvironment().successOrNull?.getPythonInfo()?.successOrNull
+                         ?: return@mapNotNull null
         val ui = uiInfoGetter(pythonBinary)
         DetectedSelectableInterpreter(pythonBinary, pythonInfo, false, ui)
       }
@@ -302,33 +313,21 @@ data class EelFileSystem(
   }
 
   override suspend fun detectTool(
-    toolName: String,
-    additionalSearchPaths: List<PathHolder.Eel>,
+    toolSpec: ToolCommandSpec,
     filter: (PathHolder.Eel) -> Boolean,
-  ): PathHolder.Eel? = withContext(Dispatchers.IO) {
-    val fromPath = eelApi.exec.where(toolName)
-      ?.asNioPath()
-      ?.let { PathHolder.Eel(it) }
-      ?.takeIf(filter)
-    if (fromPath != null) return@withContext fromPath
+  ): PathHolder.Eel? =
+    detectExecutableOnEel(eelApi, toolSpec) { filter(PathHolder.Eel(it)) }?.let { PathHolder.Eel(it) }
 
-    val binaryNames =
-      if (eelApi.platform.isWindows) listOf("$toolName.exe", "$toolName.bat")
-      else listOf(toolName)
-    for (path in additionalSearchPaths) {
-      assert(path.path.getEelDescriptor() == eelApi.descriptor) {
-        "Additional search paths should be on the same descriptor as EelFileSystem API, but $path isn't on $eelApi"
-      }
-      for (binaryName in binaryNames) {
-        val candidate = path.path.resolve(binaryName)
-          .takeIf { it.isExecutable() }
-          ?.let { PathHolder.Eel(it) }
-          ?.takeIf(filter)
-        if (candidate != null) return@withContext candidate
-      }
+  override suspend fun probeTools(
+    toolSpecs: List<ToolCommandSpec>,
+  ): PyResult<Map<String, ToolProbeResult<PathHolder.Eel>>> = withContext(Dispatchers.IO) {
+    val result = linkedMapOf<String, ToolProbeResult<PathHolder.Eel>>()
+    for (toolSpec in toolSpecs) {
+      val path = detectTool(toolSpec) ?: continue
+      val versionOutput = ExecService().execGetStdout(getBinaryToExec(path), Args("--version")).successOrNull
+      result[toolSpec.toolName] = ToolProbeResult(path, versionOutput)
     }
-
-    null
+    PyResult.success(result)
   }
 
   override suspend fun getFullPath(prefixEnvVar: String, pathComponents: List<String>): PathHolder.Eel? {
@@ -356,19 +355,25 @@ data class EelFileSystem(
 
 data class TargetFileSystem(
   val targetEnvironmentConfiguration: TargetEnvironmentConfiguration,
-  val pythonLanguageRuntimeConfiguration: PythonLanguageRuntimeConfiguration,
+  private val pythonLanguageRuntimeConfiguration: PythonLanguageRuntimeConfiguration,
+  private val targetProbeWorkingDirectory: Path? = null,
 ) : FileSystem<PathHolder.Target> {
   override val isReadOnly: Boolean
     get() = !PythonInterpreterTargetEnvironmentFactory.isMutable(targetEnvironmentConfiguration)
   override val isBrowsable: Boolean
     get() = targetEnvironmentConfiguration.getTargetType() is BrowsableTargetEnvironmentType
   override val isLocal: Boolean = false
+  override val toolPathCanBePersisted: Boolean = false
   override val userReadableName: @NonNls String = targetEnvironmentConfiguration.displayName
   override val platformAndRoot: PlatformAndRoot = targetEnvironmentConfiguration.getPlatformAndRoot()
+  override val eelDescriptor: EelDescriptor? = null
 
-  private val systemPythonCache = ArrayList<DetectedSelectableInterpreter<PathHolder.Target>>()
+  private val systemPythonCache = mutableMapOf<PathHolder.Target, CachedSystemPython>()
   private lateinit var shellImpl: String
   private lateinit var home: PathHolder.Target
+  private val toolProbeCache = ToolProbeCache<ToolCommandSpec, ToolProbeResult<PathHolder.Target>>()
+  private val targetUserInfoLock = Mutex()
+  private var detectedEnvironments: List<TargetEnvironmentProbe>? = null
 
   override fun parsePath(raw: String): PyResult<PathHolder.Target> {
     return PyResult.success(PathHolder.Target(raw))
@@ -386,7 +391,7 @@ data class TargetFileSystem(
   ) {
     val targetType = targetEnvironmentConfiguration.getTargetType()
     if (targetType is BrowsableTargetEnvironmentType) {
-      val descriptor = FileChooserDescriptorFactory.singleFile().withTitle(browseTitle)
+      val descriptor = FileChooserDescriptorFactory.singleFileOrDir().withTitle(browseTitle)
       val hints = TargetBrowserHints(showLocalFsInBrowser = true, descriptor)
 
       val actionListener = targetType.createBrowser(
@@ -414,11 +419,11 @@ data class TargetFileSystem(
     targetPanelExtension: TargetPanelExtension?,
     suggestedSdkName: String?,
   ): PyResult<Sdk> {
+    require(sdkAdditionalData.hasValidWorkingDirectory()) { "Python SDK working directory must be initialized before setup" }
     val languageLevel = getBinaryToExec(pythonBinaryPath).validatePythonAndGetInfo().getOr { return it }.languageLevel
 
     val (additionalData, customSdkSuggestedName) = run {
-      val flavorAndData = sdkAdditionalData.flavorAndData
-      val data = PyTargetAwareAdditionalData(flavorAndData).also {
+      val data = PyTargetAwareAdditionalData(sdkAdditionalData, targetEnvironmentConfiguration).also {
         it.interpreterPath = pythonBinaryPath.toString()
         it.targetEnvironmentConfiguration = targetEnvironmentConfiguration
       }
@@ -488,21 +493,27 @@ data class TargetFileSystem(
     PyResult.success(PathHolder.Target(homePathString))
   }
 
-  private suspend fun registerSystemPython(pathToPython: PathHolder.Target): PyResult<DetectedSelectableInterpreter<PathHolder.Target>> {
+  private suspend fun getOrValidateSystemPython(pathToPython: PathHolder.Target): PyResult<CachedSystemPython> {
+    getCachedSystemPython(pathToPython)?.let { return PyResult.success(it) }
+
     val pythonBinaryToExec = getBinaryToExec(pathToPython)
     val pythonInfo = pythonBinaryToExec.validatePythonAndGetInfo().getOr {
       return it
     }
 
-    val interpreter = DetectedSelectableInterpreter(
+    val detectedPython = CachedSystemPython.Executable(createSystemPython(pathToPython, pythonInfo))
+    return PyResult.success(cacheSystemPython(pathToPython, detectedPython))
+  }
+
+  private fun createSystemPython(
+    pathToPython: PathHolder.Target,
+    pythonInfo: PythonInfo,
+  ): DetectedSelectableInterpreter<PathHolder.Target> {
+    return DetectedSelectableInterpreter(
       homePath = pathToPython,
       pythonInfo = pythonInfo,
       true,
-    ).also {
-      systemPythonCache.add(it)
-    }
-
-    return PyResult.success(interpreter)
+    )
   }
 
   override suspend fun wrapSdk(sdk: Sdk): SdkWrapper<PathHolder.Target> {
@@ -517,13 +528,19 @@ data class TargetFileSystem(
     pathToPython: PathHolder.Target,
     requireSystemPython: Boolean,
   ): PyResult<DetectedSelectableInterpreter<PathHolder.Target>> {
-    return registerSystemPython(pathToPython)
+    return when (val cachedPython = getOrValidateSystemPython(pathToPython).getOr { return it }) {
+      CachedSystemPython.NotExecutable -> PyResult.localizedError(message("sdk.configuration.path.python.invalid", pathToPython.pathString))
+      is CachedSystemPython.Executable -> PyResult.success(cachedPython.interpreter)
+    }
   }
 
   override suspend fun detectSelectableVenv(projectPathPrefix: Path): List<DetectedSelectableInterpreter<PathHolder.Target>> {
     val fullPathOnTarget = pythonLanguageRuntimeConfiguration.pythonInterpreterPath
     val pathHolder = PathHolder.Target(fullPathOnTarget)
-    val systemPython = getSystemPythonFromSelection(pathHolder, requireSystemPython = false).getOr { return emptyList() }
+    val systemPython = when (val cachedPython = findInitialSystemPython(pathHolder).getOr { return emptyList() }) {
+      CachedSystemPython.NotExecutable -> return emptyList()
+      is CachedSystemPython.Executable -> cachedPython.interpreter
+    }
     return listOf(systemPython)
   }
 
@@ -533,8 +550,9 @@ data class TargetFileSystem(
     return PathHolder.Target(VirtualEnvReader().findPythonInPythonRootForTarget(pythonHomeString, platform))
   }
 
-  override fun resolvePythonHome(pythonBinary: PathHolder.Target): PathHolder.Target {
-    return PathHolder.Target(pythonBinary.pathString.substringBeforeLast("/bin/"))
+  override fun resolvePythonHome(pythonHomeOrBinary: PathHolder.Target): PathHolder.Target {
+    val platform = targetEnvironmentConfiguration.getPlatformAndRoot().platform
+    return PathHolder.Target(VirtualEnvReader().resolvePythonHomeFromBinaryOrDir(pythonHomeOrBinary.pathString, platform))
   }
 
   override fun getVenvName(pythonHome: PathHolder.Target): String? {
@@ -545,11 +563,15 @@ data class TargetFileSystem(
   }
 
   override suspend fun getHomePath(): PathHolder.Target? {
-    if (!this::home.isInitialized) {
-      val homeValue = getEnvVar("HOME").successOrNull ?: return null
-      home = PathHolder.Target(homeValue)
+    targetUserInfoLock.withLock { if (this::home.isInitialized) home else null }?.let { return it }
+
+    val homeValue = getEnvVar("HOME").successOrNull ?: return null
+    return targetUserInfoLock.withLock {
+      if (!this@TargetFileSystem::home.isInitialized) {
+        home = PathHolder.Target(homeValue)
+      }
+      home
     }
-    return home
   }
 
   override fun normalizePathToRemote(path: PathHolder.Target): PathHolder.Target {
@@ -558,12 +580,21 @@ data class TargetFileSystem(
     return PathHolder.Target(targetPath)
   }
 
-  // TODO PY-87712 Support detection for remotes
   override suspend fun detectEnvironments(
     workingDir: Path,
     uiInfoGetter: (PathHolder.Target) -> PyToolUIInfo?,
   ): List<DetectedSelectableInterpreter<PathHolder.Target>> {
-    return emptyList()
+    probeTools(packageManagerToolCommandSpecs).orLogException(LOG) ?: return emptyList()
+    val environments = targetUserInfoLock.withLock { detectedEnvironments.orEmpty() }
+    return environments.mapNotNull { environment ->
+      val pythonInfo = environment.python.toPythonInfo() ?: return@mapNotNull null
+      DetectedSelectableInterpreter(
+        homePath = environment.path,
+        pythonInfo = pythonInfo,
+        isBase = false,
+        ui = uiInfoGetter(environment.path),
+      )
+    }
   }
 
   private suspend fun which(cmd: String): PathHolder.Target? {
@@ -573,13 +604,18 @@ data class TargetFileSystem(
   }
 
   override suspend fun detectTool(
-    toolName: String,
-    additionalSearchPaths: List<PathHolder.Target>,
+    toolSpec: ToolCommandSpec,
     filter: (PathHolder.Target) -> Boolean,
   ): PathHolder.Target? = withContext(Dispatchers.IO) {
+    val toolName = toolSpec.toolName
+    if (toolSpec in packageManagerToolCommandSpecs) {
+      val probeResult = probeTools(packageManagerToolCommandSpecs).orLogException(LOG)
+      if (probeResult != null) return@withContext probeResult[toolName]?.path
+    }
     val fromWhich = which(toolName)?.takeIf(filter)
     if (fromWhich != null) return@withContext fromWhich
 
+    val additionalSearchPaths = resolveToolSearchPaths(toolSpec)
     for (path in additionalSearchPaths) {
       val candidate = parsePath("${path.pathString}/$toolName").successOrNull
         ?.takeIf { filter(it) && fileExists(it) }
@@ -587,6 +623,75 @@ data class TargetFileSystem(
     }
 
     null
+  }
+
+  override suspend fun probeTools(
+    toolSpecs: List<ToolCommandSpec>,
+  ): PyResult<Map<String, ToolProbeResult<PathHolder.Target>>> = withContext(Dispatchers.IO) {
+    if (toolSpecs.isEmpty()) return@withContext PyResult.success(emptyMap())
+
+    val probes = toolProbeCache.getOrLoad(toolSpecs) loader@{ missingSpecs ->
+      val pythonPath = getPythonPathToProbe()
+      val snapshot = probeTargetTools(missingSpecs, pythonPath, targetProbeWorkingDirectory).getOr { return@loader it }
+      updateFromProbe(snapshot, pythonPath)
+      PyResult.success(snapshot.tools)
+    }.getOr { return@withContext it }
+
+    val result = probes.map { (toolSpec, tool) -> toolSpec.toolName to tool }.toMap()
+    PyResult.success(result)
+  }
+
+  private suspend fun getPythonPathToProbe(): PathHolder.Target? = targetUserInfoLock.withLock {
+    val path = pythonLanguageRuntimeConfiguration.pythonInterpreterPath.takeIf { it.isNotBlank() }?.let { PathHolder.Target(it) }
+    path?.takeUnless(systemPythonCache::containsKey)
+  }
+
+  private suspend fun findInitialSystemPython(path: PathHolder.Target): PyResult<CachedSystemPython> {
+    getCachedSystemPython(path)?.let { return PyResult.success(it) }
+    probeTools(packageManagerToolCommandSpecs).getOr { return getOrValidateSystemPython(path) }
+    getCachedSystemPython(path)?.let { return PyResult.success(it) }
+    return getOrValidateSystemPython(path)
+  }
+
+  private suspend fun getCachedSystemPython(path: PathHolder.Target): CachedSystemPython? = targetUserInfoLock.withLock {
+    systemPythonCache[path]
+  }
+
+  private suspend fun cacheSystemPython(path: PathHolder.Target, python: CachedSystemPython): CachedSystemPython =
+    targetUserInfoLock.withLock {
+      systemPythonCache.getOrPut(path) { python }
+    }
+
+  private suspend fun updateFromProbe(snapshot: TargetProbeSnapshot, pythonPath: PathHolder.Target?) {
+    val cachedPython = pythonPath?.let { path -> snapshot.python?.toCachedSystemPython(path) }
+
+    targetUserInfoLock.withLock {
+      snapshot.home.takeIf { it.isNotBlank() }?.let {
+        if (!this@TargetFileSystem::home.isInitialized) home = PathHolder.Target(it)
+      }
+      snapshot.shell.takeIf { it.isNotBlank() }?.let {
+        if (!this@TargetFileSystem::shellImpl.isInitialized) shellImpl = it
+      }
+      if (pythonPath != null && cachedPython != null) {
+        systemPythonCache.putIfAbsent(pythonPath, cachedPython)
+      }
+      if (detectedEnvironments == null) {
+        detectedEnvironments = snapshot.environments
+      }
+    }
+  }
+
+  private fun TargetPythonProbe.toCachedSystemPython(path: PathHolder.Target): CachedSystemPython? {
+    return when (this) {
+      TargetPythonProbe.NotExecutable -> CachedSystemPython.NotExecutable
+      is TargetPythonProbe.Executable -> toPythonInfo()?.let { CachedSystemPython.Executable(createSystemPython(path, it)) }
+    }
+  }
+
+  private fun TargetPythonProbe.Executable.toPythonInfo(): PythonInfo? {
+    val trimmed = versionOutput.trim()
+    val languageLevel = getLanguageLevelFromVersionStringSafe(trimmed) ?: return null
+    return PythonInfo(languageLevel, freeThreaded, getVersionFromVersionStringSafe(trimmed))
   }
 
   override suspend fun getFullPath(prefixEnvVar: String, pathComponents: List<String>): PathHolder.Target? {
@@ -618,10 +723,15 @@ data class TargetFileSystem(
   private suspend fun getEnvVar(envVarName: String): PyResult<String> = executeCommand("printenv ${envVarName}")
 
   private suspend fun getShell(): String {
-    if (!this::shellImpl.isInitialized) {
-      shellImpl = getShellImpl().orLogException(LOG) ?: "/bin/sh"
+    targetUserInfoLock.withLock { if (this::shellImpl.isInitialized) shellImpl else null }?.let { return it }
+
+    val detectedShell = getShellImpl().orLogException(LOG) ?: "/bin/sh"
+    return targetUserInfoLock.withLock {
+      if (!this@TargetFileSystem::shellImpl.isInitialized) {
+        shellImpl = detectedShell
+      }
+      shellImpl
     }
-    return shellImpl
   }
 
   private suspend fun getShellImpl(): PyResult<String> {
@@ -634,6 +744,14 @@ data class TargetFileSystem(
     @Suppress("HardCodedStringLiteral")
     return shell?.let { PyResult.success(it) } ?: PyResult.localizedError("Could not get shell")
   }
+}
+
+private sealed interface CachedSystemPython {
+  data object NotExecutable : CachedSystemPython
+
+  data class Executable(
+    val interpreter: DetectedSelectableInterpreter<PathHolder.Target>,
+  ) : CachedSystemPython
 }
 
 /**
@@ -682,7 +800,7 @@ internal suspend fun <P : PathHolder> FileSystem<P>.getExistingSelectableInterpr
       } ?: run {
         val binToExecute = sdk.asBinToExecute().orLogException(LOG)
         val pythonInfo = binToExecute?.let {
-          ExecService().validatePythonAndGetInfo(binToExecute).orLogException(LOG)
+          binToExecute.validatePythonAndGetInfo().orLogException(LOG)
         }
         pythonInfo?.languageLevel
       }
@@ -692,4 +810,14 @@ internal suspend fun <P : PathHolder> FileSystem<P>.getExistingSelectableInterpr
       }
     }
   allValidSdks
+}
+
+private suspend fun <P : PathHolder> FileSystem<P>.resolveToolSearchPaths(toolSpec: ToolCommandSpec): List<P> {
+  return toolSpec.searchPathsFor(platformAndRoot.platform).mapNotNull { searchPath ->
+    when (searchPath) {
+      is ToolSearchPath.AbsolutePath -> parsePath(searchPath.path).successOrNull
+      is ToolSearchPath.RelativePath -> getFullPath(searchPath.prefixEnvVar, searchPath.pathComponents)
+      is ToolSearchPath.RelativePathFromHome -> getFullPathFromHome(searchPath.pathComponents)
+    }
+  }
 }

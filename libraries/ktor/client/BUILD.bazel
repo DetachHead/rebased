@@ -1,7 +1,7 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
 ### auto-generated section `build intellij.libraries.ktor.client` start
-
 jvm_library(
     name = "client",
     srcs = glob(
@@ -43,6 +43,21 @@ jvm_library(
     ],
 )
 
+content_module_jar(
+    libraries = [
+        # do not sort,
+        "@lib//:ktor-client-core",
+        "@lib//:ktor-client-java",
+        "@lib//:libraries-ktor-client-ktor-client-encoding",
+        "@lib//:libraries-ktor-client-ktor-client-content-negotiation",
+        "@lib//:ktor-serialization-kotlinx-json",
+        "@lib//:kotlinx-serialization-json-io",
+        "@lib//:libraries-ktor-client-ktor-client-auth",
+        "@lib//:libraries-ktor-client-ktor-client-logging",
+    ],
+    module = ":client",
+)
+
 jvm_library(
     name = "client_test_lib",
     testonly = True,
@@ -82,6 +97,8 @@ jvm_library(
 exports_files(
     [
         "intellij.libraries.ktor.client.iml",
+        "resources/intellij.libraries.ktor.client.xml",
+        "module-content.yaml",
     ],
     visibility = ["//visibility:public"],
 )

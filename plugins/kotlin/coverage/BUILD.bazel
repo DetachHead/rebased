@@ -1,7 +1,7 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
 ### auto-generated section `build intellij.kotlin.coverage` start
-
 jvm_library(
     name = "coverage",
     srcs = glob(
@@ -21,8 +21,8 @@ jvm_library(
     deps = [
         # do not sort,
         "@lib//:kotlin-stdlib",
-        "@lib//:kotlinc-kotlin-compiler-common",
-        "@lib//:kotlinc-kotlin-jps-common",
+        "//libraries/kotlinc/kotlin-compiler-common:libraries-kotlinc-kotlin-compiler-common",
+        "//libraries/kotlinc/kotlin-jps-common:libraries-kotlinc-kotlin-jps-common",
         "//platform/core-api:core",
         "//platform/editor-ui-api:editor-ui",
         "//platform/projectModel-api:projectModel",
@@ -41,6 +41,8 @@ jvm_library(
     ],
 )
 
+content_module_jar(module = ":coverage")
+
 jvm_library(
     name = "coverage_test_lib",
     testonly = True,
@@ -53,6 +55,8 @@ jvm_library(
     runtime_deps = [
         # do not sort,
         ":coverage",
+        "//libraries/kotlinc/kotlin-compiler-common:libraries-kotlinc-kotlin-compiler-common_test_lib",
+        "//libraries/kotlinc/kotlin-jps-common:libraries-kotlinc-kotlin-jps-common_test_lib",
         "//platform/core-api:core_test_lib",
         "//platform/editor-ui-api:editor-ui_test_lib",
         "//platform/projectModel-api:projectModel_test_lib",
@@ -76,6 +80,7 @@ jvm_library(
 exports_files(
     [
         "intellij.kotlin.coverage.iml",
+        "resources/intellij.kotlin.coverage.xml",
     ],
     visibility = ["//visibility:public"],
 )

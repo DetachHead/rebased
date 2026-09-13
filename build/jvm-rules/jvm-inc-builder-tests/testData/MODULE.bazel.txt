@@ -5,7 +5,7 @@ module(
 
 bazel_dep(name = "bazel_skylib", version = "1.9.0")
 
-bazel_dep(name = "llvm", version = "0.8.1")
+bazel_dep(name = "llvm", version = "0.8.9")
 register_toolchains("@llvm//toolchain:all")
 
 bazel_dep(name = "protobuf", version = "33.4")
@@ -21,9 +21,9 @@ single_version_override(
 bazel_dep(name = "rules_kotlin", version = "2.2.2")
 archive_override(
     module_name = "rules_kotlin",
-    sha256 = "5c9b4664b3f926624a405f1d39ce74bcfc0a46b319df4f20d2ee63bdfed9c43e",
-    strip_prefix = "rules_kotlin-ffbc4307c3a55f61e05c12481b6dcb929d6e2b1f",
-    url = "https://github.com/JetBrains/rules_kotlin/archive/ffbc4307c3a55f61e05c12481b6dcb929d6e2b1f.zip",
+    sha256 = "55be2ff6c30302834f7e6f6fc0ac3f9f4fad8a2b6c05a4e08bd1edb7f56737f1",
+    strip_prefix = "rules_kotlin-cf0bb4553cd90b8936b995ea8313a62dd024eea0",
+    url = "https://github.com/JetBrains/rules_kotlin/archive/cf0bb4553cd90b8936b995ea8313a62dd024eea0.zip",
 )
 
 # the module is supposed to always be overridden with the local version

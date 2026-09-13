@@ -1,7 +1,7 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
 ### auto-generated section `build intellij.libraries.gson` start
-
 jvm_library(
     name = "gson",
     srcs = glob(
@@ -16,6 +16,11 @@ jvm_library(
     visibility = ["//visibility:public"],
     exports = ["@lib//:libraries-gson-gson"],
     runtime_deps = ["@lib//:libraries-gson-gson"],
+)
+
+content_module_jar(
+    libraries = ["@lib//:libraries-gson-gson"],
+    module = ":gson",
 )
 
 jvm_library(
@@ -37,6 +42,8 @@ jvm_library(
 exports_files(
     [
         "intellij.libraries.gson.iml",
+        "resources/intellij.libraries.gson.xml",
+        "module-content.yaml",
     ],
     visibility = ["//visibility:public"],
 )

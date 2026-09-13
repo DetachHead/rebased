@@ -19,6 +19,7 @@ import com.intellij.openapi.actionSystem.DataContext;
 import com.intellij.openapi.actionSystem.LangDataKeys;
 import com.intellij.openapi.actionSystem.Presentation;
 import com.intellij.openapi.actionSystem.remoting.ActionRemoteBehaviorSpecification;
+import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.keymap.KeymapUtil;
 import com.intellij.openapi.project.DumbAwareAction;
 import com.intellij.openapi.project.Project;
@@ -30,8 +31,6 @@ import com.intellij.openapi.ui.popup.LightweightWindowEvent;
 import com.intellij.openapi.ui.popup.ListItemDescriptorAdapter;
 import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.util.text.StringUtil;
-import com.intellij.platform.ide.core.permissions.Permission;
-import com.intellij.platform.ide.core.permissions.RequiresPermissions;
 import com.intellij.reference.SoftReference;
 import com.intellij.ui.popup.list.GroupedItemsListRenderer;
 import com.intellij.util.IconUtil;
@@ -47,15 +46,13 @@ import java.awt.Component;
 import java.awt.event.InputEvent;
 import java.lang.ref.WeakReference;
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 
-import static com.intellij.execution.PermissionsKt.getFullRunAccess;
 import static com.intellij.execution.StoppableRunDescriptorsKt.getStoppableDescriptors;
 
-public class StopAction extends DumbAwareAction implements RequiresPermissions,
-                                                           ActionRemoteBehaviorSpecification.FrontendOtherwiseBackend {
+public class StopAction extends DumbAwareAction implements ActionRemoteBehaviorSpecification.FrontendOtherwiseBackend {
+  private static final Logger LOG = Logger.getInstance(StopAction.class);
 
   private WeakReference<JBPopup> myActivePopupRef = null;
 
@@ -100,7 +97,7 @@ public class StopAction extends DumbAwareAction implements RequiresPermissions,
       }
     }
     else {
-      RunContentDescriptor contentDescriptor = e.getData(LangDataKeys.RUN_CONTENT_DESCRIPTOR);
+      RunContentDescriptor contentDescriptor = getRecentlyStartedContentDescriptor(e.getDataContext());
       ProcessHandler processHandler = contentDescriptor == null ? null : contentDescriptor.getProcessHandler();
       if (processHandler != null && !processHandler.isProcessTerminated()) {
         if (!processHandler.isProcessTerminating()) {
@@ -223,7 +220,11 @@ public class StopAction extends DumbAwareAction implements RequiresPermissions,
       showStopPopup(e, dataContext, project, popup);
     }
     else {
-      ExecutionManagerImpl.stopProcess(getRecentlyStartedContentDescriptor(dataContext));
+      RunContentDescriptor contentDescriptor = getRecentlyStartedContentDescriptor(dataContext);
+      if (contentDescriptor == null) {
+        LOG.warn("The stop action found no run content descriptor at place " + e.getPlace());
+      }
+      ExecutionManagerImpl.stopProcess(contentDescriptor);
     }
   }
 
@@ -311,11 +312,6 @@ public class StopAction extends DumbAwareAction implements RequiresPermissions,
     return processHandler != null && !processHandler.isProcessTerminated()
            && (!processHandler.isProcessTerminating()
                || processHandler instanceof KillableProcess && ((KillableProcess)processHandler).canKillProcess());
-  }
-
-  @Override
-  public @NotNull Collection<@NotNull Permission> getRequiredPermissions() {
-    return List.of(getFullRunAccess());
   }
 
   abstract static class HandlerItem {

@@ -257,7 +257,6 @@ f:com.intellij.ide.plugins.PluginManagerCore
 - sf:PLUGIN_XML_PATH:java.lang.String
 - sf:VENDOR_JETBRAINS:java.lang.String
 - sf:VENDOR_JETBRAINS_SRO:java.lang.String
-- sf:checkBuildNumberCompatibility(com.intellij.ide.plugins.IdeaPluginDescriptor,com.intellij.openapi.util.BuildNumber):com.intellij.ide.plugins.PluginNonLoadReason
 - sf:getPluginNameAndVendor(com.intellij.ide.plugins.IdeaPluginDescriptor):java.lang.String
 - f:isCompatible(com.intellij.ide.plugins.IdeaPluginDescriptor,com.intellij.openapi.util.BuildNumber):Z
 - sf:isDevelopedByJetBrains(java.lang.String):Z
@@ -766,7 +765,6 @@ f:com.intellij.openapi.editor.impl.DocumentImpl
 - addDocumentListener(com.intellij.openapi.editor.event.DocumentListener,com.intellij.openapi.Disposable):V
 - addEditReadOnlyListener(com.intellij.openapi.editor.ex.EditReadOnlyListener):V
 - addPropertyChangeListener(java.beans.PropertyChangeListener):V
-- s:areRangeMarkersRetainedFor(com.intellij.openapi.vfs.VirtualFile):Z
 - assertNotInBulkUpdate():V
 - clearLineModificationFlags():V
 - clearLineModificationFlags(I,I):V
@@ -804,8 +802,6 @@ f:com.intellij.openapi.editor.impl.DocumentImpl
 - setStripTrailingSpacesEnabled(Z):V
 - startGuardedBlockChecking():V
 - stopGuardedBlockChecking():V
-- suppressGuardedExceptions():V
-- unSuppressGuardedExceptions():V
 c:com.intellij.openapi.editor.impl.EditorTextFieldRendererDocument
 - createGuardedBlock(I,I):com.intellij.openapi.editor.RangeMarker
 - createLineIterator():com.intellij.openapi.editor.ex.LineIterator
@@ -1252,7 +1248,6 @@ f:com.intellij.psi.impl.DebugUtil
 - s:nodeTreeToString(com.intellij.lang.ASTNode,Z):java.lang.String
 - s:onInvalidated(com.intellij.lang.ASTNode):V
 - s:onInvalidated(com.intellij.psi.FileViewProvider):V
-- s:onInvalidated(com.intellij.psi.PsiElement):V
 - s:performPsiModification(java.lang.String,com.intellij.openapi.util.ThrowableComputable):java.lang.Object
 - s:performPsiModification(java.lang.String,com.intellij.util.ThrowableRunnable):V
 - s:psiToBuffer(java.lang.Appendable,com.intellij.psi.PsiElement,I,Z,Z,Z,Z):V

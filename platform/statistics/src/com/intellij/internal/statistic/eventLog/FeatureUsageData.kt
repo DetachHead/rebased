@@ -4,6 +4,7 @@ package com.intellij.internal.statistic.eventLog
 import com.intellij.codeWithMe.ClientId
 import com.intellij.internal.statistic.collectors.fus.ActionPlaceHolder
 import com.intellij.internal.statistic.eventLog.StatisticsEventEscaper.escapeFieldName
+import com.intellij.internal.statistic.eventLog.events.JcpData
 import com.intellij.internal.statistic.utils.PluginInfo
 import com.intellij.internal.statistic.utils.StatisticsUtil
 import com.intellij.internal.statistic.utils.getPluginInfo
@@ -22,6 +23,7 @@ import org.jetbrains.annotations.TestOnly
 import java.awt.event.InputEvent
 import java.awt.event.KeyEvent
 import java.awt.event.MouseEvent
+import java.nio.file.Path
 import java.util.Collections
 
 private val LOG = logger<FeatureUsageData>()
@@ -66,7 +68,20 @@ class FeatureUsageData(val recorderId: String) {
     // don't list "version" as "platformDataKeys" because it's format depends a lot on the tool
     val platformDataKeys: List<String> = listOf("plugin", "project", "os", "plugin_type", "lang", "current_file", "input_event", "place",
                                                 "file_path", "anonymous_id", "client_id", "system_qdcld_project_id", "system_qdcld_org_id",
-                                                "auto_license_type", "automated_plugin_version")
+                                                "auto_license_type", "automated_plugin_version", INITIATED_BY)
+
+    /**
+     * A sound but incomplete attribution marker. An absent value does not imply that an event was background-initiated.
+     */
+    private const val INITIATED_BY: String = "initiated_by"
+
+    /**
+     * Dedicated key holding the [com.intellij.internal.statistic.eventLog.events.JcpData] payload.
+     *
+     * Kept separate from [platformDataKeys] on purpose: the value must never reach the validator nor be sent to
+     * the server, it is delivered to external (JCP) listeners only and excluded from the generated events scheme.
+     */
+    const val JCP_DATA_KEY: String = "jcp_data"
 
     private val QODANA_EVENTS_DATA: QodanaEventsData = calcQodanaEventsData()
   }
@@ -99,6 +114,24 @@ class FeatureUsageData(val recorderId: String) {
     }
     return this
   }
+
+/**
+ * Reports the same `project` field as [addProject], but derived from a raw project path instead of a [Project] instance.
+ *
+ * Prefer [addProject] whenever a [Project] is available. This variant exists only for collectors that report data about a project
+ * which is not open in this IDE, for example metrics produced by an external build process and reported by the IDE later, when the
+ * build the metrics belong to can't be attributed to any open project.
+ *
+ * @param projectPath normalized path to the project base directory, or `null` to add no `project` field at all
+ * @see addProject
+ */
+@ApiStatus.Internal
+fun addProjectPath(projectPath: Path?): FeatureUsageData {
+  if (projectPath != null) {
+    data["project"] = EventLogConfiguration.getInstance().getOrCreate(recorderId).anonymize(getProjectCacheFileName(projectPath))
+  }
+  return this
+}
 
   fun addVersionByString(@NonNls version: String?): FeatureUsageData {
     if (version == null) {
@@ -330,6 +363,14 @@ class FeatureUsageData(val recorderId: String) {
 
   internal fun addObjectData(@NonNls key: String, value: Map<String, Any>): FeatureUsageData {
     return addDataInternal(key, value)
+  }
+
+  /**
+   * Stores a [JcpData] payload as-is under [JCP_DATA_KEY], to be carried to external (JCP) listeners only.
+   * The payload is never validated, never sent to the FUS server and excluded from the events scheme.
+   */
+  internal fun addJcpData(value: JcpData): FeatureUsageData {
+    return addDataInternal(JCP_DATA_KEY, value)
   }
 
   internal fun addListObjectData(@NonNls key: String, value: List<Map<String, Any>>): FeatureUsageData {

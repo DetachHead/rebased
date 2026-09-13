@@ -1335,7 +1335,7 @@ public final class JBUI {
         return 20;
       }
 
-      public static @NotNull Insets stripeToolbarButtonIconPadding(boolean left, boolean showNames) {
+      public static @NotNull JBInsets stripeToolbarButtonIconPadding(boolean left, boolean showNames) {
         return insets(stripeToolbarButtonIconPaddingKey(left, showNames), defaultStripeToolbarButtonIconPadding());
       }
 
@@ -1956,6 +1956,12 @@ public final class JBUI {
     }
 
     public interface Window {
+      @Internal
+      static Border getDialogBorder(boolean undecoratedWindow) {
+        Border result = UIManager.getBorder("Dialog.border");
+        return result == null ? getBorder(undecoratedWindow) : result;
+      }
+
       static Border getBorder(boolean undecoratedWindow) {
         Border result = UIManager.getBorder("Window.border");
         if (result == null && undecoratedWindow &&

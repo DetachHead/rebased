@@ -1,8 +1,8 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
 load("//build:compiler-options.bzl", "create_kotlinc_options")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
 ### auto-generated section `build kotlin.jvm.shared` start
-
 create_kotlinc_options(
     name = "custom_shared",
     opt_in = [
@@ -10,6 +10,8 @@ create_kotlinc_options(
         "org.jetbrains.kotlin.analysis.api.KaNonPublicApi",
         "org.jetbrains.kotlin.analysis.api.KaContextParameterApi",
         "org.jetbrains.kotlin.utils.addToStdlib.UnsafeCastFunction",
+        "org.jetbrains.kotlin.analysis.api.KaExperimentalApi",
+        "org.jetbrains.kotlin.analysis.api.KaIdeApi",
     ],
 )
 
@@ -42,7 +44,7 @@ jvm_library(
         "//platform/projectModel-api:projectModel",
         "//platform/util/jdom",
         "//libraries/gson",
-        "@lib//:kotlinc-kotlin-compiler-common",
+        "//libraries/kotlinc/kotlin-compiler-common:libraries-kotlinc-kotlin-compiler-common",
         "//platform/platform-impl:ide-impl",
         "//plugins/kotlin/base/compiler-configuration",
         "//plugins/kotlin/base/plugin",
@@ -58,16 +60,14 @@ jvm_library(
         "//plugins/kotlin/base/statistics",
         "//plugins/kotlin/project-configuration",
         "//plugins/kotlin/frontend-independent",
-        "@lib//:kotlinc-kotlin-jps-common",
-        "//platform/vcs-api:vcs",
+        "//libraries/kotlinc/kotlin-jps-common:libraries-kotlinc-kotlin-jps-common",
+        "//platform/vcs-api/vcs-api-core:vcs-core",
         "//plugins/kotlin/base/psi",
-        "//plugins/kotlin/inspections",
         "//plugins/kotlin/formatter",
         "//plugins/kotlin/run-configurations/jvm",
         "//platform/external-system-api:externalSystem",
         "//java/idea-ui:ui",
         "//platform/boot",
-        "//platform/diff-impl",
         "//platform/vcs-impl",
         "//platform/external-system-impl:externalSystem-impl",
         "//platform/lvcs-impl",
@@ -88,19 +88,20 @@ jvm_library(
         "//platform/util/coroutines",
         "//platform/core-api:core",
         "//platform/core-impl",
-        "@lib//:kotlinc-analysis-api",
+        "//libraries/kotlinc/analysis-api:libraries-kotlinc-analysis-api",
         "//libraries/asm",
         "//platform/ide-core-impl",
         "//platform/ide-core",
         "//platform/util",
         "//platform/util:util-ui",
         "//platform/editor-ui-api:editor-ui",
-        "//plugins/kotlin/base/scripting/scripting.shared",
         "//platform/execution",
         "//platform/statistics",
         "//plugins/kotlin/code-insight/impl-base:kotlin-codeInsight-shared",
     ],
 )
+
+content_module_jar(module = ":shared")
 
 jvm_library(
     name = "shared_test_lib",
@@ -124,6 +125,7 @@ jvm_library(
         "//platform/projectModel-api:projectModel_test_lib",
         "//platform/util/jdom:jdom_test_lib",
         "//libraries/gson:gson_test_lib",
+        "//libraries/kotlinc/kotlin-compiler-common:libraries-kotlinc-kotlin-compiler-common_test_lib",
         "//platform/platform-impl:ide-impl_test_lib",
         "//plugins/kotlin/base/compiler-configuration:compiler-configuration_test_lib",
         "//plugins/kotlin/base/plugin:plugin_test_lib",
@@ -139,15 +141,14 @@ jvm_library(
         "//plugins/kotlin/base/statistics:statistics_test_lib",
         "//plugins/kotlin/project-configuration:project-configuration_test_lib",
         "//plugins/kotlin/frontend-independent:frontend-independent_test_lib",
-        "//platform/vcs-api:vcs_test_lib",
+        "//libraries/kotlinc/kotlin-jps-common:libraries-kotlinc-kotlin-jps-common_test_lib",
+        "//platform/vcs-api/vcs-api-core:vcs-core_test_lib",
         "//plugins/kotlin/base/psi:psi_test_lib",
-        "//plugins/kotlin/inspections:inspections_test_lib",
         "//plugins/kotlin/formatter:formatter_test_lib",
         "//plugins/kotlin/run-configurations/jvm:jvm_test_lib",
         "//platform/external-system-api:externalSystem_test_lib",
         "//java/idea-ui:ui_test_lib",
         "//platform/boot:boot_test_lib",
-        "//platform/diff-impl:diff-impl_test_lib",
         "//platform/vcs-impl:vcs-impl_test_lib",
         "//platform/external-system-impl:externalSystem-impl_test_lib",
         "//platform/lvcs-impl:lvcs-impl_test_lib",
@@ -168,13 +169,13 @@ jvm_library(
         "//platform/util/coroutines:coroutines_test_lib",
         "//platform/core-api:core_test_lib",
         "//platform/core-impl:core-impl_test_lib",
+        "//libraries/kotlinc/analysis-api:libraries-kotlinc-analysis-api_test_lib",
         "//libraries/asm:asm_test_lib",
         "//platform/ide-core-impl:ide-core-impl_test_lib",
         "//platform/ide-core:ide-core_test_lib",
         "//platform/util:util_test_lib",
         "//platform/util:util-ui_test_lib",
         "//platform/editor-ui-api:editor-ui_test_lib",
-        "//plugins/kotlin/base/scripting/scripting.shared:scripting.shared_test_lib",
         "//platform/execution:execution_test_lib",
         "//platform/statistics:statistics_test_lib",
         "//plugins/kotlin/code-insight/impl-base:kotlin-codeInsight-shared_test_lib",
@@ -186,6 +187,7 @@ jvm_library(
 exports_files(
     [
         "kotlin.jvm.shared.iml",
+        "resources/kotlin.jvm.shared.xml",
     ],
     visibility = ["//visibility:public"],
 )

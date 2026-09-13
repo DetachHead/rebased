@@ -1,8 +1,8 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.ide.plugins.advertiser
 
-import com.intellij.openapi.updateSettings.impl.pluginsAdvertisement.EnvironmentScanner
-import com.intellij.util.EnvironmentUtil
+import com.intellij.openapi.util.EnvironmentScanner
+import com.intellij.testFramework.common.withEnvVars
 import com.intellij.util.system.LowLevelLocalMachineAccess
 import com.intellij.util.system.OS
 import org.junit.Assert.assertFalse
@@ -21,9 +21,7 @@ class EnvironmentScannerTest {
     val tmpDir = Files.createTempDirectory("mock-path")
     val executableFiles = names.map { Files.createFile(tmpDir.resolve(makeExeName(it))) }
 
-    val previousEnv = EnvironmentUtil.getEnvironmentMap()
-    EnvironmentUtil.setEnvironmentLoader { previousEnv + mapOf("PATH" to executableFiles.joinToString(File.pathSeparator)) }
-    try {
+    withEnvVars("PATH" to executableFiles.joinToString(File.pathSeparator)) {
       val pathNames = EnvironmentScanner.getPathNames()
       assertTrue("PATH is not empty", pathNames.isNotEmpty())
       assertTrue("PATH contains example names", pathNames.map { it.name }.containsAll(names))
@@ -32,9 +30,6 @@ class EnvironmentScannerTest {
         pathNames.none { it.toString().contains(File.pathSeparatorChar) }
       )
       assertTrue("PATH names exist on disk", pathNames.all { Files.exists(it) })
-    }
-    finally {
-      EnvironmentUtil.setEnvironmentLoader { previousEnv }
     }
   }
 

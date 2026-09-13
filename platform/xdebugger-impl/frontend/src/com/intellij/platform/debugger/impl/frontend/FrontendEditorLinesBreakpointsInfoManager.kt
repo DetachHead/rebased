@@ -1,4 +1,4 @@
-// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.platform.debugger.impl.frontend
 
 import com.intellij.frontend.FrontendApplicationInfo
@@ -8,7 +8,7 @@ import com.intellij.openapi.application.EDT
 import com.intellij.openapi.application.readAction
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
-import com.intellij.openapi.diagnostic.thisLogger
+import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.editor.EditorFactory
 import com.intellij.openapi.editor.event.DocumentEvent
@@ -25,6 +25,7 @@ import com.intellij.platform.util.coroutines.childScope
 import com.intellij.util.asDisposable
 import com.intellij.util.concurrency.annotations.RequiresEdt
 import com.intellij.util.concurrency.annotations.RequiresReadLock
+import fleet.rpc.client.RpcTimeoutException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -36,17 +37,16 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import org.jetbrains.annotations.ApiStatus
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.time.Duration.Companion.milliseconds
 
 private val DOCUMENTS_UPDATE_DEBOUNCE = 600.milliseconds
+private val LOG = logger<FrontendEditorLinesBreakpointsInfoManager>()
 
 // Do not preload map in monolith for performance reasons, see IJPL-220984
 private val shouldPreloadMap = FrontendApplicationInfo.getFrontendType() is FrontendType.Remote
 
 @Service(Service.Level.PROJECT)
-@ApiStatus.Internal
 internal class FrontendEditorLinesBreakpointsInfoManager(private val project: Project, private val cs: CoroutineScope) {
   private val editorsMap = ConcurrentHashMap<Editor, EditorBreakpointLinesInfoMap>()
 
@@ -108,7 +108,7 @@ internal class FrontendEditorLinesBreakpointsInfoManager(private val project: Pr
   @RequiresReadLock
   internal fun getBreakpointsInfoForLineFast(editor: Editor, line: Int): EditorLineBreakpointsInfo? {
     if (!shouldPreloadMap) {
-      thisLogger().error("getBreakpointsInfoForLineInternal is unsafe to use in monolith mode, use getBreakpointsInfoForLine instead")
+      LOG.error("getBreakpointsInfoForLineInternal is unsafe to use in monolith mode, use getBreakpointsInfoForLine instead")
     }
     val editorMap = editorsMap[editor] ?: return null
     val currentEditorStamp = editor.document.modificationStamp
@@ -205,11 +205,6 @@ internal class EditorLineBreakpointsInfo(
    }
 }
 
-internal suspend fun getAvailableBreakpointTypesFromServer(project: Project, editor: Editor, line: Int): EditorLineBreakpointsInfo {
-  return getAvailableBreakpointTypesFromServer(project, editor, line, line)?.singleOrNull()
-         ?: EditorLineBreakpointsInfo.EMPTY
-}
-
 private suspend fun getAvailableBreakpointTypesFromServer(project: Project, editor: Editor, start: Int, endInclusive: Int): List<EditorLineBreakpointsInfo>? {
   val breakpointTypesManager = FrontendXBreakpointTypesManager.getInstance(project)
   // TODO: is it possible to avoid this retry?
@@ -219,9 +214,15 @@ private suspend fun getAvailableBreakpointTypesFromServer(project: Project, edit
                // no breakpoints in editors without a file
                ?: return List(endInclusive - start + 1) { EditorLineBreakpointsInfo.EMPTY }
     val fileId = file.rpcId()
-    val breakpointsInfoDtos = XBreakpointTypeApi.getInstance().getBreakpointsInfo(project.projectId(), fileId, start, endInclusive)
+    val breakpointsInfoDtos = try {
+      XBreakpointTypeApi.getInstance().getBreakpointsInfo(project.projectId(), fileId, start, endInclusive)
+    }
+    catch (e: RpcTimeoutException) {
+      LOG.warn("Breakpoint information request timed out", e)
+      return null
+    }
     val breakpointInfoList = breakpointsInfoDtos?.map { lineBreakpointInfo ->
-      val types = lineBreakpointInfo.availableTypes.mapNotNull { breakpointTypesManager.getTypeById(it) }
+      val types = lineBreakpointInfo.availableTypes.mapNotNull { breakpointTypesManager.findTypeById(it) }
       EditorLineBreakpointsInfo(types, lineBreakpointInfo.singleBreakpointVariant)
     }
     if (breakpointInfoList != null) {

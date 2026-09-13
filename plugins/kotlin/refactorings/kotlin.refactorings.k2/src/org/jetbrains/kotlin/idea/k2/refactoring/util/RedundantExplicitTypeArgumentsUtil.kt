@@ -4,44 +4,51 @@ package org.jetbrains.kotlin.idea.k2.refactoring.util
 import com.intellij.psi.PsiDocumentManager
 import com.intellij.psi.util.PsiTreeUtil
 import com.intellij.psi.util.isAncestor
-import org.jetbrains.kotlin.analysis.api.KaExperimentalApi
+import com.intellij.psi.util.parentOfType
 import org.jetbrains.kotlin.analysis.api.KaImplementationDetail
 import org.jetbrains.kotlin.analysis.api.KaSession
-import org.jetbrains.kotlin.analysis.api.analyze
 import org.jetbrains.kotlin.analysis.api.components.KaDiagnosticCheckerFilter
 import org.jetbrains.kotlin.analysis.api.components.collectDiagnostics
-import org.jetbrains.kotlin.analysis.api.components.hasFlexibleNullability
-import org.jetbrains.kotlin.analysis.api.components.resolveToCall
-import org.jetbrains.kotlin.analysis.api.components.semanticallyEquals
 import org.jetbrains.kotlin.analysis.api.diagnostics.KaDiagnosticWithPsi
 import org.jetbrains.kotlin.analysis.api.fir.diagnostics.KaFirDiagnostic
 import org.jetbrains.kotlin.analysis.api.projectStructure.copyOrigin
-import org.jetbrains.kotlin.analysis.api.resolution.singleFunctionCallOrNull
-import org.jetbrains.kotlin.analysis.api.resolution.successfulFunctionCallOrNull
-import org.jetbrains.kotlin.analysis.api.resolution.symbol
+import org.jetbrains.kotlin.analysis.api.resolution.function
+import org.jetbrains.kotlin.analysis.api.resolution.resolveSuccessfulSymbol
+import org.jetbrains.kotlin.analysis.api.resolution.single
+import org.jetbrains.kotlin.analysis.api.resolution.tryResolveCall
+import org.jetbrains.kotlin.analysis.api.session.analyze
 import org.jetbrains.kotlin.analysis.api.symbols.KaFunctionSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaNamedFunctionSymbol
+import org.jetbrains.kotlin.analysis.api.symbols.importableFqName
 import org.jetbrains.kotlin.analysis.api.symbols.receiverType
 import org.jetbrains.kotlin.analysis.api.types.KaDefinitelyNotNullType
 import org.jetbrains.kotlin.analysis.api.types.KaType
 import org.jetbrains.kotlin.analysis.api.types.KaTypeParameterType
 import org.jetbrains.kotlin.analysis.api.types.KaTypePointer
+import org.jetbrains.kotlin.analysis.api.types.hasFlexibleNullability
+import org.jetbrains.kotlin.analysis.api.types.semanticallyEquals
+import org.jetbrains.kotlin.idea.base.codeInsight.handlers.fixers.end
+import org.jetbrains.kotlin.idea.base.codeInsight.handlers.fixers.range
+import org.jetbrains.kotlin.idea.base.codeInsight.handlers.fixers.start
 import org.jetbrains.kotlin.idea.base.psi.copied
 import org.jetbrains.kotlin.psi.KtCallExpression
 import org.jetbrains.kotlin.psi.KtDotQualifiedExpression
+import org.jetbrains.kotlin.psi.KtElement
 import org.jetbrains.kotlin.psi.KtProperty
+import org.jetbrains.kotlin.psi.KtPropertyAccessor
 import org.jetbrains.kotlin.psi.KtPsiFactory
 import org.jetbrains.kotlin.psi.KtTypeArgumentList
 import org.jetbrains.kotlin.psi.KtTypeProjection
 
 private val INLINE_REIFIED_FUNCTIONS_WITH_INSIGNIFICANT_TYPE_ARGUMENTS: Set<String> = setOf("kotlin.arrayOf")
 
-fun KaSession.areTypeArgumentsRedundant(
+context(session: KaSession)
+fun areTypeArgumentsRedundant(
     typeArgumentList: KtTypeArgumentList,
     approximateFlexible: Boolean = false,
 ): Boolean {
     val callExpression = typeArgumentList.parent as? KtCallExpression ?: return false
-    val symbol = callExpression.resolveToCall()?.successfulFunctionCallOrNull()?.symbol ?: return false
+    val symbol = callExpression.resolveSuccessfulSymbol() ?: return false
     if (isInlineReifiedFunction(symbol)) return false
 
     if (symbol.receiverType == null && callExpression.valueArguments.isEmpty()) {
@@ -62,20 +69,54 @@ fun KaSession.areTypeArgumentsRedundant(
 }
 
 private fun buildCallExpressionWithoutTypeArgs(element: KtCallExpression): KtCallExpression? {
-    val fileCopy = element.containingKtFile.copied()
-    val elementCopy = PsiTreeUtil.findSameElementInCopy(element, fileCopy)
-    return elementCopy?.also {
-        it.typeArgumentList?.delete()
-    }
+    val context = element.findContextToAnalyze() ?: return null
+    val typeArgumentListRange = element.typeArgumentList?.textRange ?: return null
+    val contextStartOffset = context.range.start
+
+    val textWithoutTypeArgs = context.text.removeRange(
+        typeArgumentListRange.start - contextStartOffset,
+        typeArgumentListRange.end - contextStartOffset,
+    )
+
+    val (prefix, suffix) = if (hasPropertyAccessorBetween(element, context)) {
+        "object __Obj__  {" to "}"
+    } else "" to ""
+
+    val codeFragment = KtPsiFactory(
+        element.project,
+        markGenerated = false,
+    ).createBlockCodeFragment("$prefix$textWithoutTypeArgs$suffix", context)
+
+    return codeFragment.findElementAt(typeArgumentListRange.start + prefix.length - contextStartOffset)?.parentOfType()
 }
 
-private fun KaSession.isInlineReifiedFunction(symbol: KaFunctionSymbol): Boolean =
+/**
+ * Detects whether the code fragment is created inside a property accessor.
+ * This is needed because `KtBlockCodeFragment` loses expected-type information
+ * for property accessors.
+ *
+ * See:
+ * - org.jetbrains.kotlin.idea.inspections.tests.K2LocalInspectionTestGenerated.RemoveExplicitTypeArgumentsFormerIntentionTest#testGetterBody
+ * - org.jetbrains.kotlin.idea.inspections.tests.K2LocalInspectionTestGenerated.RemoveExplicitTypeArgumentsFormerIntentionTest#testGetterBodyInsideClass
+ * - org.jetbrains.kotlin.idea.inspections.tests.K2LocalInspectionTestGenerated.RemoveExplicitTypeArgumentsFormerIntentionTest#testSetterBody
+ * - org.jetbrains.kotlin.idea.inspections.tests.K2LocalInspectionTestGenerated.RemoveExplicitTypeArgumentsFormerIntentionTest#testSetterBodyInsideClass
+ */
+private fun hasPropertyAccessorBetween(element: KtElement, context: KtElement): Boolean {
+    var current = element.parent
+    while (current != null && current != context) {
+        if (current is KtPropertyAccessor) return true
+        current = current.parent
+    }
+    return false
+}
+
+context(session: KaSession)
+private fun isInlineReifiedFunction(symbol: KaFunctionSymbol): Boolean =
     symbol is KaNamedFunctionSymbol &&
             symbol.importableFqName?.asString() !in INLINE_REIFIED_FUNCTIONS_WITH_INSIGNIFICANT_TYPE_ARGUMENTS &&
             symbol.isInline &&
             symbol.typeParameters.any { it.isReified }
 
-@OptIn(KaExperimentalApi::class)
 context(_: KaSession)
 private fun areTypeArgumentsEqual(
     originalCallExpression: KtCallExpression,
@@ -94,12 +135,10 @@ private fun areTypeArgumentsEqual(
     }
 }
 
-@OptIn(KaExperimentalApi::class)
 context(_: KaSession)
 private fun collectCallExpressionInfo(callExpression: KtCallExpression): List<KaTypePointer<KaType>>? {
     return callExpression
-        .resolveToCall()
-        ?.singleFunctionCallOrNull()
+        .tryResolveCall()?.single?.function
         ?.typeArgumentsMapping
         ?.values
         ?.map { it.createPointer() }
@@ -130,7 +169,7 @@ private fun hasNewDiagnostics(originalCallExpression: KtCallExpression, newCallE
     return newDiagnostics.size != oldDiagnostics.size
 }
 
-@OptIn(KaExperimentalApi::class, KaImplementationDetail::class)
+@OptIn(KaImplementationDetail::class)
 context(session: KaSession)
 private fun restoreTypes(typePointers: List<KaTypePointer<KaType>>): List<KaType>? =
     typePointers.map { it.restore(session) ?: return null }
@@ -178,7 +217,6 @@ fun KtTypeProjection.canBeReplacedWithUnderscore(callExpression: KtCallExpressio
     return areTypeArgumentsEqual(callExpression, newCallExpression, false)
 }
 
-@OptIn(KaExperimentalApi::class)
 private fun buildCallExpressionWithUnderscores(element: KtCallExpression, typeProjectionToReplace: KtTypeProjection): KtCallExpression? {
     val copyOrigin = element.containingKtFile.copyOrigin
     val fileCopy = if (copyOrigin != null) {

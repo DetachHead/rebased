@@ -4,15 +4,18 @@ package org.jetbrains.kotlin.idea.codeInsight.inspections
 import com.intellij.codeInspection.ProblemsHolder
 import com.intellij.modcommand.ModPsiUpdater
 import com.intellij.openapi.project.Project
-import org.jetbrains.kotlin.analysis.api.KaExperimentalApi
 import org.jetbrains.kotlin.analysis.api.KaSession
 import org.jetbrains.kotlin.analysis.api.resolution.KaExplicitReceiverValue
 import org.jetbrains.kotlin.analysis.api.resolution.KaImplicitReceiverValue
-import org.jetbrains.kotlin.analysis.api.resolution.successfulFunctionCallOrNull
+import org.jetbrains.kotlin.analysis.api.resolution.resolveSuccessfulCall
+import org.jetbrains.kotlin.analysis.api.resolution.resolveSuccessfulSymbol
+import org.jetbrains.kotlin.analysis.api.resolution.simple
 import org.jetbrains.kotlin.analysis.api.resolution.symbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaClassSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaNamedFunctionSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaValueParameterSymbol
+import org.jetbrains.kotlin.analysis.api.symbols.containingSymbol
+import org.jetbrains.kotlin.analysis.api.symbols.symbol
 import org.jetbrains.kotlin.idea.base.resources.KotlinBundle
 import org.jetbrains.kotlin.idea.codeinsight.api.applicable.asUnit
 import org.jetbrains.kotlin.idea.codeinsight.api.applicable.inspections.KotlinApplicableInspectionBase
@@ -21,7 +24,6 @@ import org.jetbrains.kotlin.idea.codeinsight.utils.isEqualsMethodSymbol
 import org.jetbrains.kotlin.lexer.KtTokens
 import org.jetbrains.kotlin.psi.KtBinaryExpression
 import org.jetbrains.kotlin.psi.KtCallExpression
-import org.jetbrains.kotlin.psi.KtExperimentalApi
 import org.jetbrains.kotlin.psi.KtExpression
 import org.jetbrains.kotlin.psi.KtNameReferenceExpression
 import org.jetbrains.kotlin.psi.KtNamedFunction
@@ -81,15 +83,15 @@ internal class RecursiveEqualsCallInspection : KotlinApplicableInspectionBase.Si
         }
     }
 
-    @OptIn(KaExperimentalApi::class, KtExperimentalApi::class)
-    override fun KaSession.prepareContext(element: KtExpression): Unit? {
+    context(session: KaSession)
+    override fun prepareContext(element: KtExpression): Unit? {
         val argumentExpr = when (element) {
             is KtBinaryExpression -> element.right
             is KtCallExpression -> element.valueArguments.singleOrNull()?.getArgumentExpression()
             else -> return null
         } as? KtNameReferenceExpression ?: return null
 
-        val call = element.resolveToCall()?.successfulFunctionCallOrNull() ?: return null
+        val call = element.resolveSuccessfulCall()?.simple ?: return null
         val calledSymbol = call.symbol as? KaNamedFunctionSymbol ?: return null
         val dispatchReceiver = call.dispatchReceiver ?: return null
 
@@ -117,7 +119,7 @@ internal class RecursiveEqualsCallInspection : KotlinApplicableInspectionBase.Si
         }
         if (!isThisReceiver) return null
 
-        val argumentSymbol = argumentExpr.resolveSymbol() as? KaValueParameterSymbol ?: return null
+        val argumentSymbol = argumentExpr.resolveSuccessfulSymbol() as? KaValueParameterSymbol ?: return null
         val parameterSymbol = containingSymbol.valueParameters.singleOrNull() ?: return null
         return (argumentSymbol == parameterSymbol).asUnit
     }

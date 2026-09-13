@@ -8,9 +8,9 @@ import com.intellij.modcommand.ActionContext
 import com.intellij.modcommand.ModPsiUpdater
 import com.intellij.modcommand.Presentation
 import com.intellij.psi.PsiTypes
-import org.jetbrains.kotlin.analysis.api.KaExperimentalApi
-import org.jetbrains.kotlin.analysis.api.analyze
+import org.jetbrains.kotlin.analysis.api.renderer.render
 import org.jetbrains.kotlin.analysis.api.symbols.KaCallableSymbol
+import org.jetbrains.kotlin.analysis.api.symbols.symbol
 import org.jetbrains.kotlin.idea.base.analysis.api.utils.allowAnalysisFromWriteActionInEdt
 import org.jetbrains.kotlin.idea.base.analysis.api.utils.shortenReferences
 import org.jetbrains.kotlin.idea.codeinsight.api.applicable.intentions.KotlinPsiUpdateModCommandAction
@@ -66,17 +66,14 @@ private fun doChangeType(
     shortenReferences(target)
 }
 
-@OptIn(KaExperimentalApi::class)
 private fun typeName(declaration: KtCallableDeclaration): String? {
     val typeReference = declaration.typeReference
     if (typeReference != null) return typeReference.typeElement?.text
     if ((declaration !is KtNamedFunction) && (declaration !is KtProperty)) return null
     return allowAnalysisFromWriteActionInEdt(declaration) {
-        analyze(declaration) {
-            val symbol = declaration.symbol as? KaCallableSymbol ?: return null
-            val returnType = symbol.returnType
-            returnType.render(position = Variance.IN_VARIANCE)
-        }
+        val symbol = declaration.symbol as? KaCallableSymbol ?: return null
+        val returnType = symbol.returnType
+        returnType.render(position = Variance.IN_VARIANCE)
     }
 }
 

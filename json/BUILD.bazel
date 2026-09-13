@@ -1,7 +1,8 @@
+load("@community//platform/build-scripts/bazel-rules:dev_dist_plugin.bzl", "dev_dist_plugin")
 load("@rules_jvm//:jvm.bzl", "jvm_library")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
 ### auto-generated section `build intellij.json` start
-
 jvm_library(
     name = "json",
     srcs = glob(
@@ -44,6 +45,8 @@ jvm_library(
         "//libraries/kotlinx/collections-immutable:libraries-kotlinx-collections-immutable",
     ],
 )
+
+content_module_jar(module = ":json")
 
 jvm_library(
     name = "json_test_lib",
@@ -88,7 +91,32 @@ jvm_library(
 exports_files(
     [
         "intellij.json.iml",
+        "resources/META-INF/plugin.xml",
+        "resources/intellij.json.xml",
     ],
     visibility = ["//visibility:public"],
 )
 ### auto-generated section `iml intellij.json` end
+
+### auto-generated section `dev intellij.json` start
+dev_dist_plugin(
+    content_modules = [
+        "//libraries/joni",
+        "//libraries/json-schema-validator",
+    ],
+    descriptor_module = ":json",
+    libraries = [
+        "@lib//:libraries-joni-joni",
+        "@lib//:libraries-json_schema_validator-json-schema-validator-jetbrains",
+    ],
+    prepacked_content_modules = [
+        "//json/backend/regexp:regexp_content_module_jar",
+        "//json/backend:backend_content_module_jar",
+        "//json/networknt.wrapper:networknt.wrapper_content_module_jar",
+        "//json/structureView:structureView_content_module_jar",
+    ],
+    prepacked_jars = {
+        "//json/syntax:syntax_content_module_jar": "intellij.json.syntax.jar",
+    },
+)
+### auto-generated section `dev intellij.json` end

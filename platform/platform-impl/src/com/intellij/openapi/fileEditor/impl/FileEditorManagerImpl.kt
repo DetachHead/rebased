@@ -113,7 +113,6 @@ import com.intellij.openapi.vfs.newvfs.events.VFileMoveEvent
 import com.intellij.openapi.vfs.newvfs.events.VFilePropertyChangeEvent
 import com.intellij.openapi.wm.IdeFocusManager
 import com.intellij.platform.fileEditor.FileEntry
-import com.intellij.platform.locking.impl.getGlobalThreadingSupport
 import com.intellij.platform.util.coroutines.attachAsChildTo
 import com.intellij.platform.util.coroutines.childScope
 import com.intellij.platform.util.coroutines.flow.zipWithNext
@@ -125,6 +124,7 @@ import com.intellij.ui.tabs.TabInfo
 import com.intellij.util.ExceptionUtil
 import com.intellij.util.IconUtil
 import com.intellij.util.ObjectUtils
+import com.intellij.util.application
 import com.intellij.util.concurrency.ThreadingAssertions
 import com.intellij.util.concurrency.annotations.RequiresEdt
 import com.intellij.util.containers.SmartHashSet
@@ -201,8 +201,25 @@ private val LOG = logger<FileEditorManagerImpl>()
  * @return true if all the checks were successfully passed and the file can be closed
  */
 internal fun canCloseFile(file: VirtualFile): Boolean {
-  val checks = VirtualFilePreCloseCheck.EP_NAME.extensionsIfPointIsRegistered
-  return checks.all { it.canCloseFile(file) }
+  return canCloseAllFiles(listOf(file))
+}
+
+private fun canCloseAllFiles(files: Collection<VirtualFile>): Boolean {
+  return files.isEmpty() || filterClosableFiles(files).size == files.size
+}
+
+private fun filterClosableFiles(files: Collection<VirtualFile>): List<VirtualFile> {
+  val filesToClose = files.toMutableList()
+
+  for (check in VirtualFilePreCloseCheck.EP_NAME.extensionsIfPointIsRegistered) {
+    filesToClose.retainAll(check.filterFilesToClose(filesToClose).toHashSet())
+
+    if (filesToClose.isEmpty()) {
+      break
+    }
+  }
+
+  return filesToClose
 }
 
 @Internal
@@ -612,7 +629,9 @@ open class FileEditorManagerImpl(
       }
 
       for (provider in item.newProviders) {
-        composite.addEditor(editor = provider.createEditor(project, item.composite.file), provider = provider)
+        val editor = provider.createEditor(project, item.composite.file)
+        postProcessFileEditorWithProvider(editorWithProvider = FileEditorWithProvider(editor, provider), editorPropertyChangeListener = editorPropertyChangeListener)
+        composite.addEditor(editor = editor, provider = provider)
       }
 
       for (splitters in getAllSplitters()) {
@@ -723,6 +742,20 @@ open class FileEditorManagerImpl(
     queueUpdateFile(file)
   }
 
+  @RequiresEdt
+  override fun hasPinnedEditorTab(file: VirtualFile): Boolean {
+    return windows.any { window -> window.isFileOpen(file) && window.isFilePinned(file) }
+  }
+
+  @RequiresEdt
+  override fun setPinnedEditorTab(file: VirtualFile, pinned: Boolean) {
+    windows.forEach { window ->
+      if (window.isFileOpen(file)) {
+        window.setFilePinned(file, pinned)
+      }
+    }
+  }
+
   override fun updateFileName(file: VirtualFile) {
     if (!isFileOpen(file)) {
       return
@@ -827,6 +860,11 @@ open class FileEditorManagerImpl(
            COMPOSITE_PROVIDER_EP.extensionList.any { it.canOpenFile(file) }
   }
 
+  override suspend fun canOpenFileAsync(file: VirtualFile): Boolean {
+    return super.canOpenFileAsync(file) ||
+           COMPOSITE_PROVIDER_EP.extensionList.any { it.canOpenFile(file) }
+  }
+
   override fun hasOpenedFile(): Boolean = splitters.currentWindow?.selectedComposite != null
 
   override fun getCurrentFile(): VirtualFile? {
@@ -880,6 +918,44 @@ open class FileEditorManagerImpl(
   @RequiresEdt
   override fun closeFileWithChecks(file: VirtualFile, window: EditorWindow): Boolean {
     return closeFile(window = window, composite = window.getComposite(file) ?: return false, runChecks = true)
+  }
+
+  /**
+   * Closes the requested files that pass pre-close checks.
+   *
+   * @return `true` if every requested file was closed, or was already closed
+   */
+  @RequiresEdt
+  override fun closeFilesWithChecks(filesWithWindows: List<Pair<EditorComposite, EditorWindow>>): Boolean {
+    val filesToClose = filesWithWindows.filter { it.second.getComposite(it.first.file) != null }
+    if (filesToClose.isEmpty()) {
+      return true
+    }
+    val filesToCheck = filesToClose.mapTo(LinkedHashSet()) { it.first.file }
+    val closableFiles = filterClosableFiles(filesToCheck)
+    if (closableFiles.isEmpty()) {
+      return false
+    }
+    val closableFilesSet = closableFiles.toHashSet()
+
+    openFileSetModificationCount.increment()
+    WriteIntentReadAction.run {
+      for (fileWithWindow in filesToClose) {
+        if (fileWithWindow.first.file !in closableFilesSet) {
+          continue
+        }
+
+        val window = fileWithWindow.second
+        val currentComposite = window.getComposite(fileWithWindow.first.file)
+        if (currentComposite != null) {
+          window.closeFile(file = currentComposite.file, composite = currentComposite)
+        }
+      }
+    }
+
+    // Some requested files may have been rejected by a pre-close check.
+    // Return true only if all requested files were approved for closing.
+    return closableFiles.size == filesToCheck.size
   }
 
   @RequiresEdt
@@ -1030,6 +1106,8 @@ open class FileEditorManagerImpl(
   }
 
   override suspend fun openFile(file: VirtualFile, options: FileEditorOpenOptions): FileEditorComposite {
+    EditorHistoryManager.preloadHistory(project)
+
     if (!ClientId.isCurrentlyUnderLocalId) {
       return clientFileEditorManager?.openFileAsync(
         file = file,
@@ -1039,42 +1117,50 @@ open class FileEditorManagerImpl(
       ) ?: FileEditorComposite.EMPTY
     }
 
-    val mode = options.openMode
-    if (mode == OpenMode.NEW_WINDOW) {
-      return withContext(Dispatchers.EDT) {
-        if (forbidSplitFor(file)) {
-          closeFile(file)
-        }
-        (DockManager.getInstance(project) as DockManagerImpl).createNewDockContainerFor(
-          file = file,
-          fileEditorManager = this@FileEditorManagerImpl,
-          isSingletonEditorInWindow = false,
-        ) { editorWindow ->
-          if (forbidSplitFor(file = file) && !editorWindow.isFileOpen(file = file)) {
-            closeFile(file = file)
+    // an explicitly requested window takes precedence over the open mode; a disposed window falls back to the open mode
+    val requestedWindow = options.window?.takeIf { !it.isDisposed }
+    if (requestedWindow == null) {
+      val mode = options.openMode
+      if (mode == OpenMode.NEW_WINDOW) {
+        return withContext(Dispatchers.EDT) {
+          if (forbidSplitFor(file)) {
+            closeFile(file)
           }
+          (DockManager.getInstance(project) as DockManagerImpl).createNewDockContainerFor(
+            file = file,
+            fileEditorManager = this@FileEditorManagerImpl,
+            isSingletonEditorInWindow = false,
+          ) { editorWindow ->
+            if (forbidSplitFor(file = file) && !editorWindow.isFileOpen(file = file)) {
+              closeFile(file = file)
+            }
 
-          doOpenFile(file = file, windowToOpenIn = editorWindow, options = options)
+            doOpenFile(file = file, windowToOpenIn = editorWindow, options = options)
+          }
         }
       }
-    }
-    else if (mode == OpenMode.RIGHT_SPLIT) {
-      withContext(Dispatchers.EDT) {
-        openInRightSplit(file,
-                         options.requestFocus,
-                         options.forceFocus,
-                         internalHint = options.internalHint)
-      }?.let { composite ->
-        if (composite is EditorComposite) {
-          composite.waitForAvailable()
+      else if (mode == OpenMode.RIGHT_SPLIT) {
+        // the split is created before the composite is opened (see EditorWindow.split)
+        if (!canOpenFileAsync(file)) {
+          return FileEditorComposite.EMPTY
         }
-        return composite
+        withContext(Dispatchers.EDT) {
+          openInRightSplit(file,
+                           options.requestFocus,
+                           options.forceFocus,
+                           internalHint = options.internalHint)
+        }?.let { composite ->
+          if (composite is EditorComposite) {
+            composite.waitForAvailable()
+          }
+          return composite
+        }
       }
     }
 
     val composite: FileEditorComposite? = withContext(Dispatchers.EDT) {
       writeIntentReadAction {
-        val window = getWindowToOpen(options, file)
+        val window = requestedWindow?.takeIf { !it.isDisposed } ?: getWindowToOpen(options, file)
         if (forbidSplitFor(file) && !window.isFileOpen(file)) {
           closeFile(file)
         }
@@ -1188,7 +1274,8 @@ open class FileEditorManagerImpl(
         return composite
       }
     }
-    return window.owner.openInRightSplit(file, forceFocus = forceFocus, internalHint = internalHint)
+    // propagate the requestFocus for a split view as well
+    return window.owner.openInRightSplit(file, requestFocus = requestFocus, forceFocus = forceFocus, internalHint = internalHint)
       ?.composites()?.firstOrNull { it.file == file }
   }
 
@@ -1397,8 +1484,8 @@ open class FileEditorManagerImpl(
     else if (fileEntry != null) {
       for (editorWithProvider in composite.allEditorsWithProviders) {
         val state = fileEntry.providers.get(editorWithProvider.provider.editorTypeId)
-          ?.let { editorWithProvider.provider.readState(it, project, file) }
-        if (state != null && state != FileEditorState.INSTANCE) {
+          ?.let { editorWithProvider.provider.readState(it, project, lazyOf(file)) }
+        if (state != null && state !== FileEditorState.INSTANCE && state !== FileEditorState.NO_STATE) {
           restoreEditorState(
             fileEditorWithProvider = editorWithProvider,
             state = state,
@@ -1926,6 +2013,8 @@ open class FileEditorManagerImpl(
     newEditorWithProvider: FileEditorWithProvider?,
     publisher: FileEditorManagerListener,
   ) {
+    EditorHistoryManager.preloadHistory(project) // make sure we preload it out of EDT
+
     oldEditorWithProvider?.fileEditor?.deselectNotify()
     val newEditor = newEditorWithProvider?.fileEditor
     if (newEditor != null) {
@@ -2648,7 +2737,7 @@ fun blockingWaitForCompositeFileOpen(composite: EditorComposite) {
 @Suppress("RAW_RUN_BLOCKING")
 @RequiresEdt
 private fun Job.waitBlockingAndPumpEdt() {
-  val (parallelizedLockContext, cleanup) = getGlobalThreadingSupport().parallelizeLock()
+  val (parallelizedLockContext, cleanup) = application.threadingSupport.parallelizeLock(true)
   try {
     runBlocking(parallelizedLockContext) {
       invokeOnCompletion {

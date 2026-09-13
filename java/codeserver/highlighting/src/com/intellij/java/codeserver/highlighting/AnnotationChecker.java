@@ -1,4 +1,4 @@
-// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.java.codeserver.highlighting;
 
 import com.intellij.codeInsight.AnnotationTargetUtil;
@@ -672,8 +672,10 @@ final class AnnotationChecker {
   void checkMemberValueType(@NotNull PsiAnnotationMemberValue value,
                             @NotNull PsiType expectedType,
                             @NotNull PsiAnnotationMethod method) {
-    if (expectedType instanceof PsiClassType && expectedType.equalsToText(CommonClassNames.JAVA_LANG_CLASS)) {
-      if (!(value instanceof PsiClassObjectAccessExpression)) {
+    if (expectedType instanceof PsiClassType classType) {
+      PsiClass aClass = classType.resolve();
+      if (aClass != null && CommonClassNames.JAVA_LANG_CLASS.equals(aClass.getQualifiedName()) 
+          && !(value instanceof PsiClassObjectAccessExpression)) {
         myVisitor.report(JavaErrorKinds.ANNOTATION_ATTRIBUTE_NON_CLASS_LITERAL.create(value));
         return;
       }
@@ -714,7 +716,7 @@ final class AnnotationChecker {
       PsiClass psiClass = PsiUtil.resolveClassInType(type);
       if (psiClass != null &&
           psiClass.isEnum() &&
-          !(expr instanceof PsiReferenceExpression referenceExpression && referenceExpression.resolve() instanceof PsiEnumConstant)) {
+          !(PsiUtil.skipParenthesizedExprDown(expr) instanceof PsiReferenceExpression ref && ref.resolve() instanceof PsiEnumConstant)) {
         myVisitor.report(JavaErrorKinds.ANNOTATION_ATTRIBUTE_NON_ENUM_CONSTANT.create(expr));
         return;
       }

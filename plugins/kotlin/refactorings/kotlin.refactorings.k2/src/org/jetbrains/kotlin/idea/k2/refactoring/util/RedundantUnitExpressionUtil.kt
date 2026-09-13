@@ -4,12 +4,20 @@ package org.jetbrains.kotlin.idea.k2.refactoring.util
 import com.intellij.psi.util.PsiTreeUtil
 import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.kotlin.analysis.api.KaSession
-import org.jetbrains.kotlin.analysis.api.analyze
 import org.jetbrains.kotlin.analysis.api.components.computeMissingCases
-import org.jetbrains.kotlin.analysis.api.resolution.singleFunctionCallOrNull
+import org.jetbrains.kotlin.analysis.api.expressions.expressionType
+import org.jetbrains.kotlin.analysis.api.resolution.function
+import org.jetbrains.kotlin.analysis.api.resolution.resolveSuccessfulSymbol
+import org.jetbrains.kotlin.analysis.api.resolution.single
+import org.jetbrains.kotlin.analysis.api.resolution.tryResolveCall
+import org.jetbrains.kotlin.analysis.api.session.analyze
 import org.jetbrains.kotlin.analysis.api.types.KaDynamicType
 import org.jetbrains.kotlin.analysis.api.types.KaFunctionType
+import org.jetbrains.kotlin.analysis.api.types.KaStandardTypeClassIds
 import org.jetbrains.kotlin.analysis.api.types.KaType
+import org.jetbrains.kotlin.analysis.api.types.classId
+import org.jetbrains.kotlin.analysis.api.types.expandedSymbol
+import org.jetbrains.kotlin.analysis.api.types.isMarkedNullable
 import org.jetbrains.kotlin.builtins.StandardNames
 import org.jetbrains.kotlin.idea.base.psi.previousStatement
 import org.jetbrains.kotlin.name.StandardClassIds
@@ -56,7 +64,7 @@ fun isRedundantUnit(referenceExpression: KtReferenceExpression): Boolean {
             analyze(prev) {
                 val ktType = prev.expressionType
                 if (ktType != null) {
-                    return ktType.isUnitType && !ktType.isMarkedNullable && prev.canBeUsedAsValue()
+                    return ktType.classId == KaStandardTypeClassIds.UNIT && !ktType.isMarkedNullable && prev.canBeUsedAsValue()
                 }
             }
 
@@ -75,7 +83,7 @@ fun isRedundantUnit(referenceExpression: KtReferenceExpression): Boolean {
 private fun isDynamicCall(parent: KtBlockExpression): Boolean = parent.getStrictParentOfType<KtFunctionLiteral>()?.findLambdaReturnType() is KaDynamicType
 
 private fun KtReturnExpression.expectedReturnType(): KaType? = analyze(this) {
-    targetSymbol?.let {
+    this.resolveSuccessfulSymbol()?.let {
         (it.psi as? KtFunctionLiteral)?.findLambdaReturnType() ?: it.returnType
     }
 }
@@ -84,8 +92,8 @@ private fun KtFunctionLiteral.findLambdaReturnType(): KaType? {
     val callExpression = getStrictParentOfType<KtCallExpression>() ?: return null
     val valueArgument = getStrictParentOfType<KtValueArgument>() ?: return null
     analyze(this) {
-        val functionCallOrNull = callExpression.resolveToCall()?.singleFunctionCallOrNull() ?: return null
-        val variableLikeSignature = functionCallOrNull.argumentMapping[valueArgument.getArgumentExpression()] ?: return null
+        val functionCallOrNull = callExpression.tryResolveCall()?.single?.function ?: return null
+        val variableLikeSignature = functionCallOrNull.valueArgumentMapping[valueArgument.getArgumentExpression()] ?: return null
         return (variableLikeSignature.returnType as? KaFunctionType)?.returnType
     }
 }

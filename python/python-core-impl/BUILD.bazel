@@ -1,7 +1,7 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
 ### auto-generated section `build intellij.python.community.core.impl` start
-
 jvm_library(
     name = "community-core-impl",
     srcs = glob(
@@ -34,12 +34,14 @@ jvm_library(
         "//RegExpSupport:regexp",
         "//libraries/guava",
         "//python/python-psi-impl:psi-impl",
-        "//python/python-sdk:sdk",
+        "//python/python-sdk/backend",
         "@lib//:kotlin-stdlib",
         "//platform/core-impl",
         "//libraries/kotlinx/coroutines/core",
     ],
 )
+
+content_module_jar(module = ":community-core-impl")
 
 jvm_library(
     name = "community-core-impl_test_lib",
@@ -67,7 +69,7 @@ jvm_library(
         "//RegExpSupport:regexp_test_lib",
         "//libraries/guava:guava_test_lib",
         "//python/python-psi-impl:psi-impl_test_lib",
-        "//python/python-sdk:sdk_test_lib",
+        "//python/python-sdk/backend:backend_test_lib",
         "//platform/core-impl:core-impl_test_lib",
         "//libraries/kotlinx/coroutines/core:core_test_lib",
     ],
@@ -78,6 +80,7 @@ jvm_library(
 exports_files(
     [
         "intellij.python.community.core.impl.iml",
+        "resources/intellij.python.community.core.impl.xml",
     ],
     visibility = ["//visibility:public"],
 )

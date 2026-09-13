@@ -19,24 +19,34 @@ object PyCollectionTypeUtil {
 
   @JvmStatic
   fun getListLiteralType(expression: PyListLiteralExpression, context: TypeEvalContext): PyType? {
-    val cls = PyBuiltinCache.getInstance(expression).getClass("list") ?: return null
-    return PyCollectionTypeImpl(cls, false, listOf(getListOrSetIteratedValueType(expression, context)))
+    return getListOrSetLiteralType(expression, "list", context)
   }
 
   @JvmStatic
   fun getSetLiteralType(expression: PySetLiteralExpression, context: TypeEvalContext): PyType? {
-    val cls = PyBuiltinCache.getInstance(expression).getClass("set") ?: return null
-    return PyCollectionTypeImpl(cls, false, listOf(getListOrSetIteratedValueType(expression, context)))
+    return getListOrSetLiteralType(expression, "set", context)
   }
 
-  private fun getListOrSetIteratedValueType(sequence: PySequenceExpression, context: TypeEvalContext): PyType? {
+  private fun getListOrSetLiteralType(expression: PySequenceExpression, className: String, context: TypeEvalContext): PyType? {
+    val cls = PyBuiltinCache.getInstance(expression).getClass(className) ?: return PyAnyType.unknown
+    val substitutions = PyTypeInferenceCspFactory.unifySequenceExpression(expression, cls, context)
+    val genericListType = PyTypeChecker.findGenericDefinitionType(cls, context)
+    val concreteListType = PyTypeChecker.substitute(genericListType, substitutions, context)
+    return concreteListType
+  }
+
+  @JvmStatic
+  fun getListOrSetIteratedValueType(sequence: PySequenceExpression, context: TypeEvalContext): PyType? {
     val elements = sequence.elements
     val analyzedElementsType = PyUnionType.union(
       elements.take(MAX_ANALYZED_ELEMENTS_OF_LITERALS).map { element ->
         if (element is PyStarExpression) {
           val innerExpr = element.expression ?: return@map null
           val innerType = context.getType(innerExpr)
-          PyTypeUtil.widenLiteralAndNumeric((innerType as? PyCollectionType)?.iteratedItemType)
+          // Resolve the element via the context-aware entry point: the context-less `iteratedItemType`
+          // can't upcast a local generic subclass (e.g. `class A[T](list[str])`) to `Iterable`.
+          val elementType = (innerType as? PyClassType)?.let { PyTypeChecker.getIteratedItemType(it, context) }
+          PyTypeUtil.widenLiteralAndNumeric(elementType)
         }
         else {
           PyTypeUtil.widenLiteralAndNumeric(context.getType(element))
@@ -53,7 +63,7 @@ object PyCollectionTypeUtil {
 
   @JvmStatic
   fun getDictLiteralType(expression: PyDictLiteralExpression, context: TypeEvalContext): PyType? {
-    val cls = PyBuiltinCache.getInstance(expression).getClass("dict") ?: return null
+    val cls = PyBuiltinCache.getInstance(expression).getClass("dict") ?: return PyAnyType.unknown
     val (keyType, valueType) = getDictLiteralElementTypes(expression, context)
     return PyCollectionTypeImpl(cls, false, listOf(keyType, valueType))
   }
@@ -69,7 +79,7 @@ object PyCollectionTypeUtil {
       val elementType = context.getType(element)
       val (keyType, valueType) = getKeyValueType(elementType)
 
-      if (!(keyType is PyClassType && PyNames.TYPE_STR == keyType.classQName)) {
+      if (!(keyType is PyClassType && PyNames.FQN.STR == keyType.classQName)) {
         return null
       }
       val keyString: String? = if (keyType is PyLiteralType) {
@@ -103,8 +113,8 @@ object PyCollectionTypeUtil {
       }
 
     if (elements.size > MAX_ANALYZED_ELEMENTS_OF_LITERALS) {
-      keyTypes.add(null)
-      valueTypes.add(null)
+      keyTypes.add(PyAnyType.unknown)
+      valueTypes.add(PyAnyType.unknown)
     }
 
     return Pair(PyUnionType.union(keyTypes), PyUnionType.union(valueTypes))

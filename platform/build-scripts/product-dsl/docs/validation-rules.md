@@ -2,6 +2,11 @@
 
 Validation ensures module and plugin dependencies are resolvable at runtime and that descriptors remain consistent with the graph. The authoritative, validator-level specs live in [docs/validators/](validators/README.md).
 
+A library module takes the lowest route that works: private plugin content, then reuse of the copy held by the
+plugin that owns the API, then a shared module set. Read
+[ADR 0005](../../../../../build/decisions/0005-a-library-copy-belongs-to-the-plugin-that-owns-its-api.md). Rule
+17 below enforces the middle route.
+
 ## Rule Index
 
 | # | Validator | Scope | Spec |
@@ -20,12 +25,18 @@ Validation ensures module and plugin dependencies are resolvable at runtime and 
 | 12 | Suppression config keys | Config | [suppression-config.md](validators/suppression-config.md) |
 | 13 | Plugin content structural validation | Plugin | [plugin-content-structure.md](validators/plugin-content-structure.md) |
 | 14 | Embedded content module dependencies | Product | [embedded-content-module-dependency.md](validators/embedded-content-module-dependency.md) |
+| 15 | Unused embedded library modules | Module set | [unused-embedded-library-module.md](validators/unused-embedded-library-module.md) |
+| 16 | Unused shared library modules | Module set | [unused-shared-library-module.md](validators/unused-shared-library-module.md) |
+| 17 | Content module copy conflicts | Product | [content-module-copy-conflict.md](validators/content-module-copy-conflict.md) |
+| 18 | Library license coverage | Content module | [library-license.md](validators/library-license.md) |
+| 19 | Module in multiple plugins | Plugin layouts | [module-in-multiple-plugins.md](validators/module-in-multiple-plugins.md) |
+| 20 | Content module dependency declarations | Content module | [content-module-dependency-declaration.md](validators/content-module-dependency-declaration.md) |
 
 ## When Validation Runs
 
+- Bazel: `bazel run //platform/buildScripts:plugin-model-tool`
 - IDE: run configuration "Generate Product Layouts"
 - CLI: `UltimateModuleSets.main()` or `CommunityModuleSets.main()`
-- Bazel: `bazel run //platform/buildScripts:plugin-model-tool`
 
 ## Terminology
 
@@ -72,7 +83,7 @@ Suppressions are explicit contracts: dependencies intentionally omitted from XML
 - `pluginAllowedMissingDependencies` (config): allow missing module deps for a plugin.
 - `allowedMissingPluginIds` (DSL test plugins): allow missing plugin IDs for specific DSL-defined test modules or the whole test plugin.
 - `suppressions.json` (`contentModules.<module>.suppressPlugins`): allow missing plugin IDs for non-DSL content modules.
-- `suppressions.json`: suppress module deps, plugin deps, library replacements, or test-library scope fixes.
+- `suppressions.json`: suppress module deps, plugin deps, or test-library scope fixes.
 
 ## See also
 

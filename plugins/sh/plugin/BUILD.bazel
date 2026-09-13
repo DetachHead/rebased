@@ -1,7 +1,7 @@
+load("@community//platform/build-scripts/bazel-rules:dev_dist_plugin.bzl", "dev_dist_plugin")
 load("@rules_jvm//:jvm.bzl", "jvm_library")
 
 ### auto-generated section `build intellij.sh.plugin` start
-
 jvm_library(
     name = "plugin",
     srcs = glob(
@@ -33,13 +33,29 @@ jvm_library(
 exports_files(
     [
         "intellij.sh.plugin.iml",
+        "resources/META-INF/plugin.xml",
     ],
     visibility = ["//visibility:public"],
 )
 ### auto-generated section `iml intellij.sh.plugin` end
 
-### auto-generated section `build intellij.sh.plugin.main` start
+### auto-generated section `dev intellij.sh.plugin` start
+dev_dist_plugin(
+    descriptor_module = ":plugin",
+    prepacked_content_modules = [
+        "//plugins/sh/backend:backend_content_module_jar",
+        "//plugins/sh/copyright:copyright_content_module_jar",
+        "//plugins/sh/markdown:markdown_content_module_jar",
+        "//plugins/sh/python:python_content_module_jar",
+        "//plugins/sh/terminal:terminal_content_module_jar",
+    ],
+    prepacked_jars = {
+        "//plugins/sh/core:core_content_module_jar": "intellij.sh.core.jar",
+    },
+)
+### auto-generated section `dev intellij.sh.plugin` end
 
+### auto-generated section `build intellij.sh.plugin.main` start
 jvm_library(
     name = "plugin-main",
     srcs = glob(

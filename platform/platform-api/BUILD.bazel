@@ -1,7 +1,7 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library", "kt_javac_options")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
 ### auto-generated section `build intellij.platform.ide` start
-
 kt_javac_options(
     name = "custom-javac-options",
     add_exports = [
@@ -43,7 +43,7 @@ jvm_library(
         "//platform/analysis-api:analysis",
         "//platform/editor-ui-api:editor-ui",
         "//platform/util/progress",
-        "@lib//:jna",
+        "//libraries/jna",
         "@lib//:kotlin-stdlib",
         "//libraries/kotlinx/coroutines/core",
         "//platform/util/jdom",
@@ -68,6 +68,12 @@ jvm_library(
         "//libraries/fastutil",
         "//libraries/kotlinx/collections-immutable:libraries-kotlinx-collections-immutable",
     ],
+)
+
+content_module_jar(
+    module = ":ide",
+    modules_after = ["//platform/observable"],
+    modules_before = ["//platform/icons"],
 )
 
 jvm_library(
@@ -98,6 +104,7 @@ jvm_library(
         "//platform/analysis-api:analysis_test_lib",
         "//platform/editor-ui-api:editor-ui_test_lib",
         "//platform/util/progress:progress_test_lib",
+        "//libraries/jna:jna_test_lib",
         "//libraries/kotlinx/coroutines/core:core_test_lib",
         "//platform/util/jdom:jdom_test_lib",
         "//platform/util-ex:util-ex_test_lib",
@@ -128,6 +135,10 @@ jvm_library(
 exports_files(
     [
         "intellij.platform.ide.iml",
+        "resources/PlatformProductivityFeatures.xml",
+        "resources/intellij.platform.ide.actions.xml",
+        "resources/intellij.platform.ide.xml",
+        "module-content.yaml",
     ],
     visibility = ["//visibility:public"],
 )

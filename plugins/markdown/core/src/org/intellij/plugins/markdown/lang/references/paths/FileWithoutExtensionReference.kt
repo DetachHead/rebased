@@ -8,6 +8,7 @@ import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiReferenceBase
 import com.intellij.psi.impl.source.resolve.reference.impl.providers.FileReference
 import com.intellij.psi.util.PsiUtilCore
+import com.intellij.util.io.URLUtil
 import org.intellij.plugins.markdown.lang.MarkdownFileType
 import org.intellij.plugins.markdown.lang.isMarkdownType
 import org.jetbrains.annotations.ApiStatus
@@ -18,8 +19,11 @@ abstract class FileWithoutExtensionReference(
   private val fileReference: FileReference,
   soft: Boolean
 ): PsiReferenceBase<PsiElement>(element, fileReference.rangeInElement, soft) {
-  protected val path
+  protected val path: String
     get() = fileReference.fileReferenceSet.pathString + '.' + MarkdownFileType.INSTANCE.defaultExtension
+
+  protected val decodedPath: String
+    get() = fileReference.decode(path)
 
   protected val containingFile: VirtualFile?
     get() = element.containingFile?.virtualFile
@@ -40,7 +44,11 @@ abstract class FileWithoutExtensionReference(
       hasMarkdownExtensions(newElementName) -> FileUtilRt.getNameWithoutExtension(newElementName)
       else -> newElementName
     }
-    return super.handleElementRename(newText)
+    val encodedText = if (fileReference.fileReferenceSet.pathString.contains('%')) {
+      URLUtil.encodePath(newText)
+    }
+    else newText
+    return super.handleElementRename(encodedText)
   }
 
   companion object {

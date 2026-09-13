@@ -41,6 +41,12 @@ public class MermaidErRelationStatementImpl extends ASTWrapperPsiElement impleme
 
   @Override
   @NotNull
+  public List<MermaidErStyleClass> getErStyleClassList() {
+    return PsiTreeUtil.getChildrenOfTypeAsList(this, MermaidErStyleClass.class);
+  }
+
+  @Override
+  @NotNull
   public MermaidRelationship getRelationship() {
     return findNotNullChildByClass(MermaidRelationship.class);
   }

@@ -7,7 +7,6 @@ import com.intellij.openapi.actionSystem.ActionPlaces
 import com.intellij.openapi.actionSystem.ActionUpdateThread
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.actionSystem.CommonDataKeys
-import com.intellij.openapi.extensions.InternalIgnoreDependencyViolation
 import com.intellij.openapi.project.DumbAwareAction
 import com.intellij.openapi.project.ProjectManager
 import com.intellij.openapi.vcs.CheckoutProvider
@@ -33,6 +32,10 @@ internal open class GetFromVersionControlAction : DumbAwareAction() {
         presentation.icon = AllIcons.Welcome.FromVCSTab
         presentation.selectedIcon = AllIcons.Welcome.FromVCSTabSelected
         presentation.text = ActionsBundle.message("Vcs.VcsClone.Tabbed.Welcome.text")
+        presentation.putClientProperty(
+          WelcomeScreenActionsUtil.LARGE_BUTTON_TEXT,
+          ActionsBundle.message("Vcs.VcsClone.Tabbed.Welcome.Large.text"),
+        )
       }
       else {
         presentation.icon = AllIcons.Vcs.Branch
@@ -54,6 +57,3 @@ internal open class GetFromVersionControlAction : DumbAwareAction() {
     }
   }
 }
-
-@InternalIgnoreDependencyViolation
-internal class ProjectFromVersionControlAction : GetFromVersionControlAction()

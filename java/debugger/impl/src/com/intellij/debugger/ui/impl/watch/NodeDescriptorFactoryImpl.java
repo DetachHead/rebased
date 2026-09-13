@@ -9,6 +9,7 @@ import com.intellij.debugger.engine.jdi.StackFrameProxy;
 import com.intellij.debugger.engine.jdi.ThreadReferenceProxy;
 import com.intellij.debugger.impl.descriptors.data.ArgValueData;
 import com.intellij.debugger.impl.descriptors.data.ArrayItemData;
+import com.intellij.debugger.impl.descriptors.data.CurrentMethodReturnValueData;
 import com.intellij.debugger.impl.descriptors.data.DescriptorData;
 import com.intellij.debugger.impl.descriptors.data.DescriptorKey;
 import com.intellij.debugger.impl.descriptors.data.DisplayKey;
@@ -19,15 +20,11 @@ import com.intellij.debugger.impl.descriptors.data.StackFrameData;
 import com.intellij.debugger.impl.descriptors.data.StaticData;
 import com.intellij.debugger.impl.descriptors.data.StaticFieldData;
 import com.intellij.debugger.impl.descriptors.data.ThisData;
-import com.intellij.debugger.impl.descriptors.data.ThreadData;
-import com.intellij.debugger.impl.descriptors.data.ThreadGroupData;
 import com.intellij.debugger.impl.descriptors.data.ThrownExceptionValueData;
 import com.intellij.debugger.impl.descriptors.data.WatchItemData;
 import com.intellij.debugger.jdi.DecompiledLocalVariable;
 import com.intellij.debugger.jdi.LocalVariableProxyImpl;
 import com.intellij.debugger.jdi.StackFrameProxyImpl;
-import com.intellij.debugger.jdi.ThreadGroupReferenceProxyImpl;
-import com.intellij.debugger.jdi.ThreadReferenceProxyImpl;
 import com.intellij.debugger.ui.tree.NodeDescriptor;
 import com.intellij.debugger.ui.tree.NodeDescriptorFactory;
 import com.intellij.debugger.ui.tree.UserExpressionDescriptor;
@@ -185,16 +182,12 @@ public class NodeDescriptorFactoryImpl implements NodeDescriptorFactory {
     return getDescriptor(parent, new MethodReturnValueData(method, value));
   }
 
+  public ValueDescriptorImpl getCurrentMethodReturnValueDescriptor(NodeDescriptorImpl parent, Method method, Value value) {
+    return getDescriptor(parent, new CurrentMethodReturnValueData(method, value));
+  }
+
   public ValueDescriptorImpl getThrownExceptionObjectDescriptor(NodeDescriptorImpl parent, ObjectReference exceptionObject) {
     return getDescriptor(parent, new ThrownExceptionValueData(exceptionObject));
-  }
-
-  public ThreadDescriptorImpl getThreadDescriptor(NodeDescriptorImpl parent, ThreadReferenceProxyImpl thread) {
-    return getDescriptor(parent, new ThreadData(thread));
-  }
-
-  public ThreadGroupDescriptorImpl getThreadGroupDescriptor(NodeDescriptorImpl parent, ThreadGroupReferenceProxyImpl group) {
-    return getDescriptor(parent, new ThreadGroupData(group));
   }
 
   @Override

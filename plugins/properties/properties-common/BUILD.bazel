@@ -1,7 +1,8 @@
+load("@community//platform/build-scripts/bazel-rules:dev_dist_plugin.bzl", "dev_dist_plugin")
 load("@rules_jvm//:jvm.bzl", "jvm_library")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
 ### auto-generated section `build intellij.properties` start
-
 jvm_library(
     name = "properties",
     srcs = glob(
@@ -44,6 +45,8 @@ jvm_library(
     ],
 )
 
+content_module_jar(module = ":properties")
+
 jvm_library(
     name = "properties_test_lib",
     testonly = True,
@@ -82,7 +85,32 @@ jvm_library(
 exports_files(
     [
         "intellij.properties.iml",
+        "resources/META-INF/plugin.xml",
+        "resources/intellij.properties.xml",
     ],
     visibility = ["//visibility:public"],
 )
 ### auto-generated section `iml intellij.properties` end
+
+### auto-generated section `dev intellij.properties` start
+dev_dist_plugin(
+    descriptor = "resources/META-INF/plugin.xml",
+    descriptor_module = ":properties",
+    descriptors = {
+        "@community//plugins/properties/copyright:resources/intellij.properties.copyright.xml": "intellij.properties.copyright.xml",
+        "@community//plugins/properties/properties-common:resources/intellij.properties.xml": "intellij.properties.xml",
+        "@community//plugins/properties/properties-psi-api:resources/intellij.properties.psi.xml": "intellij.properties.psi.xml",
+        "@community//plugins/properties/properties-psi-impl:resources/intellij.properties.backend.psi.xml": "intellij.properties.backend.psi.xml",
+        "@community//plugins/properties:resources/intellij.properties.backend.xml": "intellij.properties.backend.xml",
+    },
+    main_module = "intellij.properties",
+    prepacked_content_modules = [
+        "//plugins/properties/copyright:copyright_content_module_jar",
+        "//plugins/properties/properties-psi-impl:backend-psi_content_module_jar",
+        "//plugins/properties:properties-backend_content_module_jar",
+    ],
+    prepacked_jars = {
+        "//plugins/properties/properties-psi-api:psi_content_module_jar": "intellij.properties.psi.jar",
+    },
+)
+### auto-generated section `dev intellij.properties` end

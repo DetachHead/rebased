@@ -1,7 +1,6 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
 
 ### auto-generated section `build intellij.libraries.junit5.pioneer` start
-
 jvm_library(
     name = "junit5-pioneer",
     srcs = glob(
@@ -46,6 +45,7 @@ jvm_library(
 exports_files(
     [
         "intellij.libraries.junit5.pioneer.iml",
+        "resources/intellij.libraries.junit5.pioneer.xml",
     ],
     visibility = ["//visibility:public"],
 )

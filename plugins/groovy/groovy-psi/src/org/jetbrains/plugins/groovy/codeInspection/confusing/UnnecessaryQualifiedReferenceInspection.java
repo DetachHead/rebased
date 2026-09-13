@@ -1,4 +1,4 @@
-// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.plugins.groovy.codeInspection.confusing;
 
 import com.intellij.codeInspection.LocalQuickFix;
@@ -6,6 +6,7 @@ import com.intellij.psi.PsiClass;
 import com.intellij.psi.PsiComment;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiMember;
+import com.intellij.psi.PsiMethod;
 import com.intellij.psi.PsiModifier;
 import com.intellij.psi.util.PsiTreeUtil;
 import org.jetbrains.annotations.NotNull;
@@ -15,11 +16,13 @@ import org.jetbrains.plugins.groovy.codeInspection.BaseInspectionVisitor;
 import org.jetbrains.plugins.groovy.codeInspection.GroovyQuickFixFactory;
 import org.jetbrains.plugins.groovy.config.GroovyConfigUtils;
 import org.jetbrains.plugins.groovy.lang.psi.GrReferenceElement;
+import org.jetbrains.plugins.groovy.lang.psi.GroovyFile;
 import org.jetbrains.plugins.groovy.lang.psi.GroovyFileBase;
 import org.jetbrains.plugins.groovy.lang.psi.GroovyPsiElementFactory;
 import org.jetbrains.plugins.groovy.lang.psi.api.GroovyResolveResult;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.expressions.GrMethodCall;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.expressions.GrReferenceExpression;
+import org.jetbrains.plugins.groovy.lang.psi.api.statements.typedef.GrTypeDefinition;
 import org.jetbrains.plugins.groovy.lang.psi.api.toplevel.imports.GrImportStatement;
 import org.jetbrains.plugins.groovy.lang.psi.api.toplevel.packaging.GrPackageDefinition;
 import org.jetbrains.plugins.groovy.lang.psi.api.types.GrCodeReferenceElement;
@@ -39,7 +42,7 @@ public final class UnnecessaryQualifiedReferenceInspection extends BaseInspectio
         super.visitCodeReferenceElement(refElement);
 
         if (canBeSimplified(refElement)) {
-          registerError(refElement);
+          registerError(refElement.getQualifier());
         }
       }
 
@@ -48,7 +51,7 @@ public final class UnnecessaryQualifiedReferenceInspection extends BaseInspectio
         super.visitReferenceExpression(referenceExpression);
 
         if (canBeSimplified(referenceExpression) || isQualifiedStaticMethodWithUnnecessaryQualifier(referenceExpression)) {
-          registerError(referenceExpression);
+          registerError(referenceExpression.getQualifier());
         }
       }
     };
@@ -59,11 +62,12 @@ public final class UnnecessaryQualifiedReferenceInspection extends BaseInspectio
     if (ref.hasAt()) return false;
 
     final PsiElement resolved = ref.resolve();
-    if (!(resolved instanceof PsiMember)) return false;
-    if (!((PsiMember)resolved).hasModifierProperty(PsiModifier.STATIC)) return false;
-    if (GroovyConfigUtils.isAtLeastGroovy40(ref)) {
-      PsiClass container = ((PsiMember)resolved).getContainingClass();
-      if (container != null && container.isInterface()) {
+    if (!(resolved instanceof PsiMember member)) return false;
+    if (!member.hasModifierProperty(PsiModifier.STATIC)) return false;
+    GrTypeDefinition owner = PsiTreeUtil.getParentOfType(ref, GrTypeDefinition.class, true, GroovyFile.class);
+    if (member instanceof PsiMethod && owner != null && GroovyConfigUtils.isAtLeastGroovy40(ref)) {
+      PsiClass container = member.getContainingClass();
+      if (container != null && container.isInterface() && owner.isInheritor(container, true)) {
         return false;
       }
     }
@@ -103,8 +107,8 @@ public final class UnnecessaryQualifiedReferenceInspection extends BaseInspectio
     if (element instanceof GrCodeReferenceElement) {
       if (PsiTreeUtil.getParentOfType(element, GrImportStatement.class, GrPackageDefinition.class) != null) return false;
     }
-    else if (element instanceof GrReferenceExpression) {
-      if (!PsiImplUtil.seemsToBeQualifiedClassName((GrReferenceExpression)element)) return false;
+    else if (element instanceof GrReferenceExpression ref) {
+      if (!PsiImplUtil.seemsToBeQualifiedClassName(ref)) return false;
     }
     else {
       return false;
@@ -115,9 +119,9 @@ public final class UnnecessaryQualifiedReferenceInspection extends BaseInspectio
     if (!(ref.getContainingFile() instanceof GroovyFileBase)) return false;
 
     final PsiElement resolved = ref.resolve();
-    if (!(resolved instanceof PsiClass)) return false;
+    if (!(resolved instanceof PsiClass aClass)) return false;
 
-    final String name = ((PsiClass)resolved).getName();
+    final String name = aClass.getName();
     if (name == null) return false;
 
     final GroovyPsiElementFactory factory = GroovyPsiElementFactory.getInstance(element.getProject());
@@ -128,9 +132,8 @@ public final class UnnecessaryQualifiedReferenceInspection extends BaseInspectio
       return true;
     }
 
-    final PsiClass containingClass = ((PsiClass)resolved).getContainingClass();
-    if (containingClass != null &&
-        !GroovyCodeStyleSettingsFacade.getInstance(containingClass.getProject()).insertInnerClassImports()) {
+    final PsiClass containingClass = aClass.getContainingClass();
+    if (containingClass != null && !GroovyCodeStyleSettingsFacade.getInstance(containingClass.getProject()).insertInnerClassImports()) {
       return false;
     }
 

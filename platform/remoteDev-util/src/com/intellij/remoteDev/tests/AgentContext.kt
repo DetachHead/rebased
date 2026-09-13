@@ -33,21 +33,21 @@ interface ClientContext : AgentContext
 // the AgentContextImpl and derive it also from HostContext
 // then create proper inheritor in AgentContext.create() depending on agentId
 @ApiStatus.Internal
-internal class HostAgentContextImpl(
+class HostAgentContextImpl(
   override val rdAgentInfo: RdAgentInfo,
   override val protocol: IProtocol,
   override val coroutineContext: CoroutineContext,
 ) : HostContext
 
 @ApiStatus.Internal
-internal class ClientAgentContextImpl(
+class ClientAgentContextImpl(
   override val rdAgentInfo: RdAgentInfo,
   override val protocol: IProtocol,
   override val coroutineContext: CoroutineContext,
 ) : ClientContext
 
 @ApiStatus.Internal
-internal class GatewayAgentContextImpl(
+class GatewayAgentContextImpl(
   override val rdAgentInfo: RdAgentInfo,
   override val protocol: IProtocol,
   override val coroutineContext: CoroutineContext,

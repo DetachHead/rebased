@@ -10,10 +10,12 @@ import com.intellij.grazie.GrazieBundle
 import com.intellij.grazie.icons.GrazieIcons
 import com.intellij.grazie.ide.ui.mass.GrazieMassApplyDialog
 import com.intellij.grazie.text.ProofreadingService
+import com.intellij.grazie.text.ProofreadingService.hasSuggestions
 import com.intellij.grazie.text.TextContent
 import com.intellij.grazie.text.TextExtractor
 import com.intellij.openapi.application.readActionBlocking
 import com.intellij.openapi.editor.Editor
+import com.intellij.openapi.project.DumbAware
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Iconable
 import com.intellij.openapi.util.TextRange
@@ -22,7 +24,7 @@ import com.intellij.platform.ide.progress.runWithModalProgressBlocking
 import com.intellij.psi.PsiFile
 import javax.swing.Icon
 
-class GrazieMassApplyAction : IntentionAndQuickFixAction(), Iconable, CustomizableIntentionAction {
+class GrazieMassApplyAction : IntentionAndQuickFixAction(), Iconable, CustomizableIntentionAction, DumbAware {
   override fun getName(): @IntentionName String = GrazieBundle.message("grazie.mass.apply.action.text")
 
   override fun getFamilyName(): @IntentionFamilyName String = name
@@ -46,12 +48,12 @@ class GrazieMassApplyAction : IntentionAndQuickFixAction(), Iconable, Customizab
     }
     if (problems.isEmpty()) return
 
-    val suggestions = runWithModalProgressBlocking(project, GrazieBundle.message("grazie.mass.apply.action.title")) {
+    val hasSuggestions = runWithModalProgressBlocking(project, GrazieBundle.message("grazie.mass.apply.action.title")) {
       readActionBlocking {
-        problems.flatMap { it.suggestions }
+        problems.any { it.hasSuggestions() }
       }
     }
-    if (suggestions.isEmpty()) return
+    if (!hasSuggestions) return
 
     val dialog = GrazieMassApplyDialog(file, problems)
     dialog.show()

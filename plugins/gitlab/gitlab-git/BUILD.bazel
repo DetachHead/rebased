@@ -1,7 +1,7 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
 ### auto-generated section `build intellij.vcs.gitlab.git` start
-
 jvm_library(
     name = "vcs-gitlab-git",
     srcs = glob(
@@ -43,9 +43,11 @@ jvm_library(
         "//plugins/git4idea:vcs-git",
         "//plugins/git4idea/backend",
         "//plugins/git4idea/shared",
-        "//plugins/gitlab/gitlab-core:vcs-gitlab",
+        "//plugins/gitlab/gitlab-core:vcs-gitlab-backend",
     ],
 )
+
+content_module_jar(module = ":vcs-gitlab-git")
 
 jvm_library(
     name = "vcs-gitlab-git_test_lib",
@@ -81,7 +83,7 @@ jvm_library(
         "//plugins/git4idea:vcs-git_test_lib",
         "//plugins/git4idea/backend:backend_test_lib",
         "//plugins/git4idea/shared:shared_test_lib",
-        "//plugins/gitlab/gitlab-core:vcs-gitlab_test_lib",
+        "//plugins/gitlab/gitlab-core:vcs-gitlab-backend_test_lib",
     ],
 )
 ### auto-generated section `build intellij.vcs.gitlab.git` end
@@ -90,6 +92,7 @@ jvm_library(
 exports_files(
     [
         "intellij.vcs.gitlab.git.iml",
+        "resources/intellij.vcs.gitlab.git.xml",
     ],
     visibility = ["//visibility:public"],
 )

@@ -1,12 +1,15 @@
-// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.openapi.fileEditor
 
+import com.intellij.ide.actions.Switcher
 import com.intellij.ide.impl.OpenProjectTask
 import com.intellij.ide.ui.UISettings
 import com.intellij.ide.ui.UISettingsState
 import com.intellij.mock.Mock
 import com.intellij.openapi.Disposable
+import com.intellij.openapi.application.EDT
 import com.intellij.openapi.application.UiWithModelAccess
+import com.intellij.openapi.application.readAction
 import com.intellij.openapi.components.ExpandMacroToPathMap
 import com.intellij.openapi.editor.Document
 import com.intellij.openapi.editor.Editor
@@ -16,6 +19,7 @@ import com.intellij.openapi.editor.FoldingModel
 import com.intellij.openapi.fileEditor.ex.FileEditorManagerEx
 import com.intellij.openapi.fileEditor.ex.FileEditorOpenRequest
 import com.intellij.openapi.fileEditor.ex.FileEditorProviderManager
+import com.intellij.openapi.fileEditor.ex.FileEditorWithProvider
 import com.intellij.openapi.fileEditor.impl.DefaultPlatformFileEditorProvider
 import com.intellij.openapi.fileEditor.impl.EditorHistoryManager
 import com.intellij.openapi.fileEditor.impl.EditorSplitterState
@@ -33,25 +37,35 @@ import com.intellij.openapi.project.DumbAware
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.util.JDOMUtil
+import com.intellij.openapi.util.Pair
 import com.intellij.openapi.util.io.FileUtil
 import com.intellij.openapi.util.io.IoTestUtil
 import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.openapi.vfs.VirtualFile
+import com.intellij.openapi.vfs.VirtualFilePreCloseCheck
+import com.intellij.openapi.vfs.impl.VirtualFilePointerTracker
 import com.intellij.platform.ide.progress.runWithModalProgressBlocking
 import com.intellij.pom.Navigatable
+import com.intellij.psi.PsiDocumentManager
 import com.intellij.testFramework.DumbModeTestUtils
 import com.intellij.testFramework.EditorTestUtil
 import com.intellij.testFramework.HeavyPlatformTestCase
 import com.intellij.testFramework.PlatformTestUtil
 import com.intellij.testFramework.VfsTestUtil
 import com.intellij.testFramework.common.timeoutRunBlocking
+import com.intellij.testFramework.common.waitUntil
 import com.intellij.testFramework.executeSomeCoroutineTasksAndDispatchAllInvocationEvents
 import com.intellij.testFramework.junit5.TestApplication
 import com.intellij.testFramework.junit5.TestDisposable
 import com.intellij.testFramework.junit5.fixture.fileEditorManagerFixture
 import com.intellij.testFramework.junit5.fixture.projectFixture
 import com.intellij.util.io.write
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.withContext
 import org.assertj.core.api.Assertions.assertThat
 import org.intellij.lang.annotations.Language
 import org.jetbrains.jps.model.serialization.PathMacroUtil
@@ -75,7 +89,7 @@ class FileEditorManagerTest {
 
   private val projectFixture = projectFixture(
     openProjectTask = OpenProjectTask {
-      beforeInit = { it.putUserData(FileEditorManagerKeys.ALLOW_IN_LIGHT_PROJECT, true) }
+      beforeInitTasks += { it.putUserData(FileEditorManagerKeys.ALLOW_IN_LIGHT_PROJECT, true) }
     },
     openAfterCreation = true,
   )
@@ -239,6 +253,24 @@ class FileEditorManagerTest {
   }
 
   @Test
+  fun testStaleSelectionNotificationDoesNotReturnClosedFileToHistory(): Unit = timeoutRunBlocking(context = Dispatchers.UiWithModelAccess) {
+    val file = openSourceFile("1.txt", focusEditor = false)
+    val staleEditor = staleEditorWithProvider(file)
+    val history = EditorHistoryManager.getInstance(project)
+
+    manager.closeFile(file)
+    assertThat(manager.isFileOpen(file)).isFalse()
+    history.removeAllFiles()
+    assertThat(history.fileList).isEmpty()
+
+    // no entry created should own a pointer nobody could dispose anymore
+    val pointerTracker = VirtualFilePointerTracker()
+    publishSelectionChangedFrom(staleEditor)
+    pointerTracker.assertPointersAreDisposed()
+    assertThat(history.fileList).isEmpty()
+  }
+
+  @Test
   fun testWindowClosingRetainsOtherWindows(): Unit = timeoutRunBlocking(context = Dispatchers.UiWithModelAccess) {
     val file = openSourceFile("1.txt", focusEditor = false)
     val primaryWindow = currentWindow()
@@ -246,6 +278,131 @@ class FileEditorManagerTest {
     manager.createSplitter(SwingConstants.VERTICAL, secondaryWindow)
     manager.closeFile(file, primaryWindow)
     assertThat(manager.windows).hasSize(2)
+  }
+
+  @Test
+  fun testCloseFileWithChecksVetoesSingleClose(): Unit = timeoutRunBlocking(context = Dispatchers.UiWithModelAccess) {
+    val file = openSourceFile("1.txt")
+    val window = currentWindow()
+    var checkedFile: VirtualFile? = null
+    registerPreCloseCheck(object : VirtualFilePreCloseCheck {
+      override fun canCloseFile(file: VirtualFile): Boolean {
+        checkedFile = file
+        return false
+      }
+    })
+
+    assertThat(manager.closeFileWithChecks(file, window)).isFalse()
+
+    assertThat(checkedFile).isEqualTo(file)
+    assertOpenFiles("1.txt")
+  }
+
+  @Test
+  fun testCloseFilesWithChecksRunsBatchCheckOnceAndCancelsWholeCloseSet(): Unit = timeoutRunBlocking(context = Dispatchers.UiWithModelAccess) {
+    openSourceFiles("1.txt", "2.txt")
+    val window = currentWindow()
+    var singleChecks = 0
+    var batchFiles: List<VirtualFile> = emptyList()
+    registerPreCloseCheck(object : VirtualFilePreCloseCheck {
+      override fun canCloseFile(file: VirtualFile): Boolean {
+        singleChecks++
+        return true
+      }
+
+      override fun canCloseFiles(files: Collection<VirtualFile>): Boolean {
+        batchFiles = files.toList()
+        return false
+      }
+    })
+
+    assertThat(manager.closeFilesWithChecks(window.allComposites.map { Pair.create(it, window) })).isFalse()
+
+    assertThat(singleChecks).isZero()
+    assertThat(batchFiles.map { it.name }).containsExactly("1.txt", "2.txt")
+    assertOpenFiles("1.txt", "2.txt")
+  }
+
+  @Test
+  fun testCloseFilesWithChecksClosesWholeSetAfterBatchCheck(): Unit = timeoutRunBlocking(context = Dispatchers.UiWithModelAccess) {
+    openSourceFiles("1.txt", "2.txt")
+    val window = currentWindow()
+    var batchChecks = 0
+    registerPreCloseCheck(object : VirtualFilePreCloseCheck {
+      override fun canCloseFile(file: VirtualFile): Boolean = true
+
+      override fun canCloseFiles(files: Collection<VirtualFile>): Boolean {
+        batchChecks++
+        return true
+      }
+    })
+
+    assertThat(manager.closeFilesWithChecks(window.allComposites.map { Pair.create(it, window) })).isTrue()
+
+    assertThat(batchChecks).isEqualTo(1)
+    assertOpenFiles()
+  }
+
+  @Test
+  fun testUncheckedCloseBypassesPreCloseCheck(): Unit = timeoutRunBlocking(context = Dispatchers.UiWithModelAccess) {
+    val file = openSourceFile("1.txt")
+    val window = currentWindow()
+    var checked = false
+    registerPreCloseCheck(object : VirtualFilePreCloseCheck {
+      override fun canCloseFile(file: VirtualFile): Boolean {
+        checked = true
+        return false
+      }
+    })
+
+    manager.closeFile(file, window)
+
+    assertThat(checked).isFalse()
+    assertOpenFiles()
+  }
+
+  @Test
+  @Suppress("DEPRECATION")
+  fun testSwitcherCloseWithWindowRunsPreCloseCheck(): Unit = timeoutRunBlocking(context = Dispatchers.UiWithModelAccess) {
+    val file = openSourceFile("1.txt")
+    val window = currentWindow()
+    var checkedFile: VirtualFile? = null
+    registerPreCloseCheck(object : VirtualFilePreCloseCheck {
+      override fun canCloseFile(file: VirtualFile): Boolean {
+        checkedFile = file
+        return false
+      }
+    })
+
+    assertThat(Switcher.SwitcherPanel.closeVirtualFileForTest(project, file, window)).isFalse()
+
+    assertThat(checkedFile).isEqualTo(file)
+    assertOpenFiles("1.txt")
+  }
+
+  @Test
+  @Suppress("DEPRECATION")
+  fun testSwitcherCloseWithoutWindowRunsBatchPreCloseCheck(): Unit = timeoutRunBlocking(context = Dispatchers.UiWithModelAccess) {
+    val file = openSourceFile("1.txt")
+    var singleChecks = 0
+    var batchFiles: List<VirtualFile> = emptyList()
+    registerPreCloseCheck(object : VirtualFilePreCloseCheck {
+      override fun canCloseFile(file: VirtualFile): Boolean {
+        singleChecks++
+        return true
+      }
+
+      override fun canCloseFiles(files: Collection<VirtualFile>): Boolean {
+        batchFiles = files.toList()
+        return false
+      }
+    })
+
+    assertThat(Switcher.SwitcherPanel.closeVirtualFileForTest(project, file, null)).isFalse()
+
+    assertThat(singleChecks).isZero()
+    assertThat(batchFiles).containsExactly(file)
+    assertOpenFiles("1.txt")
   }
 
   @Test
@@ -424,6 +581,161 @@ class FileEditorManagerTest {
   }
 
   @Test
+  fun testCloseFileWhileEditorIsBeingCreated(): Unit = timeoutRunBlocking(context = Dispatchers.UiWithModelAccess) {
+    val file = getSourceFile("1.txt")
+    val creationStarted = CompletableDeferred<Unit>()
+    val proceedWithCreation = CompletableDeferred<Unit>()
+    val createdEditor = CompletableDeferred<Editor>()
+
+    registerProvider(object : AsyncFileEditorProvider {
+      override fun accept(project: Project, fileToAccept: VirtualFile): Boolean = fileToAccept == file
+
+      override fun acceptRequiresReadAction(): Boolean = false
+
+      override fun getEditorTypeId(): String = "close-while-loading"
+
+      override fun getPolicy(): FileEditorPolicy = FileEditorPolicy.HIDE_DEFAULT_EDITOR
+
+      override fun createEditor(project: Project, file: VirtualFile): FileEditor = throw UnsupportedOperationException()
+
+      override suspend fun createFileEditor(
+        project: Project,
+        file: VirtualFile,
+        document: Document?,
+        editorCoroutineScope: CoroutineScope,
+      ): FileEditor {
+        // NonCancellable makes the race deterministic: the editor creation finishes after the file is already closed
+        return withContext(NonCancellable) {
+          creationStarted.complete(Unit)
+          proceedWithCreation.await()
+          withContext(Dispatchers.EDT) {
+            val textEditor = MyTextEditor(file, checkNotNull(document), "close-while-loading", 0)
+            createdEditor.complete(textEditor.editor)
+            textEditor
+          }
+        }
+      }
+    })
+
+    // the window must exist before the non-waiting open below
+    openSourceFile("2.txt", focusEditor = false)
+    val window = currentWindow()
+    manager.openFileImpl2(window, file, FileEditorOpenOptions(waitForCompositeOpen = false))
+    creationStarted.await()
+    manager.closeFile(file, window)
+    proceedWithCreation.complete(Unit)
+
+    val editor = createdEditor.await()
+    waitUntil("editor created after the file was closed must be released") {
+      !EditorFactory.getInstance().allEditors.contains(editor)
+    }
+  }
+
+  /**
+   * The real text editor path: [TextEditorWithPreviewProvider] creates the main editor first and only then suspends to build the
+   * preview, so a close landing in between used to abandon a fully created `EditorImpl`.
+   */
+  @Test
+  fun testCloseFileWhileSplitPreviewEditorIsBeingCreated(): Unit = timeoutRunBlocking(context = Dispatchers.UiWithModelAccess) {
+    val file = getSourceFile("1.txt")
+    val previewCreationStarted = CompletableDeferred<Unit>()
+
+    val previewProvider = object : AsyncFileEditorProvider {
+      override fun accept(project: Project, fileToAccept: VirtualFile): Boolean = fileToAccept == file
+
+      override fun acceptRequiresReadAction(): Boolean = false
+
+      override fun getEditorTypeId(): String = "split-preview-never-finishes"
+
+      override fun getPolicy(): FileEditorPolicy = FileEditorPolicy.NONE
+
+      override fun createEditor(project: Project, file: VirtualFile): FileEditor = throw UnsupportedOperationException()
+
+      override suspend fun createFileEditor(
+        project: Project,
+        file: VirtualFile,
+        document: Document?,
+        editorCoroutineScope: CoroutineScope,
+      ): FileEditor {
+        previewCreationStarted.complete(Unit)
+        // the main editor already exists at this point, so cancelling here is exactly the window that used to leak it
+        awaitCancellation()
+      }
+    }
+    registerProvider(object : TextEditorWithPreviewProvider(previewProvider) {})
+
+    // the window must exist before the non-waiting open below
+    openSourceFile("2.txt", focusEditor = false)
+    val window = currentWindow()
+    manager.openFileImpl2(window, file, FileEditorOpenOptions(waitForCompositeOpen = false))
+    previewCreationStarted.await()
+
+    val document = readAction { checkNotNull(FileDocumentManager.getInstance().getDocument(file)) }
+    assertThat(EditorFactory.getInstance().allEditors.filter { it.document == document }).isNotEmpty()
+
+    manager.closeFile(file, window)
+    waitUntil("the main editor of a cancelled split open must be released") {
+      EditorFactory.getInstance().allEditors.none { it.document == document }
+    }
+  }
+
+  /**
+   * The non-[AsyncFileEditorProvider] branch of the composite open: the editor is created in one EDT block, and a cancellation
+   * arriving right after that block used to discard it.
+   */
+  @Test
+  fun testCloseFileWhileNonAsyncEditorIsBeingCreated(): Unit = timeoutRunBlocking(context = Dispatchers.UiWithModelAccess) {
+    val file = getSourceFile("1.txt")
+    val blockingEditorCreated = CompletableDeferred<Editor>()
+
+    registerProvider(object : FileEditorProvider, DumbAware {
+      override fun accept(project: Project, fileToAccept: VirtualFile): Boolean = fileToAccept == file
+
+      override fun acceptRequiresReadAction(): Boolean = false
+
+      override fun getEditorTypeId(): String = "non-async-close-while-loading"
+
+      override fun getPolicy(): FileEditorPolicy = FileEditorPolicy.HIDE_DEFAULT_EDITOR
+
+      override fun createEditor(project: Project, file: VirtualFile): FileEditor {
+        val document = checkNotNull(FileDocumentManager.getInstance().getDocument(file))
+        return MyTextEditor(file, document, "non-async-close-while-loading", 0)
+          .also { blockingEditorCreated.complete(it.editor) }
+      }
+    })
+    // a sibling that never finishes keeps the composite open cancellable after the editor above already exists
+    registerProvider(object : AsyncFileEditorProvider {
+      override fun accept(project: Project, fileToAccept: VirtualFile): Boolean = fileToAccept == file
+
+      override fun acceptRequiresReadAction(): Boolean = false
+
+      override fun getEditorTypeId(): String = "sibling-never-finishes"
+
+      override fun getPolicy(): FileEditorPolicy = FileEditorPolicy.NONE
+
+      override fun createEditor(project: Project, file: VirtualFile): FileEditor = throw UnsupportedOperationException()
+
+      override suspend fun createFileEditor(
+        project: Project,
+        file: VirtualFile,
+        document: Document?,
+        editorCoroutineScope: CoroutineScope,
+      ): FileEditor = awaitCancellation()
+    })
+
+    // the window must exist before the non-waiting open below
+    openSourceFile("2.txt", focusEditor = false)
+    val window = currentWindow()
+    manager.openFileImpl2(window, file, FileEditorOpenOptions(waitForCompositeOpen = false))
+
+    val editor = blockingEditorCreated.await()
+    manager.closeFile(file, window)
+    waitUntil("editor of a cancelled open must be released even for a non-async provider") {
+      !EditorFactory.getInstance().allEditors.contains(editor)
+    }
+  }
+
+  @Test
   fun testMustNotAllowToTypeIntoFileRenamedToUnknownExtension(): Unit = timeoutRunBlocking(context = Dispatchers.UiWithModelAccess) {
     val ioFile = IoTestUtil.createTestFile("test.txt", "")
     var file: VirtualFile? = null
@@ -447,11 +759,78 @@ class FileEditorManagerTest {
     }
   }
 
+  @Test
+  fun testOpenInRightSplitLeavesNoEmptySplitForFileWithoutProviders(): Unit = timeoutRunBlocking {
+    val fileWithoutProviders = withContext(Dispatchers.UiWithModelAccess) {
+      // a window to split has to exist, and its editor has to be loaded before the test ends, or it outlives the closed composite
+      openSingleTextEditor(getSourceFile("1.txt"))
+      createTempFooBar()
+    }
+    assertThat(manager.canOpenFile(fileWithoutProviders)).isFalse()
+
+    val composite = manager.openFile(
+      file = fileWithoutProviders,
+      options = FileEditorOpenOptions(openMode = FileEditorManagerImpl.OpenMode.RIGHT_SPLIT, requestFocus = true),
+    )
+
+    assertThat(composite.allEditors).isEmpty()
+    assertThat(manager.windows).hasSize(1)
+  }
+
+  /**
+   * A requested window wins over an editor of the same file which is already open elsewhere.
+   */
+  @Test
+  fun testRequestedWindowWinsOverAnAlreadyOpenEditor(): Unit = timeoutRunBlocking {
+    val (file, secondaryWindow) = withContext(Dispatchers.UiWithModelAccess) {
+      createSecondaryWindowWithSecondFileSelected()
+    }
+    assertThat(secondaryWindow.fileList).doesNotContain(file)
+
+    manager.openFile(file = file, options = FileEditorOpenOptions(reuseOpen = true, window = secondaryWindow))
+    assertThat(secondaryWindow.fileList).contains(file)
+  }
+
+  /**
+   * Without a requested window, the manager reuses the open editor.
+   * A right-split batch overrides this behavior.
+   */
+  @Test
+  fun testAlreadyOpenEditorIsReusedWithoutARequestedWindow(): Unit = timeoutRunBlocking {
+    val (file, secondaryWindow) = withContext(Dispatchers.UiWithModelAccess) {
+      createSecondaryWindowWithSecondFileSelected()
+    }
+
+    manager.openFile(file = file, options = FileEditorOpenOptions(reuseOpen = true))
+    assertThat(secondaryWindow.fileList).doesNotContain(file)
+  }
+
+  /**
+   * An editor a deferred selection notification can still reference after the file has been closed:
+   * unlike a real text editor, [Mock.MyFileEditor] never becomes invalid.
+   */
+  private fun staleEditorWithProvider(file: VirtualFile): FileEditorWithProvider {
+    val provider = MockFileEditorProvider()
+    return FileEditorWithProvider(fileEditor = provider.createEditor(project, file), provider = provider)
+  }
+
+  private fun publishSelectionChangedFrom(oldEditorWithProvider: FileEditorWithProvider) {
+    // the history update is postponed until all documents are committed, so commit first to get the notification handled synchronously
+    PsiDocumentManager.getInstance(project).commitAllDocuments()
+    project.messageBus.syncPublisher(FileEditorManagerListener.FILE_EDITOR_MANAGER).selectionChanged(
+      FileEditorManagerEvent(manager = manager, oldEditorWithProvider = oldEditorWithProvider, newEditorWithProvider = null)
+    )
+  }
+
   private fun registerProvider(provider: FileEditorProvider) {
     val providerDisposable = Disposer.newDisposable()
     Disposer.register(disposable, providerDisposable)
     providerDisposables.add(providerDisposable)
     FileEditorProvider.EP_FILE_EDITOR_PROVIDER.point.registerExtension(provider, providerDisposable)
+  }
+
+  private fun registerPreCloseCheck(check: VirtualFilePreCloseCheck) {
+    VirtualFilePreCloseCheck.EP_NAME.point.registerExtension(check, disposable)
   }
 
   private fun getSourceFile(name: String): VirtualFile = getFile("/src/$name")

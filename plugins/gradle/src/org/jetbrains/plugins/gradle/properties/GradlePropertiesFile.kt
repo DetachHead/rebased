@@ -1,8 +1,15 @@
-// Copyright 2000-2022 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.plugins.gradle.properties
 
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.util.io.FileUtil
 import com.intellij.openapi.util.io.toCanonicalPath
+import com.intellij.openapi.util.io.toNioPathOrNull
+import com.intellij.platform.eel.EelDescriptor
+import com.intellij.platform.eel.provider.getEelDescriptor
+import org.jetbrains.annotations.ApiStatus
+import org.jetbrains.annotations.VisibleForTesting
+import org.jetbrains.plugins.gradle.properties.GradlePropertiesFile.getPropertyPaths
 import org.jetbrains.plugins.gradle.properties.models.getBooleanProperty
 import org.jetbrains.plugins.gradle.properties.models.getStringProperty
 import org.jetbrains.plugins.gradle.service.execution.gradleUserHomeDir
@@ -31,39 +38,47 @@ object GradlePropertiesFile {
 
   @JvmStatic
   fun getProperties(serviceDirectory: String?, projectPath: Path): GradleProperties {
-    val propertyPaths = getPropertyPaths(serviceDirectory, projectPath, null)
+    val propertyPaths = getPropertyPaths(serviceDirectory, resolveGradleProjectRoot(projectPath), null)
     return loadAndMergeProperties(propertyPaths)
   }
 
   @JvmStatic
   fun getPropertyPaths(project: Project, projectPath: Path): List<Path> {
-    val linkedProjectPath = resolveGradleProjectRoot(projectPath).toCanonicalPath()
-    val serviceDirectory = GradleSettings.getInstance(project).serviceDirectoryPath
-    val gradleHome = GradleLocalSettings.getInstance(project).getGradleHome(linkedProjectPath)
-    return getPropertyPaths(serviceDirectory, projectPath, gradleHome)
+    return getPropertyPathsInBuildRoot(project, resolveGradleProjectRoot(project, projectPath))
   }
 
-  private fun getPropertyPaths(serviceDirectory: String?, projectPath: Path, gradleHome: String?): List<Path> {
+  /**
+   * Unlike [getPropertyPaths], expects [buildRoot] to be a Gradle build root already,
+   * for example [com.intellij.openapi.externalSystem.util.ExternalSystemApiUtil.getExternalRootProjectPath].
+   *
+   * Therefore, this function never probes the file system to locate the build root,
+   * which makes it safe to call under a read action.
+   */
+  @JvmStatic
+  @ApiStatus.Internal
+  fun getPropertyPathsInBuildRoot(project: Project, buildRoot: Path): List<Path> {
+    val serviceDirectory = GradleSettings.getInstance(project).serviceDirectoryPath
+    val gradleHome = GradleLocalSettings.getInstance(project).getGradleHome(buildRoot.toCanonicalPath())
+    return getPropertyPaths(serviceDirectory, buildRoot, gradleHome)
+  }
+
+  private fun getPropertyPaths(serviceDirectory: String?, buildRoot: Path, gradleHome: String?): List<Path> {
     return listOfNotNull(
-      getPropertyPathInGradleUserHome(serviceDirectory),
-      getPropertyPathInGradleProjectRoot(projectPath),
+      getPropertyPathInGradleUserHome(serviceDirectory, buildRoot.getEelDescriptor()),
+      getPropertyPathInBuildRoot(buildRoot),
       getPropertyPathInGradleHome(gradleHome)
     ).map {
       it.toAbsolutePath().normalize()
     }
   }
 
-  fun getPropertyPathInGradleUserHome(serviceDirectory: String?): Path? {
-    val gradleUserHome = serviceDirectory ?: gradleUserHomeDir().path
-    if (gradleUserHome != null) {
-      return Paths.get(gradleUserHome, GRADLE_PROPERTIES_FILE_NAME)
-    }
-    return null
+  fun getPropertyPathInGradleUserHome(serviceDirectory: String?, eelDescriptor: EelDescriptor): Path {
+    val gradleUserHome = serviceDirectory?.toNioPathOrNull() ?: gradleUserHomeDir(eelDescriptor)
+    return gradleUserHome.resolve(GRADLE_PROPERTIES_FILE_NAME)
   }
 
-  private fun getPropertyPathInGradleProjectRoot(projectPath: Path): Path {
-    return resolveGradleProjectRoot(projectPath)
-      .resolve(GRADLE_PROPERTIES_FILE_NAME)
+  private fun getPropertyPathInBuildRoot(buildRoot: Path): Path {
+    return buildRoot.resolve(GRADLE_PROPERTIES_FILE_NAME)
   }
 
   private fun getPropertyPathInGradleHome(gradleHome: String?): Path? {
@@ -71,6 +86,48 @@ object GradlePropertiesFile {
       return Paths.get(gradleHome, GRADLE_PROPERTIES_FILE_NAME)
     }
     return null
+  }
+
+  /**
+   * Resolves the Gradle build root that owns [projectPath] using the in-memory Gradle settings, and falls back
+   * to searching the file system only for paths that aren't known to the IDE.
+   *
+   * The in-memory resolution performs no IO, which matters because this is called during highlighting and resolution
+   * of Gradle scripts under read action.
+   */
+  @VisibleForTesting
+  fun resolveGradleProjectRoot(project: Project, projectPath: Path): Path {
+    return resolveGradleProjectRootFromSettings(project, projectPath)
+           ?: resolveGradleProjectRoot(projectPath)
+  }
+
+  private fun resolveGradleProjectRootFromSettings(project: Project, projectPath: Path): Path? {
+    val settings = GradleSettings.getInstance(project)
+    val canonicalProjectPath = projectPath.toCanonicalPath()
+
+    // An included build of a composite build is a build root on its own, and it is more specific than the composite root.
+    val buildParticipantRoot = settings.linkedProjectsSettings.asSequence()
+      .mapNotNull { it.compositeBuild }
+      .flatMap { it.compositeParticipants }
+      .mapNotNull { it.rootPath }
+      .filter { FileUtil.isAncestor(it, canonicalProjectPath, false) }
+      .maxByOrNull { it.length }
+    if (buildParticipantRoot != null) {
+      return Path.of(buildParticipantRoot)
+    }
+
+    // Matches a linked project root exactly, or any of its already imported sub-projects.
+    val linkedProjectPath = settings.getLinkedProjectSettings(canonicalProjectPath)?.externalProjectPath
+    if (linkedProjectPath != null) {
+      return Path.of(linkedProjectPath)
+    }
+
+    // The project is linked, but not imported yet, so its sub-projects aren't known.
+    return settings.linkedProjectsSettings.asSequence()
+      .map { it.externalProjectPath }
+      .filter { FileUtil.isAncestor(it, canonicalProjectPath, false) }
+      .maxByOrNull { it.length }
+      ?.let { Path.of(it) }
   }
 
   private fun resolveGradleProjectRoot(projectPath: Path): Path {

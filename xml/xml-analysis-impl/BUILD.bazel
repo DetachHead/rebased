@@ -1,7 +1,7 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
 ### auto-generated section `build intellij.xml.analysis.impl` start
-
 jvm_library(
     name = "analysis-impl",
     srcs = glob(
@@ -47,6 +47,8 @@ jvm_library(
     ],
 )
 
+content_module_jar(module = ":analysis-impl")
+
 jvm_library(
     name = "analysis-impl_test_lib",
     testonly = True,
@@ -91,6 +93,8 @@ jvm_library(
 exports_files(
     [
         "intellij.xml.analysis.impl.iml",
+        "resources/intellij.xml.analysis.impl.xml",
+        "module-content.yaml",
     ],
     visibility = ["//visibility:public"],
 )

@@ -1,8 +1,31 @@
+load("@community//fleet/build:fleet.bzl", "fleet_wasmjs_module")
 load("@rules_jvm//:jvm.bzl", "jvm_library")
 load("//build:compiler-options.bzl", "create_kotlinc_options")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
+
+fleet_wasmjs_module(
+    name = "wasmjs_module",
+    kotlinc_opts = ":custom_rpc",
+    module_name = "fleet.rpc",
+    plugins = [
+        "@community//fleet/compiler-plugins/rpc:rpc-plugin",
+        "@lib//:kotlin-serialization-plugin",
+    ],
+    visibility = ["//visibility:public"],
+    deps = [
+        "@community//fleet/multiplatform.shims:wasmjs_module_lib",
+        "@community//fleet/reporting/api:wasmjs_module_lib",
+        "@community//fleet/reporting/shared:wasmjs_module_lib",
+        "@community//fleet/util/core:wasmjs_module_lib",
+        "@kmp_deps//:org_jetbrains_annotations",
+        "@kmp_deps//:org_jetbrains_intellij_deps_kotlinx_kotlinx_coroutines_core",
+        "@kmp_deps//:org_jetbrains_kotlin_kotlin_stdlib",
+        "@kmp_deps//:org_jetbrains_kotlinx_kotlinx_serialization_core",
+        "@kmp_deps//:org_jetbrains_kotlinx_kotlinx_serialization_json",
+    ],
+)
 
 ### auto-generated section `build fleet.rpc` start
-
 create_kotlinc_options(
     name = "custom_rpc",
     opt_in = [
@@ -42,11 +65,13 @@ jvm_library(
         "@lib//:kotlinx-serialization-core",
         "@lib//:kotlinx-serialization-json",
         "@lib//:kotlin-stdlib",
-        "@lib//:jetbrains-annotations",
+        "//libraries/jetbrains/annotations",
         "@lib//:kotlinx-coroutines-core",
         "//fleet/util/core",
     ],
 )
+
+content_module_jar(module = ":rpc")
 
 jvm_library(
     name = "rpc_test_lib",
@@ -64,6 +89,7 @@ jvm_library(
         "//fleet/reporting/api:api_test_lib",
         "//fleet/reporting/shared:shared_test_lib",
         "//fleet/multiplatform.shims:multiplatform.shims_test_lib",
+        "//libraries/jetbrains/annotations:annotations_test_lib",
         "//fleet/util/core:core_test_lib",
     ],
 )
@@ -73,6 +99,8 @@ jvm_library(
 exports_files(
     [
         "fleet.rpc.iml",
+        "resources/fleet.rpc.xml",
+        "module-content.yaml",
     ],
     visibility = ["//visibility:public"],
 )

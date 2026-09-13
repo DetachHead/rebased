@@ -5,13 +5,25 @@ package org.jetbrains.kotlin.idea.codeinsight.utils
 
 import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.kotlin.analysis.api.KaSession
+import org.jetbrains.kotlin.analysis.api.expressions.expressionType
+import org.jetbrains.kotlin.analysis.api.scopes.declaredMemberScope
 import org.jetbrains.kotlin.analysis.api.symbols.KaNamedClassSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaValueParameterSymbol
+import org.jetbrains.kotlin.analysis.api.symbols.symbol
 import org.jetbrains.kotlin.analysis.api.types.KaClassType
-import org.jetbrains.kotlin.config.LanguageFeature.DeprecateNameMismatchInShortDestructuringWithParentheses
+import org.jetbrains.kotlin.analysis.api.types.expandedSymbol
+import org.jetbrains.kotlin.analysis.api.types.isMarkedNullable
+import org.jetbrains.kotlin.analysis.api.types.lowerBoundIfFlexible
+import org.jetbrains.kotlin.config.LanguageFeature
+import org.jetbrains.kotlin.idea.base.psi.EditCommaSeparatedListHelper
+import org.jetbrains.kotlin.idea.base.psi.KotlinPsiHeuristics
 import org.jetbrains.kotlin.idea.base.projectStructure.languageVersionSettings
+import org.jetbrains.kotlin.lexer.KtTokens
 import org.jetbrains.kotlin.name.ClassId
+import org.jetbrains.kotlin.name.Name
+import org.jetbrains.kotlin.psi.KtClass
 import org.jetbrains.kotlin.psi.KtDestructuringDeclaration
+import org.jetbrains.kotlin.psi.KtDestructuringDeclarationEntry
 import org.jetbrains.kotlin.psi.KtParameter
 import org.jetbrains.kotlin.psi.KtPsiFactory
 
@@ -21,16 +33,18 @@ import org.jetbrains.kotlin.psi.KtPsiFactory
  * Returns non-null only if all destructuring entries can be matched to constructor parameters
  * (i.e., the number of entries does not exceed the number of parameters).
  */
-fun KaSession.extractPrimaryParameters(
+context(session: KaSession)
+fun extractPrimaryParameters(
     declaration: KtDestructuringDeclaration,
 ): List<KaValueParameterSymbol>? {
-    val type = getClassType(declaration) ?: return null
+    val type = declaration.getDestructuredClassType() ?: return null
     return extractDataClassParameters(type)?.takeIf { parameters ->
         declaration.entries.size <= parameters.size
     }
 }
 
-fun KaSession.extractDataClassParameters(type: KaClassType): List<KaValueParameterSymbol>? {
+context(session: KaSession)
+fun extractDataClassParameters(type: KaClassType): List<KaValueParameterSymbol>? {
     if (type.isMarkedNullable) return null
     val classSymbol = type.expandedSymbol
 
@@ -44,10 +58,32 @@ fun KaSession.extractDataClassParameters(type: KaClassType): List<KaValueParamet
     } else null
 }
 
-private fun KaSession.getClassType(declaration: KtDestructuringDeclaration): KaClassType? {
-    val type = declaration.initializer?.expressionType
-        ?: (declaration.parent as? KtParameter)?.symbol?.returnType
-        ?: return null
+/**
+ * Returns true for a full value class destructuring declaration.
+ *
+ * Old JVM inline value classes stay out of this check.
+ */
+@ApiStatus.Internal
+context(_: KaSession)
+fun KtDestructuringDeclaration.isFullValueClassDestructuring(): Boolean {
+    val type = getDestructuredClassType() ?: return false
+    if (type.isMarkedNullable) return false
+    val classSymbol = type.expandedSymbol as? KaNamedClassSymbol ?: return false
+    if (!classSymbol.isInline) return false
+    val ktClass = classSymbol.psi as? KtClass ?: return false
+    if (!ktClass.hasModifier(KtTokens.VALUE_KEYWORD)) return false
+    if (!ktClass.languageVersionSettings.supportsFeature(LanguageFeature.FullValueClasses)) return false
+    return KotlinPsiHeuristics.findAnnotation(ktClass, StandardKotlinNames.Jvm.JvmInline) == null
+}
+
+/**
+ * Returns the class type of the value being destructured: either the initializer expression's type
+ * or the destructured parameter's type (lambda case)
+ */
+@ApiStatus.Internal
+context(_: KaSession)
+fun KtDestructuringDeclaration.getDestructuredClassType(): KaClassType? {
+    val type = initializer?.expressionType ?: (parent as? KtParameter)?.symbol?.returnType ?: return null
     return type.lowerBoundIfFlexible() as? KaClassType
 }
 
@@ -64,69 +100,98 @@ private val POSITIONAL_DESTRUCTURING_CLASSES: Set<ClassId> = setOf(
  * Checks if the destructured type is intended for positional destructuring (Pair, Triple, IndexedValue).
  * These types should use bracket syntax [x, y] instead of name-based destructuring.
  */
+@ApiStatus.Internal
 context(session: KaSession)
 fun KtDestructuringDeclaration.isPositionalDestructuringType(): Boolean {
-    val classType = session.getClassType(this) ?: return false
-    return session.isPositionalDestructuringType(classType)
+    val classType = this.getDestructuredClassType() ?: return false
+    return isPositionalDestructuringType(classType)
 }
 
 @ApiStatus.Internal
-fun KaSession.isPositionalDestructuringType(classType: KaClassType): Boolean {
+context(session: KaSession)
+fun isPositionalDestructuringType(classType: KaClassType): Boolean {
     val classId = classType.expandedSymbol?.classId ?: return false
     return classId in POSITIONAL_DESTRUCTURING_CLASSES
 }
 
 @ApiStatus.Internal
-fun KtDestructuringDeclaration.buildNameBasedDestructuringText(
+fun KtDestructuringDeclaration.applyNameBasedDestructuringForm(
     nameBasedDestructuringForm: NameBasedDestructuringForm,
-    useExplicitMappings: Boolean = false,
     entityNames: List<String>? = null
-): String? {
+): KtDestructuringDeclaration? {
     val destructuringNames = nameBasedDestructuringForm.names
-    val names = entityNames ?: entries.map { it.text.substringBefore('=').trim() }
-    if (names.size > destructuringNames.size) return null
+    val usedNames = entityNames ?: entries.map { it.name ?: return null }
+    if (entries.size > destructuringNames.size || entries.size > usedNames.size) return null
 
     val positionBased = nameBasedDestructuringForm.positionBased
     val useShortForm = !nameBasedDestructuringForm.useFullForm
     val originalKeyword = if (isVar) "var" else "val"
-    val keyword = "".takeIf { positionBased || useShortForm } ?: originalKeyword
-    val newEntries = names.zip(destructuringNames) { entry, name ->
-        buildString {
-            append(keyword)
-            if (keyword.isNotEmpty()) {
-                append(" ")
-            }
-            append(entry)
-            if (!positionBased && (useExplicitMappings || entry != name)) {
-                append(" = ")
-                append(name)
-            }
-        }
-    }.joinToString(", ")
+    val keyword = if (positionBased || useShortForm) "" else originalKeyword
 
-    val declarationText =
+    val entryMappings = entries.mapIndexed { i, entry ->
+        EntryMapping(entry, usedNames[i], destructuringNames[i])
+    }
+    // entries with "_" name will be removed further
+    val (kept, dropped) = entryMappings.partition { it.usedName != "_" }
+    if (kept.isEmpty()) return null
+
+    val newEntriesText = kept.joinToString(", ") { mapping ->
         buildString {
-            if (positionBased || useShortForm) {
-                append(originalKeyword)
+            if (keyword.isNotEmpty()) {
+                append(keyword)
                 append(" ")
             }
-            append(nameBasedDestructuringForm.leftParenthesis)
-            append(newEntries)
-            append(nameBasedDestructuringForm.rightParenthesis)
+            append(mapping.usedName)
+            if (!positionBased && (mapping.usedName != mapping.targetName.asString())) {
+                append(" = ")
+                append(mapping.targetName)
+            }
         }
-    return initializer?.let { "$declarationText = ${it.text}" } ?: declarationText
+    }
+
+    val templateKeyword = if (keyword.isEmpty()) "$originalKeyword " else ""
+    val template = KtPsiFactory(project).createDestructuringDeclaration("$templateKeyword($newEntriesText) = TODO()")
+
+    if (template.entries.size != kept.size) return null
+    kept.zip(template.entries).forEach { (mapping, newEntry) ->
+        mapping.psiEntry.replace(newEntry)
+    }
+    dropped.forEach {
+        EditCommaSeparatedListHelper.removeItem(it.psiEntry)
+    }
+
+    if (!positionBased && !useShortForm) {
+        valOrVarKeyword?.delete()
+    }
+
+    if (positionBased) {
+        convertDestructuringToPositionalForm(this)
+    }
+    return this
 }
 
 @ApiStatus.Internal
-context(session: KaSession)
-fun KtDestructuringDeclaration.buildNameBasedDestructuringText(useExplicitMappings: Boolean = false): String? {
-    val positionalDestructuringType = isPositionalDestructuringType()
-    val useFullForm = !languageVersionSettings.supportsFeature(DeprecateNameMismatchInShortDestructuringWithParentheses)
-    val names = session.extractPrimaryParameters(this)?.map { it.name.asString() } ?: return null
-    return buildNameBasedDestructuringText(
-        NameBasedDestructuringForm(names, positionalDestructuringType, useFullForm),
-        useExplicitMappings
-    )
+fun dropDestructuringEntry(entry: KtDestructuringDeclarationEntry) {
+    val declaration = entry.parent as? KtDestructuringDeclaration ?: return
+    if (declaration.entries.size <= 1) {
+        declaration.delete()
+    } else {
+        EditCommaSeparatedListHelper.removeItem(entry)
+    }
+}
+
+@ApiStatus.Internal
+fun renameNameBasedDestructuringEntryToUnderscore(entry: KtDestructuringDeclarationEntry) {
+    val originalName = entry.nameIdentifier?.text ?: return
+    if (entry.initializer == null) {
+        val psiFactory = KtPsiFactory(entry.project)
+
+        val anchor = entry.typeReference ?: entry.nameIdentifier ?: return
+        val initializerSeparator = entry.addAfter(psiFactory.createEQ(), anchor)
+
+        entry.addAfter(psiFactory.createExpression(originalName), initializerSeparator)
+    }
+    renameToUnderscore(entry)
 }
 
 /**
@@ -147,13 +212,14 @@ fun convertDestructuringToPositionalForm(declaration: KtDestructuringDeclaration
 
 @ApiStatus.Internal
 data class NameBasedDestructuringForm(
-    val names: List<String>,
+    val names: List<Name>,
     val positionBased: Boolean,
     val useFullForm: Boolean,
-) {
-    val leftParenthesis: String
-        get() = "[".takeIf { positionBased } ?: "("
-    val rightParenthesis: String
-        get() = "]".takeIf { positionBased } ?: ")"
-}
+)
 
+@ApiStatus.Internal
+private data class EntryMapping(
+    val psiEntry: KtDestructuringDeclarationEntry,
+    val usedName: String,
+    val targetName: Name
+)

@@ -22,6 +22,7 @@ import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vcs.FilePath;
 import com.intellij.openapi.vcs.VcsException;
 import com.intellij.openapi.vfs.VirtualFile;
+import com.intellij.platform.eel.provider.utils.EelProjectUtils;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.vcs.log.Hash;
 import com.intellij.vcs.log.impl.HashImpl;
@@ -34,9 +35,11 @@ import git4idea.GitUtil;
 import git4idea.GitWorkingTree;
 import git4idea.branch.GitRebaseParams;
 import git4idea.config.GitConfigUtil;
+import git4idea.config.GitEelExecutableDetectionHelper;
 import git4idea.config.GitExecutable;
 import git4idea.config.GitExecutableManager;
 import git4idea.config.GitVersionSpecialty;
+import git4idea.i18n.GitBundle;
 import git4idea.push.GitPushParams;
 import git4idea.rebase.GitHandlerRebaseEditorManager;
 import git4idea.rebase.GitRebaseEditorHandler;
@@ -47,11 +50,14 @@ import git4idea.repo.GitRepository;
 import git4idea.reset.GitResetMode;
 import git4idea.workingTrees.GitWorktreeListParser;
 import org.jetbrains.annotations.ApiStatus;
+import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.Unmodifiable;
 
+import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -74,6 +80,9 @@ import static java.util.Collections.singletonList;
 public class GitImpl extends GitImplBase {
 
   private static final Logger LOG = Logger.getInstance(Git.class);
+
+  private static final @NonNls String HOOK_STDIN_FILE_PREFIX = "git-hook-stdin-";
+  private static final @NonNls String HOOK_STDIN_FILE_SUFFIX = ".txt";
 
   /**
    * @see GitRebaseUtils#createRebaseEditor(Project, VirtualFile, boolean)
@@ -305,7 +314,7 @@ public class GitImpl extends GitImplBase {
                                             boolean force,
                                             boolean detach,
                                             GitLineHandlerListener @NotNull ... listeners) {
-    return checkout(repository, reference, newBranch, force, detach, false, listeners);
+    return checkout(repository, reference, newBranch, force, detach, false, false, listeners);
   }
 
   /**
@@ -321,12 +330,16 @@ public class GitImpl extends GitImplBase {
                                             boolean force,
                                             boolean detach,
                                             boolean withReset,
+                                            boolean ignoreOtherWorktrees,
                                             GitLineHandlerListener @NotNull ... listeners) {
     final GitLineHandler h = new GitLineHandler(repository.getProject(), repository.getRoot(), GitCommand.CHECKOUT);
     h.setSilent(false);
     h.setStdoutSuppressed(false);
     if (force) {
       h.addParameters("--force");
+    }
+    if (ignoreOtherWorktrees) {
+      h.addParameters("--ignore-other-worktrees");
     }
     if (newBranch == null) { // simply checkout
       h.addParameters(detach ? reference + "^0" : reference); // we could use `--detach` here, but it is supported only since 1.7.5.
@@ -794,10 +807,10 @@ public class GitImpl extends GitImplBase {
     GitLineHandler handler = new GitLineHandler(repository.getProject(), root, GitCommand.REV_PARSE);
     handler.addParameters("--verify");
     handler.addParameters(ref + "^{commit}");
-    GitCommandResult result = Git.getInstance().runCommand(handler);
+    GitCommandResult result = runCommand(handler);
     String output = result.getOutputAsJoinedString();
     if (result.success()) {
-      if (GitUtil.isHashString(output, false)) {
+      if (GitUtil.isPossibleHash(output)) {
         return HashImpl.build(output);
       }
       else {
@@ -870,7 +883,7 @@ public class GitImpl extends GitImplBase {
     handler.addParameters("remove");
     handler.addAbsoluteFile(tree.getPath().getIOFile());
     handler.addParameters("--force");
-    return Git.getInstance().runCommand(handler);
+    return runCommand(handler);
   }
 
   @Override
@@ -879,7 +892,7 @@ public class GitImpl extends GitImplBase {
     handler.addParameters("list");
     handler.addParameters("--porcelain");
 
-    GitCommandResult result = Git.getInstance().runCommand(handler);
+    GitCommandResult result = runCommand(handler);
     result.throwOnError();
     return new GitWorktreeListParser(handler.getExecutable(),
                                      repository.getRoot().toNioPath(),
@@ -891,25 +904,102 @@ public class GitImpl extends GitImplBase {
   public @NotNull GitCommandResult createWorkingTree(@NotNull GitRepository repository,
                                                      @NotNull FilePath workingTreePath,
                                                      @NotNull GitReference sourceRef,
-                                                     @Nullable String newBranchName) {
+                                                     @Nullable String newBranchName,
+                                                     boolean force) {
     GitLineHandler handler = new GitLineHandler(repository.getProject(), repository.getRoot(), GitCommand.WORKTREE);
     handler.setSilent(false);
     handler.setStdoutSuppressed(false);
     handler.setStderrSuppressed(false);
     handler.addParameters("add");
+    if (force) {
+      handler.addParameters("--force");
+    }
     if (newBranchName != null) {
       handler.addParameters("-b", newBranchName);
     }
     handler.addAbsoluteFile(workingTreePath.getIOFile());
     handler.addParameters(sourceRef instanceof GitBranch ? sourceRef.getName() : sourceRef.getFullName());
-    return Git.getInstance().runCommand(handler);
+    return runCommand(handler);
   }
 
   @Override
   public @NotNull GitCommandResult pruneWorktrees(@NotNull GitRepository repository) {
     GitLineHandler handler = new GitLineHandler(repository.getProject(), repository.getRoot(), GitCommand.WORKTREE);
     handler.addParameters("prune");
-    return Git.getInstance().runCommand(handler);
+    return runCommand(handler);
+  }
+
+  @Override
+  public @NotNull GitCommandResult lockWorkingTree(@NotNull GitRepository repository, @NotNull GitWorkingTree tree) {
+    GitLineHandler handler = new GitLineHandler(repository.getProject(), repository.getRoot(), GitCommand.WORKTREE);
+    handler.setSilent(false);
+    handler.setStdoutSuppressed(false);
+    handler.setStderrSuppressed(false);
+    handler.addParameters("lock");
+    handler.addAbsoluteFile(tree.getPath().getIOFile());
+    return runCommand(handler);
+  }
+
+  @Override
+  public @NotNull GitCommandResult unlockWorkingTree(@NotNull GitRepository repository, @NotNull GitWorkingTree tree) {
+    GitLineHandler handler = new GitLineHandler(repository.getProject(), repository.getRoot(), GitCommand.WORKTREE);
+    handler.setSilent(false);
+    handler.setStdoutSuppressed(false);
+    handler.setStderrSuppressed(false);
+    handler.addParameters("unlock");
+    handler.addAbsoluteFile(tree.getPath().getIOFile());
+    return runCommand(handler);
+  }
+
+  @Override
+  public @NotNull GitCommandResult runHook(@NotNull GitRepository repository,
+                                           @NotNull String hookName,
+                                           @NotNull List<String> hookArgs,
+                                           @NotNull List<String> stdinLines) {
+    // `git hook run` doesn't pass stdin to the hook through its own stdin, only through the file
+    Path stdinFile;
+    if (stdinLines.isEmpty()) {
+      stdinFile = null;
+    }
+    else {
+      try {
+        if (GitEelExecutableDetectionHelper.canUseEel()) {
+          stdinFile = EelProjectUtils.createTemporaryFile(repository.getProject(), HOOK_STDIN_FILE_PREFIX, HOOK_STDIN_FILE_SUFFIX, true);
+        }
+        else {
+          stdinFile = Files.createTempFile(HOOK_STDIN_FILE_PREFIX, HOOK_STDIN_FILE_SUFFIX);
+        }
+        Files.write(stdinFile, stdinLines, StandardCharsets.UTF_8);
+      }
+      catch (IOException e) {
+        LOG.warn("Failed to prepare stdin file for git hook '" + hookName + "', skipping the hook", e);
+        return GitCommandResult.error(GitBundle.message("hook.did.not.run.failed.to.create.stdin.file", hookName));
+      }
+    }
+
+    try {
+      GitLineHandler handler = new GitLineHandler(repository.getProject(), repository.getRoot(), GitCommand.HOOK);
+      handler.setSilent(true);
+      handler.addParameters("run");
+      if (stdinFile != null) {
+        handler.addParameters("--to-stdin=" + stdinFile.toAbsolutePath());
+      }
+      handler.addParameters(hookName);
+      if (!hookArgs.isEmpty()) {
+        handler.endOptions();
+        handler.addParameters(hookArgs);
+      }
+      return runCommand(handler);
+    }
+    finally {
+      if (stdinFile != null) {
+        try {
+          Files.deleteIfExists(stdinFile);
+        }
+        catch (IOException ignored) {
+        }
+      }
+    }
   }
 
   private static void addListeners(@NotNull GitLineHandler handler, GitLineHandlerListener @NotNull ... listeners) {

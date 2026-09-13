@@ -9,11 +9,17 @@ import com.intellij.openapi.project.Project
 import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiElementVisitor
 import com.intellij.psi.impl.source.tree.LeafPsiElement
-import org.jetbrains.kotlin.analysis.api.KaExperimentalApi
-import org.jetbrains.kotlin.analysis.api.analyze
 import org.jetbrains.kotlin.analysis.api.scopes.KaScope
+import org.jetbrains.kotlin.analysis.api.scopes.declaredMemberScope
+import org.jetbrains.kotlin.analysis.api.scopes.memberScope
+import org.jetbrains.kotlin.analysis.api.session.analyze
 import org.jetbrains.kotlin.analysis.api.symbols.KaFunctionSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaSymbolVisibility
+import org.jetbrains.kotlin.analysis.api.symbols.symbol
+import org.jetbrains.kotlin.analysis.api.types.KaStandardTypeClassIds
+import org.jetbrains.kotlin.analysis.api.types.classId
+import org.jetbrains.kotlin.analysis.api.types.isSubtypeOf
+import org.jetbrains.kotlin.analysis.api.types.typeCreation.typeCreator
 import org.jetbrains.kotlin.idea.base.resources.KotlinBundle
 import org.jetbrains.kotlin.idea.codeinsight.api.classic.inspections.AbstractKotlinInspection
 import org.jetbrains.kotlin.name.ClassId
@@ -55,14 +61,15 @@ private class ImplementReadResolveQuickFix : PsiUpdateModCommandQuickFix() {
     override fun applyFix(project: Project, element: PsiElement, updater: ModPsiUpdater) {
         val objectDeclaration =
             (element as? LeafPsiElement)?.let { it.parent as? KtObjectDeclaration } ?: return
-        val readResolveDeclaration =
-            KtPsiFactory(project).createDeclarationByPattern<KtFunction>("private fun readResolve(): Any = $0", objectDeclaration.name ?: return)
+        val readResolveDeclaration = KtPsiFactory(project).createDeclarationByPattern<KtFunction>(
+            "private fun readResolve(): Any = $0",
+            objectDeclaration.nameAsSafeName
+        )
         val body = objectDeclaration.getOrCreateBody()
         body.addAfter(readResolveDeclaration, body.lBrace)
     }
 }
 
-@OptIn(KaExperimentalApi::class)
 private fun KtObjectDeclaration.doesImplementSerializable(): Boolean = analyze(this) {
     typeCreator.classType(symbol).isSubtypeOf(JAVA_IO_SERIALIZABLE_CLASS_ID)
 }
@@ -72,7 +79,7 @@ private fun KtObjectDeclaration.doesImplementReadResolve(): Boolean = analyze(th
     fun KaScope.isAnyReadResolve(vararg visibilities: KaSymbolVisibility): Boolean =
         callables(JAVA_IO_SERIALIZATION_READ_RESOLVE).any {
             val functionLikeSymbol = it as? KaFunctionSymbol ?: return@any false
-            functionLikeSymbol.valueParameters.isEmpty() && it.visibility in visibilities && it.returnType.isAnyType
+            functionLikeSymbol.valueParameters.isEmpty() && it.visibility in visibilities && it.returnType.classId == KaStandardTypeClassIds.ANY
         }
 
     classSymbol.declaredMemberScope.isAnyReadResolve(KaSymbolVisibility.PUBLIC, KaSymbolVisibility.PRIVATE, KaSymbolVisibility.PROTECTED) ||

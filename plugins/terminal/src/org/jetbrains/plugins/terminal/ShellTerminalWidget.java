@@ -29,6 +29,7 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.plugins.terminal.action.TerminalSplitAction;
 import org.jetbrains.plugins.terminal.arrangement.TerminalWorkingDirectoryManager;
+import org.jetbrains.plugins.terminal.block.ui.TerminalUiUtilsKt;
 import org.jetbrains.plugins.terminal.classic.ClassicTerminalCommandStartedListener;
 import org.jetbrains.plugins.terminal.classic.ClassicTerminalVfsRefresher;
 import org.jetbrains.plugins.terminal.fus.TerminalUsageTriggerCollector;
@@ -192,7 +193,7 @@ public class ShellTerminalWidget extends JBTerminalWidget implements TerminalPan
       List<String> commands = new ArrayList<>();
       myCommandsToExecute.drainTo(commands);
       for (String command : commands) {
-        TerminalUtil.sendCommandToExecute(command, terminalStarter);
+        TerminalUtil.sendCommandToExecute(TerminalUiUtilsKt.sanitizeLineSeparators(command), terminalStarter);
       }
     });
   }
@@ -235,11 +236,16 @@ public class ShellTerminalWidget extends JBTerminalWidget implements TerminalPan
   @Override
   public List<TerminalAction> getActions() {
     List<TerminalAction> actions = new ArrayList<>(super.getActions());
-    if (TerminalToolWindowManager.isInTerminalToolWindow(this)) {
-      ContainerUtil.addIfNotNull(actions, TerminalActionUtil.createTerminalAction(this, "Terminal.RenameSession", true));
-    }
     JBTerminalWidgetListener listener = getListener();
     JBTerminalSystemSettingsProvider settingsProvider = getSettingsProvider();
+    if (TerminalToolWindowManager.isInTerminalToolWindow(this)) {
+      ContainerUtil.addIfNotNull(actions, TerminalActionUtil.createTerminalAction(this, "Terminal.RenameSession", true));
+
+      actions.add(TerminalActionUtil.createTerminalAction(this, settingsProvider.getMoveToolWindowTabToEditorActionPresentation(), l -> {
+        l.moveToolWindowTabToEditor();
+        return true;
+      }));
+    }
     actions.add(TerminalActionUtil.createTerminalAction(this, settingsProvider.getNewTabActionPresentation(), l -> {
       l.onNewSession();
       return true;

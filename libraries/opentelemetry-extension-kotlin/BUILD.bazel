@@ -1,7 +1,7 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
 ### auto-generated section `build intellij.libraries.opentelemetry.extension.kotlin` start
-
 jvm_library(
     name = "opentelemetry-extension-kotlin",
     srcs = glob(
@@ -24,6 +24,11 @@ jvm_library(
         "@lib//:libraries-opentelemetry-extension-kotlin-opentelemetry-extension-kotlin",
         "//libraries/opentelemetry",
     ],
+)
+
+content_module_jar(
+    libraries = ["@lib//:libraries-opentelemetry-extension-kotlin-opentelemetry-extension-kotlin"],
+    module = ":opentelemetry-extension-kotlin",
 )
 
 jvm_library(
@@ -54,6 +59,8 @@ jvm_library(
 exports_files(
     [
         "intellij.libraries.opentelemetry.extension.kotlin.iml",
+        "resources/intellij.libraries.opentelemetry.extension.kotlin.xml",
+        "module-content.yaml",
     ],
     visibility = ["//visibility:public"],
 )

@@ -1,4 +1,4 @@
-// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.workspaceModel.ide.impl.legacyBridge.module
 
 import com.intellij.configurationStore.DefaultModuleStoreFactory
@@ -29,7 +29,6 @@ import com.intellij.platform.workspace.storage.VersionedEntityStorage
 import com.intellij.platform.workspace.storage.url.VirtualFileUrl
 import com.intellij.serviceContainer.PrecomputedExtensionModel
 import com.intellij.util.concurrency.annotations.RequiresEdt
-import com.intellij.workspaceModel.ide.impl.VirtualFileUrlBridge
 import com.intellij.workspaceModel.ide.impl.jpsMetrics
 import com.intellij.workspaceModel.ide.legacyBridge.ModuleBridge
 import com.intellij.workspaceModel.ide.toPath
@@ -45,7 +44,7 @@ open class ModuleBridgeImpl(
   override var moduleEntityId: ModuleId,
   name: String,
   project: Project,
-  virtualFileUrl: VirtualFileUrlBridge?,
+  virtualFileUrl: VirtualFilePointer?,
   override var entityStorage: VersionedEntityStorage,
   override var diff: MutableEntityStorage?,
   componentManager: ComponentManager,
@@ -57,7 +56,7 @@ open class ModuleBridgeImpl(
   override fun canStoreSettings(): Boolean = imlFilePointer != null && componentStore !is NonPersistentStore
 
   override fun rename(newName: String, newModuleFileUrl: VirtualFileUrl?, notifyStorage: Boolean) {
-    imlFilePointer = newModuleFileUrl as? VirtualFileUrlBridge
+    imlFilePointer = newModuleFileUrl as? VirtualFilePointer
     rename(newName, notifyStorage)
   }
 
@@ -87,7 +86,7 @@ open class ModuleBridgeImpl(
     // There are some cases when `ModuleBridgeImpl` starts saving data into the IML (e.g., new Gradle import), so we
     // need to reregister `IComponentStore` from `NonPersistentModuleStore` to `ModuleStoreImpl`
     val shouldResetModuleStore = (imlFilePointer == null)
-    imlFilePointer = newModuleFileUrl as VirtualFileUrlBridge
+    imlFilePointer = newModuleFileUrl as VirtualFilePointer
     if (shouldResetModuleStore) {
       resetModuleStore()
     }
@@ -108,11 +107,13 @@ open class ModuleBridgeImpl(
   }
 
   override fun getOptionValue(key: String): String? {
-    val moduleEntity = this.findModuleEntity(entityStorage.current)
+    val storage = entityStorage.current
+    // ADE breaks Gradle import, so we prefer to use stale data for disposed module until fixed
+    val moduleEntity = this.findModuleEntitityLegacy(storage, throwADEIfDisposed = false)
     if (key == Module.ELEMENT_TYPE) {
-      return moduleEntity?.type?.name
+      return moduleEntity.type?.name
     }
-    return moduleEntity?.customImlData?.customModuleOptions?.get(key)
+    return moduleEntity.customImlData?.customModuleOptions?.get(key)
   }
 
   override fun setOption(key: String, value: String?) {

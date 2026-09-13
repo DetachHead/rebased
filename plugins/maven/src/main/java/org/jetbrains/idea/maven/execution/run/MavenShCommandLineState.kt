@@ -424,7 +424,9 @@ class MavenShCommandLineState(val environment: ExecutionEnvironment, private val
   }
 
   private fun addSettingParameters(args: ParametersList) {
-    val encodeProfiles = encodeProfiles(myConfiguration.runnerParameters.profilesMap)
+    val mavenVersion = MavenDistributionsCache.getInstance(myConfiguration.project)
+      .getMavenDistribution(myConfiguration.runnerParameters.workingDirPath).version
+    val encodeProfiles = encodeProfiles(myConfiguration.runnerParameters.profilesMap, mavenVersion)
     val runnerSettings = myConfiguration.runnerSettings ?: MavenRunner.getInstance(myConfiguration.project).state
     val generalSettings = myConfiguration.generalSettings ?: MavenProjectsManager.getInstance(myConfiguration.project).generalSettings
     if (encodeProfiles.isNotEmpty()) {
@@ -437,7 +439,9 @@ class MavenShCommandLineState(val environment: ExecutionEnvironment, private val
     if (runnerSettings.isSkipTests) {
       args.addProperty("skipTests", "true")
     }
-
+    if (generalSettings.isWorkOffline) {
+      args.add("--offline")
+    }
     if (generalSettings.outputLevel == MavenExecutionOptions.LoggingLevel.DEBUG) {
       args.add("--debug")
     }

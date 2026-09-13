@@ -30,6 +30,7 @@ com.intellij.platform.lsp.api.LspClient
 - a:getProject():com.intellij.openapi.project.Project
 - a:getProviderClass():java.lang.Class
 - a:getState():com.intellij.platform.lsp.api.LspServerState
+- a:nextDocumentVersion(com.intellij.openapi.editor.Document):I
 - a:sendNotification(kotlin.jvm.functions.Function1):V
 - a:sendRequest(kotlin.jvm.functions.Function1,kotlin.coroutines.Continuation):java.lang.Object
 - a:sendRequestSync(I,kotlin.jvm.functions.Function1):java.lang.Object
@@ -45,9 +46,9 @@ a:com.intellij.platform.lsp.api.LspClientDescriptor
 - createInitializeParams():org.eclipse.lsp4j.InitializeParams
 - createLsp4jClient(com.intellij.platform.lsp.api.LspServerNotificationsHandler):com.intellij.platform.lsp.api.Lsp4jClient
 - findFileByUri(java.lang.String):com.intellij.openapi.vfs.VirtualFile
+- p:findFileInJar(java.lang.String):com.intellij.openapi.vfs.VirtualFile
 - p:findLocalFileByPath(java.lang.String):com.intellij.openapi.vfs.VirtualFile
 - getClientCapabilities():org.eclipse.lsp4j.ClientCapabilities
-- p:getFilePath(com.intellij.openapi.vfs.VirtualFile):java.lang.String
 - getFileUri(com.intellij.openapi.vfs.VirtualFile):java.lang.String
 - getLanguageId(com.intellij.openapi.vfs.VirtualFile):java.lang.String
 - getLsp4jServerClass():java.lang.Class
@@ -59,6 +60,7 @@ a:com.intellij.platform.lsp.api.LspClientDescriptor
 - f:getRoots():com.intellij.openapi.vfs.VirtualFile[]
 - getWorkspaceConfiguration(org.eclipse.lsp4j.ConfigurationItem):java.lang.Object
 - a:isSupportedFile(com.intellij.openapi.vfs.VirtualFile):Z
+- isSupportedLibraryFile(com.intellij.openapi.vfs.VirtualFile):Z
 - startServerProcess():com.intellij.execution.process.BaseProcessHandler
 f:com.intellij.platform.lsp.api.LspClientDescriptor$Companion
 - f:getLanguageId(com.intellij.openapi.vfs.VirtualFile):java.lang.String
@@ -263,6 +265,7 @@ c:com.intellij.platform.lsp.api.customization.LspCustomization
 - getFoldingRangeCustomizer():com.intellij.platform.lsp.api.customization.LspFoldingRangeCustomizer
 - getFormattingCustomizer():com.intellij.platform.lsp.api.customization.LspFormattingCustomizer
 - getGoToDefinitionCustomizer():com.intellij.platform.lsp.api.customization.LspGoToDefinitionCustomizer
+- getGoToImplementationCustomizer():com.intellij.platform.lsp.api.customization.LspGoToImplementationCustomizer
 - getGoToTypeDefinitionCustomizer():com.intellij.platform.lsp.api.customization.LspGoToTypeDefinitionCustomizer
 - getHoverCustomizer():com.intellij.platform.lsp.api.customization.LspHoverCustomizer
 - getInlayHintCustomizer():com.intellij.platform.lsp.api.customization.LspInlayHintCustomizer
@@ -351,6 +354,13 @@ f:com.intellij.platform.lsp.api.customization.LspGoToDefinitionDisabled
 - sf:INSTANCE:com.intellij.platform.lsp.api.customization.LspGoToDefinitionDisabled
 c:com.intellij.platform.lsp.api.customization.LspGoToDefinitionSupport
 - com.intellij.platform.lsp.api.customization.LspGoToDefinitionCustomizer
+- <init>():V
+a:com.intellij.platform.lsp.api.customization.LspGoToImplementationCustomizer
+f:com.intellij.platform.lsp.api.customization.LspGoToImplementationDisabled
+- com.intellij.platform.lsp.api.customization.LspGoToImplementationCustomizer
+- sf:INSTANCE:com.intellij.platform.lsp.api.customization.LspGoToImplementationDisabled
+c:com.intellij.platform.lsp.api.customization.LspGoToImplementationSupport
+- com.intellij.platform.lsp.api.customization.LspGoToImplementationCustomizer
 - <init>():V
 a:com.intellij.platform.lsp.api.customization.LspGoToTypeDefinitionCustomizer
 f:com.intellij.platform.lsp.api.customization.LspGoToTypeDefinitionDisabled
@@ -510,10 +520,12 @@ a:com.intellij.platform.lsp.util.Lsp4jService
 f:com.intellij.platform.lsp.util.Lsp4jService$Companion
 - f:getInstance():com.intellij.platform.lsp.util.Lsp4jService
 f:com.intellij.platform.lsp.util.Lsp4jUtilKt
+- sf:applySimpleTextEdits(com.intellij.openapi.editor.Document,java.util.List):Z
 - sf:applyTextEdit(com.intellij.openapi.editor.Document,org.eclipse.lsp4j.TextEdit):Z
 - sf:applyTextEdits(com.intellij.openapi.editor.Document,java.util.List):Z
 - sf:getLsp4jPosition(com.intellij.openapi.editor.Document,I):org.eclipse.lsp4j.Position
 - sf:getLsp4jRange(com.intellij.openapi.editor.Document,I,I):org.eclipse.lsp4j.Range
+- sf:getMessageIfStringOrEmpty(org.eclipse.lsp4j.Diagnostic):java.lang.String
 - sf:getOffsetInDocument(com.intellij.openapi.editor.Document,org.eclipse.lsp4j.Position):java.lang.Integer
 - sf:getRangeInDocument(com.intellij.openapi.editor.Document,org.eclipse.lsp4j.Range):com.intellij.openapi.util.TextRange
 f:com.intellij.platform.lsp.util.LspNavigationUtilsKt

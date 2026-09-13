@@ -12,23 +12,21 @@ import org.jetbrains.annotations.NotNull;
 public class LineBreakpointState extends BreakpointState {
   private String myFileUrl;
   private int myLine;
-  private boolean myTemporary;
   private @NotNull XLineBreakpointVerticalPlacement myPlacement = XLineBreakpointVerticalPlacement.ON_LINE;
 
   public LineBreakpointState() {
   }
 
-  public LineBreakpointState(final boolean enabled, final String typeId, final String fileUrl, final int line, boolean temporary,
+  public LineBreakpointState(final boolean enabled, final String typeId, final String fileUrl, final int line,
                              final long timeStamp, final SuspendPolicy suspendPolicy) {
-    this(enabled, typeId, fileUrl, line, temporary, XLineBreakpointVerticalPlacement.ON_LINE, timeStamp, suspendPolicy);
+    this(enabled, typeId, fileUrl, line, XLineBreakpointVerticalPlacement.ON_LINE, timeStamp, suspendPolicy);
   }
 
-  public LineBreakpointState(final boolean enabled, final String typeId, final String fileUrl, final int line, boolean temporary,
+  public LineBreakpointState(final boolean enabled, final String typeId, final String fileUrl, final int line,
                              final @NotNull XLineBreakpointVerticalPlacement placement, final long timeStamp, final SuspendPolicy suspendPolicy) {
     super(enabled, typeId, timeStamp, suspendPolicy);
     myFileUrl = fileUrl;
     myLine = line;
-    myTemporary = temporary;
     myPlacement = placement;
   }
 
@@ -48,14 +46,6 @@ public class LineBreakpointState extends BreakpointState {
 
   public void setLine(final int line) {
     myLine = line;
-  }
-
-  public boolean isTemporary() {
-    return myTemporary;
-  }
-
-  public void setTemporary(boolean temporary) {
-    myTemporary = temporary;
   }
 
   @Tag("placement")

@@ -1,7 +1,6 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
 
 ### auto-generated section `build intellij.libraries.kotlinTest` start
-
 jvm_library(
     name = "libraries-kotlinTest",
     srcs = glob(
@@ -36,6 +35,7 @@ jvm_library(
 exports_files(
     [
         "intellij.libraries.kotlinTest.iml",
+        "resources/intellij.libraries.kotlinTest.xml",
     ],
     visibility = ["//visibility:public"],
 )

@@ -11,9 +11,13 @@ import com.intellij.psi.PsiClass
 import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiFunctionalExpression
 import com.intellij.util.ArrayUtilRt
-import org.jetbrains.kotlin.analysis.api.KaExperimentalApi
-import org.jetbrains.kotlin.analysis.api.analyze
+import org.jetbrains.kotlin.analysis.api.session.analyze
 import org.jetbrains.kotlin.analysis.api.symbols.KaClassSymbol
+import org.jetbrains.kotlin.analysis.api.symbols.classSymbol
+import org.jetbrains.kotlin.analysis.api.symbols.containingSymbol
+import org.jetbrains.kotlin.analysis.api.symbols.getExpectsForActual
+import org.jetbrains.kotlin.analysis.api.symbols.symbol
+import org.jetbrains.kotlin.analysis.api.types.builtinTypes
 import org.jetbrains.kotlin.analysis.api.types.symbol
 import org.jetbrains.kotlin.psi.KtClass
 import org.jetbrains.kotlin.psi.KtClassOrObject
@@ -60,7 +64,6 @@ class KotlinSupertypesHierarchyTreeStructure(project: Project, aClass: KtClassOr
         return ArrayUtilRt.EMPTY_OBJECT_ARRAY
     }
 
-    @OptIn(KaExperimentalApi::class)
     private fun appendExpectNodes(
         element: KtClassOrObject,
         descriptors: MutableList<HierarchyNodeDescriptor>,

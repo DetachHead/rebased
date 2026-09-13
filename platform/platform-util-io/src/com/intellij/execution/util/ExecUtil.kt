@@ -1,4 +1,4 @@
-// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.execution.util
 
 import com.intellij.execution.CommandLineUtil
@@ -6,44 +6,31 @@ import com.intellij.execution.ExecutionException
 import com.intellij.execution.configurations.GeneralCommandLine
 import com.intellij.execution.configurations.PathEnvironmentVariableUtil
 import com.intellij.execution.process.CapturingProcessHandler
-import com.intellij.execution.process.LocalPtyOptions
+import com.intellij.execution.process.OSProcessHandler
 import com.intellij.execution.process.ProcessEvent
 import com.intellij.execution.process.ProcessListener
 import com.intellij.execution.process.ProcessOutput
 import com.intellij.execution.sudo.SudoCommandProvider
 import com.intellij.openapi.application.PathManager
 import com.intellij.openapi.diagnostic.logger
-import com.intellij.openapi.progress.runBlockingMaybeCancellable
 import com.intellij.openapi.util.NlsSafe
 import com.intellij.openapi.util.io.FileUtil
-import com.intellij.platform.eel.EelDescriptor
-import com.intellij.platform.eel.EelExecApi
-import com.intellij.platform.eel.ThrowsChecked
-import com.intellij.platform.eel.environmentVariables
-import com.intellij.platform.eel.provider.LocalEelDescriptor
-import com.intellij.platform.eel.provider.asEelPath
-import com.intellij.platform.eel.spawnProcess
-import com.intellij.platform.eel.provider.toEelApi
 import com.intellij.util.concurrency.annotations.RequiresBackgroundThread
 import com.intellij.util.io.IdeUtilIoBundle
 import com.intellij.util.io.SuperUserStatus
+import com.intellij.util.system.LowLevelLocalMachineAccess
 import com.intellij.util.system.OS
 import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.annotations.Nls
 import java.io.BufferedReader
 import java.io.IOException
 import java.io.InputStreamReader
-import java.nio.file.Path
 
+@OptIn(LowLevelLocalMachineAccess::class)
 object ExecUtil {
-  private val logger = logger<ExecUtil>()
-
   private val hasSupportedTerminals = lazy {
-    @Suppress("SpellCheckingInspection")
-    PathEnvironmentVariableUtil.isOnPath("konsole") ||
-    PathEnvironmentVariableUtil.isOnPath("gnome-terminal") ||
-    PathEnvironmentVariableUtil.isOnPath("urxvt") ||
-    PathEnvironmentVariableUtil.isOnPath("xterm")
+    @Suppress("SpellCheckingInspection") PathEnvironmentVariableUtil.isOnPath("konsole") || PathEnvironmentVariableUtil.isOnPath("gnome-terminal") || PathEnvironmentVariableUtil.isOnPath(
+      "urxvt") || PathEnvironmentVariableUtil.isOnPath("xterm")
   }
 
   @JvmStatic
@@ -87,8 +74,7 @@ object ExecUtil {
   @JvmStatic
   @Throws(ExecutionException::class)
   @RequiresBackgroundThread(generateAssertion = false)
-  fun execAndGetOutput(commandLine: GeneralCommandLine): ProcessOutput =
-    CapturingProcessHandler(commandLine).runProcess()
+  fun execAndGetOutput(commandLine: GeneralCommandLine): ProcessOutput = CapturingProcessHandler(commandLine).runProcess()
 
   @JvmStatic
   @Throws(ExecutionException::class)
@@ -98,29 +84,29 @@ object ExecUtil {
 
   @JvmStatic
   @RequiresBackgroundThread(generateAssertion = false)
-  fun execAndGetOutput(commandLine: GeneralCommandLine, stdin: String): String =
-    CapturingProcessHandler(commandLine)
-      .apply {
-        addProcessListener(object : ProcessListener {
-          override fun startNotified(event: ProcessEvent) {
-            processInput.writer(commandLine.charset).use {
-              it.write(stdin)
-            }
-          }
-        })
+  fun execAndGetOutput(commandLine: GeneralCommandLine, stdin: String): String = CapturingProcessHandler(commandLine).apply {
+    addProcessListener(object : ProcessListener {
+      override fun startNotified(event: ProcessEvent) {
+        processInput.writer(commandLine.charset).use {
+          it.write(stdin)
+        }
       }
-      .runProcess()
-      .stdout
+    })
+  }.runProcess().stdout
 
   @JvmStatic
   @RequiresBackgroundThread(generateAssertion = false)
-  fun execAndReadLine(commandLine: GeneralCommandLine): String? = try {
-    val process = commandLine.createProcess()
-    BufferedReader(InputStreamReader(process.inputStream, commandLine.charset)).use { it.readLine() }
-  }
-  catch (e: ExecutionException) {
-    logger<ExecUtil>().debug(e)
-    null
+  fun execAndReadLine(commandLine: GeneralCommandLine): String? {
+    OSProcessHandler.checkEdtAndReadAction()
+
+    return try {
+      val process = commandLine.createProcess()
+      BufferedReader(InputStreamReader(process.inputStream, commandLine.charset)).use { it.readLine() }
+    }
+    catch (e: ExecutionException) {
+      logger<ExecUtil>().debug(e)
+      null
+    }
   }
 
   /**
@@ -148,11 +134,8 @@ object ExecUtil {
     val sudoCommandLine = SudoCommandProvider.getInstance().sudoCommand(commandLine, prompt)
                           ?: throw UnsupportedOperationException("Cannot `sudo` on this system - no suitable utils found")
 
-    return sudoCommandLine
-      .withWorkingDirectory(commandLine.workingDirectory)
-      .withEnvironment(commandLine.environment)
-      .withParentEnvironmentType(commandLine.parentEnvironmentType)
-      .withRedirectErrorStream(commandLine.isRedirectErrorStream)
+    return sudoCommandLine.withWorkingDirectory(commandLine.workingDirectory).withEnvironment(commandLine.environment)
+      .withParentEnvironmentType(commandLine.parentEnvironmentType).withRedirectErrorStream(commandLine.isRedirectErrorStream)
   }
 
   @ApiStatus.Internal
@@ -174,7 +157,11 @@ object ExecUtil {
   @Suppress("SpellCheckingInspection")
   fun getTerminalCommand(@Nls(capitalization = Nls.Capitalization.Title) title: String?, command: String): List<@NlsSafe String> = when {
     OS.CURRENT == OS.Windows -> {
-      listOf(CommandLineUtil.getWinShellName(), "/c", "start", GeneralCommandLine.inescapableQuote(title?.replace('"', '\'') ?: ""), command)
+      listOf(CommandLineUtil.getWinShellName(),
+             "/c",
+             "start",
+             GeneralCommandLine.inescapableQuote(title?.replace('"', '\'') ?: ""),
+             command)
     }
     OS.CURRENT == OS.macOS -> {
       val prefix = if (title != null) "\"echo -n \" & " + escapeAppleScriptArgument("\\0033]0;${title}\\007") + " & \" ; \" & " else ""
@@ -204,40 +191,6 @@ object ExecUtil {
     }
     else -> {
       throw UnsupportedOperationException("Unsupported OS/desktop: ${OS.CURRENT.name}/${System.getenv("XDG_CURRENT_DESKTOP")}")
-    }
-  }
-
-  @ThrowsChecked(EelExecApi.EnvironmentVariablesException::class)
-  @ApiStatus.Internal
-  @JvmStatic
-  fun startProcessBlockingUsingEel(descriptor: EelDescriptor, builder: ProcessBuilder, pty: LocalPtyOptions?, isPassParentEnvironment: Boolean): Process {
-    val args = builder.command()
-    val exe = args.first().let { exe -> runCatching { Path.of(exe).asEelPath().toString() }.getOrNull() ?: exe }
-    val rest = args.subList(1, args.size)
-    val workingDir = builder.directory()?.toPath()?.asEelPath()
-
-    // Warn about paths not normalized to remote representation (see IJPL-232192)
-    if (descriptor !== LocalEelDescriptor) {
-      for (arg in rest) {
-        val path = runCatching { Path.of(arg) }.getOrNull() ?: continue
-        if (!path.isAbsolute) continue
-        val eelPath = runCatching { path.asEelPath().toString() }.getOrNull() ?: continue
-        if (arg == eelPath) continue  // already normalized
-        logger.warn("Argument '$arg' is not normalized for remote EEL execution, expected '$eelPath'")
-      }
-    }
-
-    return runBlockingMaybeCancellable {
-      val exec = descriptor.toEelApi().exec
-      val env = (if (isPassParentEnvironment) exec.environmentVariables().eelIt().await() else emptyMap()) +
-                builder.environment()
-      exec.spawnProcess(exe)
-        .args(rest)
-        .workingDirectory(workingDir)
-        .env(env)
-        .interactionOptions(pty?.run { EelExecApi.Pty(initialColumns, initialRows, !consoleMode) })
-        .eelIt()
-        .convertToJavaProcess()
     }
   }
 }

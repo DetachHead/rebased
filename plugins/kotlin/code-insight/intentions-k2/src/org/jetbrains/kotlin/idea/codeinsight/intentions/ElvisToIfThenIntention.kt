@@ -8,10 +8,12 @@ import com.intellij.openapi.application.runWriteAction
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.util.TextRange
 import org.jetbrains.kotlin.analysis.api.KaSession
-import org.jetbrains.kotlin.analysis.api.components.isMarkedNullable
-import org.jetbrains.kotlin.analysis.api.components.resolveToCall
-import org.jetbrains.kotlin.analysis.api.resolution.KaCallableMemberCall
-import org.jetbrains.kotlin.analysis.api.resolution.singleCallOrNull
+import org.jetbrains.kotlin.analysis.api.expressions.expressionType
+import org.jetbrains.kotlin.analysis.api.resolution.simple
+import org.jetbrains.kotlin.analysis.api.resolution.single
+import org.jetbrains.kotlin.analysis.api.types.KaStandardTypeClassIds
+import org.jetbrains.kotlin.analysis.api.types.classId
+import org.jetbrains.kotlin.analysis.api.types.isMarkedNullable
 import org.jetbrains.kotlin.idea.base.analysis.api.utils.analyzeInModalWindow
 import org.jetbrains.kotlin.idea.base.resources.KotlinBundle
 import org.jetbrains.kotlin.idea.codeinsight.api.classic.intentions.SelfTargetingRangeIntention
@@ -19,6 +21,7 @@ import org.jetbrains.kotlin.idea.codeinsight.intentions.branchedTransformations.
 import org.jetbrains.kotlin.idea.codeinsight.intentions.branchedTransformations.convertToIfStatement
 import org.jetbrains.kotlin.idea.codeinsight.intentions.branchedTransformations.introduceValueForCondition
 import org.jetbrains.kotlin.idea.codeinsight.intentions.branchedTransformations.isPure
+import org.jetbrains.kotlin.idea.util.tryResolveExpressionCall
 import org.jetbrains.kotlin.lexer.KtTokens
 import org.jetbrains.kotlin.psi.KtBinaryExpression
 import org.jetbrains.kotlin.psi.KtBinaryExpressionWithTypeRHS
@@ -52,9 +55,9 @@ class ElvisToIfThenIntention : SelfTargetingRangeIntention<KtBinaryExpression>(
     private fun KtExpression.findSafeCastReceiver(): KtBinaryExpressionWithTypeRHS? {
         var current = this
         while (current is KtQualifiedExpression) {
-            val resolvedCall = current.selectorExpression?.resolveToCall() ?: return null
-            val type = resolvedCall.singleCallOrNull<KaCallableMemberCall<*, *>>()?.partiallyAppliedSymbol?.signature?.returnType
-            if (type != null && type.isMarkedNullable) {
+            val resolvedCall = current.selectorExpression?.tryResolveExpressionCall()?.single?.simple ?: return null
+            val type = resolvedCall.signature.returnType
+            if (type.isMarkedNullable) {
                 return null
             }
             current = current.receiverExpression
@@ -93,7 +96,7 @@ class ElvisToIfThenIntention : SelfTargetingRangeIntention<KtBinaryExpression>(
             element,
             KotlinBundle.message("fix.change.signature.prepare")
         ) {
-            val isNothingOnRightSide = KtPsiUtil.safeDeparenthesize(element.right!!).expressionType?.isNothingType == true
+            val isNothingOnRightSide = KtPsiUtil.safeDeparenthesize(element.right!!).expressionType?.classId == KaStandardTypeClassIds.NOTHING
             left.findSafeCastReceiver() to isNothingOnRightSide
         }
         if (leftSafeCastReceiver == null) {

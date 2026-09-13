@@ -1,9 +1,10 @@
 load("@community//build:tests-options.bzl", "jps_test")
+load("@community//platform/build-scripts/bazel-rules:dev_dist_plugin.bzl", "dev_dist_plugin")
 load("@rules_jvm//:jvm.bzl", "jvm_library", "resourcegroup")
 load("//build:compiler-options.bzl", "create_kotlinc_options")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "dev_dist_plugin_jar")
 
 ### auto-generated section `build intellij.vcs.git` start
-
 create_kotlinc_options(
     name = "custom_vcs-git",
     opt_in = ["kotlin.RequiresOptIn"],
@@ -35,6 +36,7 @@ jvm_library(
         ["resources/**/*"],
     ),
     visibility = ["//visibility:public"],
+    deps = ["//platform/platform-impl:ide-impl"],
 )
 
 jvm_library(
@@ -47,7 +49,11 @@ jvm_library(
     kotlinc_opts = ":custom_vcs-git",
     module_name = "intellij.vcs.git",
     visibility = ["//visibility:public"],
-    runtime_deps = [":vcs-git"],
+    runtime_deps = [
+        # do not sort,
+        ":vcs-git",
+        "//platform/platform-impl:ide-impl_test_lib",
+    ],
 )
 ### auto-generated section `build intellij.vcs.git` end
 
@@ -55,13 +61,36 @@ jvm_library(
 exports_files(
     [
         "intellij.vcs.git.iml",
+        "resources/META-INF/plugin.xml",
     ],
     visibility = ["//visibility:public"],
 )
 ### auto-generated section `iml intellij.vcs.git` end
 
-### auto-generated section `build intellij.vcs.git.backend.tests` start
+### auto-generated section `dev intellij.vcs.git` start
+dev_dist_plugin(
+    content_modules = ["//plugins/git4idea/backend"],
+    descriptor_module = ":vcs-git",
+    libraries = ["@lib//:cucumber-testing"],
+    prepacked_content_modules = [
+        "//plugins/git4idea/frontend:frontend_content_module_jar",
+        "//plugins/git4idea/intellij.vcs.git.coverage:vcs-git-coverage_content_module_jar",
+        "//plugins/git4idea/localHistory:localHistory_content_module_jar",
+        "//plugins/git4idea/performanceTesting:performanceTesting_content_module_jar",
+        "//plugins/git4idea/shared:shared_content_module_jar",
+        "//plugins/git4idea/terminal:terminal_content_module_jar",
+    ],
+    prepacked_layout_jars = [":git4idea-rt_dev_dist_plugin_jar"],
+)
 
+dev_dist_plugin_jar(
+    modules = ["//plugins/git4idea/rt"],
+    plugin_main_module = "intellij.vcs.git",
+    relative_output_file = "git4idea-rt.jar",
+)
+### auto-generated section `dev intellij.vcs.git` end
+
+### auto-generated section `build intellij.vcs.git.backend.tests` start
 create_kotlinc_options(
     name = "custom_vcs-git-backend-tests",
     opt_in = ["kotlin.RequiresOptIn"],
@@ -85,6 +114,7 @@ jvm_library(
         "//plugins/git4idea:vcs-git",
         "//platform/lvcs-impl",
         "//fleet/rhizomedb",
+        "//platform/vcs/plugin",
     ],
 )
 
@@ -130,6 +160,7 @@ jvm_library(
         "//platform/platform-impl/recentProjects:recentProjects_test_lib",
         "//platform/platform-impl/eel:ide-impl-wsl_test_lib",
         "//fleet/rhizomedb:rhizomedb_test_lib",
+        "//platform/vcs/plugin:plugin_test_lib",
     ],
     deps = [
         # do not sort,
@@ -173,7 +204,8 @@ jvm_library(
         "//platform/vcs-impl/shared:shared_test_lib",
         "//platform/lang-api:lang",
         "//platform/lang-api:lang_test_lib",
-        "@lib//:junit4",
+        "//libraries/junit4",
+        "//libraries/junit4:junit4_test_lib",
         "//platform/lvcs-api:lvcs",
         "//platform/lvcs-api:lvcs_test_lib",
         "//platform/testFramework",
@@ -317,6 +349,14 @@ jvm_library(
         "//platform/vcs-log/impl:vcs-log-impl-tests_test_lib",
         "//platform/testFramework/junit5/eel:testFramework-junit5-eel-tests",
         "//platform/testFramework/junit5/eel:testFramework-junit5-eel-tests_test_lib",
+        "//libraries/junit5",
+        "//libraries/junit5:junit5_test_lib",
+        "//libraries/junit5-params",
+        "//libraries/junit5-params:junit5-params_test_lib",
+        "//libraries/mockk",
+        "//libraries/mockk:mockk_test_lib",
+        "//libraries/mockk/jvm",
+        "//libraries/mockk/jvm:jvm_test_lib",
     ],
 )
 ### auto-generated section `build intellij.vcs.git.backend.tests` end
@@ -331,7 +371,6 @@ exports_files(
 ### auto-generated section `iml intellij.vcs.git.backend.tests` end
 
 ### auto-generated section `test intellij.vcs.git.backend.tests` start
-
 jps_test(
     name = "vcs-git-backend-tests_test",
     runtime_deps = [":vcs-git-backend-tests_test_lib"],

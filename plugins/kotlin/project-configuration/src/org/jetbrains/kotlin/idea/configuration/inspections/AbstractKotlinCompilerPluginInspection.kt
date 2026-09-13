@@ -9,6 +9,7 @@ import com.intellij.modcommand.ModCommand
 import com.intellij.modcommand.ModCommandQuickFix
 import com.intellij.openapi.module.Module
 import com.intellij.openapi.module.ModuleUtilCore
+import com.intellij.openapi.options.advanced.AdvancedSettings
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.NlsSafe
 import com.intellij.openapi.util.ThrowableComputable
@@ -35,7 +36,8 @@ abstract class AbstractKotlinCompilerPluginInspection(protected val kotlinCompil
         compilerPluginProjectConfigurators(kotlinCompilerPluginId, module)
 
     final override fun isAvailableForFile(file: PsiFile): Boolean =
-        isAvailableForFile(file) { file, module -> isAvailableForFileInModule(file, module) }
+        AdvancedSettings.getBoolean("kotlin.enable.autoconfiguration") &&
+                isAvailableForFile(file) { file, module -> isAvailableForFileInModule(file, module) }
 
     protected abstract fun isAvailableForFileInModule(ktFile: KtFile, module: Module): Boolean
 
@@ -78,7 +80,6 @@ abstract class AbstractKotlinCompilerPluginInspection(protected val kotlinCompil
     }
 
     companion object {
-        @OptIn(KaPlatformInterface::class)
         @ApiStatus.Internal
         fun KaModule.hasCompilerPluginExtension(filter: (FirExtensionRegistrarAdapter) -> Boolean): Boolean =
             findCompilerPluginExtensionOrNull(filter) != null

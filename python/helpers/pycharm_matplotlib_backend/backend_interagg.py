@@ -11,7 +11,7 @@ from matplotlib.backends.backend_agg import FigureCanvasAgg
 from matplotlib.figure import Figure
 from mpl_toolkits.mplot3d import Axes3D
 
-from datalore.display import debug, display, SHOW_DEBUG_INFO
+from datalore.display import debug, display
 
 PY3 = sys.version_info[0] >= 3
 IS_INTERACTIVE_PLOT = False

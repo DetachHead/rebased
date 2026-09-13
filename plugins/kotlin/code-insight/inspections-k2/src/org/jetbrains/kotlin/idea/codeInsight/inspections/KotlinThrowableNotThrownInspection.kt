@@ -5,14 +5,18 @@ import com.intellij.codeInspection.ProblemHighlightType
 import com.intellij.codeInspection.ProblemsHolder
 import com.intellij.psi.search.searches.ReferencesSearch
 import com.siyeh.ig.psiutils.TestUtils
-import org.jetbrains.kotlin.analysis.api.KaExperimentalApi
 import org.jetbrains.kotlin.analysis.api.KaSession
-import org.jetbrains.kotlin.analysis.api.analyze
-import org.jetbrains.kotlin.analysis.api.components.isUsedAsExpression
-import org.jetbrains.kotlin.analysis.api.components.isUsedAsResultOfLambda
-import org.jetbrains.kotlin.analysis.api.resolution.successfulFunctionCallOrNull
+import org.jetbrains.kotlin.analysis.api.expressions.isUsedAsExpression
+import org.jetbrains.kotlin.analysis.api.expressions.isUsedAsResultOfLambda
+import org.jetbrains.kotlin.analysis.api.resolution.resolveSuccessfulCall
 import org.jetbrains.kotlin.analysis.api.resolution.symbol
+import org.jetbrains.kotlin.analysis.api.session.analyze
 import org.jetbrains.kotlin.analysis.api.symbols.KaConstructorSymbol
+import org.jetbrains.kotlin.analysis.api.types.KaStandardTypeClassIds
+import org.jetbrains.kotlin.analysis.api.types.builtinTypes
+import org.jetbrains.kotlin.analysis.api.types.classId
+import org.jetbrains.kotlin.analysis.api.types.isNullable
+import org.jetbrains.kotlin.analysis.api.types.isSubtypeOf
 import org.jetbrains.kotlin.idea.base.resources.KotlinBundle
 import org.jetbrains.kotlin.idea.codeinsight.api.classic.inspections.AbstractKotlinInspection
 import org.jetbrains.kotlin.psi.KtExpression
@@ -35,9 +39,9 @@ internal class KotlinThrowableNotThrownInspection : AbstractKotlinInspection() {
             return@callExpressionVisitor
 
         analyze(callExpression) {
-            val functionSymbol = callExpression.resolveToCall()?.successfulFunctionCallOrNull()?.symbol ?: return@callExpressionVisitor
+            val functionSymbol = callExpression.resolveSuccessfulCall()?.symbol ?: return@callExpressionVisitor
             val type = functionSymbol.returnType
-            if (type.isNothingType || type.isNullable) return@callExpressionVisitor
+            if (type.classId == KaStandardTypeClassIds.NOTHING || type.isNullable) return@callExpressionVisitor
             if (!type.isSubtypeOf(builtinTypes.throwable)) return@callExpressionVisitor
             if (callExpression.isUsed()) return@callExpressionVisitor
             val description = if (functionSymbol is KaConstructorSymbol) {
@@ -50,7 +54,6 @@ internal class KotlinThrowableNotThrownInspection : AbstractKotlinInspection() {
     }
 }
 
-@OptIn(KaExperimentalApi::class)
 context(_: KaSession)
 private fun KtExpression.isUsed(): Boolean {
     if (!isUsedAsExpression) return false

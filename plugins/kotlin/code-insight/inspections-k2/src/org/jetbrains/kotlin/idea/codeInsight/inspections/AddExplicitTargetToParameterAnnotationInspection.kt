@@ -10,12 +10,16 @@ import com.intellij.codeInspection.ProblemsHolder
 import com.intellij.modcommand.ActionContext
 import com.intellij.openapi.util.TextRange
 import org.jetbrains.kotlin.analysis.api.KaSession
-import org.jetbrains.kotlin.analysis.api.resolution.singleConstructorCallOrNull
+import org.jetbrains.kotlin.analysis.api.resolution.constructor
+import org.jetbrains.kotlin.analysis.api.resolution.single
 import org.jetbrains.kotlin.analysis.api.resolution.symbol
+import org.jetbrains.kotlin.analysis.api.resolution.tryResolveCall
 import org.jetbrains.kotlin.analysis.api.symbols.KaClassKind
 import org.jetbrains.kotlin.analysis.api.symbols.KaClassSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaConstructorSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaValueParameterSymbol
+import org.jetbrains.kotlin.analysis.api.symbols.containingDeclaration
+import org.jetbrains.kotlin.analysis.api.symbols.symbol
 import org.jetbrains.kotlin.config.LanguageFeature
 import org.jetbrains.kotlin.descriptors.annotations.AnnotationUseSiteTarget
 import org.jetbrains.kotlin.idea.base.projectStructure.languageVersionSettings
@@ -81,7 +85,8 @@ internal class AddExplicitTargetToParameterAnnotationInspection :
         }
     }
 
-    override fun KaSession.prepareContext(element: KtAnnotationEntry): List<AnnotationUseSiteTarget>? {
+    context(session: KaSession)
+    override fun prepareContext(element: KtAnnotationEntry): List<AnnotationUseSiteTarget>? {
         if (isInAllowlist(element)) return null
         val targets = element.getApplicableUseSiteTargets()
         if (targets.isEmpty() || AnnotationUseSiteTarget.CONSTRUCTOR_PARAMETER !in targets) return null
@@ -92,15 +97,17 @@ internal class AddExplicitTargetToParameterAnnotationInspection :
         }
     }
 
-    private fun KaSession.isInAllowlist(element: KtAnnotationEntry): Boolean {
-        val annotationClassId = element.resolveToCall()?.singleConstructorCallOrNull()?.symbol?.containingClassId
+    context(session: KaSession)
+    private fun isInAllowlist(element: KtAnnotationEntry): Boolean {
+        val annotationClassId = element.tryResolveCall()?.single?.constructor?.symbol?.containingClassId
         return annotationClassId in STANDARD_ANNOTATION_IDS_WITHOUT_NECESSARY_MIGRATION
     }
 
-    private fun KaSession.annotatedPropertyHasField(annotationEntry: KtAnnotationEntry): Boolean {
+    context(session: KaSession)
+    private fun annotatedPropertyHasField(annotationEntry: KtAnnotationEntry): Boolean {
         val parameter = annotationEntry.getStrictParentOfType<KtParameter>() ?: return false
         val parameterSymbol = parameter.symbol as? KaValueParameterSymbol ?: return false
-        val parameterBasedProperty = parameterSymbol.generatedPrimaryConstructorProperty ?: return false
+        val parameterBasedProperty = parameterSymbol.primaryConstructorProperty ?: return false
         if (!parameterBasedProperty.hasBackingField) return false
         // properties in annotation classes don't have backing fields, it is not reflected in AA/FIR
         val containingConstructor = parameterSymbol.containingDeclaration as? KaConstructorSymbol ?: return false

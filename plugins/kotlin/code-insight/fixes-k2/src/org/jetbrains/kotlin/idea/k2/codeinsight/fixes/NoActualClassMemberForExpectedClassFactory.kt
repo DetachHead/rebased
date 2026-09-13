@@ -4,10 +4,10 @@ package org.jetbrains.kotlin.idea.k2.codeinsight.fixes
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.project.Project
 import com.intellij.psi.createSmartPointer
-import org.jetbrains.kotlin.analysis.api.KaExperimentalApi
 import org.jetbrains.kotlin.analysis.api.fir.diagnostics.KaFirDiagnostic
 import org.jetbrains.kotlin.analysis.api.symbols.KaCallableSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaClassSymbol
+import org.jetbrains.kotlin.analysis.api.symbols.symbol
 import org.jetbrains.kotlin.idea.base.analysis.api.utils.analyzeInModalWindow
 import org.jetbrains.kotlin.idea.base.analysis.api.utils.shortenReferences
 import org.jetbrains.kotlin.idea.base.resources.KotlinBundle
@@ -55,7 +55,6 @@ private class AddActualFix(
 
     override fun startInWriteAction(): Boolean = false
 
-    @OptIn(KaExperimentalApi::class)
     override fun invoke(project: Project, editor: Editor?, file: KtFile) {
         val element = element ?: return
         val generatedDeclarations = analyzeInModalWindow(element, KotlinBundle.message("fix.change.signature.prepare")) {

@@ -1,7 +1,7 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
 ### auto-generated section `build intellij.kotlin.plugin.updater` start
-
 jvm_library(
     name = "plugin-updater",
     srcs = glob(
@@ -21,7 +21,7 @@ jvm_library(
     deps = [
         # do not sort,
         "@lib//:kotlin-stdlib",
-        "@lib//:kotlinc-kotlin-compiler-common",
+        "//libraries/kotlinc/kotlin-compiler-common:libraries-kotlinc-kotlin-compiler-common",
         "@lib//:jaxb-api",
         "//libraries/gson",
         "//platform/core-api:core",
@@ -44,6 +44,8 @@ jvm_library(
     ],
 )
 
+content_module_jar(module = ":plugin-updater")
+
 jvm_library(
     name = "plugin-updater_test_lib",
     testonly = True,
@@ -56,6 +58,7 @@ jvm_library(
     runtime_deps = [
         # do not sort,
         ":plugin-updater",
+        "//libraries/kotlinc/kotlin-compiler-common:libraries-kotlinc-kotlin-compiler-common_test_lib",
         "//libraries/gson:gson_test_lib",
         "//platform/core-api:core_test_lib",
         "//platform/editor-ui-api:editor-ui_test_lib",
@@ -82,6 +85,7 @@ jvm_library(
 exports_files(
     [
         "intellij.kotlin.plugin.updater.iml",
+        "resources/intellij.kotlin.plugin.updater.xml",
     ],
     visibility = ["//visibility:public"],
 )

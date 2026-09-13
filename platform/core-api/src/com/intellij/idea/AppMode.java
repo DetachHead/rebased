@@ -22,10 +22,10 @@ public final class AppMode {
   private static boolean isHeadless;
   private static boolean isCommandLine;
   private static boolean isLightEdit;
-  private static boolean isIjLight;
   private static boolean disableNonBundledPlugins;
   private static boolean dontReopenProjects;
   private static boolean isRemoteDevHost;
+  private static boolean statisticsAllowedByStarter;
 
   public static boolean isDisableNonBundledPlugins() {
     return disableNonBundledPlugins;
@@ -53,6 +53,22 @@ public final class AppMode {
     return isHeadless;
   }
 
+  /// Returns `true` if the running [com.intellij.openapi.application.ApplicationStarter] opted in to reporting
+  /// feature usage statistics, see `ApplicationStarter#getShouldReportStatistics`.
+  ///
+  /// Statistics are suppressed in a headless mode unless a starter opts in. This flag does not grant
+  /// permission to collect anything on its own – the user consent is checked separately,
+  /// see `StatisticsUploadAssistant#isCollectAllowed`.
+  public static boolean isStatisticsAllowedByStarter() {
+    return statisticsAllowedByStarter;
+  }
+
+  /// Must be called during startup, before the application container is created.
+  @ApiStatus.Internal
+  public static void setStatisticsAllowedByStarter(boolean value) {
+    statisticsAllowedByStarter = value;
+  }
+
   /// Returns `true` if the IDE is running as a remote development host.
   /// This is an internal method supposed to be used only from code running during early startup phases.
   /// If the instance container is initialized (in particular, in any plugin code), its equivalent
@@ -65,13 +81,6 @@ public final class AppMode {
 
   public static boolean isMonolith() {
     return !PlatformUtils.isJetBrainsClient() && !isRemoteDevHost();
-  }
-
-  /**
-   * @return `true` if the IDE was started with the "ijLight" command
-   */
-  public static boolean isIjLight() {
-    return isIjLight;
   }
 
   /// Returns `true` if the IDE is running from a development build, not a regular installation.
@@ -108,9 +117,6 @@ public final class AppMode {
     }
     if (ApplicationStartArguments.DONT_REOPEN_PROJECTS.isSet(args)) {
       dontReopenProjects = true;
-    }
-    if (!args.isEmpty() && args.get(0).equals("ijLight")) {
-      isIjLight = true;
     }
   }
 

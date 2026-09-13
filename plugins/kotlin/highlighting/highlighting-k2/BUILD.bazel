@@ -1,15 +1,17 @@
 load("@community//build:tests-options.bzl", "jps_test")
 load("@rules_jvm//:jvm.bzl", "jvm_library")
 load("//build:compiler-options.bzl", "create_kotlinc_options")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
 ### auto-generated section `build intellij.kotlin.highlighting` start
-
 create_kotlinc_options(
     name = "custom_kotlin-highlighting",
     opt_in = [
         "org.jetbrains.kotlin.analysis.api.KaIdeApi",
         "org.jetbrains.kotlin.analysis.api.KaNonPublicApi",
         "org.jetbrains.kotlin.analysis.api.KaContextParameterApi",
+        "org.jetbrains.kotlin.analysis.api.KaExperimentalApi",
+        "org.jetbrains.kotlin.analysis.api.fir.diagnostics.KaUnstableDiagnosticApi",
     ],
     x_context_parameters = True,
 )
@@ -40,10 +42,10 @@ jvm_library(
         "@lib//:kotlin-stdlib",
         "//plugins/kotlin/references",
         "//platform/analysis-api:analysis",
-        "@lib//:kotlinc-kotlin-compiler-common",
+        "//libraries/kotlinc/kotlin-compiler-common:libraries-kotlinc-kotlin-compiler-common",
         "//libraries/markdown",
         "//platform/core-api:core",
-        "@lib//:kotlinc-analysis-api",
+        "//libraries/kotlinc/analysis-api:libraries-kotlinc-analysis-api",
         "//plugins/kotlin/base/util",
         "//platform/diff-api:diff",
         "//plugins/kotlin/base/plugin",
@@ -52,7 +54,8 @@ jvm_library(
         "//platform/analysis-impl",
         "//platform/editor-ui-api:editor-ui",
         "//plugins/kotlin/code-insight/api",
-        "@lib//:kotlinc-analysis-api-k2",
+        "//libraries/kotlinc/analysis-api-k2:libraries-kotlinc-analysis-api-k2",
+        "//libraries/kotlinc/symbol-light-classes:libraries-kotlinc-symbol-light-classes",
         "//platform/execution-impl",
         "//platform/lang-impl",
         "//plugins/kotlin/base/code-insight",
@@ -75,6 +78,8 @@ jvm_library(
     ],
 )
 
+content_module_jar(module = ":kotlin-highlighting")
+
 jvm_library(
     name = "kotlin-highlighting_test_lib",
     testonly = True,
@@ -94,8 +99,10 @@ jvm_library(
         "//platform/refactoring:refactoring_test_lib",
         "//plugins/kotlin/references:references_test_lib",
         "//platform/analysis-api:analysis_test_lib",
+        "//libraries/kotlinc/kotlin-compiler-common:libraries-kotlinc-kotlin-compiler-common_test_lib",
         "//libraries/markdown:markdown_test_lib",
         "//platform/core-api:core_test_lib",
+        "//libraries/kotlinc/analysis-api:libraries-kotlinc-analysis-api_test_lib",
         "//plugins/kotlin/base/util:util_test_lib",
         "//platform/diff-api:diff_test_lib",
         "//plugins/kotlin/base/plugin:plugin_test_lib",
@@ -104,6 +111,8 @@ jvm_library(
         "//platform/analysis-impl:analysis-impl_test_lib",
         "//platform/editor-ui-api:editor-ui_test_lib",
         "//plugins/kotlin/code-insight/api:api_test_lib",
+        "//libraries/kotlinc/analysis-api-k2:libraries-kotlinc-analysis-api-k2_test_lib",
+        "//libraries/kotlinc/symbol-light-classes:libraries-kotlinc-symbol-light-classes_test_lib",
         "//platform/execution-impl:execution-impl_test_lib",
         "//platform/lang-impl:lang-impl_test_lib",
         "//plugins/kotlin/base/code-insight:code-insight_test_lib",
@@ -131,19 +140,20 @@ jvm_library(
 exports_files(
     [
         "intellij.kotlin.highlighting.iml",
+        "resources/intellij.kotlin.highlighting.xml",
     ],
     visibility = ["//visibility:public"],
 )
 ### auto-generated section `iml intellij.kotlin.highlighting` end
 
 ### auto-generated section `build intellij.kotlin.highlighting.tests` start
-
 create_kotlinc_options(
     name = "custom_kotlin-highlighting-tests",
     opt_in = [
         "org.jetbrains.kotlin.analysis.api.KaIdeApi",
         "org.jetbrains.kotlin.analysis.api.KaNonPublicApi",
         "org.jetbrains.kotlin.analysis.api.KaContextParameterApi",
+        "org.jetbrains.kotlin.analysis.api.KaExperimentalApi",
     ],
     x_context_parameters = True,
 )
@@ -156,6 +166,7 @@ jvm_library(
     ),
     module_name = "intellij.kotlin.highlighting.tests",
     visibility = ["//visibility:public"],
+    runtime_deps = ["//plugins/kotlin:kotlin-plugin-community-main"],
 )
 
 jvm_library(
@@ -175,7 +186,11 @@ jvm_library(
     ],
     kotlinc_opts = ":custom_kotlin-highlighting-tests",
     visibility = ["//visibility:public"],
-    runtime_deps = [":kotlin-highlighting-tests"],
+    runtime_deps = [
+        # do not sort,
+        ":kotlin-highlighting-tests",
+        "//plugins/kotlin:kotlin-plugin-community-main_test_lib",
+    ],
     deps = [
         # do not sort,
         "//java/java-indexing-api:indexing",
@@ -188,15 +203,15 @@ jvm_library(
         "//platform/projectModel-api:projectModel_test_lib",
         "//platform/refactoring",
         "//platform/refactoring:refactoring_test_lib",
-        "//plugins/kotlin/plugin/k2",
-        "//plugins/kotlin/plugin/k2:k2_test_lib",
         "@lib//:kotlin-stdlib",
         "//platform/analysis-api:analysis",
         "//platform/analysis-api:analysis_test_lib",
-        "@lib//:kotlinc-kotlin-compiler-common",
+        "//libraries/kotlinc/kotlin-compiler-common:libraries-kotlinc-kotlin-compiler-common",
+        "//libraries/kotlinc/kotlin-compiler-common:libraries-kotlinc-kotlin-compiler-common_test_lib",
         "//platform/core-api:core",
         "//platform/core-api:core_test_lib",
-        "@lib//:kotlinc-analysis-api",
+        "//libraries/kotlinc/analysis-api:libraries-kotlinc-analysis-api",
+        "//libraries/kotlinc/analysis-api:libraries-kotlinc-analysis-api_test_lib",
         "//plugins/kotlin/base/util",
         "//plugins/kotlin/base/util:util_test_lib",
         "//platform/diff-api:diff",
@@ -219,7 +234,8 @@ jvm_library(
         "//plugins/kotlin/code-insight/api:api_test_lib",
         "//plugins/kotlin/base/testFramework",
         "//plugins/kotlin/base/testFramework:testFramework_test_lib",
-        "@lib//:kotlinc-analysis-api-k2",
+        "//libraries/kotlinc/analysis-api-k2:libraries-kotlinc-analysis-api-k2",
+        "//libraries/kotlinc/analysis-api-k2:libraries-kotlinc-analysis-api-k2_test_lib",
         "//platform/execution-impl",
         "//platform/execution-impl:execution-impl_test_lib",
         "//plugins/kotlin/tests-common:common-tests",
@@ -275,6 +291,10 @@ jvm_library(
         "//platform/lang-api:lang_test_lib",
         "//plugins/kotlin/highlighting/highlighting-minimal:kotlin-highlighting-minimal",
         "//plugins/kotlin/highlighting/highlighting-minimal:kotlin-highlighting-minimal_test_lib",
+        "//libraries/junit4",
+        "//libraries/junit4:junit4_test_lib",
+        "//libraries/junit5",
+        "//libraries/junit5:junit5_test_lib",
     ],
 )
 ### auto-generated section `build intellij.kotlin.highlighting.tests` end
@@ -289,7 +309,6 @@ exports_files(
 ### auto-generated section `iml intellij.kotlin.highlighting.tests` end
 
 ### auto-generated section `test intellij.kotlin.highlighting.tests` start
-
 jps_test(
     name = "kotlin-highlighting-tests_test",
     runtime_deps = [":kotlin-highlighting-tests_test_lib"],

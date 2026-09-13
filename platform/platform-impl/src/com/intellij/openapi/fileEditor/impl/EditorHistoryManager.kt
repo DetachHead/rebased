@@ -12,6 +12,7 @@ import com.intellij.openapi.components.State
 import com.intellij.openapi.components.Storage
 import com.intellij.openapi.components.StoragePathMacros
 import com.intellij.openapi.components.service
+import com.intellij.openapi.components.serviceAsync
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.extensions.ExtensionPointListener
 import com.intellij.openapi.extensions.PluginDescriptor
@@ -72,7 +73,21 @@ class EditorHistoryManager internal constructor(private val project: Project) : 
     private val LOG = logger<EditorHistoryManager>()
 
     @JvmStatic
-    fun getInstance(project: Project): EditorHistoryManager = project.service()
+    fun getInstance(project: Project): EditorHistoryManager {
+      return project.service()
+    }
+
+    suspend fun getInstanceAsync(project: Project): EditorHistoryManager = project.serviceAsync()
+
+    /**
+     * Initializes the [EditorHistoryManager] service so that its persisted history is loaded
+     * within this suspending call. Invoke it before synchronous [getInstance] access on a
+     * latency-sensitive path so that history loading does not block the caller.
+     */
+    @ApiStatus.Internal
+    suspend fun preloadHistory(project: Project) {
+      getInstanceAsync(project)
+    }
   }
 
   @Synchronized
@@ -118,7 +133,7 @@ class EditorHistoryManager internal constructor(private val project: Project) : 
   ) {
     ThreadingAssertions.assertEventDispatchThread()
 
-    if (!isIncludedInHistory(file)) {
+    if (project.isDisposed || !isIncludedInHistory(file)) {
       return
     }
 
@@ -191,10 +206,13 @@ class EditorHistoryManager internal constructor(private val project: Project) : 
     fallback: FileEditorWithProvider?,
     changeEntryOrderOnly: Boolean,
   ) {
+    val composite = fileEditorManager.getComposite(file)
     val list: List<FileEditorWithProvider>
     var preview = false
     if (fallback == null) {
-      val composite = fileEditorManager.getComposite(file) ?: return
+      if (composite == null) {
+        return
+      }
       list = composite.allEditorsWithProviders
       preview = composite.isPreview
     }
@@ -210,7 +228,8 @@ class EditorHistoryManager internal constructor(private val project: Project) : 
     val entry = getEntry(file)
     if (entry == null) {
       // The size of an entry list can be less than the number of opened editors (some entries can be removed)
-      if (file.isValid) {
+      // the composite check keeps a deferred selection notification from re-creating an entry for an already closed file
+      if (file.isValid && composite != null) {
         // the file could have been deleted, so the isValid() check is essential
         fileOpenedImpl(
           file = file,
@@ -395,6 +414,9 @@ class EditorHistoryManager internal constructor(private val project: Project) : 
       // updateHistoryEntry does commitDocument, which is 1) costly and 2) cannot be performed from within PSI change listener
       // so defer updating history entry until documents are committed to improve responsiveness
       PsiDocumentManager.getInstance(project).performWhenAllCommitted {
+        if (project.isDisposed) {
+          return@performWhenAllCommitted
+        }
         val newEditor = event.newEditor
         if (newEditor != null && !newEditor.isValid) {
           return@performWhenAllCommitted

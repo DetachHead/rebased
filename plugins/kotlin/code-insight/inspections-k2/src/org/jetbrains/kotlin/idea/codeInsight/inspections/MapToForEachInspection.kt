@@ -1,6 +1,7 @@
 // Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.kotlin.idea.codeInsight.inspections
 
+import com.intellij.codeInsight.intention.PriorityAction
 import com.intellij.codeInspection.ProblemsHolder
 import com.intellij.codeInspection.util.InspectionMessage
 import com.intellij.codeInspection.util.IntentionFamilyName
@@ -9,19 +10,21 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.TextRange
 import com.intellij.psi.SmartPsiElementPointer
 import com.intellij.psi.createSmartPointer
-import org.jetbrains.kotlin.analysis.api.KaExperimentalApi
 import org.jetbrains.kotlin.analysis.api.KaSession
-import org.jetbrains.kotlin.analysis.api.components.resolveToSymbol
-import org.jetbrains.kotlin.analysis.api.resolution.successfulFunctionCallOrNull
+import org.jetbrains.kotlin.analysis.api.diagnostics.KaDiagnosticCheckerKind
+import org.jetbrains.kotlin.analysis.api.diagnostics.diagnostics
+import org.jetbrains.kotlin.analysis.api.expressions.isUsedAsExpression
+import org.jetbrains.kotlin.analysis.api.fir.diagnostics.KaFirDiagnostic
+import org.jetbrains.kotlin.analysis.api.resolution.resolveSuccessfulCall
+import org.jetbrains.kotlin.analysis.api.resolution.resolveSuccessfulSymbol
 import org.jetbrains.kotlin.analysis.api.resolution.symbol
-import org.jetbrains.kotlin.analysis.api.symbols.typeParameters
+import org.jetbrains.kotlin.analysis.api.symbols.importableFqName
 import org.jetbrains.kotlin.idea.base.resources.KotlinBundle
 import org.jetbrains.kotlin.idea.codeinsight.api.applicable.inspections.KotlinApplicableInspectionBase
 import org.jetbrains.kotlin.idea.codeinsight.api.applicable.inspections.KotlinModCommandQuickFix
 import org.jetbrains.kotlin.idea.codeinsight.utils.StandardKotlinNames
 import org.jetbrains.kotlin.idea.codeinsights.impl.base.applicators.ApplicabilityRanges
 import org.jetbrains.kotlin.idea.k2.refactoring.util.isUnitLiteral
-import org.jetbrains.kotlin.idea.references.mainReference
 import org.jetbrains.kotlin.lexer.KtTokens
 import org.jetbrains.kotlin.psi.KtCallExpression
 import org.jetbrains.kotlin.psi.KtCodeFragment
@@ -37,12 +40,20 @@ import org.jetbrains.kotlin.psi.createExpressionByPattern
 import org.jetbrains.kotlin.psi.psiUtil.collectDescendantsOfType
 import org.jetbrains.kotlin.psi.psiUtil.getQualifiedExpressionForSelectorOrThis
 
-private const val FOR_EACH_FUNCTION_NAME: String = "forEach"
+private const val FOR_EACH_INDEXED_FUNCTION_NAME: String = "forEachIndexed"
+private val MAP_FQ_NAMES = setOf(
+    StandardKotlinNames.Collections.map,
+    StandardKotlinNames.Collections.mapIndexed,
+    StandardKotlinNames.Collections.mapNotNull,
+)
 
 internal class MapToForEachInspection : KotlinApplicableInspectionBase.Simple<KtCallExpression, MapToForEachInspection.Context>() {
 
-    @JvmInline
-    value class Context(val returns: List<SmartPsiElementPointer<KtReturnExpression>>)
+    data class Context(
+        val returns: List<SmartPsiElementPointer<KtReturnExpression>>,
+        val replacementName: String,
+        val isReturnValueNotUsed: Boolean,
+    )
 
     override fun buildVisitor(
         holder: ProblemsHolder,
@@ -65,9 +76,10 @@ internal class MapToForEachInspection : KotlinApplicableInspectionBase.Simple<Kt
         if (element.containingKtFile is KtCodeFragment) return false
 
         val calleeText = element.calleeExpression?.text ?: return false
-        val mapFqName = StandardKotlinNames.Collections.map
-        if (calleeText != mapFqName.shortName().asString() && element.containingKtFile.importDirectives.none {
-                it.importedFqName == mapFqName && calleeText == it.aliasName
+        if (MAP_FQ_NAMES.none { fqName ->
+                calleeText == fqName.shortName().asString() || element.containingKtFile.importDirectives.any {
+                    it.importedFqName == fqName && calleeText == it.aliasName
+                }
             }) return false
 
         val statementCandidate = element.getQualifiedExpressionForSelectorOrThis()
@@ -76,30 +88,48 @@ internal class MapToForEachInspection : KotlinApplicableInspectionBase.Simple<Kt
         return element.valueArguments.size == 1
     }
 
-    @OptIn(KaExperimentalApi::class)
-    override fun KaSession.prepareContext(element: KtCallExpression): Context? {
+    context(session: KaSession)
+    override fun prepareContext(element: KtCallExpression): Context? {
         val whole = element.getQualifiedExpressionForSelectorOrThis()
         if (whole.isUsedAsExpression) return null
 
-        val resolvedCall = element.resolveToCall()?.successfulFunctionCallOrNull() ?: return null
+        val resolvedCall = element.resolveSuccessfulCall() ?: return null
         val functionSymbol = resolvedCall.symbol
 
-        if (functionSymbol.importableFqName != StandardKotlinNames.Collections.map) return null
+        val replacementName = when (functionSymbol.importableFqName) {
+            StandardKotlinNames.Collections.map,
+            StandardKotlinNames.Collections.mapNotNull -> StandardKotlinNames.For.forEachName.identifier
+            StandardKotlinNames.Collections.mapIndexed -> FOR_EACH_INDEXED_FUNCTION_NAME
+            else -> return null
+        }
         if (functionSymbol.typeParameters.size != 2) return null
         if (resolvedCall.typeArgumentsMapping.size != 2) return null
 
         val labeledReturnExpressions = collectReturns(element) ?: return null
+        val isReturnValueNotUsed = whole.diagnostics()
+            .withCheckers(KaDiagnosticCheckerKind.ALL)
+            .any { it is KaFirDiagnostic.ReturnValueNotUsed }
 
-        return Context(labeledReturnExpressions)
+        return Context(labeledReturnExpressions, replacementName, isReturnValueNotUsed)
     }
 
     override fun createQuickFix(
         element: KtCallExpression,
         context: Context,
-    ): KotlinModCommandQuickFix<KtCallExpression> = object : KotlinModCommandQuickFix<KtCallExpression>() {
+    ): KotlinModCommandQuickFix<KtCallExpression> = if (context.isReturnValueNotUsed) {
+        HighPriorityReplaceWithForEachFix(context)
+    } else {
+        NormalPriorityReplaceWithForEachFix(context)
+    }
+
+    private sealed class ReplaceWithForEachFix(
+        private val context: Context,
+    ) : KotlinModCommandQuickFix<KtCallExpression>(), PriorityAction {
+
+        abstract override fun getPriority(): PriorityAction.Priority
 
         override fun getFamilyName(): @IntentionFamilyName String =
-            KotlinBundle.message("replace.with.0", FOR_EACH_FUNCTION_NAME)
+            KotlinBundle.message("replace.with.0", context.replacementName)
 
         override fun applyFix(project: Project, element: KtCallExpression, updater: ModPsiUpdater) {
             val callee = element.calleeExpression as? KtNameReferenceExpression ?: return
@@ -107,13 +137,13 @@ internal class MapToForEachInspection : KotlinApplicableInspectionBase.Simple<Kt
             val writableReturns = context.returns.mapNotNull { updater.getWritable(it.element) }
 
             val psiFactory = KtPsiFactory(project)
-            callee.replace(psiFactory.createSimpleName(FOR_EACH_FUNCTION_NAME))
+            callee.replace(psiFactory.createSimpleName(context.replacementName))
 
             element.typeArgumentList?.delete()
 
             writableReturns.forEach {
                 val dummyReturnExpr = psiFactory.createExpressionByPattern(
-                    "${KtTokens.RETURN_KEYWORD}@$FOR_EACH_FUNCTION_NAME"
+                    "${KtTokens.RETURN_KEYWORD}@${context.replacementName}"
                 ) as KtReturnExpression
                 val newTargetLabel = dummyReturnExpr.getTargetLabel()!!
 
@@ -121,9 +151,17 @@ internal class MapToForEachInspection : KotlinApplicableInspectionBase.Simple<Kt
             }
         }
     }
+
+    private class NormalPriorityReplaceWithForEachFix(context: Context) : ReplaceWithForEachFix(context) {
+        override fun getPriority(): PriorityAction.Priority = PriorityAction.Priority.NORMAL
+    }
+
+    private class HighPriorityReplaceWithForEachFix(context: Context) : ReplaceWithForEachFix(context) {
+        override fun getPriority(): PriorityAction.Priority = PriorityAction.Priority.HIGH
+    }
 }
 
-context(_: KaSession)
+context(session: KaSession)
 private fun collectReturns(
     element: KtCallExpression,
 ): List<SmartPsiElementPointer<KtReturnExpression>>? {
@@ -136,7 +174,7 @@ private fun collectReturns(
 
     return buildList {
         for (returnExpr in functionLike.collectDescendantsOfType<KtReturnExpression>()) {
-            val targetsMap = returnExpr.getTargetLabel()?.mainReference?.resolveToSymbol()?.psi == functionLike
+            val targetsMap = returnExpr.getTargetLabel()?.resolveSuccessfulSymbol()?.psi == functionLike
             if (!targetsMap) continue
 
             if (returnExpr.returnedExpression?.isUnitLiteral() == false) return null

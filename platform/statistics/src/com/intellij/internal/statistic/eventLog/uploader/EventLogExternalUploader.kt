@@ -38,14 +38,17 @@ import com.intellij.internal.statistic.uploader.EventLogUploaderOptions.USER_AGE
 import com.intellij.internal.statistic.uploader.events.ExternalEventsLogger
 import com.intellij.internal.statistic.uploader.events.ExternalSystemErrorEvent
 import com.intellij.internal.statistic.uploader.events.ExternalSystemEvent
+import com.intellij.internal.statistic.uploader.events.ExternalUploadFileDeletedEvent
 import com.intellij.internal.statistic.uploader.events.ExternalUploadFinishedEvent
 import com.intellij.internal.statistic.config.StatisticsStringUtil
+import com.intellij.internal.statistic.uploader.EventLogUploaderOptions.SNAPSHOT_FILTERING_DISABLED
 import com.intellij.internal.statistic.uploader.events.ExternalUploadSendEvent
 import com.intellij.internal.statistic.uploader.events.ExternalUploadStartedEvent
 import com.intellij.internal.statistic.uploader.util.ExtraHTTPHeadersParser
 import com.intellij.openapi.application.PathManager
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.util.SystemInfo
+import com.intellij.openapi.util.registry.Registry
 import com.intellij.openapi.util.text.Strings
 import com.intellij.util.ArrayUtil
 import com.jetbrains.fus.reporting.MetadataStorage
@@ -106,6 +109,9 @@ object EventLogExternalUploader {
         is ExternalSystemErrorEvent -> {
           eventLogSystemCollector.logLoadingConfigFailed(event.errorClass, event.timestamp)
         }
+        is ExternalUploadFileDeletedEvent -> {
+          eventLogSystemCollector.logFileDeleted(event.cause, event.ageMs, event.queuedMs, event.sizeBytes, event.buildType)
+        }
       }
     }
   }
@@ -158,7 +164,8 @@ object EventLogExternalUploader {
       findLibraryByClass(MetadataStorage::class.java), // com.jetbrains.fus.reporting.fus-api
       findLibraryByClass(Json::class.java), // kotlinx.serialization.json
       findLibraryByClass(StringFormat::class.java), // kotlinx.serialization
-      findLibraryByClass(StatisticsStringUtil::class.java) // statistics config (IJPL-238623 extracted to separate jar)
+      findLibraryByClass(StatisticsStringUtil::class.java), // statistics config (IJPL-238623 extracted to separate jar)
+      findLibraryByClass(kotlinx.coroutines.flow.StateFlow::class.java) // kotlinx.coroutines.flow
     )
     val classpath = joinAsClasspath(libPaths.toList(), uploader)
 
@@ -207,6 +214,11 @@ object EventLogExternalUploader {
     if (applicationInfo.isEAP) {
       args += EAP_OPTION
     }
+
+    if (Registry.`is`("feature.usage.event.snapshot.filtering.disabled", false)) {
+      args += SNAPSHOT_FILTERING_DISABLED
+    }
+
     return ArrayUtil.toStringArray(args)
   }
 

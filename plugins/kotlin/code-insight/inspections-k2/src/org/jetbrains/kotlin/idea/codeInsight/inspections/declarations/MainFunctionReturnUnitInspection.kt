@@ -9,7 +9,10 @@ import com.intellij.codeInspection.ProblemHighlightType
 import com.intellij.codeInspection.ProblemsHolder
 import com.intellij.openapi.project.Project
 import com.intellij.psi.PsiElementVisitor
-import org.jetbrains.kotlin.analysis.api.analyze
+import org.jetbrains.kotlin.analysis.api.session.analyze
+import org.jetbrains.kotlin.analysis.api.symbols.symbol
+import org.jetbrains.kotlin.analysis.api.types.classId
+import org.jetbrains.kotlin.analysis.api.types.KaStandardTypeClassIds
 import org.jetbrains.kotlin.idea.base.analysis.api.utils.shortenReferences
 import org.jetbrains.kotlin.idea.base.codeInsight.KotlinMainFunctionDetector
 import org.jetbrains.kotlin.idea.base.codeInsight.PsiOnlyKotlinMainFunctionDetector
@@ -33,7 +36,7 @@ internal class MainFunctionReturnUnitInspection : LocalInspectionTool(), Cleanup
         if (!KotlinMainFunctionDetector.getInstance().isMain(function, detectorConfiguration)) return
 
         analyze(function) {
-            if (!function.symbol.returnType.isUnitType) {
+            if (function.symbol.returnType.classId != KaStandardTypeClassIds.UNIT) {
                 holder.registerProblem(
                     function.typeReference ?: function,
                     KotlinBundle.message("0.should.return.unit", "'main()'"),

@@ -1,8 +1,11 @@
 package com.intellij.platform.lsp
 
 import com.intellij.openapi.Disposable
+import com.intellij.openapi.application.EDT
+import com.intellij.openapi.application.readAction
 import com.intellij.openapi.command.writeCommandAction
 import com.intellij.openapi.editor.impl.DocumentImpl
+import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.io.StreamUtil
 import com.intellij.openapi.vfs.VirtualFile
@@ -15,9 +18,14 @@ import com.intellij.platform.lsp.common.fakeLspServerProviderFixture
 import com.intellij.platform.lsp.common.problemFileHighlightFilterFixture
 import com.intellij.platform.lsp.common.spaceTokenizingLanguageFixture
 import com.intellij.platform.lsp.common.wolfFixture
+import com.intellij.platform.lsp.impl.LspClientManagerImpl
+import com.intellij.platform.lsp.impl.features.highlighting.LspHighlightingApplier
+import com.intellij.platform.lsp.impl.features.highlightingCommon.LspHighlightingCache
+import com.intellij.platform.lsp.testFramework.awaitDiagnosticsFromLspServer
 import com.intellij.platform.lsp.testFramework.checkHighlightingRetrying
 import com.intellij.platform.testFramework.junit5.codeInsight.fixture.codeInsightFixture
 import com.intellij.problems.ProblemListener
+import com.intellij.psi.PsiDocumentManager
 import com.intellij.testFramework.ExpectedHighlightingData
 import com.intellij.testFramework.common.timeoutRunBlocking
 import com.intellij.testFramework.common.waitUntilAssertSucceeds
@@ -27,9 +35,11 @@ import com.intellij.testFramework.junit5.fixture.moduleFixture
 import com.intellij.testFramework.junit5.fixture.projectFixture
 import com.intellij.testFramework.junit5.fixture.tempPathFixture
 import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.eclipse.lsp4j.Diagnostic
 import org.eclipse.lsp4j.DiagnosticRegistrationOptions
 import org.eclipse.lsp4j.DiagnosticSeverity
@@ -38,12 +48,18 @@ import org.eclipse.lsp4j.Position
 import org.eclipse.lsp4j.PublishDiagnosticsParams
 import org.eclipse.lsp4j.Range
 import org.eclipse.lsp4j.RelatedFullDocumentDiagnosticReport
+import org.eclipse.lsp4j.RelatedUnchangedDocumentDiagnosticReport
+import org.eclipse.lsp4j.jsonrpc.ResponseErrorException
+import org.eclipse.lsp4j.jsonrpc.messages.ResponseError
+import org.eclipse.lsp4j.jsonrpc.messages.ResponseErrorCode
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Nested
 import org.junit.jupiter.api.Test
 import java.util.Collections
+import java.util.concurrent.CompletableFuture
+import kotlin.time.Duration.Companion.milliseconds
 
 
 @TestApplication
@@ -214,6 +230,7 @@ internal class LspDiagnosticsTest {
       val virtualFile = codeInsightFixture.configureByText("test.txt", """
       <error descr="error message">hello</error> world
       """.trimIndent()).virtualFile
+      val expectedData = stripHighlightingMarkup()
       val serverSession = configureServerSession(project, virtualFile)
 
       serverSession.expectRequest(serverSession.DIAGNOSTIC, { it.textDocument.uri == serverSession.fileUri(virtualFile) }) {
@@ -222,7 +239,7 @@ internal class LspDiagnosticsTest {
         )))
       }
 
-      checkHighlightingByPolling()
+      checkHighlightingByPolling(expectedData)
     }
 
     @Test
@@ -234,6 +251,7 @@ internal class LspDiagnosticsTest {
       <EOLError descr="EOL error 1"></EOLError>
       line 2<EOLError descr="EOL error 2"></EOLError>
       line 3<EOLError descr="EOF error"></EOLError><EOLError descr="EOL error 3"></EOLError>""".trimIndent()).virtualFile
+      val expectedData = stripHighlightingMarkup()
       val serverSession = configureServerSession(project, virtualFile)
 
       serverSession.expectRequest(serverSession.DIAGNOSTIC, { it.textDocument.uri == serverSession.fileUri(virtualFile) }) {
@@ -248,7 +266,7 @@ internal class LspDiagnosticsTest {
         )))
       }
 
-      checkHighlightingByPolling()
+      checkHighlightingByPolling(expectedData)
     }
 
     @Test
@@ -258,6 +276,7 @@ internal class LspDiagnosticsTest {
       val virtualFile = codeInsightFixture.configureByText("test.txt", """
       <error descr="error">hello</error> world
       """.trimIndent()).virtualFile
+      val expectedData = stripHighlightingMarkup()
       val serverSession = configureServerSession(project, virtualFile)
       val uri = serverSession.fileUri(virtualFile)
 
@@ -268,7 +287,7 @@ internal class LspDiagnosticsTest {
         )))
       }
 
-      checkHighlightingByPolling()
+      checkHighlightingByPolling(expectedData)
 
       // Phase 2: edit the document, server replies with an empty diagnostics list.
       // The cache must apply that reply (clear the previous error), not treat the empty reply as "no response".
@@ -301,6 +320,7 @@ internal class LspDiagnosticsTest {
       <warning descr="w6">text-7xl</warning> <warning descr="w7">text-8xl</warning>
       <warning descr="w8">text-9xl</warning>
       "></div>""".trimIndent()).virtualFile
+      val initialData = stripHighlightingMarkup()
       val serverSession = configureServerSession(project, virtualFile)
 
       // Phase 1: answer the initial pull with 8 warnings and verify all are shown.
@@ -317,7 +337,7 @@ internal class LspDiagnosticsTest {
         )))
       }
 
-      checkHighlightingByPolling()
+      checkHighlightingByPolling(initialData)
 
       // Phase 2: apply 5 edits; the cache's pending-edit adjustment must produce the same surviving
       // set as the publish variant of this test. No second pull response is registered so the
@@ -345,6 +365,371 @@ internal class LspDiagnosticsTest {
 
       (codeInsightFixture as CodeInsightTestFixtureImpl).collectAndCheckHighlighting(expectedData)
     }
+
+    @Test
+    fun `failed pull does not block the next pull`(): Unit = timeoutRunBlocking {
+      (codeInsightFixture as CodeInsightTestFixtureImpl).canChangeDocumentDuringHighlighting(true)
+
+      val virtualFile = codeInsightFixture.configureByText("test.txt", """
+      <error descr="error">hello</error> world
+      """.trimIndent()).virtualFile
+      val expectedData = stripHighlightingMarkup()
+      val serverSession = configureServerSession(project, virtualFile)
+      val uri = serverSession.fileUri(virtualFile)
+
+      // Phase 1: the server answers the first pull with an error response.
+      serverSession.expectRequestAsync(serverSession.DIAGNOSTIC, { it.textDocument.uri == uri }) {
+        CompletableFuture.failedFuture(ResponseErrorException(ResponseError(ResponseErrorCode.InternalError, "simulated server error", null)))
+      }
+
+      // Phase 2: the next pull must still go out, without any PSI change in between.
+      serverSession.expectRequest(serverSession.DIAGNOSTIC, { it.textDocument.uri == uri }) {
+        DocumentDiagnosticReport(RelatedFullDocumentDiagnosticReport(listOf(
+          Diagnostic(Range(Position(0, 0), Position(0, 5)), "error", DiagnosticSeverity.Error, null)
+        )))
+      }
+
+      // The PSI never changes in this test, so the daemon runs the LSP pass only once.
+      // Re-trigger the cache read the same way the reactive path does.
+      val fixture = codeInsightFixture as CodeInsightTestFixtureImpl
+      waitUntilAssertSucceeds {
+        LspHighlightingApplier.getInstance(project).scheduleHighlightingRefresh(virtualFile)
+        fixture.collectAndCheckHighlighting(expectedData)
+      }
+    }
+
+    @Test
+    fun `pull response survives a change in another file`(): Unit = timeoutRunBlocking {
+      (codeInsightFixture as CodeInsightTestFixtureImpl).canChangeDocumentDuringHighlighting(true)
+
+      val otherFile = codeInsightFixture.addFileToProject("other.txt", "other").virtualFile
+      val virtualFile = codeInsightFixture.configureByText("test.txt", "hello world").virtualFile
+      val serverSession = configureServerSession(project, virtualFile)
+      val uri = serverSession.fileUri(virtualFile)
+
+      val pendingResponse = CompletableFuture<DocumentDiagnosticReport>()
+      val requestArrived = serverSession.expectRequestAsync(serverSession.DIAGNOSTIC, { it.textDocument.uri == uri }) { pendingResponse }
+
+      // Trigger the pull. No diagnostics are expected while the response is pending.
+      (codeInsightFixture as CodeInsightTestFixtureImpl).collectAndCheckHighlighting(createExpectedDataFromText("hello world"))
+      requestArrived.await()
+
+      // A change in another file bumps the global PSI modification count while the request is in flight.
+      writeCommandAction(project, "") {
+        val otherDocument = FileDocumentManager.getInstance().getDocument(otherFile)!!
+        otherDocument.insertString(0, "x")
+        PsiDocumentManager.getInstance(project).commitDocument(otherDocument)
+      }
+
+      // The response must be applied: test.txt itself did not change, so the ranges are still valid.
+      pendingResponse.complete(DocumentDiagnosticReport(RelatedFullDocumentDiagnosticReport(listOf(
+        Diagnostic(Range(Position(0, 0), Position(0, 5)), "error", DiagnosticSeverity.Error, null)
+      ))))
+
+      val expected = createExpectedDataFromText("""<error descr="error">hello</error> world""")
+      waitUntilAssertSucceeds {
+        (codeInsightFixture as CodeInsightTestFixtureImpl).collectAndCheckHighlighting(expected)
+      }
+    }
+
+    @Test
+    fun `superseded pull is cancelled on the server`(): Unit = timeoutRunBlocking {
+      (codeInsightFixture as CodeInsightTestFixtureImpl).canChangeDocumentDuringHighlighting(true)
+
+      val virtualFile = codeInsightFixture.configureByText("test.txt", "hello world").virtualFile
+      val serverSession = configureServerSession(project, virtualFile)
+      val uri = serverSession.fileUri(virtualFile)
+
+      val pendingResponse = CompletableFuture<DocumentDiagnosticReport>()
+      val firstRequestArrived = serverSession.expectRequestAsync(serverSession.DIAGNOSTIC, { it.textDocument.uri == uri }) { pendingResponse }
+
+      (codeInsightFixture as CodeInsightTestFixtureImpl).collectAndCheckHighlighting(createExpectedDataFromText("hello world"))
+      firstRequestArrived.await()
+
+      // The edit makes the pending pull obsolete. The client must cancel it and send a new pull.
+      serverSession.expectRequest(serverSession.DIAGNOSTIC, { it.textDocument.uri == uri }) {
+        DocumentDiagnosticReport(RelatedFullDocumentDiagnosticReport(listOf(
+          Diagnostic(Range(Position(0, 1), Position(0, 6)), "error", DiagnosticSeverity.Error, null)
+        )))
+      }
+      writeCommandAction(project, "") {
+        codeInsightFixture.editor.document.insertString(0, " ")
+      }
+
+      val expected = createExpectedDataFromText(""" <error descr="error">hello</error> world""")
+      (codeInsightFixture as CodeInsightTestFixtureImpl).checkHighlightingRetrying(expected, initialCheck = true)
+
+      waitUntilAssertSucceeds(message = "the client must cancel the superseded pull via $/cancelRequest") {
+        assertTrue(pendingResponse.isCancelled)
+      }
+    }
+
+    @Test
+    fun `previousResultId is sent on the next pull`(): Unit = timeoutRunBlocking {
+      (codeInsightFixture as CodeInsightTestFixtureImpl).canChangeDocumentDuringHighlighting(true)
+
+      val virtualFile = codeInsightFixture.configureByText("test.txt", """
+      <error descr="error">hello</error> world
+      """.trimIndent()).virtualFile
+      val expectedData = stripHighlightingMarkup()
+      val serverSession = configureServerSession(project, virtualFile)
+      val uri = serverSession.fileUri(virtualFile)
+
+      serverSession.expectRequest(serverSession.DIAGNOSTIC, { it.textDocument.uri == uri && it.previousResultId == null }) {
+        DocumentDiagnosticReport(RelatedFullDocumentDiagnosticReport(listOf(
+          Diagnostic(Range(Position(0, 0), Position(0, 5)), "error", DiagnosticSeverity.Error, null)
+        )).apply { resultId = "r1" })
+      }
+      checkHighlightingByPolling(expectedData)
+
+      // The next pull must carry the resultId of the accepted report.
+      serverSession.expectRequest(serverSession.DIAGNOSTIC, { it.textDocument.uri == uri && it.previousResultId == "r1" }) {
+        DocumentDiagnosticReport(RelatedFullDocumentDiagnosticReport(emptyList()).apply { resultId = "r2" })
+      }
+      writeCommandAction(project, "") {
+        codeInsightFixture.editor.document.insertString(0, " ")
+      }
+      val noErrors = createExpectedDataFromText(" hello world")
+      (codeInsightFixture as CodeInsightTestFixtureImpl).checkHighlightingRetrying(noErrors, initialCheck = true)
+    }
+
+    @Test
+    fun `unchanged report keeps the diagnostics`(): Unit = timeoutRunBlocking {
+      (codeInsightFixture as CodeInsightTestFixtureImpl).canChangeDocumentDuringHighlighting(true)
+
+      val otherFile = codeInsightFixture.addFileToProject("other.txt", "other").virtualFile
+      val virtualFile = codeInsightFixture.configureByText("test.txt", """
+      <error descr="error">hello</error> world
+      """.trimIndent()).virtualFile
+      val expectedData = stripHighlightingMarkup()
+      val serverSession = configureServerSession(project, virtualFile)
+      val uri = serverSession.fileUri(virtualFile)
+
+      serverSession.expectRequest(serverSession.DIAGNOSTIC, { it.textDocument.uri == uri && it.previousResultId == null }) {
+        DocumentDiagnosticReport(RelatedFullDocumentDiagnosticReport(listOf(
+          Diagnostic(Range(Position(0, 0), Position(0, 5)), "error", DiagnosticSeverity.Error, null)
+        )).apply { resultId = "r1" })
+      }
+      checkHighlightingByPolling(expectedData)
+
+      // A change in another file marks the cache stale, and the server answers "unchanged".
+      val unchangedRequest = serverSession.expectRequest(serverSession.DIAGNOSTIC, { it.textDocument.uri == uri && it.previousResultId == "r1" }) {
+        DocumentDiagnosticReport(RelatedUnchangedDocumentDiagnosticReport("r1"))
+      }
+      writeCommandAction(project, "") {
+        val otherDocument = FileDocumentManager.getInstance().getDocument(otherFile)!!
+        otherDocument.insertString(0, "x")
+        PsiDocumentManager.getInstance(project).commitDocument(otherDocument)
+      }
+
+      // Trigger the pull. The cached error must stay visible while the pull is in flight.
+      val expected = createExpectedDataFromText("""<error descr="error">hello</error> world""")
+      waitUntilAssertSucceeds {
+        (codeInsightFixture as CodeInsightTestFixtureImpl).collectAndCheckHighlighting(expected)
+      }
+      unchangedRequest.await()
+      delay(500.milliseconds) // give the "unchanged" confirmation time to reach the cache
+
+      // The error must survive the "unchanged" report.
+      (codeInsightFixture as CodeInsightTestFixtureImpl).collectAndCheckHighlighting(expected)
+    }
+
+    @Test
+    fun `rapid re-triggers with a PSI change in between coalesce into one pull`(): Unit = timeoutRunBlocking {
+      (codeInsightFixture as CodeInsightTestFixtureImpl).canChangeDocumentDuringHighlighting(true)
+
+      val virtualFile = codeInsightFixture.configureByText("test.txt", "hello world").virtualFile
+      val serverSession = configureServerSession(project, virtualFile)
+      val uri = serverSession.fileUri(virtualFile)
+      val client = LspClientManagerImpl.getInstanceImpl(project).getClients(FakeLspServerSupportProvider::class.java).first()
+
+      // Phase 1: establish a cached snapshot, so the burst below is not the "first pull" that skips the delay.
+      // The test reads the cache directly: collectAndCheckHighlighting bumps the PSI counter on every call
+      // and would keep producing extra pulls.
+      serverSession.expectRequest(serverSession.DIAGNOSTIC, { it.textDocument.uri == uri }) {
+        DocumentDiagnosticReport(RelatedFullDocumentDiagnosticReport(listOf(
+          Diagnostic(Range(Position(0, 0), Position(0, 5)), "initial", DiagnosticSeverity.Error, null)
+        )))
+      }
+      withContext(Dispatchers.IO) { readAction { client.getDiagnosticsAndQuickFixes(virtualFile) } }
+      waitUntilAssertSucceeds(message = "the initial pull result must reach the cache") {
+        assertTrue(readAction { client.getDiagnosticsAndQuickFixes(virtualFile) }.isNotEmpty())
+      }
+
+      // Widen the quiescence window so the burst below reliably lands inside it.
+      LspHighlightingCache.quiescenceDelayOverride = 500.milliseconds
+      try {
+        // Both expectations up front: the coalesced pull matches the first one; a second pull would match the tripwire.
+        val coalescedPull = serverSession.expectRequest(serverSession.DIAGNOSTIC, { it.textDocument.uri == uri }) {
+          DocumentDiagnosticReport(RelatedFullDocumentDiagnosticReport(emptyList()))
+        }
+        val tripwire = serverSession.expectRequestAsync(serverSession.DIAGNOSTIC, { it.textDocument.uri == uri }) {
+          CompletableFuture<DocumentDiagnosticReport>()
+        }
+
+        // The burst that used to produce "send, $/cancelRequest, re-send": edit, trigger, edit, trigger.
+        writeCommandAction(project, "") {
+          codeInsightFixture.editor.document.insertString(0, " ")
+          PsiDocumentManager.getInstance(project).commitAllDocuments()
+        }
+        withContext(Dispatchers.IO) { readAction { client.getDiagnosticsAndQuickFixes(virtualFile) } }
+        writeCommandAction(project, "") {
+          codeInsightFixture.editor.document.insertString(0, " ")
+          PsiDocumentManager.getInstance(project).commitAllDocuments()
+        }
+        withContext(Dispatchers.IO) { readAction { client.getDiagnosticsAndQuickFixes(virtualFile) } }
+
+        coalescedPull.await()
+        delay(500.milliseconds) // one full extra quiescence window of grace
+        assertFalse(tripwire.isCompleted, "the burst must coalesce into exactly one pull")
+        tripwire.cancel()
+      }
+      finally {
+        LspHighlightingCache.quiescenceDelayOverride = null
+      }
+    }
+
+    @Test
+    fun `workspace diagnostic refresh supersedes the in-flight pull`(): Unit = timeoutRunBlocking {
+      (codeInsightFixture as CodeInsightTestFixtureImpl).canChangeDocumentDuringHighlighting(true)
+
+      val virtualFile = codeInsightFixture.configureByText("test.txt", "hello world").virtualFile
+      val serverSession = configureServerSession(project, virtualFile)
+      val uri = serverSession.fileUri(virtualFile)
+      val client = LspClientManagerImpl.getInstanceImpl(project).getClients(FakeLspServerSupportProvider::class.java).first()
+
+      // Hold the first pull pending.
+      val pendingResponse = CompletableFuture<DocumentDiagnosticReport>()
+      val firstRequestArrived = serverSession.expectRequestAsync(serverSession.DIAGNOSTIC, { it.textDocument.uri == uri }) { pendingResponse }
+      withContext(Dispatchers.IO) { readAction { client.getDiagnosticsAndQuickFixes(virtualFile) } }
+      firstRequestArrived.await()
+
+      // The forced re-pull must go out even though a pull is in flight, and it must carry no previousResultId.
+      serverSession.expectRequest(serverSession.DIAGNOSTIC, { it.textDocument.uri == uri && it.previousResultId == null }) {
+        DocumentDiagnosticReport(RelatedFullDocumentDiagnosticReport(listOf(
+          Diagnostic(Range(Position(0, 0), Position(0, 5)), "fresh", DiagnosticSeverity.Error, null)
+        )))
+      }
+      serverSession.sendRequest(serverSession.WORKSPACE_DIAGNOSTIC_REFRESH) { }
+
+      waitUntilAssertSucceeds(message = "the forced refresh must cancel the in-flight pull") {
+        assertTrue(pendingResponse.isCancelled)
+      }
+      val expected = createExpectedDataFromText("""<error descr="fresh">hello</error> world""")
+      waitUntilAssertSucceeds {
+        (codeInsightFixture as CodeInsightTestFixtureImpl).collectAndCheckHighlighting(expected)
+      }
+    }
+
+    @Test
+    fun `unexpected unchanged report settles the cache`(): Unit = timeoutRunBlocking {
+      (codeInsightFixture as CodeInsightTestFixtureImpl).canChangeDocumentDuringHighlighting(true)
+
+      val otherFile = codeInsightFixture.addFileToProject("other.txt", "other").virtualFile
+      val virtualFile = codeInsightFixture.configureByText("test.txt", "hello world").virtualFile
+      val serverSession = configureServerSession(project, virtualFile)
+      val uri = serverSession.fileUri(virtualFile)
+      val client = LspClientManagerImpl.getInstanceImpl(project).getClients(FakeLspServerSupportProvider::class.java).first()
+
+      // Phase 1: a full report without a resultId, so the next pull carries no previousResultId.
+      serverSession.expectRequest(serverSession.DIAGNOSTIC, { it.textDocument.uri == uri }) {
+        DocumentDiagnosticReport(RelatedFullDocumentDiagnosticReport(listOf(
+          Diagnostic(Range(Position(0, 0), Position(0, 5)), "error", DiagnosticSeverity.Error, null)
+        )))
+      }
+      withContext(Dispatchers.IO) { readAction { client.getDiagnosticsAndQuickFixes(virtualFile) } }
+      waitUntilAssertSucceeds(message = "the initial pull result must reach the cache") {
+        assertTrue(readAction { client.getDiagnosticsAndQuickFixes(virtualFile) }.isNotEmpty())
+      }
+
+      // Phase 2: a change in another file makes the cache stale. The server answers "unchanged"
+      // although no previousResultId was sent - non-conforming, but tolerated.
+      val unchangedRequest = serverSession.expectRequest(serverSession.DIAGNOSTIC, { it.textDocument.uri == uri && it.previousResultId == null }) {
+        DocumentDiagnosticReport(RelatedUnchangedDocumentDiagnosticReport("unexpected"))
+      }
+      writeCommandAction(project, "") {
+        val otherDocument = FileDocumentManager.getInstance().getDocument(otherFile)!!
+        otherDocument.insertString(0, "x")
+        PsiDocumentManager.getInstance(project).commitDocument(otherDocument)
+      }
+      withContext(Dispatchers.IO) { readAction { client.getDiagnosticsAndQuickFixes(virtualFile) } }
+      unchangedRequest.await()
+      delay(500.milliseconds) // let the confirmation reach the cache
+
+      // The cache must settle: a further read keeps the diagnostics and sends no new pull.
+      val tripwire = serverSession.expectRequestAsync(serverSession.DIAGNOSTIC, { it.textDocument.uri == uri }) {
+        CompletableFuture<DocumentDiagnosticReport>()
+      }
+      assertTrue(withContext(Dispatchers.IO) { readAction { client.getDiagnosticsAndQuickFixes(virtualFile) } }.isNotEmpty())
+      delay(500.milliseconds)
+      assertFalse(tripwire.isCompleted, "the cache must not re-pull after an accepted unchanged report")
+      tripwire.cancel()
+    }
+
+    /**
+     * A pull-only server sends no `publishDiagnostics`. The client owns the initial pull,
+     * so the diagnostics of a just-opened file must arrive without a highlighting pass.
+     */
+    @Test
+    fun `file open triggers the initial pull without a highlighting pass`(): Unit = timeoutRunBlocking {
+      // The first file only starts the server; its own on-open pull is not interesting here.
+      val firstFile = codeInsightFixture.configureByText("first.txt", "hello").virtualFile
+      val serverSession = configureServerSession(project, firstFile)
+
+      val newFile = codeInsightFixture.addFileToProject("new.txt", "hello world").virtualFile
+      serverSession.expectRequest(serverSession.DIAGNOSTIC, { it.textDocument.uri == serverSession.fileUri(newFile) }) {
+        DocumentDiagnosticReport(RelatedFullDocumentDiagnosticReport(listOf(
+          Diagnostic(Range(Position(0, 0), Position(0, 5)), "on-open error", DiagnosticSeverity.Error, null)
+        )))
+      }
+
+      val diagnosticsArrived = async(start = CoroutineStart.UNDISPATCHED) {
+        awaitDiagnosticsFromLspServer(project, newFile)
+      }
+      withContext(Dispatchers.EDT) {
+        codeInsightFixture.openFileInEditor(newFile)
+      }
+      diagnosticsArrived.await()
+
+      val client = LspClientManagerImpl.getInstanceImpl(project).getClients(FakeLspServerSupportProvider::class.java).first()
+      assertTrue(
+        readAction { client.getDiagnosticsAndQuickFixes(newFile) }.isNotEmpty(),
+        "the diagnostics of a just-opened file must be pulled without a highlighting pass",
+      )
+    }
+
+    @Test
+    fun `workspace diagnostic refresh triggers a full re-pull`(): Unit = timeoutRunBlocking {
+      (codeInsightFixture as CodeInsightTestFixtureImpl).canChangeDocumentDuringHighlighting(true)
+
+      val virtualFile = codeInsightFixture.configureByText("test.txt", """
+      <error descr="stale">hello</error> world
+      """.trimIndent()).virtualFile
+      val expectedData = stripHighlightingMarkup()
+      val serverSession = configureServerSession(project, virtualFile)
+      val uri = serverSession.fileUri(virtualFile)
+
+      serverSession.expectRequest(serverSession.DIAGNOSTIC, { it.textDocument.uri == uri && it.previousResultId == null }) {
+        DocumentDiagnosticReport(RelatedFullDocumentDiagnosticReport(listOf(
+          Diagnostic(Range(Position(0, 0), Position(0, 5)), "stale", DiagnosticSeverity.Error, null)
+        )).apply { resultId = "r1" })
+      }
+      checkHighlightingByPolling(expectedData)
+
+      // The forced re-pull must not send previousResultId, so the server answers with a full report.
+      serverSession.expectRequest(serverSession.DIAGNOSTIC, { it.textDocument.uri == uri && it.previousResultId == null }) {
+        DocumentDiagnosticReport(RelatedFullDocumentDiagnosticReport(listOf(
+          Diagnostic(Range(Position(0, 0), Position(0, 5)), "fresh", DiagnosticSeverity.Error, null)
+        )))
+      }
+      serverSession.sendRequest(serverSession.WORKSPACE_DIAGNOSTIC_REFRESH) { }
+
+      // No document edit happened. The fresh diagnostics must arrive anyway.
+      val expected = createExpectedDataFromText("""<error descr="fresh">hello</error> world""")
+      waitUntilAssertSucceeds {
+        (codeInsightFixture as CodeInsightTestFixtureImpl).collectAndCheckHighlighting(expected)
+      }
+    }
   }
 
   @Nested
@@ -366,6 +751,7 @@ internal class LspDiagnosticsTest {
       val virtualFile = codeInsightFixture.configureByText("test.txt", """
       <error descr="error">hello</error> world
       """.trimIndent()).virtualFile
+      val expectedData = stripHighlightingMarkup()
       val serverSession = configureServerSession(project, virtualFile)
 
       serverSession.expectRequest(serverSession.DIAGNOSTIC, { it.textDocument.uri == serverSession.fileUri(virtualFile) }) {
@@ -374,7 +760,7 @@ internal class LspDiagnosticsTest {
         )))
       }
 
-      checkHighlightingByPolling()
+      checkHighlightingByPolling(expectedData)
 
       // reportErrorsToWolf runs asynchronously after highlights are applied to the editor
       waitUntilAssertSucceeds(message = "File with error diagnostics should be reported as a problem file") {
@@ -387,6 +773,7 @@ internal class LspDiagnosticsTest {
       (codeInsightFixture as CodeInsightTestFixtureImpl).canChangeDocumentDuringHighlighting(true)
 
       val virtualFile = codeInsightFixture.configureByText("test.txt", "hello world").virtualFile
+      val expectedData = stripHighlightingMarkup()
       val serverSession = configureServerSession(project, virtualFile)
 
       serverSession.expectRequest(serverSession.DIAGNOSTIC, { it.textDocument.uri == serverSession.fileUri(virtualFile) }) {
@@ -395,7 +782,7 @@ internal class LspDiagnosticsTest {
 
       val recorder = ProblemEventRecorder().subscribe(project, codeInsightFixture.testRootDisposable)
 
-      checkHighlightingByPolling()
+      checkHighlightingByPolling(expectedData)
 
       // The pass calls reportErrorsToWolf asynchronously after applying highlights; give it time to run
       // so any spurious event would be observed.
@@ -414,6 +801,7 @@ internal class LspDiagnosticsTest {
       val virtualFile = codeInsightFixture.configureByText("test.txt", """
       <error descr="error">hello</error> world
       """.trimIndent()).virtualFile
+      val expectedData = stripHighlightingMarkup()
       val serverSession = configureServerSession(project, virtualFile)
       val uri = serverSession.fileUri(virtualFile)
 
@@ -424,7 +812,7 @@ internal class LspDiagnosticsTest {
         )))
       }
 
-      checkHighlightingByPolling()
+      checkHighlightingByPolling(expectedData)
 
       waitUntilAssertSucceeds(message = "Wolf must register the file after the first error diagnostic") {
         assertTrue(wolf.isProblemFile(virtualFile))
@@ -457,6 +845,7 @@ internal class LspDiagnosticsTest {
       val virtualFile = codeInsightFixture.configureByText("test.txt", """
       <error descr="error">hello</error> world
       """.trimIndent()).virtualFile
+      val expectedData = stripHighlightingMarkup()
       val serverSession = configureServerSession(project, virtualFile)
       val uri = serverSession.fileUri(virtualFile)
 
@@ -467,7 +856,7 @@ internal class LspDiagnosticsTest {
         )))
       }
 
-      checkHighlightingByPolling()
+      checkHighlightingByPolling(expectedData)
 
       waitUntilAssertSucceeds(message = "Wolf must register the file after the initial pull") {
         assertTrue(wolf.isProblemFile(virtualFile))
@@ -515,6 +904,7 @@ internal class LspDiagnosticsTest {
       """.trimIndent())
       assertCustomPsiTree(psiFile)
       val virtualFile = psiFile.virtualFile
+      val expectedData = stripHighlightingMarkup()
       val serverSession = configureServerSession(project, virtualFile)
 
       serverSession.expectRequest(serverSession.DIAGNOSTIC, { it.textDocument.uri == serverSession.fileUri(virtualFile) }) {
@@ -524,7 +914,7 @@ internal class LspDiagnosticsTest {
         )))
       }
 
-      checkHighlightingByPolling()
+      checkHighlightingByPolling(expectedData)
     }
 
     @Test
@@ -536,6 +926,7 @@ internal class LspDiagnosticsTest {
       """.trimIndent())
       assertCustomPsiTree(psiFile)
       val virtualFile = psiFile.virtualFile
+      val expectedData = stripHighlightingMarkup()
       val serverSession = configureServerSession(project, virtualFile)
 
       serverSession.expectRequest(serverSession.DIAGNOSTIC, { it.textDocument.uri == serverSession.fileUri(virtualFile) }) {
@@ -545,7 +936,7 @@ internal class LspDiagnosticsTest {
         )))
       }
 
-      checkHighlightingByPolling()
+      checkHighlightingByPolling(expectedData)
     }
   }
 
@@ -583,6 +974,83 @@ internal class LspDiagnosticsTest {
     }
   }
 
+  /**
+   * The reactive apply can run after the user typed but before the daemon reparsed the file.
+   * The live document already contains the freshly typed text, but the committed PsiFile — which
+   * `AnnotationBuilder.range` validates against — is still shorter. A diagnostic in the typed tail
+   * shouldn't throw "Range must be inside element being annotated".
+   */
+  @Nested
+  inner class UncommittedPsiReparse {
+    @Suppress("unused")
+    private val fakeLspServerProvider by projectFixture.fakeLspServerProviderFixture()
+
+    @Test
+    fun `diagnostic in not-yet-reparsed region is skipped without exception`(): Unit = timeoutRunBlocking {
+      val fixture = codeInsightFixture as CodeInsightTestFixtureImpl
+      fixture.canChangeDocumentDuringHighlighting(true)
+
+      val psiFile = fixture.configureByText("test.txt", "hello world")
+      val virtualFile = psiFile.virtualFile
+      val document = fixture.editor.document
+      val serverSession = configureServerSession(project, virtualFile)
+      val uri = serverSession.fileUri(virtualFile)
+
+      // Publish a diagnostic on "world" while the PSI is still consistent
+      val diagnosticsArrived = async(start = CoroutineStart.UNDISPATCHED) {
+        awaitDiagnosticsFromLspServer(project, virtualFile)
+      }
+      serverSession.sendNotification(serverSession.PUBLISH_DIAGNOSTICS) {
+        PublishDiagnosticsParams(uri, listOf(
+          Diagnostic(Range(Position(0, 6), Position(0, 11)), "moving error", DiagnosticSeverity.Error, "fake")
+        ))
+      }
+      diagnosticsArrived.await()
+      fixture.collectAndCheckHighlighting(createExpectedDataFromText("hello <error>world</error>"))
+
+      // Insert text before the diagnostic and collect highlights inside the same write action, so no reparse
+      // (which needs its own write action) can run in between. The cached range follows the edit into the
+      // not-yet-reparsed tail, past the committed PsiFile that AnnotationBuilder.range validates against.
+      // This is the reactive collection path from the crash stacktrace (collectHighlightInfos -> createAnnotation).
+      val psiDocumentManager = PsiDocumentManager.getInstance(project)
+      val uncommitedTextRange = psiFile.textRange
+      val highlights = writeCommandAction(project, "") {
+        document.insertString(0, "prefix line\n")
+        assertTrue(psiDocumentManager.isUncommited(document), "PSI must be uncommitted when highlights are collected")
+        assertTrue(document.textLength > uncommitedTextRange.endOffset, "document must outgrow committed PSI")
+        LspHighlightingApplier.getInstance(project).collectHighlightInfos(psiFile, virtualFile, document)
+      }
+      assertTrue(
+        highlights.none { it.endOffset > uncommitedTextRange.endOffset },
+        "no highlight may point past the committed PSI: $highlights",
+      )
+    }
+
+    @Test
+    fun `diagnostic in freshly typed region is shown after reparse`(): Unit = timeoutRunBlocking {
+      val fixture = codeInsightFixture as CodeInsightTestFixtureImpl
+      fixture.canChangeDocumentDuringHighlighting(true)
+
+      val virtualFile = fixture.configureByText("test.txt", "hello world").virtualFile
+      val serverSession = configureServerSession(project, virtualFile)
+      val uri = serverSession.fileUri(virtualFile)
+
+      writeCommandAction(project, "") {
+        fixture.editor.document.insertString(fixture.editor.document.textLength, "\nBOOM")
+      }
+
+      serverSession.sendNotification(serverSession.PUBLISH_DIAGNOSTICS) {
+        PublishDiagnosticsParams(uri, listOf(
+          Diagnostic(Range(Position(1, 0), Position(1, 4)), "boom error", DiagnosticSeverity.Error, "fake")
+        ))
+      }
+
+      val expected = createExpectedDataFromText("hello world\n<error descr=\"boom error\">BOOM</error>")
+      // checkHighlightingRetrying calls commitAllDocuments so this test doesn't really check the reactive path, but it triggers the pass
+      fixture.checkHighlightingRetrying(expected, initialCheck = true)
+    }
+  }
+
   private fun createExpectedDataFromText(afterText: String): ExpectedHighlightingData {
     val document = DocumentImpl(StreamUtil.convertSeparators(afterText))
     val data = ExpectedHighlightingData(document, true, true, false)
@@ -590,14 +1058,22 @@ internal class LspDiagnosticsTest {
     return data
   }
 
-  private suspend fun checkHighlightingByPolling() {
+  /**
+   * Removes the expected-highlighting markup from the editor document.
+   * Call this before the LSP server opens the file. The on-open pull captures the document stamp,
+   * so a later markup-stripping edit would invalidate the pull response,
+   * and the fake server answers each expectation only once.
+   */
+  private fun stripHighlightingMarkup(): ExpectedHighlightingData {
     val fixture = codeInsightFixture as CodeInsightTestFixtureImpl
-    val document = fixture.editor.document
-    val data = ExpectedHighlightingData(document, true, true, false)
+    val data = ExpectedHighlightingData(fixture.editor.document, true, true, false)
     data.init()
+    return data
+  }
 
+  private suspend fun checkHighlightingByPolling(data: ExpectedHighlightingData) {
     waitUntilAssertSucceeds {
-      fixture.collectAndCheckHighlighting(data)
+      (codeInsightFixture as CodeInsightTestFixtureImpl).collectAndCheckHighlighting(data)
     }
   }
 }

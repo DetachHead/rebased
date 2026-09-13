@@ -11,16 +11,16 @@ import com.intellij.refactoring.changeSignature.OverriderUsageInfo
 import com.intellij.refactoring.util.CommonRefactoringUtil
 import com.intellij.usageView.UsageInfo
 import com.intellij.util.containers.MultiMap
-import org.jetbrains.kotlin.analysis.api.KaExperimentalApi
 import org.jetbrains.kotlin.analysis.api.KaSession
-import org.jetbrains.kotlin.analysis.api.analyze
-import org.jetbrains.kotlin.analysis.api.components.render
-import org.jetbrains.kotlin.analysis.api.components.semanticallyEquals
+import org.jetbrains.kotlin.analysis.api.components.returnType
+import org.jetbrains.kotlin.analysis.api.renderer.render
 import org.jetbrains.kotlin.analysis.api.renderer.types.impl.KaTypeRendererForSource
+import org.jetbrains.kotlin.analysis.api.session.analyze
 import org.jetbrains.kotlin.analysis.api.symbols.KaDeclarationSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaFunctionSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.receiverType
 import org.jetbrains.kotlin.analysis.api.symbols.symbol
+import org.jetbrains.kotlin.analysis.api.types.semanticallyEquals
 import org.jetbrains.kotlin.idea.base.resources.KotlinBundle
 import org.jetbrains.kotlin.idea.k2.refactoring.changeSignature.usages.KotlinByConventionCallUsage
 import org.jetbrains.kotlin.idea.k2.refactoring.changeSignature.usages.KotlinChangeSignatureConflictingUsageInfo
@@ -155,7 +155,6 @@ class KotlinChangeSignatureConflictSearcher(
         return result
     }
 
-    @OptIn(KaExperimentalApi::class)
     context(_: KaSession)
     private fun filterCandidates(function: KtCallableDeclaration, candidateSymbol: KaDeclarationSymbol): Boolean {
         if (candidateSymbol !is KaFunctionSymbol) return false
@@ -251,6 +250,7 @@ class KotlinChangeSignatureConflictSearcher(
 
         loop@ for (usageInfo in usages) {
             if (!(usageInfo is KotlinFunctionCallUsage || usageInfo is KotlinPropertyCallUsage || usageInfo is KotlinByConventionCallUsage)) continue
+            if (usageInfo is KotlinFunctionCallUsage && usageInfo.canPreserveExplicitDispatchReceiver(originalInfo)) continue
 
             val callElement = usageInfo.element as? KtElement ?: continue
 

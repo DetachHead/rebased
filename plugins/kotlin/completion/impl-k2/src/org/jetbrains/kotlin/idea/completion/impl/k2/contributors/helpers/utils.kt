@@ -4,20 +4,17 @@ package org.jetbrains.kotlin.idea.completion.impl.k2.contributors.helpers
 
 import com.intellij.psi.PsiElement
 import com.intellij.util.applyIf
-import org.jetbrains.kotlin.analysis.api.KaExperimentalApi
 import org.jetbrains.kotlin.analysis.api.KaSession
 import org.jetbrains.kotlin.analysis.api.components.KaScopeContext
 import org.jetbrains.kotlin.analysis.api.components.KaScopeKind
 import org.jetbrains.kotlin.analysis.api.components.KaScopeKinds
-import org.jetbrains.kotlin.analysis.api.components.asSignature
-import org.jetbrains.kotlin.analysis.api.components.containingDeclaration
-import org.jetbrains.kotlin.analysis.api.components.declaredMemberScope
-import org.jetbrains.kotlin.analysis.api.components.isUnitType
 import org.jetbrains.kotlin.analysis.api.components.resolveToSymbols
-import org.jetbrains.kotlin.analysis.api.components.scope
-import org.jetbrains.kotlin.analysis.api.components.syntheticJavaPropertiesScope
 import org.jetbrains.kotlin.analysis.api.scopes.KaScope
+import org.jetbrains.kotlin.analysis.api.scopes.declaredMemberScope
+import org.jetbrains.kotlin.analysis.api.scopes.scope
+import org.jetbrains.kotlin.analysis.api.scopes.syntheticJavaPropertiesScope
 import org.jetbrains.kotlin.analysis.api.signatures.KaCallableSignature
+import org.jetbrains.kotlin.analysis.api.signatures.asSignature
 import org.jetbrains.kotlin.analysis.api.symbols.KaCallableSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaClassKind
 import org.jetbrains.kotlin.analysis.api.symbols.KaClassSymbol
@@ -25,9 +22,12 @@ import org.jetbrains.kotlin.analysis.api.symbols.KaNamedClassSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaPropertySymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaSyntheticJavaPropertySymbol
+import org.jetbrains.kotlin.analysis.api.symbols.containingDeclaration
 import org.jetbrains.kotlin.analysis.api.symbols.rootPackageSymbol
 import org.jetbrains.kotlin.analysis.api.types.KaErrorType
+import org.jetbrains.kotlin.analysis.api.types.KaStandardTypeClassIds
 import org.jetbrains.kotlin.analysis.api.types.KaType
+import org.jetbrains.kotlin.analysis.api.types.classId
 import org.jetbrains.kotlin.builtins.StandardNames
 import org.jetbrains.kotlin.config.LanguageFeature
 import org.jetbrains.kotlin.config.LanguageVersionSettings
@@ -127,7 +127,6 @@ internal fun collectLocalAndMemberNonExtensionsFromScopeContext(
     }
 }
 
-@OptIn(KaExperimentalApi::class)
 context(_: KaSession)
 internal fun collectNonExtensionsForType(
     parameters: KotlinFirCompletionParameters,
@@ -167,7 +166,6 @@ internal fun collectNonExtensionsForType(
     }
 }
 
-@OptIn(KaExperimentalApi::class)
 context(_: KaSession)
 private fun Sequence<KaCallableSignature<*>>.filterOutJavaGettersAndSetters(
     positionContext: KotlinNameReferencePositionContext,
@@ -185,7 +183,7 @@ private fun Sequence<KaCallableSignature<*>>.filterOutJavaGettersAndSetters(
         .flatMapTo(mutableSetOf()) { symbol ->
             listOfNotNull(
                 symbol.javaGetterSymbol,
-                symbol.javaSetterSymbol?.takeIf { it.returnType.isUnitType })
+                symbol.javaSetterSymbol?.takeIf { it.returnType.classId == KaStandardTypeClassIds.UNIT })
         }
 
     return filterNot { it.symbol in javaGetterAndUnitSetterSymbols }
@@ -195,7 +193,6 @@ private fun Sequence<KaCallableSignature<*>>.filterOutJavaGettersAndSetters(
  * Returns non-extensions from [KtScope]. Resulting callables do not include synthetic Java properties and constructors of inner classes.
  * To get them use [collectNonExtensionsForType].
  */
-@OptIn(KaExperimentalApi::class)
 context(_: KaSession)
 internal fun collectNonExtensionsFromScope(
     parameters: KotlinFirCompletionParameters,

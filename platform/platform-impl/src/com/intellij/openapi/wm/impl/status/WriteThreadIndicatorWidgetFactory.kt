@@ -33,12 +33,11 @@ import kotlin.time.Duration.Companion.milliseconds
 
 internal class WriteThreadIndicatorWidgetFactory : StatusBarWidgetFactory {
   override fun getId(): String = ID
-
   override fun getDisplayName(): String = UIBundle.message("status.bar.write.thread.widget.name")
+  override fun isInternal(): Boolean = true
 
   override fun isAvailable(project: Project): Boolean {
-    val app = ApplicationManager.getApplication()
-    return app.isInternal && app is ApplicationImpl
+    return ApplicationManager.getApplication() is ApplicationImpl
   }
 
   override fun createWidget(project: Project): StatusBarWidget = WriteThreadWidget()

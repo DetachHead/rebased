@@ -1,6 +1,7 @@
 // Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.platform.project
 
+import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.ProjectManager
 import com.intellij.platform.kernel.withKernel
@@ -75,6 +76,10 @@ suspend fun Project.asEntity(): ProjectEntity {
 @ApiStatus.Internal
 fun ProjectEntity.asProjectOrNull(): Project? {
   return ProjectManager.getInstance().openProjects.firstOrNull { it.projectId() == projectId }
+         // covers ids that were re-bound or aliased (Remote Development reconciles project identity between peers)
+         ?: projectId.findProjectOrNull()?.also {
+           logger<ProjectIdsStorage>().warn("Used ProjectId alias: $projectId", Throwable())
+         }
 }
 
 /**

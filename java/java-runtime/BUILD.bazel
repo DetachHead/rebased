@@ -1,7 +1,7 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library", "jvm_provided_library")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
 ### auto-generated section `build intellij.java.rt` start
-
 jvm_provided_library(
     name = "libraries_junit4_provided",
     lib = "//libraries/junit4",
@@ -31,6 +31,8 @@ jvm_library(
     ],
 )
 
+content_module_jar(module = ":rt")
+
 jvm_library(
     name = "rt_test_lib",
     testonly = True,
@@ -55,6 +57,7 @@ jvm_library(
 exports_files(
     [
         "intellij.java.rt.iml",
+        "resources/intellij.java.rt.xml",
     ],
     visibility = ["//visibility:public"],
 )

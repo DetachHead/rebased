@@ -24,8 +24,13 @@ class KotlinChangeInfo(
     private val oldName = methodDescriptor.name
 
     private val oldNameToParameterIndex: Map<String, Int> = HashMap<String, Int>().apply {
-        val parameters = (methodDescriptor.method as? KtCallableDeclaration)?.valueParameters
-        parameters?.indices?.forEach { i -> this[parameters[i].name ?: ""] = i }
+        val callable = methodDescriptor.method as? KtCallableDeclaration
+        callable?.modifierList?.contextParameterList?.contextParameters?.forEachIndexed {
+            index, parameter -> put(parameter.name.orEmpty(), index)
+        }
+        callable?.valueParameters?.forEachIndexed {
+            index, parameter -> put(parameter.name.orEmpty(), index)
+        }
     }
 
     override fun getOldParameterIndex(oldParameterName: String): Int? {
@@ -111,7 +116,7 @@ class KotlinChangeInfo(
             if (value != null && value !in newParameters) {
                 newParameters.add(value)
             }
-            if (value == null && method is KtValVarKeywordOwner && field in newParameters) {
+            if (value == null && method is KtValVarKeywordOwner && field in newParameters && field?.isContextParameter != true) {
                 newParameters.remove(field)
             }
             field = value

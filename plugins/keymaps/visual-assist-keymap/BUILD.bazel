@@ -1,7 +1,7 @@
+load("@community//platform/build-scripts/bazel-rules:ij_plugin.bzl", "ij_plugin")
 load("@rules_jvm//:jvm.bzl", "jvm_library")
 
 ### auto-generated section `build intellij.keymap.visualAssist` start
-
 jvm_library(
     name = "keymap-visualAssist",
     srcs = glob(
@@ -14,6 +14,7 @@ jvm_library(
         ["resources/**/*"],
     ),
     visibility = ["//visibility:public"],
+    runtime_deps = ["//platform/platform-impl:ide-impl"],
 )
 
 jvm_library(
@@ -25,7 +26,17 @@ jvm_library(
     ),
     module_name = "intellij.keymap.visualAssist",
     visibility = ["//visibility:public"],
-    runtime_deps = [":keymap-visualAssist"],
+    runtime_deps = [
+        # do not sort,
+        ":keymap-visualAssist",
+        "//platform/platform-impl:ide-impl_test_lib",
+    ],
+)
+
+ij_plugin(
+    name = "keymap-visualAssist_plugin",
+    descriptor_module = ":keymap-visualAssist",
+    visibility = ["//visibility:public"],
 )
 ### auto-generated section `build intellij.keymap.visualAssist` end
 
@@ -33,6 +44,9 @@ jvm_library(
 exports_files(
     [
         "intellij.keymap.visualAssist.iml",
+        "resources/META-INF/plugin.xml",
+        "resources/keymaps/Visual Assist OSX.xml",
+        "resources/keymaps/Visual Assist.xml",
     ],
     visibility = ["//visibility:public"],
 )

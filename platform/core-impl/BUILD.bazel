@@ -1,7 +1,7 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
 ### auto-generated section `build intellij.platform.core.impl` start
-
 jvm_library(
     name = "core-impl",
     srcs = glob(
@@ -46,6 +46,15 @@ jvm_library(
         "//platform/eel",
         "//libraries/kotlinx/collections-immutable:libraries-kotlinx-collections-immutable",
         "//platform/eel-nioFs",
+    ],
+)
+
+content_module_jar(
+    module = ":core-impl",
+    modules_after = [
+        # do not sort,
+        "//platform/pluginSystem/parser/impl",
+        "//platform/syntax/syntax-api:syntax",
     ],
 )
 
@@ -94,6 +103,9 @@ jvm_library(
 exports_files(
     [
         "intellij.platform.core.impl.iml",
+        "resources/META-INF/CoreImpl.analyzer.xml",
+        "resources/intellij.platform.core.impl.xml",
+        "module-content.yaml",
     ],
     visibility = ["//visibility:public"],
 )

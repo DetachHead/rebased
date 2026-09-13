@@ -18,6 +18,7 @@ import com.intellij.openapi.application.ApplicationListener
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.EDT
 import com.intellij.openapi.application.ModalityState
+import com.intellij.openapi.application.WriteIntentReadAction
 import com.intellij.openapi.application.impl.TestOnlyThreading
 import com.intellij.openapi.application.runInEdt
 import com.intellij.openapi.application.runReadActionBlocking
@@ -566,7 +567,7 @@ class LineStatusTrackerManager(
   ) {
     if (isDisposed) return
     if (provider !is LineStatusTrackerContentLoader) return
-    loader.scheduleRefresh(RefreshRequest(tracker.document, provider))
+    loader.scheduleRefresh(RefreshRequest(tracker.document, tracker.virtualFile, provider))
 
     log("Refresh queued", tracker.virtualFile)
   }
@@ -579,12 +580,12 @@ class LineStatusTrackerManager(
     override fun loadRequest(request: RefreshRequest): Result<RefreshData> {
       if (isDisposed) return Result.Canceled()
       val document = request.document
-      val virtualFile = FileDocumentManager.getInstance().getFile(document)
+      val virtualFile = request.virtualFile
       val loader = request.loader
 
       log("Loading started", virtualFile)
 
-      if (virtualFile == null || !virtualFile.isValid) {
+      if (!virtualFile.isValid) {
         log("Loading error: virtual file is not valid", virtualFile)
         return Result.Error()
       }
@@ -653,11 +654,7 @@ class LineStatusTrackerManager(
     }
 
     private fun handleSuccess(request: RefreshRequest, document: Document, refreshData: RefreshData) {
-      val virtualFile = FileDocumentManager.getInstance().getFile(document)
-      if (virtualFile == null) {
-        log("Loading finished: document is not bound", null)
-        return
-      }
+      val virtualFile = request.virtualFile
 
       val loader = request.loader
 
@@ -769,9 +766,13 @@ class LineStatusTrackerManager(
     }
 
     override fun editorCreated(event: EditorFactoryEvent) {
-      val editor = event.editor
-      if (isTrackedEditor(editor)) {
-        requestTrackerFor(editor.document, editor)
+      // Editors may be created on EDT without an implicit read lock, while requesting a tracker needs read access
+      // (see ChangelistsLocalStatusTrackerProvider.createTracker -> FileDocumentManager.getDocument). Same as in `install`.
+      WriteIntentReadAction.run {
+        val editor = event.editor
+        if (isTrackedEditor(editor)) {
+          requestTrackerFor(editor.document, editor)
+        }
       }
     }
 
@@ -1029,7 +1030,7 @@ class LineStatusTrackerManager(
     var clmFilePath: FilePath? = null,
   )
 
-  private class RefreshRequest(val document: Document, val loader: LineStatusTrackerContentLoader) {
+  private class RefreshRequest(val document: Document, val virtualFile: VirtualFile, val loader: LineStatusTrackerContentLoader) {
     override fun equals(other: Any?): Boolean = other is RefreshRequest && document == other.document
     override fun hashCode(): Int = document.hashCode()
     override fun toString(): String {

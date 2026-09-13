@@ -9,14 +9,13 @@ import com.intellij.modcommand.Presentation
 import com.intellij.openapi.util.TextRange
 import com.intellij.psi.util.startOffset
 import org.jetbrains.kotlin.analysis.api.KaSession
-import org.jetbrains.kotlin.analysis.api.resolution.successfulFunctionCallOrNull
-import org.jetbrains.kotlin.analysis.api.resolution.symbol
+import org.jetbrains.kotlin.analysis.api.resolution.resolveSuccessfulSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaNamedFunctionSymbol
 import org.jetbrains.kotlin.idea.base.resources.KotlinBundle
 import org.jetbrains.kotlin.idea.codeinsight.api.applicable.asUnit
 import org.jetbrains.kotlin.idea.codeinsight.api.applicable.intentions.KotlinApplicableModCommandAction
 import org.jetbrains.kotlin.idea.codeinsight.utils.callExpression
-import org.jetbrains.kotlin.idea.codeinsights.impl.base.inspections.OperatorToFunctionConverter
+import org.jetbrains.kotlin.idea.refactoring.intentions.OperatorToFunctionConverter
 import org.jetbrains.kotlin.psi.KtDotQualifiedExpression
 import org.jetbrains.kotlin.psi.psiUtil.referenceExpression
 import org.jetbrains.kotlin.util.OperatorNameConventions
@@ -46,9 +45,9 @@ class ReplaceInvokeIntention : KotlinApplicableModCommandAction<KtDotQualifiedEx
                 selectorExpression.typeArgumentList == null
     }
 
-    override fun KaSession.prepareContext(element: KtDotQualifiedExpression): Unit? {
-        val resolvedCall = element.callExpression?.referenceExpression()?.resolveToCall()?.successfulFunctionCallOrNull() ?: return null
-        val symbol = resolvedCall.symbol as? KaNamedFunctionSymbol ?: return null
+    context(session: KaSession)
+    override fun prepareContext(element: KtDotQualifiedExpression): Unit? {
+        val symbol = element.callExpression?.referenceExpression()?.resolveSuccessfulSymbol() as? KaNamedFunctionSymbol ?: return null
 
         return symbol.isOperator.asUnit
     }

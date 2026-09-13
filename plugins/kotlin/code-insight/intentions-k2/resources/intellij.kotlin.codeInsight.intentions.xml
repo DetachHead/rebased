@@ -1,12 +1,49 @@
-<idea-plugin visibility="internal" package="org.jetbrains.kotlin.idea.codeinsight.intentions">
+<idea-plugin visibility="internal">
   <!-- region Generated dependencies - run `Generate Product Layouts` to regenerate -->
   <dependencies>
     <module name="intellij.java.execution.impl"/>
     <module name="intellij.java.psi"/>
+    <module name="intellij.kotlin.base.analysis"/>
+    <module name="intellij.kotlin.base.analysis.utils"/>
+    <module name="intellij.kotlin.base.codeInsight"/>
+    <module name="intellij.kotlin.base.facet"/>
+    <module name="intellij.kotlin.base.projectStructure"/>
+    <module name="intellij.kotlin.base.psi"/>
+    <module name="intellij.kotlin.base.util"/>
     <module name="intellij.kotlin.codeInsight"/>
+    <module name="intellij.kotlin.codeInsight.api"/>
+    <module name="intellij.kotlin.codeInsight.descriptions"/>
+    <module name="intellij.kotlin.codeInsight.overrideImplement"/>
     <module name="intellij.kotlin.codeInsight.shared"/>
+    <module name="intellij.kotlin.codeInsight.utils"/>
+    <module name="intellij.kotlin.formatter"/>
     <module name="intellij.kotlin.refactorings"/>
+    <module name="intellij.kotlin.refactorings.base"/>
+    <module name="intellij.kotlin.references"/>
     <module name="intellij.kotlin.searching"/>
+    <module name="intellij.libraries.guava"/>
+    <module name="intellij.libraries.kotlin.reflect"/>
+    <module name="intellij.libraries.kotlinc.analysis.api"/>
+    <module name="intellij.libraries.kotlinc.analysis.api.k2"/>
+    <module name="intellij.libraries.kotlinc.kotlin.compiler.common"/>
+    <module name="intellij.libraries.kotlinc.symbol.light.classes"/>
+    <module name="intellij.platform.analysis"/>
+    <module name="intellij.platform.codeStyle"/>
+    <module name="intellij.platform.core"/>
+    <module name="intellij.platform.core.impl"/>
+    <module name="intellij.platform.core.ui"/>
+    <module name="intellij.platform.editor.ui"/>
+    <module name="intellij.platform.ide.core"/>
+    <module name="intellij.platform.ide.impl"/>
+    <module name="intellij.platform.ide.progress"/>
+    <module name="intellij.platform.indexing"/>
+    <module name="intellij.platform.lang"/>
+    <module name="intellij.platform.lang.impl"/>
+    <module name="intellij.platform.projectModel"/>
+    <module name="intellij.platform.refactoring"/>
+    <module name="intellij.platform.testIntegration.ui"/>
+    <module name="intellij.platform.util.ui"/>
+    <module name="kotlin.fir.frontend-independent"/>
   </dependencies>
   <!-- endregion -->
   <extensions defaultExtensionNs="com.intellij">
@@ -233,13 +270,6 @@
     <intentionAction>
       <language>kotlin</language>
       <className>org.jetbrains.kotlin.idea.codeinsight.intentions.ConvertFunctionTypeParameterToReceiverIntention</className>
-      <bundleName>messages.KotlinBundle</bundleName>
-      <categoryKey>group.names.kotlin</categoryKey>
-    </intentionAction>
-
-    <intentionAction>
-      <language>kotlin</language>
-      <className>org.jetbrains.kotlin.idea.codeinsight.intentions.ConvertFunctionTypeReceiverToParameterIntention</className>
       <bundleName>messages.KotlinBundle</bundleName>
       <categoryKey>group.names.kotlin</categoryKey>
     </intentionAction>
@@ -605,13 +635,6 @@
 
     <intentionAction>
       <language>kotlin</language>
-      <className>org.jetbrains.kotlin.idea.codeinsight.intentions.CollectionConcatenationToBuildCollectionIntention</className>
-      <bundleName>messages.KotlinBundle</bundleName>
-      <categoryKey>group.names.kotlin</categoryKey>
-    </intentionAction>
-
-    <intentionAction>
-      <language>kotlin</language>
       <className>org.jetbrains.kotlin.idea.codeinsight.intentions.ChangePackageIntention</className>
       <bundleName>messages.KotlinBundle</bundleName>
       <categoryKey>group.names.kotlin</categoryKey>
@@ -753,6 +776,13 @@
     <intentionAction>
       <language>kotlin</language>
       <className>org.jetbrains.kotlin.idea.codeinsight.intentions.AddBracesIntention</className>
+      <bundleName>messages.KotlinBundle</bundleName>
+      <categoryKey>group.names.kotlin</categoryKey>
+    </intentionAction>
+
+    <intentionAction>
+      <language>kotlin</language>
+      <className>org.jetbrains.kotlin.idea.codeinsight.intentions.AddParameterNameAtCallsitesIntention</className>
       <bundleName>messages.KotlinBundle</bundleName>
       <categoryKey>group.names.kotlin</categoryKey>
     </intentionAction>
@@ -1201,6 +1231,21 @@
     <intentionAction>
       <language>kotlin</language>
       <className>org.jetbrains.kotlin.idea.codeinsight.intentions.MoveFunctionToClassIntention</className>
+      <bundleName>messages.KotlinBundle</bundleName>
+      <categoryKey>group.names.kotlin</categoryKey>
+    </intentionAction>
+    <localInspection implementationClass="org.jetbrains.kotlin.idea.codeinsight.intentions.RemoveEmptyPrimaryConstructorInspection"
+                     groupPath="Kotlin"
+                     groupBundle="messages.KotlinBundle" groupKey="group.names.redundant.constructs"
+                     enabledByDefault="true"
+                     cleanupTool="true"
+                     level="WEAK WARNING"
+                     language="kotlin" editorAttributes="NOT_USED_ELEMENT_ATTRIBUTES"
+                     key="inspection.remove.empty.primary.constructor.display.name" bundle="messages.KotlinBundle"/>
+    <intentionAction>
+      <!--TODO move to intentions-shared after NestedLambdaShadowedImplicitParameterInspection is migrated -->
+      <language>kotlin</language>
+      <className>org.jetbrains.kotlin.idea.codeinsight.intentions.fake.ReplaceItWithExplicitFunctionLiteralParamIntention</className>
       <bundleName>messages.KotlinBundle</bundleName>
       <categoryKey>group.names.kotlin</categoryKey>
     </intentionAction>

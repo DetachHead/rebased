@@ -7,15 +7,23 @@ import com.intellij.openapi.util.NlsSafe
 import com.intellij.psi.PsiElementVisitor
 import com.intellij.psi.PsiMethod
 import com.intellij.psi.PsiModifier
-import org.jetbrains.kotlin.analysis.api.KaExperimentalApi
 import org.jetbrains.kotlin.analysis.api.KaSession
-import org.jetbrains.kotlin.analysis.api.analyze
+import org.jetbrains.kotlin.analysis.api.expressions.expressionType
+import org.jetbrains.kotlin.analysis.api.renderer.render
+import org.jetbrains.kotlin.analysis.api.resolution.resolveSuccessfulSymbol
+import org.jetbrains.kotlin.analysis.api.scopes.memberScope
+import org.jetbrains.kotlin.analysis.api.session.analyze
 import org.jetbrains.kotlin.analysis.api.symbols.KaCallableSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaClassSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaNamedClassSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaSymbolModality
 import org.jetbrains.kotlin.analysis.api.symbols.KaVariableSymbol
+import org.jetbrains.kotlin.analysis.api.symbols.allOverriddenSymbols
+import org.jetbrains.kotlin.analysis.api.symbols.classSymbol
+import org.jetbrains.kotlin.analysis.api.symbols.containingSymbol
+import org.jetbrains.kotlin.analysis.api.symbols.sealedClassInheritors
 import org.jetbrains.kotlin.analysis.api.types.symbol
+import org.jetbrains.kotlin.analysis.api.types.type
 import org.jetbrains.kotlin.idea.KotlinIconProvider
 import org.jetbrains.kotlin.idea.base.resources.KotlinBundle
 import org.jetbrains.kotlin.idea.codeinsight.api.classic.inspections.AbstractKotlinInspection
@@ -23,15 +31,14 @@ import org.jetbrains.kotlin.idea.core.overrideImplement.BodyType
 import org.jetbrains.kotlin.idea.core.overrideImplement.KtClassMemberInfo
 import org.jetbrains.kotlin.idea.core.overrideImplement.KtGenerateMembersHandler
 import org.jetbrains.kotlin.idea.refactoring.isTrueJavaMethod
-import org.jetbrains.kotlin.idea.references.mainReference
 import org.jetbrains.kotlin.psi.KtClassOrObject
 import org.jetbrains.kotlin.psi.KtDelegatedSuperTypeEntry
 import org.jetbrains.kotlin.psi.KtSuperTypeList
 import org.jetbrains.kotlin.psi.KtVisitorVoid
+import org.jetbrains.kotlin.resolution.KtResolvable
 
 internal class JavaDefaultMethodsNotOverriddenByDelegationInspection : AbstractKotlinInspection() {
 
-    @OptIn(KaExperimentalApi::class)
     override fun buildVisitor(holder: ProblemsHolder, isOnTheFly: Boolean): PsiElementVisitor {
         return object : KtVisitorVoid() {
             override fun visitDelegatedSuperTypeEntry(specifier: KtDelegatedSuperTypeEntry) {
@@ -51,7 +58,7 @@ internal class JavaDefaultMethodsNotOverriddenByDelegationInspection : AbstractK
                     val delegateClass = delegateExpression.expressionType?.symbol as? KaClassSymbol ?: return
                     val javaDefaultMethodsToOverride = collectJavaDefaultMethodsToOverride(delegateClass, inheritedJavaDefaultMethods)
 
-                    val delegateSymbol = delegateExpression.mainReference?.resolveToSymbol()
+                    val delegateSymbol = (delegateExpression as? KtResolvable)?.resolveSuccessfulSymbol()
                     val delegateName = when (delegateSymbol) {
                         is KaVariableSymbol -> delegateSymbol.name.asString()
                         else -> null
@@ -92,7 +99,8 @@ internal class JavaDefaultMethodsNotOverriddenByDelegationInspection : AbstractK
     }
 }
 
-private fun KaSession.collectInheritedJavaDefaultMethods(
+context(session: KaSession)
+private fun collectInheritedJavaDefaultMethods(
     delegatedInterface: KaNamedClassSymbol,
     declaration: KtClassOrObject,
 ): Set<KaCallableSymbol> {
@@ -105,7 +113,8 @@ private fun KaSession.collectInheritedJavaDefaultMethods(
         ?.toSet() ?: emptySet()
 }
 
-private fun KaSession.collectJavaDefaultMethodsToOverride(
+context(session: KaSession)
+private fun collectJavaDefaultMethodsToOverride(
     klass: KaClassSymbol,
     javaDefaultMethods: Set<KaCallableSymbol>
 ): Sequence<KaCallableSymbol> {
@@ -126,7 +135,8 @@ private fun KaSession.collectJavaDefaultMethodsToOverride(
     }
 }
 
-private fun KaSession.collectOverriddenJavaDefaultMethods(
+context(session: KaSession)
+private fun collectOverriddenJavaDefaultMethods(
     callables: Sequence<KaCallableSymbol>,
     javaDefaultMethods: Set<KaCallableSymbol>,
 ): Sequence<KaCallableSymbol> = callables.flatMap { callable ->

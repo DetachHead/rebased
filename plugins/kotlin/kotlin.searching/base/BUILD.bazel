@@ -1,8 +1,8 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
 load("//build:compiler-options.bzl", "create_kotlinc_options")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
 ### auto-generated section `build intellij.kotlin.searching.base` start
-
 create_kotlinc_options(
     name = "custom_base",
     opt_in = [
@@ -23,6 +23,10 @@ jvm_library(
     ),
     kotlinc_opts = ":custom_base",
     module_name = "intellij.kotlin.searching.base",
+    resource_strip_prefix = "resources",
+    resources = glob(
+        ["resources/**/*"],
+    ),
     visibility = ["//visibility:public"],
     deps = [
         # do not sort,
@@ -43,7 +47,7 @@ jvm_library(
         "//platform/ide-core",
         "//plugins/kotlin/base/analysis",
         "//plugins/kotlin/references",
-        "@lib//:kotlinc-kotlin-compiler-common",
+        "//libraries/kotlinc/kotlin-compiler-common:libraries-kotlinc-kotlin-compiler-common",
         "//plugins/kotlin/base/util",
         "//java/java-analysis-api:analysis",
         "//platform/platform-impl:ide-impl",
@@ -51,15 +55,19 @@ jvm_library(
         "//java/java-psi-api:psi",
         "//java/java-frontback-psi-api:frontback-psi",
         "//plugins/kotlin/base/psi",
-        "@lib//:kotlinc-analysis-api",
+        "//libraries/kotlinc/analysis-api:libraries-kotlinc-analysis-api",
+        "//libraries/kotlinc/symbol-light-classes:libraries-kotlinc-symbol-light-classes",
         "//plugins/kotlin/base/project-structure",
         "//plugins/kotlin/base/indices",
         "//plugins/kotlin/base/facet",
         "//platform/util/concurrency",
         "//platform/statistics",
         "//platform/util:util-ui",
+        "//plugins/kotlin/base/code-insight",
     ],
 )
+
+content_module_jar(module = ":base")
 
 jvm_library(
     name = "base_test_lib",
@@ -90,6 +98,7 @@ jvm_library(
         "//platform/ide-core:ide-core_test_lib",
         "//plugins/kotlin/base/analysis:analysis_test_lib",
         "//plugins/kotlin/references:references_test_lib",
+        "//libraries/kotlinc/kotlin-compiler-common:libraries-kotlinc-kotlin-compiler-common_test_lib",
         "//plugins/kotlin/base/util:util_test_lib",
         "//java/java-analysis-api:analysis_test_lib",
         "//platform/platform-impl:ide-impl_test_lib",
@@ -97,12 +106,15 @@ jvm_library(
         "//java/java-psi-api:psi_test_lib",
         "//java/java-frontback-psi-api:frontback-psi_test_lib",
         "//plugins/kotlin/base/psi:psi_test_lib",
+        "//libraries/kotlinc/analysis-api:libraries-kotlinc-analysis-api_test_lib",
+        "//libraries/kotlinc/symbol-light-classes:libraries-kotlinc-symbol-light-classes_test_lib",
         "//plugins/kotlin/base/project-structure:project-structure_test_lib",
         "//plugins/kotlin/base/indices:indices_test_lib",
         "//plugins/kotlin/base/facet:facet_test_lib",
         "//platform/util/concurrency:concurrency_test_lib",
         "//platform/statistics:statistics_test_lib",
         "//platform/util:util-ui_test_lib",
+        "//plugins/kotlin/base/code-insight:code-insight_test_lib",
     ],
 )
 ### auto-generated section `build intellij.kotlin.searching.base` end
@@ -111,6 +123,7 @@ jvm_library(
 exports_files(
     [
         "intellij.kotlin.searching.base.iml",
+        "resources/intellij.kotlin.searching.base.xml",
     ],
     visibility = ["//visibility:public"],
 )

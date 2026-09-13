@@ -15,6 +15,7 @@ import com.intellij.openapi.vfs.VfsUtil
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.platform.lsp.api.LspClient
 import com.intellij.platform.lsp.api.LspServer
+import com.intellij.platform.lsp.util.applySimpleTextEdits
 import com.intellij.platform.lsp.util.applyTextEdits
 import com.intellij.psi.PsiDocumentManager
 import com.intellij.psi.PsiFile
@@ -29,6 +30,7 @@ import org.eclipse.lsp4j.CreateFile
 import org.eclipse.lsp4j.DeleteFile
 import org.eclipse.lsp4j.RenameFile
 import org.eclipse.lsp4j.WorkspaceEdit
+import java.io.IOException
 
 /**
  * [IntentionAction] that knows how to apply [CodeAction] received from the LSP server.
@@ -153,11 +155,6 @@ open class LspIntentionAction(protected val lspClient: LspClient, private val in
     val uriToCreatedDocumentMap = mutableMapOf<String, Document>()
 
     workspaceEdit.documentChanges?.let { documentChanges ->
-      if (documentChanges.any { it.isRight && it.right !is CreateFile }) {
-        // TODO support DeleteFile and RenameFile as well
-        return@applyWorkspaceEdit
-      }
-
       documentChanges.forEach { editOrResourceOperation ->
         editOrResourceOperation.left?.let { textDocumentEdit ->
           val document = uriToDocumentMap[textDocumentEdit.textDocument.uri] ?: uriToCreatedDocumentMap[textDocumentEdit.textDocument.uri]
@@ -165,14 +162,14 @@ open class LspIntentionAction(protected val lspClient: LspClient, private val in
             thisLogger().error("No Document for ${textDocumentEdit.textDocument.uri}")
             return@applyWorkspaceEdit
           }
-          if (!applyTextEdits(document, textDocumentEdit.edits)) return@applyWorkspaceEdit
+          if (!applySimpleTextEdits(document, textDocumentEdit.edits)) return@applyWorkspaceEdit
         }
 
         editOrResourceOperation.right?.let { resourceOperation ->
           when (resourceOperation) {
             is CreateFile -> createFile(resourceOperation)?.let { uriToCreatedDocumentMap[resourceOperation.uri] = it }
-            is DeleteFile -> {} // TODO implement
-            is RenameFile -> {} // TODO implement
+            is DeleteFile -> if (deleteFile(resourceOperation)) uriToCreatedDocumentMap.remove(resourceOperation.uri)
+            is RenameFile -> renameFile(resourceOperation)?.let { uriToCreatedDocumentMap[resourceOperation.newUri] = it }
           }
         }
       }
@@ -181,6 +178,83 @@ open class LspIntentionAction(protected val lspClient: LspClient, private val in
 
   private fun createFile(createFile: CreateFile): Document? {
     val fileUri = createFile.uri
+    val parentDir = findOrCreateParentDir(fileUri)
+    if (parentDir == null) {
+      thisLogger().warn("Ignoring CreateFile(${fileUri}): failed to find or create the parent directory")
+      return null
+    }
+
+    val createdFile = parentDir.createChildData(this, PathUtil.getFileName(fileUri))
+    return FileDocumentManager.getInstance().getDocument(createdFile)
+      .also { if (it == null) thisLogger().warn("No Document for created file ${createdFile.path}") }
+  }
+
+  private fun renameFile(renameFile: RenameFile): Document? {
+    val oldUri = renameFile.oldUri
+    val newUri = renameFile.newUri
+
+    val file = lspClient.descriptor.findFileByUri(oldUri)
+    if (file == null) {
+      thisLogger().warn("Ignoring RenameFile($oldUri -> $newUri): file not found")
+      return null
+    }
+
+    if (lspClient.descriptor.findFileByUri(newUri) != null) {
+      thisLogger().warn("Ignoring RenameFile($oldUri -> $newUri): the target file already exists")
+      return null
+    }
+
+    val parentDir = findOrCreateParentDir(newUri)
+    if (parentDir == null) {
+      thisLogger().warn("Ignoring RenameFile($oldUri -> $newUri): failed to find or create the parent directory")
+      return null
+    }
+
+    val newName = PathUtil.getFileName(newUri)
+    try {
+      if (file.parent != parentDir) file.move(this, parentDir)
+      if (file.name != newName) file.rename(this, newName)
+    }
+    catch (e: IOException) {
+      thisLogger().warn("Failed to apply RenameFile($oldUri -> $newUri)", e)
+      return null
+    }
+
+    return FileDocumentManager.getInstance().getDocument(file)
+      .also { if (it == null) thisLogger().warn("No Document for renamed file ${file.path}") }
+  }
+
+  /**
+   * @return `true` when the file was deleted
+   */
+  private fun deleteFile(deleteFile: DeleteFile): Boolean {
+    val fileUri = deleteFile.uri
+
+    val file = lspClient.descriptor.findFileByUri(fileUri)
+    if (file == null) {
+      if (deleteFile.options?.ignoreIfNotExists != true) {
+        thisLogger().warn("Ignoring DeleteFile($fileUri): file not found")
+      }
+      return false
+    }
+
+    if (file.isDirectory && file.children.isNotEmpty() && deleteFile.options?.recursive != true) {
+      thisLogger().warn("Ignoring DeleteFile($fileUri): the directory is not empty, and the delete is not recursive")
+      return false
+    }
+
+    try {
+      file.delete(this)
+    }
+    catch (e: IOException) {
+      thisLogger().warn("Failed to apply DeleteFile($fileUri)", e)
+      return false
+    }
+
+    return true
+  }
+
+  private fun findOrCreateParentDir(fileUri: String): VirtualFile? {
     var existingDirUri = PathUtil.getParentPath(fileUri)
     var existingDir = lspClient.descriptor.findFileByUri(existingDirUri)
     while (existingDir == null && !existingDirUri.isEmpty()) {
@@ -189,27 +263,15 @@ open class LspIntentionAction(protected val lspClient: LspClient, private val in
     }
 
     if (existingDir == null) {
-      thisLogger().warn("Ignoring CreateFile(${fileUri}): base directory not found")
+      thisLogger().warn("Base directory not found for $fileUri")
       return null
     }
 
-    val relativePath = fileUri.substring(existingDirUri.length + 1)
-    val fileName = PathUtil.getFileName(relativePath)
-    val relativeParentPath = PathUtil.getParentPath(relativePath)
-
-    val parentDir = when {
+    val relativeParentPath = PathUtil.getParentPath(fileUri.substring(existingDirUri.length + 1))
+    return when {
       relativeParentPath.isEmpty() -> existingDir
       else -> VfsUtil.createDirectoryIfMissing(existingDir.path + "/" + relativeParentPath)
     }
-
-    if (parentDir == null) {
-      thisLogger().warn("Failed to create parent directory for CreateFile(${fileUri})")
-      return null
-    }
-
-    val createdFile = parentDir.createChildData(this, fileName)
-    return FileDocumentManager.getInstance().getDocument(createdFile)
-      .also { if (it == null) thisLogger().warn("No Document for created file ${createdFile.path}") }
   }
 
   private fun getUriToDocumentMap(edit: WorkspaceEdit): Map<String, Document>? {
@@ -222,20 +284,31 @@ open class LspIntentionAction(protected val lspClient: LspClient, private val in
       }
     }
 
-    val urisToCreate = mutableSetOf<String>()
+    // URIs of the files that will appear only when the resource operations are applied
+    val urisProducedByResourceOps = mutableSetOf<String>()
 
     edit.documentChanges?.let { documentChanges ->
       documentChanges.forEach { editOrResourceOperation ->
         editOrResourceOperation.left?.let { textDocumentEdit ->
           val documentUri = textDocumentEdit.textDocument.uri
-          if (!urisToCreate.contains(documentUri)) {
+          if (!urisProducedByResourceOps.contains(documentUri)) {
             val version: Int? = textDocumentEdit.textDocument.version
             val document = getDocument(documentUri, version ?: -1) ?: return null
             result[documentUri] = document
           }
         }
 
-        (editOrResourceOperation.right as? CreateFile)?.uri?.let { urisToCreate.add(it) }
+        editOrResourceOperation.right?.let { resourceOperation ->
+          when (resourceOperation) {
+            is CreateFile -> urisProducedByResourceOps.add(resourceOperation.uri)
+            is RenameFile -> {
+              val document = getDocument(resourceOperation.oldUri) ?: return null
+              result[resourceOperation.oldUri] = document
+              urisProducedByResourceOps.add(resourceOperation.newUri)
+            }
+            else -> {}
+          }
+        }
       }
     }
 
@@ -295,7 +368,7 @@ open class LspIntentionAction(protected val lspClient: LspClient, private val in
       documentChanges.forEach { editOrResourceOperation ->
         editOrResourceOperation.left?.let { textDocumentEdit ->
           if (physicalDocument != uriToDocumentMap[textDocumentEdit.textDocument.uri]) return@forEach
-          if (!applyTextEdits(nonPhysicalDocument, textDocumentEdit.edits)) return@invokeForPreview
+          if (!applySimpleTextEdits(nonPhysicalDocument, textDocumentEdit.edits)) return@invokeForPreview
         }
       }
     }

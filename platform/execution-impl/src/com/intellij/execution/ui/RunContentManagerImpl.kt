@@ -47,6 +47,7 @@ import com.intellij.ui.content.ContentManagerListener
 import com.intellij.ui.docking.DockManager
 import com.intellij.util.SmartList
 import com.intellij.util.ui.EmptyIcon
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.future.await
@@ -71,6 +72,7 @@ class RunContentManagerImpl(private val project: Project) : RunContentManager {
 
   private val toolWindowIdToBaseIcon: MutableMap<String, Icon> = HashMap()
   private val toolWindowIdZBuffer = ConcurrentLinkedDeque<String>()
+  private val initializedToolWindowIds: MutableSet<String> = ConcurrentHashMap.newKeySet()
 
   init {
     val containerFactory = DockableGridContainerFactory()
@@ -175,7 +177,9 @@ class RunContentManagerImpl(private val project: Project) : RunContentManager {
     val toolWindowId = executor.toolWindowId
     var toolWindow = toolWindowManager.getToolWindow(toolWindowId)
     if (toolWindow != null) {
-      return toolWindow.contentManager
+      val contentManager = toolWindow.contentManager
+      initToolWindow(executor, toolWindowId, executor.toolWindowIcon, contentManager)
+      return contentManager
     }
 
     toolWindow = toolWindowManager.registerToolWindow(RegisterToolWindowTask(
@@ -196,6 +200,9 @@ class RunContentManagerImpl(private val project: Project) : RunContentManager {
   }
 
   private fun initToolWindow(executor: Executor?, toolWindowId: String, toolWindowIcon: Icon, contentManager: ContentManager) {
+    if (!initializedToolWindowIds.add(toolWindowId)) {
+      return
+    }
     toolWindowIdToBaseIcon.put(toolWindowId, toolWindowIcon)
     contentManager.addContentManagerListener(object : ContentManagerListener {
       override fun selectionChanged(event: ContentManagerEvent) {
@@ -216,6 +223,7 @@ class RunContentManagerImpl(private val project: Project) : RunContentManager {
       contentManager.removeAllContents(true)
       toolWindowIdZBuffer.remove(toolWindowId)
       toolWindowIdToBaseIcon.remove(toolWindowId)
+      initializedToolWindowIds.remove(toolWindowId)
     })
     toolWindowIdZBuffer.addLast(toolWindowId)
   }
@@ -396,13 +404,9 @@ class RunContentManagerImpl(private val project: Project) : RunContentManager {
           }
         }
       }
-      processHandler.addProcessListener(processAdapter)
+      processHandler.addProcessListener(processAdapter, descriptor)
       if (processHandler.isStartNotified && !processAdapter.processStarted.get()) {
         processAdapter.startNotified(ProcessEvent(processHandler))
-      }
-      val disposer = content.disposer
-      if (disposer != null) {
-        Disposer.register(disposer, Disposable { processHandler.removeProcessListener(processAdapter) })
       }
     }
     else {
@@ -530,6 +534,7 @@ class RunContentManagerImpl(private val project: Project) : RunContentManager {
     if (id == executor.toolWindowId || toolWindowIdToBaseIcon.containsKey(id)) {
       val contentManager = getContentManagerByToolWindowId(id)
       if (contentManager != null) {
+        initToolWindow(executor, id, executor.toolWindowIcon, contentManager)
         updateToolWindowDecoration(id, executor)
         return contentManager
       }
@@ -760,8 +765,13 @@ class RunContentManagerImpl(private val project: Project) : RunContentManager {
       val killable = processHandler is KillableProcess && (processHandler as KillableProcess).canKillProcess()
       val task = object : WaitForProcessTask(processHandler, sessionName, projectClosing, project) {
         override fun onCancel() {
-          if (killable && !processHandler.isProcessTerminated) {
-            (processHandler as KillableProcess).killProcess()
+          if (!killable) return
+          // killProcess can block, and this callback runs on the EDT
+          // the atomic start keeps the kill job alive when the tab removal cancels the scope
+          descriptor.coroutineScope.launch(Dispatchers.IO, start = CoroutineStart.ATOMIC) {
+            if (!processHandler.isProcessTerminated) {
+              (processHandler as KillableProcess).killProcess()
+            }
           }
         }
       }

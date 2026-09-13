@@ -3,10 +3,7 @@ package org.jetbrains.kotlin.idea.util
 
 import com.intellij.psi.impl.compiled.ClsParameterImpl
 import com.intellij.psi.impl.java.stubs.impl.PsiParameterStubImpl
-import org.jetbrains.kotlin.analysis.api.KaExperimentalApi
 import org.jetbrains.kotlin.analysis.api.KaSession
-import org.jetbrains.kotlin.analysis.api.components.containingSymbol
-import org.jetbrains.kotlin.analysis.api.components.fakeOverrideOriginal
 import org.jetbrains.kotlin.analysis.api.renderer.declarations.KaDeclarationRenderer
 import org.jetbrains.kotlin.analysis.api.renderer.declarations.renderers.KaDeclarationNameRenderer
 import org.jetbrains.kotlin.analysis.api.signatures.KaVariableSignature
@@ -14,12 +11,16 @@ import org.jetbrains.kotlin.analysis.api.symbols.KaNamedFunctionSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaSymbolModality
 import org.jetbrains.kotlin.analysis.api.symbols.KaSymbolOrigin
 import org.jetbrains.kotlin.analysis.api.symbols.KaValueParameterSymbol
+import org.jetbrains.kotlin.analysis.api.symbols.containingSymbol
+import org.jetbrains.kotlin.analysis.api.symbols.fakeOverrideOriginal
 import org.jetbrains.kotlin.analysis.api.symbols.markers.KaNamedSymbol
+import org.jetbrains.kotlin.analysis.api.symbols.symbol
 import org.jetbrains.kotlin.analysis.utils.printer.PrettyPrinter
 import org.jetbrains.kotlin.name.Name
 import org.jetbrains.kotlin.psi.KtProperty
 
-fun KaSession.isBackingFieldRequired(property: KtProperty): Boolean {
+context(session: KaSession)
+fun isBackingFieldRequired(property: KtProperty): Boolean {
     val getter = property.getter
     val resolvedGetter = getter?.symbol
     val setter = property.setter
@@ -88,7 +89,6 @@ val KaValueParameterSymbol.realName: Name?
  * @see KaVariableSignature.realName
  * @see KaValueParameterSymbol.hasSynthesizedName
  */
-@OptIn(KaExperimentalApi::class)
 fun createRealNameRenderer(renderer: KaDeclarationNameRenderer): KaDeclarationNameRenderer = object : KaDeclarationNameRenderer {
     override fun renderName(
         analysisSession: KaSession,
@@ -97,7 +97,7 @@ fun createRealNameRenderer(renderer: KaDeclarationNameRenderer): KaDeclarationNa
         declarationRenderer: KaDeclarationRenderer,
         printer: PrettyPrinter
     ) {
-        val realParameterName = with(analysisSession) { getRealParameterName(symbol) }
+        val realParameterName = context(analysisSession) { getRealParameterName(symbol) }
         renderer.renderName(analysisSession, realParameterName ?: name, symbol, declarationRenderer, printer)
     }
 

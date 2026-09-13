@@ -48,7 +48,7 @@ import com.intellij.openapi.application.AccessToken
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.EDT
 import com.intellij.openapi.application.ModalityState
-import com.intellij.openapi.application.UI
+import com.intellij.openapi.application.UiWithModelAccess
 import com.intellij.openapi.application.asContextElement
 import com.intellij.openapi.application.ex.ApplicationManagerEx
 import com.intellij.openapi.application.readActionUndispatched
@@ -80,7 +80,6 @@ import com.intellij.platform.ide.menu.FrameMenuUiKind
 import com.intellij.platform.ide.menu.IdeJMenuBar
 import com.intellij.platform.ide.menu.MacNativeActionMenuItem
 import com.intellij.platform.ide.menu.createMacNativeActionMenu
-import com.intellij.platform.locking.impl.getGlobalThreadingSupport
 import com.intellij.ui.AnimatedIcon
 import com.intellij.ui.ClientProperty
 import com.intellij.ui.ExperimentalUI
@@ -88,7 +87,7 @@ import com.intellij.ui.GroupHeaderSeparator
 import com.intellij.ui.awt.RelativePoint
 import com.intellij.ui.mac.MacMenuSettings
 import com.intellij.ui.mac.foundation.NSDefaults
-import com.intellij.ui.mac.screenmenu.Menu
+import com.intellij.ui.mac.screenmenu.MenuItem
 import com.intellij.util.IntelliJCoroutinesFacade
 import com.intellij.util.SlowOperations
 import com.intellij.util.TimeoutUtil
@@ -113,7 +112,6 @@ import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.DelicateCoroutinesApi
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.InternalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.Runnable
@@ -388,6 +386,13 @@ object Utils {
     return action.templatePresentation.isRWLockRequired
   }
 
+  fun <T> runWithLocksForbidden(reason: String, runnable: () -> T): T {
+    return ApplicationManagerEx.getApplicationEx().withLocksSoftlyProhibited(
+      "The Read/Write lock is disallowed for $reason because `Presentation#isRWLockRequired` set to `false`.\n" +
+                "Actions that require locks hinder responsiveness of the IDE. Consider refactoring your action so that it does not require the Read/Write lock", LOG::error, runnable)
+  }
+
+
   /**
    * The preferred way to synchronously expand a group while pumping EDT intended for synchronous clients
    */
@@ -584,7 +589,7 @@ object Utils {
                         presentationFactory, asyncDataContext, place, uiKind)
         }
         else {
-          fillMenuInnerMacNative(uiKind.peer, uiKind.frame, list, checked, enableMnemonics,
+          fillMenuInnerMacNative(uiKind.items, uiKind.frame, list, checked, enableMnemonics,
                                  presentationFactory, asyncDataContext, place)
         }
       }
@@ -706,7 +711,7 @@ object Utils {
   }
 
   private fun fillMenuInnerMacNative(
-    nativePeer: Menu,
+    items: MutableList<MenuItem?>,
     frame: JFrame,
     list: List<AnAction>,
     checked: Boolean,
@@ -728,8 +733,14 @@ object Utils {
           updateFromPresentation(presentation)
         }.menuItemPeer
       }
-      // null peer means `null`
-      nativePeer.add(peer)
+      items.add(peer) // null peer means a separator
+    }
+    if (filtered.isEmpty()) {
+      val presentation = presentationFactory.getPresentation(EMPTY_MENU_FILLER)
+      items.add(MacNativeActionMenuItem(
+        EMPTY_MENU_FILLER, place, context, enableMnemonics, checked, useDarkIcons).apply {
+        updateFromPresentation(presentation)
+      }.menuItemPeer)
     }
   }
 
@@ -1039,7 +1050,6 @@ object Utils {
 
   private fun <R> runWithPotemkinOverlayProgress(actions: List<AnAction>, contextComponent: Component?, block: suspend CoroutineScope.() -> R): R? {
     if (shallAbortActionUpdateDueToProhibitingWriteAction(actions)) {
-      LOG.error("Actions cannot be updated when write-action is running or pending on EDT")
       return null
     }
     if (ourInUpdateSessionForInputEventEDTLoop) {
@@ -1210,7 +1220,7 @@ object Utils {
     get() = Dispatchers.EDT[CoroutineDispatcher]!!
 
   private val nonLockingEdtCoroutineDispatcher: CoroutineDispatcher
-    get() = Dispatchers.UI[CoroutineDispatcher]!!
+    get() = Dispatchers.UiWithModelAccess[CoroutineDispatcher]!!
 }
 
 @ApiStatus.Internal
@@ -1436,11 +1446,11 @@ internal inline fun <R> runBlockingForActionExpand(
     // sometimes this code runs under write action. It does not call read actions inside, so it makes no sense parallelizing lock; moreover, having write access
     // could prevent deadlocks caused by background write actions
     val (lockContextElement, cleanup) = if (application.isWriteAccessAllowed) {
-      getGlobalThreadingSupport().getLockContextElement() to {}
+      application.threadingSupport.getLockContextElement() to {}
     }
     else {
       installThreadContext(ctx, true) {
-        getGlobalThreadingSupport().parallelizeLock()
+        application.threadingSupport.parallelizeLock(true)
       }
     }
     try {
@@ -1493,4 +1503,9 @@ interface SuspendingUpdateSessionInternal: SuspendingUpdateSession {
 
   fun visitCaches(visitor: (AnAction, String, Any) -> Unit)
   fun dropCaches(predicate: (Any) -> Boolean)
+}
+
+@ApiStatus.Internal
+fun AnActionEvent.getActionMenu(): ActionMenu? {
+  return (uiKind as? ActualActionUiKind)?.component as? ActionMenu?
 }

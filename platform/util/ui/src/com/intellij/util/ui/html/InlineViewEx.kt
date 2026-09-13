@@ -97,11 +97,15 @@ internal class InlineViewEx(elem: Element) : InlineView(elem) {
   override fun getTabbedSpan(x: Float, e: TabExpander?): Float =
     super.getTabbedSpan(x, e) + insets.width
 
-  override fun getBreakWeight(axis: Int, pos: Float, len: Float): Int =
-    super.getBreakWeight(axis, adjustedBreakPos(axis, pos), adjustedBreakLen(axis, len))
+  override fun getBreakWeight(axis: Int, pos: Float, len: Float): Int {
+    updatePaddingsAndMargins(false)
+    return super.getBreakWeight(axis, adjustedBreakPos(axis, pos), adjustedBreakLen(axis, len))
+  }
 
-  override fun breakView(axis: Int, offset: Int, pos: Float, len: Float): View =
-    super.breakView(axis, offset, adjustedBreakPos(axis, pos), adjustedBreakLen(axis, len))
+  override fun breakView(axis: Int, offset: Int, pos: Float, len: Float): View {
+    updatePaddingsAndMargins(false)
+    return super.breakView(axis, offset, adjustedBreakPos(axis, pos), adjustedBreakLen(axis, len))
+  }
 
   private fun adjustedBreakPos(axis: Int, pos: Float): Float =
     max(pos - if (axis == View.X_AXIS) insets.left else insets.top, 0f)
@@ -177,6 +181,7 @@ internal class InlineViewEx(elem: Element) : InlineView(elem) {
     return null
   }
 
+  /** Refreshes the box edges for the current parent before measurements use the cached insets. */
   private fun updatePaddingsAndMargins(force: Boolean) {
     val parentView = parent
 

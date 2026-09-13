@@ -1799,6 +1799,36 @@
       "description": "Separator lines between text lines"
     },
     {
+      "key": "PillButton.blueBackground",
+      "description": "Background color for blue pill button",
+      "since": "2026.3"
+    },
+    {
+      "key": "PillButton.blueBorderColor",
+      "description": "Border color for blue pill button",
+      "since": "2026.3"
+    },
+    {
+      "key": "PillButton.blueForeground",
+      "description": "Text color for blue pill button",
+      "since": "2026.3"
+    },
+    {
+      "key": "PillButton.blueHoverBackground",
+      "description": "Background color for blue pill button on hover",
+      "since": "2026.3"
+    },
+    {
+      "key": "PillButton.blueHoverBorderColor",
+      "description": "Border color for blue pill button on hover",
+      "since": "2026.3"
+    },
+    {
+      "key": "PillButton.blueHoverForeground",
+      "description": "Text color for blue pill button on hover",
+      "since": "2026.3"
+    },
+    {
       "key": "Plugins.background",
       "description": "The Settings | Plugins dialog"
     },
@@ -2573,19 +2603,66 @@
       "key": "ToggleButton.borderColor"
     },
     {
-      "key": "ToggleButton.buttonColor"
+      "key": "ToggleButton.buttonColor",
+      "description": "Legacy sliding knob fill (DefaultOnOffButtonUI)",
+      "since": "2026.2"
+    },
+    {
+      "key": "ToggleButton.focusBorderColor",
+      "description": "Focus ring stroke for Islands pill toggle (IslandsOnOffButtonUI; Component-specs Figma control-focus-border-brand). ManyIslands themes map to control-brand-border",
+      "since": "2026.2"
     },
     {
       "key": "ToggleButton.offBackground"
     },
     {
+      "key": "ToggleButton.offDisabledBackground",
+      "description": "Toggle track fill when unselected and disabled (Islands pill)",
+      "since": "2026.2"
+    },
+    {
+      "key": "ToggleButton.offDisabledBorderColor",
+      "description": "Toggle track border when unselected and disabled (Islands pill)",
+      "since": "2026.2"
+    },
+    {
+      "key": "ToggleButton.offDisabledNotchColor",
+      "description": "Notch fill when unselected and disabled (Islands pill)",
+      "since": "2026.2"
+    },
+    {
       "key": "ToggleButton.offForeground"
+    },
+    {
+      "key": "ToggleButton.offNotchColor",
+      "description": "Notch fill when unselected and enabled (Islands pill)",
+      "since": "2026.2"
     },
     {
       "key": "ToggleButton.onBackground"
     },
     {
+      "key": "ToggleButton.onDisabledBackground",
+      "description": "Toggle track fill when selected and disabled (Islands pill)",
+      "since": "2026.2"
+    },
+    {
+      "key": "ToggleButton.onDisabledBorderColor",
+      "description": "Toggle track border when selected and disabled (Islands pill)",
+      "since": "2026.2"
+    },
+    {
+      "key": "ToggleButton.onDisabledNotchColor",
+      "description": "Notch fill when selected and disabled (Islands pill)",
+      "since": "2026.2"
+    },
+    {
       "key": "ToggleButton.onForeground"
+    },
+    {
+      "key": "ToggleButton.onNotchColor",
+      "description": "Notch fill when selected and enabled (Islands pill)",
+      "since": "2026.2"
     },
     {
       "key": "SegmentedButton.selectedStartBorderColor",

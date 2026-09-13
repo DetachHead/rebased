@@ -155,6 +155,8 @@ class RenameKotlinPropertyProcessor : RenameKotlinPsiProcessor() {
 
   override fun substituteElementToRename(element: PsiElement, editor: Editor?): PsiElement? {
     val namedUnwrappedElement = element.namedUnwrappedElement ?: return null
+    // a local property has no overrides, no light-class accessors, and no JvmName
+    if (namedUnwrappedElement is KtProperty && namedUnwrappedElement.isLocal) return namedUnwrappedElement
 
     val callableDeclaration = namedUnwrappedElement as? KtCallableDeclaration
                               ?: throw IllegalStateException("Can't be for element $element there because of canProcessElement()")
@@ -216,6 +218,11 @@ class RenameKotlinPropertyProcessor : RenameKotlinPsiProcessor() {
         super.prepareRenaming(element, newName, allRenames, scope)
 
         val namedUnwrappedElement = element.namedUnwrappedElement
+        if (namedUnwrappedElement is KtProperty && namedUnwrappedElement.isLocal) {
+            ForeignUsagesRenameProcessor.prepareRenaming(element, newName, allRenames, scope)
+            return
+        }
+
         val propertyMethods = when (namedUnwrappedElement) {
             is KtProperty -> runReadAction { LightClassUtil.getLightClassPropertyMethods(namedUnwrappedElement) }
             is KtParameter -> runReadAction { LightClassUtil.getLightClassPropertyMethods(namedUnwrappedElement) }
@@ -410,7 +417,11 @@ class RenameKotlinPropertyProcessor : RenameKotlinPsiProcessor() {
 
       val wasRequiredOverride = (element.unwrapped as? KtNamedFunction)?.let { renameRefactoringSupport.overridesNothing(it) } != true
 
-      val (adjustedUsages, refKindUsages) = @OptIn(KaAllowAnalysisFromWriteAction::class) allowAnalysisFromWriteAction {
+      val (_, refKindUsages) = if (element is KtProperty && element.isLocal) {
+          // a local property has no accessor methods, so every usage is a simple property usage
+          val allUsages = usages.toList()
+          allUsages to mapOf(UsageKind.SIMPLE_PROPERTY_USAGE to allUsages)
+      } else @OptIn(KaAllowAnalysisFromWriteAction::class) allowAnalysisFromWriteAction {
           val adjustedUsages = if (element is KtParameter) {
               usages.filterNot {
                   val refTarget = it.reference?.resolve()

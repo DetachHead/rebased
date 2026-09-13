@@ -1,29 +1,34 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package git4idea.tests
 
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.util.SystemInfo
 import com.intellij.openapi.util.io.FileUtil
-import com.intellij.openapi.vcs.Executor.cd
-import com.intellij.openapi.vcs.Executor.child
-import com.intellij.openapi.vcs.Executor.rm
-import com.intellij.openapi.vcs.Executor.touch
 import com.intellij.openapi.vcs.FileStatus
 import com.intellij.openapi.vcs.FileStatus.ADDED
 import com.intellij.openapi.vcs.FileStatus.DELETED
 import com.intellij.openapi.vcs.FileStatus.MODIFIED
 import com.intellij.openapi.vfs.VfsUtil
 import com.intellij.openapi.vfs.VfsUtilCore
-import com.intellij.testFramework.VfsTestUtil.createDir
+import com.intellij.testFramework.junit5.TestApplication
 import com.intellij.testFramework.runInEdtAndGet
 import com.intellij.vcsUtil.VcsUtil
 import git4idea.test.add
 import git4idea.test.addCommit
+import git4idea.test.assertChangesWithRefresh
+import git4idea.test.createDir
 import git4idea.test.git
+import git4idea.test.gitSingleRepoContextFixture
+import org.assertj.core.api.Assertions.assertThat
+import org.junit.jupiter.api.Test
 
-class GitChangeProviderVersionedTest : GitChangeProviderTest() {
+@TestApplication
+internal class GitChangeProviderVersionedTest {
+  private val fixture = gitSingleRepoContextFixture(makeInitialCommit = false).gitChangeProviderFixture()
+  private val context: GitChangeProviderTestContext get() = fixture.get()
 
-  fun testCreateFile() {
+  @Test
+  fun `test create file`(): Unit = with(context) {
     val file = create(projectRoot, "new.txt")
     repo.add(file.path)
     assertProviderChanges(file, ADDED)
@@ -33,7 +38,8 @@ class GitChangeProviderVersionedTest : GitChangeProviderTest() {
     }
   }
 
-  fun testCreateFileInDir() {
+  @Test
+  fun `test create file in dir`(): Unit = with(context) {
     val dir = runInEdtAndGet { createDir(projectRoot, "newdir") }
     dirty(dir)
     val bfile = create(dir, "new.txt")
@@ -46,68 +52,75 @@ class GitChangeProviderVersionedTest : GitChangeProviderTest() {
     }
   }
 
-  fun testEditFile() {
-    edit(atxt, "new content")
-    assertProviderChanges(atxt, MODIFIED)
+  @Test
+  fun `test edit file`(): Unit = with(context) {
+    edit(aTxt, "new content")
+    assertProviderChanges(aTxt, MODIFIED)
 
     assertChangesWithRefresh {
       modified("a.txt")
     }
   }
 
-  fun testStagedModification() {
-    edit(atxt, "new content")
-    repo.add(atxt.path)
-    assertProviderChanges(atxt, MODIFIED)
+  @Test
+  fun `test staged modification`(): Unit = with(context) {
+    edit(aTxt, "new content")
+    repo.add(aTxt.path)
+    assertProviderChanges(aTxt, MODIFIED)
 
     assertChangesWithRefresh {
       modified("a.txt")
     }
   }
 
-  fun testStagedUnstagedModification() {
-    edit(atxt, "new content")
-    repo.add(atxt.path)
-    edit(atxt, "new contents and some extra")
-    assertProviderChanges(atxt, MODIFIED)
+  @Test
+  fun `test staged unstaged modification`(): Unit = with(context) {
+    edit(aTxt, "new content")
+    repo.add(aTxt.path)
+    edit(aTxt, "new contents and some extra")
+    assertProviderChanges(aTxt, MODIFIED)
 
     assertChangesWithRefresh {
       modified("a.txt")
     }
   }
 
-  fun testRevertedStagedModification() {
-    val oldContent = VfsUtil.loadText(atxt)
-    edit(atxt, "new content")
-    repo.add(atxt.path)
-    edit(atxt, oldContent)
-    assertProviderChanges(atxt, null)
+  @Test
+  fun `test reverted staged modification`(): Unit = with(context) {
+    val oldContent = VfsUtil.loadText(aTxt)
+    edit(aTxt, "new content")
+    repo.add(aTxt.path)
+    edit(aTxt, oldContent)
+    assertProviderChanges(aTxt, null)
 
     assertChangesWithRefresh {
     }
   }
 
-  fun testRevertedStagedAddition() {
+  @Test
+  fun `test reverted staged addition`(): Unit = with(context) {
     val file = create(projectRoot, "new.txt")
     repo.add(file.path)
     cd(projectRoot)
     rm("new.txt")
-    assertProviderChanges(atxt, null)
+    assertProviderChanges(aTxt, null)
 
     assertChangesWithRefresh {
     }
   }
 
-  fun testDeleteFile() {
-    deleteFile(atxt)
-    assertProviderChanges(atxt, DELETED)
+  @Test
+  fun `test delete file`(): Unit = with(context) {
+    deleteFile(aTxt)
+    assertProviderChanges(aTxt, DELETED)
 
     assertChangesWithRefresh {
       deleted("a.txt")
     }
   }
 
-  fun testDeleteDirRecursively() {
+  @Test
+  fun `test delete dir recursively`(): Unit = with(context) {
     ApplicationManager.getApplication().invokeAndWait {
       ApplicationManager.getApplication().runWriteAction {
         val dir = projectRoot.findChild("dir")!!
@@ -115,7 +128,7 @@ class GitChangeProviderVersionedTest : GitChangeProviderTest() {
         FileUtil.delete(VfsUtilCore.virtualToIoFile(dir))
       }
     }
-    assertProviderChanges(listOf(dir_ctxt, subdir_dtxt),
+    assertProviderChanges(listOf(dirCTxt, subdirDTxt),
                           listOf(DELETED, DELETED))
 
     assertChangesWithRefresh {
@@ -124,14 +137,15 @@ class GitChangeProviderVersionedTest : GitChangeProviderTest() {
     }
   }
 
-  fun testSimultaneousOperationsOnMultipleFiles() {
-    edit(atxt, "new afile content")
-    edit(dir_ctxt, "new cfile content")
-    deleteFile(subdir_dtxt)
-    val newfile = create(projectRoot, "newfile.txt")
+  @Test
+  fun `test simultaneous operations on multiple files`(): Unit = with(context) {
+    edit(aTxt, "new afile content")
+    edit(dirCTxt, "new cfile content")
+    deleteFile(subdirDTxt)
+    val newFile = create(projectRoot, "newfile.txt")
     repo.add()
 
-    assertProviderChanges(listOf(atxt, dir_ctxt, subdir_dtxt, newfile),
+    assertProviderChanges(listOf(aTxt, dirCTxt, subdirDTxt, newFile),
                           listOf(MODIFIED, MODIFIED, DELETED, ADDED))
 
     assertChangesWithRefresh {
@@ -142,7 +156,8 @@ class GitChangeProviderVersionedTest : GitChangeProviderTest() {
     }
   }
 
-  fun testRenamedInWorktree() {
+  @Test
+  fun `test renamed in worktree`(): Unit = with(context) {
     assumeWorktreeRenamesSupported()
 
     touch("rename.txt", "rename_file_content")
@@ -164,7 +179,8 @@ class GitChangeProviderVersionedTest : GitChangeProviderTest() {
     }
   }
 
-  fun testTwiceRenamed() {
+  @Test
+  fun `test twice renamed`(): Unit = with(context) {
     assumeWorktreeRenamesSupported()
 
     touch("rename.txt", "rename_file_content")
@@ -189,7 +205,8 @@ class GitChangeProviderVersionedTest : GitChangeProviderTest() {
     }
   }
 
-  fun testCaseOnlyRenamed() {
+  @Test
+  fun `test case only renamed`(): Unit = with(context) {
     assumeWorktreeRenamesSupported()
 
     touch("rename.txt", "rename_file_content")
@@ -208,7 +225,8 @@ class GitChangeProviderVersionedTest : GitChangeProviderTest() {
     }
   }
 
-  fun testRevertedTwiceRenamed() {
+  @Test
+  fun `test reverted twice renamed`(): Unit = with(context) {
     assumeWorktreeRenamesSupported()
 
     touch("rename.txt", "rename_file_content")
@@ -233,7 +251,8 @@ class GitChangeProviderVersionedTest : GitChangeProviderTest() {
     }
   }
 
-  fun testCaseOnlyRevertedTwiceRenamed() {
+  @Test
+  fun `test case only reverted twice renamed`(): Unit = with(context) {
     assumeWorktreeRenamesSupported()
 
     touch("rename.txt", "rename_file_content")
@@ -243,8 +262,8 @@ class GitChangeProviderVersionedTest : GitChangeProviderTest() {
 
     // do not trigger move via VcsVFSListener
     rm("RENAME.txt")
-    assertFalse(child("RENAME.txt").exists())
-    assertFalse(child("rename.txt").exists())
+    assertThat(child("RENAME.txt")).doesNotExist()
+    assertThat(child("rename.txt")).doesNotExist()
 
     touch("rename.txt", "rename_file_content")
     repo.git("add -N rename.txt")
@@ -271,7 +290,7 @@ class GitChangeProviderVersionedTest : GitChangeProviderTest() {
     }
   }
 
-  protected fun assertProviderChangesIn(files: List<String>, fileStatuses: List<FileStatus?>) {
+  private fun GitChangeProviderTestContext.assertProviderChangesIn(files: List<String>, fileStatuses: List<FileStatus?>) {
     assertProviderChangesInPaths(files.map { VcsUtil.getFilePath(projectRoot, it) }, fileStatuses)
   }
 }

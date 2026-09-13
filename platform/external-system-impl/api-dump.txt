@@ -390,6 +390,7 @@ a:com.intellij.openapi.externalSystem.service.internal.AbstractExternalSystemTas
 - execute(com.intellij.openapi.progress.ProgressIndicator,com.intellij.openapi.externalSystem.model.task.ExternalSystemTaskNotificationListener[]):V
 - execute(com.intellij.openapi.externalSystem.model.task.ExternalSystemTaskNotificationListener[]):V
 - getError():java.lang.Throwable
+- getExternalProjectId():com.intellij.openapi.externalSystem.autoimport.ExternalSystemProjectId
 - getExternalProjectPath():java.lang.String
 - getExternalSystemId():com.intellij.openapi.externalSystem.model.ProjectSystemId
 - getId():com.intellij.openapi.externalSystem.model.task.ExternalSystemTaskId
@@ -648,17 +649,6 @@ f:com.intellij.openapi.externalSystem.service.project.manage.ExternalProjectsMan
 - setStoreExternally(Z):V
 - s:setupCreatedProject(com.intellij.openapi.project.Project):com.intellij.openapi.project.Project
 - updateExternalProjectData(com.intellij.openapi.externalSystem.model.ExternalProjectInfo):V
-f:com.intellij.openapi.externalSystem.service.project.manage.ExternalSystemKeymapExtension
-- com.intellij.openapi.keymap.KeymapExtension
-- <init>():V
-- createGroup(com.intellij.openapi.util.Condition,com.intellij.openapi.project.Project):com.intellij.openapi.keymap.KeymapGroup
-- s:getActionPrefix(com.intellij.openapi.project.Project,java.lang.String):java.lang.String
-- s:getOrRegisterAction(com.intellij.openapi.project.Project,com.intellij.execution.RunnerAndConfigurationSettings):com.intellij.openapi.externalSystem.action.ExternalSystemAction
-- s:getOrRegisterAction(com.intellij.openapi.project.Project,java.lang.String,com.intellij.openapi.externalSystem.model.task.TaskData):com.intellij.openapi.externalSystem.action.ExternalSystemAction
-- s:updateActions(com.intellij.openapi.project.Project,java.util.Collection):V
-com.intellij.openapi.externalSystem.service.project.manage.ExternalSystemKeymapExtension$ActionsProvider
-- sf:EP_NAME:com.intellij.openapi.extensions.ExtensionPointName
-- a:createGroup(com.intellij.openapi.util.Condition,com.intellij.openapi.project.Project):com.intellij.openapi.keymap.KeymapGroup
 c:com.intellij.openapi.externalSystem.service.project.manage.ExternalSystemTaskActivator
 - sf:RUN_CONFIGURATION_TASK_PREFIX:java.lang.String
 - <init>(com.intellij.openapi.project.Project):V
@@ -1152,6 +1142,8 @@ com.intellij.openapi.externalSystem.util.ExternalSystemSettingsControl
 - reset(com.intellij.openapi.project.Project):V
 - a:showUi(Z):V
 - a:validate(java.lang.Object):Z
+f:com.intellij.openapi.externalSystem.util.ExternalSystemTrustUtilKt
+- sf:naturalJoinSystemIds(java.util.Collection):java.lang.String
 f:com.intellij.openapi.externalSystem.util.ExternalSystemUiUtil
 - sf:INSETS:I
 - s:disposeUi(java.lang.Object):V

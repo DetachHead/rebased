@@ -1,7 +1,9 @@
 package org.intellij.plugins.markdown.editor.toc
 
+import com.intellij.application.options.CodeStyle
 import com.intellij.testFramework.LightPlatformCodeInsightTestCase
 import org.intellij.plugins.markdown.MarkdownTestingUtil
+import org.intellij.plugins.markdown.lang.MarkdownLanguage
 
 class GenerateTableOfContentsActionTest: LightPlatformCodeInsightTestCase() {
   fun `test toc idempotence`() {
@@ -13,6 +15,15 @@ class GenerateTableOfContentsActionTest: LightPlatformCodeInsightTestCase() {
     checkResultByFile("$name.after.md")
   }
 
+  fun `test custom indent`() {
+    CodeStyle.doWithTemporarySettings(project, CodeStyle.getSettings(project)) { settings ->
+      checkNotNull(settings.getCommonSettings(MarkdownLanguage.INSTANCE).indentOptions).INDENT_SIZE = 4
+      configureByFile("toc_idempotence.md")
+      executeAction(actionId)
+      checkResultByFile("toc_idempotence.after.md")
+    }
+  }
+
   fun `test multiple toc sections update`() = doTest()
 
   fun `test headers with links`() = doTest()
@@ -20,6 +31,10 @@ class GenerateTableOfContentsActionTest: LightPlatformCodeInsightTestCase() {
   fun `test headers with images`() = doTest()
 
   fun `test multiple headers with the same text`() = doTest()
+
+  fun `test omitted headers`() = doTest()
+
+  fun `test headers with comments`() = doTest()
 
   private fun doTest() {
     val name = getTestName(true)

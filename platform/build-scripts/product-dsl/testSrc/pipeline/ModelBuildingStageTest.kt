@@ -24,7 +24,7 @@ import java.nio.file.Path
 @ExtendWith(TestFailureLogger::class)
 class ModelBuildingStageTest {
   @Test
-  fun `execute reads static module set wrapper from disk`(@TempDir tempDir: Path) {
+  fun `execute reads build-declared module set wrapper from disk`(@TempDir tempDir: Path) {
     runBlocking(Dispatchers.Default) {
       val jps = jpsProject(tempDir) {
         module("intellij.grid.core.plugin") {
@@ -76,6 +76,7 @@ class ModelBuildingStageTest {
         updateSuppressions = false,
         commitChanges = false,
         errorSink = ErrorSink(),
+        phaseTimings = ArrayList(),
       )
 
       val wrapperPlugin = model.pluginContentCache.getOrExtract(wrapperModule)
@@ -87,6 +88,9 @@ class ModelBuildingStageTest {
       model.pluginGraph.query {
         val plugin = requireNotNull(plugin(wrapperModule.value))
         assertThat(plugin.isModuleSetWrapper).isTrue()
+        val bundledPluginNames = mutableListOf<String>()
+        requireNotNull(product("Idea")).bundles { bundledPluginNames.add(it.name().value) }
+        assertThat(bundledPluginNames).contains(wrapperModule.value)
 
         val contentNames = mutableListOf<String>()
         plugin.containsContent { module, _ -> contentNames.add(module.name().value) }
@@ -96,7 +100,7 @@ class ModelBuildingStageTest {
   }
 
   @Test
-  fun `discoverPluginDescriptorsFromSources finds test plugin xml and plugin-content yaml`(@TempDir tempDir: Path) {
+  fun `discoverPluginDescriptorsFromSources finds test plugin xml and the content population`(@TempDir tempDir: Path) {
     val jps = jpsProject(tempDir) {
       module("intellij.test.plugin")
       module("intellij.content.plugin")
@@ -109,16 +113,43 @@ class ModelBuildingStageTest {
     testModule.addSourceRoot(JpsPathUtil.pathToUrl(testResources.toString()), JavaResourceRootType.TEST_RESOURCE)
     Files.writeString(testResources.resolve("META-INF/plugin.xml"), "<idea-plugin/>")
 
-    val contentModuleDir = tempDir.resolve("intellij/content/plugin")
-    Files.createDirectories(contentModuleDir)
-    val contentModule = jps.project.modules.first { it.name == "intellij.content.plugin" }
-    contentModule.contentRootsList.addUrl(JpsPathUtil.pathToUrl(contentModuleDir.toString()))
-    Files.writeString(contentModuleDir.resolve("plugin-content.yaml"), "content: []")
+    writeContentPluginPopulation(
+      projectRoot = tempDir,
+      text = """
+      # Generated - do not edit.
+      intellij.content.plugin
+      intellij.plugin.this.project.does.not.hold
+      """.trimIndent(),
+    )
 
-    val descriptors = ModelBuildingStage.discoverPluginDescriptorsFromSources(createTestModuleOutputProvider(jps.project))
+    val descriptors = ModelBuildingStage.discoverPluginDescriptorsFromSources(
+      outputProvider = createTestModuleOutputProvider(jps.project),
+      contentPluginPopulation = readDevDistContentPluginPopulation(tempDir),
+    )
 
     assertThat(descriptors.testPluginModules).containsExactly(TargetName("intellij.test.plugin"))
     assertThat(descriptors.pluginModules).containsExactly(TargetName("intellij.content.plugin"))
+  }
+
+  @Test
+  fun `readDevDistContentPluginPopulation drops comments and blank lines`(@TempDir tempDir: Path) {
+    writeContentPluginPopulation(
+      projectRoot = tempDir,
+      text = "# a comment\n\n  intellij.first  \nintellij.second\n",
+    )
+
+    assertThat(readDevDistContentPluginPopulation(tempDir)).containsExactlyInAnyOrder("intellij.first", "intellij.second")
+  }
+
+  @Test
+  fun `readDevDistContentPluginPopulation is empty without a population file`(@TempDir tempDir: Path) {
+    assertThat(readDevDistContentPluginPopulation(tempDir)).isEmpty()
+  }
+
+  private fun writeContentPluginPopulation(projectRoot: Path, text: String) {
+    val file = projectRoot.resolve("community/build/dev_dist_plugin_content_population.txt")
+    Files.createDirectories(file.parent)
+    Files.writeString(file, text)
   }
 
   @Test

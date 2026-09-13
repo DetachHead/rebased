@@ -48,12 +48,12 @@ project.iosX64Test
 project.jsMain
     languageLevel = {{LATEST_STABLE}}
     apiLevel = {{LATEST_STABLE}}
-    compilerSettings = -main call
+    compilerSettings = -main call -nopack
 
 project.jsTest
     languageLevel = {{LATEST_STABLE}}
     apiLevel = {{LATEST_STABLE}}
-    compilerSettings = -main call
+    compilerSettings = -main call -nopack
 
 project.jvmMain
     languageLevel = 2.2
@@ -64,8 +64,6 @@ project.jvmTest
     languageLevel = {{LATEST_STABLE}}
     apiLevel = {{LATEST_STABLE}}
 
-project.main
-
 project.nativeMain
     languageLevel = {{MINIMAL_SUPPORTED}}
     apiLevel = {{MINIMAL_SUPPORTED}}
@@ -73,8 +71,6 @@ project.nativeMain
 project.nativeTest
     languageLevel = {{LATEST_STABLE}}
     apiLevel = {{LATEST_STABLE}}
-
-project.test
 
 project.webMain
     languageLevel = {{LATEST_STABLE}}

@@ -1,7 +1,7 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
 ### auto-generated section `build intellij.platform.projectModel.impl` start
-
 jvm_library(
     name = "projectModel-impl",
     srcs = glob(
@@ -20,6 +20,7 @@ jvm_library(
         ["resources/**/*"],
     ),
     visibility = ["//visibility:public"],
+    runtime_deps = ["//platform/ide-core"],
     deps = [
         # do not sort,
         "//platform/core-api:core",
@@ -49,9 +50,14 @@ jvm_library(
         "//platform/util/coroutines",
         "//platform/util/multiplatform",
         "//platform/util/base",
-        "//platform/diagnostic/telemetry-impl",
         "//platform/analysis-api:analysis",
     ],
+)
+
+content_module_jar(
+    module = ":projectModel-impl",
+    modules_after = ["//platform/util/annotations"],
+    modules_before = ["//platform/eel-provider"],
 )
 
 jvm_library(
@@ -92,8 +98,8 @@ jvm_library(
         "//platform/util/coroutines:coroutines_test_lib",
         "//platform/util/multiplatform:multiplatform_test_lib",
         "//platform/util/base:base_test_lib",
-        "//platform/diagnostic/telemetry-impl:telemetry-impl_test_lib",
         "//platform/analysis-api:analysis_test_lib",
+        "//platform/ide-core:ide-core_test_lib",
     ],
 )
 ### auto-generated section `build intellij.platform.projectModel.impl` end
@@ -102,6 +108,8 @@ jvm_library(
 exports_files(
     [
         "intellij.platform.projectModel.impl.iml",
+        "resources/intellij.platform.projectModel.impl.xml",
+        "module-content.yaml",
     ],
     visibility = ["//visibility:public"],
 )

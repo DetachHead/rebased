@@ -1,7 +1,7 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
 ### auto-generated section `build intellij.tasks.trac` start
-
 jvm_library(
     name = "trac",
     srcs = glob(
@@ -32,6 +32,8 @@ jvm_library(
     ],
 )
 
+content_module_jar(module = ":trac")
+
 jvm_library(
     name = "trac_test_lib",
     testonly = True,
@@ -61,6 +63,7 @@ jvm_library(
 exports_files(
     [
         "intellij.tasks.trac.iml",
+        "resources/intellij.tasks.trac.xml",
     ],
     visibility = ["//visibility:public"],
 )

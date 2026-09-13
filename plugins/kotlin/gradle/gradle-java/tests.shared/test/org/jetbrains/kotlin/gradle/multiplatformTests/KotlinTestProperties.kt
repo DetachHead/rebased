@@ -93,7 +93,25 @@ abstract class KotlinTestProperties {
 
         var result = text
         allPropertiesValuesById.forEach { (key, value) ->
-            result = result.replace(Regex("""\{\s*\{\s*${key}\s*}\s*}""", RegexOption.IGNORE_CASE), value)
+            val regex = Regex(
+                """\{\s*\{\s*${Regex.escape(key)}\s*}\s*}""",
+                RegexOption.IGNORE_CASE,
+            )
+
+            result = result.replace(regex) { match ->
+                val lineStart = result.lastIndexOf('\n', match.range.first).let {
+                    if (it == -1) 0 else it + 1
+                }
+
+                val prefix = result.substring(lineStart, match.range.first)
+                val isStandalonePlaceholder = prefix.all { it == ' ' || it == '\t' }
+
+                if (isStandalonePlaceholder) {
+                    value.prependIndent(prefix)
+                } else {
+                    value
+                }
+            }
         }
 
         assertNoPatternsLeftUnsubstituted(result, sourceFile, allPropertiesValuesById.keys)
@@ -186,7 +204,7 @@ class KotlinMppTestProperties(
     }
 
     override fun collectAllProperties(): Map<String, String> {
-        val simpleProperties =  SimpleProperties(gradleVersion.version, kotlinVersion.version)
+        val simpleProperties =  SimpleProperties(gradleVersion.version, kotlinVersion.version, agpVersion?.version)
 
         // Important! Collect final properties exactly here to get versions with devModeTweaks applied
         return simpleProperties.toMutableMap().apply {
@@ -195,14 +213,17 @@ class KotlinMppTestProperties(
             agpVersion?.version?.let {
                 put(AndroidGradlePluginVersionTestsProperty.id, it)
             }
+
+            val isAgp9OrHigher = agpVersion.isAgp9OrHigher()
+
             if (kotlinVersion.version < KotlinGradlePluginVersions.V_2_1_0) {
-                put("androidTargetPlaceholder", "android()")
+                put("androidTargetPlaceholder", if (isAgp9OrHigher) "" else "android()")
                 put("iosTargetPlaceholder", """
                     ios()
                     val iosMain by sourceSets.getting
                     """)
             } else {
-                put("androidTargetPlaceholder", "androidTarget()")
+                put("androidTargetPlaceholder", if (isAgp9OrHigher) "" else "androidTarget()")
                 put("iosTargetPlaceholder", """
                     iosX64()
                     iosArm64()

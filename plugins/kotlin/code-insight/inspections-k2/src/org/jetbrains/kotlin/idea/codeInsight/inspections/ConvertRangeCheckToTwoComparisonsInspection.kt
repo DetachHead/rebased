@@ -6,9 +6,11 @@ import com.intellij.codeInspection.util.InspectionMessage
 import com.intellij.modcommand.ModPsiUpdater
 import com.intellij.openapi.project.Project
 import org.jetbrains.kotlin.analysis.api.KaSession
-import org.jetbrains.kotlin.analysis.api.analyze
-import org.jetbrains.kotlin.analysis.api.resolution.successfulFunctionCallOrNull
+import org.jetbrains.kotlin.analysis.api.expressions.expressionType
+import org.jetbrains.kotlin.analysis.api.resolution.function
+import org.jetbrains.kotlin.analysis.api.session.analyze
 import org.jetbrains.kotlin.analysis.api.symbols.KaCallableSymbol
+import org.jetbrains.kotlin.analysis.api.types.semanticallyEquals
 import org.jetbrains.kotlin.idea.base.resources.KotlinBundle
 import org.jetbrains.kotlin.idea.codeinsight.api.applicable.inspections.KotlinApplicableInspectionBase
 import org.jetbrains.kotlin.idea.codeinsight.api.applicable.inspections.KotlinModCommandQuickFix
@@ -19,6 +21,7 @@ import org.jetbrains.kotlin.idea.codeinsight.utils.RangeKtExpressionType.RANGE_U
 import org.jetbrains.kotlin.idea.codeinsight.utils.RangeKtExpressionType.UNTIL
 import org.jetbrains.kotlin.idea.codeinsight.utils.callExpression
 import org.jetbrains.kotlin.idea.codeinsight.utils.getRangeBinaryExpressionType
+import org.jetbrains.kotlin.idea.util.resolveSuccessfulExpressionCall
 import org.jetbrains.kotlin.lexer.KtTokens
 import org.jetbrains.kotlin.psi.KtBinaryExpression
 import org.jetbrains.kotlin.psi.KtConstantExpression
@@ -53,7 +56,8 @@ class ConvertRangeCheckToTwoComparisonsInspection :
     override fun getProblemDescription(element: KtBinaryExpression, context: Context): @InspectionMessage String =
         KotlinBundle.message("convert.to.comparisons")
 
-    override fun KaSession.prepareContext(element: KtBinaryExpression): Context? {
+    context(session: KaSession)
+    override fun prepareContext(element: KtBinaryExpression): Context? {
         val isNegated = when (element.operationToken) {
             KtTokens.IN_KEYWORD -> false
             KtTokens.NOT_IN -> true
@@ -116,8 +120,8 @@ class ConvertRangeCheckToTwoComparisonsInspection :
         val basicType = getRangeBinaryExpressionType(this) ?: return null
 
         analyze(this) {
-            val call = resolveToCall()?.successfulFunctionCallOrNull() ?: return null
-            val symbol = call.partiallyAppliedSymbol.signature.symbol as? KaCallableSymbol ?: return null
+            val call = resolveSuccessfulExpressionCall()?.function ?: return null
+            val symbol = call.signature.symbol as? KaCallableSymbol ?: return null
             val fqName = symbol.callableId?.asSingleFqName()?.asString() ?: return null
 
             if (!fqName.startsWith("kotlin.")) return null

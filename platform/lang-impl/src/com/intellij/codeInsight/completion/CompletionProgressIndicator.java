@@ -203,8 +203,8 @@ public final class CompletionProgressIndicator extends ProgressIndicatorBase imp
 
     myAdvertiserChanges.offer(() -> this.lookup.getAdvertiser().clearAdvertisements());
 
-    myArranger = GroupedCompletionContributor.isGroupEnabledInApp() ? new GroupCompletionLookupArrangerImpl(this)
-                                                                    : new CompletionLookupArrangerImpl(this);
+    myArranger = GroupedCompletionContributor.isGroupEnabled(myEditor) ? new GroupCompletionLookupArrangerImpl(this)
+                                                                       : new CompletionLookupArrangerImpl(this);
     this.lookup.setArranger(myArranger);
 
     this.lookup.addLookupListener(myLookupListener);
@@ -287,7 +287,7 @@ public final class CompletionProgressIndicator extends ProgressIndicatorBase imp
 
     DumbModeAccessType.RELIABLE_DATA_ONLY.ignoreDumbMode(() -> {
       for (CompletionContributor contributor :
-        CompletionContributor.forLanguageHonorDumbness(initContext.getPositionLanguage(), initContext.getProject())) {
+        CompletionContributor.forLanguageHonorDumbness(initContext.getPositionLanguage(), initContext.getProject(), initContext.getEditor())) {
         ProgressManager.checkCanceled();
         contributor.duringCompletion(initContext);
       }
@@ -300,7 +300,8 @@ public final class CompletionProgressIndicator extends ProgressIndicatorBase imp
 
   private void addDefaultAdvertisements(@NotNull CompletionParameters parameters) {
     if (DumbService.isDumb(getProject())) {
-      addAdvertisement(IdeBundle.message("dumb.mode.analyzing.project"), AnimatedIcon.Default.INSTANCE);
+      addAdvertisement(IdeBundle.dumbModeMessage("dumb.mode.analyzing.project", "dumb.mode.light.analyzing.project"),
+                       AnimatedIcon.Default.INSTANCE);
       return;
     }
 
@@ -631,7 +632,6 @@ public final class CompletionProgressIndicator extends ProgressIndicatorBase imp
         LOG.error("lookup changed: " + lookup + "; " + this);
       }
     }
-    lookup.removeLookupListener(myLookupListener);
     finishCompletionProcess(true);
     CompletionServiceImpl.assertPhase(CompletionPhase.NoCompletion.getClass());
 
@@ -645,23 +645,28 @@ public final class CompletionProgressIndicator extends ProgressIndicatorBase imp
 
     ThreadingAssertions.assertEventDispatchThread();
     Disposer.dispose(queue);
+    // the listener's lifetime is the completion process lifetime: once the process is over, hiding the lookup
+    // must not finish it a second time, no matter who moved the phase away from this indicator (IJPL-192597)
+    lookup.removeLookupListener(myLookupListener);
     //noinspection removal
     LookupManager.getInstance(getProject()).removePropertyChangeListener(myLookupManagerListener);
 
-    CompletionServiceImpl.assertPhase(CompletionPhase.BgCalculation.class,
-                                      CompletionPhase.ItemsCalculated.class,
-                                      CompletionPhase.Synchronous.class,
-                                      CompletionPhase.CommittingDocuments.class);
-
     CompletionProgressIndicator currentCompletion = CompletionServiceImpl.getCurrentCompletionProgressIndicator();
-    LOG.assertTrue(currentCompletion == this, currentCompletion + "!=" + this);
-
-    CompletionPhase oldPhase = CompletionServiceImpl.getCompletionPhase();
-    if (oldPhase instanceof CompletionPhase.CommittingDocuments p) {
-      LOG.assertTrue(oldPhase.indicator != null, oldPhase);
-      p.replaced = true;
+    if (currentCompletion == this) {
+      CompletionPhase oldPhase = CompletionServiceImpl.getCompletionPhase();
+      if (oldPhase instanceof CompletionPhase.CommittingDocuments p) {
+        LOG.assertTrue(oldPhase.indicator != null, oldPhase);
+        p.replaced = true;
+      }
+      CompletionServiceImpl.setCompletionPhase(CompletionPhase.NoCompletion);
     }
-    CompletionServiceImpl.setCompletionPhase(CompletionPhase.NoCompletion);
+    else {
+      // Nobody is supposed to move the phase away from a live indicator: either this completion was left running while
+      // the phase was reset (e.g. `handleEmptyLookup`, or an explicit `setCompletionPhase` from the outside), or the
+      // phase already belongs to a newer indicator. Report it, but don't reset a phase we don't own - doing so used to
+      // tear down somebody else's completion. Release our own resources only (IJPL-192597).
+      LOG.error(currentCompletion + "!=" + this + "; phase=" + CompletionServiceImpl.getCompletionPhase());
+    }
     if (disposeOffsetMap) {
       disposeIndicator();
     }

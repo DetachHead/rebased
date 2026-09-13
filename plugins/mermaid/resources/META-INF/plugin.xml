@@ -2,6 +2,7 @@
   <id>com.intellij.mermaid</id>
   <name>Mermaid</name>
   <vendor>JetBrains</vendor>
+  <category>Languages</category>
   <description><![CDATA[
     Provides editing support and diagram preview for
     <a href="https://mermaid.js.org/">Mermaid</a> diagramming and charting language.
@@ -10,17 +11,53 @@
   <!-- region Generated dependencies - run `Generate Product Layouts` to regenerate -->
   <dependencies>
     <module name="intellij.json"/>
-    <module name="intellij.json.backend"/>
-    <module name="intellij.libraries.jcef"/>
+    <module name="intellij.libraries.kotlinx.coroutines.core"/>
+    <module name="intellij.libraries.markdown"/>
+    <module name="intellij.libraries.netty.buffer"/>
+    <module name="intellij.libraries.netty.codec.http"/>
     <module name="intellij.markdown"/>
-    <module name="intellij.platform.ui.jcef"/>
-    <module name="intellij.spellchecker"/>
+    <module name="intellij.platform.analysis"/>
+    <module name="intellij.platform.analysis.impl"/>
+    <module name="intellij.platform.builtInServer"/>
+    <module name="intellij.platform.builtInServer.impl"/>
+    <module name="intellij.platform.codeStyle"/>
+    <module name="intellij.platform.codeStyle.impl"/>
+    <module name="intellij.platform.core"/>
+    <module name="intellij.platform.core.impl"/>
+    <module name="intellij.platform.core.ui"/>
+    <module name="intellij.platform.editor.ex"/>
+    <module name="intellij.platform.editor.ui"/>
+    <module name="intellij.platform.ide.core"/>
+    <module name="intellij.platform.ide.impl"/>
+    <module name="intellij.platform.indexing"/>
+    <module name="intellij.platform.lang"/>
+    <module name="intellij.platform.lang.impl"/>
+    <module name="intellij.platform.markdown.utils"/>
+    <module name="intellij.platform.projectModel"/>
+    <module name="intellij.platform.refactoring"/>
+    <module name="intellij.platform.statistics"/>
+    <module name="intellij.platform.util.coroutines"/>
+    <module name="intellij.platform.util.ex"/>
+    <module name="intellij.platform.util.ui"/>
     <module name="intellij.yaml"/>
   </dependencies>
   <!-- endregion -->
-  <content>
-    <module name="intellij.mermaid.markdown"/>
+  <content namespace="jetbrains">
+    <module name="intellij.mermaid.markdown" loading="optional"/>
+    <module name="intellij.mermaid.frontend"/>
+    <module name="intellij.mermaid.json" required-if-available="intellij.platform.backend"/>
   </content>
+  <content>
+    <module name="intellij.mermaid.spellchecker"/>
+  </content>
+
+  <extensionPoints>
+    <!-- Implemented by the JCEF content module, which is optional: with nothing registered here the
+         render-error annotator simply reports nothing. -->
+    <extensionPoint qualifiedName="com.intellij.mermaid.syntaxValidator"
+                    interface="com.intellij.mermaid.lang.validation.MermaidSyntaxValidator"
+                    dynamic="true"/>
+  </extensionPoints>
 
   <extensions defaultExtensionNs="com.intellij">
     <fileType name="Mermaid"
@@ -139,8 +176,6 @@
                      editorAttributes="NOT_USED_ELEMENT_ATTRIBUTES"
                      implementationClass="com.intellij.mermaid.lang.intention.GitGraphInspection"/>
 
-    <spellchecker.support language="Mermaid" implementationClass="com.intellij.mermaid.lang.MermaidSpellcheckingStrategy"/>
-
     <todoIndexer filetype="Mermaid" implementationClass="com.intellij.mermaid.lang.highlighting.MermaidTodoIndexer"/>
     <indexPatternBuilder implementation="com.intellij.mermaid.lang.highlighting.MermaidIndexPatternBuilder"/>
 
@@ -177,10 +212,5 @@
     <statistics.counterUsagesCollector implementationClass="com.intellij.mermaid.fus.MermaidCollector"/>
 
     <lang.ast.factory language="Mermaid" implementationClass="com.intellij.mermaid.lang.psi.MermaidAstFactory"/>
-  </extensions>
-
-  <extensions defaultExtensionNs="JavaScript.JsonSchema">
-    <ProviderFactory implementation="com.intellij.mermaid.lang.injection.DirectiveJsonSchemaProviderFactory"/>
-    <ProviderFactory implementation="com.intellij.mermaid.lang.injection.FrontmatterYamlSchemaProviderFactory"/>
   </extensions>
 </idea-plugin>

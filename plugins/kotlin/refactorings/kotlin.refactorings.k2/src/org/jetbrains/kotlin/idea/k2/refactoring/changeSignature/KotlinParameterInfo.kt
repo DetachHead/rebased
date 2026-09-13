@@ -4,29 +4,33 @@ package org.jetbrains.kotlin.idea.k2.refactoring.changeSignature
 import com.intellij.openapi.util.NlsSafe
 import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiReference
-import org.jetbrains.kotlin.analysis.api.analyze
+import org.jetbrains.kotlin.analysis.api.expressions.expectedType
 import org.jetbrains.kotlin.analysis.api.permissions.KaAllowAnalysisFromWriteAction
 import org.jetbrains.kotlin.analysis.api.permissions.KaAllowAnalysisOnEdt
 import org.jetbrains.kotlin.analysis.api.permissions.allowAnalysisFromWriteAction
 import org.jetbrains.kotlin.analysis.api.permissions.allowAnalysisOnEdt
-import org.jetbrains.kotlin.analysis.api.resolution.KaCallableMemberCall
 import org.jetbrains.kotlin.analysis.api.resolution.KaImplicitReceiverValue
-import org.jetbrains.kotlin.analysis.api.resolution.successfulCallOrNull
+import org.jetbrains.kotlin.analysis.api.resolution.resolveSuccessfulSymbol
+import org.jetbrains.kotlin.analysis.api.resolution.simple
+import org.jetbrains.kotlin.analysis.api.session.analyze
 import org.jetbrains.kotlin.analysis.api.symbols.KaCallableSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaConstructorSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaFunctionSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaPropertySymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaReceiverParameterSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaValueParameterSymbol
+import org.jetbrains.kotlin.analysis.api.symbols.containingDeclaration
+import org.jetbrains.kotlin.analysis.api.symbols.symbol
 import org.jetbrains.kotlin.analysis.api.types.KaFunctionType
+import org.jetbrains.kotlin.analysis.api.types.expandedSymbol
 import org.jetbrains.kotlin.idea.base.psi.copied
 import org.jetbrains.kotlin.idea.base.psi.setDefaultValue
 import org.jetbrains.kotlin.idea.refactoring.changeSignature.KotlinModifiableParameterInfo
 import org.jetbrains.kotlin.idea.refactoring.changeSignature.KotlinValVar
 import org.jetbrains.kotlin.idea.refactoring.changeSignature.setValOrVar
 import org.jetbrains.kotlin.idea.refactoring.changeSignature.toValVar
-import org.jetbrains.kotlin.idea.references.KtReference
 import org.jetbrains.kotlin.idea.references.mainReference
+import org.jetbrains.kotlin.idea.util.resolveSuccessfulExpressionCall
 import org.jetbrains.kotlin.psi.KtCallableDeclaration
 import org.jetbrains.kotlin.psi.KtClass
 import org.jetbrains.kotlin.psi.KtConstructor
@@ -108,7 +112,7 @@ class KotlinParameterInfo(
      * 0, if refers to function's extension receiver in `this` expression
      * Int.MAX_VALUE, if refers to extension's/dispatch's receiver callable
      */
-    val defaultValueParameterReferences: MutableMap<PsiReference, Int> = mutableMapOf<PsiReference, Int>();
+    val defaultValueParameterReferences: MutableMap<PsiReference, Int> = mutableMapOf()
 
     @OptIn(KaAllowAnalysisOnEdt::class)
     fun collectDefaultValueParameterReferences(callable: KtNamedDeclaration) {
@@ -130,7 +134,7 @@ class KotlinParameterInfo(
             return contextParameters[oldIndex].name ?: name
         }
 
-        if (inheritor is KtFunctionLiteral && inheritor.valueParameters.size == 0 && oldIndex == 0) {
+        if (inheritor is KtFunctionLiteral && inheritor.valueParameters.isEmpty() && oldIndex == 0) {
             //preserve default name
             return "it"
         }
@@ -232,14 +236,14 @@ class KotlinParameterInfo(
     ) : KtTreeVisitorVoid() {
         override fun visitSimpleNameExpression(expression: KtSimpleNameExpression) {
             val ref = expression.mainReference
-            val parameterIndex = targetToCollect(expression, ref) ?: return
+            val parameterIndex = targetToCollect(expression) ?: return
             defaultValueParameterReferences[ref] = parameterIndex
         }
 
-        private fun targetToCollect(expression: KtSimpleNameExpression, ref: KtReference): Int? {
+        private fun targetToCollect(expression: KtSimpleNameExpression): Int? {
 
             analyze(expression) {
-                val target = ref.resolveToSymbol()
+                val target = expression.resolveSuccessfulSymbol()
                 val declarationSymbol = callableDeclaration.symbol as? KaCallableSymbol ?: return null
                 if (target is KaValueParameterSymbol) {
                     if (declarationSymbol is KaFunctionSymbol && target.containingDeclaration == declarationSymbol) {
@@ -255,7 +259,7 @@ class KotlinParameterInfo(
                 }
 
                 if (target is KaPropertySymbol && declarationSymbol is KaConstructorSymbol) {
-                    val parameterIndex = declarationSymbol.valueParameters.indexOfFirst { it.generatedPrimaryConstructorProperty == target }
+                    val parameterIndex = declarationSymbol.valueParameters.indexOfFirst { it.primaryConstructorProperty == target }
                     if (parameterIndex >= 0) {
                         return parameterIndex
                     }
@@ -266,7 +270,7 @@ class KotlinParameterInfo(
                     return 0
                 }
 
-                val symbol = expression.resolveToCall()?.successfulCallOrNull<KaCallableMemberCall<*, *>>()?.partiallyAppliedSymbol
+                val symbol = expression.resolveSuccessfulExpressionCall()?.simple
                 (symbol?.dispatchReceiver as? KaImplicitReceiverValue)?.symbol
                     ?.takeIf { it == declarationSymbol.receiverParameter || it == declarationSymbol.containingDeclaration }
                     ?.let { return Int.MAX_VALUE }

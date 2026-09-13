@@ -1,8 +1,8 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
 load("//build:compiler-options.bzl", "create_kotlinc_options")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
 ### auto-generated section `build intellij.kotlin.codeInsight.base` start
-
 create_kotlinc_options(
     name = "custom_kotlin-codeInsight-base",
     opt_in = [
@@ -11,6 +11,7 @@ create_kotlinc_options(
         "org.jetbrains.kotlin.analysis.api.KaIdeApi",
         "org.jetbrains.kotlin.analysis.api.KaNonPublicApi",
         "org.jetbrains.kotlin.analysis.api.KaContextParameterApi",
+        "org.jetbrains.kotlin.analysis.api.KaExperimentalApi",
     ],
     x_context_parameters = True,
 )
@@ -35,10 +36,10 @@ jvm_library(
     deps = [
         # do not sort,
         "@lib//:kotlin-stdlib",
-        "@lib//:kotlinc-kotlin-compiler-common",
-        "@lib//:kotlinc-kotlin-compiler-fir",
+        "//libraries/kotlinc/kotlin-compiler-common:libraries-kotlinc-kotlin-compiler-common",
+        "//libraries/kotlinc/kotlin-compiler-fir:libraries-kotlinc-kotlin-compiler-fir",
         "@lib//:kotlinc-kotlin-compiler-ir",
-        "@lib//:kotlinc-analysis-api",
+        "//libraries/kotlinc/analysis-api:libraries-kotlinc-analysis-api",
         "//platform/core-api:core",
         "//platform/execution-impl",
         "//plugins/kotlin/base/util",
@@ -56,6 +57,8 @@ jvm_library(
     ],
 )
 
+content_module_jar(module = ":kotlin-codeInsight-base")
+
 jvm_library(
     name = "kotlin-codeInsight-base_test_lib",
     testonly = True,
@@ -69,6 +72,9 @@ jvm_library(
     runtime_deps = [
         # do not sort,
         ":kotlin-codeInsight-base",
+        "//libraries/kotlinc/kotlin-compiler-common:libraries-kotlinc-kotlin-compiler-common_test_lib",
+        "//libraries/kotlinc/kotlin-compiler-fir:libraries-kotlinc-kotlin-compiler-fir_test_lib",
+        "//libraries/kotlinc/analysis-api:libraries-kotlinc-analysis-api_test_lib",
         "//platform/core-api:core_test_lib",
         "//platform/execution-impl:execution-impl_test_lib",
         "//plugins/kotlin/base/util:util_test_lib",
@@ -91,6 +97,7 @@ jvm_library(
 exports_files(
     [
         "intellij.kotlin.codeInsight.base.iml",
+        "resources/intellij.kotlin.codeInsight.base.xml",
     ],
     visibility = ["//visibility:public"],
 )

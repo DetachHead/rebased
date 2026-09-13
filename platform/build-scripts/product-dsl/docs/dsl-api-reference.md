@@ -112,7 +112,7 @@ Adds an xi:include directive to include XML content from a module's resources.
 
 **Example:**
 ```kotlin
-deprecatedInclude("intellij.platform.resources", "META-INF/PlatformLangPlugin.xml")
+deprecatedInclude("intellij.java.ide.resources", "META-INF/JavaIdePlugin.xml")
 deprecatedInclude("intellij.ultimate.resources", "META-INF/UltimatePlugin.xml")
 deprecatedInclude("intellij.rider.languages", "intellij.rider.languages.xml", optional = true)
 ```
@@ -198,6 +198,37 @@ discovered from this module.
 **Example:**
 ```kotlin
 requiredModule("intellij.libraries.junit5")
+```
+
+---
+
+### `privateModule()` / `embeddedPrivateModule()` - Add Private Module
+
+```kotlin
+fun privateModule(name: String, allowedMissingPluginIds: List<String> = emptyList())
+fun embeddedPrivateModule(name: String, allowedMissingPluginIds: List<String> = emptyList())
+```
+
+Adds a module to this spec's *implicit* namespace instead of the shared `jetbrains` one.
+
+Use it for library wrapper modules whose descriptor is `<idea-plugin visibility="private">` and that only a closed set
+of consumers needs. Every owner declares its own copy; the implicit namespace keeps those copies from clashing at
+runtime, so the module does not have to join a shared module set to be reachable. The generated XML is a `<content>`
+block with no `namespace` attribute.
+
+`embeddedPrivateModule()` is the `loading="embedded"` variant - needed when the consumer reaches the library from the
+main classloader (a plain module packed into the plugin jar, or code that resolves classes reflectively) rather than
+through its own declared dependency.
+
+A **module set cannot hold a private module**: `buildModuleSetXml` always emits
+`<content namespace="jetbrains">`, so a `namespace` passed to a module-set member would be silently dropped. That is why
+these functions exist only on the product/plugin spec builder.
+
+**Example:**
+```kotlin
+// the sqlite JDBC driver `intellij.ide.startup.importSettings` needs, kept out of the core module sets
+privateModule("intellij.libraries.sqlite")
+embeddedPrivateModule("intellij.libraries.objenesis")
 ```
 
 ---
@@ -329,7 +360,11 @@ fun essential() = moduleSet("essential", includeDependencies = true) {
 
 ## Module Set Builder Functions
 
-These functions are available inside the `moduleSet() {}` block:
+These functions are available inside the `moduleSet() {}` block.
+
+Every member of a module set is in the shared `jetbrains` namespace - `buildModuleSetXml` emits a single
+`<content namespace="jetbrains">` block. A module set therefore cannot hold a private module; use
+[`privateModule()`](#privatemodule--embeddedprivatemodule---add-private-module) in a product or plugin spec instead.
 
 ### `module()` - Add Regular Module
 
@@ -395,7 +430,8 @@ fun ideCommon() = moduleSet("ide.common") {
 Module-set wrapper plugins are not created by the Product DSL. Existing wrappers under
 `community/module-set-plugins/generated/` and `module-set-plugins/generated/` are static checked-in plugin modules pending migration.
 
-Create new wrappers as normal plugin modules with `plugin.xml` and `plugin-content.yaml`, and bundle those modules through product layout configuration.
+Create new wrappers as normal plugin modules with a `plugin.xml`, and bundle those modules through product layout configuration.
+A wrapper needs no packaging file of its own. The dev distribution derives the jar layout from the plugin's own `<content>`, so run `./build/jpsModelToBazel.cmd` after you register the module.
 
 ---
 

@@ -296,6 +296,31 @@ public abstract class HighLevelSmartCompletionHandlerTestGenerated extends Abstr
             runTest("../../completion/testData/handlers/smart/AnonymousObjectWhen.kt");
         }
 
+        @TestMetadata("ArrayAccessTrailingComma.kt")
+        public void testArrayAccessTrailingComma() throws Exception {
+            runTest("../../completion/testData/handlers/smart/ArrayAccessTrailingComma.kt");
+        }
+
+        @TestMetadata("ArrayAccessTrailingComma2.kt")
+        public void testArrayAccessTrailingComma2() throws Exception {
+            runTest("../../completion/testData/handlers/smart/ArrayAccessTrailingComma2.kt");
+        }
+
+        @TestMetadata("ArrayAccessTrailingComma3.kt")
+        public void testArrayAccessTrailingComma3() throws Exception {
+            runTest("../../completion/testData/handlers/smart/ArrayAccessTrailingComma3.kt");
+        }
+
+        @TestMetadata("ArrayAccessTrailingComma4.kt")
+        public void testArrayAccessTrailingComma4() throws Exception {
+            runTest("../../completion/testData/handlers/smart/ArrayAccessTrailingComma4.kt");
+        }
+
+        @TestMetadata("ArrayAccessTwoIndices.kt")
+        public void testArrayAccessTwoIndices() throws Exception {
+            runTest("../../completion/testData/handlers/smart/ArrayAccessTwoIndices.kt");
+        }
+
         @TestMetadata("ArrayClassLiteral.kt")
         public void testArrayClassLiteral() throws Exception {
             runTest("../../completion/testData/handlers/smart/ArrayClassLiteral.kt");
@@ -486,6 +511,11 @@ public abstract class HighLevelSmartCompletionHandlerTestGenerated extends Abstr
             runTest("../../completion/testData/handlers/smart/ConstructorForNullable.kt");
         }
 
+        @TestMetadata("ConstructorInArgWithCommentInLambda2.kt")
+        public void testConstructorInArgWithCommentInLambda2() throws Exception {
+            runTest("../../completion/testData/handlers/smart/ConstructorInArgWithCommentInLambda2.kt");
+        }
+
         @TestMetadata("ConstructorInsertsImport.kt")
         public void testConstructorInsertsImport() throws Exception {
             runTest("../../completion/testData/handlers/smart/ConstructorInsertsImport.kt");
@@ -514,6 +544,11 @@ public abstract class HighLevelSmartCompletionHandlerTestGenerated extends Abstr
         @TestMetadata("ConstructorWithParameters.kt")
         public void testConstructorWithParameters() throws Exception {
             runTest("../../completion/testData/handlers/smart/ConstructorWithParameters.kt");
+        }
+
+        @TestMetadata("ConstructorWithParamsInArgWithComment.kt")
+        public void testConstructorWithParamsInArgWithComment() throws Exception {
+            runTest("../../completion/testData/handlers/smart/ConstructorWithParamsInArgWithComment.kt");
         }
 
         @TestMetadata("DefaultParams.kt")
@@ -564,6 +599,26 @@ public abstract class HighLevelSmartCompletionHandlerTestGenerated extends Abstr
         @TestMetadata("ForLoopRange2.kt")
         public void testForLoopRange2() throws Exception {
             runTest("../../completion/testData/handlers/smart/ForLoopRange2.kt");
+        }
+
+        @TestMetadata("FunParametersTrailingComma.kt")
+        public void testFunParametersTrailingComma() throws Exception {
+            runTest("../../completion/testData/handlers/smart/FunParametersTrailingComma.kt");
+        }
+
+        @TestMetadata("FunParametersTrailingCommaPositional.kt")
+        public void testFunParametersTrailingCommaPositional() throws Exception {
+            runTest("../../completion/testData/handlers/smart/FunParametersTrailingCommaPositional.kt");
+        }
+
+        @TestMetadata("FunParametersTrailingCommaWithComment.kt")
+        public void testFunParametersTrailingCommaWithComment() throws Exception {
+            runTest("../../completion/testData/handlers/smart/FunParametersTrailingCommaWithComment.kt");
+        }
+
+        @TestMetadata("FunParametersTrailingCommaWithComment3.kt")
+        public void testFunParametersTrailingCommaWithComment3() throws Exception {
+            runTest("../../completion/testData/handlers/smart/FunParametersTrailingCommaWithComment3.kt");
         }
 
         @TestMetadata("FunctionLiteralParamAlreadyExist.kt")
@@ -674,6 +729,16 @@ public abstract class HighLevelSmartCompletionHandlerTestGenerated extends Abstr
         @TestMetadata("LambdaValue2.kt")
         public void testLambdaValue2() throws Exception {
             runTest("../../completion/testData/handlers/smart/LambdaValue2.kt");
+        }
+
+        @TestMetadata("LambdaWithComment.kt")
+        public void testLambdaWithComment() throws Exception {
+            runTest("../../completion/testData/handlers/smart/LambdaWithComment.kt");
+        }
+
+        @TestMetadata("LambdaWithComment2.kt")
+        public void testLambdaWithComment2() throws Exception {
+            runTest("../../completion/testData/handlers/smart/LambdaWithComment2.kt");
         }
 
         @TestMetadata("LastNonOptionalParamIsFunction.kt")
@@ -816,6 +881,21 @@ public abstract class HighLevelSmartCompletionHandlerTestGenerated extends Abstr
             runTest("../../completion/testData/handlers/smart/ObjectFromType.kt");
         }
 
+        @TestMetadata("ParameterWithComment.kt")
+        public void testParameterWithComment() throws Exception {
+            runTest("../../completion/testData/handlers/smart/ParameterWithComment.kt");
+        }
+
+        @TestMetadata("ParameterWithComment2.kt")
+        public void testParameterWithComment2() throws Exception {
+            runTest("../../completion/testData/handlers/smart/ParameterWithComment2.kt");
+        }
+
+        @TestMetadata("ParameterWithKDoc.kt")
+        public void testParameterWithKDoc() throws Exception {
+            runTest("../../completion/testData/handlers/smart/ParameterWithKDoc.kt");
+        }
+
         @TestMetadata("QualifiedCallReplacementBug.kt")
         public void testQualifiedCallReplacementBug() throws Exception {
             runTest("../../completion/testData/handlers/smart/QualifiedCallReplacementBug.kt");
@@ -844,6 +924,11 @@ public abstract class HighLevelSmartCompletionHandlerTestGenerated extends Abstr
         @TestMetadata("SetWithBrackets.kt")
         public void testSetWithBrackets() throws Exception {
             runTest("../../completion/testData/handlers/smart/SetWithBrackets.kt");
+        }
+
+        @TestMetadata("SetWithBracketsGetAndSetLastIndex.kt")
+        public void testSetWithBracketsGetAndSetLastIndex() throws Exception {
+            runTest("../../completion/testData/handlers/smart/SetWithBracketsGetAndSetLastIndex.kt");
         }
 
         @TestMetadata("TabReplaceComma1.kt")

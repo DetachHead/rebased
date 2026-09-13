@@ -79,6 +79,8 @@ fun GitRepository.add(path: String = ".") = cd { add(project, path) }
 
 fun GitPlatformTest.add(path: String = ".") = add(project, path)
 
+fun GitPlatformTestContext.add(path: String = ".") = add(project, path)
+
 private fun add(project: Project, path: String = ".") = git(project, "add --verbose $path")
 
 fun GitRepository.addCommit(message: String) = cd { addCommit(project, message) }
@@ -109,6 +111,7 @@ private fun checkoutNew(project: Project, branchName: String, startPoint: String
 
 fun GitRepository.commit(message: String) = cd { commit(project, message) }
 fun GitPlatformTest.commit(message: String) = commit(project, message)
+fun GitPlatformTestContext.commit(message: String) = commit(project, message)
 private fun commit(project: Project, message: String): String {
   git(project, "commit -m '$message'")
   return last(project)
@@ -122,13 +125,14 @@ fun GitPlatformTestContext.tac(file: String, content: String = "content" + Math.
   touch(file, content)
   return addCommit(project, "Touched $file")
 }
-private fun tac(project: Project, file: String, content: String): String {
+internal fun tac(project: Project, file: String, content: String): String {
   touch(file, content)
   return addCommit(project, "Touched $file")
 }
 
 fun GitRepository.tacp(file: String) = cd { tacp(project, file) }
 fun GitPlatformTest.tacp(file: String) = tacp(project, file)
+fun GitPlatformTestContext.tacp(file: String) = tacp(project, file)
 private fun tacp(project: Project, file: String): String {
   touch(file)
   addCommit(project, "Touched $file")
@@ -144,21 +148,25 @@ private fun appendAndCommit(project: Project, file: String, additionalContent: S
 
 fun GitRepository.modify(file: String): String = cd { modify(project, file) }
 fun GitPlatformTest.modify(file: String): String = modify(project, file)
-private fun modify(project: Project, file: String): String {
+fun GitPlatformTestContext.modify(file: String): String = modify(project, file)
+internal fun modify(project: Project, file: String): String {
   overwrite(file, "content" + Math.random())
   return addCommit(project, "modified $file")
 }
 
 fun GitRepository.last() = cd { last(project) }
 fun GitPlatformTest.last() = last(project)
-private fun last(project: Project) = git(project, "log -1 --pretty=%H")
+fun GitPlatformTestContext.last() = last(project)
+internal fun last(project: Project) = git(project, "log -1 --pretty=%H")
 
 fun GitRepository.getHash(depth: Int) = cd { getHash(project, depth) }
 fun GitPlatformTest.getHash(depth: Int) = getHash(project, depth)
+fun GitPlatformTestContext.getHash(depth: Int) = getHash(project, depth)
 private fun getHash(project: Project, depth: Int) = git(project, "log -1 --skip=$depth --pretty=%H")
 
 fun GitRepository.lastMessage() = cd { lastMessage(project) }
 fun GitPlatformTest.lastMessage() = lastMessage(project)
+fun GitPlatformTestContext.lastMessage() = lastMessage(project)
 private fun lastMessage(project: Project) = message(project, "HEAD")
 
 fun GitRepository.lastAuthorTime() = cd { lastAuthorTime(project) }
@@ -175,6 +183,7 @@ private fun log(project: Project, vararg params: String) = git(project, "log " +
 
 fun GitRepository.mv(fromPath: String, toPath: String) = cd { mv(project, fromPath, toPath) }
 fun GitPlatformTest.mv(fromPath: String, toPath: String) = mv(project, fromPath, toPath)
+fun GitPlatformTestContext.mv(fromPath: String, toPath: String) = mv(project, fromPath, toPath)
 private fun mv(project: Project, fromPath: String, toPath: String) = git(project, "mv $fromPath $toPath")
 
 fun GitRepository.mv(from: File, to: File) {

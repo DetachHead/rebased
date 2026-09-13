@@ -35,7 +35,7 @@
     <orderEntry type="module" module-name="intellij.libraries.kotlinTest" scope="TEST" />
     <orderEntry type="module" module-name="intellij.libraries.guava" scope="TEST" />
     <orderEntry type="module" module-name="intellij.libraries.assertj.core" scope="TEST" />
-    <orderEntry type="library" exported="" scope="TEST" name="assertj-swing" level="project" />
+    <orderEntry type="module" module-name="intellij.libraries.assertj.swing" exported="" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.analysis" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.util.ex" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.codeStyle" scope="TEST" />
@@ -70,14 +70,20 @@
     <orderEntry type="module" module-name="intellij.platform.util.jdom" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.editor.ex" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.lvcs.impl" scope="TEST" />
-    <orderEntry type="module" module-name="intellij.platform.tips" scope="TEST" />
+    <orderEntry type="module" module-name="intellij.platform.vcs.plugin" scope="TEST" />
+    <orderEntry type="module" module-name="intellij.tips" scope="TEST" />
+    <orderEntry type="module" module-name="intellij.platform.todo.plugin" scope="TEST" />
+    <orderEntry type="module" module-name="intellij.platform.testRunner" scope="TEST" />
+    <orderEntry type="module" module-name="intellij.platform.testRunner.plugin" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.diagnostic" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.testFramework.junit5" scope="TEST" />
-    <orderEntry type="library" scope="TEST" name="mockito-kotlin" level="project" />
+    <orderEntry type="module" module-name="intellij.libraries.mockito.kotlin" scope="TEST" />
     <orderEntry type="module" module-name="intellij.libraries.mockito" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.execution" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.debugger.impl.ui" scope="TEST" />
     <orderEntry type="module" module-name="intellij.featuresTrainer" scope="TEST" />
+    <orderEntry type="module" module-name="intellij.libraries.junit4" scope="TEST" />
+    <orderEntry type="module" module-name="intellij.libraries.junit5" scope="TEST" />
   </component>
   <component name="TestModuleProperties" production-module="intellij.featuresTrainer" />
 </module>

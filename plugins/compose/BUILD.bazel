@@ -1,7 +1,7 @@
+load("@community//platform/build-scripts/bazel-rules:dev_dist_plugin.bzl", "dev_dist_plugin")
 load("@rules_jvm//:jvm.bzl", "jvm_library")
 
 ### auto-generated section `build intellij.compose.ide.plugin` start
-
 jvm_library(
     name = "compose-ide-plugin",
     srcs = glob(
@@ -33,7 +33,20 @@ jvm_library(
 exports_files(
     [
         "intellij.compose.ide.plugin.iml",
+        "resources/META-INF/plugin.xml",
     ],
     visibility = ["//visibility:public"],
 )
 ### auto-generated section `iml intellij.compose.ide.plugin` end
+
+### auto-generated section `dev intellij.compose.ide.plugin` start
+dev_dist_plugin(
+    content_modules = ["//plugins/compose/intellij.compose.ide.plugin.k2:ide-plugin-k2"],
+    descriptor_module = ":compose-ide-plugin",
+    libraries = ["@lib//:kotlinc-compose-compiler-plugin"],
+    prepacked_content_modules = [
+        "//plugins/compose/intellij.compose.ide.plugin.gradleTooling:ide-plugin-gradleTooling-rt_content_module_jar",
+        "//plugins/compose/intellij.compose.ide.plugin.shared:ide-plugin-shared_content_module_jar",
+    ],
+)
+### auto-generated section `dev intellij.compose.ide.plugin` end

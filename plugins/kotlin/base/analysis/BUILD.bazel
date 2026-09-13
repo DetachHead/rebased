@@ -1,12 +1,13 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
 load("//build:compiler-options.bzl", "create_kotlinc_options")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
 ### auto-generated section `build intellij.kotlin.base.analysis` start
-
 create_kotlinc_options(
     name = "custom_analysis",
     opt_in = [
         "org.jetbrains.kotlin.utils.addToStdlib.UnsafeCastFunction",
+        "org.jetbrains.kotlin.analysis.api.KaExperimentalApi",
         "org.jetbrains.kotlin.analysis.api.KaIdeApi",
         "org.jetbrains.kotlin.analysis.api.KaContextParameterApi",
     ],
@@ -34,8 +35,8 @@ jvm_library(
         # do not sort,
         "@lib//:kotlin-stdlib",
         "//plugins/kotlin/references",
-        "@lib//:kotlinc-kotlin-compiler-common",
-        "@lib//:kotlinc-analysis-api",
+        "//libraries/kotlinc/kotlin-compiler-common:libraries-kotlinc-kotlin-compiler-common",
+        "//libraries/kotlinc/analysis-api:libraries-kotlinc-analysis-api",
         "//java/java-indexing-api:indexing",
         "//platform/analysis-api:analysis",
         "//platform/lang-api:lang",
@@ -45,11 +46,12 @@ jvm_library(
         "//platform/editor-ui-api:editor-ui",
         "//platform/platform-impl:ide-impl",
         "//platform/ide-core",
-        "@lib//:kotlinc-kotlin-scripting-common",
-        "@lib//:kotlinc-kotlin-scripting-jvm",
-        "@lib//:kotlinc-kotlin-scripting-compiler-impl",
-        "@lib//:kotlinc-kotlin-jps-common",
-        "@lib//:kotlinc-analysis-api-platform-interface",
+        "//libraries/kotlinc/kotlin-scripting-common:libraries-kotlinc-kotlin-scripting-common",
+        "//libraries/kotlinc/kotlin-scripting-jvm:libraries-kotlinc-kotlin-scripting-jvm",
+        "//libraries/kotlinc/kotlin-scripting-compiler-impl:libraries-kotlinc-kotlin-scripting-compiler-impl",
+        "//libraries/kotlinc/kotlin-jps-common:libraries-kotlinc-kotlin-jps-common",
+        "//libraries/kotlinc/analysis-api-platform-interface:libraries-kotlinc-analysis-api-platform-interface",
+        "//libraries/kotlinc/symbol-light-classes:libraries-kotlinc-symbol-light-classes",
         "//libraries/kotlinx/coroutines/core",
         "//libraries/guava",
         "//platform/indexing-api:indexing",
@@ -80,8 +82,11 @@ jvm_library(
         "//java/java-analysis-api:analysis",
         "//java/java-frontback-psi-api:frontback-psi",
         "//plugins/kotlin/base/scripting/scripting.shared",
+        "//plugins/kotlin/base/code-insight",
     ],
 )
+
+content_module_jar(module = ":analysis")
 
 jvm_library(
     name = "analysis_test_lib",
@@ -97,6 +102,8 @@ jvm_library(
         # do not sort,
         ":analysis",
         "//plugins/kotlin/references:references_test_lib",
+        "//libraries/kotlinc/kotlin-compiler-common:libraries-kotlinc-kotlin-compiler-common_test_lib",
+        "//libraries/kotlinc/analysis-api:libraries-kotlinc-analysis-api_test_lib",
         "//java/java-indexing-api:indexing_test_lib",
         "//platform/analysis-api:analysis_test_lib",
         "//platform/lang-api:lang_test_lib",
@@ -106,6 +113,12 @@ jvm_library(
         "//platform/editor-ui-api:editor-ui_test_lib",
         "//platform/platform-impl:ide-impl_test_lib",
         "//platform/ide-core:ide-core_test_lib",
+        "//libraries/kotlinc/kotlin-scripting-common:libraries-kotlinc-kotlin-scripting-common_test_lib",
+        "//libraries/kotlinc/kotlin-scripting-jvm:libraries-kotlinc-kotlin-scripting-jvm_test_lib",
+        "//libraries/kotlinc/kotlin-scripting-compiler-impl:libraries-kotlinc-kotlin-scripting-compiler-impl_test_lib",
+        "//libraries/kotlinc/kotlin-jps-common:libraries-kotlinc-kotlin-jps-common_test_lib",
+        "//libraries/kotlinc/analysis-api-platform-interface:libraries-kotlinc-analysis-api-platform-interface_test_lib",
+        "//libraries/kotlinc/symbol-light-classes:libraries-kotlinc-symbol-light-classes_test_lib",
         "//libraries/kotlinx/coroutines/core:core_test_lib",
         "//libraries/guava:guava_test_lib",
         "//platform/indexing-api:indexing_test_lib",
@@ -136,6 +149,7 @@ jvm_library(
         "//java/java-analysis-api:analysis_test_lib",
         "//java/java-frontback-psi-api:frontback-psi_test_lib",
         "//plugins/kotlin/base/scripting/scripting.shared:scripting.shared_test_lib",
+        "//plugins/kotlin/base/code-insight:code-insight_test_lib",
     ],
 )
 ### auto-generated section `build intellij.kotlin.base.analysis` end
@@ -144,6 +158,7 @@ jvm_library(
 exports_files(
     [
         "intellij.kotlin.base.analysis.iml",
+        "resources/intellij.kotlin.base.analysis.xml",
     ],
     visibility = ["//visibility:public"],
 )

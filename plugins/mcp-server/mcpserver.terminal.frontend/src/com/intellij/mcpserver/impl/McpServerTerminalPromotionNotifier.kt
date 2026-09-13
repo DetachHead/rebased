@@ -6,8 +6,8 @@ import com.intellij.mcpserver.clients.McpClient
 import com.intellij.mcpserver.clients.McpClientInfo
 import com.intellij.mcpserver.clients.impl.ClaudeCodeClient
 import com.intellij.mcpserver.clients.impl.CodexClient
-import com.intellij.mcpserver.settings.McpServerSettingsConfigurable
-import com.intellij.mcpserver.util.getConsentDialog
+import com.intellij.mcpserver.frontend.settings.McpServerSettingsConfigurable
+import com.intellij.mcpserver.frontend.util.getConsentDialog
 import com.intellij.notification.NotificationGroupManager
 import com.intellij.notification.NotificationType
 import com.intellij.openapi.Disposable
@@ -362,18 +362,19 @@ private fun showMcpServerTerminalPromotionBanner(
       return
     }
 
-    if (!McpServerService.getInstance().isRunning) {
-      if (!getConsentDialog(project)) {
-        return
-      }
-      McpServerService.getInstance().start()
-    }
-
     view.coroutineScope.launch(Dispatchers.Default + CoroutineName("MCP server terminal promotion setup")) {
+      val service = McpServerService.getInstanceAsync()
+      if (!service.isRunning) {
+        val agree = withContext(Dispatchers.EDT) { getConsentDialog(project) }
+        if (!agree) return@launch
+
+        service.start()
+      }
+
       val configuredClients = ArrayList<McpClient>(clientsToConfigure.size)
 
       for (targetClient in clientsToConfigure.distinct()) {
-        val shouldConfigureClient = targetClient.isConfigured() != true || !targetClient.isPortCorrect()
+        val shouldConfigureClient = !targetClient.isConnectedToThisIde()
         if (!shouldConfigureClient) {
           continue
         }

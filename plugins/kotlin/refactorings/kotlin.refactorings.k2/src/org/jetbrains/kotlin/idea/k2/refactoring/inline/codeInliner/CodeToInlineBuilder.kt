@@ -1,17 +1,16 @@
 // Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.kotlin.idea.k2.refactoring.inline.codeInliner
 
-import org.jetbrains.kotlin.analysis.api.analyze
 import org.jetbrains.kotlin.analysis.api.permissions.KaAllowAnalysisFromWriteAction
 import org.jetbrains.kotlin.analysis.api.permissions.KaAllowAnalysisOnEdt
 import org.jetbrains.kotlin.analysis.api.permissions.allowAnalysisFromWriteAction
 import org.jetbrains.kotlin.analysis.api.permissions.allowAnalysisOnEdt
-import org.jetbrains.kotlin.analysis.api.resolution.successfulVariableAccessCall
-import org.jetbrains.kotlin.analysis.api.resolution.symbol
+import org.jetbrains.kotlin.analysis.api.session.analyze
 import org.jetbrains.kotlin.analysis.api.symbols.KaPropertySymbol
 import org.jetbrains.kotlin.idea.refactoring.inline.codeInliner.AbstractCodeToInlineBuilder
 import org.jetbrains.kotlin.idea.refactoring.inline.codeInliner.MutableCodeToInline
 import org.jetbrains.kotlin.idea.refactoring.inline.codeInliner.ResolvedImportPath
+import org.jetbrains.kotlin.idea.util.resolveSuccessfulExpressionSymbol
 import org.jetbrains.kotlin.name.FqName
 import org.jetbrains.kotlin.psi.KtDeclaration
 import org.jetbrains.kotlin.psi.KtExpression
@@ -28,9 +27,9 @@ open class CodeToInlineBuilder(
         allowAnalysisOnEdt {
             allowAnalysisFromWriteAction {
                 val alwaysKeepMainExpression = mainExpression != null && analyze(mainExpression) {
-                    val targetSymbol = mainExpression.resolveToCall()?.successfulVariableAccessCall()?.partiallyAppliedSymbol?.symbol
+                    val targetSymbol = mainExpression.resolveSuccessfulExpressionSymbol()
                     when (targetSymbol) {
-                        is KaPropertySymbol -> targetSymbol.getter?.isDefault == false
+                        is KaPropertySymbol -> targetSymbol.getter?.isNotDefault == true
                         else -> false
                     }
                 }

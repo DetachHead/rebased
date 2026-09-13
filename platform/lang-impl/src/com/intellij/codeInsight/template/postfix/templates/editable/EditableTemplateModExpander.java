@@ -53,18 +53,19 @@ public class EditableTemplateModExpander implements PostfixModExpander {
                                     @NotNull PostfixTemplateProvider provider,
                                     @NotNull TextRange keyRange) {
     Project project = actionContext.project();
-    @Unmodifiable List<PsiElement> virtualExpressions = PostprocessReformattingAspect.getInstance(project).disablePostprocessFormattingInside(() -> {
-      PsiFile copyFile = (PsiFile)actionContext.file().copy();
-      Document copyDocument = copyFile.getFileDocument();
-      int startOffset = keyRange.getStartOffset();
-      startOffset = PostfixLiveTemplate.positiveOffset(startOffset);
-      copyDocument.deleteString(startOffset, keyRange.getEndOffset());
-      PsiDocumentManager.getInstance(project).commitDocument(copyDocument);
-      provider.prepareCopyForModCommand(copyFile, startOffset);
-      PsiDocumentManager.getInstance(project).commitDocument(copyDocument);
-      PsiElement context = CustomTemplateCallback.getContext(copyFile, PostfixLiveTemplate.positiveOffset(startOffset));
-      return myTemplate.getExpressions(context, context.getContainingFile().getFileDocument(), startOffset);
-    });
+    @Unmodifiable List<PsiElement> virtualExpressions =
+      PostprocessReformattingAspect.getInstance(project).disablePostprocessFormattingInside(() -> {
+        PsiFile copyFile = (PsiFile)actionContext.file().copy();
+        Document copyDocument = copyFile.getFileDocument();
+        int startOffset = keyRange.getStartOffset();
+        startOffset = PostfixLiveTemplate.positiveOffset(startOffset);
+        copyDocument.deleteString(startOffset, keyRange.getEndOffset());
+        PsiDocumentManager.getInstance(project).commitDocument(copyDocument);
+        provider.prepareCopyForModCommand(copyFile, startOffset);
+        PsiDocumentManager.getInstance(project).commitDocument(copyDocument);
+        PsiElement context = CustomTemplateCallback.getContext(copyFile, PostfixLiveTemplate.positiveOffset(startOffset));
+        return myTemplate.getExpressions(context, context.getContainingFile().getFileDocument(), startOffset);
+      });
     if (virtualExpressions.isEmpty()) {
       return ModCommand.nop();
     }
@@ -75,7 +76,7 @@ public class EditableTemplateModExpander implements PostfixModExpander {
 
     List<ModCommandAction> actions = ContainerUtil.mapNotNull(
       virtualExpressions,
-      expr -> buildExpandModAction(expr, myTemplate.getElementRenderer().fun(expr),
+      expr -> buildExpandModAction(actionContext, expr, myTemplate.getElementRenderer().fun(expr),
                                    new TextRange(keyRange.getStartOffset(), keyRange.getStartOffset()), provider));
     if (actions.isEmpty()) {
       return ModCommand.nop();
@@ -84,14 +85,16 @@ public class EditableTemplateModExpander implements PostfixModExpander {
   }
 
   @SuppressWarnings("HardCodedStringLiteral") // expression text is used as chooser item title
-  private @NotNull ModCommandAction buildExpandModAction(@NotNull PsiElement virtualExpression,
+  private @NotNull ModCommandAction buildExpandModAction(@NotNull ActionContext actionContext,
+                                                         @NotNull PsiElement virtualExpression,
                                                          @NotNull String title,
                                                          @NotNull TextRange key,
                                                          @NotNull PostfixTemplateProvider provider) {
     return new ModCommandAction() {
       @Override
       public @NotNull Presentation getPresentation(@NotNull ActionContext ctx) {
-        return Presentation.of(title).withHighlighting(virtualExpression.getTextRange());
+        return Presentation.of(title)
+          .withHighlighting(PostfixModExpander.rangesToHighlight(actionContext, virtualExpression.getTextRange()));
       }
 
       @Override
@@ -109,20 +112,16 @@ public class EditableTemplateModExpander implements PostfixModExpander {
   private @NotNull ModCommand createModCommand(@NotNull ActionContext ctx, @NotNull TextRange key,
                                                @NotNull PsiElement virtualExpression,
                                                @NotNull PostfixTemplateProvider provider) {
-    return ModCommand.psiUpdate(ctx.withSelection(new TextRange(key.getStartOffset(), key.getStartOffset())).withOffset(key.getStartOffset()),
-                                document -> document.deleteString(ctx.selection().getStartOffset(), ctx.selection().getEndOffset()),
-                                updater -> {
-                                  updater.getDocument().deleteString(PostfixLiveTemplate.positiveOffset(key.getStartOffset()), ctx.selection().getStartOffset());
-                                  PsiDocumentManager.getInstance(ctx.project()).commitDocument(updater.getDocument());
-                                  provider.prepareCopyForModCommand(updater.getPsiFile(), PostfixLiveTemplate.positiveOffset(key.getStartOffset()));
-                                  String exprText = virtualExpression.getText();
-                                  PsiElement expression = PsiTreeUtil.findSameElementInCopy(virtualExpression, updater.getPsiFile());
-                                  TextRange rangeToRemove = myTemplate.getRangeToRemove(expression);
-                                  TemplateImpl template = myTemplate.getLiveTemplate().copy();
-                                  updater.getDocument().deleteString(rangeToRemove.getStartOffset(), rangeToRemove.getEndOffset());
-                                  template.addVariable("EXPR", new TextExpression(exprText), false);
-                                  myTemplate.addTemplateVariables(expression, template);
-                                  TemplateManagerImpl.updateTemplate(template, updater);
-                                });
+    return PostfixModExpander.psiUpdateRemovingTemplateKey(ctx, key, updater -> {
+      provider.prepareCopyForModCommand(updater.getPsiFile(), PostfixLiveTemplate.positiveOffset(key.getStartOffset()));
+      String exprText = virtualExpression.getText();
+      PsiElement expression = PsiTreeUtil.findSameElementInCopy(virtualExpression, updater.getPsiFile());
+      TextRange rangeToRemove = myTemplate.getRangeToRemove(expression);
+      TemplateImpl template = myTemplate.getLiveTemplate().copy();
+      updater.getDocument().deleteString(rangeToRemove.getStartOffset(), rangeToRemove.getEndOffset());
+      template.addVariable("EXPR", new TextExpression(exprText), false);
+      myTemplate.addTemplateVariables(expression, template);
+      TemplateManagerImpl.updateTemplate(template, updater);
+    });
   }
 }

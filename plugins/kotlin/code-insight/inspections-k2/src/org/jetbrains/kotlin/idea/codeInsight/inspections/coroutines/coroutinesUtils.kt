@@ -4,15 +4,17 @@ package org.jetbrains.kotlin.idea.codeInsight.inspections.coroutines
 import com.intellij.psi.util.descendantsOfType
 import org.jetbrains.kotlin.analysis.api.KaSession
 import org.jetbrains.kotlin.analysis.api.resolution.KaExplicitReceiverValue
-import org.jetbrains.kotlin.analysis.api.resolution.successfulFunctionCallOrNull
-import org.jetbrains.kotlin.analysis.api.resolution.successfulVariableAccessCall
+import org.jetbrains.kotlin.analysis.api.resolution.resolveSuccessfulCall
+import org.jetbrains.kotlin.analysis.api.resolution.resolveSuccessfulSymbol
 import org.jetbrains.kotlin.analysis.api.resolution.symbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaFunctionSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.findTopLevelCallables
 import org.jetbrains.kotlin.analysis.api.symbols.symbol
+import org.jetbrains.kotlin.analysis.api.types.isSubtypeOf
 import org.jetbrains.kotlin.idea.base.analysis.api.utils.equalsOrEqualsByPsi
 import org.jetbrains.kotlin.idea.codeinsight.utils.ConvertLambdaToReferenceUtils.singleStatementOrNull
 import org.jetbrains.kotlin.idea.codeinsight.utils.resolveExpression
+import org.jetbrains.kotlin.idea.util.resolveSuccessfulExpressionSymbol
 import org.jetbrains.kotlin.name.CallableId
 import org.jetbrains.kotlin.name.FqName
 import org.jetbrains.kotlin.name.Name
@@ -28,11 +30,12 @@ import org.jetbrains.kotlin.psi.KtReturnExpression
 /**
  * Finds a single (implicitly or explicitly) returned expression from [lambdaExpression].
  */
-internal fun KaSession.singleReturnedExpressionOrNull(lambdaExpression: KtLambdaExpression): KtExpression? {
+context(session: KaSession)
+internal fun singleReturnedExpressionOrNull(lambdaExpression: KtLambdaExpression): KtExpression? {
     val singleStatement = lambdaExpression.singleStatementOrNull() ?: return null
 
     return when (singleStatement) {
-        is KtReturnExpression if (singleStatement.targetSymbol == lambdaExpression.functionLiteral.symbol) -> singleStatement.returnedExpression
+        is KtReturnExpression if (singleStatement.resolveSuccessfulSymbol() == lambdaExpression.functionLiteral.symbol) -> singleStatement.returnedExpression
         else -> singleStatement
     }
 }
@@ -44,44 +47,49 @@ internal fun KaSession.singleReturnedExpressionOrNull(lambdaExpression: KtLambda
  * @param callableId The method that should be called on the parameter
  * @return true if the lambda has a single parameter and calls the specified method on it
  */
-internal fun KaSession.isLambdaWithSingleReturnedCallOnSingleParameter(
+context(session: KaSession)
+internal fun isLambdaWithSingleReturnedCallOnSingleParameter(
     lambdaExpression: KtLambdaExpression,
     callableId: CallableId
 ): Boolean {
     val singleLambdaParameterSymbol = lambdaExpression.functionLiteral.symbol.valueParameters.singleOrNull() ?: return false
     val singleReturnedExpression = singleReturnedExpressionOrNull(lambdaExpression) as? KtDotQualifiedExpression ?: return false
 
-    val methodCall = singleReturnedExpression.resolveToCall()?.successfulFunctionCallOrNull() ?: return false
+    val methodCall = singleReturnedExpression.resolveSuccessfulCall() ?: return false
 
-    val explicitReceiverValue = methodCall.partiallyAppliedSymbol.dispatchReceiver as? KaExplicitReceiverValue ?: return false
-    val explicitReceiverAccessCall = explicitReceiverValue.expression.resolveToCall()?.successfulVariableAccessCall() ?: return false
+    val explicitReceiverValue = methodCall.dispatchReceiver as? KaExplicitReceiverValue ?: return false
+    val explicitReceiverAccessSymbol = explicitReceiverValue.expression.resolveSuccessfulExpressionSymbol() ?: return false
 
     return methodCall.symbol.callableId == callableId &&
-            explicitReceiverAccessCall.symbol == singleLambdaParameterSymbol
+            explicitReceiverAccessSymbol == singleLambdaParameterSymbol
 }
 
-internal fun KaSession.isIterableForEachFunctionCall(element: KtCallExpression): Boolean {
-    val functionCall = element.resolveToCall()?.successfulFunctionCallOrNull() ?: return false
-    val actualReceiverType = functionCall.partiallyAppliedSymbol.extensionReceiver?.type ?: return false
+context(session: KaSession)
+internal fun isIterableForEachFunctionCall(element: KtCallExpression): Boolean {
+    val functionCall = element.resolveSuccessfulCall() ?: return false
+    val actualReceiverType = functionCall.extensionReceiver?.type ?: return false
 
     return isIterableForEachFunction(functionCall.symbol) &&
             actualReceiverType.isSubtypeOf(StandardClassIds.Collection)
 }
 
-private fun KaSession.isIterableForEachFunction(symbol: KaFunctionSymbol): Boolean {
+context(session: KaSession)
+private fun isIterableForEachFunction(symbol: KaFunctionSymbol): Boolean {
     return symbol.callableId == KOTLIN_COLLECTIONS_FOR_EACH_ID &&
             symbol.receiverParameter?.returnType?.isSubtypeOf(StandardClassIds.Iterable) == true
 }
 
-internal fun KaSession.isIterableMapFunctionCall(element: KtCallExpression): Boolean {
-    val functionCall = element.resolveToCall()?.successfulFunctionCallOrNull() ?: return false
-    val actualReceiverType = functionCall.partiallyAppliedSymbol.extensionReceiver?.type ?: return false
+context(session: KaSession)
+internal fun isIterableMapFunctionCall(element: KtCallExpression): Boolean {
+    val functionCall = element.resolveSuccessfulCall() ?: return false
+    val actualReceiverType = functionCall.extensionReceiver?.type ?: return false
 
     return isIterableMapFunction(functionCall.symbol) &&
             actualReceiverType.isSubtypeOf(StandardClassIds.Collection)
 }
 
-private fun KaSession.isIterableMapFunction(symbol: KaFunctionSymbol): Boolean {
+context(session: KaSession)
+private fun isIterableMapFunction(symbol: KaFunctionSymbol): Boolean {
     return symbol.callableId == KOTLIN_COLLECTIONS_MAP_ID &&
             symbol.receiverParameter?.returnType?.isSubtypeOf(StandardClassIds.Iterable) == true
 }

@@ -67,7 +67,8 @@ class PyCharmCommunityProperties(private val communityHome: Path) : PyCharmPrope
     // Content modules
     module("intellij.platform.ide.newUiOnboarding")
     module("intellij.ide.startup.importSettings")
-    module("intellij.platform.tips")
+    // the sqlite JDBC driver `importSettings` needs; private, so plugins bundle their own copy of it
+    privateModule("intellij.libraries.sqlite")
 
     // Module sets
     moduleSet(CommunityModuleSets.ideCommon())
@@ -76,8 +77,7 @@ class PyCharmCommunityProperties(private val communityHome: Path) : PyCharmPrope
     // PyCharm Core fragment (includes platformLangBaseFragment, module aliases, and pycharm-core.xml)
     include(CommunityProductFragments.pycharmCoreFragment())
 
-    // Static includes
-    deprecatedInclude("intellij.pycharm.community", "META-INF/pycharm-core-customization.xml")
+    embeddedModule("intellij.pycharm.community.ide.customization")
 
     allowMissingDependencies(knownMissingModuleDependencies)
     allowMissingDependencies("intellij.platform.commercial.dependencies")

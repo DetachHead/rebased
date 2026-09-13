@@ -8,15 +8,15 @@ import com.intellij.modcommand.ModPsiUpdater
 import com.intellij.openapi.project.Project
 import org.jetbrains.kotlin.KtNodeTypes
 import org.jetbrains.kotlin.analysis.api.KaSession
-import org.jetbrains.kotlin.analysis.api.components.isSubtypeOf
-import org.jetbrains.kotlin.analysis.api.components.resolveToCall
-import org.jetbrains.kotlin.analysis.api.components.type
 import org.jetbrains.kotlin.analysis.api.resolution.KaFunctionCall
-import org.jetbrains.kotlin.analysis.api.resolution.successfulFunctionCallOrNull
+import org.jetbrains.kotlin.analysis.api.resolution.KaSimpleCall
+import org.jetbrains.kotlin.analysis.api.resolution.resolveSuccessfulCall
 import org.jetbrains.kotlin.analysis.api.resolution.symbol
 import org.jetbrains.kotlin.analysis.api.types.KaClassType
 import org.jetbrains.kotlin.analysis.api.types.KaStarTypeProjection
 import org.jetbrains.kotlin.analysis.api.types.KaType
+import org.jetbrains.kotlin.analysis.api.types.isSubtypeOf
+import org.jetbrains.kotlin.analysis.api.types.type
 import org.jetbrains.kotlin.builtins.StandardNames
 import org.jetbrains.kotlin.idea.base.resources.KotlinBundle
 import org.jetbrains.kotlin.idea.codeInsight.inspections.collections.isIterable
@@ -73,7 +73,7 @@ internal abstract class AbstractSimplifiableCallInspection :
             if (!lambdaExpression.isIdentityLambda()) return null
 
             val resolvedCallSymbol =
-                callExpression.resolveToCall()?.successfulFunctionCallOrNull() ?: return null
+                callExpression.resolveSuccessfulCall() ?: return null
             val receiver = resolvedCallSymbol.dispatchReceiver ?: resolvedCallSymbol.extensionReceiver ?: return null
             val receiverType = receiver.type
             if (receiverType.isPrimitiveArray) return null
@@ -111,7 +111,7 @@ internal abstract class AbstractSimplifiableCallInspection :
         }
 
         context(_: KaSession)
-        override fun callChecker(resolvedCall: KaFunctionCall<*>): Boolean = !resolvedCall.isCalledOnMapExtensionReceiver
+        override fun callChecker(resolvedCall: KaFunctionCall<*>): Boolean = !(resolvedCall as KaSimpleCall<*, *>).isCalledOnMapExtensionReceiver
     }
 
     protected class MapNotNullToFilterIsInstanceConversion(
@@ -131,7 +131,7 @@ internal abstract class AbstractSimplifiableCallInspection :
         }
 
         context(_: KaSession)
-        override fun callChecker(resolvedCall: KaFunctionCall<*>): Boolean = !resolvedCall.isCalledOnMapExtensionReceiver
+        override fun callChecker(resolvedCall: KaFunctionCall<*>): Boolean = !(resolvedCall as KaSimpleCall<*, *>).isCalledOnMapExtensionReceiver
     }
 
     protected class FilterToFilterIsInstanceConversion(
@@ -151,7 +151,7 @@ internal abstract class AbstractSimplifiableCallInspection :
             val rightTypeReference = statement.typeReference ?: return null
             val rightType = rightTypeReference.type
 
-            val resolvedCall = callExpression.resolveToCall()?.successfulFunctionCallOrNull()
+            val resolvedCall = callExpression.resolveSuccessfulCall()
 
             if (resolvedCall != null) {
                 val resultingElementType = (resolvedCall.signature.returnType as? KaClassType)
@@ -165,7 +165,7 @@ internal abstract class AbstractSimplifiableCallInspection :
         }
 
         context(_: KaSession)
-        override fun callChecker(resolvedCall: KaFunctionCall<*>): Boolean = !resolvedCall.isCalledOnMapExtensionReceiver
+        override fun callChecker(resolvedCall: KaFunctionCall<*>): Boolean = !(resolvedCall as KaSimpleCall<*, *>).isCalledOnMapExtensionReceiver
     }
 
     protected abstract val conversions: List<Conversion>
@@ -173,7 +173,7 @@ internal abstract class AbstractSimplifiableCallInspection :
     context(_: KaSession)
     private fun KtCallExpression.findConversionsAndResolvedCall(): Pair<List<Conversion>, KaFunctionCall<*>>? {
         val calleeText = calleeExpression?.text ?: return null
-        val resolvedCall = this.resolveToCall()?.successfulFunctionCallOrNull() ?: return null
+        val resolvedCall = this.resolveSuccessfulCall() ?: return null
         val possibleConversions = buildList {
             for (conversion in conversions) {
                 if (conversion.targetShortName != calleeText) continue
@@ -204,7 +204,8 @@ internal abstract class AbstractSimplifiableCallInspection :
         visitTargetElement(calleeExpression, holder, isOnTheFly)
     }
 
-    override fun KaSession.prepareContext(element: KtExpression): Context? {
+    context(session: KaSession)
+    override fun prepareContext(element: KtExpression): Context? {
         val callExpression = element.parent as? KtCallExpression ?: return null
         val (conversions, resolvedCall) = callExpression.findConversionsAndResolvedCall() ?: return null
         for (conversion in conversions) {

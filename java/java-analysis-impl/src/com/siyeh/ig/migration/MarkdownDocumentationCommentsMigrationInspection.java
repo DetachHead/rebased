@@ -1,6 +1,7 @@
 // Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.siyeh.ig.migration;
 
+import com.intellij.codeInsight.intention.AddAnnotationPsiFix;
 import com.intellij.codeInsight.javadoc.JavaDocUtil;
 import com.intellij.codeInspection.LocalQuickFix;
 import com.intellij.modcommand.ModPsiUpdater;
@@ -8,11 +9,19 @@ import com.intellij.modcommand.PsiUpdateModCommandQuickFix;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.project.DumbAware;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.roots.LanguageLevelProjectExtension;
 import com.intellij.openapi.util.NlsSafe;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.util.text.Strings;
+import com.intellij.pom.java.JavaFeature;
+import com.intellij.psi.CommonClassNames;
 import com.intellij.psi.JavaDocTokenType;
+import com.intellij.psi.PsiDocumentManager;
 import com.intellij.psi.PsiElement;
+import com.intellij.psi.PsiJavaDocumentedElement;
+import com.intellij.psi.PsiModifierList;
+import com.intellij.psi.PsiModifierListOwner;
+import com.intellij.psi.PsiNameValuePair;
 import com.intellij.psi.PsiWhiteSpace;
 import com.intellij.psi.impl.source.javadoc.PsiDocMethodOrFieldRef;
 import com.intellij.psi.impl.source.javadoc.PsiDocParamRef;
@@ -41,6 +50,7 @@ import org.jsoup.nodes.Node;
 import org.jsoup.select.NodeFilter;
 
 import java.util.ArrayDeque;
+import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -78,7 +88,7 @@ public final class MarkdownDocumentationCommentsMigrationInspection extends Base
     }
   }
 
-  private static class MarkdownDocumentationCommentsMigrationFix extends PsiUpdateModCommandQuickFix implements DumbAware {
+  public static class MarkdownDocumentationCommentsMigrationFix extends PsiUpdateModCommandQuickFix implements DumbAware {
 
     private static final TokenSet SKIP_TOKENS = TokenSet.create(JavaDocTokenType.DOC_COMMENT_START,
                                                                 JavaDocTokenType.DOC_COMMENT_END,
@@ -91,9 +101,32 @@ public final class MarkdownDocumentationCommentsMigrationInspection extends Base
     @Override
     protected void applyFix(@NotNull Project project, @NotNull PsiElement element, @NotNull ModPsiUpdater updater) {
       if (element instanceof PsiDocToken) element = element.getParent();
-      if (!(element instanceof PsiDocComment)) return;
-      String markdown = convertToMarkdown(appendElementText(element, new StringBuilder()).toString());
-      String indent = getElementIndent(element);
+      if (!(element instanceof PsiDocComment docComment)) return;
+
+      String result = convertAndPostProcess(element);
+      Document document = element.getContainingFile().getFileDocument();
+
+      if (addDeprecatedAnnotationIfNecessary(project, docComment)) {
+        PsiDocumentManager.getInstance(project).doPostponedOperationsAndUnblockDocument(document);
+      }
+
+      int startOffset = element.getTextOffset();
+      int endOffset = element.getNextSibling() instanceof PsiWhiteSpace whiteSpace
+                      ? whiteSpace.getTextOffset() + whiteSpace.getTextLength()
+                      : startOffset + element.getTextLength();
+      document.replaceString(startOffset, endOffset, result);
+    }
+
+    /// @see #convertAndPostProcess(PsiElement, Settings)
+    public static String convertAndPostProcess(PsiElement docComment) {
+      return convertAndPostProcess(docComment, new Settings(false));
+    }
+    
+    /// @return The converted and indent post-processed Markdown comment
+    public static String convertAndPostProcess(PsiElement docComment, Settings settings) {
+      String markdown = convertToMarkdown(appendElementText(docComment, new StringBuilder()).toString(), settings);
+
+      String indent = getElementIndent(docComment);
       String[] lines = markdown.split("\n");
       StringBuilder result = new StringBuilder(markdown.length() + (indent.length() + 4) * lines.length);
       for (String line : lines) {
@@ -108,13 +141,7 @@ public final class MarkdownDocumentationCommentsMigrationInspection extends Base
         result.append('\n');
       }
       result.append(indent);
-
-      Document document = element.getContainingFile().getFileDocument();
-      int startOffset = element.getTextOffset();
-      int endOffset = element.getNextSibling() instanceof PsiWhiteSpace whiteSpace
-                      ? whiteSpace.getTextOffset() + whiteSpace.getTextLength()
-                      : startOffset + element.getTextLength();
-      document.replaceString(startOffset, endOffset, result);
+      return result.toString();
     }
 
     private static StringBuilder appendElementText(@NotNull PsiElement element, StringBuilder result) {
@@ -142,6 +169,11 @@ public final class MarkdownDocumentationCommentsMigrationInspection extends Base
             }
             else if ("link".equals(name) || "linkplain".equals(name)) {
               handleLink(inlineDocTag, result);
+            }
+            else if ("literal".equals(name) || "snippet".equals(name)) {
+              StringBuilder tagBuilder = new StringBuilder();
+              handleInlineDocTag(inlineDocTag, tagBuilder);
+              result.append(escapeInline(tagBuilder.toString().stripIndent()));
             }
             else {
               handleInlineDocTag(inlineDocTag, result);
@@ -189,15 +221,20 @@ public final class MarkdownDocumentationCommentsMigrationInspection extends Base
       );
     }
 
-    private static String convertToMarkdown(@NlsSafe String html) {
-      @NonNls String escape = "\\nbsp;";
-      Element body = Jsoup.parse(html.replace("&nbsp;", escape)).outputSettings(new OutputSettings().prettyPrint(false)).body();
-      HtmlToMarkdownVisitor visitor = new HtmlToMarkdownVisitor(html.length());
+    private static String convertToMarkdown(@NlsSafe String html, Settings settings) {
+      // Some tags are affecting the presentation and the parsing output
+      List<@NonNls String> escapes = List.of("nbsp", "commat", "#064");
+      for (String escape : escapes) {
+        html = html.replace("&" + escape + ";", "\\" + escape);
+      }
+      Element body = Jsoup.parse(html)
+        .outputSettings(new OutputSettings().prettyPrint(false)).body();
+      HtmlToMarkdownVisitor visitor = new HtmlToMarkdownVisitor(html.length(), settings);
       body.filter(visitor);
 
       String result = visitor.getResult();
 
-      // (mbo) Not the proudest of this one but some combinations of Javadoc tag and HTML cannot reasonnably be handled with jsoup
+      // (mbo) Not the proudest of this one, but some combinations of Javadoc tag and HTML cannot reasonably be handled with jsoup
       // unescape element between internal HTML tags. It is expected that internal tags are not nested.
       Matcher internalTagMatcher = Pattern.compile(
           "<(?:%s|%s)>(.*?)</(?:%s|%s)>".formatted(
@@ -207,9 +244,14 @@ public final class MarkdownDocumentationCommentsMigrationInspection extends Base
           Pattern.UNICODE_CASE | Pattern.DOTALL | Pattern.MULTILINE)
         .matcher(result);
 
-      return internalTagMatcher.replaceAll(matchResult -> {
+      result = internalTagMatcher.replaceAll(matchResult -> {
         return StringUtil.unescapeXmlEntities(matchResult.group(1));
-      }).replace(escape, "&nbsp;");
+      });
+
+      for (String escape : escapes) {
+        result = result.replace("\\" + escape, "&" + escape + ";");
+      }
+      return result;
     }
 
     private static String getElementIndent(PsiElement element) {
@@ -232,7 +274,7 @@ public final class MarkdownDocumentationCommentsMigrationInspection extends Base
       else if (element instanceof PsiWhiteSpace) {
         String text = element.getText();
         if (text.contains("\n")) {
-          result.append("\n ");
+          result.append("\n");
         }
         else {
           result.append(text);
@@ -258,9 +300,13 @@ public final class MarkdownDocumentationCommentsMigrationInspection extends Base
       }
 
       String tag = isFromCodeblock ? HtmlToMarkdownVisitor.INTERNAL_CODE_BLOCK_TAG : "code";
+      String code = codeBuilder.toString();
+      code = isFromCodeblock
+             ? StringUtil.trimTrailingLines(StringUtil.trimLeadingLines(code))
+             : code.trim();
       result
-        .append("<%S>".formatted(tag))
-        .append(escapeInline(codeBuilder.toString().trim().replace("\\","\\\\")))
+        .append("<%s>".formatted(tag))
+        .append(escapeInline(code.replace("\\", "\\\\")))
         .append("</%s>".formatted(tag));
     }
 
@@ -328,6 +374,28 @@ public final class MarkdownDocumentationCommentsMigrationInspection extends Base
           .append(']');
       }
     }
+
+    /// Add the annotation if necessary, as the deprecated tag alone is not enough to indicate deprecation
+    /// according to the javadoc Markdown specs
+    ///
+    /// @return Whether the annotation was added (or is already there)
+    @ApiStatus.Internal
+    private static boolean addDeprecatedAnnotationIfNecessary(Project project, PsiDocComment docComment) {
+      if (!JavaFeature.ANNOTATIONS.isSufficient(LanguageLevelProjectExtension.getInstance(project).getLanguageLevel()) ||
+          docComment.findTagByName("deprecated") == null) {
+        return false;
+      }
+      PsiJavaDocumentedElement owner = docComment.getOwner();
+      if (owner instanceof PsiModifierListOwner modifierListOwner) {
+        PsiModifierList modifierList = modifierListOwner.getModifierList();
+        if (modifierList != null) {
+          AddAnnotationPsiFix.addPhysicalAnnotationIfAbsent(CommonClassNames.JAVA_LANG_DEPRECATED, PsiNameValuePair.EMPTY_ARRAY,
+                                                            modifierList);
+          return true;
+        }
+      }
+      return false;
+    }
   }
   
 
@@ -336,6 +404,7 @@ public final class MarkdownDocumentationCommentsMigrationInspection extends Base
   /// This implementation aims at converting most of the simple HTML features into their Markdown equivalent.
   /// Due to the complexity of trying to convert everything into Markdown, the code is pretty close to just handwritten heuristics  
   private static class HtmlToMarkdownVisitor implements NodeFilter {
+
     /// Used to mark *inline* content as raw data, that should not be converted
     static final String INTERNAL_TAG_INLINE_RAW = "jbr-internal-inline";
     /// Used to mark *non*-inline tags, that must start on a new line
@@ -360,10 +429,15 @@ public final class MarkdownDocumentationCommentsMigrationInspection extends Base
     /// Indicates the item count of each list and the number of sublists
     private final ArrayDeque<Integer> listContext = new ArrayDeque<>(1);
 
-    HtmlToMarkdownVisitor(){}
-    
-    HtmlToMarkdownVisitor(int size) {
+    private final MarkdownDocumentationCommentsMigrationInspection.Settings settings;
+
+    HtmlToMarkdownVisitor(MarkdownDocumentationCommentsMigrationInspection.Settings settings) {
+      this.settings = settings;
+    }
+
+    HtmlToMarkdownVisitor(int size, MarkdownDocumentationCommentsMigrationInspection.Settings settings) {
       result.ensureCapacity(size);
+      this.settings = settings;
     }
 
     @Override
@@ -387,7 +461,19 @@ public final class MarkdownDocumentationCommentsMigrationInspection extends Base
         case "i", "em" -> result.append('_');
         case "b", "strong" -> result.append("**");
         case "hr" -> appendWithNewLineIfNeeded("___\n");
-        case "p", "br" -> appendBreaks(PARAGRAPH_BREAK);
+        case "p" -> appendBreaks(PARAGRAPH_BREAK);
+        case "br" -> {
+          if (settings.accurateBrTag) {
+            result.append("  ");
+            Node next = node.nextSibling();
+            if (next == null || !next.nameIs("#text") || !next.nodeValue().startsWith("\n")) {
+              appendBreaks(LINE_BREAK);
+            }
+          }
+          else {
+            appendBreaks(PARAGRAPH_BREAK);
+          }
+        }
         case "img" -> result.append("![").append(node.attr("alt")).append("](").append(node.attr("src")).append(')');
         case INTERNAL_TAG_JDOC_TAG -> {
           // Special handling for Javadoc tags, respect user adding an empty line, even if meaningless once rendered.
@@ -403,7 +489,7 @@ public final class MarkdownDocumentationCommentsMigrationInspection extends Base
           // Titles are a single-line construct, we post process the output in hopes of matching the original rendering
           // There are "impossible cases" like when there are subtags that are a block construct.
           // For now, we bury our heads in the sand.
-          HtmlToMarkdownVisitor subVisitor = new HtmlToMarkdownVisitor();
+          HtmlToMarkdownVisitor subVisitor = new HtmlToMarkdownVisitor(settings);
           node.childNodes().forEach(child -> child.filter(subVisitor));
 
           appendWithNewLineIfNeeded("#".repeat(Integer.parseInt(nodeName.substring(1))));
@@ -420,7 +506,7 @@ public final class MarkdownDocumentationCommentsMigrationInspection extends Base
           else {
             appendBreaks(LINE_BREAK);
             // The blockquote a funny one, as it needs to pad every new line with its starting construct
-            HtmlToMarkdownVisitor subVisitor = new HtmlToMarkdownVisitor();
+            HtmlToMarkdownVisitor subVisitor = new HtmlToMarkdownVisitor(settings);
             node.childNodes().forEach(child -> {
               child.filter(subVisitor);
             });
@@ -461,6 +547,8 @@ public final class MarkdownDocumentationCommentsMigrationInspection extends Base
             result.append("`");
           }
         }
+
+        case "tt" -> result.append("`");
 
         case INTERNAL_CODE_BLOCK_TAG -> {
           appendCodeBlock(node);
@@ -542,6 +630,7 @@ public final class MarkdownDocumentationCommentsMigrationInspection extends Base
             result.append("`");
           }
         }
+        case "tt" -> result.append("`");
 
         case "ol", "ul" -> {
           if (!listContext.isEmpty()) {
@@ -751,5 +840,13 @@ public final class MarkdownDocumentationCommentsMigrationInspection extends Base
     private String getResult() {
       return result.toString();
     }
+  }
+
+  /// Settings used during the conversion
+  ///
+  /// @param accurateBrTag if `false`, the tag is translated as a Markdown paragraph break.
+  ///                      If `true`, the tag is translated as a Markdown line break.
+  ///                      This setting exists because the Markdown line break is not supported (nor user-friendly) in the editor
+  public record Settings(boolean accurateBrTag) {
   }
 }

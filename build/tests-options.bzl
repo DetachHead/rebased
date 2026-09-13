@@ -3,6 +3,7 @@ load("@rules_java//java:defs.bzl", "java_test")
 PKGS = [
     "java.base/java.io",
     "java.base/java.lang",
+    "java.base/java.lang.ref",
     "java.base/java.lang.reflect",
     "java.base/java.net",
     "java.base/java.nio",
@@ -29,6 +30,7 @@ PKGS = [
     "java.desktop/java.awt.peer",
     "java.desktop/javax.swing",
     "java.desktop/javax.swing.plaf.basic",
+    "java.desktop/javax.swing.text",
     "java.desktop/javax.swing.text.html",
     "java.desktop/javax.swing.text.html.parser",
     "java.desktop/sun.awt",
@@ -58,6 +60,7 @@ JAVA_TEST_FLAGS = [
     "-Didea.reset.classpath.from.manifest=true",
     "-Dintellij.build.use.compiled.classes=false",
     "-Djava.util.zip.use.nio.for.zip.file.access=true",
+    "-ea",
 ]
 
 JAVA_TEST_ARGS = [
@@ -78,11 +81,8 @@ TEST_FRAMEWORK_DEPS = [
 # needed to avoid runtime duplications in jps_test of community/platform/util/BUILD.bazel
 # as depset can't recognize that ":util-tests_test_lib" and "@community//platform/util:util-tests_test_lib" is the same lib
 def _normalize_runtime_dep(dep):
-    if dep in [
-        ":util-tests_test_lib",
-        "//platform/util:util-tests_test_lib",
-        "@community//platform/util:util-tests_test_lib",
-    ]:
+    if ((dep == ":util-tests_test_lib" and native.package_name() == "platform/util") or
+        dep in ["//platform/util:util-tests_test_lib", "@community//platform/util:util-tests_test_lib"]):
         return "@community//platform/util:util-tests_test_lib"
     return dep
 
@@ -112,7 +112,9 @@ def jps_test(name, jvm_flags = [], runtime_deps = [], args = [], data = [], tags
     normalized_runtime_deps = [_normalize_runtime_dep(d) for d in runtime_deps]
     all_runtime_deps = depset(TEST_FRAMEWORK_DEPS + normalized_runtime_deps).to_list()
 
-    all_data = list(data)
+    # only what this macro contributes: the caller's `data` is concatenated at the end, so it may be
+    # a select() - a target whose data depends on the platform, as the macOS-only dev-launch sets do
+    all_data = []
     all_tags = list(tags)
     all_env = dict(env)
 
@@ -122,6 +124,8 @@ def jps_test(name, jvm_flags = [], runtime_deps = [], args = [], data = [], tags
 
     # handled by com.intellij.tests.JUnit5BazelRunner.main
     all_env["JB_TEST_SANDBOX"] = str(sandbox)
+
+    all_tags.append("jetbrains_test_runner")
 
     classes_duration_data = _classes_duration_data()
     if classes_duration_data != None:
@@ -136,6 +140,8 @@ def jps_test(name, jvm_flags = [], runtime_deps = [], args = [], data = [], tags
     else:
         # so com.intellij.tests.JUnit5BazelRunner.guessBazelWorkspaceDir will find a real workspace root
         all_data.append("@community//:intellij.idea.community.main.iml")
+
+        all_tags.append("external")
 
         if "no-sandbox" not in all_tags:
             all_tags.append("no-sandbox")
@@ -153,7 +159,7 @@ def jps_test(name, jvm_flags = [], runtime_deps = [], args = [], data = [], tags
         # which is also a reasonable tests timeout for current state of things
         size = "enormous",
         tags = all_tags,
-        data = all_data,
+        data = data + all_data,
         env = all_env,
         use_testrunner = False,
         **kwargs

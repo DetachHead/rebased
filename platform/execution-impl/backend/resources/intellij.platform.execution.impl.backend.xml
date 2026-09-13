@@ -9,11 +9,12 @@
     <module name="intellij.platform.execution.impl"/>
     <module name="intellij.platform.kernel"/>
     <module name="intellij.platform.kernel.backend"/>
+    <module name="intellij.platform.project"/>
+    <module name="intellij.platform.rpc.backend"/>
     <module name="intellij.platform.util.coroutines"/>
   </dependencies>
   <!-- endregion -->
   <extensions defaultExtensionNs="com.intellij">
-    <!--suppress PluginXmlRegistrationCheck -->
     <executionTargetLanguageRuntimeType implementation="com.intellij.execution.target.java.JavaLanguageRuntimeType"/>
     <platform.rpc.backend.remoteApiProvider
       implementation="com.intellij.platform.execution.impl.backend.BackendExecutionRemoteApiProvider"/>

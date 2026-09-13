@@ -1,14 +1,25 @@
 load("@community//build:tests-options.bzl", "jps_test")
+load("@community//platform/build-scripts/bazel-rules:dev_dist_plugin.bzl", "dev_dist_plugin")
 load("@rules_jvm//:jvm.bzl", "jvm_library")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
+
+jps_test(
+    name = "yaml-tests_test",
+    timeout = "moderate",
+    tags = ["community-aggregator"],
+    runtime_deps = [
+        ":yaml",
+        ":yaml-tests_test_lib",
+        "//json",
+    ],
+)
+### skip generation section `test intellij.yaml.tests`
 
 ### auto-generated section `build intellij.yaml` start
-
 jvm_library(
     name = "yaml",
     srcs = glob(
         [
-            "gen/**/*.kt",
-            "gen/**/*.java",
             "src/**/*.kt",
             "src/**/*.java",
             "src/**/*.form",
@@ -21,6 +32,7 @@ jvm_library(
         ["resources/**/*"],
     ),
     visibility = ["//visibility:public"],
+    exports = ["//plugins/yaml/syntax"],
     deps = [
         # do not sort,
         "//platform/analysis-api:analysis",
@@ -46,8 +58,13 @@ jvm_library(
         "//libraries/stream",
         "//platform/util-ex",
         "//libraries/kotlinx/collections-immutable:libraries-kotlinx-collections-immutable",
+        "//platform/syntax/syntax-psi:psi",
+        "//platform/syntax/syntax-util:util",
+        "//plugins/yaml/syntax",
     ],
 )
+
+content_module_jar(module = ":yaml")
 
 jvm_library(
     name = "yaml_test_lib",
@@ -58,6 +75,11 @@ jvm_library(
     ),
     module_name = "intellij.yaml",
     visibility = ["//visibility:public"],
+    exports = [
+        # do not sort,
+        "//plugins/yaml/syntax",
+        "//plugins/yaml/syntax:syntax_test_lib",
+    ],
     runtime_deps = [
         # do not sort,
         ":yaml",
@@ -85,6 +107,9 @@ jvm_library(
         "//libraries/stream:stream_test_lib",
         "//platform/util-ex:util-ex_test_lib",
         "//libraries/kotlinx/collections-immutable:libraries-kotlinx-collections-immutable_test_lib",
+        "//platform/syntax/syntax-psi:psi_test_lib",
+        "//platform/syntax/syntax-util:util_test_lib",
+        "//plugins/yaml/syntax:syntax_test_lib",
     ],
 )
 ### auto-generated section `build intellij.yaml` end
@@ -93,13 +118,24 @@ jvm_library(
 exports_files(
     [
         "intellij.yaml.iml",
+        "resources/META-INF/plugin.xml",
+        "resources/intellij.yaml.xml",
     ],
     visibility = ["//visibility:public"],
 )
 ### auto-generated section `iml intellij.yaml` end
 
-### auto-generated section `build intellij.yaml.tests` start
+### auto-generated section `dev intellij.yaml` start
+dev_dist_plugin(
+    descriptor_module = ":yaml",
+    prepacked_content_modules = ["//plugins/yaml/backend:backend_content_module_jar"],
+    prepacked_jars = {
+        "//plugins/yaml/syntax:syntax_content_module_jar": "intellij.yaml.syntax.jar",
+    },
+)
+### auto-generated section `dev intellij.yaml` end
 
+### auto-generated section `build intellij.yaml.tests` start
 jvm_library(
     name = "yaml-tests",
     srcs = glob(
@@ -179,6 +215,8 @@ jvm_library(
         "//platform/util-ex:util-ex_test_lib",
         "//libraries/kotlinx/collections-immutable:libraries-kotlinx-collections-immutable",
         "//libraries/kotlinx/collections-immutable:libraries-kotlinx-collections-immutable_test_lib",
+        "//libraries/junit4",
+        "//libraries/junit4:junit4_test_lib",
     ],
 )
 ### auto-generated section `build intellij.yaml.tests` end
@@ -191,11 +229,3 @@ exports_files(
     visibility = ["//visibility:public"],
 )
 ### auto-generated section `iml intellij.yaml.tests` end
-
-### auto-generated section `test intellij.yaml.tests` start
-
-jps_test(
-    name = "yaml-tests_test",
-    runtime_deps = [":yaml-tests_test_lib"],
-)
-### auto-generated section `test intellij.yaml.tests` end

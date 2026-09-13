@@ -39,11 +39,7 @@ private val LOG = fileLogger()
 private const val STATUS_UPDATE_THROTTLING_TIME_MS = 300
 
 @ApiStatus.Internal
-class BackendMultipleBuildsView(
-  private val project: Project,
-  private val buildContentManager: BuildContentManager,
-  internal val viewManager: AbstractViewManager,
-) : MultipleBuildsView {
+class BackendMultipleBuildsView(private val project: Project, internal val viewManager: AbstractViewManager) : MultipleBuildsView {
   companion object {
     fun getById(buildContentId: BuildContentId): BackendMultipleBuildsView? {
       return findValueById(buildContentId, BackendMultipleBuildsViewIdType)
@@ -93,7 +89,6 @@ class BackendMultipleBuildsView(
     }
     EdtExecutorService.getInstance().execute {
       if (disposed) return@execute
-      buildContentManager.orCreateToolWindow
       if (event is StartBuildEvent) {
         LOG.debug { "$this build started, buildId: $buildId" }
         clearOldBuilds(event)
@@ -147,7 +142,7 @@ class BackendMultipleBuildsView(
         buildView.onEvent(buildId, event)
 
         val treeViewId = buildView.eventView?.buildViewId
-        val consoleComponent = buildView.consoleComponent.setupTransfer(buildView)
+        val consoleComponent = buildView.consoleComponent?.setupTransfer(buildView)
 
         val processHandler = buildInfo.processHandler
         if (processHandler is Disposable) {

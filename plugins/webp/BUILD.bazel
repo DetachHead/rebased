@@ -1,7 +1,7 @@
+load("@community//platform/build-scripts/bazel-rules:dev_dist_plugin.bzl", "dev_dist_plugin")
 load("@rules_jvm//:jvm.bzl", "jvm_library")
 
 ### auto-generated section `build intellij.webp` start
-
 jvm_library(
     name = "webp",
     srcs = glob(
@@ -20,7 +20,6 @@ jvm_library(
     visibility = ["//visibility:public"],
     deps = [
         # do not sort,
-        "@lib//:kotlin-stdlib",
         "//platform/core-api:core",
         "//platform/lang-api:lang",
         "//platform/platform-impl:ide-impl",
@@ -55,7 +54,17 @@ jvm_library(
 exports_files(
     [
         "intellij.webp.iml",
+        "resources/META-INF/plugin.xml",
     ],
     visibility = ["//visibility:public"],
 )
 ### auto-generated section `iml intellij.webp` end
+
+### auto-generated section `dev intellij.webp` start
+dev_dist_plugin(
+    descriptor = "resources/META-INF/plugin.xml",
+    descriptor_module = ":webp",
+    libraries = ["//plugins/webp/lib:webp-libwebp"],
+    main_module = "intellij.webp",
+)
+### auto-generated section `dev intellij.webp` end

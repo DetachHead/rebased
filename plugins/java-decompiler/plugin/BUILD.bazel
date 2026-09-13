@@ -1,8 +1,8 @@
 load("@community//build:tests-options.bzl", "jps_test")
+load("@community//platform/build-scripts/bazel-rules:dev_dist_plugin.bzl", "dev_dist_plugin")
 load("@rules_jvm//:jvm.bzl", "jvm_library")
 
 ### auto-generated section `build intellij.java.decompiler` start
-
 jvm_library(
     name = "java-decompiler",
     srcs = glob(
@@ -96,13 +96,23 @@ jvm_library(
 exports_files(
     [
         "intellij.java.decompiler.iml",
+        "resources/META-INF/plugin.xml",
     ],
     visibility = ["//visibility:public"],
 )
 ### auto-generated section `iml intellij.java.decompiler` end
 
-### auto-generated section `build intellij.java.decompiler.tests` start
+### auto-generated section `dev intellij.java.decompiler` start
+dev_dist_plugin(
+    content_modules = ["//plugins/java-decompiler/engine"],
+    descriptor = "resources/META-INF/plugin.xml",
+    descriptor_module = ":java-decompiler",
+    libraries = ["@lib//:eclipse"],
+    main_module = "intellij.java.decompiler",
+)
+### auto-generated section `dev intellij.java.decompiler` end
 
+### auto-generated section `build intellij.java.decompiler.tests` start
 jvm_library(
     name = "java-decompiler-tests",
     srcs = glob(
@@ -187,6 +197,8 @@ jvm_library(
         "//platform/structure-view-impl:structureView_test_lib",
         "//java/java-frontback-psi-api:frontback-psi",
         "//java/java-frontback-psi-api:frontback-psi_test_lib",
+        "//libraries/junit4",
+        "//libraries/junit4:junit4_test_lib",
     ],
 )
 ### auto-generated section `build intellij.java.decompiler.tests` end
@@ -201,7 +213,6 @@ exports_files(
 ### auto-generated section `iml intellij.java.decompiler.tests` end
 
 ### auto-generated section `test intellij.java.decompiler.tests` start
-
 jps_test(
     name = "java-decompiler-tests_test",
     runtime_deps = [":java-decompiler-tests_test_lib"],

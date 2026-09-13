@@ -16,6 +16,15 @@ import kotlin.jvm.JvmStatic
 class DbContext<out QQ : Q>(
   @PublishedApi
   internal var privateValue: Any,
+  /**
+   * The source this context came from, or `null` when a region bound it explicitly.
+   *
+   * The null is load-bearing rather than merely missing information: it is how a thread somebody
+   * claimed is told apart from one a source populated. An ambient
+   * [fleet.kernel.DbSource.ContextElement] will not replace a claimed context when a coroutine
+   * resumes on the thread, and `restoreThreadContext` will not re-bump one to `latest` when a
+   * coroutine leaves it.
+   */
   val dbSource: Any?,
   //var stack: Throwable? = getStack()
 ) {

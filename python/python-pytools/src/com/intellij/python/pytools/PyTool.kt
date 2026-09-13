@@ -5,21 +5,19 @@ import com.intellij.openapi.extensions.ExtensionPointName
 import com.intellij.openapi.options.UnnamedConfigurable
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.NlsSafe
-import com.intellij.python.pytools.configuration.ExecutableDiscoveryMode
+import com.intellij.platform.eel.provider.getEelDescriptor
 import com.intellij.python.pytools.statistics.PyToolFusSnapshot
 import com.jetbrains.python.packaging.PyPackageName
 import org.jetbrains.annotations.Nls
+import javax.swing.Icon
 import com.intellij.openapi.util.Version as PlatformVersion
 
-data class InstallInfo(
-  val packageName: PyPackageName,
-  val installHelp: @Nls String? = null,
-)
-
-interface PyTool {
+interface PyTool : PyExecutable {
   val presentableName: @NlsSafe String
   val packageName: PyPackageName
-  val aliases: List<PyPackageName> get() = listOf(packageName)
+
+  /** Icon representing the tool (e.g. status-bar widget, advertiser notification, External Tools table). */
+  val icon: Icon
 
   /**
    * One-line user-facing description of the tool (e.g. "Linter and code formatter for Python").
@@ -28,15 +26,28 @@ interface PyTool {
    */
   val description: @Nls String
 
-  val installInfo: InstallInfo get() = InstallInfo(packageName)
-
   /**
    * Provides a unique identifier (python package name) for the feature usage statistics (FUS) system.
    * The identifier is dynamically derived from the first package name in the list of known package names.
    **
    * @return A string representing the FUS identifier for the tool, validated via the dictionary of well-known python package names.
    */
-  val fusId: String get() = packageName.name
+  override val fusId: String get() = packageName.name
+
+  /**
+   * Every executable this tool provides: the tool's own command plus any secondary entry points that
+   * ship with it (e.g. uv also provides `uvx`, pyright also provides `pyright-langserver`). Each has its
+   * own custom-path / detection-cache entry keyed by [PyExecutable.fusId]. Defaults to just the tool
+   * itself; tools with extra runners override. Resolve a bare command name through [findExecutable].
+   */
+  val executables: List<PyExecutable> get() = listOf(this)
+
+  /**
+   * How this tool installs/upgrades itself from the settings UI. Defaults to [PackagePyToolManager]
+   * (install as a Python package via uv/pip). Tools installed a different way (conda) override; `null`
+   * means the tool can't be installed through the IDE — the row only lets the user set its path.
+   */
+  val manager: PyToolManager? get() = PackagePyToolManager
 
   /**
    * Lowest tool version the IDE integration is known to work with, or `null` if there is no such
@@ -47,21 +58,13 @@ interface PyTool {
    */
   val minimumSupportedVersion: PlatformVersion? get() = null
 
-  /** Pre-migration `enabled` value, used by [PyToolsState] on first read. */
-  fun legacyEnabled(project: Project): Boolean = false
-
-  /** Pre-migration discovery mode, used by [PyToolsState] on first read. */
-  fun legacyDiscoveryMode(project: Project): ExecutableDiscoveryMode = ExecutableDiscoveryMode.INTERPRETER
-
-  /** Pre-migration custom path, used by [PyToolsState] on first read. */
-  fun legacyCustomPath(project: Project): java.nio.file.Path? = null
-
   /**
-   * Factory that builds the per-tool detail UI shown in the Edit dialog of the External Tools
-   * table. `null` (the default) means the tool has no extra options — the table uses this to dim
-   * and disable the gear icon for the row.
+   * One-time migration from this tool's pre-[PyToolsState] configuration. Called once per project by
+   * [PyToolsState] when it has no stored state yet. Implementations read their old settings, **reset those
+   * old settings to their defaults** (so the migration is one-way and re-running it can never resurrect the
+   * old values), and return the equivalent [PyToolsState.ToolEntry] — or `null` if there is nothing to migrate.
    */
-  val detailConfigurable: ((Project) -> UnnamedConfigurable)? get() = null
+  fun migrateLegacyState(project: Project): PyToolsState.ToolEntry? = null
 
   /**
    * Compact, comma-separated summary of currently-activated features for the External Tools table
@@ -72,6 +75,15 @@ interface PyTool {
 
   /** Invoked on Apply when the table flips this tool's enabled state. Tools start/stop their LSP servers here. */
   fun onEnabledChanged(project: Project, enabled: Boolean) {}
+
+  /**
+   * Whether this tool is currently the project's selected type engine. Tools that can double as an
+   * external type engine (Pyrefly, ty) override this; ordinary LSP tools keep the default. When it
+   * is `true` the External Tools page asks the user to confirm before turning this tool's enable
+   * toggle off (see [ExternalPyTool.enableToggleConfirmation]), and [isActiveOn] reports the tool as
+   * active so the shared LSP server and its features stay on while the tool acts as the engine.
+   */
+  fun isSelectedAsTypeEngine(project: Project): Boolean = false
 
   /**
    * Snapshot every configuration field this tool owns, for FUS logging. The default returns
@@ -86,12 +98,58 @@ interface PyTool {
     val entry = PyToolsState.getInstance(project).getEntry(this)
     return PyToolFusSnapshot(
       enabled = entry.enabled,
-      executableDiscoveryMode = entry.discoveryMode,
-      customPath = entry.customToolBinaryPath != null,
+      customPath = getCustomExecutablePath(project.getEelDescriptor()) != null,
     )
   }
 
   companion object {
     val EP_NAME: ExtensionPointName<PyTool> = ExtensionPointName.create("com.intellij.python.pytools.pyTool")
+
+    fun findByPackageName(packageName: String): PyTool? {
+      val normalized = PyPackageName.from(packageName).name
+      return EP_NAME.extensionList.firstOrNull { it.packageName.name == normalized }
+    }
+
+    /**
+     * The [PyExecutable] whose command name is [name], searched across every registered tool's
+     * [executables] (own command and secondary entry points), or `null` if no tool provides it.
+     */
+    fun findExecutable(name: String): PyExecutable? =
+      EP_NAME.extensionList.firstNotNullOfOrNull { tool -> tool.executables.firstOrNull { it.fusId == name } }
   }
 }
+
+/**
+ * Marks a [PyTool] as one that is **listed on the External Tools settings page**. Presence of this
+ * interface is what makes a tool appear (and be searchable) there. It also contributes the tool's detail
+ * panel — the feature toggles shown inline when the tool's row is expanded. Kept separate from [PyTool]
+ * so a tool opts into the page without every tool having to.
+ */
+interface ExternalPyTool {
+  /** The inline detail configurable (feature toggles) embedded in the tool's expanded row. */
+  fun createConfigurable(project: Project): UnnamedConfigurable
+
+  /**
+   * A confirmation message the External Tools page shows before flipping this tool's enable toggle to
+   * [isOn], or `null` (default) to change it silently. Shown when turning the tool **off** while it is
+   * in use — [isTypeEngine] tells the tool whether it is the project's current type engine (**staged or
+   * persisted**, computed by the page, since a not-yet-applied selection isn't visible via
+   * [PyTool.isSelectedAsTypeEngine]). Tools with other "in use" conditions can override.
+   */
+  fun enableToggleConfirmation(isOn: Boolean, isTypeEngine: Boolean): @Nls String? {
+    if (isOn || !isTypeEngine) return null
+    val name = (this as? PyTool)?.presentableName ?: return null
+    return PyToolsBundle.message("py.tool.toggle.confirm.type.engine", name)
+  }
+}
+
+/**
+ * Marks a [PyTool] as one that is **listed on the Package Managers settings page** (uv, Poetry, Hatch,
+ * Pipenv, conda). Presence of this interface is what makes a tool appear (and be searchable) there.
+ *
+ * A package manager has no per-tool feature panel; the page only shows and edits the executable path.
+ * The custom path itself is a common [PyTool] concern, stored per Eel machine via
+ * [getCustomExecutablePath] / [setCustomExecutablePath] — the same mechanism the External Tools page
+ * uses — so this interface carries no path state of its own.
+ */
+interface PackageManagerPyTool

@@ -8,7 +8,7 @@ import com.intellij.modcommand.ModPsiUpdater
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.TextRange
 import org.jetbrains.kotlin.analysis.api.KaSession
-import org.jetbrains.kotlin.analysis.api.resolution.singleVariableAccessCall
+import org.jetbrains.kotlin.analysis.api.resolution.resolveSuccessfulCall
 import org.jetbrains.kotlin.analysis.api.resolution.symbol
 import org.jetbrains.kotlin.idea.base.psi.copied
 import org.jetbrains.kotlin.idea.base.resources.KotlinBundle
@@ -84,12 +84,12 @@ internal class SuspiciousJavaClassCallableReferenceInspection :
         return element.callableReference.getReferencedNameAsName() == JvmStandardClassIds.Callables.JavaClass.callableName
     }
 
-    override fun KaSession.prepareContext(element: KtCallableReferenceExpression): Context? {
-        val resolvedCall = element.resolveToCall()?.singleVariableAccessCall() ?: return null
-
+    context(session: KaSession)
+    override fun prepareContext(element: KtCallableReferenceExpression): Context? {
+        val resolvedCall = element.resolveSuccessfulCall() ?: return null
         if (resolvedCall.symbol.callableId != JvmStandardClassIds.Callables.JavaClass) return null
 
-        val receiverKind = if (resolvedCall.partiallyAppliedSymbol.extensionReceiver != null) {
+        val receiverKind = if (resolvedCall.extensionReceiver != null) {
             // receiver value is present, the receiver is an expression
             ReceiverKind.EXPRESSION
         } else {
@@ -175,4 +175,3 @@ private fun KtExpression.splitIntoQualifiersIfQualified(): List<KtExpression> {
         .map { (it as? KtQualifiedExpression)?.selectorExpression ?: it }
         .toList()
 }
-

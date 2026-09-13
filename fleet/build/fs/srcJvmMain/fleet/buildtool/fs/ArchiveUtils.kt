@@ -37,6 +37,7 @@ import kotlin.io.path.createDirectories
 import kotlin.io.path.createSymbolicLinkPointingTo
 import kotlin.io.path.deleteRecursively
 import kotlin.io.path.exists
+import kotlin.io.path.extension
 import kotlin.io.path.fileAttributesView
 import kotlin.io.path.getPosixFilePermissions
 import kotlin.io.path.inputStream
@@ -174,7 +175,7 @@ fun extractTarZst(
   cleanDestination: Boolean,
   temporaryDir: Path,
   logger: Logger,
-) = extractCompressedTar(archive, destination, stripTopLevelFolder, cleanDestination, CompressorStreamFactory.ZSTANDARD, temporaryDir, logger)
+) = extractTar(archive, destination, stripTopLevelFolder, cleanDestination, CompressorStreamFactory.ZSTANDARD, temporaryDir, logger)
 
 fun extractTarGz(
   archive: Path,
@@ -184,7 +185,7 @@ fun extractTarGz(
   temporaryDir: Path,
   logger: Logger,
   encoding: String? = null,
-) = extractCompressedTar(archive, destination, stripTopLevelFolder, cleanDestination, CompressorStreamFactory.GZIP, temporaryDir, logger, encoding)
+) = extractTar(archive, destination, stripTopLevelFolder, cleanDestination, CompressorStreamFactory.GZIP, temporaryDir, logger, encoding)
 
 fun extractTarXz(
   archive: Path,
@@ -194,15 +195,15 @@ fun extractTarXz(
   temporaryDir: Path,
   logger: Logger,
   encoding: String? = null,
-) = extractCompressedTar(archive, destination, stripTopLevelFolder, cleanDestination, CompressorStreamFactory.XZ, temporaryDir, logger, encoding)
+) = extractTar(archive, destination, stripTopLevelFolder, cleanDestination, CompressorStreamFactory.XZ, temporaryDir, logger, encoding)
 
 
-private fun extractCompressedTar(
+fun extractTar(
   archive: Path,
   destination: Path,
   stripTopLevelFolder: Boolean,
   cleanDestination: Boolean,
-  compressorName: String,
+  compressorName: String? = null,
   temporaryDir: Path,
   logger: Logger,
   encoding: String? = null,
@@ -215,7 +216,7 @@ private fun extract(
   stripTopLevelFolder: Boolean,
   cleanDestination: Boolean,
   archiveType: ArchiveType,
-  compressorName: String,
+  compressorName: String?,
   temporaryDir: Path,
   logger: Logger,
   encoding: String? = null,
@@ -248,6 +249,7 @@ private fun extract(
         when (compressorName) {
           CompressorStreamFactory.ZSTANDARD -> ZstdCompressorInputStream(bufferedInputStream)
           CompressorStreamFactory.XZ -> XZCompressorInputStream(bufferedInputStream)
+          null -> bufferedInputStream
           else -> CompressorStreamFactory().createCompressorInputStream(compressorName, bufferedInputStream)
         }.use { `in` ->
           TarArchiveInputStream(`in`, encoding).use { archiveInputStream ->
@@ -571,6 +573,33 @@ private fun ZipArchiveEntry.resetLastModifiedTime(reproducibilityMode: Reproduci
     }
   }
 }
+
+/**
+ * Extracts [archive] into [destination], choosing the extractor by the archive extension (`.zip`, `.tar.gz`,
+ * `.tar.zst`, or a plain `.tar`). The inverse of [packDirectory], so it accepts every distribution archive
+ * `generate-distribution` emits.
+ */
+fun extractArchive(
+  archive: Path,
+  destination: Path,
+  temporaryDir: Path,
+  stripTopLevelFolder: Boolean,
+  cleanDestination: Boolean,
+  logger: Logger,
+) {
+  when {
+    archive.extension == "zip" ->
+      extractZip(archive, destination, stripTopLevelFolder, cleanDestination, temporaryDir, logger)
+    archive.name.endsWith(".tar.gz") ->
+      extractTarGz(archive, destination, stripTopLevelFolder, cleanDestination, temporaryDir, logger)
+    archive.name.endsWith(".tar.zst") ->
+      extractTarZst(archive, destination, stripTopLevelFolder, cleanDestination, temporaryDir, logger)
+    archive.extension == "tar" ->
+      extractTar(archive, destination, stripTopLevelFolder, cleanDestination, temporaryDir = temporaryDir, logger = logger)
+    else -> error("Unsupported archive format: $archive")
+  }
+}
+
 
 
 private fun Path.getFilePermissions(vararg options: LinkOption): FilePermissions {

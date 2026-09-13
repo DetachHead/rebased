@@ -5,18 +5,18 @@ import com.intellij.modcommand.ModCommandAction
 import com.intellij.psi.PsiElement
 import com.intellij.psi.util.findParentOfType
 import com.intellij.util.containers.addIfNotNull
-import org.jetbrains.kotlin.analysis.api.KaExperimentalApi
-import org.jetbrains.kotlin.analysis.api.KaImplementationDetail
 import org.jetbrains.kotlin.analysis.api.KaSession
-import org.jetbrains.kotlin.analysis.api.analyze
 import org.jetbrains.kotlin.analysis.api.annotations.KaAnnotation
 import org.jetbrains.kotlin.analysis.api.annotations.KaAnnotationValue
 import org.jetbrains.kotlin.analysis.api.annotations.KaNamedAnnotationValue
-import org.jetbrains.kotlin.analysis.api.components.applicableAnnotationTargets
-import org.jetbrains.kotlin.analysis.api.components.defaultAnnotationTargets
 import org.jetbrains.kotlin.analysis.api.fir.diagnostics.KaFirDiagnostic
+import org.jetbrains.kotlin.analysis.api.session.analyze
+import org.jetbrains.kotlin.analysis.api.symbols.applicableAnnotationTargets
+import org.jetbrains.kotlin.analysis.api.symbols.defaultAnnotationTargets
 import org.jetbrains.kotlin.analysis.api.symbols.symbol
 import org.jetbrains.kotlin.analysis.api.types.KaClassType
+import org.jetbrains.kotlin.analysis.api.types.expandedSymbol
+import org.jetbrains.kotlin.analysis.api.types.type
 import org.jetbrains.kotlin.idea.base.psi.KotlinPsiHeuristics
 import org.jetbrains.kotlin.idea.codeinsight.api.applicators.fixes.KotlinQuickFixFactory
 import org.jetbrains.kotlin.idea.k2.codeinsight.fixes.OptInGeneralUtils.collectScriptCandidates
@@ -57,7 +57,6 @@ internal object OptInFixFactories {
         createQuickFix(diagnostic)
     }
 
-    @OptIn(KaExperimentalApi::class, KaImplementationDetail::class)
     context(_: KaSession)
     private fun createQuickFix(diagnostic: KaFirDiagnostic<PsiElement>): List<ModCommandAction> {
         val element = diagnostic.psi.findParentOfType<KtElement>(strict = false) ?: return emptyList()

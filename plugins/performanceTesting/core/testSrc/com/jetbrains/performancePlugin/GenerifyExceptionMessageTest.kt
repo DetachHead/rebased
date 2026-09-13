@@ -81,6 +81,25 @@ class GenerifyExceptionMessageTest {
             """.trimIndent(),
         cleanedMessage)
     }
+
+    fun replaceUIDTestTemplate(generifyErrorMessageFunc: (String) -> String) {
+      // fleet.util.UID.random() output: 20 base-32 chars, digits interleaved with letters
+      val exceptionMessage = """
+        No session found for request: RpcCompletionRequestId(id=l8nnaskjn7k16m0qqqpt)
+        No session found for request: RpcCompletionRequestId(id=a1b2c3d4e5f6g7h8i9j0)
+        startupPerformanceTests5482355837770071386
+        """.trimIndent()
+
+      // both distinct UIDs collapse to <UID>; the long non-UID token still becomes <NUM>
+      val cleanedMessage = generifyErrorMessageFunc(exceptionMessage)
+      Assert.assertEquals(
+        """
+            No session found for request: RpcCompletionRequestId(id=<UID>)
+            No session found for request: RpcCompletionRequestId(id=<UID>)
+            startupPerformanceTests<NUM>
+            """.trimIndent(),
+        cleanedMessage)
+    }
   }
 
   @Test
@@ -96,5 +115,28 @@ class GenerifyExceptionMessageTest {
   @Test
   fun replaceHashesTest() {
     replaceHashesTestTemplate(::generifyErrorMessage)
+  }
+
+  @Test
+  fun replaceUIDTest() {
+    replaceUIDTestTemplate(::generifyErrorMessage)
+  }
+
+  @Test
+  fun replaceLinksTest() {
+    val joinLink = "tcp://127.0.0.1:5990#jt=a186acbd-5d03-479c-aaf8-dfc7e24b27d7&p=IU" +
+                   "&fp=A579DA4FB9E3D957BE1D8016CA8C444401B3CD289E785675CAA53FEE4072ED30" +
+                   "&cb=263.SNAPSHOT&newUi=true&jb=25.0.4b557.28"
+    val links = listOf(
+      joinLink,
+      "https://www.jetbrains.com/idea/?ref=error-message",
+      "wss://example.com/socket?id=42",
+      "jetbrains-gateway://connect#host=localhost&port=22",
+    )
+
+    links.forEach { link ->
+      Assert.assertEquals("Link: <LINK>.", generifyErrorMessage("Link: $link."))
+    }
+    Assert.assertEquals("File: file://<FILE>", generifyErrorMessage("File: file:///tmp/log.txt"))
   }
 }

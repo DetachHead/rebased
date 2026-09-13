@@ -1,15 +1,12 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.platform.eel.tcp
 
-import com.intellij.internal.statistic.SmartModeTransitionPhase
-import com.intellij.internal.statistic.SmartModeTransitionPhaseListener
-import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.components.serviceAsync
 import com.intellij.platform.eel.EelApi
 import com.intellij.platform.eel.EelDescriptor
-import com.intellij.platform.eel.EelMachine
+import com.intellij.platform.eel.EelMachineWithConnectionState
 import com.intellij.platform.ijent.IjentSession
-import com.intellij.platform.ijent.tcp.IjentIsolatedTcpDeployingStrategy
+import com.intellij.platform.ijent.spi.IjentDeployingStrategy
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -33,7 +30,7 @@ import kotlinx.coroutines.sync.withLock
  * - NotStarted → Failed (on creation error, excluding cancellation)
  * - Failed → Started (after backoff period)
  */
-abstract class TcpEelMachine(override val internalName: String) : EelMachine {
+abstract class TcpEelMachine(override val internalName: String) : EelMachineWithConnectionState {
 
   private val sessionMutex = Mutex()
 
@@ -56,32 +53,21 @@ abstract class TcpEelMachine(override val internalName: String) : EelMachine {
   val isSessionRunning: Boolean
     get() = (state as? SessionState.Started)?.session?.isRunning == true
 
-  protected abstract suspend fun createStrategy(): FusReportingStrategy
+  override val isConnected: Boolean
+    get() = isSessionRunning
 
-  abstract class FusReportingStrategy : IjentIsolatedTcpDeployingStrategy() {
-    final override suspend fun phaseStarted(phase: Phase) {
-      publisher()?.phaseStarted(phase.toSmartModePhase())
-    }
-
-    final override suspend fun phaseFinished(phase: Phase) {
-      publisher()?.phaseFinished(phase.toSmartModePhase())
-    }
-
-    private fun publisher(): SmartModeTransitionPhaseListener? =
-      ApplicationManager.getApplication()?.messageBus?.syncPublisher(SmartModeTransitionPhaseListener.TOPIC)
-
-    private fun Phase.toSmartModePhase(): SmartModeTransitionPhase = when (this) {
-      Phase.DEPLOY -> SmartModeTransitionPhase.EEL_DEPLOY
-      Phase.CONNECT -> SmartModeTransitionPhase.EEL_CONNECT
-    }
-  }
+  protected abstract suspend fun createStrategy(): IjentDeployingStrategy
 
   override suspend fun toEelApi(descriptor: EelDescriptor): EelApi {
     return getOrCreateIjentSession().getIjentInstance(descriptor)
   }
   suspend fun getOrCreateIjentSession(): IjentSession {
     // Fast path: check if session is still running without acquiring mutex
-    (state as? SessionState.Started)?.session?.takeIf { it.isRunning }?.let {
+    val runningSession = when (val currentState = state) {
+      is SessionState.Started -> currentState.session.takeIf { it.isRunning }
+      is SessionState.Failed, SessionState.NotStarted -> null
+    }
+    runningSession?.let {
       return it
     }
 

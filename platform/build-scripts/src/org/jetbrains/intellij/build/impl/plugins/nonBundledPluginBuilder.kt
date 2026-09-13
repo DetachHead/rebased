@@ -13,11 +13,6 @@ import io.opentelemetry.api.common.AttributeKey
 import io.opentelemetry.api.common.Attributes
 import io.opentelemetry.api.trace.Span
 import kotlinx.coroutines.CoroutineName
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Deferred
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.async
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.apache.commons.compress.archivers.zip.Zip64Mode
 import org.jetbrains.intellij.build.BuildContext
@@ -27,7 +22,8 @@ import org.jetbrains.intellij.build.OsFamily
 import org.jetbrains.intellij.build.PLUGIN_XML_RELATIVE_PATH
 import org.jetbrains.intellij.build.PluginBundlingRestrictions
 import org.jetbrains.intellij.build.SearchableOptionSetDescriptor
-import org.jetbrains.intellij.build.classPath.PluginBuildDescriptor
+import org.jetbrains.intellij.build.TaskScope
+import org.jetbrains.intellij.build.classPath.PluginBuildResult
 import org.jetbrains.intellij.build.executeStep
 import org.jetbrains.intellij.build.getUnprocessedPluginXmlContent
 import org.jetbrains.intellij.build.impl.BUILT_IN_HELP_MODULE_NAME
@@ -55,7 +51,9 @@ import org.jetbrains.intellij.build.io.writeNewZipWithoutIndex
 import org.jetbrains.intellij.build.io.zipWithCompression
 import org.jetbrains.intellij.build.mapConcurrent
 import org.jetbrains.intellij.build.telemetry.TraceManager.spanBuilder
+import org.jetbrains.intellij.build.telemetry.blockingUse
 import org.jetbrains.intellij.build.telemetry.use
+import org.jetbrains.intellij.build.taskScope
 import tools.jackson.jr.ob.JSON
 import java.nio.ByteBuffer
 import java.nio.file.Files
@@ -66,39 +64,41 @@ import kotlin.io.path.invariantSeparatorsPathString
 internal suspend fun buildNonBundledPlugins(
   pluginsToPublish: Set<PluginLayout>,
   compressPluginArchive: Boolean,
-  buildPlatformLibJob: Deferred<List<DistributionFileEntry>>?,
+  platformEntriesProvider: (suspend () -> List<DistributionFileEntry>)?,
   state: DistributionBuilderState,
   searchableOptionSet: SearchableOptionSetDescriptor?,
   isUpdateFromSources: Boolean,
   descriptorCacheContainer: DescriptorCacheContainer,
   context: BuildContext,
-): List<PluginBuildDescriptor> {
+): List<PluginBuildResult> {
   return context.executeStep(spanBuilder("build non-bundled plugins").setAttribute("count", state.pluginsToPublish.size.toLong()), BuildOptions.NON_BUNDLED_PLUGINS_STEP) {
-    buildNonBundledPlugins(
-      scope = this,
-      pluginsToPublish = pluginsToPublish,
-      compressPluginArchive = compressPluginArchive,
-      buildPlatformLibJob = buildPlatformLibJob,
-      state = state,
-      searchableOptionSet = searchableOptionSet,
-      isUpdateFromSources = isUpdateFromSources,
-      descriptorCacheContainer = descriptorCacheContainer,
-      context = context,
-    )
+    taskScope {
+      buildNonBundledPlugins(
+        tasks = this,
+        pluginsToPublish = pluginsToPublish,
+        compressPluginArchive = compressPluginArchive,
+        platformEntriesProvider = platformEntriesProvider,
+        state = state,
+        searchableOptionSet = searchableOptionSet,
+        isUpdateFromSources = isUpdateFromSources,
+        descriptorCacheContainer = descriptorCacheContainer,
+        context = context,
+      )
+    }
   } ?: emptyList()
 }
 
 private suspend fun buildNonBundledPlugins(
-  scope: CoroutineScope,
+  tasks: TaskScope,
   pluginsToPublish: Set<PluginLayout>,
   compressPluginArchive: Boolean,
-  buildPlatformLibJob: Deferred<List<DistributionFileEntry>>?,
+  platformEntriesProvider: (suspend () -> List<DistributionFileEntry>)?,
   state: DistributionBuilderState,
   searchableOptionSet: SearchableOptionSetDescriptor?,
   isUpdateFromSources: Boolean,
   descriptorCacheContainer: DescriptorCacheContainer,
   context: BuildContext,
-): List<PluginBuildDescriptor> {
+): List<PluginBuildResult> {
   if (pluginsToPublish.isEmpty()) {
     return emptyList()
   }
@@ -108,7 +108,7 @@ private suspend fun buildNonBundledPlugins(
     null
   }
   else {
-    scope.async(CoroutineName("build keymap plugins")) {
+    tasks.fork("build keymap plugins") {
       buildKeymapPlugins(targetDir = context.nonBundledPluginsToBePublished, context = context)
     }
   }
@@ -148,7 +148,7 @@ private suspend fun buildNonBundledPlugins(
       arch = arch,
       targetDir = targetDir,
       state = state,
-      platformEntriesProvider = buildPlatformLibJob?.let { it::await },
+      platformEntriesProvider = platformEntriesProvider,
       searchableOptionSet = searchableOptionSet,
       descriptorCacheContainer = descriptorCacheContainer,
       context = context,
@@ -160,7 +160,7 @@ private suspend fun buildNonBundledPlugins(
         val outputProvider = context.outputProvider
         val pluginModule = outputProvider.findRequiredModule(plugin.mainModule)
         var cachedPluginXml: String? = null
-        val pluginXmlSupplier: suspend () -> String = {
+        val pluginXmlSupplier: () -> String = {
           cachedPluginXml ?: getUnprocessedPluginXmlContent(pluginModule, outputProvider)
             .decodeToString()
             .also { cachedPluginXml = it }
@@ -197,7 +197,7 @@ private suspend fun buildNonBundledPlugins(
           json = json,
         )
 
-        if (isPluginValidationEnabled && plugin.mainModule != "intellij.agent.workbench.plugin") {
+        if (isPluginValidationEnabled && plugin.mainModule != "intellij.air.plugin") {
           spanBuilder("plugin validation").use { span ->
             if (Files.notExists(destFile)) {
               span.addEvent("doesn't exist, skipped", Attributes.of(AttributeKey.stringKey("path"), destFile.invariantSeparatorsPathString))
@@ -232,22 +232,22 @@ private suspend fun buildNonBundledPlugins(
   }
 
   buildKeymapPluginsTask?.let {
-    for (item in it.await()) {
-      pluginSpecs.add(PluginRepositorySpec(pluginZip = item.first, pluginXml = item.second))
+    for ((pluginZip, pluginXml) in it.await()) {
+      pluginSpecs.add(PluginRepositorySpec(pluginZip = pluginZip, pluginXml = pluginXml))
     }
   }
 
   if (prepareCustomPluginRepository) {
     val list = pluginSpecs.sortedBy { it.pluginZip }
     if (list.isNotEmpty()) {
-      scope.launch {
+      tasks.fork("generate plugin repository meta file") {
         generatePluginRepositoryMetaFile(pluginSpecs = list, targetDir = context.nonBundledPlugins, buildNumber = context.buildNumber)
       }
     }
 
     val pluginsToBePublished = list.filter { it.pluginZip.startsWith(context.nonBundledPluginsToBePublished) }
     if (pluginsToBePublished.isNotEmpty()) {
-      scope.launch {
+      tasks.fork("generate plugin repository meta file for the published plugins") {
         generatePluginRepositoryMetaFile(pluginSpecs = pluginsToBePublished, targetDir = context.nonBundledPluginsToBePublished, buildNumber = context.buildNumber)
       }
     }
@@ -295,7 +295,7 @@ private fun satisfiesOsArchRestrictions(plugin: PluginLayout, osFamily: OsFamily
   }
 }
 
-private suspend fun archivePlugin(
+private fun archivePlugin(
   source: Path,
   target: Path,
   compress: Boolean,
@@ -308,11 +308,11 @@ private suspend fun archivePlugin(
     .setAttribute("input", source.toString())
     .setAttribute("outputFile", target.toString())
     .setAttribute("optimizedZip", optimizedZip)
-    .use {
+    .blockingUse {
       archivePlugin(optimized = optimizedZip, target = target, compress = compress, source = source, context = context)
     }
   if (withBlockMap) {
-    spanBuilder("build plugin blockmap").setAttribute("file", target.toString()).use {
+    spanBuilder("build plugin blockmap").setAttribute("file", target.toString()).blockingUse {
       buildBlockMap(target, json.value)
     }
   }
@@ -348,10 +348,8 @@ private fun archivePlugin(optimized: Boolean, target: Path, compress: Boolean, s
 
 private suspend fun buildKeymapPlugins(targetDir: Path, context: BuildContext): List<Pair<Path, ByteArray>> {
   val keymapDir = context.paths.communityHomeDir.resolve("platform/platform-resources/src/keymaps")
-  withContext(Dispatchers.IO) {
-    Files.createDirectories(targetDir)
-  }
-  return spanBuilder("build keymap plugins").use(Dispatchers.IO) {
+  Files.createDirectories(targetDir)
+  return spanBuilder("build keymap plugins").use {
     listOf(
       arrayOf("Mac OS X", "Mac OS X 10.5+"),
       arrayOf("Default for GNOME"),

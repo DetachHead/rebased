@@ -23,6 +23,7 @@ import org.eclipse.lsp4j.CompletionListCapabilities
 import org.eclipse.lsp4j.DefinitionCapabilities
 import org.eclipse.lsp4j.DiagnosticCapabilities
 import org.eclipse.lsp4j.DiagnosticTag
+import org.eclipse.lsp4j.DiagnosticWorkspaceCapabilities
 import org.eclipse.lsp4j.DiagnosticsTagSupport
 import org.eclipse.lsp4j.DidChangeWatchedFilesCapabilities
 import org.eclipse.lsp4j.DocumentHighlightCapabilities
@@ -37,6 +38,7 @@ import org.eclipse.lsp4j.FoldingRangeSupportCapabilities
 import org.eclipse.lsp4j.FormattingCapabilities
 import org.eclipse.lsp4j.GeneralClientCapabilities
 import org.eclipse.lsp4j.HoverCapabilities
+import org.eclipse.lsp4j.ImplementationCapabilities
 import org.eclipse.lsp4j.InlayHintCapabilities
 import org.eclipse.lsp4j.InlayHintWorkspaceCapabilities
 import org.eclipse.lsp4j.MarkupKind
@@ -79,7 +81,7 @@ internal fun createClientCapabilities(lspCustomization: LspCustomization): Clien
     //configuration = true // keep false by default because [getWorkspaceConfiguration] returns null by default
     workspaceEdit = WorkspaceEditCapabilities().apply {
       documentChanges = true
-      resourceOperations = listOf(ResourceOperationKind.Create)
+      resourceOperations = listOf(ResourceOperationKind.Create, ResourceOperationKind.Rename, ResourceOperationKind.Delete)
       failureHandling = FailureHandlingKind.Abort
       normalizesLineEndings = true
     }
@@ -91,6 +93,9 @@ internal fun createClientCapabilities(lspCustomization: LspCustomization): Clien
       refreshSupport = true
     }
     inlayHint = InlayHintWorkspaceCapabilities().apply {
+      refreshSupport = true
+    }
+    diagnostics = DiagnosticWorkspaceCapabilities().apply {
       refreshSupport = true
     }
     symbol = SymbolCapabilities(true).apply {
@@ -117,6 +122,9 @@ internal fun createClientCapabilities(lspCustomization: LspCustomization): Clien
       linkSupport = true
     }
     typeDefinition = TypeDefinitionCapabilities().apply {
+      linkSupport = true
+    }
+    implementation = ImplementationCapabilities().apply {
       linkSupport = true
     }
     completion = CompletionCapabilities().apply {

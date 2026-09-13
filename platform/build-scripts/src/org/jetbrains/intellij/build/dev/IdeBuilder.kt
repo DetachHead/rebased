@@ -8,18 +8,15 @@ import com.intellij.openapi.util.io.NioFiles
 import com.intellij.platform.ijent.community.buildConstants.isMultiRoutingFileSystemEnabledForProduct
 import com.intellij.util.lang.PathClassLoader
 import com.intellij.util.lang.UrlClassLoader
-import io.opentelemetry.api.trace.Span
 import io.opentelemetry.api.trace.Tracer
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.coroutines.CoroutineName
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import org.jetbrains.annotations.VisibleForTesting
 import org.jetbrains.intellij.build.BuildContext
 import org.jetbrains.intellij.build.BuildOptions
@@ -36,11 +33,15 @@ import org.jetbrains.intellij.build.ProprietaryBuildTools
 import org.jetbrains.intellij.build.ScrambleTool
 import org.jetbrains.intellij.build.SearchableOptionSetDescriptor
 import org.jetbrains.intellij.build.WindowsDistributionCustomizer
+import org.jetbrains.intellij.build.classPath.PluginBuildResult
+import org.jetbrains.intellij.build.classPath.contentModuleJarCoreClasspathEntries
 import org.jetbrains.intellij.build.classPath.generateClassPathByLayoutReport
 import org.jetbrains.intellij.build.classPath.generateCoreClasspathFromPlugins
 import org.jetbrains.intellij.build.classPath.generatePluginClassPath
 import org.jetbrains.intellij.build.classPath.generatePluginClassPathFromPrebuiltPluginFiles
-import org.jetbrains.intellij.build.classPath.writePluginClassPathHeader
+import org.jetbrains.intellij.build.classPath.writePluginClassPathCount
+import org.jetbrains.intellij.build.classPath.writePluginClassPathPrefix
+import org.jetbrains.intellij.build.forEachConcurrent
 import org.jetbrains.intellij.build.getDevModeOrTestBuildDateInSeconds
 import org.jetbrains.intellij.build.impl.BuildContextImpl
 import org.jetbrains.intellij.build.impl.ModuleOutputPatcher
@@ -49,17 +50,20 @@ import org.jetbrains.intellij.build.impl.PlatformLayout
 import org.jetbrains.intellij.build.impl.collectAllPluginClasspathDirs
 import org.jetbrains.intellij.build.impl.collectCoScrambleEntries
 import org.jetbrains.intellij.build.impl.copyDistFiles
-import org.jetbrains.intellij.build.impl.createCompilationContext
+import org.jetbrains.intellij.build.impl.createDevBuildCompilationContext
 import org.jetbrains.intellij.build.impl.createIdeaPropertyFile
 import org.jetbrains.intellij.build.impl.createPlatformLayout
-import org.jetbrains.intellij.build.impl.moduleRepository.generateRuntimeModuleRepositoryForDevBuild
+import org.jetbrains.intellij.build.impl.OsSpecificDistributionBuilder
 import org.jetbrains.intellij.build.impl.getOsDistributionBuilder
+import org.jetbrains.intellij.build.impl.isDevBuildBazelBacked
 import org.jetbrains.intellij.build.impl.layoutPlatformDistribution
+import org.jetbrains.intellij.build.impl.moduleRepository.generateRuntimeModuleRepositoryForDevBuild
 import org.jetbrains.intellij.build.impl.normalizeCompilationContextForBuild
 import org.jetbrains.intellij.build.impl.productInfo.PRODUCT_INFO_FILE_NAME
 import org.jetbrains.intellij.build.impl.projectStructureMapping.ContentReport
 import org.jetbrains.intellij.build.impl.projectStructureMapping.DistributionFileEntry
 import org.jetbrains.intellij.build.jarCache.LocalDiskJarCacheManager
+import org.jetbrains.intellij.build.jarCache.NonCachingJarCacheManager
 import org.jetbrains.intellij.build.normalizeCompiledClassesOptions
 import org.jetbrains.intellij.build.productLayout.discovery.ProductConfiguration
 import org.jetbrains.intellij.build.readSearchableOptionIndex
@@ -75,7 +79,6 @@ import java.nio.file.NoSuchFileException
 import java.nio.file.Path
 import kotlin.Boolean
 import kotlin.Int
-import kotlin.OptIn
 import kotlin.RuntimeException
 import kotlin.String
 import kotlin.Suppress
@@ -83,9 +86,10 @@ import kotlin.Unit
 import kotlin.also
 import kotlin.checkNotNull
 import kotlin.io.path.createDirectories
+import kotlin.io.path.invariantSeparatorsPathString
 import kotlin.io.path.moveTo
+import kotlin.io.path.relativeTo
 import kotlin.let
-import kotlin.text.StringBuilder
 import kotlin.text.buildString
 import kotlin.text.removePrefix
 import kotlin.text.take
@@ -95,6 +99,28 @@ import kotlin.time.Duration.Companion.hours
 
 private const val maxWindowsPathLengthForIDERootToBeAbleToRunRiderBackend: Int = 64
 
+sealed interface DevBuildOutput {
+  data object Complete : DevBuildOutput
+
+  data class Component(
+    @JvmField val fragment: DevBuildFragment,
+    @JvmField val manifestFile: Path,
+    @JvmField val pluginClasspathPartFile: Path? = null,
+    @JvmField val pluginClasspathPrefixFile: Path? = null,
+    @JvmField val prepackedPluginContentPlacementFile: Path? = null,
+  ) : DevBuildOutput {
+    init {
+      require(!fragment.isComplete) { "A complete dev distribution must use DevBuildOutput.Complete" }
+      require(!fragment.ownsPlugins || pluginClasspathPartFile != null) {
+        "The '$fragment' fragment owns plugins, so it requires a plugin-classpath part file"
+      }
+      require(!fragment.ownsPlugins || prepackedPluginContentPlacementFile != null) {
+        "The '$fragment' fragment owns plugins, so it requires a prepacked-plugin-content placement file"
+      }
+    }
+  }
+}
+
 data class BuildRequest(
   @JvmField val platformPrefix: String,
   @JvmField val additionalModules: List<String>,
@@ -102,7 +128,13 @@ data class BuildRequest(
   /** For a standalone frontend distribution where `platformPrefix` is "JetBrainsClient", specifies the platform prefix of its base IDE. */
   @JvmField val baseIdePlatformPrefixForFrontend: String? = null,
   @JvmField val devRootDir: Path = System.getProperty("idea.dev.root.dir")?.let { Path.of(it).normalize().toAbsolutePath() } ?: projectDir.resolve("out/dev-run"),
-  @JvmField val jarCacheDir: Path = devRootDir.resolve("jar-cache"),
+  /**
+   * Where composed jars are cached between assemblies, or `null` to compose every jar afresh.
+   * A Bazel action passes `null`: its own declared output is the cache, so a local disk cache would only add a second copy
+   * of every jar and a directory that parallel assemblies mutate while [org.jetbrains.intellij.build.jarCache.LocalDiskJarCacheManager.cleanup]
+   * prunes it.
+   */
+  @JvmField val jarCacheDir: Path? = devRootDir.resolve("jar-cache"),
   @JvmField val classesOutputDirectory: Path? = null,
   @JvmField val keepHttpClient: Boolean = true,
   @JvmField val platformClassPathConsumer: ((mainClass: String, classPath: Set<Path>, runDir: Path) -> Unit)? = null,
@@ -121,10 +153,44 @@ data class BuildRequest(
   @JvmField val tracer: Tracer? = null,
 
   @JvmField val os: OsFamily = OsFamily.currentOs,
+  @JvmField val arch: JvmArchitecture = JvmArchitecture.currentJvmArch,
 
   @JvmField val isBootClassPathCorrect: Boolean = false,
-  @JvmField val devRunDirPrefix: String = System.getProperty("idea.dev.build.dir.prefix") ?: ""
+  @JvmField val devRunDirPrefix: String = System.getProperty("idea.dev.build.dir.prefix") ?: "",
+
+  /**
+   * If set, used verbatim as the run directory, skipping both the name derived from [platformPrefix] and [additionalModules]
+   * and the wipe of stale content. Must therefore be absent or empty - nothing clears it, and assembling on top of a previous
+   * distribution would produce a directory that is neither the old one nor the new one.
+   * A Bazel action writes into a directory whose name `declare_directory` fixes at analysis time, and that directory is handed over empty.
+   */
+  @JvmField val runDirOverride: Path? = null,
+
+  /**
+   * If set, `temp`, `artifacts` and `log` are rooted here instead of in the run directory.
+   * A `TreeArtifact` must contain only the assembled distribution - build scratch (`temp` alone is ~200 MB) is not part of the output.
+   * `temp` and `artifacts` are cleared at the start of every build, as they were while they lived in the run directory; `log` is kept.
+   */
+  @JvmField val scratchDir: Path? = null,
+
+  /**
+   * Build date stamped into the distribution, in seconds since the epoch; `null` means [getDevModeOrTestBuildDateInSeconds].
+   * Wall clock is not an action input, so a Bazel action pins the date to keep its output reproducible.
+   */
+  // `Long` is `java.lang.Long` in this file
+  @JvmField val buildDateInSeconds: kotlin.Long? = null,
+
+  /** Complete distribution, or one fully specified independently cacheable component. */
+  @JvmField val output: DevBuildOutput = DevBuildOutput.Complete,
+  /** Relation-only plan; the jar files themselves are deliberately not inputs of the fragment action. */
+  @JvmField val prepackedPluginContent: Map<PrepackedPluginContentKey, PrepackedPluginContentJar> = emptyMap(),
 ) {
+  internal val fragment: DevBuildFragment
+    get() = (output as? DevBuildOutput.Component)?.fragment ?: DevBuildFragment.COMPLETE
+
+  internal val componentOutput: DevBuildOutput.Component?
+    get() = output as? DevBuildOutput.Component
+
   override fun toString(): String {
     return buildString {
       append("DevBuildRequest(platformPrefix='$platformPrefix', ")
@@ -149,7 +215,6 @@ internal fun resolveProjectClassesOutputDirectory(request: BuildRequest, buildOp
   return request.classesOutputDirectory ?: buildOptionsTemplate.classOutDir?.let { Path.of(it) } ?: defaultClassesOutputDirectory(request.projectDir)
 }
 
-@OptIn(ExperimentalCoroutinesApi::class)
 internal suspend fun buildProductFromProject(
   request: BuildRequest,
   productConfiguration: ProductConfiguration,
@@ -166,55 +231,12 @@ internal suspend fun buildProductFromProject(
   }
 }
 
-@OptIn(ExperimentalCoroutinesApi::class)
 internal suspend fun buildProduct(request: BuildRequest, createBuildContext: suspend CoroutineScope.(buildDir: Path) -> BuildContext): Path {
-  val rootDir = withContext(Dispatchers.IO) {
-    val rootDir = request.devRootDir
-    // if symlinked to RAM disk, use a real path for performance reasons and avoid any issues in ant/other code
-    if (Files.exists(rootDir)) {
-      // toRealPath must be called only on an existing file
-      rootDir.toRealPath()
-    }
-    else {
-      rootDir
-    }
+  check(request.fragment.isComplete || request.scrambleTool == null) {
+    "Split dev distribution assembly does not support scrambling"
   }
-
-  val classifier = computeAdditionalModulesFingerprint(request.additionalModules)
-  val productDirNameWithoutClassifier = when (request.platformPrefix) {
-    "Idea" -> "idea-community"
-    "JetBrainsClient" -> "${request.baseIdePlatformPrefixForFrontend ?: ""}${request.platformPrefix}"
-    else -> request.platformPrefix
-  }
-  val productDirSuffix = when {
-    System.getProperty("intellij.build.minimal").toBoolean() -> "-ij-void"
-    request.scrambleTool != null -> "-scrambled"
-    else -> ""
-  }
-  val productDirName = request.devRunDirPrefix + (productDirNameWithoutClassifier + productDirSuffix + classifier)
-    .takeLast(maxWindowsPathLengthForIDERootToBeAbleToRunRiderBackend - request.devRunDirPrefix.length)
-
-  val buildDir = withContext(Dispatchers.IO.limitedParallelism(4)) {
-    val buildDir = rootDir.resolve(productDirName)
-    // on start, delete everything to avoid stale data
-    val files = try {
-      Files.newDirectoryStream(buildDir).toList()
-    }
-    catch (_: NoSuchFileException) {
-      Files.createDirectories(buildDir)
-      return@withContext buildDir
-    }
-
-    for (child in files) {
-      val fileName = child.fileName.toString()
-      if (fileName != "log" && fileName != "bin") {
-        launch {
-          NioFiles.deleteRecursively(child)
-        }
-      }
-    }
-    buildDir
-  }
+  val buildDir = request.runDirOverride?.let { prepareOverriddenRunDir(it) } ?: prepareDevRunDir(request)
+  request.scratchDir?.let { prepareScratchDir(it) }
 
   val runDir = buildDir
   var contextToClose: BuildContext? = null
@@ -225,28 +247,34 @@ internal suspend fun buildProduct(request: BuildRequest, createBuildContext: sus
       // Must precede layout: dev mode uses cache payload paths directly on the classpath,
       // so a concurrent cleanup can delete a payload after layout captures its path,
       // crashing the JVM at the first class lookup into that jar.
-      withContext(Dispatchers.IO + CoroutineName("cleanup jar cache")) {
-        context.cleanupJarCache()
-      }
-      if (request.os != OsFamily.currentOs) {
-        context.options.targetOs = persistentListOf(request.os)
-        context.options.targetArch = JvmArchitecture.currentJvmArch
-      }
+      context.cleanupJarCache()
+      configureTargetPlatform(context.options, request)
 
       val moduleOutputPatcher = ModuleOutputPatcher()
 
-      val platformLayout = async(CoroutineName("create platform layout")) {
-        spanBuilder("create platform layout").use {
-          createPlatformLayout(context)
+      val platformLayout = if (request.fragment.ownsPlatformJars || request.fragment.ownsPlugins || request.fragment.platformResources) {
+        async(CoroutineName("create platform layout")) {
+          spanBuilder("create platform layout").use {
+            createPlatformLayout(context)
+          }
         }
       }
+      else null
 
-      val searchableOptionSetDeferred = async(CoroutineName("read searchable options")) {
-        getSearchableOptionSet(context)
+      val searchableOptionSetDeferred = if (request.fragment.ownsPlatformJars || request.fragment.ownsPlugins) {
+        async(CoroutineName("read searchable options")) {
+          getSearchableOptionSet(context)
+        }
       }
-      val platformLayoutResultDeferred = async(CoroutineName("platform distribution entries")) {
-        val searchableOptionSet = searchableOptionSetDeferred.await()
-        launch(Dispatchers.IO) {
+      else null
+
+      val platformResourcesJob = if (request.fragment.platformResources) {
+        launch(CoroutineName("layout platform resources")) {
+          // Product metadata, like `bin/product-info.json` below - and so owned by this fragment alone. It used to be
+          // written while laying out the platform jars, which the lib-owning fragment and the reference target both
+          // do, and each producer then claimed the same file.
+          Files.writeString(runDir.resolve("build.txt"), context.fullBuildNumber)
+
           // PathManager.getBinPath() is used as a working dir for maven
           val binDir = Files.createDirectories(runDir.resolve("bin"))
           val oldFiles = Files.newDirectoryStream(binDir).use { it.toCollection(HashSet()) }
@@ -258,9 +286,10 @@ internal suspend fun buildProduct(request: BuildRequest, createBuildContext: sus
             oldFiles.remove(osDistributionBuilder.writeVmOptions(binDir))
             // the file cannot be placed right into the distribution as it throws off home dir detection in `PathManager#getHomeDirFor`
             val productInfoDir = context.paths.tempDir.resolve("product-info").createDirectories()
-            val productInfoFile = osDistributionBuilder.writeProductInfoFile(productInfoDir, JvmArchitecture.currentJvmArch)
+            val productInfoFile = osDistributionBuilder.writeProductInfoFile(productInfoDir, request.arch)
             oldFiles.remove(productInfoFile.moveTo(binDir.resolve(PRODUCT_INFO_FILE_NAME), overwrite = true))
             NioFiles.deleteRecursively(productInfoDir)
+            oldFiles.removeAll(layOutNativeBinFiles(osDistributionBuilder, binDir, runDir, request.arch))
           }
 
           val ideaPropertyFile = binDir.resolve(PathManager.PROPERTIES_FILE_NAME)
@@ -271,13 +300,19 @@ internal suspend fun buildProduct(request: BuildRequest, createBuildContext: sus
             NioFiles.deleteRecursively(oldFile)
           }
         }
+      }
+      else null
 
-        val platformLayoutAwaited = platformLayout.await()
+      val platformLayoutResultDeferred: Deferred<PlatformLayoutResult> = if (!request.fragment.ownsPlatformJars) {
+        CompletableDeferred(PlatformLayoutResult(distributionEntries = emptyList(), coreClassPath = emptySet()))
+      }
+      else async(CoroutineName("platform distribution entries")) {
+        val platformLayoutAwaited = checkNotNull(platformLayout).await()
         spanBuilder("layout platform").use {
           layoutPlatform(
             runDir = runDir,
             platformLayout = platformLayoutAwaited,
-            searchableOptionSet = searchableOptionSet,
+            searchableOptionSet = checkNotNull(searchableOptionSetDeferred).await(),
             context = context,
             moduleOutputPatcher = moduleOutputPatcher,
             request = request,
@@ -285,18 +320,24 @@ internal suspend fun buildProduct(request: BuildRequest, createBuildContext: sus
         }
       }
 
-      val pluginBuildStrategy = selectDevModePluginBuildStrategy(request = request, context = context)
-      val pluginsLayoutDeferred = if (pluginBuildStrategy == DevModePluginBuildStrategy.LAYOUT_BEFORE_PLATFORM_SCRAMBLE) {
+      val pluginLayouts = if (request.fragment.ownsPlugins) devModePluginCandidates(request, context) else emptyList()
+      val layoutsOfPluginsToScramble = collectLayoutsOfPluginsToScramble(pluginLayouts)
+      val pluginBuildStrategy = if (request.fragment.ownsPlugins) {
+        selectDevModePluginBuildStrategy(request = request, context = context, pluginLayouts = pluginLayouts)
+      }
+      else DevModePluginBuildStrategy.NORMAL
+      val pluginsBuildResultsDeferred = if (pluginBuildStrategy == DevModePluginBuildStrategy.LAYOUT_BEFORE_PLATFORM_SCRAMBLE) {
         // Lay out ALL plugins early (no scrambling). The platform ZKM run below scrambles
         // co-scramble plugin jars in the same call and needs every plugin's lib/modules on its
         // scramble classpath; per-plugin scramble runs after platform scramble.
         async(CoroutineName("lay out plugins")) {
           layoutAllPluginsForDevMode(
             request = request,
+            pluginLayouts = pluginLayouts,
             context = context,
             runDir = runDir,
-            platformLayout = platformLayout,
-            searchableOptionSet = searchableOptionSetDeferred.await(),
+            platformLayout = checkNotNull(platformLayout),
+            searchableOptionSet = checkNotNull(searchableOptionSetDeferred).await(),
           )
         }
       }
@@ -304,20 +345,23 @@ internal suspend fun buildProduct(request: BuildRequest, createBuildContext: sus
         null
       }
 
-      val platformScrambleResultDeferred = async(CoroutineName("scramble platform")) {
+      val platformScrambleResultDeferred: Deferred<PlatformLayoutResult> = if (!request.fragment.ownsPlatformJars) {
+        platformLayoutResultDeferred
+      }
+      else async(CoroutineName("scramble platform")) {
         val platformLayoutResult = platformLayoutResultDeferred.await()
         if (context.productProperties.scrambleMainJar) {
           request.scrambleTool?.let { scrambleTool ->
             spanBuilder("scramble platform").use {
-              val descriptors = pluginsLayoutDeferred?.await().orEmpty()
-              val coScrambleEntries = if (descriptors.isEmpty()) emptyList() else collectCoScrambleEntries(descriptors)
+              val buildResults = pluginsBuildResultsDeferred?.await().orEmpty()
+              val coScrambleEntries = if (buildResults.isEmpty()) emptyList() else collectCoScrambleEntries(buildResults, layoutsOfPluginsToScramble = layoutsOfPluginsToScramble)
               scrambleTool.scramble(
-                platformLayout = platformLayout.await(),
+                platformLayout = checkNotNull(platformLayout).await(),
                 platformContent = platformLayoutResult.distributionEntries,
                 coScrambleEntries = coScrambleEntries,
                 // Skip the per-plugin lib/ walk when nothing opts in — pure platform scramble doesn't
                 // need cross-plugin classpath.
-                classpathDirs = if (coScrambleEntries.isEmpty()) emptyList() else collectAllPluginClasspathDirs(descriptors),
+                classpathDirs = if (coScrambleEntries.isEmpty()) emptyList() else collectAllPluginClasspathDirs(buildResults),
                 context = context,
               )
             }
@@ -326,128 +370,200 @@ internal suspend fun buildProduct(request: BuildRequest, createBuildContext: sus
         platformLayoutResult
       }
 
-      val pluginDistributionEntriesDeferred = async(CoroutineName("scramble plugins")) {
+      val pluginDistributionEntriesDeferred: Deferred<PluginsLayoutResult> = if (!request.fragment.ownsPlugins) {
+        CompletableDeferred(PluginsLayoutResult(pluginEntries = emptyList(), additionalPlugins = null))
+      }
+      else async(CoroutineName("scramble plugins")) {
         if (pluginBuildStrategy == DevModePluginBuildStrategy.LAYOUT_BEFORE_PLATFORM_SCRAMBLE) {
           scrambleAlreadyLaidOutPluginsForDevMode(
-            descriptors = checkNotNull(pluginsLayoutDeferred).await(),
+            request = request,
+            descriptors = checkNotNull(pluginsBuildResultsDeferred).await(),
             context = context,
             runDir = runDir,
-            platformLayout = platformLayout,
+            platformLayout = checkNotNull(platformLayout),
+            layoutsOfPluginsToScramble = layoutsOfPluginsToScramble,
             platformEntriesProvider = { platformScrambleResultDeferred.await().distributionEntries },
           )
         }
         else {
           buildPluginsForDevMode(
             request = request,
+            pluginLayouts = pluginLayouts,
             context = context,
             runDir = runDir,
-            platformLayout = platformLayout,
-            searchableOptionSet = searchableOptionSetDeferred.await(),
-            platformEntriesProvider = { platformScrambleResultDeferred.await().distributionEntries },
-          )
+            platformLayout = checkNotNull(platformLayout),
+            searchableOptionSet = checkNotNull(searchableOptionSetDeferred).await(),
+          ) { platformScrambleResultDeferred.await().distributionEntries }
         }
       }
 
-      // write and update core classpath from platform and plugins distribution
-      launch(CoroutineName("compute core classpath")) {
+      val coreClassPathDeferred = async(CoroutineName("compute core classpath")) {
         val platformClasspath = platformLayoutResultDeferred.await().coreClassPath
-        val pluginDistributionEntities = pluginDistributionEntriesDeferred.await().pluginEntries
-        val platformLayoutAwaited = platformLayout.await()
-        val coreClasspathFromPlugins = generateCoreClasspathFromPlugins(
-          platformLayout = platformLayoutAwaited,
-          pluginEntities = pluginDistributionEntities,
-          context = context
-        )
-        val classPath = platformClasspath + coreClasspathFromPlugins
+        val coreClasspathFromPlugins = if (request.fragment.ownsPlugins) {
+          generateCoreClasspathFromPlugins(
+            platformLayout = checkNotNull(platformLayout).await(),
+            pluginBuildResults = pluginDistributionEntriesDeferred.await().pluginEntries,
+            context = context,
+          )
+        }
+        else emptyList()
+        platformClasspath + coreClasspathFromPlugins
+      }
 
-        if (request.writeCoreClasspath) {
-          val classPathString = classPath.joinToString(separator = "\n")
-          launch(Dispatchers.IO) {
-            Files.writeString(runDir.resolve("core-classpath.txt"), classPathString)
-          }
+      // Write and publish the one classpath computation shared with the component manifest below.
+      launch(CoroutineName("publish core classpath")) {
+        val classPath = coreClassPathDeferred.await()
+        if (request.writeCoreClasspath && request.fragment.isComplete) {
+          val classPathString = formatCoreClasspath(classPath = classPath, runDir = runDir)
+          Files.writeString(runDir.resolve("core-classpath.txt"), classPathString)
         }
 
         request.platformClassPathConsumer?.invoke(context.ideMainClassName, classPath, runDir)
       }
 
-      launch(CoroutineName("compute IDE fingerprint")) {
-        computeIdeFingerprint(
-          platformDistributionEntriesDeferred = platformLayoutResultDeferred,
-          pluginDistributionEntriesDeferred = pluginDistributionEntriesDeferred,
-          runDir = runDir,
-          homePath = request.projectDir,
-        )
-      }
-
-      launch(CoroutineName("post-process distribution")) {
+      val postProcessJob = launch(CoroutineName("post-process distribution")) {
         // ensure platform dist files added to the list
         val platformFileEntries = platformScrambleResultDeferred.await().distributionEntries
         // ensure plugin dist files added to the list
         val pluginDistributionEntries = pluginDistributionEntriesDeferred.await()
-        val platformLayout = platformLayout.await()
+        request.componentOutput?.prepackedPluginContentPlacementFile?.let { placementFile ->
+          writePrepackedPluginContentPlacement(
+            file = placementFile,
+            plugins = pluginDistributionEntries.pluginEntries,
+            runDir = runDir,
+          )
+        }
+        val platformLayoutAwaited = platformLayout?.await()
 
-        val pluginClasspathJob = launch {
+        val pluginClasspathJob = if (request.fragment.ownsPlugins) launch {
           val (pluginEntries, additionalEntries) = pluginDistributionEntries
-          val cachedDescriptorContainer = platformLayout.descriptorCacheContainer
-          spanBuilder("generate plugin classpath").use(Dispatchers.IO) {
+          val requiredPlatformLayout = checkNotNull(platformLayoutAwaited)
+          val cachedDescriptorContainer = requiredPlatformLayout.descriptorCacheContainer
+          spanBuilder("generate plugin classpath").use {
             val mainData = generatePluginClassPath(
               pluginEntries = pluginEntries,
               descriptorFileProvider = cachedDescriptorContainer,
-              platformLayout = platformLayout,
+              platformLayout = requiredPlatformLayout,
+              layoutsOfPluginsToScramble = layoutsOfPluginsToScramble,
               context = context,
             )
             val additionalData = additionalEntries?.let { generatePluginClassPathFromPrebuiltPluginFiles(it) }
 
             val byteOut = ByteArrayOutputStream()
             val out = DataOutputStream(byteOut)
-            val pluginCount = pluginEntries.size + (additionalEntries?.size ?: 0)
-            writePluginClassPathHeader(
-              out = out,
-              isJarOnly = !request.isUnpackedDist,
-              pluginCount = pluginCount,
-              platformLayout = platformLayout,
-              descriptorCacheContainer = cachedDescriptorContainer,
-              context = context
-            )
+            if (request.fragment.isComplete) {
+              writePluginClassPathPrefix(
+                out = out,
+                isJarOnly = !request.isUnpackedDist,
+                platformLayout = requiredPlatformLayout,
+                descriptorCacheContainer = cachedDescriptorContainer,
+                context = context
+              )
+              writePluginClassPathCount(out = out, pluginCount = pluginEntries.size + (additionalEntries?.size ?: 0))
+            }
             out.write(mainData)
             additionalData?.let { out.write(it) }
             out.close()
-            Files.write(runDir.resolve(PLUGIN_CLASSPATH), byteOut.toByteArray())
+            val target = if (request.fragment.isComplete) {
+              runDir.resolve(PLUGIN_CLASSPATH)
+            }
+            else {
+              checkNotNull(request.componentOutput).pluginClasspathPartFile!!
+            }
+            target.parent?.createDirectories()
+            Files.write(target, byteOut.toByteArray())
           }
         }
-        if (context.generateRuntimeModuleRepository) {
+        else null
+
+        request.componentOutput?.pluginClasspathPrefixFile?.let { prefixFile ->
+          launch(CoroutineName("write plugin classpath prefix")) {
+            val requiredPlatformLayout = checkNotNull(platformLayoutAwaited) {
+              "The '${request.fragment}' fragment must lay out the platform to describe the product"
+            }
+            val byteOut = ByteArrayOutputStream()
+            DataOutputStream(byteOut).use { out ->
+              writePluginClassPathPrefix(
+                out = out,
+                isJarOnly = !request.isUnpackedDist,
+                platformLayout = requiredPlatformLayout,
+                descriptorCacheContainer = requiredPlatformLayout.descriptorCacheContainer,
+                context = context,
+              )
+            }
+            prefixFile.parent?.createDirectories()
+            Files.write(prefixFile, byteOut.toByteArray())
+          }
+        }
+
+        if (context.generateRuntimeModuleRepository && request.fragment.isComplete) {
           launch(CoroutineName("generate runtime repository")) {
             val contentReport = ContentReport(
               platform = platformFileEntries,
               bundledPlugins = pluginDistributionEntries.pluginEntries,
               nonBundledPlugins = emptyList()
             )
-            pluginClasspathJob.join() //this is necessary to have full data in DescriptorCacheContainer
+            checkNotNull(pluginClasspathJob).join() //this is necessary to have full data in DescriptorCacheContainer
 
-            spanBuilder("generate runtime repository").use(Dispatchers.IO) {
+            spanBuilder("generate runtime repository").use {
               generateRuntimeModuleRepositoryForDevBuild(
                 contentReport = contentReport,
                 targetDirectory = runDir,
                 context = context,
-                platformLayout = platformLayout,
+                platformLayout = checkNotNull(platformLayoutAwaited),
               )
             }
           }
         }
 
-        withContext(Dispatchers.IO) {
+        if (request.fragment.platformResources) {
+          checkNotNull(platformResourcesJob).join()
           context.productProperties.copyAdditionalOsSpecificFiles(
             runDir = runDir,
             os = request.os,
-            arch = JvmArchitecture.currentJvmArch,
+            arch = request.arch,
             context = context
           )
-          copyDistFiles(
-            newDir = runDir,
+        }
+
+        // A platform layout registers IJent as DistFiles. Platform and plugin fragments need that layout for descriptor
+        // resolution, but the bytes have one owner: platform_resources, which creates the layout specifically to run
+        // platform specs and copy those files. Other DistFiles remain with the fragment that produced them.
+        copyDistFiles(
+          newDir = runDir,
+          os = request.os,
+          arch = request.arch,
+          libcImpl = LibcImpl.current(request.os),
+          context = context,
+          include = { shouldCopyDevBuildDistFile(fragment = request.fragment, relativePath = it.relativePath) },
+        )
+      }
+
+      launch(CoroutineName("compute IDE fingerprint")) {
+        // The component manifest inventories the finished tree, including DistFiles and semantic archive links. It
+        // must therefore run after every post-processing child has completed, not merely after jars were laid out.
+        postProcessJob.join()
+        if (request.fragment.isComplete) {
+          computeIdeFingerprint(
+            platformDistributionEntriesDeferred = platformLayoutResultDeferred,
+            pluginDistributionEntriesDeferred = pluginDistributionEntriesDeferred,
+            runDir = runDir,
+            projectDir = request.projectDir,
+          )
+        }
+        else {
+          val pluginsResult = pluginDistributionEntriesDeferred.await()
+          writeDevBuildComponentManifest(
+            file = checkNotNull(request.componentOutput).manifestFile,
+            kind = request.fragment.name,
+            platformPrefix = request.platformPrefix,
             os = request.os,
-            arch = JvmArchitecture.currentJvmArch,
-            libcImpl = LibcImpl.current(request.os),
-            context = context,
+            arch = request.arch,
+            additionalModules = if (request.fragment.ownsPlugins) request.additionalModules else emptyList(),
+            mainClass = context.ideMainClassName,
+            coreClassPath = coreClassPathDeferred.await(),
+            pluginCount = pluginsResult.pluginEntries.size + (pluginsResult.additionalPlugins?.size ?: 0),
+            componentRoot = runDir,
           )
         }
       }
@@ -460,14 +576,159 @@ internal suspend fun buildProduct(request: BuildRequest, createBuildContext: sus
   return runDir
 }
 
-private suspend fun getSearchableOptionSet(context: CompilationContext): SearchableOptionSetDescriptor? {
-  return withContext(Dispatchers.IO) {
-    try {
-      readSearchableOptionIndex(context.paths.searchableOptionDir)
+/**
+ * Where this assembly put every jar it took from a packing action, as
+ * `<plugin main module>\t<`lib/`-relative destination>\t<distribution-relative path>`.
+ *
+ * The first two columns are the relation's key, so the composer joins these lines to the jar records on the same pair.
+ * `collectPrepackedPluginContentJars` is the one reader.
+ */
+private fun writePrepackedPluginContentPlacement(file: Path, plugins: List<PluginBuildResult>, runDir: Path) {
+  val placements = LinkedHashMap<PrepackedPluginContentKey, String>()
+  for (plugin in plugins.sortedBy(PluginBuildResult::mainModule)) {
+    for (jar in plugin.prepackedContentJars.map { it.jar }.sortedBy(PrepackedPluginContentJar::relativeOutputFile)) {
+      val finalPath = runDir.relativize(plugin.dir.resolve("lib").resolve(jar.relativeOutputFile)).invariantSeparatorsPathString
+      val previous = placements.put(jar.key, finalPath)
+      check(previous == null) {
+        "Prepacked plugin content ${jar.pluginMainModule}/${jar.relativeOutputFile} was placed twice: $previous and $finalPath"
+      }
     }
-    catch (_: NoSuchFileException) {
-      null
+  }
+  file.parent?.createDirectories()
+  Files.writeString(file, buildString {
+    for ((key, finalPath) in placements) {
+      append(key.pluginMainModule).append('\t')
+        .append(key.relativeOutputFile).append('\t')
+        .append(finalPath).append('\n')
     }
+  })
+}
+
+@VisibleForTesting
+internal fun shouldCopyDevBuildDistFile(fragment: DevBuildFragment, relativePath: String): Boolean {
+  return fragment.platformResources || !relativePath.startsWith("lib/ijent/")
+}
+
+@VisibleForTesting
+internal fun configureTargetPlatform(options: BuildOptions, request: BuildRequest) {
+  options.targetOs = persistentListOf(request.os)
+  options.targetArch = request.arch
+}
+
+/**
+ * Clears the throwaway parts of a caller-supplied scratch directory ([BuildRequest.scratchDir]).
+ *
+ * While `temp` and `artifacts` lived in the run directory, [prepareDevRunDir] wiped them on every build. Rooted outside it they have
+ * no such owner, and code that extracts a file into `temp` fails on the second build with `FileAlreadyExistsException`.
+ * `log` is kept, exactly as [prepareDevRunDir] keeps it.
+ */
+internal fun prepareScratchDir(scratchDir: Path) {
+  NioFiles.deleteRecursively(scratchDir.resolve("temp"))
+  NioFiles.deleteRecursively(scratchDir.resolve("artifacts"))
+}
+
+/**
+ * Prepares a caller-owned run directory ([BuildRequest.runDirOverride]).
+ *
+ * Unlike [prepareDevRunDir] this never deletes anything: a caller that names the directory itself owns its lifecycle, and a
+ * silent wipe of a mistyped path would be worse than a failure. It only insists that the directory starts out empty.
+ */
+internal fun prepareOverriddenRunDir(runDir: Path): Path {
+  val staleEntries = try {
+    Files.newDirectoryStream(runDir).use { stream -> stream.take(5).map { it.fileName.toString() } }
+  }
+  catch (_: NoSuchFileException) {
+    emptyList()
+  }
+
+  check(staleEntries.isEmpty()) {
+    "a run directory override must be empty, but $runDir already contains ${staleEntries.joinToString()};" +
+    " delete it first (the standalone assembler has --clean-output for that)"
+  }
+  return Files.createDirectories(runDir)
+}
+
+/** Derives the run directory name from the request and clears stale content from it. */
+private suspend fun prepareDevRunDir(request: BuildRequest): Path {
+  val requestedRootDir = request.devRootDir
+  // if symlinked to RAM disk, use a real path for performance reasons and avoid any issues in ant/other code.
+  // toRealPath must be called only on an existing file
+  val rootDir = if (Files.exists(requestedRootDir)) requestedRootDir.toRealPath() else requestedRootDir
+
+  val classifier = computeAdditionalModulesFingerprint(request.additionalModules)
+  val productDirNameWithoutClassifier = when (request.platformPrefix) {
+    "Idea" -> "idea-community"
+    "JetBrainsClient" -> "${request.baseIdePlatformPrefixForFrontend ?: ""}${request.platformPrefix}"
+    else -> request.platformPrefix
+  }
+  val productDirSuffix = when {
+    System.getProperty("intellij.build.minimal").toBoolean() -> "-ij-void"
+    request.scrambleTool != null -> "-scrambled"
+    else -> ""
+  }
+  // Keep the product-identifying head (dev-run prefix + product name + suffix) intact, and spend the remaining
+  // path-length budget on the classifier, truncating it from the front so its discriminative xxh3 hash tail survives.
+  // Truncating the whole string with `takeLast` used to drop the product prefix from the front whenever
+  // `prefix + classifier` exceeded the limit, so different products could collide into the same `out/dev-run` directory.
+  val productDirNameHead = request.devRunDirPrefix + productDirNameWithoutClassifier + productDirSuffix
+  val classifierBudget = (maxWindowsPathLengthForIDERootToBeAbleToRunRiderBackend - productDirNameHead.length).coerceAtLeast(0)
+  val productDirName = productDirNameHead + classifier.takeLast(classifierBudget)
+
+  val buildDir = rootDir.resolve(productDirName)
+  // on start, delete everything to avoid stale data
+  val files = try {
+    Files.newDirectoryStream(buildDir).toList()
+  }
+  catch (_: NoSuchFileException) {
+    Files.createDirectories(buildDir)
+    return buildDir
+  }
+
+  files
+    .filter { child ->
+      val fileName = child.fileName.toString()
+      fileName != "log" && fileName != "bin"
+    }
+    .forEachConcurrent(concurrency = 4) { child ->
+      NioFiles.deleteRecursively(child)
+    }
+  return buildDir
+}
+
+/**
+ * Copies the distribution's `bin` natives and marks executable the ones a production build would.
+ *
+ * A production distribution gets those permissions when it is archived - `updateExecutablePermissions` over
+ * [OsSpecificDistributionBuilder.generateExecutableFilesPatterns]. A dev distribution is never archived, and its
+ * sources do not always carry the mode: inside a Bazel action the checkout is a tree that
+ * [materializeProjectModelTree] laid out, and it copies without POSIX attributes, so a `755` file in git arrives
+ * here as `rw-`. The same patterns therefore decide here, applied to the copied files alone - walking the whole
+ * distribution would rewrite the permissions of every jar in it, per assembly.
+ *
+ * Returns the copied files, which the caller must keep out of the sweep that deletes whatever else is in `bin`.
+ */
+private suspend fun layOutNativeBinFiles(
+  osDistributionBuilder: OsSpecificDistributionBuilder,
+  binDir: Path,
+  runDir: Path,
+  arch: JvmArchitecture,
+): List<Path> {
+  val copied = osDistributionBuilder.copyNativeBinFiles(binDir, arch)
+  val executableMatchers = osDistributionBuilder.generateExecutableFilesMatchers(includeRuntime = false, arch = arch).keys
+  for (file in copied) {
+    val relativePath = runDir.relativize(file)
+    if (executableMatchers.any { it.matches(relativePath) }) {
+      NioFiles.setExecutable(file)
+    }
+  }
+  return copied
+}
+
+// paths are written relative to the IDE home dir to keep the built IDE relocatable;
+// entries outside of the home dir (e.g., jar cache payload) stay absolute - a `..`-prefixed path would break relocation
+internal fun formatCoreClasspath(classPath: Collection<Path>, runDir: Path): String {
+  return classPath.joinToString(separator = "\n") {
+    if (it.startsWith(runDir)) it.relativeTo(runDir).invariantSeparatorsPathString else it.invariantSeparatorsPathString
   }
 }
 
@@ -475,43 +736,20 @@ private suspend fun computeIdeFingerprint(
   platformDistributionEntriesDeferred: Deferred<PlatformLayoutResult>,
   pluginDistributionEntriesDeferred: Deferred<PluginsLayoutResult>,
   runDir: Path,
-  homePath: Path,
+  projectDir: Path,
 ) {
-  val hasher = Hashing.xxh3_64().hashStream()
-  val debug = if (System.getProperty("intellij.build.fingerprint.debug").toBoolean()) StringBuilder() else null
+  val entries = platformDistributionEntriesDeferred.await().distributionEntries.asSequence() +
+                pluginDistributionEntriesDeferred.await().pluginEntries.asSequence().flatMap { it.distribution.asSequence() }
+  writeIdeFingerprint(entries = entries, runDir = runDir, projectDir = projectDir)
+}
 
-  fun relativePath(path: Path): Path = when {
-    path.startsWith(runDir) -> runDir.relativize(path)
-    path.startsWith(homePath) -> homePath.relativize(path)
-    else -> path
+private fun getSearchableOptionSet(context: CompilationContext): SearchableOptionSetDescriptor? {
+  return try {
+    readSearchableOptionIndex(context.paths.searchableOptionDir)
   }
-
-  val distributionFileEntries = platformDistributionEntriesDeferred.await().distributionEntries
-  hasher.putInt(distributionFileEntries.size)
-  debug?.append(distributionFileEntries.size)?.append('\n')
-  for (entry in distributionFileEntries) {
-    hasher.putLong(entry.hash)
-    debug?.append(Long.toUnsignedString(entry.hash, Character.MAX_RADIX))?.append(" ")?.append(relativePath(entry.path))?.append('\n')
+  catch (_: NoSuchFileException) {
+    null
   }
-
-  val pluginDistributionEntries = pluginDistributionEntriesDeferred.await().pluginEntries
-  hasher.putInt(pluginDistributionEntries.size)
-  for (plugin in pluginDistributionEntries) {
-    hasher.putInt(plugin.distribution.size)
-
-    debug?.append('\n')?.append(plugin.layout.mainModule)?.append('\n')
-    for (entry in plugin.distribution) {
-      hasher.putLong(entry.hash)
-      debug?.append("  ")?.append(Long.toUnsignedString(entry.hash, Character.MAX_RADIX))?.append(" ")?.append(relativePath(entry.path))?.append('\n')
-    }
-  }
-
-  val fingerprint = Long.toUnsignedString(hasher.asLong, Character.MAX_RADIX)
-  withContext(Dispatchers.IO) {
-    Files.writeString(runDir.resolve("fingerprint.txt"), fingerprint)
-    debug?.let { Files.writeString(runDir.resolve("fingerprint-debug.txt"), it) }
-  }
-  Span.current().addEvent("IDE fingerprint: $fingerprint")
 }
 
 private suspend fun createBuildContextFromProject(
@@ -523,18 +761,21 @@ private suspend fun createBuildContextFromProject(
 ): BuildContext {
   val options = createProjectDevBuildOptions(request = request, buildDir = buildDir, buildOptionsTemplate = buildOptionsTemplate)
 
-  val buildPaths = createDevBuildPaths(projectDir = request.projectDir, buildDir = buildDir, logDir = options.logDir!!)
+  val buildPaths = createDevBuildPaths(
+    projectDir = request.projectDir,
+    buildDir = buildDir,
+    logDir = options.logDir!!,
+    scratchDir = request.scratchDir ?: buildDir,
+  )
   val compilationContext = normalizeCompilationContextForBuild(
-    context = createCompilationContext(
+    context = createDevBuildCompilationContext(
       projectHome = request.projectDir,
       buildOutputRootEvaluator = { _ -> buildDir },
-      setupTracer = false,
-      // will be enabled later in [com.intellij.platform.ide.bootstrap.enableJstack] instead
-      enableCoroutinesDump = false,
       options = options,
       customBuildPaths = buildPaths,
     ),
     scope = scope,
+    isBazelBacked = isDevBuildBazelBacked(),
   )
   val productProperties = createProductProperties(
     productConfiguration = productConfiguration,
@@ -556,9 +797,41 @@ internal fun createProjectDevBuildOptions(request: BuildRequest, buildDir: Path,
     classOutDir = classesOutputDirectory.toString(),
   ).normalizeCompiledClassesOptions(
     defaultClassesOutputDirectory = classesOutputDirectory,
-  ).copy(
+  ).copyWithDevBuildOverrides(
+    request = request,
+    buildDir = buildDir,
+    defaultBuildDateInSeconds = getDevModeOrTestBuildDateInSeconds(),
+  )
+  configureDevModeBuildOptions(options = options, request = request, buildOptionsTemplate = buildOptionsTemplate)
+  return options
+}
+
+/**
+ * The build option overrides that every dev assembly applies, whichever context it is built from - a project model
+ * ([createProjectDevBuildOptions]) or an enclosing build
+ * ([org.jetbrains.intellij.build.productRunner.createDevModeProductRunner]).
+ *
+ * One owner, because the two used to carry their own copy of this list and one of them silently dropped
+ * [BuildRequest.buildDateInSeconds]: [BuildOptions.buildDateInSeconds] is a `val`, so the mutating
+ * [configureDevModeBuildOptions] cannot set it and every caller has to.
+ * [defaultBuildDateInSeconds] is what a request without an override gets - the dev-mode date for a standalone assembly,
+ * the enclosing build's own date for one nested in a real build.
+ */
+internal fun BuildOptions.copyWithDevBuildOverrides(
+  request: BuildRequest,
+  buildDir: Path,
+  defaultBuildDateInSeconds: kotlin.Long,
+): BuildOptions {
+  return copy(
     jarCacheDir = request.jarCacheDir,
-    buildDateInSeconds = getDevModeOrTestBuildDateInSeconds(),
+    buildDateInSeconds = request.buildDateInSeconds ?: defaultBuildDateInSeconds,
+    isDevDistribution = true,
+    // A dev distribution is launched, never shipped, so a release-cycle restriction has no audience to protect. The
+    // build number a dev assembly inherits from `build.txt` also cannot answer the question the restriction asks. On
+    // the EAP branch 263.3889 the number `263.3889.SNAPSHOT` made `isNightlyBuild` false. The layout then dropped
+    // every NOT_FOR_PUBLIC_BUILDS plugin, `intellij.air.plugin` and `intellij.devkit` among them, which the caller
+    // had asked for by name. The same assembly on master kept them, because `263.SNAPSHOT` has one dot fewer.
+    useReleaseCycleRelatedBundlingRestrictions = false,
     printFreeSpace = false,
     validateImplicitPlatformModule = false,
     skipDependencySetup = true,
@@ -567,11 +840,9 @@ internal fun createProjectDevBuildOptions(request: BuildRequest, buildDir: Path,
     cleanOutDir = false,
     outRootDir = buildDir,
     compilationLogEnabled = false,
-    logDir = buildDir.resolve("log"),
+    logDir = (request.scratchDir ?: buildDir).resolve("log"),
     isUnpackedDist = request.isUnpackedDist,
   )
-  configureDevModeBuildOptions(options = options, request = request, buildOptionsTemplate = buildOptionsTemplate)
-  return options
 }
 
 internal fun configureDevModeBuildOptions(options: BuildOptions, request: BuildRequest, buildOptionsTemplate: BuildOptions) {
@@ -590,10 +861,17 @@ internal fun configureDevModeBuildOptions(options: BuildOptions, request: BuildR
   options.buildNumber = buildOptionsTemplate.buildNumber
   options.isInDevelopmentMode = buildOptionsTemplate.isInDevelopmentMode
   options.isTestBuild = buildOptionsTemplate.isTestBuild
+  // A dev assembly can contain uncommitted changes, so HEAD does not identify its contents.
+  // Avoid coupling assembly to the mutable checkout solely for production provenance metadata.
+  options.storeGitRevision = false
+  // Only the fragment that packs the core jars or writes the `plugin-classpath.txt` prefix has anywhere to put the
+  // inlined content-module descriptors; for the rest, resolving them only makes every content module's jar an input.
+  options.embedProductContentModuleDescriptors = request.fragment.ownsProductDescriptorJars || request.componentOutput?.pluginClasspathPrefixFile != null
 }
 
-internal fun createDevBuildPaths(projectDir: Path, buildDir: Path, logDir: Path): BuildPaths {
-  val tempDir = buildDir.resolve("temp")
+/** [scratchDir] holds throwaway build data (`temp`, `artifacts`); it is separate from [buildDir] when the latter must contain only the distribution. */
+internal fun createDevBuildPaths(projectDir: Path, buildDir: Path, logDir: Path, scratchDir: Path = buildDir): BuildPaths {
+  val tempDir = scratchDir.resolve("temp")
   Files.createDirectories(tempDir)
 
   return BuildPaths(
@@ -602,7 +880,7 @@ internal fun createDevBuildPaths(projectDir: Path, buildDir: Path, logDir: Path)
     logDir = logDir,
     projectHome = projectDir,
     tempDir = tempDir,
-    artifactDir = buildDir.resolve("artifacts"),
+    artifactDir = scratchDir.resolve("artifacts"),
     searchableOptionDir = projectDir.resolve("out/dev-data/searchable-options"),
   ).also {
     it.distAllDir = buildDir
@@ -632,12 +910,14 @@ internal fun createDevBuildContext(
         licenseServerHost = null,
       )
     },
-    jarCacheManager = LocalDiskJarCacheManager(
-      cacheDir = request.jarCacheDir,
-      classesOutputDirectory = compilationContext.classesOutputDirectory,
-      maxAccessTimeAge = compilationContext.options.jarCacheMaxAccessAge,
-      cleanupInterval = 1.hours,
-    ),
+    jarCacheManager = request.jarCacheDir?.let {
+      LocalDiskJarCacheManager(
+        cacheDir = it,
+        classesOutputDirectory = compilationContext.classesOutputDirectory,
+        maxAccessTimeAge = compilationContext.options.jarCacheMaxAccessAge,
+        cleanupInterval = 1.hours,
+      )
+    } ?: NonCachingJarCacheManager,
   )
 }
 
@@ -661,7 +941,7 @@ internal suspend fun createProductProperties(
   }
 
   val className = if (System.getProperty("intellij.build.minimal").toBoolean()) {
-    "org.jetbrains.intellij.build.IjVoidProperties"
+    "org.jetbrains.intellij.build.IjLightProperties"
   }
   else {
     productConfiguration.className
@@ -716,6 +996,26 @@ private suspend fun layoutPlatform(
   moduleOutputPatcher: ModuleOutputPatcher,
   request: BuildRequest,
 ): PlatformLayoutResult {
+  val selector = checkNotNull(request.fragment.platform)
+  check(platformLayout.resourcePaths.isEmpty() || request.fragment.isComplete) {
+    // Copied by whatever lays the platform out, into its own tree, and the paths are not jars the asset filter can
+    // partition. No product does this today; the first one that does has to say which producer owns them - most
+    // naturally the fragment owning `lib/` by exclusion, which computes the layout anyway.
+    "The platform layout of '${request.platformPrefix}' declares resource paths" +
+    " (${platformLayout.resourcePaths.joinToString { it.relativeOutputPath }}), which a split assembly cannot place:" +
+    " they are not jars a selector can partition. Give them an owner before splitting this product."
+  }
+  val includedModules = selector.selectModules(platformLayout.includedModules)
+  // The fragment decided before the layout existed whether it would need the inlined content-module descriptors: a
+  // fragment that owns `lib/` by exclusion holds the application-info module, since no other producer packs that jar.
+  // Confirm it against the layout that was actually produced: a product that hands that module's jar to another
+  // producer would otherwise ship a product descriptor with nothing inlined into it, which fails far away at runtime.
+  val applicationInfoModule = context.productProperties.applicationInfoModule
+  check(context.options.embedProductContentModuleDescriptors || includedModules.none { it.moduleName == applicationInfoModule }) {
+    "Fragment '${request.fragment}' packs the application-info module '$applicationInfoModule'," +
+    " whose jar carries the product descriptor, but it did not inline the content-module descriptors into it." +
+    " DevBuildFragment.ownsProductDescriptorJars has to account for how '${request.platformPrefix}' lays that module out."
+  }
   // cannot be in parallel
   val entries = layoutPlatformDistribution(
     moduleOutputPatcher = moduleOutputPatcher,
@@ -723,22 +1023,28 @@ private suspend fun layoutPlatform(
     platform = platformLayout,
     searchableOptionSet = searchableOptionSet,
     copyFiles = true,
+    // Narrows what is resolved, so that a module this fragment does not pack cannot invalidate it.
+    includedModules = includedModules,
+    // Narrows what is written, over the jars packing produced - including the ones the layout never named, which an
+    // excluding selector owns because nobody named them: a library pinned into its own jar, or a project library.
+    assetFilter = { relativeOutputFile -> selector.accepts(relativeOutputFile) },
     context = context,
   )
-  val coreClassPath = coroutineScope {
-    launch(Dispatchers.IO) {
-      Files.writeString(runDir.resolve("build.txt"), context.fullBuildNumber)
-    }
+  val libDir = runDir.resolve("lib")
+  // todo - we cannot for now skip nio-fs.jar, probably `-Xbootclasspath/a` is not correctly set for dev-mode-based tests
+  val skipNioFs = if (request.isBootClassPathCorrect) isMultiRoutingFileSystemEnabledForProduct(context.productProperties.platformPrefix) else false
+  val coreClassPath = generateClassPathByLayoutReport(libDir = libDir, entries = entries, skipNioFs = skipNioFs)
+  // The jars this fragment handed over are absent from `entries` - it neither resolved nor packed them - but they are
+  // in the distribution, put there by their own component, and the classpath spans the whole distribution. Deciding
+  // this here is what lets that component be produced without a product layout at all.
+  val externallyPackedClassPath = contentModuleJarCoreClasspathEntries(
+    libDir = libDir,
+    includedModules = platformLayout.includedModules,
+    externallyPackedJars = if (selector.mode == PlatformJarSelector.Mode.EXCLUDE) selector.jars else emptySet(),
+    skipNioFs = skipNioFs,
+  )
 
-    // todo - we cannot for now skip nio-fs.jar, probably `-Xbootclasspath/a` is not correctly set for dev-mode-based tests
-    generateClassPathByLayoutReport(
-      libDir = runDir.resolve("lib"),
-      entries = entries,
-      skipNioFs = if (request.isBootClassPathCorrect) isMultiRoutingFileSystemEnabledForProduct(context.productProperties.platformPrefix) else false,
-    )
-  }
-
-  return PlatformLayoutResult(entries, coreClassPath)
+  return PlatformLayoutResult(entries, coreClassPath + externallyPackedClassPath)
 }
 
 private fun computeAdditionalModulesFingerprint(additionalModules: List<String>): String {

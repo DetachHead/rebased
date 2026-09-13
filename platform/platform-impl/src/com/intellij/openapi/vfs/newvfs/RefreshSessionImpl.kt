@@ -7,11 +7,12 @@ import com.intellij.diagnostic.PerformanceWatcher.Companion.takeSnapshot
 import com.intellij.ide.IdeCoreBundle
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.ModalityState
+import com.intellij.openapi.application.ModalityState.any
+import com.intellij.openapi.application.ModalityState.nonModal
 import com.intellij.openapi.application.TransactionGuard
 import com.intellij.openapi.application.ex.ApplicationManagerEx
 import com.intellij.openapi.application.impl.InternalThreading
 import com.intellij.openapi.diagnostic.Logger
-import com.intellij.openapi.progress.ProgressIndicator
 import com.intellij.openapi.progress.util.ProgressIndicatorWithDelayedPresentation
 import com.intellij.openapi.progress.withWriteActionTitle
 import com.intellij.openapi.util.text.StringUtil
@@ -30,14 +31,25 @@ import com.intellij.util.concurrency.annotations.RequiresEdt
 import com.intellij.util.concurrency.annotations.RequiresWriteLock
 import com.intellij.util.progress.waitForMaybeCancellable
 import com.intellij.util.ui.EDT
-import org.jetbrains.annotations.ApiStatus
 import java.util.Objects
 import java.util.concurrent.TimeUnit
 import java.util.function.Consumer
 import kotlin.concurrent.Volatile
 import kotlin.math.min
 
-@ApiStatus.Internal
+private val LOG = Logger.getInstance(RefreshSession::class.java)
+private val RETRY_LIMIT = SystemProperties.getIntProperty("refresh.session.retry.limit", 3)
+private val DURATION_REPORT_THRESHOLD_MS = SystemProperties.getIntProperty("refresh.session.duration.report.threshold.seconds", -1) * 1000L
+private const val PROGRESS_THRESHOLD_MILLIS = 5000
+
+@ConsistentCopyVisibility
+internal data class NewChildren internal constructor(
+  val requestor: Any?,
+  val file: VirtualFile?,
+  val children: MutableList<String>,
+)
+
+
 internal class RefreshSessionImpl internal constructor(
   val isAsynchronous: Boolean,
   private val myIsRecursive: Boolean,
@@ -45,24 +57,19 @@ internal class RefreshSessionImpl internal constructor(
   internal val myFinishRunnable: Runnable?,
   modality: ModalityState,
 ) : RefreshSession() {
-  val modality: ModalityState = getSaneModalityState(modality)
+  internal val modality: ModalityState = if (modality !== any()) modality else nonModal()
+
   private val myStartTrace: Throwable?
   private val mySemaphore = Semaphore()
 
-  private var myWorkQueue: MutableList<VirtualFile> = ArrayList<VirtualFile>()
-  private val myEvents: MutableList<VFileEvent> = ArrayList<VFileEvent>()
+  private var myWorkQueue: MutableList<VirtualFile> = ArrayList()
+  private var myNewFilesCaseSensitive: MutableMap<NewVirtualFile, NewChildren> = LinkedHashMap()
+  private val myEvents: MutableList<VFileEvent> = ArrayList()
 
-  @Volatile
-  private var myWorker: RefreshWorker? = null
-
-  @Volatile
-  private var myCancelled = false
-
-  @Volatile
-  private var myLaunched = false
-
-  @Volatile
-  private var myEventCount = 0
+  @Volatile private var myWorker: RefreshWorker? = null
+  @Volatile private var myCanceled = false
+  @Volatile private var myLaunched = false
+  @Volatile private var myEventCount = 0
 
   init {
     TransactionGuard.getInstance().assertWriteSafeContext(this.modality)
@@ -93,8 +100,54 @@ internal class RefreshSessionImpl internal constructor(
     for (file in files) doAddFile(file)
   }
 
+  override fun addNewChildren(parent: VirtualFile, childrenNames: Collection<String>) {
+    addNewChildren(parent, childrenNames, null, VFileEvent.REFRESH_REQUESTOR)
+  }
+
+  override fun addCopyFile(newParent: VirtualFile, newName: String, file: VirtualFile, requestor: Any?) {
+    addNewChildren(newParent, listOf(newName), file, requestor)
+  }
+
+  /**
+   * Scan those children if they are not cached in VFS and recursively preload their children.
+   *
+   * When [file] is `null`, newly found children are reported as create events. Otherwise, [file] is
+   * reported as being copied to [parent] with the name from [childrenNames]. A non-null [file]
+   * requires exactly one child name.
+   *
+   * The [requestor] is used as the requestor of the resulting VFS events. All calls for the same
+   * [parent] in one session must use the same requestor and source file. A session cannot mix create
+   * and copy requests.
+   */
+  private fun addNewChildren(parent: VirtualFile, childrenNames: Collection<String>, file: VirtualFile?, requestor: Any?) {
+    checkState()
+    require(file == null || childrenNames.size == 1) { "A copy request must have exactly one child name" }
+    if (childrenNames.isEmpty()) return
+    if (parent !is NewVirtualFile) {
+      LOG.debug("skipped: $parent / ${parent.javaClass}")
+      return
+    }
+    val newChildren = myNewFilesCaseSensitive[parent]
+    if (newChildren != null) {
+      if (newChildren.requestor !== requestor) {
+        throw IllegalArgumentException("Different requestors are not allowed for the same parent: $parent")
+      }
+      if (newChildren.file != null) {
+        throw IllegalArgumentException("Can't copy the same file twice. file: ${newChildren.file}")
+      }
+      newChildren.children.addAll(childrenNames)
+      return
+    }
+
+    val creatingCopies = file != null
+    if (myNewFilesCaseSensitive.values.any { (it.file != null) != creatingCopies }) {
+      throw IllegalArgumentException("A refresh session cannot create children and copies at the same time")
+    }
+    myNewFilesCaseSensitive[parent] = NewChildren(requestor, file, childrenNames.toMutableList())
+  }
+
   private fun checkState() {
-    check(!myCancelled) { "Already cancelled" }
+    check(!myCanceled) { "Already canceled" }
     check(!myLaunched) { "Already launched" }
   }
 
@@ -103,7 +156,7 @@ internal class RefreshSessionImpl internal constructor(
       myWorkQueue.add(file)
     }
     else {
-      LOG.debug("skipped: " + file + " / " + file.javaClass)
+      LOG.debug("skipped: ${file} / ${file.javaClass}")
     }
   }
 
@@ -119,7 +172,7 @@ internal class RefreshSessionImpl internal constructor(
 
   fun prepareExecution(): /* if nothing to do */ Boolean {
     checkState()
-    if (myWorkQueue.isEmpty() && myEvents.isEmpty()) {
+    if (myWorkQueue.isEmpty() && myNewFilesCaseSensitive.isEmpty() && myEvents.isEmpty()) {
       if (myFinishRunnable == null) return true
       LOG.warn(Exception("no files to refresh"))
     }
@@ -129,12 +182,14 @@ internal class RefreshSessionImpl internal constructor(
   }
 
   val isEventSession: Boolean
-    get() = myWorkQueue.isEmpty() && !myEvents.isEmpty()
+    get() = myWorkQueue.isEmpty() && myNewFilesCaseSensitive.isEmpty() && !myEvents.isEmpty()
 
   fun scan(timeInQueue: Long): Collection<VFileEvent> {
-    if (myWorkQueue.isEmpty()) return myEvents
     val workQueue = myWorkQueue
     myWorkQueue = mutableListOf()
+    val newFilesCaseSensitive = myNewFilesCaseSensitive
+    myNewFilesCaseSensitive = LinkedHashMap()
+    if (workQueue.isEmpty() && newFilesCaseSensitive.isEmpty()) return myEvents
     val forceRefresh = !myIsRecursive && !this.isAsynchronous // shallow sync refresh (e.g., project config files on open)
 
     val fs = LocalFileSystem.getInstance()
@@ -142,19 +197,19 @@ internal class RefreshSessionImpl internal constructor(
       fs.markSuspiciousFilesDirty(workQueue)
     }
 
-    if (LOG.isTraceEnabled) LOG.trace("scanning $workQueue")
+    if (LOG.isTraceEnabled) LOG.trace("scanning ${workQueue}")
 
     var t = System.nanoTime()
     var snapshot: PerformanceWatcher.Snapshot? = null
     var types: MutableMap<String?, Int?>? = null
     if (DURATION_REPORT_THRESHOLD_MS > 0) {
       snapshot = takeSnapshot()
-      types = HashMap<String?, Int?>()
+      types = HashMap()
     }
 
     val refreshRoots = ArrayList<NewVirtualFile>(workQueue.size)
     for (file in workQueue) {
-      if (myCancelled) break
+      if (myCanceled) break
 
       val nvf = file as NewVirtualFile
       if (forceRefresh) {
@@ -175,12 +230,15 @@ internal class RefreshSessionImpl internal constructor(
     val events = ArrayList<VFileEvent?>()
     withPrefetchForRemoteRoots(refreshRoots) {
       do {
-        if (myCancelled) break
-        if (LOG.isTraceEnabled) LOG.trace("try=$count")
+        if (myCanceled) break
+        if (LOG.isTraceEnabled) LOG.trace("try=${count}")
 
         val worker = RefreshWorker(refreshRoots, myIsRecursive)
         myWorker = worker
-        events.addAll(worker.scan())
+        events.addAll(worker.scanNewFiles(newFilesCaseSensitive))
+        if (refreshRoots.isNotEmpty()) {
+          events.addAll(worker.scan())
+        }
         myWorker = null
 
         count++
@@ -198,14 +256,15 @@ internal class RefreshSessionImpl internal constructor(
       else if (file.getFileSystem() is ArchiveFileSystem) archiveRoots++
       else otherRoots++
     }
-    VfsUsageCollector.logRefreshSession(myIsRecursive, localRoots, archiveRoots, otherRoots, myCancelled, timeInQueue, t, count)
+    VfsUsageCollector.logRefreshSession(myIsRecursive, localRoots, archiveRoots, otherRoots, myCanceled, timeInQueue, t, count)
     if (LOG.isTraceEnabled) {
-      LOG.trace((if (myCancelled) "cancelled, " else "done, ") + t + " ms, tries " + count + ", events " + events)
+      LOG.trace("${if (myCanceled) "cancelled" else "done"}, ${t} ms, tries ${count}, events ${events}")
     }
-    else if (snapshot != null && t > DURATION_REPORT_THRESHOLD_MS) {
+    else if (snapshot != null && (t > DURATION_REPORT_THRESHOLD_MS || LOG.isDebugEnabled)) {
       snapshot.logResponsivenessSinceCreation(String.format(
         "Refresh session (queue size: %s, scanned: %s, result: %s, tries: %s, events: %d)",
-        workQueue.size, types, if (myCancelled) "cancelled" else "done", count, events.size))
+        workQueue.size, types, if (myCanceled) "cancelled" else "done", count, events.size
+      ))
     }
 
     val result = if (events.isEmpty()) mutableListOf() else LinkedHashSet(events.filterNotNull())
@@ -218,7 +277,7 @@ internal class RefreshSessionImpl internal constructor(
   }
 
   override fun cancel() {
-    myCancelled = true
+    myCanceled = true
 
     val worker = myWorker
     worker?.cancel()
@@ -226,23 +285,18 @@ internal class RefreshSessionImpl internal constructor(
 
   @RequiresEdt
   @RequiresWriteLock
-  fun fireEvents(
-    events: List<CompoundVFileEvent>,
-    appliers: AsyncEventSupport.ChangeAppliers,
-    excludeAsyncListeners: Boolean,
-  ) {
+  fun fireEvents(events: List<CompoundVFileEvent>, appliers: AsyncEventSupport.ChangeAppliers, excludeAsyncListeners: Boolean) {
     try {
       val app = ApplicationManagerEx.getApplicationEx()
       if ((myFinishRunnable != null || !events.isEmpty()) && !app.isDisposed()) {
-        if (LOG.isDebugEnabled()) LOG.debug("events are about to fire: $events")
-        app.runWriteActionWithNonCancellableProgressInDispatchThread(IdeCoreBundle.message("progress.title.file.system.synchronization"),
-                                                                     null, null, Consumer { indicator: ProgressIndicator? ->
-            indicator!!.setText(IdeCoreBundle.message("progress.text.processing.detected.file.changes", events.size))
-            if (indicator is ProgressIndicatorWithDelayedPresentation) {
-              indicator.setDelayInMillis(PROGRESS_THRESHOLD_MILLIS)
-            }
-           doFireEvents(events, appliers, excludeAsyncListeners)
-          })
+        if (LOG.isDebugEnabled()) LOG.debug("[EDT] ${events.size} events are about to fire: ${events}")
+        app.runWriteActionWithNonCancellableProgressInDispatchThread(IdeCoreBundle.message("progress.title.file.system.synchronization"), null, null, Consumer { indicator ->
+          indicator!!.setText(IdeCoreBundle.message("progress.text.processing.detected.file.changes", events.size))
+          if (indicator is ProgressIndicatorWithDelayedPresentation) {
+            indicator.setDelayInMillis(PROGRESS_THRESHOLD_MILLIS)
+          }
+         doFireEvents(events, appliers, excludeAsyncListeners)
+        })
       }
     }
     finally {
@@ -254,11 +308,7 @@ internal class RefreshSessionImpl internal constructor(
    * Can work in both EDT and BGT
    */
   @RequiresWriteLock
-  private fun fireEventsInWriteAction(
-    events: List<CompoundVFileEvent>,
-    appliers: AsyncEventSupport.ChangeAppliers,
-    excludeAsyncListeners: Boolean,
-  ) {
+  private fun fireEventsInWriteAction(events: List<CompoundVFileEvent>, appliers: AsyncEventSupport.ChangeAppliers, excludeAsyncListeners: Boolean) {
     val manager = VirtualFileManager.getInstance() as VirtualFileManagerImpl
 
     invokeOnEdt {
@@ -285,7 +335,8 @@ internal class RefreshSessionImpl internal constructor(
     }
   }
 
-  val events: List<VFileEvent>
+  @Suppress("ConvertToExplicitBackingFields")
+  internal val events: List<VFileEvent>
     get() = myEvents
 
   private fun invokeOnEdt(r: Runnable) {
@@ -300,18 +351,14 @@ internal class RefreshSessionImpl internal constructor(
 
   @RequiresWriteLock
   @RequiresBackgroundThread
-  fun fireEventsInBackgroundWriteAction(
-    events: List<CompoundVFileEvent>,
-    appliers: AsyncEventSupport.ChangeAppliers,
-    excludeAsyncListeners: Boolean,
-  ) {
+  fun fireEventsInBackgroundWriteAction(events: List<CompoundVFileEvent>, appliers: AsyncEventSupport.ChangeAppliers, excludeAsyncListeners: Boolean) {
     try {
       val app = ApplicationManagerEx.getApplicationEx()
       if ((myFinishRunnable != null || !events.isEmpty()) && !app.isDisposed()) {
-        if (LOG.isDebugEnabled()) LOG.debug("events are about to fire: " + events)
-        withWriteActionTitle(IdeCoreBundle.message("progress.title.file.system.synchronization"), {
+        if (LOG.isDebugEnabled()) LOG.debug("[BG] ${events.size} events are about to fire: ${events}")
+        withWriteActionTitle(IdeCoreBundle.message("progress.title.file.system.synchronization")) {
           doFireEvents(events, appliers, excludeAsyncListeners)
-        })
+        }
       }
     }
     finally {
@@ -329,7 +376,8 @@ internal class RefreshSessionImpl internal constructor(
     fireEventsInWriteAction(events, appliers, excludeAsyncListeners)
     t = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - t)
     if (t > PROGRESS_THRESHOLD_MILLIS) {
-      LOG.warn("Long VFS change processing (" + t + "ms, " + events.size + " events): " + StringUtil.trimLog(events.subList(0, min(events.size, 100)).toString(), 10000))
+      val eventsToLog = StringUtil.trimLog(events.subList(0, min(events.size, 100)).toString(), 10000)
+      LOG.warn("Long VFS change processing (${t}ms, ${events.size} events): ${eventsToLog}")
     }
   }
 
@@ -337,24 +385,11 @@ internal class RefreshSessionImpl internal constructor(
     mySemaphore.waitForMaybeCancellable()
   }
 
-  fun metric(key: String): Any {
-    if (key == "events") return myEventCount
-    throw IllegalArgumentException()
+  fun metric(key: String): Any = when (key) {
+    "events" -> myEventCount
+    else -> throw IllegalArgumentException()
   }
 
-  override fun toString(): String {
-    return "RefreshSessionImpl: canceled=" + myCancelled + " launched=" + myLaunched + " queue=" + myWorkQueue.size + " events=" + myEventCount
-  }
-
-  companion object {
-    private val LOG = Logger.getInstance(RefreshSession::class.java)
-
-    private val RETRY_LIMIT = SystemProperties.getIntProperty("refresh.session.retry.limit", 3)
-    private val DURATION_REPORT_THRESHOLD_MS = SystemProperties.getIntProperty("refresh.session.duration.report.threshold.seconds", -1) * 1000L
-    private const val PROGRESS_THRESHOLD_MILLIS = 5000
-
-    private fun getSaneModalityState(state: ModalityState): ModalityState {
-      return if (state !== ModalityState.any()) state else ModalityState.nonModal()
-    }
-  }
+  override fun toString(): String =
+    "RefreshSessionImpl: canceled=${myCanceled} launched=${myLaunched} queue=${myWorkQueue.size} events=${myEventCount}"
 }

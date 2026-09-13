@@ -12,19 +12,24 @@ import com.intellij.slicer.SliceUsage
 import com.intellij.usageView.UsageInfo
 import com.intellij.util.Processor
 import org.jetbrains.kotlin.analysis.api.KaNonPublicApi
-import org.jetbrains.kotlin.analysis.api.analyze
-import org.jetbrains.kotlin.analysis.api.resolution.KaCallableMemberCall
+import org.jetbrains.kotlin.analysis.api.components.resolveToSymbol
+import org.jetbrains.kotlin.analysis.api.dataflow.computeExitPointSnapshot
 import org.jetbrains.kotlin.analysis.api.resolution.KaExplicitReceiverValue
-import org.jetbrains.kotlin.analysis.api.resolution.KaSimpleFunctionCall
-import org.jetbrains.kotlin.analysis.api.resolution.singleCallOrNull
-import org.jetbrains.kotlin.analysis.api.resolution.successfulCallOrNull
+import org.jetbrains.kotlin.analysis.api.resolution.KaImplicitInvokeCall
+import org.jetbrains.kotlin.analysis.api.resolution.resolveSuccessfulCall
+import org.jetbrains.kotlin.analysis.api.resolution.simple
+import org.jetbrains.kotlin.analysis.api.resolution.single
 import org.jetbrains.kotlin.analysis.api.resolution.symbol
+import org.jetbrains.kotlin.analysis.api.resolution.tryResolveCall
+import org.jetbrains.kotlin.analysis.api.session.analyze
 import org.jetbrains.kotlin.analysis.api.symbols.KaBackingFieldSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaCallableSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaNamedFunctionSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaSyntheticJavaPropertySymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaValueParameterSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaVariableSymbol
+import org.jetbrains.kotlin.analysis.api.symbols.containingSymbol
+import org.jetbrains.kotlin.analysis.api.symbols.symbol
 import org.jetbrains.kotlin.builtins.StandardNames
 import org.jetbrains.kotlin.idea.base.searching.usages.KotlinPropertyFindUsagesOptions
 import org.jetbrains.kotlin.idea.base.searching.usages.processAllUsages
@@ -272,10 +277,10 @@ class InflowSlicer(
 
             is KtDotQualifiedExpression -> {
                 analyze(expression) {
-                    val call = expression.resolveToCall()?.singleCallOrNull<KaCallableMemberCall<*, *>>()
-                    val symbol = call?.partiallyAppliedSymbol?.symbol
+                    val call = expression.tryResolveCall()?.single?.simple
+                    val symbol = call?.symbol
                     if (symbol is KaNamedFunctionSymbol && symbol.isBuiltinFunctionInvoke) {
-                        (call.partiallyAppliedSymbol.dispatchReceiver as? KaExplicitReceiverValue)?.expression?.passToProcessorAsValue(mode.withBehaviour(LambdaResultInflowBehaviour))
+                        (call.dispatchReceiver as? KaExplicitReceiverValue)?.expression?.passToProcessorAsValue(mode.withBehaviour(LambdaResultInflowBehaviour))
                     } else {
                         ((symbol as? KaSyntheticJavaPropertySymbol)?.javaGetterSymbol ?: symbol)?.psi?.passDeclarationToProcessorWithOverriders()
                     }
@@ -284,11 +289,11 @@ class InflowSlicer(
 
             is KtCallExpression -> {
                 analyze(expression) {
-                    val call = expression.resolveToCall()?.successfulCallOrNull<KaCallableMemberCall<*, *>>()
-                    if (call is KaSimpleFunctionCall && call.isImplicitInvoke) {
-                        (call.partiallyAppliedSymbol.dispatchReceiver as? KaExplicitReceiverValue)?.expression?.passToProcessorAsValue(mode.withBehaviour(LambdaResultInflowBehaviour))
+                    val call = expression.resolveSuccessfulCall()
+                    if (call is KaImplicitInvokeCall) {
+                        (call.dispatchReceiver as? KaExplicitReceiverValue)?.expression?.passToProcessorAsValue(mode.withBehaviour(LambdaResultInflowBehaviour))
                     } else {
-                        call?.partiallyAppliedSymbol?.symbol?.psi?.passToProcessorInCallMode(expression, withOverriders = true)
+                        call?.symbol?.psi?.passToProcessorInCallMode(expression, withOverriders = true)
                     }
                 }
             }

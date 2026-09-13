@@ -1,6 +1,7 @@
 // Copyright 2000-2022 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.openapi.options;
 
+import com.intellij.util.concurrency.annotations.RequiresEdt;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.JComponent;
@@ -9,19 +10,28 @@ import javax.swing.JComponent;
  * This interface represents a configurable component that provides a Swing form to configure some settings.
  * Sometimes the IDE instantiates it on a background thread, so it is not recommended to create any Swing component in a constructor.
  * Use the <a href="https://docs.oracle.com/javase/tutorial/uiswing/concurrency/dispatch.html">EDT</a> instead.
+ * <p>
+ * The lifecycle is the following:
+ * <ol>
+ *   <li>{@link #createComponent()} (this method is much like a constructor, implementation initializes its inner state)</li>
+ *   <li>{@link #reset()} load additional data if needed and apply them to UI, remember to use modal progress indicator for IO operations</li>
+ *   <li>Other methods might be called here (e.g. {@link #isModified()} is called often)</li>
+ *   <li>{@link #disposeUIResources()} (this is a destructor: no other method is called after it)</li>
+ * </ol>
  *
  * @author lesya
  */
 public interface UnnamedConfigurable {
   /**
    * Creates a new Swing form that enables the user to configure the settings.
-   * Usually this method is called on the EDT, so it should not take a long time.
+   * Usually this method is called on the EDT, so it should not take a long time, it may not show modal progress either.
    * <p>
    * Also, this place is designed to allocate resources (subscriptions/listeners etc.)
    *
    * @return new Swing form to show, or {@code null} if it cannot be created
    * @see #disposeUIResources
    */
+  @RequiresEdt
   @Nullable
   JComponent createComponent();
 
@@ -46,12 +56,14 @@ public interface UnnamedConfigurable {
    *
    * @throws ConfigurationException if values cannot be applied
    */
+  @RequiresEdt(generateAssertion = false)
   void apply() throws ConfigurationException;
 
   /**
    * Loads the settings from the configurable component to the Swing form.
    * This method is called on EDT immediately after the form creation or later upon user's request.
    */
+  @RequiresEdt(generateAssertion = false)
   default void reset() {
   }
 

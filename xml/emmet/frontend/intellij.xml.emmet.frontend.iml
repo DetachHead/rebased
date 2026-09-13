@@ -7,6 +7,7 @@
       <sourceFolder url="file://$MODULE_DIR$/src" isTestSource="false" />
     </content>
     <orderEntry type="inheritedJdk" />
+    <orderEntry type="module" module-name="intellij.xml.emmet.shared" />
     <orderEntry type="module" module-name="fleet.rpc" />
     <orderEntry type="module" module-name="intellij.platform.ide.impl" />
     <orderEntry type="module" module-name="intellij.platform.core.ui" scope="PROVIDED" />
@@ -15,7 +16,7 @@
     <orderEntry type="module" module-name="intellij.platform.core" scope="PROVIDED" />
     <orderEntry type="module" module-name="intellij.xml.emmet" />
     <orderEntry type="module" module-name="intellij.platform.frontend" />
-    <orderEntry type="library" scope="PROVIDED" name="jetbrains-annotations" level="project" />
+    <orderEntry type="module" module-name="intellij.libraries.jetbrains.annotations" scope="PROVIDED" />
     <orderEntry type="sourceFolder" forTests="false" />
     <orderEntry type="module" module-name="intellij.platform.rpc.topics" scope="PROVIDED" />
     <orderEntry type="module" module-name="intellij.platform.ide.core" scope="PROVIDED" />

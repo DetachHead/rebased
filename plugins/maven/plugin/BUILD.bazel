@@ -1,7 +1,8 @@
+load("@community//platform/build-scripts/bazel-rules:dev_dist_plugin.bzl", "dev_dist_plugin")
 load("@rules_jvm//:jvm.bzl", "jvm_library")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "dev_dist_plugin_jar")
 
 ### auto-generated section `build intellij.maven.plugin` start
-
 jvm_library(
     name = "plugin",
     srcs = glob(
@@ -33,7 +34,132 @@ jvm_library(
 exports_files(
     [
         "intellij.maven.plugin.iml",
+        "resources/META-INF/plugin.xml",
     ],
     visibility = ["//visibility:public"],
 )
 ### auto-generated section `iml intellij.maven.plugin` end
+
+### auto-generated section `dev intellij.maven.plugin` start
+dev_dist_plugin(
+    content_modules = [
+        "//build/deps:dependencies",
+        "//plugins/maven",
+        "//plugins/maven/artifact-resolver-m31:artifactResolver-m31",
+        "//plugins/maven/artifact-resolver/common",
+        "//plugins/maven/maven-server-indexer:server-indexer",
+        "//plugins/maven/maven-server-telemetry:server-telemetry",
+    ],
+    descriptor_module = ":plugin",
+    libraries = [
+        "@lib//:maven-artifact_resolver-common-org-apache-maven-maven-artifact-3-0-5",
+        "@lib//:maven-artifact_resolver-m31-org-apache-maven-maven-core-3-0-5",
+        "@lib//:maven-artifact_resolver-m31-org-codehaus-plexus-plexus-component-annotations-1-5-5",
+        "@lib//:maven-artifact_resolver-m31-org-eclipse-aether-aether-api-0-9-0-_m2",
+        "@lib//:maven-artifact_resolver-m31-org-sonatype-sisu-sisu-guice-no_aop-3-1-0",
+        "@lib//:maven-jetbrains-idea-maven-indexer-api-rt",
+        "@lib//:maven-plexus-archiver",
+        "@lib//:maven-server-event_listener-com-google-inject-guice-no_aop-4-0",
+        "@lib//:maven-server-event_listener-org-apache-maven-maven-core-3-3-9",
+        "@lib//:maven-server-indexer-apache-maven-archetype-catalog-no-trans-321",
+        "@lib//:maven-server-indexer-apache-maven-archetype-common-no-trans-3-2-1",
+        "@lib//:maven-server-indexer-apache-maven-core-3-8-3",
+        "@lib//:maven-server-indexer-apache-maven-indexer-core-6-2-2",
+        "@lib//:maven-server-indexer-apache-maven-wagon-provider-api-3-5-2",
+        "@lib//:maven-server-m3-common-com-google-inject-guicen-no_aop-4-2-1",
+        "@lib//:maven-server-m3-common-org-apache-lucene-lucene-core-2-4-1",
+        "@lib//:maven-server-m3-common-org-apache-maven-archetype-archetype-common-2-2",
+        "@lib//:maven-server-m3-common-org-apache-maven-maven-compat-3-6-0",
+        "@lib//:maven-server-m3-common-org-apache-maven-shared-maven-dependency-tree-1-2",
+        "@lib//:maven-server-m3-common-org-sonatype-nexus-nexus-indexer-3-0-4",
+        "@lib//:maven-server-m3-common-org-sonatype-nexus-nexus-indexer-artifact-1-0-1",
+        "@lib//:maven-server-m3-impl-com-google-inject-guice-no_aop-4-0",
+        "@lib//:maven-server-m3-impl-org-apache-maven-archetype-archetype-catalog-2-2",
+        "@lib//:maven-server-m3-impl-org-apache-maven-archetype-archetype-common-2-2",
+        "@lib//:maven-server-m3-impl-org-apache-maven-maven-compat-3-3-9",
+        "@lib//:maven-server-m3-impl-org-apache-maven-maven-core-3-3-9",
+        "@lib//:maven-server-m3-impl-org-apache-maven-maven-embedder-3-3-9",
+        "@lib//:maven-server-m3-impl-org-apache-maven-shared-maven-dependency-tree-1-2",
+        "@lib//:maven-server-m36-impl-com-google-inject-guice-no_aop-4-2-1",
+        "@lib//:maven-server-m36-impl-org-apache-maven-maven-compat-3-6-0",
+        "@lib//:maven-server-m36-impl-org-apache-maven-maven-core-3-6-0",
+        "@lib//:maven-server-m36-impl-org-apache-maven-maven-embedder-3-6-0",
+        "@lib//:maven-server-m36-impl-org-apache-maven-shared-maven-dependency-tree-1-2",
+        "@lib//:maven-server-m40-google-inject-guice-6-0-0",
+        "@lib//:maven-server-m40-javax-inject-1",
+        "@lib//:maven-server-m40-org-apache-maven-maven-embedder-4-0-0-rc-5",
+        "@lib//:maven-server-m40-org-eclipse-sisu-eclipse-sisu-inject-0-9-0-_m3",
+        "@lib//:slf4j-api",
+        "@lib//:slf4j-jdk14",
+    ],
+    prepacked_content_modules = [
+        "//plugins/maven/completion:completion_content_module_jar",
+        "//plugins/maven/groovy:groovy_content_module_jar",
+        "//plugins/maven/jps/ide:ide_content_module_jar",
+        "//plugins/maven/jps:jps_content_module_jar",
+        "//plugins/maven/performanceTesting:performanceTesting_content_module_jar",
+        "//plugins/maven/proofreading:proofreading_content_module_jar",
+    ],
+    prepacked_jars = {
+        "//plugins/maven/model:model_content_module_jar": "intellij.maven.model.jar",
+    },
+    prepacked_layout_jars = [
+        ":intellij.maven.rt_maven-event-listener_dev_dist_plugin_jar",
+        ":intellij.maven.server36_maven36-server_dev_dist_plugin_jar",
+        ":intellij.maven.server3_maven-server-telemetry_dev_dist_plugin_jar",
+        ":intellij.maven.server3_maven3-server-common_dev_dist_plugin_jar",
+        ":intellij.maven.server3_maven3-server_dev_dist_plugin_jar",
+        ":intellij.maven.server4_maven-server-telemetry_dev_dist_plugin_jar",
+        ":intellij.maven.server4_maven40-server_dev_dist_plugin_jar",
+        ":maven-server_dev_dist_plugin_jar",
+    ],
+)
+
+dev_dist_plugin_jar(
+    modules = ["//plugins/maven/maven-event-listener:server-eventListener"],
+    plugin_main_module = "intellij.maven.plugin",
+    relative_output_file = "intellij.maven.rt/maven-event-listener.jar",
+)
+
+dev_dist_plugin_jar(
+    modules = ["//plugins/maven/maven-server-telemetry:server-telemetry"],
+    plugin_main_module = "intellij.maven.plugin",
+    relative_output_file = "intellij.maven.server3/maven-server-telemetry.jar",
+)
+
+dev_dist_plugin_jar(
+    modules = ["//plugins/maven/maven3-server-common:server-m3-common"],
+    plugin_main_module = "intellij.maven.plugin",
+    relative_output_file = "intellij.maven.server3/maven3-server-common.jar",
+)
+
+dev_dist_plugin_jar(
+    modules = ["//plugins/maven/maven3-server-impl:server-m3-impl"],
+    plugin_main_module = "intellij.maven.plugin",
+    relative_output_file = "intellij.maven.server3/maven3-server.jar",
+)
+
+dev_dist_plugin_jar(
+    modules = ["//plugins/maven/maven36-server-impl:server-m36-impl"],
+    plugin_main_module = "intellij.maven.plugin",
+    relative_output_file = "intellij.maven.server36/maven36-server.jar",
+)
+
+dev_dist_plugin_jar(
+    modules = ["//plugins/maven/maven-server-telemetry:server-telemetry"],
+    plugin_main_module = "intellij.maven.plugin",
+    relative_output_file = "intellij.maven.server4/maven-server-telemetry.jar",
+)
+
+dev_dist_plugin_jar(
+    modules = ["//plugins/maven/maven40-server-impl:server-m40"],
+    plugin_main_module = "intellij.maven.plugin",
+    relative_output_file = "intellij.maven.server4/maven40-server.jar",
+)
+
+dev_dist_plugin_jar(
+    modules = ["//plugins/maven-server-api:maven-server"],
+    plugin_main_module = "intellij.maven.plugin",
+    relative_output_file = "maven-server.jar",
+)
+### auto-generated section `dev intellij.maven.plugin` end

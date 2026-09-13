@@ -33,7 +33,6 @@ a:com.intellij.application.options.colors.ColorAndFontDescription
 - f:setForegroundChecked(Z):V
 - f:setForegroundColor(java.awt.Color):V
 f:com.intellij.application.options.colors.ColorAndFontDescriptionPanel
-- $$$getRootComponent$$$():javax.swing.JComponent
 - apply(com.intellij.openapi.editor.colors.EditorSchemeAttributeDescriptor,com.intellij.openapi.editor.colors.EditorColorsScheme):V
 c:com.intellij.application.options.colors.ColorAndFontOptions
 - sf:ID:java.lang.String
@@ -691,7 +690,6 @@ f:com.intellij.ide.IdeEventQueue
 - f:executeInProductionModeEvenThoughWeAreInTests(java.lang.Runnable):V
 - f:flushNativeEventQueue():V
 - f:getPostedEventCount():J
-- f:getPostedSystemEventCount():J
 - f:getReturnedEventCount():J
 - f:isInputMethodEnabled():Z
 - f:pumpEventsForHierarchy(java.awt.Component,java.util.concurrent.Future,java.util.function.Consumer):V
@@ -887,7 +885,6 @@ f:com.intellij.ide.actions.CopyUrlAction
 - update(com.intellij.openapi.actionSystem.AnActionEvent):V
 c:com.intellij.ide.actions.CutAction
 - getActionUpdateThread():com.intellij.openapi.actionSystem.ActionUpdateThread
-- getRequiredPermissions():java.util.Collection
 - update(com.intellij.openapi.actionSystem.AnActionEvent):V
 c:com.intellij.ide.actions.DeleteAction
 - <init>(java.lang.String,java.lang.String,javax.swing.Icon):V
@@ -933,7 +930,6 @@ c:com.intellij.ide.actions.OpenProjectFileChooserDescriptor
 - <init>(Z,Z):V
 c:com.intellij.ide.actions.PasteAction
 - getActionUpdateThread():com.intellij.openapi.actionSystem.ActionUpdateThread
-- getRequiredPermissions():java.util.Collection
 - update(com.intellij.openapi.actionSystem.AnActionEvent):V
 c:com.intellij.ide.actions.PreviousOccurenceAction
 - p:getDescription(com.intellij.ide.OccurenceNavigator):java.lang.String
@@ -1052,12 +1048,8 @@ f:com.intellij.ide.actions.TogglePresentationModeAction
 f:com.intellij.ide.actions.ToggleToolbarAction
 - s:createAction(java.lang.String,com.intellij.ide.util.PropertiesComponent,java.util.function.Supplier):com.intellij.ide.actions.ToggleToolbarAction
 - s:createToggleToolbarGroup(com.intellij.openapi.project.Project,com.intellij.openapi.wm.ToolWindow):com.intellij.openapi.actionSystem.DefaultActionGroup
-- s:createToolWindowAction(com.intellij.openapi.wm.ToolWindow,com.intellij.ide.util.PropertiesComponent):com.intellij.ide.actions.ToggleToolbarAction
 - getActionUpdateThread():com.intellij.openapi.actionSystem.ActionUpdateThread
 - isSelected(com.intellij.openapi.actionSystem.AnActionEvent):Z
-- s:isToolbarVisible(com.intellij.openapi.wm.ToolWindow):Z
-- s:isToolbarVisible(com.intellij.openapi.wm.ToolWindow,com.intellij.ide.util.PropertiesComponent):Z
-- s:isToolbarVisible(com.intellij.openapi.wm.ToolWindow,com.intellij.openapi.project.Project):Z
 - s:isToolbarVisible(java.lang.String):Z
 - s:isToolbarVisible(java.lang.String,com.intellij.ide.util.PropertiesComponent):Z
 - s:isToolbarVisible(java.lang.String,com.intellij.openapi.project.Project):Z
@@ -1066,7 +1058,6 @@ f:com.intellij.ide.actions.ToggleToolbarAction
 - s:setToolbarVisible(java.lang.Iterable,Z):V
 - s:setToolbarVisible(java.lang.String,com.intellij.ide.util.PropertiesComponent,java.lang.Iterable,java.lang.Boolean):V
 - update(com.intellij.openapi.actionSystem.AnActionEvent):V
-- s:updateToolbarVisibility(com.intellij.openapi.wm.ToolWindow,com.intellij.openapi.actionSystem.ActionToolbar,com.intellij.ide.util.PropertiesComponent):V
 c:com.intellij.ide.actions.ToolWindowTabRenameActionBase
 - <init>(java.lang.String,java.lang.String):V
 - actionPerformed(com.intellij.openapi.actionSystem.AnActionEvent,com.intellij.openapi.wm.ToolWindow,com.intellij.ui.content.Content):V
@@ -1535,7 +1526,6 @@ f:com.intellij.ide.plugins.PluginNode
 - getVendorUrl():java.lang.String
 - hashCode():I
 - isConverted():Z
-- isIncomplete():Z
 - isLicenseOptional():Z
 - isLoaded():Z
 - setBugtrackerUrl(java.lang.String):V
@@ -1647,14 +1637,6 @@ c:com.intellij.ide.plugins.newui.PluginSearchTextField
 - setSelectedItem(java.lang.String):V
 - setTextIgnoreEvents(java.lang.String):V
 - p:showCompletionPopup():V
-c:com.intellij.ide.plugins.newui.PluginUpdatesService
-- <init>():V
-- calculateUpdates(java.util.function.Consumer):V
-- dispose():V
-- finishUpdate():V
-- s:getUpdates():java.util.Collection
-- s:getUpdatesTooltip():java.lang.String
-- s:reapplyFilter():V
 f:com.intellij.ide.plugins.newui.TagComponent
 - <init>():V
 - setText(java.lang.String):V
@@ -3728,7 +3710,6 @@ a:com.intellij.openapi.fileEditor.TextEditorWithPreviewProvider
 - p:createSplitEditor(com.intellij.openapi.fileEditor.TextEditor,com.intellij.openapi.fileEditor.FileEditor):com.intellij.openapi.fileEditor.FileEditor
 - getEditorTypeId():java.lang.String
 - getPolicy():com.intellij.openapi.fileEditor.FileEditorPolicy
-- readState(org.jdom.Element,com.intellij.openapi.project.Project,com.intellij.openapi.vfs.VirtualFile):com.intellij.openapi.fileEditor.FileEditorState
 - writeState(com.intellij.openapi.fileEditor.FileEditorState,com.intellij.openapi.project.Project,org.jdom.Element):V
 a:com.intellij.openapi.fileEditor.ex.FileEditorManagerEx
 - sf:Companion:com.intellij.openapi.fileEditor.ex.FileEditorManagerEx$Companion
@@ -5491,8 +5472,6 @@ f:com.intellij.platform.PlatformProjectOpenProcessor$Companion
 - f:isNewProject(com.intellij.openapi.project.Project):Z
 - f:isOpenedByPlatformProcessor(com.intellij.openapi.project.Project):Z
 - f:isTempProject(com.intellij.openapi.project.Project):Z
-- f:openProjectAsync(java.nio.file.Path,com.intellij.ide.impl.OpenProjectTask,kotlin.coroutines.Continuation):java.lang.Object
-- bs:openProjectAsync$default(com.intellij.platform.PlatformProjectOpenProcessor$Companion,java.nio.file.Path,com.intellij.ide.impl.OpenProjectTask,kotlin.coroutines.Continuation,I,java.lang.Object):java.lang.Object
 e:com.intellij.platform.PlatformProjectOpenProcessor$Option
 - sf:FORCE_NEW_FRAME:com.intellij.platform.PlatformProjectOpenProcessor$Option
 - sf:TEMP_PROJECT:com.intellij.platform.PlatformProjectOpenProcessor$Option
@@ -6579,13 +6558,6 @@ f:com.intellij.ui.components.ComponentsKt
 - sf:dialog(java.lang.String,javax.swing.JComponent,Z,javax.swing.JComponent,Z,com.intellij.openapi.project.Project,java.awt.Component,java.lang.String,com.intellij.openapi.ui.DialogWrapper$IdeModalityType,kotlin.jvm.functions.Function1,kotlin.jvm.functions.Function0):com.intellij.openapi.ui.DialogWrapper
 - bs:dialog$default(java.lang.String,javax.swing.JComponent,Z,javax.swing.JComponent,Z,com.intellij.openapi.project.Project,java.awt.Component,java.lang.String,com.intellij.openapi.ui.DialogWrapper$IdeModalityType,kotlin.jvm.functions.Function1,kotlin.jvm.functions.Function0,I,java.lang.Object):com.intellij.openapi.ui.DialogWrapper
 - sf:getChars(javax.swing.JPasswordField):java.lang.CharSequence
-- sf:htmlComponent(java.lang.String):javax.swing.JEditorPane
-- sf:htmlComponent(java.lang.String,java.awt.Font):javax.swing.JEditorPane
-- sf:htmlComponent(java.lang.String,java.awt.Font,java.awt.Color):javax.swing.JEditorPane
-- sf:htmlComponent(java.lang.String,java.awt.Font,java.awt.Color,java.awt.Color):javax.swing.JEditorPane
-- sf:htmlComponent(java.lang.String,java.awt.Font,java.awt.Color,java.awt.Color,Z):javax.swing.JEditorPane
-- sf:htmlComponent(java.lang.String,java.awt.Font,java.awt.Color,java.awt.Color,Z,javax.swing.event.HyperlinkListener):javax.swing.JEditorPane
-- bs:htmlComponent$default(java.lang.String,java.awt.Font,java.awt.Color,java.awt.Color,Z,javax.swing.event.HyperlinkListener,I,java.lang.Object):javax.swing.JEditorPane
 - sf:installFileCompletionAndBrowseDialog(com.intellij.openapi.project.Project,com.intellij.openapi.ui.ComponentWithBrowseButton,javax.swing.JTextField,com.intellij.openapi.fileChooser.FileChooserDescriptor,com.intellij.openapi.ui.TextComponentAccessor):V
 - sf:installFileCompletionAndBrowseDialog(com.intellij.openapi.project.Project,com.intellij.openapi.ui.ComponentWithBrowseButton,javax.swing.JTextField,com.intellij.openapi.fileChooser.FileChooserDescriptor,com.intellij.openapi.ui.TextComponentAccessor,kotlin.jvm.functions.Function1):V
 - bs:installFileCompletionAndBrowseDialog$default(com.intellij.openapi.project.Project,com.intellij.openapi.ui.ComponentWithBrowseButton,javax.swing.JTextField,com.intellij.openapi.fileChooser.FileChooserDescriptor,com.intellij.openapi.ui.TextComponentAccessor,kotlin.jvm.functions.Function1,I,java.lang.Object):V
@@ -6787,38 +6759,6 @@ f:com.intellij.ui.filterField.FilterValueAction
 f:com.intellij.ui.filterField.FiltersKt
 - sf:createFilterActions(java.awt.Component,java.lang.String,java.lang.String,java.util.List,java.util.Collection,com.intellij.ui.filterField.FilterApplier):java.util.Collection
 - sf:fillFilterItems(java.util.List,java.lang.String,java.util.Collection,java.util.List,com.intellij.ui.filterField.FilterApplier):V
-e:com.intellij.ui.layout.CCFlags
-- sf:grow:com.intellij.ui.layout.CCFlags
-- sf:growX:com.intellij.ui.layout.CCFlags
-- sf:growY:com.intellij.ui.layout.CCFlags
-- sf:push:com.intellij.ui.layout.CCFlags
-- sf:pushX:com.intellij.ui.layout.CCFlags
-- sf:pushY:com.intellij.ui.layout.CCFlags
-- s:getEntries():kotlin.enums.EnumEntries
-- s:valueOf(java.lang.String):com.intellij.ui.layout.CCFlags
-- s:values():com.intellij.ui.layout.CCFlags[]
-e:com.intellij.ui.layout.LCFlags
-- sf:debug:com.intellij.ui.layout.LCFlags
-- sf:fill:com.intellij.ui.layout.LCFlags
-- sf:fillX:com.intellij.ui.layout.LCFlags
-- sf:fillY:com.intellij.ui.layout.LCFlags
-- sf:flowY:com.intellij.ui.layout.LCFlags
-- sf:noGrid:com.intellij.ui.layout.LCFlags
-- s:getEntries():kotlin.enums.EnumEntries
-- s:valueOf(java.lang.String):com.intellij.ui.layout.LCFlags
-- s:values():com.intellij.ui.layout.LCFlags[]
-c:com.intellij.ui.layout.LayoutBuilder
-- <init>(com.intellij.ui.layout.LayoutBuilderImpl):V
-- b:row(java.lang.String,Z,kotlin.jvm.functions.Function1):com.intellij.ui.layout.Row
-f:com.intellij.ui.layout.LayoutKt
-- sf:initPanel(com.intellij.ui.layout.LayoutBuilder,com.intellij.openapi.ui.DialogPanel):V
-- sf:panel(com.intellij.ui.layout.LCFlags[],java.lang.String,kotlin.jvm.functions.Function1):com.intellij.openapi.ui.DialogPanel
-- bs:panel$default(com.intellij.ui.layout.LCFlags[],java.lang.String,kotlin.jvm.functions.Function1,I,java.lang.Object):com.intellij.openapi.ui.DialogPanel
-a:com.intellij.ui.layout.Row
-- <init>():V
-f:com.intellij.ui.layout.RowBuilder$DefaultImpls
-- bs:createChildRow$default(com.intellij.ui.layout.RowBuilder,javax.swing.JLabel,Z,I,java.lang.Object):com.intellij.ui.layout.Row
-- bs:row$default(com.intellij.ui.layout.RowBuilder,java.lang.String,Z,kotlin.jvm.functions.Function1,I,java.lang.Object):com.intellij.ui.layout.Row
 c:com.intellij.ui.layout.migLayout.patched.MigLayout
 - <init>(net.miginfocom.layout.LC,net.miginfocom.layout.AC):V
 - <init>(net.miginfocom.layout.LC,net.miginfocom.layout.AC,net.miginfocom.layout.AC):V

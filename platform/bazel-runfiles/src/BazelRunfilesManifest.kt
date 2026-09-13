@@ -3,6 +3,8 @@ package com.intellij.platform.bazel.runfiles
 
 import org.jetbrains.annotations.ApiStatus
 import java.nio.file.Path
+import java.nio.file.Paths
+import java.util.concurrent.ConcurrentHashMap
 import kotlin.io.path.exists
 import kotlin.io.path.useLines
 import kotlin.math.max
@@ -22,12 +24,12 @@ class BazelRunfilesManifest @JvmOverloads constructor(
 
   val exists: Boolean by lazy {
     manifestFile ?: return@lazy false
-    Path.of(manifestFile).exists()
+    Paths.get(manifestFile).exists()
   }
 
   val manifest: Path by lazy {
     require(manifestFile != null && exists) { "RUNFILES_MANIFEST_FILE is not set or does not exist: $manifestFile" }
-    Path.of(manifestFile)
+    Paths.get(manifestFile)
   }
 
   private val bazelRunFilesManifest: Map<String, String> by lazy {
@@ -43,7 +45,7 @@ class BazelRunfilesManifest @JvmOverloads constructor(
   /** Parsed manifest entries as rlocation-path -> real-path. */
   val entries: Map<String, String> get() = bazelRunFilesManifest
 
-  private val calculatedManifestEntries: MutableMap<String, String> = mutableMapOf()
+  private val calculatedManifestEntries = ConcurrentHashMap<String, String>()
 
   private fun parseManifestEntry(line: String): Pair<String, String> {
     if (line.startsWith(" ")) {

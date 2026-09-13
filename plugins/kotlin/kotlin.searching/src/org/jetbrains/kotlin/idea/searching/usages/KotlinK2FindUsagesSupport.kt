@@ -10,18 +10,23 @@ import com.intellij.psi.search.searches.ClassInheritorsSearch
 import com.intellij.util.Processor
 import org.jetbrains.kotlin.analysis.api.KaExperimentalApi
 import org.jetbrains.kotlin.analysis.api.KaSession
-import org.jetbrains.kotlin.analysis.api.analyze
 import org.jetbrains.kotlin.analysis.api.renderer.base.annotations.KaRendererAnnotationsFilter
 import org.jetbrains.kotlin.analysis.api.renderer.declarations.KaDeclarationRenderer
 import org.jetbrains.kotlin.analysis.api.renderer.declarations.impl.KaDeclarationRendererForSource
-import org.jetbrains.kotlin.analysis.api.resolution.KaCall
-import org.jetbrains.kotlin.analysis.api.resolution.KaCallableMemberCall
+import org.jetbrains.kotlin.analysis.api.renderer.render
 import org.jetbrains.kotlin.analysis.api.resolution.KaFunctionCall
+import org.jetbrains.kotlin.analysis.api.resolution.KaSimpleCall
 import org.jetbrains.kotlin.analysis.api.resolution.symbol
+import org.jetbrains.kotlin.analysis.api.session.analyze
+import org.jetbrains.kotlin.analysis.api.session.canBeAnalysed
 import org.jetbrains.kotlin.analysis.api.symbols.KaCallableSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaClassLikeSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaConstructorSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaDeclarationSymbol
+import org.jetbrains.kotlin.analysis.api.symbols.allOverriddenSymbols
+import org.jetbrains.kotlin.analysis.api.symbols.classSymbol
+import org.jetbrains.kotlin.analysis.api.symbols.containingDeclaration
+import org.jetbrains.kotlin.analysis.api.symbols.getExpectsForActual
 import org.jetbrains.kotlin.analysis.api.symbols.symbol
 import org.jetbrains.kotlin.idea.base.analysis.api.utils.analyzeInModalWindow
 import org.jetbrains.kotlin.idea.base.analysis.api.utils.getImplicitReceivers
@@ -75,14 +80,12 @@ internal class KotlinK2FindUsagesSupport : KotlinFindUsagesSupport {
     }
 
     context(_: KaSession)
-    private fun callReceiverRefersToCompanionObject(call: KaCall, companionObject: KtObjectDeclaration): Boolean {
-        if (call !is KaCallableMemberCall<*, *>) return false
+    private fun callReceiverRefersToCompanionObject(call: KaSimpleCall<*, *>, companionObject: KtObjectDeclaration): Boolean {
         val implicitReceivers = call.getImplicitReceivers()
         val companionObjectSymbol = companionObject.symbol
         return companionObjectSymbol in implicitReceivers.map { it.symbol }
     }
 
-    @OptIn(KaExperimentalApi::class)
     override fun tryRenderDeclarationCompactStyle(declaration: KtDeclaration): String {
         return KotlinPsiDeclarationRenderer.render(declaration) ?: analyzeInModalWindow(declaration, KotlinBundle.message(
           "find.usages.prepare.dialog.progress")) {
@@ -99,14 +102,12 @@ internal class KotlinK2FindUsagesSupport : KotlinFindUsagesSupport {
         }
     }
 
-    @OptIn(KaExperimentalApi::class)
     override fun renderDeclaration(method: KtDeclaration): String {
         return KotlinPsiDeclarationRenderer.render(method) ?: analyzeInModalWindow(method, KotlinBundle.message("find.usages.prepare.dialog.progress")) {
             method.symbol.render(noAnnotationsShortNameRenderer())
         }
     }
 
-    @OptIn(KaExperimentalApi::class)
     override fun isKotlinConstructorUsage(psiReference: PsiReference, ktClassOrObject: KtClassOrObject): Boolean {
         val element = psiReference.element
         if (element !is KtElement) return false

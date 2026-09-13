@@ -1,7 +1,7 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
 ### auto-generated section `build intellij.uiDesigner` start
-
 jvm_library(
     name = "uiDesigner",
     srcs = glob(
@@ -47,6 +47,8 @@ jvm_library(
     ],
 )
 
+content_module_jar(module = ":uiDesigner")
+
 jvm_library(
     name = "uiDesigner_test_lib",
     testonly = True,
@@ -89,6 +91,8 @@ jvm_library(
 exports_files(
     [
         "intellij.uiDesigner.iml",
+        "resources/META-INF/DesignerCorePlugin.xml",
+        "resources/intellij.uiDesigner.xml",
     ],
     visibility = ["//visibility:public"],
 )

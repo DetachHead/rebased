@@ -12,12 +12,13 @@ import com.intellij.refactoring.introduceParameter.IntroduceParameterMethodUsage
 import com.intellij.refactoring.util.CanonicalTypes
 import com.intellij.usageView.UsageInfo
 import com.intellij.util.containers.MultiMap
-import org.jetbrains.kotlin.analysis.api.KaExperimentalApi
-import org.jetbrains.kotlin.analysis.api.analyze
+import org.jetbrains.kotlin.analysis.api.javaInterop.asKaType
 import org.jetbrains.kotlin.analysis.api.permissions.KaAllowAnalysisFromWriteAction
 import org.jetbrains.kotlin.analysis.api.permissions.KaAllowAnalysisOnEdt
 import org.jetbrains.kotlin.analysis.api.permissions.allowAnalysisFromWriteAction
 import org.jetbrains.kotlin.analysis.api.permissions.allowAnalysisOnEdt
+import org.jetbrains.kotlin.analysis.api.renderer.render
+import org.jetbrains.kotlin.analysis.api.session.analyze
 import org.jetbrains.kotlin.idea.k2.refactoring.changeSignature.KotlinChangeInfo
 import org.jetbrains.kotlin.idea.k2.refactoring.changeSignature.KotlinChangeInfoBase
 import org.jetbrains.kotlin.idea.k2.refactoring.changeSignature.KotlinChangeSignatureUsageProcessor
@@ -45,7 +46,7 @@ class KotlinIntroduceParameterMethodUsageProcessor : IntroduceParameterMethodUsa
 
     override fun findConflicts(data: IntroduceParameterData, usages: Array<UsageInfo>, conflicts: MultiMap<PsiElement, String>) {}
 
-    @OptIn(KaAllowAnalysisFromWriteAction::class, KaAllowAnalysisOnEdt::class, KaExperimentalApi::class) // called under potemkin progress
+    @OptIn(KaAllowAnalysisFromWriteAction::class, KaAllowAnalysisOnEdt::class) // called under potemkin progress
     override fun processChangeMethodSignature(data: IntroduceParameterData, usage: UsageInfo, usages: Array<out UsageInfo>): Boolean {
         val element = usage.element as? KtFunction ?: return true
 

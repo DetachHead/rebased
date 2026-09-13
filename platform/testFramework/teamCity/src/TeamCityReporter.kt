@@ -27,6 +27,10 @@ object TeamCityReporter {
    *
    * - [IDE_EXCEPTION]: unhandled IDE exception / freeze / timeout captured from the IDE
    *   under test.
+   * - [PRODUCT_EXCEPTION]: an exception logged inside an external product process the IDE
+   *   relies on - for example the JetBrains Daemon (`jetbrainsd`), scraped from that
+   *   product's own log files. These are bugs of that product, not IDE bugs, so they are
+   *   grouped/muted/owned separately from [IDE_EXCEPTION].
    * - [TEST_INFRA_EXCEPTION]: failure of the test infrastructure itself - port
    *   allocation, leftover processes, VM options validation, missing IDE directories,
    *   etc. These are harness bugs, not IDE bugs, and should be muted / owned separately.
@@ -36,6 +40,7 @@ object TeamCityReporter {
    */
   enum class SyntheticTestKind(val prefix: String) {
     IDE_EXCEPTION("IdeException"),
+    PRODUCT_EXCEPTION("ProductException"),
     TEST_INFRA_EXCEPTION("TestInfraException"),
     SOFT_ASSERT_FAILURE("SoftAssertFailure"),
   }
@@ -207,6 +212,25 @@ object TeamCityReporter {
   }
 
   /**
+   * Attaches code-owner metadata to a test: a `Code Owner` text entry with the owner group name
+   * and a link to the owner group's page on codeowners.labs.jb.gg.
+   *
+   * @param testName the test name to attach metadata to; `null` attaches to the currently running test
+   * @param owner    the owner group name
+   * @param flowId   optional flow identifier for parallel output
+   */
+  fun reportTestOwnerMetadata(testName: String?, owner: String, flowId: String? = null) {
+    reportTestMetadata(testName, owner, "Code Owner", flowId, type = MetadataType.TEXT)
+    reportTestMetadata(
+      testName,
+      "https://codeowners.labs.jb.gg/group/${URLEncoder.encode(owner, Charsets.UTF_8).replace("+", "%20")}",
+      "'$owner' Owner Details",
+      flowId,
+      type = MetadataType.LINK,
+    )
+  }
+
+  /**
    * Prints a `##teamcity[buildStatisticValue …]`
    * [statistic value](https://www.jetbrains.com/help/teamcity/service-messages.html#Reporting+Build+Statistics) message to stdout.
    */
@@ -301,8 +325,7 @@ object TeamCityReporter {
       when (outcome) {
         TestOutcome.FAILED -> {
           if (owner != null) {
-            reportTestMetadata(effectiveName, owner, "Code Owner", flowId, type = MetadataType.TEXT)
-            reportTestMetadata(effectiveName, "https://codeowners.labs.jb.gg/group/${URLEncoder.encode(owner, Charsets.UTF_8).replace("+", "%20")}", "'$owner' Owner Details", flowId, type = MetadataType.LINK)
+            reportTestOwnerMetadata(effectiveName, owner, flowId)
           }
           reportTestFailed(effectiveName, message, flowId, nodeId = effectiveName, parentNodeId = "0", details = details)
         }

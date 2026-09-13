@@ -1,7 +1,9 @@
+<!--suppress PluginXmlRegistrationCheck (xi-included shared actions file; the actions span diff.impl and ide.impl) -->
 <idea-plugin>
-  <actions>
+  <actions resource-bundle="messages.ActionsBundle">
     <action id="Vcs.ShowTabbedFileHistory" class="com.intellij.openapi.vcs.actions.TabbedShowHistoryAction"
             icon="AllIcons.Vcs.History"/>
+    <!--suppress PluginXmlCapitalization -->
     <action id="Vcs.ShowHistoryForRevision" class="com.intellij.openapi.vcs.actions.TabbedShowHistoryForRevisionAction"
             icon="AllIcons.Vcs.History"/>
 
@@ -48,6 +50,7 @@
       <add-to-group group-id="SegmentedVcsActionsBarGroup" anchor="first"/>
       <add-to-group group-id="MainToolbarVCSGroup" anchor="first" />
     </action>
+    <!--suppress PluginXmlCapitalization -->
     <action id="Vcs.Toolbar.ShowMoreActions" class="com.intellij.openapi.vcs.actions.VcsQuickActionsToolbarPopup">
       <add-to-group group-id="SegmentedVcsActionsBarGroup" anchor="last"/>
     </action>
@@ -159,6 +162,7 @@
       </action>
       <add-to-group group-id="ChangesViewToolbar.Shared" anchor="first"/>
     </group>
+    <!--suppress PluginXmlCapitalization -->
     <action id="ChangesView.SaveToShelve" class="com.intellij.openapi.vcs.changes.actions.SaveToShelveAction"/>
 
     <action id="Vcs.Diff.ShowCombinedDiff" class="com.intellij.openapi.vcs.changes.actions.diff.ShowCombinedDiffAction"
@@ -449,6 +453,7 @@
       <action id="Vcs.RollbackChangedLines" class="com.intellij.openapi.vcs.ex.RollbackLineStatusAction" icon="AllIcons.Actions.Rollback"/>
       <action id="Vcs.ShowDiffChangedLines" class="com.intellij.openapi.vcs.ex.ShowDiffLineStatusAction" icon="AllIcons.Actions.Diff"/>
       <action id="Vcs.MoveChangedLinesToChangelist" class="com.intellij.openapi.vcs.ex.MoveChangesLineStatusAction"/>
+      <!--suppress PluginXmlCapitalization -->
       <action id="Vcs.Diff.ToggleDiffAligningMode" class="com.intellij.diff.actions.impl.ToggleDiffAligningModeAction">
         <override-text place="popup@DiffToolbar"/>
       </action>
@@ -479,6 +484,7 @@
       <add-to-group group-id="Diff.KeymapGroup"/>
     </group>
 
+    <!--suppress PluginXmlCapitalization -->
     <action id="Vcs.Diff.ToggleSearchInChanges" class="com.intellij.openapi.diff.impl.ToggleSearchInChangesAction">
       <add-to-group group-id="Editor.Search.Filter.Results"/>
     </action>
@@ -573,7 +579,6 @@
       <reference ref="ChangesView.SetDefault"/>
       <reference ref="ChangesView.Move"/>
       <reference ref="Diff.ShowDiff"/>
-      <reference ref="ChangesView.SingleClickPreview"/>
       <reference ref="$Delete"/>
       <reference ref="ChangesView.AddUnversioned"/>
       <reference ref="ChangesView.RemoveDeleted"/>

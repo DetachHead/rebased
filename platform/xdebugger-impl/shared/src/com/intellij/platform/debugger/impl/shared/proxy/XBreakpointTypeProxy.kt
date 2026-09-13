@@ -18,12 +18,14 @@ interface XBreakpointTypeProxy {
   val enabledIcon: Icon
   val disabledIcon: Icon
   val suspendNoneIcon: Icon
+  val suspendNoneDisabledIcon: Icon
   val mutedEnabledIcon: Icon
   val mutedDisabledIcon: Icon
   val pendingIcon: Icon?
   val inactiveDependentIcon: Icon
 
   val isSuspendThreadSupported: Boolean
+  val isTemporaryBreakpointSupported: Boolean
 
   val defaultSuspendPolicy: SuspendPolicy
 
@@ -36,5 +38,6 @@ interface XBreakpointTypeProxy {
   fun createCustomRightPropertiesPanel(project: Project): XBreakpointCustomPropertiesPanel<XBreakpoint<*>>?
   fun createCustomTopPropertiesPanel(project: Project): XBreakpointCustomPropertiesPanel<XBreakpoint<*>>?
   fun isAddBreakpointButtonVisible(): Boolean
+  fun isNewBadgeVisible(): Boolean
   suspend fun addBreakpoint(project: Project): XBreakpointProxy?
 }

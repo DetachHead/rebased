@@ -1,5 +1,7 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 @file:Suppress("JAVA_MODULE_DOES_NOT_EXPORT_PACKAGE")
+@file:OptIn(LowLevelLocalMachineAccess::class)
+
 package com.intellij.ui
 
 import com.intellij.diagnostic.ExceptionAutoReportUtil
@@ -9,6 +11,7 @@ import com.intellij.ide.IdeBundle
 import com.intellij.ide.gdpr.Consent
 import com.intellij.ide.gdpr.ConsentOptions
 import com.intellij.ide.gdpr.ConsentSettingsUi
+import com.intellij.ide.gdpr.ConsentsState
 import com.intellij.ide.gdpr.localConsents.LocalConsentOptions
 import com.intellij.ide.gdpr.trace.TraceConsentManager
 import com.intellij.ide.plugins.PluginManagerCore
@@ -42,6 +45,8 @@ import com.intellij.ui.scale.ScaleType
 import com.intellij.ui.svg.loadWithSizes
 import com.intellij.util.JBHiDPIScaledImage
 import com.intellij.util.ResourceUtil
+import com.intellij.util.concurrency.annotations.RequiresBackgroundThread
+import com.intellij.util.concurrency.annotations.RequiresEdt
 import com.intellij.util.containers.addIfNotNull
 import com.intellij.util.io.URLUtil
 import com.intellij.util.system.LowLevelLocalMachineAccess
@@ -49,11 +54,10 @@ import com.intellij.util.system.OS
 import com.intellij.util.ui.EmptyIcon
 import com.intellij.util.ui.ImageUtil
 import com.intellij.util.ui.JBImageIcon
-import org.jetbrains.annotations.ApiStatus
+import org.jetbrains.annotations.ApiStatus.Internal
 import sun.awt.AWTAccessor
 import java.awt.Color
 import java.awt.Component
-import java.awt.EventQueue
 import java.awt.Graphics
 import java.awt.GraphicsEnvironment
 import java.awt.Image
@@ -63,11 +67,9 @@ import java.awt.TexturePaint
 import java.awt.Window
 import java.awt.event.ActionEvent
 import java.awt.image.BufferedImage
-import java.lang.reflect.InvocationTargetException
 import java.nio.file.Files
 import java.nio.file.Path
 import java.util.concurrent.atomic.AtomicBoolean
-import java.util.function.Predicate
 import javax.swing.Action
 import javax.swing.Icon
 import javax.swing.JComponent
@@ -76,15 +78,15 @@ import kotlin.io.path.absolutePathString
 import kotlin.io.path.extension
 import kotlin.math.roundToInt
 
-@OptIn(LowLevelLocalMachineAccess::class)
+private const val VENDOR_PREFIX = "jetbrains-"
+private const val MAC_DOCK_ICON_BORDER = 25
+private var appIcons: List<Image>? = null
+private val isMacDocIconSet = AtomicBoolean(false)
+
+private val LOG: Logger
+  get() = logger<AppUIUtil>()
+
 object AppUIUtil {
-  private const val VENDOR_PREFIX = "jetbrains-"
-  private const val MAC_DOCK_ICON_BORDER = 25
-  private var appIcons: List<Image>? = null
-  private val isMacDocIconSet = AtomicBoolean(false)
-
-  private val LOG: Logger get() = logger<AppUIUtil>()
-
   @JvmStatic
   fun updateAppWindowIcon(window: Window) {
     if (isWindowIconAlreadyExternallySet()) {
@@ -132,59 +134,7 @@ object AppUIUtil {
     }
   }
 
-  // returns a HiDPI-aware image
-  private fun loadAppIconImage(svgPath: String, scaleContext: ScaleContext, size: Int): Image? {
-    val pixScale = scaleContext.getScale(DerivedScaleType.PIX_SCALE).toFloat()
-    val svgData = findAppIconSvgData(svgPath, pixScale)
-    if (svgData == null) {
-      LOG.warn("Cannot load SVG application icon from $svgPath")
-      return null
-    }
-    val sysScale = scaleContext.getScale(ScaleType.SYS_SCALE).toFloat()
-    val userScale = scaleContext.getScale(ScaleType.USR_SCALE).toFloat()
-    val userSize = (size * userScale).roundToInt()
-    return loadWithSizes(listOf(userSize), svgData, sysScale).first()
-  }
-
-  private fun findAppIconSvgData(path: String, pixScale: Float): ByteArray? {
-    val loadingStart = StartUpMeasurer.getCurrentTimeIfEnabled()
-    // app icon doesn't support `dark` concept, and moreover, it cannot depend on a current LaF
-    val descriptors = createImageDescriptorList(path, isDark = false, isStroke = false, pixScale)
-    val rawPathWithoutExt = path.substring(if (path.startsWith('/')) 1 else 0, path.lastIndexOf('.'))
-    for (descriptor in descriptors) {
-      val transformedPath = descriptor.pathTransform(rawPathWithoutExt, "svg")
-      val resourceLoadStart = StartUpMeasurer.getCurrentTimeIfEnabled()
-      val data = ResourceUtil.getResourceAsBytes(transformedPath, AppUIUtil::class.java.classLoader, true) ?: continue
-      if (resourceLoadStart != -1L) {
-        IconLoadMeasurer.loadFromResources.end(resourceLoadStart)
-      }
-      if (loadingStart != -1L) {
-        IconLoadMeasurer.addLoading(descriptor.isSvg, loadingStart)
-      }
-      return data
-    }
-    return null
-  }
-
-  private fun addTransparentBorder(img: Image): BufferedImage {
-    val border = MAC_DOCK_ICON_BORDER
-    val width = img.getWidth(null)
-    val height = img.getHeight(null)
-    val result = @Suppress("UndesirableClassUsage") BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB)
-    val g = result.createGraphics()
-    try {
-      g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR)
-      g.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY)
-      g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
-      g.drawImage(img, border, border, width - 2 * border, height - 2 * border, null)
-    }
-    finally {
-      g.dispose()
-    }
-    return result
-  }
-
-  @ApiStatus.Internal
+  @Internal
   @JvmStatic
   fun isWindowIconAlreadyExternallySet(): Boolean {
     return !System.getProperty("intellij.platform.force.update.app.window.icon").toBoolean() && when (OS.CURRENT) {
@@ -205,15 +155,15 @@ object AppUIUtil {
   }
 
   @JvmStatic
-  fun loadApplicationIcon(ctx: ScaleContext, size: Int): Icon? =
-    loadAppIconImage(ApplicationInfoImpl.getShadowInstance().applicationSvgIconUrl, ctx, size)
-      ?.let { JBImageIcon(it) }
+  fun loadApplicationIcon(ctx: ScaleContext, size: Int): Icon? {
+    return loadAppIconImage(ApplicationInfoImpl.getShadowInstance().applicationSvgIconUrl, ctx, size)?.let { JBImageIcon(it) }
+  }
 
   @JvmStatic
   fun loadSmallApplicationIcon(scaleContext: ScaleContext, size: Int): Icon =
     loadSmallApplicationIcon(scaleContext, size, requestReleaseIcon = !ApplicationInfoImpl.getShadowInstance().isEAP)
 
-  @ApiStatus.Internal
+  @Internal
   @JvmStatic
   fun loadSmallApplicationIcon(scaleContext: ScaleContext, size: Int, requestReleaseIcon: Boolean): Icon {
     val appInfo = ApplicationInfoImpl.getShadowInstance()
@@ -280,38 +230,25 @@ object AppUIUtil {
     return wmClass
   }
 
-  fun showConsentsAgreementIfNeeded(log: Logger, filter: Predicate<in Consent?>): Boolean {
-    val (first, second) = ConsentOptions.getInstance().getConsents(filter)
-    if (!second) {
-      return false
-    }
-    else if (@Suppress("SwingIsEventDispatchThread") EventQueue.isDispatchThread()) {
-      return confirmConsentOptions(first)
-    }
-    else {
-      var result = false
-      try {
-        EventQueue.invokeAndWait { result = confirmConsentOptions(first) }
-      }
-      catch (e: InterruptedException) {
-        log.warn(e)
-      }
-      catch (e: InvocationTargetException) {
-        log.warn(e)
-      }
-      return result
-    }
-  }
-
   @JvmStatic
   fun updateForDarcula(isDarcula: Boolean) {
     JBColor.setDark(isDarcula)
     setUseDarkIcons(isDarcula)
   }
 
-  fun confirmConsentOptions(consents: List<Consent>): Boolean {
-    if (consents.isEmpty()) {
-      return false
+  /**
+   * Shows the data sharing dialog and returns the choice of the user.
+   * It returns `null` if the user closed the dialog without a choice.
+   *
+   * This method only shows the UI. The caller reads [consents] and writes the result on a background thread.
+   * Use [com.intellij.ide.gdpr.showDataSharingOptionsDialog] or
+   * [com.intellij.ide.gdpr.showConsentsAgreementIfNeeded] instead of a direct call.
+   */
+  @Internal
+  @RequiresEdt
+  fun showConsentsDialog(consents: ConsentsState): List<Consent>? {
+    if (consents.allConsents.isEmpty()) {
+      return null
     }
 
     val ui = ConsentSettingsUi(false)
@@ -329,13 +266,13 @@ object AppUIUtil {
       override fun createCenterPanel() = ui.component
 
       override fun createActions(): Array<Action> {
-        if (consents.size > 1) {
+        if (consents.allConsents.size > 1) {
           val actions = super.createActions()
           setOKButtonText(IdeBundle.message("button.save"))
           setCancelButtonText(IdeBundle.message("button.skip"))
           return actions
         }
-        setOKButtonText(consents.iterator().next().name)
+        setOKButtonText(consents.allConsents.iterator().next().name)
         return arrayOf(okAction, object : DialogWrapperAction(IdeBundle.message("button.do.not.send")) {
           override fun doAction(e: ActionEvent) {
             close(NEXT_USER_EXIT_CODE)
@@ -353,27 +290,27 @@ object AppUIUtil {
     dialog.isModal = true
     dialog.title = IdeBundle.message("dialog.title.data.sharing")
     dialog.pack()
-    if (consents.size < 2) {
+    if (consents.allConsents.size < 2) {
       dialog.setSize(dialog.window.width, dialog.window.height + scale(75))
     }
     dialog.show()
     val exitCode = dialog.exitCode
     if (exitCode == DialogWrapper.CANCEL_EXIT_CODE) {
-      return false // don't save any changes in this case: a user hasn't made a choice
+      return null // don't save any changes in this case: a user hasn't made a choice
     }
-    val result: List<Consent>
-    if (consents.size == 1) {
-      result = listOf(consents.iterator().next().derive(exitCode == DialogWrapper.OK_EXIT_CODE))
+    if (consents.allConsents.size == 1) {
+      return listOf(consents.allConsents.iterator().next().derive(exitCode == DialogWrapper.OK_EXIT_CODE))
     }
-    else {
-      result = ArrayList()
-      ui.apply(result)
-    }
-    saveConsents(result)
-    return true
+    return ui.getState()
   }
 
+  /**
+   * Reads the consents from the disk.
+   *
+   * A read of the consents is an IO operation, so a background thread is required.
+   */
   @JvmStatic
+  @RequiresBackgroundThread
   fun loadConsentsForEditing(): List<Consent> {
     val options = ConsentOptions.getInstance()
     var result = options.consents.first
@@ -394,7 +331,9 @@ object AppUIUtil {
     }
     removeTraceConsents(result)
     if (!options.isEAP || !Registry.`is`("llm.llmc.data.collection.enabled", true)) {
-      result.removeIf(ConsentOptions.condAiDataCollectionConsent()) // IJPL-195651 and IJPL-210395; AI data collection (LLMC) consent should not be present on UI while it's staying a default consent as a part of migration from LLMC to TRACE consent
+      // IJPL-195651 and IJPL-210395; AI data collection (LLMC) consent should not be present on UI
+      // while it's staying a default consent as a part of migration from LLMC to TRACE consent
+      result.removeIf(ConsentOptions.condAiDataCollectionConsent())
     }
     return result
   }
@@ -407,8 +346,14 @@ object AppUIUtil {
     }
   }
 
+  /**
+   * Reads the local consents from the disk.
+   *
+   * A read of the local consents is an IO operation, so a background thread is required.
+   */
   @JvmStatic
-  @ApiStatus.Internal
+  @Internal
+  @RequiresBackgroundThread
   fun loadLocalConsentsAsConsentsForEditing(): List<Consent> {
     val localConsents = LocalConsentOptions.getLocalConsents().first.toMutableList()
     if (TraceConsentManager.getInstance()?.canDisplayTraceConsent() != true) {
@@ -432,7 +377,13 @@ object AppUIUtil {
     }
   }
 
+  /**
+   * Writes the consents to the disk.
+   *
+   * A write of the consents is an IO operation, so a background thread is required.
+   */
   @JvmStatic
+  @RequiresBackgroundThread
   fun saveConsents(consents: List<Consent>) {
     if (consents.isEmpty()) {
       return
@@ -464,8 +415,13 @@ object AppUIUtil {
     }
   }
 
-  @JvmStatic
-  @ApiStatus.Internal
+  /**
+   * Writes the local consents to the disk.
+   *
+   * A write of the local consents is an IO operation, so a background thread is required.
+   */
+  @Internal
+  @RequiresBackgroundThread
   fun saveConsentsAsLocalConsents(consents: List<Consent>) {
     LocalConsentOptions.setLocalConsents(consents)
   }
@@ -479,7 +435,7 @@ object AppUIUtil {
    * The calculation in that case may involve device-dependent metrics (such as font metrics)
    * and thus should refer to a particular device in multi-monitor env.
    *
-   * Note that if after calling this method the component is added to another hierarchy bound to a different device,
+   * Note that if after calling this method, the component is added to another hierarchy bound to a different device,
    * AWT will throw `IllegalArgumentException`.
    * To avoid that, the device should be reset by calling `targetToDevice(comp, null)`.
    *
@@ -497,14 +453,6 @@ object AppUIUtil {
 
   @JvmStatic
   fun isInFullScreen(window: Window?): Boolean = window is IdeFrame && (window as IdeFrame).isInFullScreen
-
-  private fun adjustFractionalMetrics(defaultValue: Any): Any {
-    if (OS.CURRENT != OS.macOS || GraphicsEnvironment.isHeadless() || AppMode.isRemoteDevHost()) {
-      return defaultValue
-    }
-    val gc = GraphicsEnvironment.getLocalGraphicsEnvironment().defaultScreenDevice.defaultConfiguration
-    return if (sysScale(gc) == 1.0f) RenderingHints.VALUE_FRACTIONALMETRICS_OFF else defaultValue
-  }
 
   fun getAdjustedFractionalMetricsValue(): Any = adjustFractionalMetrics(UISettings.getPreferredFractionalMetricsValue())
 
@@ -553,76 +501,110 @@ object AppUIUtil {
       }
     }
   }
-
-  @Suppress("DuplicatedCode")
-  private fun createGradientTexture(
-    graphics: Graphics,
-    colorStart: Color,
-    colorEnd: Color,
-    width: Int,
-    height: Int,
-    xStart: Int = 0,
-    yStart: Int = 0,
-    pixelsFunction: (
-      image: BufferedImage,
-      colorStart16: Color16,
-      delta16: Color16,
-      pixels: Array<Array<Color16>>,
-    ) -> Unit,
-  ): TexturePaint {
-    val image = ImageUtil.createImage(graphics, width, height, BufferedImage.TYPE_INT_ARGB)
-
-    val pixels: Array<Array<Color16>> = Array(image.height) { Array(image.width) { Color16.TRANSPARENT } }
-
-    val colorStart16 = colorStart.toColor16()
-    val colorEnd16 = colorEnd.toColor16()
-    val delta16 = colorEnd16 - colorStart16
-    pixelsFunction(image, colorStart16, delta16, pixels)
-
-    val coefficients = doubleArrayOf(7.0 / 16, 3.0 / 16, 5.0 / 16, 1.0 / 16)
-    for (y in 0 until image.height) {
-      for (x in 0 until image.width) {
-        val oldColor: Color16 = pixels[y][x]
-        val newColor: Color = oldColor.toColor8()
-        image.setRGB(x, y, newColor.rgb)
-
-        val error: Color16 = oldColor - newColor.toColor16()
-        if (x + 1 < image.width) {
-          pixels[y][x + 1] = pixels[y][x + 1] + error * coefficients[0]
-        }
-        if (x - 1 >= 0 && y + 1 < image.height) {
-          pixels[y + 1][x - 1] = pixels[y + 1][x - 1] + error * coefficients[1]
-        }
-        if (y + 1 < image.height) {
-          pixels[y + 1][x] = pixels[y + 1][x] + error * coefficients[2]
-        }
-        if (x + 1 < image.width && y + 1 < image.height) {
-          pixels[y + 1][x + 1] = pixels[y + 1][x + 1] + error * coefficients[3]
-        }
-      }
-    }
-
-    return TexturePaint(image, Rectangle(xStart, yStart, width, height))
-  }
 }
 
-@Suppress("DeprecatedCallableAddReplaceWith")
-@Deprecated("Use 'AppUIUtil.updateAppWindowIcon' instead", level = DeprecationLevel.ERROR)
-fun updateAppWindowIcon(window: Window): Unit = AppUIUtil.updateAppWindowIcon(window)
+private fun adjustFractionalMetrics(defaultValue: Any): Any {
+  if (OS.CURRENT != OS.macOS || GraphicsEnvironment.isHeadless() || AppMode.isRemoteDevHost()) {
+    return defaultValue
+  }
+  val gc = GraphicsEnvironment.getLocalGraphicsEnvironment().defaultScreenDevice.defaultConfiguration
+  return if (sysScale(gc) == 1.0f) RenderingHints.VALUE_FRACTIONALMETRICS_OFF else defaultValue
+}
 
-@Suppress("DeprecatedCallableAddReplaceWith")
-@Deprecated("Use 'AppUIUtil.findAppIcon' instead")
-fun findAppIcon(): String? = AppUIUtil.findAppIcon()
+@Suppress("DuplicatedCode")
+private fun createGradientTexture(
+  graphics: Graphics,
+  colorStart: Color,
+  colorEnd: Color,
+  width: Int,
+  height: Int,
+  xStart: Int = 0,
+  yStart: Int = 0,
+  pixelsFunction: (image: BufferedImage, colorStart16: Color16, delta16: Color16, pixels: Array<Array<Color16>>) -> Unit,
+): TexturePaint {
+  val image = ImageUtil.createImage(graphics, width, height, BufferedImage.TYPE_INT_ARGB)
 
-@Suppress("DeprecatedCallableAddReplaceWith")
-@Deprecated("Use 'AppUIUtil.loadSmallApplicationIcon' instead", level = DeprecationLevel.ERROR)
-fun loadSmallApplicationIcon(scaleContext: ScaleContext, size: Int = 16): Icon = AppUIUtil.loadSmallApplicationIcon(scaleContext, size)
+  val pixels: Array<Array<Color16>> = Array(image.height) { Array(image.width) { Color16.TRANSPARENT } }
 
-@Suppress("DeprecatedCallableAddReplaceWith")
-@Deprecated("Use 'AppUIUtil.loadSmallApplicationIcon' instead", level = DeprecationLevel.ERROR)
-fun loadSmallApplicationIcon(scaleContext: ScaleContext, size: Int, requestReleaseIcon: Boolean): Icon =
-  AppUIUtil.loadSmallApplicationIcon(scaleContext, size, requestReleaseIcon)
+  val colorStart16 = colorStart.toColor16()
+  val colorEnd16 = colorEnd.toColor16()
+  val delta16 = colorEnd16 - colorStart16
+  pixelsFunction(image, colorStart16, delta16, pixels)
 
-@Suppress("DeprecatedCallableAddReplaceWith")
-@Deprecated("Internal stuff; don't use", level = DeprecationLevel.ERROR)
-fun isWindowIconAlreadyExternallySet(): Boolean = AppUIUtil.isWindowIconAlreadyExternallySet()
+  val coefficients = doubleArrayOf(7.0 / 16, 3.0 / 16, 5.0 / 16, 1.0 / 16)
+  for (y in 0 until image.height) {
+    for (x in 0 until image.width) {
+      val oldColor: Color16 = pixels[y][x]
+      val newColor: Color = oldColor.toColor8()
+      image.setRGB(x, y, newColor.rgb)
+
+      val error: Color16 = oldColor - newColor.toColor16()
+      if (x + 1 < image.width) {
+        pixels[y][x + 1] = pixels[y][x + 1] + error * coefficients[0]
+      }
+      if (x - 1 >= 0 && y + 1 < image.height) {
+        pixels[y + 1][x - 1] = pixels[y + 1][x - 1] + error * coefficients[1]
+      }
+      if (y + 1 < image.height) {
+        pixels[y + 1][x] = pixels[y + 1][x] + error * coefficients[2]
+      }
+      if (x + 1 < image.width && y + 1 < image.height) {
+        pixels[y + 1][x + 1] = pixels[y + 1][x + 1] + error * coefficients[3]
+      }
+    }
+  }
+
+  return TexturePaint(image, Rectangle(xStart, yStart, width, height))
+}
+
+// returns a HiDPI-aware image
+private fun loadAppIconImage(svgPath: String, scaleContext: ScaleContext, size: Int): Image? {
+  val pixScale = scaleContext.getScale(DerivedScaleType.PIX_SCALE).toFloat()
+  val svgData = findAppIconSvgData(svgPath, pixScale)
+  if (svgData == null) {
+    LOG.warn("Cannot load SVG application icon from $svgPath")
+    return null
+  }
+  val sysScale = scaleContext.getScale(ScaleType.SYS_SCALE).toFloat()
+  val userScale = scaleContext.getScale(ScaleType.USR_SCALE).toFloat()
+  val userSize = (size * userScale).roundToInt()
+  return loadWithSizes(listOf(userSize), svgData, sysScale).first()
+}
+
+private fun findAppIconSvgData(path: String, pixScale: Float): ByteArray? {
+  val loadingStart = StartUpMeasurer.getCurrentTimeIfEnabled()
+  // app icon doesn't support `dark` concept, and moreover, it cannot depend on a current LaF
+  val descriptors = createImageDescriptorList(path, isDark = false, isStroke = false, pixScale)
+  val rawPathWithoutExt = path.substring(if (path.startsWith('/')) 1 else 0, path.lastIndexOf('.'))
+  for (descriptor in descriptors) {
+    val transformedPath = descriptor.pathTransform(rawPathWithoutExt, "svg")
+    val resourceLoadStart = StartUpMeasurer.getCurrentTimeIfEnabled()
+    val data = ResourceUtil.getResourceAsBytes(transformedPath, AppUIUtil::class.java.classLoader, true) ?: continue
+    if (resourceLoadStart != -1L) {
+      IconLoadMeasurer.loadFromResources.end(resourceLoadStart)
+    }
+    if (loadingStart != -1L) {
+      IconLoadMeasurer.addLoading(descriptor.isSvg, loadingStart)
+    }
+    return data
+  }
+  return null
+}
+
+private fun addTransparentBorder(img: Image): BufferedImage {
+  val border = MAC_DOCK_ICON_BORDER
+  val width = img.getWidth(null)
+  val height = img.getHeight(null)
+  val result = @Suppress("UndesirableClassUsage") BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB)
+  val g = result.createGraphics()
+  try {
+    g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR)
+    g.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY)
+    g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
+    g.drawImage(img, border, border, width - 2 * border, height - 2 * border, null)
+  }
+  finally {
+    g.dispose()
+  }
+  return result
+}

@@ -17,6 +17,8 @@ import com.intellij.openapi.ui.JBPopupMenu;
 import com.intellij.openapi.util.IconLoader;
 import com.intellij.openapi.util.Key;
 import com.intellij.openapi.util.text.StringUtil;
+import com.intellij.ui.components.SplitButtonHalf;
+import com.intellij.ui.components.SplitButtonZones;
 import com.intellij.ui.scale.JBUIScale;
 import com.intellij.util.ObjectUtils;
 import com.intellij.util.containers.ContainerUtil;
@@ -30,6 +32,7 @@ import org.jetbrains.annotations.Nullable;
 import javax.swing.Icon;
 import javax.swing.JComponent;
 import javax.swing.JPopupMenu;
+import java.awt.Component;
 import java.awt.Dimension;
 import java.awt.Graphics;
 import java.awt.Point;
@@ -104,7 +107,7 @@ public class SplitButtonAction extends ActionGroupWrapper implements CustomCompo
     return new SplitButton(this, presentation, place, getDelegate(), useDynamicSplitButton());
   }
 
-  private static final class SplitButton extends ActionButton {
+  private static final class SplitButton extends ActionButton implements SplitButtonZones {
     private enum MousePressType {
       Action, Popup, None
     }
@@ -214,18 +217,44 @@ public class SplitButtonAction extends ActionGroupWrapper implements CustomCompo
       return selectedAction instanceof Toggleable && Toggleable.isSelected(myPresentation);
     }
 
-      @Override
-    protected void onMousePressed(@NotNull MouseEvent e) {
+    @Override
+    public @NotNull Rectangle splitButtonZone(@NotNull SplitButtonHalf half) {
+      return half == SplitButtonHalf.ACTION ? actionZone() : popupZone();
+    }
+
+    /** This button paints both halves and decides the pressed one from the point, so it owns both halves' listeners. */
+    @Override
+    public @NotNull Component splitButtonHalfComponent(@NotNull SplitButtonHalf half) {
+      return this;
+    }
+
+    /**
+     * The main-action half.
+     * <p>
+     * Its arrow width includes the right inset, unlike the one {@link #paintComponent} clips with: the paint pass
+     * measures inside the already-removed insets and this one measures the whole component. Keep them apart.
+     */
+    private @NotNull Rectangle actionZone() {
       Rectangle baseRect = new Rectangle(getSize());
-      JBInsets.removeFrom(baseRect, getInsets());
-      int arrowWidth = ARROW_DOWN.getIconWidth() + JBUIScale.scale(7);
+      return new Rectangle(baseRect.x, baseRect.y, baseRect.width - pressArrowWidth(), baseRect.height);
+    }
 
-      Rectangle execButtonRect = new Rectangle(baseRect.x, baseRect.y, baseRect.width - arrowWidth, baseRect.height);
-      Rectangle arrowButtonRect = new Rectangle(execButtonRect.x + execButtonRect.width, baseRect.y, arrowWidth, baseRect.height);
+    /** The chevron half; see {@link #actionZone}. */
+    private @NotNull Rectangle popupZone() {
+      Rectangle baseRect = new Rectangle(getSize());
+      int arrowWidth = pressArrowWidth();
+      return new Rectangle(baseRect.x + baseRect.width - arrowWidth, baseRect.y, arrowWidth, baseRect.height);
+    }
 
+    private int pressArrowWidth() {
+      return ARROW_DOWN.getIconWidth() + JBUIScale.scale(7) + getInsets().right;
+    }
+
+    @Override
+    protected void onMousePressed(@NotNull MouseEvent e) {
       Point p = e.getPoint();
-      mousePressType = execButtonRect.contains(p) ? MousePressType.Action :
-                       arrowButtonRect.contains(p) ? MousePressType.Popup :
+      mousePressType = actionZone().contains(p) ? MousePressType.Action :
+                       popupZone().contains(p) ? MousePressType.Popup :
                        MousePressType.None;
     }
 
@@ -236,7 +265,7 @@ public class SplitButtonAction extends ActionGroupWrapper implements CustomCompo
       if (mousePressType == MousePressType.Popup || !selectedActionEnabled()) {
         showActionGroupPopup(myActionGroup, event);
       }
-      else {
+      else if (mousePressType == MousePressType.Action) {
         selectedAction.actionPerformed(event);
       }
     }

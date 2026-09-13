@@ -75,6 +75,7 @@ import javax.swing.JComponent;
 import java.awt.Component;
 import java.awt.Graphics;
 import java.awt.Graphics2D;
+import java.awt.Point;
 import java.util.ArrayList;
 import java.util.BitSet;
 import java.util.Iterator;
@@ -344,15 +345,59 @@ public class SimpleDiffViewer extends TwosideTextDiffViewer {
   }
 
   private void runPreservingScrollingPosition(@NotNull Runnable action) {
-    for (EditorScrollingPositionKeeper keeper : myPositionKeepers) {
-      keeper.savePosition();
+    if (!needAlignChanges()) {
+      // Without alignment each editor keeps its own line-anchored position: the two can be
+      // scrolled independently, and sync scrolling can be switched off altogether - see
+      // MySyncScrollable.isSyncScrollEnabled()
+      for (EditorScrollingPositionKeeper keeper : myPositionKeepers) {
+        keeper.savePosition();
+      }
+
+      action.run();
+
+      for (EditorScrollingPositionKeeper keeper : myPositionKeepers) {
+        keeper.restorePosition(true);
+      }
+      return;
     }
+
+    // In aligned mode the two editors are realigned as one - see
+    // MySyncScrollable.forceSyncVerticalScroll() - so a single keeper is enough: the one for the
+    // current editor, whose caret the viewport should follow. Sync scrolling carries its adjustment
+    // over to the other side.
+    Side currentSide = getCurrentSide();
+    EditorScrollingPositionKeeper currentKeeper = myPositionKeepers[currentSide.getIndex()];
+
+    // Each editor still keeps its own offsets: sync scrolling pairs them, but the pairing is not
+    // identity - see the header offset in SyncScrollSupport.ScrollHelper.syncVerticalScroll().
+    Point[] positions = new Point[Side.getEntries().size()];
+    for (Side side : Side.getEntries()) {
+      positions[side.getIndex()] = DiffUtil.getScrollingPosition(getEditor(side));
+    }
+    currentKeeper.savePosition();
 
     action.run();
 
-    for (EditorScrollingPositionKeeper keeper : myPositionKeepers) {
-      keeper.restorePosition(true);
+    // Rebuilding the fold regions and the alignment inlays drops them all before putting them
+    // back. While they are gone the documents are shorter by the total height of the alignment
+    // blocks, which clamps the vertical scroll offset, and nothing restores it - the viewport ends
+    // up near the top of the file. Undo that clamp first, with sync scrolling suppressed so the
+    // two restores cannot drag each other.
+    disableSyncScrollSupport(true);
+    try {
+      for (Side side : Side.getEntries()) {
+        DiffUtil.scrollToPoint(getEditor(side), positions[side.getIndex()], false);
+      }
     }
+    finally {
+      disableSyncScrollSupport(false);
+    }
+
+    // Then the adjustment the keeper exists for: following the caret when the number of lines above
+    // it changed. Only the current editor gets one - a keeper per editor makes them fight, because
+    // each restore fires a VisibleAreaEvent that sync scrolling turns into a scroll of the other
+    // editor. Sync scrolling is left enabled here, so the other side follows this one.
+    currentKeeper.restorePosition(true);
   }
 
   protected @NotNull Runnable applyNotification(final @Nullable JComponent notification) {
@@ -441,6 +486,20 @@ public class SimpleDiffViewer extends TwosideTextDiffViewer {
 
   public @NotNull List<SimpleDiffChange> getDiffChanges() {
     return myModel.getChanges();
+  }
+
+  /**
+   * The changed blocks of the computed diff, as the line ranges that {@link #transferPosition} transfers lines through:
+   * {@code start1}/{@code end1} are the LEFT lines of a block and {@code start2}/{@code end2} the RIGHT ones.
+   * <p>
+   * Read from the changes rather than from their fragments, so that the shifts they collected from document changes since the
+   * rediff are included. Together with {@link DiffUtil#getLineCount} of both documents this is the whole input of the transfer,
+   * so a caller that has it can transfer a line without the viewer.
+   */
+  @ApiStatus.Internal
+  public @NotNull @Unmodifiable List<Range> getLineMappingRanges() {
+    return ContainerUtil.map(getDiffChanges(), change -> new Range(change.getStartLine(Side.LEFT), change.getEndLine(Side.LEFT),
+                                                                  change.getStartLine(Side.RIGHT), change.getEndLine(Side.RIGHT)));
   }
 
   private @NotNull @Unmodifiable List<SimpleDiffChange> getNonSkippedDiffChanges(Side side) {

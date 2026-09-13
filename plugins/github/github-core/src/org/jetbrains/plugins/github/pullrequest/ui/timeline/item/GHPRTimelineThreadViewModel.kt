@@ -40,6 +40,7 @@ import org.jetbrains.plugins.github.api.data.GHActor
 import org.jetbrains.plugins.github.api.data.pullrequest.GHPullRequestReviewComment
 import org.jetbrains.plugins.github.api.data.pullrequest.GHPullRequestReviewCommentState
 import org.jetbrains.plugins.github.api.data.pullrequest.GHPullRequestReviewThread
+import org.jetbrains.plugins.github.api.data.pullrequest.GHPullRequestReviewThreadSubjectType
 import org.jetbrains.plugins.github.pullrequest.comment.ui.GHPRNewThreadCommentViewModel
 import org.jetbrains.plugins.github.pullrequest.data.GHPRDataContext
 import org.jetbrains.plugins.github.pullrequest.data.provider.GHPRDataProvider
@@ -67,6 +68,7 @@ interface GHPRTimelineThreadViewModel
   val isPending: StateFlow<Boolean>
 
   val filePath: String
+  val isFileComment: Boolean
   val patchHunkWithAnchor: StateFlow<Pair<PatchHunk, LineRange?>?>
 
   val mainCommentVm: StateFlow<GHPRReviewThreadCommentViewModel?>
@@ -103,6 +105,7 @@ internal class UpdateableGHPRTimelineThreadViewModel internal constructor(
   override val author: GHActor = initialData.author ?: dataContext.securityService.ghostUser
   override val createdAt: Date = initialData.createdAt
   override val filePath: String = initialData.path
+  override val isFileComment: Boolean = initialData.subjectType == GHPullRequestReviewThreadSubjectType.FILE
 
   override val isOutdated: StateFlow<Boolean> = dataState.mapState { it.isOutdated }
   override val isPending: StateFlow<Boolean> = dataState.mapState {
@@ -113,6 +116,12 @@ internal class UpdateableGHPRTimelineThreadViewModel internal constructor(
     calcDiffWithAnchor(it)
   }
 
+  override val canChangeResolvedState: StateFlow<Boolean> =
+    dataState.mapState { it.viewerCanResolve || it.viewerCanUnresolve }
+  override val isResolved: StateFlow<Boolean> = dataState.mapState { it.isResolved }
+
+  // fields order: put the field initialization after all fields that are used in comment VMs,
+  // because they have to be initialized first to avoid NPE
   private val commentsVms = dataState
     .map { it.comments.withIndex() }
     .mapDataToModel({ it.value.id }, { createComment(it) }, { update(it) })
@@ -120,10 +129,6 @@ internal class UpdateableGHPRTimelineThreadViewModel internal constructor(
 
   override val mainCommentVm: StateFlow<GHPRReviewThreadCommentViewModel> = commentsVms.mapState { it.first() }
   override val replies: StateFlow<List<GHPRReviewThreadCommentViewModel>> = commentsVms.mapState { it.drop(1) }
-
-  override val canChangeResolvedState: StateFlow<Boolean> =
-    dataState.mapState { it.viewerCanResolve || it.viewerCanUnresolve }
-  override val isResolved: StateFlow<Boolean> = dataState.mapState { it.isResolved }
 
   override val repliesState: StateFlow<CodeReviewFoldableThreadViewModel.RepliesStateData> = dataState.mapState {
     val replies = it.comments.drop(1)
@@ -205,9 +210,12 @@ internal class UpdateableGHPRTimelineThreadViewModel internal constructor(
   }
 
   private fun calcDiffWithAnchor(thread: GHPullRequestReviewThread): Pair<PatchHunk, LineRange?>? {
+    // GitHub returns an empty diff hunk for file-level comments and some outdated threads: there is nothing to anchor a diff to.
+    if (thread.diffHunk.isBlank()) return null
+
     val patchReader = PatchReader(PatchHunkUtil.createPatchFromHunk("_", thread.diffHunk))
     val hunk = patchReader.readTextPatches().firstOrNull()?.hunks?.firstOrNull() ?: run {
-      LOG.error("Failed to parse diff hunk for thread ${thread.id}",
+      LOG.error("Failed to parse non-empty diff hunk for thread ${thread.id}",
                 Attachment("threadData.txt", thread.toString()),
                 Attachment("threadDiffHunk.txt", thread.diffHunk))
       return null
@@ -240,7 +248,8 @@ internal class UpdateableGHPRTimelineThreadViewModel internal constructor(
 
   private fun CoroutineScope.createComment(comment: IndexedValue<GHPullRequestReviewComment>): UpdateableGHPRReviewThreadCommentViewModel =
     UpdateableGHPRReviewThreadCommentViewModel(project, this, dataContext, dataProvider,
-                                               this@UpdateableGHPRTimelineThreadViewModel, viewModelWithTextCompletion, comment)
+                                               viewModelWithTextCompletion, comment,
+                                               id, isResolved)
 
   private fun Collection<RefComparisonChange>.findByFilePath(path: String): RefComparisonChange? {
     val repoRoot = dataContext.repositoryDataService.remoteCoordinates.repository.root

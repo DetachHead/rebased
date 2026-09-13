@@ -103,7 +103,7 @@ public abstract class ScrollingSynchronizer {
     protected abstract suspend fun findYCoordinateToScroll(sourceLine: Int): Int
 
     /**
-     * Called when [MarkdownProcessor] processes the raw markdown text. The processing itself is passed as an [action].
+     * Called when [MarkdownProcessor] processes the raw Markdown text. The processing itself is passed as an [action].
      */
     public fun <T> process(action: () -> T): T {
         beforeProcessing()
@@ -114,10 +114,10 @@ public abstract class ScrollingSynchronizer {
         }
     }
 
-    /** Called before [MarkdownProcessor] starts processing the raw markdown text. */
+    /** Called before [MarkdownProcessor] starts processing the raw Markdown text. */
     protected abstract fun beforeProcessing()
 
-    /** Called after [MarkdownProcessor] starts processing the raw markdown text. */
+    /** Called after [MarkdownProcessor] starts processing the raw Markdown text. */
     protected abstract fun afterProcessing()
 
     /**
@@ -143,7 +143,14 @@ public abstract class ScrollingSynchronizer {
      */
     public abstract fun acceptTextLayout(block: MarkdownBlock, textLayout: TextLayoutResult)
 
+    /** Companion object for [ScrollingSynchronizer]. */
     public companion object {
+        /**
+         * Creates a [ScrollingSynchronizer] for the given [scrollState], or `null` if the scroll state type is not
+         * supported.
+         *
+         * Currently, only [ScrollState] is supported. [LazyListState] is not yet supported.
+         */
         public fun create(scrollState: ScrollableState): ScrollingSynchronizer? =
             when (scrollState) {
                 is ScrollState -> PerLine(scrollState)

@@ -1,4 +1,4 @@
-// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.openapi.actionSystem.impl
 
 import com.intellij.diagnostic.UILatencyLogger
@@ -56,6 +56,7 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.withContext
+import org.jetbrains.annotations.ApiStatus
 import java.awt.AWTEvent
 import java.awt.Component
 import java.awt.Dimension
@@ -122,7 +123,7 @@ class ActionMenu constructor(
 
     // also triggering initialization of private field "popupMenu" from JMenu with our own JBPopupMenu
     BegMenuItemUI.registerMultiChoiceSupport(getPopupMenu()) { popupMenu ->
-      Utils.updateMenuItems(popupMenu, getDataContext(), this.place, this.presentationFactory)
+      updateMenuItems(popupMenu)
     }
   }
 
@@ -161,6 +162,15 @@ class ActionMenu constructor(
       else SwingUtilities.getAncestorOfClass(IdeFrame::class.java, component)) as? IdeFrame
       frame?.getStatusBar()?.setInfo(if (isIncluded) description else null)
     }
+  }
+  
+  @ApiStatus.Internal
+  fun updateMenuItems() {
+    updateMenuItems(getPopupMenu())
+  }
+
+  private fun updateMenuItems(popupMenu: JPopupMenu) {
+    Utils.updateMenuItems(popupMenu, getDataContext(), this.place, this.presentationFactory)
   }
 
   override fun getPopupMenu(): JPopupMenu {
@@ -350,7 +360,7 @@ class ActionMenu constructor(
         return
       }
 
-      val startMs = System.currentTimeMillis()
+      val startNs = System.nanoTime()
       val helper = UsabilityHelper(this@ActionMenu)
       if (disposable == null) {
         disposable = Disposer.newDisposable()
@@ -364,8 +374,9 @@ class ActionMenu constructor(
       if (MacMenuSettings.isSystemMenu && ActionPlaces.MAIN_MENU == place) {
         fillMenu()
         // NOTE: FUS for OSX system menu is implemented in MacNativeActionMenu
-      } else {
-        UILatencyLogger.logMainMenuLatency(System.currentTimeMillis() - startMs)
+      }
+      else {
+        UILatencyLogger.logMainMenuLatency(startNs)
       }
     }
   }

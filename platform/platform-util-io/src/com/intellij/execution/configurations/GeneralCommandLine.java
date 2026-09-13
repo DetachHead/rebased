@@ -1,4 +1,4 @@
-// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.execution.configurations;
 
 import com.google.common.base.Strings;
@@ -32,6 +32,7 @@ import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.containers.FastUtilHashingStrategies;
 import com.intellij.util.execution.ParametersListUtil;
 import com.intellij.util.io.IdeUtilIoBundle;
+import com.intellij.util.system.OS;
 import it.unimi.dsi.fastutil.objects.Object2ObjectOpenCustomHashMap;
 import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
@@ -51,7 +52,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.function.Function;
 
-import static com.intellij.execution.util.ExecUtil.startProcessBlockingUsingEel;
+import static com.intellij.execution.configurations.EelProcessLauncherKt.startProcessBlockingUsingEel;
 import static com.intellij.platform.eel.provider.EelPathDescriptorKt.getEelDescriptor;
 
 /**
@@ -152,8 +153,17 @@ public class GeneralCommandLine implements UserDataHolder {
     myEelDescriptor = original.myEelDescriptor;
   }
 
-  private static Charset defaultCharset() {
-    return LoadingState.COMPONENTS_LOADED.isOccurred() ? EncodingManager.getInstance().getDefaultConsoleEncoding() : Charset.defaultCharset();
+  /**
+   * Returns an environment that will be inherited by a child process.
+   *
+   * @see #getEffectiveEnvironment()
+   */
+  public @NotNull Map<String, String> getParentEnvironment() {
+    return switch (myParentEnvironmentType) {
+      case SYSTEM -> System.getenv();
+      case CONSOLE -> EnvironmentUtil.getEnvironmentMap();
+      default -> Collections.emptyMap();
+    };
   }
 
   public @NotNull @NlsSafe String getExePath() {
@@ -254,16 +264,10 @@ public class GeneralCommandLine implements UserDataHolder {
     return this;
   }
 
-  /**
-   * Returns an environment that will be inherited by a child process.
-   * @see #getEffectiveEnvironment()
-   */
-  public @NotNull Map<String, String> getParentEnvironment() {
-    return switch (myParentEnvironmentType) {
-      case SYSTEM -> System.getenv();
-      case CONSOLE -> EnvironmentUtil.getEnvironmentMap();
-      default -> Collections.emptyMap();
-    };
+  protected @NotNull List<String> prepareCommandLine(@NotNull String command,
+                                                     @NotNull List<String> parameters,
+                                                     @NotNull Platform platform) {
+    return CommandLineUtil.toCommandLine(command, parameters, platform);
   }
 
   /**
@@ -390,10 +394,6 @@ public class GeneralCommandLine implements UserDataHolder {
     return String.join("\n", prepareCommandLine(myExePath != null ? myExePath : "", myProgramParams.getList(), platform));
   }
 
-  protected @NotNull List<String> prepareCommandLine(@NotNull String command, @NotNull List<String> parameters, @NotNull Platform platform) {
-    return CommandLineUtil.toCommandLine(command, parameters, platform);
-  }
-
   @ApiStatus.NonExtendable
   public @NotNull Process createProcess() throws ExecutionException {
     if (LOG.isDebugEnabled()) {
@@ -423,11 +423,18 @@ public class GeneralCommandLine implements UserDataHolder {
         var mode = System.getProperty("jdk.lang.Process.allowAmbiguousCommands");
         @SuppressWarnings("removal") var sm = System.getSecurityManager();
         if ("false".equalsIgnoreCase(mode) || sm != null) {
-          e.addSuppressed(new IllegalStateException("Suspicious state: allowAmbiguousCommands=" + mode + " SM=" + (sm != null ? sm.getClass() : null)));
+          e.addSuppressed(
+            new IllegalStateException("Suspicious state: allowAmbiguousCommands=" + mode + " SM=" + (sm != null ? sm.getClass() : null)));
         }
       }
       throw new ProcessNotCreatedException(e.getMessage(), e, this);
     }
+  }
+
+  private static Charset defaultCharset() {
+    return LoadingState.COMPONENTS_LOADED.isOccurred()
+           ? EncodingManager.getInstance().getDefaultConsoleEncoding()
+           : Charset.defaultCharset();
   }
 
   @ApiStatus.Internal
@@ -534,20 +541,20 @@ public class GeneralCommandLine implements UserDataHolder {
       }
     }
 
-    String exePath = myExePath;
-    if (exePath.indexOf(File.separatorChar) == -1) {
-      String lookupPath = myEnvParams.get("PATH");
-      if (lookupPath == null && myParentEnvironmentType == ParentEnvironmentType.CONSOLE && SystemInfo.isMac) {
-        String shellPath = EnvironmentUtil.getValue("PATH");
+    var exePath = myExePath;
+    if (exePath.indexOf('/') == -1 && exePath.indexOf('\\') == -1) {
+      var lookupPath = myEnvParams.get("PATH");
+      if (lookupPath == null && myParentEnvironmentType == ParentEnvironmentType.CONSOLE && OS.CURRENT == OS.macOS) {
+        var shellPath = EnvironmentUtil.getValue("PATH");
         if (!Objects.equals(shellPath, System.getenv("PATH"))) {
           lookupPath = shellPath;
         }
       }
       if (lookupPath != null) {
-        File exeFile = PathEnvironmentVariableUtil.findInPath(myExePath, lookupPath, null);
+        var exeFile = PathEnvironmentVariableUtil.findFirst(myExePath, lookupPath);
         if (exeFile != null) {
           LOG.debug(exePath + " => " + exeFile);
-          exePath = exeFile.getPath();
+          exePath = exeFile.toString();
         }
       }
     }

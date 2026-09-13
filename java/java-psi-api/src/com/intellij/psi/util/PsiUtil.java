@@ -1034,12 +1034,11 @@ public final class PsiUtil extends PsiUtilCore {
    * @param element element to get the associated type from (return type for method, or variable type for variable)
    * @return the associated type; might be null
    */
-  public static @Nullable PsiType getTypeByPsiElement(@NotNull PsiElement element) {
+  public static @Nullable PsiType getTypeByPsiElement(@Nullable PsiElement element) {
     if (element instanceof PsiVariable) {
       return ((PsiVariable)element).getType();
     }
-    if (element instanceof PsiMethod) return ((PsiMethod)element).getReturnType();
-    return null;
+    return element instanceof PsiMethod ? ((PsiMethod)element).getReturnType() : null;
   }
 
   /**
@@ -1812,7 +1811,7 @@ public final class PsiUtil extends PsiUtilCore {
     }
   }
 
-  /** @return Whether or not the element is part of a markdown javadoc comment */
+  /// @return Whether the element is part of a Markdown Javadoc comment
   @Contract(value = "null -> false", pure = true)
   public static boolean isInMarkdownDocComment(PsiElement element) {
     PsiDocComment docComment = PsiTreeUtil.getParentOfType(element, PsiDocComment.class);

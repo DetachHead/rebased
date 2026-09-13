@@ -5,14 +5,16 @@ import com.intellij.openapi.module.Module
 import com.intellij.openapi.projectRoots.Sdk
 import com.intellij.openapi.vfs.refreshAndFindVirtualFile
 import com.intellij.platform.ide.progress.withBackgroundProgress
-import com.intellij.python.common.tools.ToolId
+import com.intellij.python.community.common.tools.ToolId
 import com.intellij.python.venv.createVenvAdditionalData
 import com.jetbrains.python.PyBundle
 import com.jetbrains.python.PythonBinary
 import com.jetbrains.python.errorProcessing.MessageError
 import com.jetbrains.python.errorProcessing.PyResult
+import com.jetbrains.python.packaging.setupPy.SetupPyHelpers.SETUP_PY
 import com.jetbrains.python.projectCreation.createVenvAndSdk
 import com.jetbrains.python.sdk.ModuleOrProject
+import com.jetbrains.python.sdk.PythonSdkAdditionalData
 import com.jetbrains.python.sdk.add.v2.PathHolder
 import com.jetbrains.python.sdk.configuration.CreateSdkInfo
 import com.jetbrains.python.sdk.configuration.EnvCheckerResult
@@ -23,15 +25,16 @@ import com.jetbrains.python.sdk.configuration.VENV_TOOL_ID
 import com.jetbrains.python.sdk.configuration.findEnvOrNull
 import com.jetbrains.python.sdk.configuration.prepareSdkCreator
 import com.jetbrains.python.sdk.createSdk
-import com.jetbrains.python.sdk.impl.resolvePythonHome
 import com.jetbrains.python.sdk.setAssociationToModule
 import com.jetbrains.python.uv.sdk.configuration.isUvEnv
+import com.jetbrains.python.venvReader.VirtualEnvReader
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlin.io.path.name
 
 internal class PyVenvSdkConfiguration : PyProjectSdkConfigurationExtension {
   override val toolId: ToolId = VENV_TOOL_ID
+  override val potentialDependencyFiles: Set<String> = setOf(PythonSdkAdditionalData.REQUIREMENT_TXT_DEFAULT.fileName.toString(), SETUP_PY)
 
   override suspend fun checkEnvironmentAndPrepareSdkCreator(module: Module, venvsInModule: List<PythonBinary>): CreateSdkInfo? =
     prepareSdkCreator(
@@ -46,7 +49,7 @@ internal class PyVenvSdkConfiguration : PyProjectSdkConfigurationExtension {
   ): EnvCheckerResult = withBackgroundProgress(module.project, PyBundle.message("python.sdk.validating.environment")) {
     withContext(Dispatchers.IO) {
       getVirtualEnv(venvsInModule)?.let {
-        it.findEnvOrNull(PyBundle.message("sdk.use.existing.venv", it.resolvePythonHome().name))
+        it.findEnvOrNull(PyBundle.message("sdk.use.existing.venv", VirtualEnvReader().resolvePythonHomeFromPythonBinary(it).name))
       } ?: EnvCheckerResult.EnvNotFound(PyBundle.message("sdk.create.venv.suggestion.no.arg"))
     }
   }
@@ -66,10 +69,11 @@ internal class PyVenvSdkConfiguration : PyProjectSdkConfigurationExtension {
       getVirtualEnv(venvsInModule)?.refreshAndFindVirtualFile()
     } ?: return PyResult.failure(MessageError(PyBundle.message("sdk.cannot.find.venv.for.module")))
 
+    val additionalData = createVenvAdditionalData(module).getOr { return it }
     val sdk = withContext(Dispatchers.IO) {
       createSdk(
         PathHolder.Eel(pythonBinary.toNioPath()),
-        createVenvAdditionalData(),
+        additionalData,
         null,
       )
     }.getOr { return it }

@@ -6,14 +6,16 @@ import com.intellij.codeInspection.ProblemsHolder
 import com.intellij.codeInspection.util.IntentionName
 import com.intellij.modcommand.ModPsiUpdater
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.util.TextRange
 import org.jetbrains.kotlin.analysis.api.KaSession
-import org.jetbrains.kotlin.analysis.api.resolution.successfulFunctionCallOrNull
-import org.jetbrains.kotlin.analysis.api.resolution.symbol
+import org.jetbrains.kotlin.analysis.api.resolution.resolveSuccessfulSymbol
+import org.jetbrains.kotlin.analysis.api.symbols.KaCallableSymbol
 import org.jetbrains.kotlin.idea.base.analysis.api.utils.shortenReferences
 import org.jetbrains.kotlin.idea.base.psi.expressionComparedToNull
 import org.jetbrains.kotlin.idea.base.resources.KotlinBundle
 import org.jetbrains.kotlin.idea.codeinsight.api.applicable.inspections.KotlinApplicableInspectionBase
 import org.jetbrains.kotlin.idea.codeinsight.api.applicable.inspections.KotlinModCommandQuickFix
+import org.jetbrains.kotlin.idea.codeinsights.impl.base.applicators.ApplicabilityRanges
 import org.jetbrains.kotlin.idea.util.CommentSaver
 import org.jetbrains.kotlin.lexer.KtTokens
 import org.jetbrains.kotlin.psi.KtBinaryExpression
@@ -52,10 +54,11 @@ internal class SimplifyAssertNotNullInspection :
         }
     }
 
-    override fun KaSession.prepareContext(element: KtCallExpression): Context? {
+    context(session: KaSession)
+    override fun prepareContext(element: KtCallExpression): Context? {
 
         val calleeExpression = element.calleeExpression as? KtNameReferenceExpression ?: return null
-        val functionSymbol = calleeExpression.resolveToCall()?.successfulFunctionCallOrNull()?.partiallyAppliedSymbol?.symbol
+        val functionSymbol = calleeExpression.resolveSuccessfulSymbol() as? KaCallableSymbol
         if (functionSymbol?.callableId.toString() != "kotlin/assert") return null
 
         val prevDeclaration = findVariableDeclaration(element) ?: return null
@@ -145,5 +148,9 @@ internal class SimplifyAssertNotNullInspection :
             ?.bodyExpression
             ?.statements
             ?.singleOrNull()
+    }
+
+    override fun getApplicableRanges(element: KtCallExpression): List<TextRange> {
+        return ApplicabilityRanges.calleeExpression(element)
     }
 }

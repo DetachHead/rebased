@@ -6,13 +6,18 @@ import com.intellij.codeInspection.util.InspectionMessage
 import com.intellij.codeInspection.util.IntentionFamilyName
 import com.intellij.modcommand.ModPsiUpdater
 import com.intellij.openapi.project.Project
-import org.jetbrains.kotlin.analysis.api.KaExperimentalApi
 import org.jetbrains.kotlin.analysis.api.KaSession
-import org.jetbrains.kotlin.analysis.api.analyze
-import org.jetbrains.kotlin.analysis.api.resolution.singleFunctionCallOrNull
-import org.jetbrains.kotlin.analysis.api.resolution.successfulFunctionCallOrNull
+import org.jetbrains.kotlin.analysis.api.expressions.expressionType
+import org.jetbrains.kotlin.analysis.api.expressions.isUsedAsExpression
+import org.jetbrains.kotlin.analysis.api.renderer.render
+import org.jetbrains.kotlin.analysis.api.resolution.function
+import org.jetbrains.kotlin.analysis.api.resolution.resolveSuccessfulCall
+import org.jetbrains.kotlin.analysis.api.resolution.single
 import org.jetbrains.kotlin.analysis.api.resolution.symbol
+import org.jetbrains.kotlin.analysis.api.resolution.tryResolveCall
+import org.jetbrains.kotlin.analysis.api.session.analyze
 import org.jetbrains.kotlin.analysis.api.symbols.KaCallableSymbol
+import org.jetbrains.kotlin.analysis.api.types.isSubtypeOf
 import org.jetbrains.kotlin.builtins.StandardNames
 import org.jetbrains.kotlin.idea.base.analysis.api.utils.allOverriddenSymbolsWithSelf
 import org.jetbrains.kotlin.idea.base.resources.KotlinBundle
@@ -60,11 +65,11 @@ internal class ReplacePutWithAssignmentInspection : KotlinApplicableInspectionBa
         return calleeExpression.getReferencedName() == PUT_METHOD_NAME
     }
 
-    @OptIn(KaExperimentalApi::class)
-    override fun KaSession.prepareContext(element: KtDotQualifiedExpression): Context? {
+    context(session: KaSession)
+    override fun prepareContext(element: KtDotQualifiedExpression): Context? {
         if (element.isUsedAsExpression) return null
 
-        val resolvedCall = element.resolveToCall()?.successfulFunctionCallOrNull() ?: return null
+        val resolvedCall = element.resolveSuccessfulCall() ?: return null
         val receiverType = resolvedCall.dispatchReceiver?.type ?: return null
         if (!receiverType.isSubtypeOf(StandardClassIds.MutableMap)) return null
 
@@ -85,7 +90,7 @@ internal class ReplacePutWithAssignmentInspection : KotlinApplicableInspectionBa
 
         val arrayAccessExpression = codeFragment.findDescendantOfType<KtArrayAccessExpression>() ?: return null
         analyze(arrayAccessExpression) {
-            val resolvedArrayAccessExpression = arrayAccessExpression.resolveToCall()?.singleFunctionCallOrNull() ?: return null
+            val resolvedArrayAccessExpression = arrayAccessExpression.tryResolveCall()?.single?.function ?: return null
             if (resolvedArrayAccessExpression.symbol.callableId?.asSingleFqName() != collectionsSetFqName) return null
 
             return Context(assignment)

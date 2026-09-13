@@ -1,7 +1,7 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
 ### auto-generated section `build intellij.terminal.frontend` start
-
 jvm_library(
     name = "frontend",
     srcs = glob(
@@ -28,6 +28,7 @@ jvm_library(
         "//platform/projectModel-api:projectModel",
         "//platform/refactoring",
         "//plugins/terminal",
+        "//plugins/terminal/emulator",
         "//platform/execution-impl",
         "//platform/util/coroutines",
         "//platform/editor-ui-ex:editor-ex",
@@ -66,6 +67,8 @@ jvm_library(
     ],
 )
 
+content_module_jar(module = ":frontend")
+
 jvm_library(
     name = "frontend_test_lib",
     testonly = True,
@@ -86,6 +89,7 @@ jvm_library(
         "//platform/projectModel-api:projectModel_test_lib",
         "//platform/refactoring:refactoring_test_lib",
         "//plugins/terminal:terminal_test_lib",
+        "//plugins/terminal/emulator:emulator_test_lib",
         "//platform/execution-impl:execution-impl_test_lib",
         "//platform/util/coroutines:coroutines_test_lib",
         "//platform/editor-ui-ex:editor-ex_test_lib",
@@ -129,6 +133,7 @@ jvm_library(
 exports_files(
     [
         "intellij.terminal.frontend.iml",
+        "resources/intellij.terminal.frontend.xml",
     ],
     visibility = ["//visibility:public"],
 )

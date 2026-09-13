@@ -1,8 +1,8 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
 load("//build:compiler-options.bzl", "create_kotlinc_options")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
 ### auto-generated section `build kotlin.scripting` start
-
 create_kotlinc_options(
     name = "custom_scripting",
     x_allow_kotlin_package = True,
@@ -20,15 +20,21 @@ jvm_library(
     ),
     kotlinc_opts = ":custom_scripting",
     module_name = "kotlin.scripting",
+    resource_strip_prefix = "resources",
+    resources = glob(
+        ["resources/**/*"],
+    ),
     visibility = ["//visibility:public"],
     deps = [
         # do not sort,
         "//platform/core-api:core",
         "@lib//:kotlin-stdlib",
         "//platform/util",
-        "@lib//:kotlinc-kotlin-scripting-common",
+        "//libraries/kotlinc/kotlin-scripting-common:libraries-kotlinc-kotlin-scripting-common",
     ],
 )
+
+content_module_jar(module = ":scripting")
 
 jvm_library(
     name = "scripting_test_lib",
@@ -45,6 +51,7 @@ jvm_library(
         ":scripting",
         "//platform/core-api:core_test_lib",
         "//platform/util:util_test_lib",
+        "//libraries/kotlinc/kotlin-scripting-common:libraries-kotlinc-kotlin-scripting-common_test_lib",
     ],
 )
 ### auto-generated section `build kotlin.scripting` end
@@ -53,6 +60,7 @@ jvm_library(
 exports_files(
     [
         "kotlin.scripting.iml",
+        "resources/kotlin.scripting.xml",
     ],
     visibility = ["//visibility:public"],
 )

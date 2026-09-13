@@ -3,14 +3,13 @@ package com.intellij.python.junit5Tests.unit.alsoWin.pyproject.model.testplan
 
 import com.intellij.python.junit5Tests.framework.PyDefaultTestApplication
 import com.intellij.python.junit5Tests.framework.metaInfo.TestClassInfo
-import com.intellij.python.junit5Tests.unit.alsoWin.pyproject.SEP
+import com.intellij.python.junit5Tests.unit.alsoWin.pyproject.div
 import com.intellij.python.junit5Tests.unit.alsoWin.pyproject.model.ExpectedModule
 import com.intellij.python.junit5Tests.unit.alsoWin.pyproject.model.PYTHON
 import com.intellij.python.junit5Tests.unit.alsoWin.pyproject.model.pyProjectTomlSyncFixture
 import com.intellij.testFramework.TestDataPath
 import com.intellij.testFramework.common.timeoutRunBlocking
 import com.intellij.testFramework.junit5.fixture.projectFixture
-import com.intellij.testFramework.junit5.fixture.tempPathFixture
 import org.junit.jupiter.api.Test
 
 @PyDefaultTestApplication
@@ -18,10 +17,10 @@ import org.junit.jupiter.api.Test
 @TestDataPath($$"$CONTENT_ROOT/../testData/monorepo/uv_workspace_2copies_with_dependencies")
 internal class UvWorkspace2CopiesWithDependenciesTest {
   companion object {
-    private val tempDirFixture = tempPathFixture()
-    private val projectFixture = projectFixture(pathFixture = tempDirFixture)
+    private val projectFixture = projectFixture()
   }
-  private val f by pyProjectTomlSyncFixture(projectFixture, tempDirFixture)
+
+  private val f by pyProjectTomlSyncFixture(projectFixture)
 
   /**
    * Two identical UV workspace copies live side-by-side, so every module name appears twice.
@@ -40,10 +39,10 @@ internal class UvWorkspace2CopiesWithDependenciesTest {
       ExpectedModule(f.implicitModuleName, type = PYTHON, contentRoot = ".", sourceRoots = listOf(".")),
       ExpectedModule("my-uv-monorepo", contentRoot = "copy1", deps = listOf("package_a")),
       ExpectedModule("my-uv-monorepo@1", contentRoot = "copy2", deps = listOf("package_a@1")),
-      ExpectedModule("package_a", contentRoot = "copy1${SEP}packages${SEP}package_a"),
-      ExpectedModule("package_a@1", contentRoot = "copy2${SEP}packages${SEP}package_a"),
-      ExpectedModule("package_b", contentRoot = "copy1${SEP}packages${SEP}package_b", deps = listOf("package_a")),
-      ExpectedModule("package_b@1", contentRoot = "copy2${SEP}packages${SEP}package_b", deps = listOf("package_a@1")),
+      ExpectedModule("package_a", contentRoot = "copy1" / "packages" / "package_a"),
+      ExpectedModule("package_a@1", contentRoot = "copy2" / "packages" / "package_a"),
+      ExpectedModule("package_b", contentRoot = "copy1" / "packages" / "package_b", deps = listOf("package_a")),
+      ExpectedModule("package_b@1", contentRoot = "copy2" / "packages" / "package_b", deps = listOf("package_a@1")),
     )
   }
 }

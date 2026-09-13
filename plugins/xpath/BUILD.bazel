@@ -1,8 +1,17 @@
 load("@community//build:tests-options.bzl", "jps_test")
+load("@community//platform/build-scripts/bazel-rules:dev_dist_plugin.bzl", "dev_dist_plugin")
 load("@rules_jvm//:jvm.bzl", "jvm_library")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "dev_dist_plugin_jar")
+
+jps_test(
+    name = "xpath-tests_test",
+    timeout = "moderate",
+    tags = ["community-aggregator"],
+    runtime_deps = [":xpath-tests_test_lib"],
+)
+### skip generation section `test intellij.xpath.tests`
 
 ### auto-generated section `build intellij.xpath` start
-
 jvm_library(
     name = "xpath",
     srcs = glob(
@@ -103,7 +112,8 @@ jvm_library(
         "//RegExpSupport:regexp_test_lib",
         "//xml/xml-psi-api:psi_test_lib",
         "//libraries/jaxen:jaxen_test_lib",
-        "@lib//:junit4",
+        "//libraries/junit4",
+        "//libraries/junit4:junit4_test_lib",
         "//platform/testFramework",
         "//platform/testFramework:testFramework_test_lib",
         "//xml/dom-impl:dom-impl_test_lib",
@@ -130,13 +140,30 @@ jvm_library(
 exports_files(
     [
         "intellij.xpath.iml",
+        "xpath-lang/resources/META-INF/plugin.xml",
+        "xpath-lang/resources/liveTemplates/xsl.xml",
+        "xpath-lang/resources/org/intellij/lang/xpath/xslt/resources/documentation.xml",
     ],
     visibility = ["//visibility:public"],
 )
 ### auto-generated section `iml intellij.xpath` end
 
-### auto-generated section `build intellij.xpath.tests` start
+### auto-generated section `dev intellij.xpath` start
+dev_dist_plugin(
+    descriptor = "xpath-lang/resources/META-INF/plugin.xml",
+    descriptor_module = ":xpath",
+    main_module = "intellij.xpath",
+    prepacked_layout_jars = [":rt_xslt-rt_dev_dist_plugin_jar"],
+)
 
+dev_dist_plugin_jar(
+    modules = ["//plugins/xpath/xslt-rt:rt"],
+    plugin_main_module = "intellij.xpath",
+    relative_output_file = "rt/xslt-rt.jar",
+)
+### auto-generated section `dev intellij.xpath` end
+
+### auto-generated section `build intellij.xpath.tests` start
 jvm_library(
     name = "xpath-tests",
     srcs = glob(
@@ -145,7 +172,11 @@ jvm_library(
     ),
     module_name = "intellij.xpath.tests",
     visibility = ["//visibility:public"],
-    runtime_deps = ["//xml/dom-impl"],
+    runtime_deps = [
+        # do not sort,
+        "//platform/platform-impl/internal",
+        "//xml/dom-impl",
+    ],
 )
 
 jvm_library(
@@ -171,6 +202,7 @@ jvm_library(
     runtime_deps = [
         # do not sort,
         ":xpath-tests",
+        "//platform/platform-impl/internal:internal_test_lib",
         "//platform/platform-impl/concurrency:concurrency_test_lib",
         "//platform/platform-impl:ide-impl_test_lib",
         "//xml/dom-impl:dom-impl_test_lib",
@@ -178,6 +210,7 @@ jvm_library(
     ],
     deps = [
         # do not sort,
+        "//platform/platform-impl/internal",
         "//platform/analysis-api:analysis",
         "//platform/analysis-api:analysis_test_lib",
         "//platform/code-style-api:codeStyle",
@@ -226,7 +259,8 @@ jvm_library(
         "//plugins/xpath/xslt-rt:rt_test_lib",
         "//libraries/jaxen",
         "//libraries/jaxen:jaxen_test_lib",
-        "@lib//:junit4",
+        "//libraries/junit4",
+        "//libraries/junit4:junit4_test_lib",
         "//platform/testFramework",
         "//platform/testFramework:testFramework_test_lib",
         "//platform/util/nanoxml",
@@ -250,6 +284,8 @@ jvm_library(
         "//libraries/kotlinx/collections-immutable:libraries-kotlinx-collections-immutable_test_lib",
         "//platform/util/concurrency",
         "//platform/util/concurrency:concurrency_test_lib",
+        "//platform/structure-view-impl/plugin",
+        "//platform/structure-view-impl/plugin:plugin_test_lib",
     ],
 )
 ### auto-generated section `build intellij.xpath.tests` end
@@ -262,11 +298,3 @@ exports_files(
     visibility = ["//visibility:public"],
 )
 ### auto-generated section `iml intellij.xpath.tests` end
-
-### auto-generated section `test intellij.xpath.tests` start
-
-jps_test(
-    name = "xpath-tests_test",
-    runtime_deps = [":xpath-tests_test_lib"],
-)
-### auto-generated section `test intellij.xpath.tests` end

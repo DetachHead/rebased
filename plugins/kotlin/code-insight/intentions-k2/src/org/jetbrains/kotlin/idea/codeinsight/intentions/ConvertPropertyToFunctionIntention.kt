@@ -21,20 +21,28 @@ import com.intellij.psi.PsiReference
 import com.intellij.psi.PsiReferenceExpression
 import com.intellij.psi.PsiWhiteSpace
 import org.jetbrains.kotlin.analysis.api.KaSession
-import org.jetbrains.kotlin.analysis.api.analyze
+import org.jetbrains.kotlin.analysis.api.components.compositeScope
+import org.jetbrains.kotlin.analysis.api.components.scopeContext
+import org.jetbrains.kotlin.analysis.api.resolution.resolveSuccessfulCall
+import org.jetbrains.kotlin.analysis.api.session.analyze
+import org.jetbrains.kotlin.analysis.api.session.canBeAnalysed
 import org.jetbrains.kotlin.analysis.api.symbols.KaCallableSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaClassifierSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaNamedFunctionSymbol
+import org.jetbrains.kotlin.analysis.api.symbols.containingSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.name
 import org.jetbrains.kotlin.analysis.api.symbols.receiverType
+import org.jetbrains.kotlin.analysis.api.symbols.symbol
+import org.jetbrains.kotlin.analysis.api.types.defaultType
+import org.jetbrains.kotlin.analysis.api.types.semanticallyEquals
 import org.jetbrains.kotlin.asJava.namedUnwrappedElement
 import org.jetbrains.kotlin.idea.base.resources.KotlinBundle
-import org.jetbrains.kotlin.idea.codeinsight.utils.hasExplicitBackingField
 import org.jetbrains.kotlin.idea.codeinsight.intentions.CollectAffectedCallablesUtils.getAffectedCallables
 import org.jetbrains.kotlin.idea.codeinsight.intentions.ConvertFunctionToPropertyAndViceVersaUtils.add
 import org.jetbrains.kotlin.idea.codeinsight.intentions.ConvertFunctionToPropertyAndViceVersaUtils.addConflictIfCantRefactor
 import org.jetbrains.kotlin.idea.codeinsight.intentions.ConvertFunctionToPropertyAndViceVersaUtils.findReferencesToElement
 import org.jetbrains.kotlin.idea.codeinsight.intentions.ConvertFunctionToPropertyAndViceVersaUtils.reportDeclarationConflict
+import org.jetbrains.kotlin.idea.codeinsight.utils.hasExplicitBackingField
 import org.jetbrains.kotlin.idea.references.KtReference
 import org.jetbrains.kotlin.idea.references.KtSimpleNameReference
 import org.jetbrains.kotlin.idea.util.hasJvmFieldAnnotation
@@ -48,6 +56,7 @@ import org.jetbrains.kotlin.psi.KtSimpleNameExpression
 import org.jetbrains.kotlin.psi.psiUtil.getStrictParentOfType
 import org.jetbrains.kotlin.psi.psiUtil.hasActualModifier
 import org.jetbrains.kotlin.psi.psiUtil.siblings
+import org.jetbrains.kotlin.resolution.KtResolvableCall
 
 private data class ElementContext(
     val callables: Collection<PsiElement>,
@@ -184,7 +193,8 @@ private fun convertProperty(
     originalProperty.replace(psiFactory.createFunction(property.text))
 }
 
-private fun KaSession.prepareContext(
+context(session: KaSession)
+private fun prepareContext(
     element: KtProperty,
     applicabilityCheck: Boolean = false
 ): ElementContext? {
@@ -236,7 +246,7 @@ private fun KaSession.prepareContext(
                     if (usage is KtSimpleNameReference) {
                         val expression = usage.expression
                         analyze(expression) {
-                            if (expression.resolveToCall() != null && expression.getStrictParentOfType<KtCallableReferenceExpression>() == null) {
+                            if ((expression as? KtResolvableCall)?.resolveSuccessfulCall() != null && expression.getStrictParentOfType<KtCallableReferenceExpression>() == null) {
                                 kotlinRefsToReplaceWithCall.add(expression)
                             } else if (nameChanged) {
                                 refsToRename.add(usage)

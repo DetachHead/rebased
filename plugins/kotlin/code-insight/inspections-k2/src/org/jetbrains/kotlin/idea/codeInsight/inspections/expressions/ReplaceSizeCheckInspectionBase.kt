@@ -7,17 +7,19 @@ import com.intellij.modcommand.ModPsiUpdater
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.NlsSafe
 import org.jetbrains.kotlin.analysis.api.KaSession
-import org.jetbrains.kotlin.analysis.api.components.allSupertypes
-import org.jetbrains.kotlin.analysis.api.components.expandedSymbol
-import org.jetbrains.kotlin.analysis.api.resolution.KaCallableMemberCall
 import org.jetbrains.kotlin.analysis.api.resolution.KaFunctionCall
+import org.jetbrains.kotlin.analysis.api.resolution.KaSimpleCall
 import org.jetbrains.kotlin.analysis.api.resolution.KaVariableAccessCall
-import org.jetbrains.kotlin.analysis.api.resolution.singleCallOrNull
+import org.jetbrains.kotlin.analysis.api.resolution.simple
+import org.jetbrains.kotlin.analysis.api.resolution.single
 import org.jetbrains.kotlin.analysis.api.resolution.symbol
+import org.jetbrains.kotlin.analysis.api.types.allSupertypes
+import org.jetbrains.kotlin.analysis.api.types.expandedSymbol
 import org.jetbrains.kotlin.idea.base.analysis.api.utils.allOverriddenSymbolsWithSelf
 import org.jetbrains.kotlin.idea.base.resources.KotlinBundle
 import org.jetbrains.kotlin.idea.codeinsight.api.applicable.inspections.KotlinApplicableInspectionBase
 import org.jetbrains.kotlin.idea.codeinsight.api.applicable.inspections.KotlinModCommandQuickFix
+import org.jetbrains.kotlin.idea.util.tryResolveExpressionCall
 import org.jetbrains.kotlin.name.CallableId
 import org.jetbrains.kotlin.name.ClassId
 import org.jetbrains.kotlin.name.Name
@@ -56,11 +58,11 @@ internal sealed class ReplaceSizeCheckInspectionBase :
             ?.name != methodToReplaceWith.methodName
                 && extractTargetExpressionFromPsi(element) != null
 
-    final override fun KaSession.prepareContext(element: KtBinaryExpression): ReplacementInfo? {
+    context(session: KaSession)
+    final override fun prepareContext(element: KtBinaryExpression): ReplacementInfo? {
         val replaceableCall = extractTargetExpressionFromPsi(element)
             ?.takeUnless { it is KtSafeQualifiedExpression }
-            ?.resolveToCall()
-            ?.singleCallOrNull<KaCallableMemberCall<*, *>>()
+            ?.tryResolveExpressionCall()?.single?.simple
             ?.findReplaceableOverride()
             ?: return null
 
@@ -115,21 +117,22 @@ internal sealed class ReplaceSizeCheckInspectionBase :
     }
 
     context(_: KaSession)
-    private fun KaCallableMemberCall<*, *>.findReplaceableOverride(): ReplaceableCall? {
-        val partiallyAppliedSymbol = this.partiallyAppliedSymbol
-        val receiverType = (partiallyAppliedSymbol.extensionReceiver ?: partiallyAppliedSymbol.dispatchReceiver)
+    private fun KaSimpleCall<*, *>.findReplaceableOverride(): ReplaceableCall? {
+        val receiverType = (extensionReceiver ?: dispatchReceiver)
             ?.type
             ?: return null
 
-        val symbolWithOverrides = partiallyAppliedSymbol.symbol.allOverriddenSymbolsWithSelf
+        val symbolWithOverrides = symbol.allOverriddenSymbolsWithSelf
 
         val replaceableCalls = when (this) {
             is KaVariableAccessCall -> listOfNotNull(symbolWithOverrides.firstNotNullOfOrNull { symbol -> REPLACEABLE_FIELDS_BY_CALLABLE_ID[symbol.callableId] })
 
             is KaFunctionCall -> {
-                if (this.valueArgumentMapping.isNotEmpty()) return null
+                if (valueArgumentMapping.isNotEmpty()) return null
                 symbolWithOverrides.flatMap { symbol -> REPLACEABLE_FUNCTIONS_BY_CALLABLE_ID[symbol.callableId].orEmpty() }.toList()
             }
+
+            else -> return null
         }
         if (replaceableCalls.isEmpty()) return null
 

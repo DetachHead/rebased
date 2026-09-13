@@ -10,6 +10,7 @@
     </content>
     <orderEntry type="inheritedJdk" />
     <orderEntry type="sourceFolder" forTests="false" />
+    <orderEntry type="module" module-name="intellij.libraries.kryo5" />
     <orderEntry type="module" module-name="intellij.gradle.settings" exported="" />
     <orderEntry type="module" module-name="intellij.platform.analysis" />
     <orderEntry type="module" module-name="intellij.platform.concurrency" />
@@ -26,6 +27,7 @@
     <orderEntry type="module" module-name="intellij.platform.lang" />
     <orderEntry type="module" module-name="intellij.platform.lang.core" />
     <orderEntry type="module" module-name="intellij.platform.lang.impl" />
+    <orderEntry type="module" module-name="intellij.platform.refactoring" />
     <orderEntry type="module" module-name="intellij.platform.projectModel" />
     <orderEntry type="module" module-name="intellij.platform.projectModel.impl" />
     <orderEntry type="module" module-name="intellij.platform.smRunner" />
@@ -34,7 +36,7 @@
     <orderEntry type="library" exported="" name="slf4j-jdk14" level="project" />
     <orderEntry type="module" module-name="intellij.platform.ide.core.impl" />
     <orderEntry type="module" module-name="intellij.platform.ide.core" />
-    <orderEntry type="library" exported="" name="Gradle" level="project" />
+    <orderEntry type="module" module-name="intellij.libraries.gradle" exported="" />
     <orderEntry type="module" module-name="intellij.libraries.gson" />
     <orderEntry type="module" module-name="intellij.platform.objectSerializer.annotations" />
     <orderEntry type="module" module-name="intellij.libraries.ion" />

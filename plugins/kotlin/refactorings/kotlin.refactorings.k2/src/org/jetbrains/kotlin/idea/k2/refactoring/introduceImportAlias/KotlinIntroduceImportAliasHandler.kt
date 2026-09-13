@@ -19,11 +19,17 @@ import com.intellij.psi.search.searches.ReferencesSearch
 import com.intellij.refactoring.RefactoringActionHandler
 import com.intellij.refactoring.rename.inplace.VariableInplaceRenamer
 import com.intellij.util.containers.addIfNotNull
-import org.jetbrains.kotlin.analysis.api.KaImplementationDetail
-import org.jetbrains.kotlin.analysis.api.analyze
+import org.jetbrains.kotlin.analysis.api.components.compositeScope
+import org.jetbrains.kotlin.analysis.api.components.scopeContext
+import org.jetbrains.kotlin.analysis.api.resolution.resolveSuccessfulSymbol
 import org.jetbrains.kotlin.analysis.api.scopes.KaScope
+import org.jetbrains.kotlin.analysis.api.scopes.asCompositeScope
+import org.jetbrains.kotlin.analysis.api.scopes.combinedDeclaredMemberScope
+import org.jetbrains.kotlin.analysis.api.scopes.packageScope
+import org.jetbrains.kotlin.analysis.api.session.analyze
 import org.jetbrains.kotlin.analysis.api.symbols.KaNamedClassSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaPackageSymbol
+import org.jetbrains.kotlin.analysis.api.symbols.importableFqName
 import org.jetbrains.kotlin.analysis.api.symbols.markers.KaNamedSymbol
 import org.jetbrains.kotlin.idea.base.codeInsight.KotlinNameSuggestionProvider
 import org.jetbrains.kotlin.idea.base.codeInsight.KotlinNameValidatorProvider
@@ -56,6 +62,7 @@ import org.jetbrains.kotlin.psi.psiUtil.getReceiverExpression
 import org.jetbrains.kotlin.psi.psiUtil.isExtensionDeclaration
 import org.jetbrains.kotlin.psi.psiUtil.isInImportDirective
 import org.jetbrains.kotlin.psi.psiUtil.siblings
+import org.jetbrains.kotlin.resolution.KtResolvable
 
 object KotlinIntroduceImportAliasHandler : RefactoringActionHandler {
     private val REFACTORING_NAME = KotlinBundle.message("name.introduce.import.alias")
@@ -78,8 +85,8 @@ object KotlinIntroduceImportAliasHandler : RefactoringActionHandler {
                 scopes.add(file.scopeContext(element).compositeScope())
                 var receiverExpression = element.getReceiverExpression()
                 while (receiverExpression != null) {
-                    val resolveToSymbol = ((receiverExpression as? KtQualifiedExpression)?.selectorExpression
-                        ?: receiverExpression).mainReference?.resolveToSymbol()
+                    val resolveToSymbol = (((receiverExpression as? KtQualifiedExpression)?.selectorExpression
+                        ?: receiverExpression) as? KtResolvable)?.resolveSuccessfulSymbol()
                     scopes.addIfNotNull(
                         (resolveToSymbol as? KaNamedClassSymbol)?.combinedDeclaredMemberScope ?: (resolveToSymbol as? KaPackageSymbol)?.packageScope
                     )

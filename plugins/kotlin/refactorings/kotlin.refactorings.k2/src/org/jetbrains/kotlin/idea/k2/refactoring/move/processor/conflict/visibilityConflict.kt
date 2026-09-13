@@ -1,8 +1,8 @@
 // Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.kotlin.idea.k2.refactoring.move.processor.conflict
 
-import com.intellij.openapi.diagnostic.ControlFlowException
 import com.intellij.openapi.diagnostic.fileLogger
+import com.intellij.openapi.diagnostic.rethrowControlFlowException
 import com.intellij.psi.PsiDirectory
 import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiMember
@@ -17,25 +17,20 @@ import com.intellij.refactoring.util.RefactoringUIUtil
 import com.intellij.util.containers.MultiMap
 import com.intellij.util.containers.toMultiMap
 import org.jetbrains.annotations.ApiStatus
-import org.jetbrains.kotlin.analysis.api.KaExperimentalApi
 import org.jetbrains.kotlin.analysis.api.KaSession
-import org.jetbrains.kotlin.analysis.api.analyze
-import org.jetbrains.kotlin.analysis.api.components.containingSymbol
-import org.jetbrains.kotlin.analysis.api.components.createUseSiteVisibilityChecker
-import org.jetbrains.kotlin.analysis.api.components.isSubClassOf
-import org.jetbrains.kotlin.analysis.api.components.resolveToSymbol
-import org.jetbrains.kotlin.analysis.api.permissions.KaAllowAnalysisOnEdt
 import org.jetbrains.kotlin.analysis.api.projectStructure.KaModule
 import org.jetbrains.kotlin.analysis.api.projectStructure.KaSourceModule
-import org.jetbrains.kotlin.analysis.api.resolution.KaCallableMemberCall
-import org.jetbrains.kotlin.analysis.api.resolution.successfulCallOrNull
-import org.jetbrains.kotlin.analysis.api.resolution.symbol
+import org.jetbrains.kotlin.analysis.api.resolution.resolveSuccessfulSymbol
+import org.jetbrains.kotlin.analysis.api.session.analyze
 import org.jetbrains.kotlin.analysis.api.symbols.KaClassSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaConstructorSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaDeclarationSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaSymbolVisibility
+import org.jetbrains.kotlin.analysis.api.symbols.containingSymbol
+import org.jetbrains.kotlin.analysis.api.symbols.isSubClassOf
 import org.jetbrains.kotlin.analysis.api.symbols.symbol
+import org.jetbrains.kotlin.analysis.api.visibility.createUseSiteVisibilityChecker
 import org.jetbrains.kotlin.asJava.toLightElements
 import org.jetbrains.kotlin.idea.base.analysis.api.utils.allowAnalysisFromWriteActionInEdt
 import org.jetbrains.kotlin.idea.base.projectStructure.getKaModuleOfTypeSafe
@@ -50,15 +45,14 @@ import org.jetbrains.kotlin.idea.k2.refactoring.move.processor.usages.K2MoveRena
 import org.jetbrains.kotlin.idea.k2.refactoring.move.processor.willNotBeMoved
 import org.jetbrains.kotlin.idea.refactoring.getContainer
 import org.jetbrains.kotlin.idea.refactoring.pullUp.willBeMoved
-import org.jetbrains.kotlin.idea.references.mainReference
 import org.jetbrains.kotlin.name.FqName
 import org.jetbrains.kotlin.psi.KtElement
 import org.jetbrains.kotlin.psi.KtFile
 import org.jetbrains.kotlin.psi.KtNamedDeclaration
 import org.jetbrains.kotlin.psi.KtObjectDeclaration
-import org.jetbrains.kotlin.psi.KtReferenceExpression
 import org.jetbrains.kotlin.psi.psiUtil.containingClass
 import org.jetbrains.kotlin.psi.psiUtil.getStrictParentOfType
+import org.jetbrains.kotlin.resolution.KtResolvable
 import org.jetbrains.kotlin.util.capitalizeDecapitalize.capitalizeAsciiOnly
 
 private fun PsiElement.createVisibilityConflict(referencedDeclaration: PsiElement): Pair<PsiElement, String> {
@@ -77,7 +71,7 @@ private fun MoveRenameUsageInfo.isVisibleBeforeMove(): Boolean {
         val declaration = upToDateReferencedElement as? PsiNamedElement ?: return false
         declaration.isVisibleTo(element ?: return false)
     } catch (e: Exception) {
-        if (e is ControlFlowException) throw e
+        rethrowControlFlowException(e)
         fileLogger().error(e)
         return true
     }
@@ -92,7 +86,6 @@ fun PsiNamedElement.isVisibleTo(usage: PsiElement): Boolean {
     }
 }
 
-@OptIn(KaExperimentalApi::class)
 context(_: KaSession)
 private fun PsiNamedElement.isVisibleTo(usage: KtElement): Boolean {
     val file = (usage.containingFile as? KtFile)?.symbol ?: return false
@@ -100,7 +93,7 @@ private fun PsiNamedElement.isVisibleTo(usage: KtElement): Boolean {
         symbol
     } else {
         if (this !is PsiMember) return false // get Java symbol through resolve because it is not possible through getSymbol
-        usage.mainReference?.resolveToSymbol() as? KaDeclarationSymbol ?: return false
+        (usage as? KtResolvable)?.resolveSuccessfulSymbol() as? KaDeclarationSymbol ?: return false
     }
     return createUseSiteVisibilityChecker(file, receiverExpression = null, usage).isVisible(symbol)
 }
@@ -276,8 +269,7 @@ fun checkVisibilityConflictsForInternalUsages(
                                         // to reuse the same code as for Kotlin.
                                         val refererSymbol =
                                             usageElement.getStrictParentOfType<KtNamedDeclaration>()?.symbol ?: return@analyze false
-                                        val referencedSymbol = (usageElement as? KtReferenceExpression)?.mainReference?.resolveToSymbol()
-                                            ?: usageElement.resolveToCall()?.successfulCallOrNull<KaCallableMemberCall<*, *>>()?.symbol
+                                        val referencedSymbol = (usageElement as? KtResolvable)?.resolveSuccessfulSymbol()
                                             ?: return@analyze false
                                         referencedSymbol.isProtectedVisibleFrom(refererSymbol)
                                     }

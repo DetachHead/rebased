@@ -69,6 +69,7 @@ import com.intellij.openapi.editor.event.VisibleAreaListener
 import com.intellij.openapi.editor.ex.EditorEx
 import com.intellij.openapi.editor.ex.EditorMarkupModel
 import com.intellij.openapi.editor.ex.EditorSettingsExternalizable
+import com.intellij.openapi.editor.ex.ElfCandidate
 import com.intellij.openapi.editor.ex.ErrorStripTooltipRendererProvider
 import com.intellij.openapi.editor.ex.ErrorStripeEvent
 import com.intellij.openapi.editor.ex.ErrorStripeListener
@@ -103,6 +104,7 @@ import com.intellij.openapi.util.registry.Registry
 import com.intellij.openapi.util.text.StringUtil
 import com.intellij.openapi.wm.IdeFocusManager
 import com.intellij.platform.ide.CoreUiCoroutineScopeHolder
+import com.intellij.platform.ide.productMode.IdeProductMode
 import com.intellij.ui.DirtyUI
 import com.intellij.ui.HintHint
 import com.intellij.ui.JBColor
@@ -110,6 +112,7 @@ import com.intellij.ui.LightweightHint
 import com.intellij.ui.MouseMovementTracker
 import com.intellij.ui.PopupHandler
 import com.intellij.ui.awt.RelativePoint
+import com.intellij.ui.awt.RelativeRectangle
 import com.intellij.ui.components.JBScrollBar
 import com.intellij.ui.components.JBScrollPane
 import com.intellij.ui.components.panels.NonOpaquePanel
@@ -181,6 +184,7 @@ import kotlin.math.min
 import kotlin.time.Duration.Companion.milliseconds
 
 @ApiStatus.Internal
+@ElfCandidate
 class EditorMarkupModelImpl internal constructor(private val editor: EditorImpl) :
   MarkupModelImpl(editor.document), EditorMarkupModel, CaretListener, BulkAwareDocumentListener.Simple, VisibleAreaListener {
   private fun getMinMarkHeight(): Int {
@@ -217,7 +221,7 @@ class EditorMarkupModelImpl internal constructor(private val editor: EditorImpl)
 
   val statusToolbar: ActionToolbarImpl
   private var showToolbar = EditorSettingsExternalizable.getInstance().isShowInspectionWidget
-  private var trafficLightVisible = true
+  private var trafficLightVisible = mayRenderTrafficLight
   private val toolbarComponentListener: ComponentListener
   private var cachedToolbarBounds = Rectangle()
   private val smallIconLabel = JLabel()
@@ -269,6 +273,7 @@ class EditorMarkupModelImpl internal constructor(private val editor: EditorImpl)
     }
 
     val toolbar = statusToolbar.getComponent()
+    toolbar.isVisible = trafficLightVisible
     toolbar.setLayout(StatusComponentLayout())
     toolbar.addComponentListener(toolbarComponentListener)
     toolbar.setBorder(JBUI.Borders.empty(2))
@@ -299,7 +304,16 @@ class EditorMarkupModelImpl internal constructor(private val editor: EditorImpl)
     smallIconLabel.setBackground(JBColor.lazy { editor.colorsScheme.getDefaultBackground() })
     smallIconLabel.isVisible = false
 
-    val statusPanel = NonOpaquePanel()
+
+    // Placeholder to prevent the top of scroll bar from jumping while an analysis is running
+    val statusPanel = object : NonOpaquePanel() {
+      override fun getPreferredSize(): Dimension =
+        super.getPreferredSize().apply {
+          if (trafficLightVisible) {
+            height = height.coerceAtLeast(statusIconSize)
+          }
+        }
+    }
     statusPanel.isVisible = !editor.isOneLineMode
     statusPanel.setLayout(BoxLayout(statusPanel, BoxLayout.X_AXIS))
     statusPanel.add(toolbar)
@@ -366,6 +380,8 @@ class EditorMarkupModelImpl internal constructor(private val editor: EditorImpl)
   }
 
   companion object {
+    private val mayRenderTrafficLight: Boolean get() = !IdeProductMode.isLight
+
     @JvmStatic
     fun fitLineToEditor(editor: EditorImpl, visualLine: Int): Int {
       val lineCount = editor.visibleLineCount
@@ -562,8 +578,9 @@ class EditorMarkupModelImpl internal constructor(private val editor: EditorImpl)
       return
     }
 
-    if (value != trafficLightVisible) {
-      trafficLightVisible = value
+    val shouldShowTrafficLight = value && mayRenderTrafficLight
+    if (shouldShowTrafficLight != trafficLightVisible) {
+      trafficLightVisible = shouldShowTrafficLight
       updateTrafficLightVisibility()
     }
     repaint()
@@ -577,6 +594,27 @@ class EditorMarkupModelImpl internal constructor(private val editor: EditorImpl)
 
   fun getCurrentStatus(): AnalyzerStatus {
     return analyzerStatus
+  }
+
+  @ApiStatus.Internal
+  @RequiresEdt
+  fun scheduleShowTrafficLightPopup(anchor: RelativeRectangle) {
+    ThreadingAssertions.assertEventDispatchThread()
+    trafficLightPopup.scheduleShow(anchor, analyzerStatus)
+  }
+
+  @ApiStatus.Internal
+  @RequiresEdt
+  fun scheduleHideTrafficLightPopup() {
+    ThreadingAssertions.assertEventDispatchThread()
+    trafficLightPopup.scheduleHide()
+  }
+
+  @ApiStatus.Internal
+  @RequiresEdt
+  fun hideTrafficLightPopup() {
+    ThreadingAssertions.assertEventDispatchThread()
+    trafficLightPopup.hidePopup()
   }
 
   fun changeStatus(newStatus: AnalyzerStatus) {
@@ -1887,5 +1925,4 @@ class EditorMarkupModelImpl internal constructor(private val editor: EditorImpl)
     @JvmField val thin: Boolean,
     @JvmField val layer: Int,
   )
-
 }

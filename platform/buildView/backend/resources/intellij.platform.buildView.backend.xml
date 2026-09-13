@@ -8,6 +8,8 @@
     <module name="intellij.platform.kernel.backend"/>
     <module name="intellij.platform.lang"/>
     <module name="intellij.platform.lang.impl"/>
+    <module name="intellij.platform.project"/>
+    <module name="intellij.platform.rpc.backend"/>
   </dependencies>
   <!-- endregion -->
   <extensions defaultExtensionNs="com.intellij">

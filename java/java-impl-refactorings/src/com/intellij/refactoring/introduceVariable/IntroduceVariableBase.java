@@ -682,6 +682,81 @@ public abstract class IntroduceVariableBase extends IntroduceHandlerBase {
     };
   }
 
+  /**
+   * The settings the inplace introduce path of {@link #getSettings} would use for {@code choice}, but without any UI:
+   * the name is the first suggested one, and the type is {@code declaredTypeFqn} or the one of the expression. Neither
+   * may be entered.
+   *
+   * @param anchor              where the variable will be declared, {@link #getAnchor(PsiExpression[])} of
+   *                            {@code selectedOccurrences}
+   * @param selectedOccurrences the occurrences {@code choice} replaces, {@link JavaReplaceChoice#filter}
+   * @param declaredTypeFqn     the qualified name of the type to declare the variable with, {@code null} to keep the
+   *                            type of the expression. The name still comes from the type of the expression. An
+   *                            explicit type is always written out.
+   */
+  static @NotNull IntroduceVariableSettings headlessSettings(@NotNull Context context,
+                                                             @NotNull JavaReplaceChoice choice,
+                                                             @NotNull PsiElement anchor,
+                                                             PsiExpression @NotNull [] selectedOccurrences,
+                                                             @Nullable String declaredTypeFqn) {
+    PsiExpression expression = context.expression();
+    PsiType inferredType = context.originalType();
+    PsiType type = declaredTypeFqn == null
+                   ? inferredType
+                   : PsiType.getTypeByName(declaredTypeFqn, expression.getProject(), expression.getResolveScope());
+    boolean replaceAll = choice.isAll();
+    boolean anyAssignmentLHS = ContainerUtil.exists(selectedOccurrences, occurrence -> PsiUtil.isAccessedForWriting(occurrence));
+    SuggestedNameInfo suggestedName = CommonJavaRefactoringUtil.getSuggestedName(inferredType, expression, anchor);
+    String variableName = suggestedName.names.length > 0 ? suggestedName.names[0] : "v";
+    boolean declareFinal = replaceAll && context.occurrenceManager().isInFinalContext() ||
+                           !anyAssignmentLHS && createFinals(anchor.getContainingFile()) ||
+                           anchor instanceof PsiSwitchLabelStatementBase;
+    boolean declareVarType = declaredTypeFqn == null &&
+                             canBeExtractedWithoutExplicitType(expression) && createVarType() && !choice.isChain();
+    boolean replaceWrite = anyAssignmentLHS && replaceAll;
+    return new IntroduceVariableSettings() {
+      @Override
+      public @NlsSafe String getEnteredName() {
+        return variableName;
+      }
+
+      @Override
+      public boolean isReplaceAllOccurrences() {
+        return replaceAll;
+      }
+
+      @Override
+      public boolean isDeclareFinal() {
+        return declareFinal;
+      }
+
+      @Override
+      public boolean isDeclareVarType() {
+        return declareVarType;
+      }
+
+      @Override
+      public boolean isReplaceLValues() {
+        return replaceWrite;
+      }
+
+      @Override
+      public PsiType getSelectedType() {
+        return type;
+      }
+
+      @Override
+      public JavaReplaceChoice getReplaceChoice() {
+        return choice;
+      }
+
+      @Override
+      public boolean isOK() {
+        return true;
+      }
+    };
+  }
+
   public static boolean createFinals(@NotNull PsiFile file) {
     final Boolean createFinals = JavaRefactoringSettings.getInstance().INTRODUCE_LOCAL_CREATE_FINALS;
     return createFinals == null ?

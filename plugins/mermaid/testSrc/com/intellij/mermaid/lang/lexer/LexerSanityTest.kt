@@ -69,4 +69,116 @@ class LexerSanityTest: MermaidLexerTestCase() {
     """.trimIndent()
     doTest(content)
   }
+
+  fun `test packet diagram`() {
+    val content = """
+    packet-beta
+      0-15: "Source Port"
+    """.trimIndent()
+    doTest(content)
+  }
+
+  fun `test architecture diagram`() {
+    val content = """
+    architecture-beta
+      group api(cloud)[API]
+    """.trimIndent()
+    doTest(content)
+  }
+
+  fun `test kanban diagram`() {
+    val content = """
+    kanban
+      Todo
+        [Create documentation]
+    """.trimIndent()
+    doTest(content)
+  }
+
+  fun `test bare sankey spelling`() {
+    val content = """
+    sankey
+      a,b,1
+    """.trimIndent()
+    doTest(content)
+  }
+
+  fun `test bare xychart spelling`() {
+    val content = """
+    xychart
+      line [1, 2, 3]
+    """.trimIndent()
+    doTest(content)
+  }
+
+  fun `test bare block spelling`() {
+    val content = """
+    block
+      a b c
+    """.trimIndent()
+    doTest(content)
+  }
+
+  fun `test railroad diagram variant`() {
+    val content = """
+    railroad-ebnf-beta
+      expr = term , { "+" , term } ;
+    """.trimIndent()
+    doTest(content)
+  }
+
+  fun `test cynefin diagram`() {
+    val content = """
+    cynefin-beta
+      title Decisions
+      domain complex
+    """.trimIndent()
+    doTest(content)
+  }
+
+  // The point of the generic fallback: an unmodelled family still gets comments, accessibility
+  // statements and frontmatter rather than turning the whole file into one error.
+  fun `test generic diagram keeps comments and acc statements`() {
+    val content = """
+    treemap-beta
+    %% a comment
+      accTitle: Treemap title
+      "Section"
+    """.trimIndent()
+    doTest(content)
+  }
+
+  fun `test generic diagram after frontmatter`() {
+    val content = """
+    ---
+    title: Packets
+    ---
+    packet
+      0-15: "Source Port"
+    """.trimIndent()
+    doTest(content)
+  }
+
+  // swimlane-beta reuses the flowchart grammar rather than the generic fallback, because upstream has no
+  // swimlane parser of its own.
+  fun `test swimlane reuses flowchart`() {
+    val content = """
+    swimlane-beta LR
+      A --> B
+    """.trimIndent()
+    doTest(content)
+  }
+
+  fun `test bare requirement spelling`() {
+    val content = """
+    requirement
+      requirement test_req {
+      id: 1
+      text: some text
+      risk: high
+      verifymethod: test
+      }
+    """.trimIndent()
+    doTest(content)
+  }
 }

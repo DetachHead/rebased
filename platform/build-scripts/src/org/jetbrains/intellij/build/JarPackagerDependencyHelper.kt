@@ -14,6 +14,39 @@ import org.jetbrains.jps.model.module.JpsModule
 import org.jetbrains.jps.model.module.JpsModuleReference
 import java.util.concurrent.ConcurrentHashMap
 
+/**
+ * Whether the plugin's content module [module] is packed into a jar of its own, which is what makes the embedded
+ * descriptor take `separate-jar="true"`.
+ *
+ * Public, and taking the library dependencies as an argument, because two callers need one body: the assembly asks
+ * through [JarPackagerDependencyHelper], which caches the dependency list, and the dev-distribution descriptor plan
+ * asks during generation so that a produced descriptor needs no project model. A reproduction in the generator would
+ * be a second spelling of two branches, and a drift between the two is a wrong attribute in a shipped descriptor.
+ */
+fun isPluginModulePackedIntoSeparateJar(
+  module: JpsModule,
+  layout: PluginLayout,
+  frontendModuleFilter: FrontendModuleFilter,
+  productionLibraryDependencies: List<JpsLibraryDependency>,
+): Boolean {
+  if (!layout.getModulesWithExcludedModuleLibraries().contains(module.name) &&
+      productionLibraryDependencies.any { it.libraryReference.parentReference is JpsModuleReference }) {
+    return true
+  }
+  if (!frontendModuleFilter.isModuleCompatibleWithFrontend(layout.mainModule) && frontendModuleFilter.isModuleCompatibleWithFrontend(module.name)) {
+    return true
+  }
+  return false
+}
+
+/** [isPluginModulePackedIntoSeparateJar]'s dependency argument, for a caller with no [JarPackagerDependencyHelper]. */
+fun getProductionLibraryDependencies(module: JpsModule): List<JpsLibraryDependency> {
+  val javaExtensionService = JpsJavaExtensionService.getInstance()
+  return module.dependenciesList.dependencies.filterIsInstance<JpsLibraryDependency>().filter {
+    isProductionRuntimeDependency(element = it, javaExtensionService = javaExtensionService, withTests = false)
+  }
+}
+
 // production-only - JpsJavaClasspathKind.PRODUCTION_RUNTIME
 internal class JarPackagerDependencyHelper(private val outputProvider: ModuleOutputProvider) {
   private val productionLibraryCache = ConcurrentHashMap<JpsModule, List<JpsLibraryDependency>>()
@@ -24,54 +57,19 @@ internal class JarPackagerDependencyHelper(private val outputProvider: ModuleOut
   }
 
   fun isPluginModulePackedIntoSeparateJar(module: JpsModule, layout: PluginLayout, frontendModuleFilter: FrontendModuleFilter): Boolean {
-    if (!layout.modulesWithExcludedModuleLibraries.contains(module.name) &&
-        getLibraryDependencies(module = module, withTests = false).any { it.libraryReference.parentReference is JpsModuleReference }) {
-      return true
-    }
-    if (!frontendModuleFilter.isModuleCompatibleWithFrontend(layout.mainModule) && frontendModuleFilter.isModuleCompatibleWithFrontend(module.name)) {
-      return true
-    }
-    return false
+    return isPluginModulePackedIntoSeparateJar(
+      module = module,
+      layout = layout,
+      frontendModuleFilter = frontendModuleFilter,
+      productionLibraryDependencies = getLibraryDependencies(module = module, withTests = false),
+    )
   }
 
   fun isTestPluginModule(moduleName: String, module: JpsModule?): Boolean {
-    if (!outputProvider.useTestCompilationOutput) {
-      return false
-    }
-
-    // todo use some marker
-    if (moduleName == "intellij.rdct.testFramework" ||
-        moduleName == "intellij.platform.split.testFramework" ||
-        moduleName == "intellij.python.junit5Tests" ||
-        moduleName == "intellij.rdct.tests.distributed") {
-      return true
-    }
-
-    // modules containing tests only as per https://youtrack.jetbrains.com/articles/IJPL-A-62
-    if (moduleName.endsWith(".tests")) {
-      return true
-    }
-
-    if (moduleName.contains(".test.")) {
-      @Suppress("RedundantIf", "RedundantSuppression")
-      if (module?.sourceRoots?.none { it.rootType.isForTests } == true) {
-        return false
-      }
-
-      return moduleName != "intellij.rider.test.framework" &&
-             moduleName != "intellij.rider.test.build.shared" &&
-             moduleName != "intellij.rider.test.framework.core" &&
-             moduleName != "intellij.rider.test.framework.perforator" &&
-             moduleName != "intellij.rider.test.framework.testng" &&
-             moduleName != "intellij.rider.test.framework.junit" &&
-             moduleName != "intellij.rider.test.framework.unit" &&
-             moduleName != "intellij.rider.test.framework.integration.testng" &&
-             moduleName != "intellij.rider.test.framework.integration.junit"
-    }
-    return moduleName.endsWith("._test")
+    return isTestOnlyPluginModule(moduleName = moduleName, module = module, outputProvider = outputProvider)
   }
 
-  suspend fun getPluginIdByModule(pluginModule: JpsModule): String {
+  fun getPluginIdByModule(pluginModule: JpsModule): String {
     // it is ok to read the plugin descriptor with unresolved x-include as the ID should be specified at the root
     val root = readXmlAsModel(getUnprocessedPluginXmlContent(module = pluginModule, outputProvider = outputProvider))
     val element = root.getChild("id") ?: root.getChild("name") ?: throw IllegalStateException("Cannot find attribute id or name (module=$pluginModule)")

@@ -15,11 +15,13 @@ import com.intellij.openapi.project.Project
 import com.intellij.psi.SmartPsiElementPointer
 import com.intellij.psi.createSmartPointer
 import org.jetbrains.kotlin.KtNodeTypes
-import org.jetbrains.kotlin.analysis.api.KaExperimentalApi
 import org.jetbrains.kotlin.analysis.api.KaSession
 import org.jetbrains.kotlin.analysis.api.components.KaDiagnosticCheckerFilter
+import org.jetbrains.kotlin.analysis.api.components.directDiagnostics
 import org.jetbrains.kotlin.analysis.api.diagnostics.KaSeverity
+import org.jetbrains.kotlin.analysis.api.resolution.resolveSuccessfulSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaConstructorSymbol
+import org.jetbrains.kotlin.analysis.api.symbols.importableFqName
 import org.jetbrains.kotlin.idea.base.resources.KotlinBundle
 import org.jetbrains.kotlin.idea.codeinsight.api.applicable.inspections.KotlinApplicableInspectionBase
 import org.jetbrains.kotlin.idea.codeinsight.api.applicable.inspections.KotlinModCommandQuickFix
@@ -55,8 +57,8 @@ internal class BooleanLiteralArgumentInspection(
         context: Context,
     ): @InspectionMessage String = KotlinBundle.message("boolean.literal.argument.without.parameter.name")
 
-    @OptIn(KaExperimentalApi::class)
-    override fun KaSession.prepareContext(element: KtValueArgument): Context? {
+    context(session: KaSession)
+    override fun prepareContext(element: KtValueArgument): Context? {
         if (element.isNamed()) return null
         val argumentExpression = element.getArgumentExpression() ?: return null
         if (!argumentExpression.isBooleanLiteral()) return null
@@ -67,7 +69,7 @@ internal class BooleanLiteralArgumentInspection(
         if (diagnostics.any { it.severity == KaSeverity.ERROR }) return null
         val name = getStableNameFor(element) ?: return null
 
-        val symbol = call.resolveSymbol() ?: return null
+        val symbol = call.resolveSuccessfulSymbol() ?: return null
         if ((symbol as? KaConstructorSymbol)?.importableFqName in ignoreConstructors) return null
         if (!symbol.hasStableParameterNames) return null
 

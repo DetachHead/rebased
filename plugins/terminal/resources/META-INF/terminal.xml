@@ -4,8 +4,6 @@
                 factoryClass="org.jetbrains.plugins.terminal.TerminalToolWindowFactory"
                 secondary="false"
                 canCloseContents="true"/>
-    <applicationService serviceImplementation="org.jetbrains.plugins.terminal.DefaultTerminalRunnerFactory" open="true"/>
-
     <fileEditorProvider id="classic-terminal-session-editor"
                         implementation="org.jetbrains.plugins.terminal.vfs.ClassicTerminalSessionEditorProvider"/>
 
@@ -42,6 +40,9 @@
     <registryKey key="terminal.new.ui.reworked" defaultValue="false"
                  description="No-op, use Terminal Engine option in Terminal settings instead"/>
 
+    <registryKey key="terminal.use.ghostty.emulator" defaultValue="false"
+                 description="Experimental: drive the reworked terminal session with the Ghostty VT emulator instead of JediTerm, unless specified explicitly. Requires the bundled libghostty-vt native library."/>
+
     <registryKey key="terminal.new.ui.option.visible" defaultValue="false"
                  description="Whether Experimental 2024 terminal engine option visible in the settings"/>
     <registryKey key="terminal.new.ui.fish" defaultValue="false"
@@ -50,9 +51,6 @@
                  description="Whether to show the GotIt tooltip with a proposal to try the New Terminal"/>
     <registryKey key="terminal.agent.workbench.promotion.enabled" defaultValue="false"
                  description="Enable Agent Workbench promotion in the reworked terminal when supported AI CLIs are used"/>
-    <registryKey key="terminal.agent.predefined.actions.enabled" defaultValue="true"
-                 description="Show AI agent actions in the terminal title and predefined terminal sessions"
-                 restartRequired="true"/>
     <registryKey key="terminal.new.ui.autocompletion" defaultValue="true"
                  description="Whether to run autocompletion in the New Terminal"/>
     <registryKey key="terminal.classic.refresh.vfs.on.shell.command.finished" defaultValue="true"
@@ -70,8 +68,15 @@
                   Open a new terminal after enabling this option to take effect."/>
     <registryKey key="terminal.generic.hyperlinks.for.relative.path" defaultValue="true"
                  description="Show generic file hyperlinks for relative paths in the reworked terminal. Requires enabled `terminal.generic.hyperlinks`."/>
+    <registryKey key="terminal.minimal.document.edits" defaultValue="true"
+                 description="When updating the terminal document, try to perform minimal edits,
+                  to preserve range markers (hyperlink highlighters) over unchanged lines so they blink less.
+                  When disabled, the changed range is always replaced in a single edit."/>
     <registryKey key="terminal.ai.inline.completion.enabled" defaultValue="false"
                  description="Whether Terminal AI Inline Completion is enabled and visible in the settings"/>
+    <registryKey key="terminal.prefer.image.path.paste.over.text" defaultValue="true"
+                 description="When pasting in the terminal, prefer inserting an image path if it is available in the clipboard
+                  even if text representation is available."/>
     <consoleFilterProvider implementation="org.jetbrains.plugins.terminal.hyperlinks.filter.TerminalGenericFileFilterProvider"/>
 
     <experimentalFeature id="terminal.shell.command.handling" percentOfUsers="100"/>
@@ -107,8 +112,6 @@
              id="terminalCommandSpecGen2"
              order="before stats"
              implementationClass="org.jetbrains.plugins.terminal.block.completion.ShellCommandSpecCompletionWeigher"/>
-    <feedback.idleFeedbackSurvey implementation="org.jetbrains.plugins.terminal.block.feedback.ReworkedTerminalFeedbackSurvey"/>
-    <feedback.idleFeedbackSurvey implementation="org.jetbrains.plugins.terminal.block.completion.feedback.TerminalCompletionFeedbackSurvey"/>
 
     <lang.fileViewProviderFactory language="Terminal Prompt"
                                   implementationClass="org.jetbrains.plugins.terminal.block.prompt.lang.TerminalPromptFileViewProviderFactory"/>
@@ -140,7 +143,6 @@
   </extensions>
 
   <extensions defaultExtensionNs="org.jetbrains.plugins.terminal">
-    <terminalAgentProvider implementation="org.jetbrains.plugins.terminal.agent.DefaultTerminalAgentProvider" order="first"/>
     <commandSpecsProvider implementation="org.jetbrains.plugins.terminal.block.completion.spec.json.ShellDefaultCommandSpecsProvider"/>
     <commandSpecsProvider implementation="org.jetbrains.plugins.terminal.block.completion.spec.specs.ShellCodeBasedCommandSpecsProvider"/>
     <commandSpecsProvider implementation="org.jetbrains.plugins.terminal.block.completion.spec.specs.PowerShellCommandSpecsProvider"/>
@@ -185,6 +187,8 @@
                     interface="org.jetbrains.plugins.terminal.TerminalToolWindowInitializer" dynamic="true"/>
     <extensionPoint qualifiedName="org.jetbrains.plugins.terminal.shellsDetector" dynamic="true"
                     interface="org.jetbrains.plugins.terminal.shellDetection.TerminalShellsDetector"/>
+    <extensionPoint qualifiedName="org.jetbrains.plugins.terminal.customTerminalRunnerProvider" dynamic="true"
+                    interface="org.jetbrains.plugins.terminal.classic.CustomTerminalRunnerProvider"/>
   </extensionPoints>
 
   <applicationListeners>

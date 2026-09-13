@@ -1,15 +1,16 @@
 import base64
-import io
 import os
 import sys
 import traceback
 
 SHOW_DEBUG_INFO = os.getenv('PYCHARM_DEBUG', 'False').lower() in ['true', '1']
 
+
 def debug(message):
     if SHOW_DEBUG_INFO:
         sys.stderr.write(message)
         sys.stderr.write("\n")
+
 
 def init_altair_render():
     from datalore.display import display
@@ -57,6 +58,7 @@ def init_altair_render():
             debug("Failed to render HTML")
         finally:
             alt.renderers.enable(saved_renderer)
+
         display(DisplayDataObject(html_str, image_str))
 
     alt.renderers.register("browser", pycharm_renderer)

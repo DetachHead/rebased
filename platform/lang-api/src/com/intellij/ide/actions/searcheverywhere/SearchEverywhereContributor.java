@@ -27,7 +27,10 @@ import java.util.function.BiConsumer;
  *
  * @author Konstantin Bulenkov
  * @author Mikhail Sokolov
+ * @deprecated The old Search Everywhere API is being sunset.
+ * Implement {@link com.intellij.platform.searchEverywhere.SeItemsProvider} instead.
  */
+@Deprecated
 public interface SearchEverywhereContributor<Item> extends PossiblyDumbAware, Disposable {
   ExtensionPointName<SearchEverywhereContributorFactory<?>> EP_NAME = new ExtensionPointName<>("com.intellij.searchEverywhereContributor");
 

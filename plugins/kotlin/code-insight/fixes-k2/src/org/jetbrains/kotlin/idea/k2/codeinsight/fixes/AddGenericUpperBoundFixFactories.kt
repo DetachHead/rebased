@@ -2,9 +2,9 @@
 package org.jetbrains.kotlin.idea.k2.codeinsight.fixes
 
 import com.intellij.modcommand.ModCommandAction
-import org.jetbrains.kotlin.analysis.api.KaExperimentalApi
 import org.jetbrains.kotlin.analysis.api.KaSession
 import org.jetbrains.kotlin.analysis.api.fir.diagnostics.KaFirDiagnostic
+import org.jetbrains.kotlin.analysis.api.renderer.render
 import org.jetbrains.kotlin.analysis.api.renderer.types.impl.KaTypeRendererForSource
 import org.jetbrains.kotlin.analysis.api.types.KaType
 import org.jetbrains.kotlin.analysis.api.types.KaTypeParameterType
@@ -27,8 +27,8 @@ internal object AddGenericUpperBoundFixFactories {
             )
         }
 
-    @OptIn(KaExperimentalApi::class)
-    private fun KaSession.createActionIfAvailable(
+    context(session: KaSession)
+    private fun createActionIfAvailable(
         expectedUpperBound: KaType,
         actualUpperBound: KaType,
     ): ModCommandAction? {

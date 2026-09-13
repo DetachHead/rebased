@@ -62,7 +62,7 @@ object McpClientDetector {
     return globalClients
   }
 
-  internal fun detectProjectMcpClients(project: Project): List<McpClient> {
+  fun detectProjectMcpClients(project: Project): List<McpClient> {
     val projectClients = mutableListOf<McpClient>()
 
     runCatching {
@@ -259,9 +259,7 @@ object McpClientDetector {
     }
     if (!homeDir.exists() || !Files.isDirectory(homeDir)) return null
 
-    val candidates = listOf(homeDir.resolve("mcp.json"), homeDir.resolve("mcp-config.json"))
-    val path = candidates.firstOrNull { it.exists() && it.isRegularFile() } ?: candidates.first()
-    return GitHubCopilotCliClient(McpClientInfo.Scope.Global, path)
+    return GitHubCopilotCliClient(McpClientInfo.Scope.Global, homeDir.resolve("mcp-config.json"))
   }
 
   private fun detectGitHubCopilotCliProject(project: Project): McpClient? {

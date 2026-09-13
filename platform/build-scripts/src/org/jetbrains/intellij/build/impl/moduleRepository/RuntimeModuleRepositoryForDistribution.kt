@@ -3,16 +3,16 @@
 
 package org.jetbrains.intellij.build.impl.moduleRepository
 
+import com.intellij.openapi.util.JDOMUtil
 import com.intellij.openapi.util.text.StringUtil
-import com.intellij.platform.runtime.repository.RuntimeModuleId
 import com.intellij.platform.runtime.repository.RuntimePluginHeader
 import com.intellij.platform.runtime.repository.serialization.RawRuntimeModuleDescriptor
 import com.intellij.platform.runtime.repository.serialization.RuntimeModuleRepositorySerialization
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 import org.jetbrains.intellij.build.BuildContext
 import org.jetbrains.intellij.build.classPath.PluginBuildDescriptor
+import org.jetbrains.intellij.build.classPath.PluginBuildResult
 import org.jetbrains.intellij.build.classPath.getEmbeddedProductTempPluginDir
+import org.jetbrains.intellij.build.classPath.resolveAndCacheDescriptorForEmbeddedProduct
 import org.jetbrains.intellij.build.impl.ModuleOutputPatcher
 import org.jetbrains.intellij.build.impl.PlatformLayout
 import org.jetbrains.intellij.build.impl.PluginLayout
@@ -30,6 +30,7 @@ import org.jetbrains.jps.model.module.JpsModule
 import java.io.IOException
 import java.nio.file.Path
 import java.util.Properties
+import kotlin.io.path.Path
 import kotlin.io.path.createDirectories
 import kotlin.io.path.exists
 import kotlin.io.path.reader
@@ -44,7 +45,7 @@ internal suspend fun generateRuntimeModuleRepositoryForDistribution(
   context: BuildContext,
   platformLayout: PlatformLayout,
 ) {
-  val additionalFrontendOnlyPlugins = computeDescriptorsForAdditionalFrontendPlugins(context, platformLayout)
+  val additionalFrontendOnlyPlugins = context.getLayoutOfAdditionalFrontendOnlyPlugins()
 
   val osSpecificDistPaths = SUPPORTED_DISTRIBUTIONS.associateWith {
     getOsAndArchSpecificDistDirectory(osFamily = it.os, arch = it.arch, libc = it.libcImpl, context = context)
@@ -69,7 +70,10 @@ internal suspend fun generateRuntimeModuleRepositoryForDistribution(
       .forEach { distribution ->
         val targetDirectory = osSpecificDistPaths.getValue(distribution)
         val actualPlatformEntries = contentReport.platform.filter { it.path.startsWith(commonTargetDirectory) || it.path.startsWith(targetDirectory) }
-        val actualPlugins = contentReport.bundledPlugins.filter { (it.os == null || it.os == distribution.os) && (it.arch == null || it.arch == distribution.arch) }
+        val actualPlugins = contentReport.bundledPlugins.filter {
+          (it.os == null || it.os == distribution.os) &&
+          (it.arch == null || it.arch == distribution.arch)
+        }
         generateRepositoryForDistribution(
           targetDirectory = targetDirectory,
           platformEntries = actualPlatformEntries,
@@ -112,52 +116,42 @@ internal suspend fun generateRuntimeModuleRepositoryForDevBuild(
 }
 
 /**
- * Merges module repositories for different OS to a common one which can be used in the cross-platform distribution. 
- * @return path to the directory with the generated repository file or `null` if [distAllPath] already contains a common module repository file which is used for all OSes
+ * Generates a runtime module repository for modules and plugins included in the cross-platform distribution.
+ * @return path to the directory with the generated repository file or `null` if `distAllPath` already contains a common module repository file which is used for all OSes
  */
-internal fun generateCrossPlatformRepository(distAllPath: Path, osSpecificDistPaths: List<Path>, context: BuildContext): Path? {
-  val commonRepositoryFile = distAllPath.resolve(MODULE_DESCRIPTORS_COMPACT_PATH)
+internal suspend fun generateCrossPlatformRepository(
+  contentReport: ContentReport,
+  context: BuildContext,
+  platformLayout: PlatformLayout,
+  crossPlatformPluginsDir: Path?,
+  crossPlatformBuiltPlugins: List<PluginBuildDescriptor>,
+): Path? {
+  val commonTargetDirectory = context.paths.distAllDir
+  val commonRepositoryFile = commonTargetDirectory.resolve(MODULE_DESCRIPTORS_COMPACT_PATH)
   if (commonRepositoryFile.exists()) {
     return null
   }
-  
-  val repositories = osSpecificDistPaths.map { osSpecificDistPath ->
-    val repositoryFile = osSpecificDistPath.resolve(MODULE_DESCRIPTORS_COMPACT_PATH)
-    if (!repositoryFile.exists()) {
-      context.messages.logErrorAndThrow("Cannot generate runtime module repository for cross-platform distribution: $repositoryFile doesn't exist")
-    }
-    RuntimeModuleRepositorySerialization.loadFromCompactFile(repositoryFile)
-  }
-  val commonIds = repositories.map { it.allModuleIds }.reduce { a, b -> a.intersect(b) }
-  val commonPluginDescriptorModules = repositories
-    .map { repository -> repository.pluginHeaders.mapTo(HashSet()) { it.pluginDescriptorModuleId } }
-    .reduce<Set<RuntimeModuleId>, Set<RuntimeModuleId>> { a, b -> a.intersect(b) }
-  val commonDescriptors = ArrayList<RawRuntimeModuleDescriptor>()
-  for (moduleId in commonIds) {
-    val descriptors = repositories.map { it.findDescriptor(moduleId)!! }
-    val commonResourcePaths = descriptors.map { it.resourcePaths.toSet() }.reduce { a, b -> a.intersect(b) }
-    val commonDependencies = descriptors.first().dependencyIds
-    for (descriptor in descriptors) {
-      if (descriptor.dependencyIds != commonDependencies) {
-        context.messages.logErrorAndThrow("Cannot generate runtime module repository for cross-platform distribution: different dependencies for module '${moduleId.displayName}', ${descriptor.dependencyIds} and $commonDependencies")
-      }
-    }
-    commonDescriptors.add(RawRuntimeModuleDescriptor.create(moduleId, commonResourcePaths.toList(), commonDependencies))
-  }
-  val commonPluginHeaders = ArrayList<RuntimePluginHeader>()
-  for (pluginDescriptorModule in commonPluginDescriptorModules) {
-    val headers = repositories.map { repository -> repository.pluginHeaders.single { it.pluginDescriptorModuleId == pluginDescriptorModule } }
-    val header = headers.first()
-    for (anotherHeader in headers.drop(1)) {
-      if (header.pluginId != anotherHeader.pluginId || header.includedModules != anotherHeader.includedModules) {
-        context.messages.logErrorAndThrow("Cannot generate runtime module repository for cross-platform distribution: different plugin headers for module '${pluginDescriptorModule.displayName}': $header and $anotherHeader")
-      }
-    }
-    commonPluginHeaders.add(header)
-  }
+
   val targetDir = context.paths.tempDir.resolve("cross-platform-module-repository")
-  saveModuleRepository(commonDescriptors, commonPluginHeaders, targetDir)
-  return targetDir
+  val actualPlatformEntries = contentReport.platform.filter { it.path.startsWith(commonTargetDirectory) }
+  val actualPlugins = contentReport.bundledPlugins.filter { it.os == null && it.arch == null } + crossPlatformBuiltPlugins.map { it.buildResult }
+  val additionalFrontendOnlyPlugins = context.getLayoutOfAdditionalFrontendOnlyPlugins()
+  generateRepositoryForDistribution(
+    targetDirectory = targetDir,
+    platformEntries = actualPlatformEntries,
+    context = context,
+    bundledPlugins = actualPlugins,
+    additionalFrontendOnlyPlugins = additionalFrontendOnlyPlugins,
+    platformLayout = platformLayout,
+    entryPathRelativizer = {
+      when {
+        it.startsWith(commonTargetDirectory) -> commonTargetDirectory.relativize(it)
+        crossPlatformPluginsDir != null && it.startsWith(crossPlatformPluginsDir) -> Path("plugins").resolve(crossPlatformPluginsDir.relativize(it))
+        else -> null
+      }
+    },
+  )
+  return targetDir.resolve(RUNTIME_REPOSITORY_MODULES_DIR_NAME)
 }
 
 /**
@@ -168,12 +162,12 @@ private suspend fun generateRepositoryForDistribution(
   targetDirectory: Path,
   platformEntries: List<DistributionFileEntry>,
   context: BuildContext,
-  bundledPlugins: List<PluginBuildDescriptor>,
-  additionalFrontendOnlyPlugins: List<PluginBuildDescriptor>,
+  bundledPlugins: List<PluginBuildResult>,
+  additionalFrontendOnlyPlugins: List<PluginBuildResult>,
   platformLayout: PlatformLayout,
   entryPathRelativizer: (Path) -> Path?,
 ) {
-  val pluginDescriptorModulesForAdditionalFrontendPlugins = additionalFrontendOnlyPlugins.mapTo(HashSet()) { it.layout.mainModule }
+  val pluginDescriptorModulesForAdditionalFrontendPlugins = additionalFrontendOnlyPlugins.mapTo(HashSet()) { it.mainModule }
   val corePluginDescriptorModuleName = context.productProperties.applicationInfoModule
   val embeddedFrontendDescriptorModuleName = context.getEmbeddedFrontendProductContext()?.productProperties?.applicationInfoModule
   val originalPluginDescriptorsData = fetchPluginDescriptorsData(
@@ -185,7 +179,7 @@ private suspend fun generateRepositoryForDistribution(
   )
   val pluginDescriptorsData = removeDataForSuppressedPlugins(originalPluginDescriptorsData, context)
   val pluginConfigurationModuleToDistributionEntries =
-    (bundledPlugins + additionalFrontendOnlyPlugins).associateByTo(HashMap(), { it.layout.mainModule }, { it.distribution })
+    (bundledPlugins + additionalFrontendOnlyPlugins).associateByTo(HashMap(), { it.mainModule }, { it.distribution })
   pluginConfigurationModuleToDistributionEntries[corePluginDescriptorModuleName] = platformEntries
   val pluginHeadersData = try {
     generateRuntimePluginHeaders(pluginDescriptorsData, pluginConfigurationModuleToDistributionEntries, entryPathRelativizer, context.project)
@@ -210,13 +204,11 @@ private suspend fun generateRepositoryForDistribution(
       errors.joinToString("\n ")
     )
   }
-  withContext(Dispatchers.IO) {
-    saveModuleRepository(
-      descriptors = distDescriptors,
-      pluginHeaders = pluginHeaders,
-      targetDirectory = targetDirectory.resolve(RUNTIME_REPOSITORY_MODULES_DIR_NAME)
-    )
-  }
+  saveModuleRepository(
+    descriptors = distDescriptors,
+    pluginHeaders = pluginHeaders,
+    targetDirectory = targetDirectory.resolve(RUNTIME_REPOSITORY_MODULES_DIR_NAME)
+  )
 }
 
 /**
@@ -240,31 +232,51 @@ private fun removeDataForSuppressedPlugins(originalPluginDescriptorsData: List<P
  * Returns the list of descriptors for additional plugins which should be added to the runtime module repository.
  * These plugins are not bundled with the IDE, but they are used from the frontend process started from the IDE.
  * To be able to run the frontend process from a regular IDE, we need to include information about its modules to the runtime module repository.
+ * Use [BuildContext.getLayoutOfAdditionalFrontendOnlyPlugins] to get the cached value instead of calling this method directly.
  */
-private suspend fun computeDescriptorsForAdditionalFrontendPlugins(
+internal suspend fun computeDescriptorsForAdditionalFrontendPlugins(
   context: BuildContext,
   platformLayout: PlatformLayout,
-): List<PluginBuildDescriptor> {
+): List<PluginBuildResult> {
   return TraceManager.spanBuilder("compute layout of additional plugins for embedded frontend").use {
     val embeddedFrontendContext = context.getEmbeddedFrontendProductContext() ?: return@use emptyList()
 
-    //creates a descriptor for the core plugin of the embedded frontend
-    val embeddedFrontendTargetDir = getEmbeddedProductTempPluginDir(context, embeddedFrontendContext.productProperties.applicationInfoModule)
+    // creates a descriptor for the core plugin of the embedded frontend
+    val embeddedFrontendDescriptorModuleName = embeddedFrontendContext.productProperties.applicationInfoModule
+    val embeddedFrontendPlatformLayout = createPlatformLayout(embeddedFrontendContext)
+    val embeddedFrontendTargetDir = getEmbeddedProductTempPluginDir(context, embeddedFrontendDescriptorModuleName)
     val embeddedFrontendPlatformEntries = layoutPlatformDistribution(
       moduleOutputPatcher = ModuleOutputPatcher(),
       targetDir = embeddedFrontendTargetDir,
-      platform = createPlatformLayout(embeddedFrontendContext),
+      platform = embeddedFrontendPlatformLayout,
       searchableOptionSet = null,
       copyFiles = false,
       context = embeddedFrontendContext,
     )
 
+    val embeddedFrontendDescriptorFile = embeddedFrontendContext.findFileInModuleSources(
+      moduleName = embeddedFrontendDescriptorModuleName,
+      relativePath = FRONTEND_CUSTOMIZATION_PLUGIN_XML_PATH,
+    ) ?: error("Cannot find $FRONTEND_CUSTOMIZATION_PLUGIN_XML_PATH in $embeddedFrontendDescriptorModuleName")
+    val embeddedFrontendDescriptorContainer = platformLayout.descriptorCacheContainer.forPlugin(embeddedFrontendTargetDir)
+    resolveAndCacheDescriptorForEmbeddedProduct(
+      xml = JDOMUtil.load(embeddedFrontendDescriptorFile),
+      clientModuleName = embeddedFrontendDescriptorModuleName,
+      additionalSearchModules = emptyList(),
+      platformLayout = embeddedFrontendPlatformLayout,
+      platformDescriptorContainer = embeddedFrontendPlatformLayout.descriptorCacheContainer.forPlatform(embeddedFrontendPlatformLayout),
+      pluginLayout = PluginLayout.pluginAuto(embeddedFrontendDescriptorModuleName) {},
+      pluginDescriptorContainer = embeddedFrontendDescriptorContainer,
+      targetPluginDescriptorContainer = embeddedFrontendDescriptorContainer,
+      context = embeddedFrontendContext,
+    )
+
     val additionalFrontendPlugins = mutableListOf(
-      PluginBuildDescriptor(
+      PluginBuildResult(
+        mainModule = embeddedFrontendDescriptorModuleName,
         dir = embeddedFrontendTargetDir,
         os = null,
         arch = null,
-        layout = PluginLayout.plugin(embeddedFrontendContext.productProperties.applicationInfoModule),
         distribution = embeddedFrontendPlatformEntries,
       )
     )
@@ -321,3 +333,4 @@ private const val COMPACT_REPOSITORY_FILE_NAME: String = "module-descriptors.dat
 internal const val RUNTIME_REPOSITORY_MODULES_DIR_NAME = "modules"
 internal const val MODULE_DESCRIPTORS_JAR_PATH: String = "$RUNTIME_REPOSITORY_MODULES_DIR_NAME/$JAR_REPOSITORY_FILE_NAME" 
 const val MODULE_DESCRIPTORS_COMPACT_PATH: String = "$RUNTIME_REPOSITORY_MODULES_DIR_NAME/$COMPACT_REPOSITORY_FILE_NAME" 
+private const val FRONTEND_CUSTOMIZATION_PLUGIN_XML_PATH: String = "META-INF/JetBrainsClientPlugin.xml"

@@ -1,7 +1,7 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
 ### auto-generated section `build intellij.devkit.stacktrace` start
-
 jvm_library(
     name = "stacktrace",
     srcs = glob(
@@ -39,6 +39,8 @@ jvm_library(
     ],
 )
 
+content_module_jar(module = ":stacktrace")
+
 jvm_library(
     name = "stacktrace_test_lib",
     testonly = True,
@@ -74,6 +76,7 @@ jvm_library(
 exports_files(
     [
         "intellij.devkit.stacktrace.iml",
+        "resources/intellij.devkit.stacktrace.xml",
     ],
     visibility = ["//visibility:public"],
 )

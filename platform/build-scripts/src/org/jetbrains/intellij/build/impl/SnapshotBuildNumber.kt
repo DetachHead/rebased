@@ -1,6 +1,7 @@
 // Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.intellij.build.impl
 
+import com.intellij.util.text.SemVer
 import org.jetbrains.intellij.build.BuildPaths
 import org.jetbrains.intellij.build.impl.SnapshotBuildNumber.PATH
 import org.jetbrains.intellij.build.impl.SnapshotBuildNumber.SNAPSHOT_SUFFIX
@@ -33,3 +34,32 @@ object SnapshotBuildNumber {
     VALUE.removeSuffix(SNAPSHOT_SUFFIX)
   }
 }
+
+/**
+ * The plugin version a build stamps: [buildNumber] with its `.SNAPSHOT` suffix replaced by a fixed number, plus `.0`
+ * when the result is a nightly.
+ *
+ * Shared by the two producers of a patched plugin descriptor. `BuildContextImpl.pluginBuildNumber` is the assembly's
+ * reader, and `DevDistPluginDescriptorMain` is the packing action's. One function means the two cannot disagree on a
+ * version string, which is what the byte gate would otherwise have to catch.
+ */
+internal fun computePluginBuildNumber(buildNumber: String): String {
+  var value = buildNumber
+  if (value.endsWith(SNAPSHOT_SUFFIX)) {
+    value = value.replace(SNAPSHOT_SUFFIX, ".$SNAPSHOT_VERSION_SEGMENT")
+  }
+  if (value.count { it == '.' } <= 1) {
+    value = "$value.0"
+  }
+  check(SemVer.parseFromText(value) != null) {
+    "The plugin build number $value is expected to match the Semantic Versioning, see https://semver.org"
+  }
+  return value
+}
+
+/**
+ * What a `.SNAPSHOT` suffix becomes, so that the version matches Semantic Versioning.
+ *
+ * A fixed number and not the build date, so that two builds of one commit state one version.
+ */
+private const val SNAPSHOT_VERSION_SEGMENT = "99999999"

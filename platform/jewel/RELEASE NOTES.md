@@ -1,10 +1,357 @@
 # Jewel Release Notes
 
-## v0.38 (2026-06-30)
+## v0.41 (2026-09-15)
 
 | Min supported IJP versions | Compose Multiplatform version |
 |----------------------------|-------------------------------|
-| 2026.2 beta 1              | 1.11.0                        |
+| 2026.2.3                   | 1.12.0                        |
+
+Note that packaged Jewel Standalone apps can crash with `NoSuchMethodError: kotlinx.coroutines.BuildersKt.runBlockingK$default`
+if you compile against coroutines 1.11.0 or newer, because the Icons API modules pull in the IntelliJ Platform fork of
+`kotlinx-coroutines-core`. We're working with IJPL on a fix. Workaround until that is fixed upstream:
+
+```kotlin
+dependencies {
+    modules {
+        module("org.jetbrains.intellij.deps.kotlinx:kotlinx-coroutines-core-jvm") {
+            replacedBy("org.jetbrains.kotlinx:kotlinx-coroutines-core-jvm", "The IJP fork lags upstream")
+        }
+    }
+}
+```
+
+### ⚠️ Important Changes
+
+* **[JEWEL-1413](https://youtrack.jetbrains.com/issue/JEWEL-1413)** Jewel now builds against **Compose Multiplatform
+  1.12.0** ([#3631](https://github.com/JetBrains/intellij-community/pull/3631))
+* **[JEWEL-1277](https://youtrack.jetbrains.com/issue/JEWEL-1277)** `TableBlock`, `TableRow`, `TableHeader`, and
+  `TableCell` are now correctly annotated as experimental ([#3556](https://github.com/JetBrains/intellij-community/pull/3556))
+* **[JEWEL-1322](https://youtrack.jetbrains.com/issue/JEWEL-1322)** the `Markdown` composable now takes its default block
+  renderer from `LocalMarkdownBlockRenderer` instead of creating a plain renderer with no extensions, and the block renderer
+  is the single source of Markdown styling, including the spacing between blocks. ([#3591](https://github.com/JetBrains/intellij-community/pull/3591))
+  * If you call `Markdown()` outside `ProvideMarkdownStyling` and relied on the old implicit default, it might now error out
+    as it should have done from the beginning. To fix it, wrap the call in `ProvideMarkdownStyling` or pass a `blockRenderer`
+    explicitly.
+* **[JEWEL-1323](https://youtrack.jetbrains.com/issue/JEWEL-1323)** Restored the deprecated APIs that were accidentally
+  removed in 0.40. This broke binary compatibility for plugins already compiled against 0.39 or 0.40 — we are deeply
+  sorry about this. We will remove them (and other long-deprecated APIs) definitively in 0.42, which will be the first
+  Jewel release targeting exclusively the 2026.3 IJPL.
+  * In the future, deprecated APIs will only be removed in Jewel versions targeting a new major IJPL, and only while it
+    is in EAP. There will be no breaking API changes on Jewel versions landing in IJPL Beta, RC, or Stable versions.
+  * That was already our policy, but due to a huge backlog in shippable PRs built since the beginning of 2026 due to
+    various issues with the JetBrains infrastructure and a few organisational hurdles, it was shipped at the wrong time
+    and cherry-picked into a Jewel version meant for a stable IJPL version. That was a mistake and we're trying to
+    improve our processes to avoid this happening again.
+  * The [readme](README.md) has also been updated to reflect the current policy and stability guarantees.
+* **[JEWEL-1396](https://youtrack.jetbrains.com/issue/JEWEL-1396)** Custom popup renderers now honor
+  `PopupProperties.dismissOnBackPress`, which they previously ignored
+  ([#3622](https://github.com/JetBrains/intellij-community/pull/3622))
+  * This only impacts users with the native popups flag enabled in `JewelFlags` (off by default)
+  * A popup that sets it to `false` is no longer dismissed by Escape, and no longer consumes the key unless it is
+    focusable.
+  * Popups that relied on the previous unconditional Escape dismissal should set it explicitly.
+* **[JEWEL-1404](https://youtrack.jetbrains.com/issue/JEWEL-1404)** `ImageSourceResolver.ResolveCapability.AbsolutePath`
+  and `RelativePath` now return `null` when a destination can't be parsed as a path, rather than letting
+  `InvalidPathException` escape `resolve()`. ([#3624](https://github.com/JetBrains/intellij-community/pull/3624))
+  * When available, now a failing resolution falls through to the next available capability in the chain.
+
+### New features
+
+* **[JEWEL-1050](https://youtrack.jetbrains.com/issue/JEWEL-1050)** Added `grayOrDefault`, `blueOrDefault`,
+  `greenOrDefault`, `redOrDefault`, `yellowOrDefault`, `orangeOrDefault`, `purpleOrDefault`, and `tealOrDefault`
+  accessors to `ThemeColorPalette`. They fall back to Jewel's built-in default palette when the current Look and Feel
+  provides no color for the requested index, so third-party or incomplete themes no longer need their own copy of the
+  default values just to get a sensible fallback. ([#3592](https://github.com/JetBrains/intellij-community/pull/3592))
+* **[JEWEL-1050](https://youtrack.jetbrains.com/issue/JEWEL-1050)** `ThemeColorPalette.isIslands` is now public, so you
+  can tell whether a palette uses the Islands color key format ([#3592](https://github.com/JetBrains/intellij-community/pull/3592))
+* **[JEWEL-1150](https://youtrack.jetbrains.com/issue/JEWEL-1150)** Added the `GotItTooltip` component: a balloon popup
+  with a rich body DSL (text, link, and shortcut segments), an optional header, primary and secondary buttons, a step
+  indicator, timeout auto-dismiss, and keyboard escape support. ([#3451](https://github.com/JetBrains/intellij-community/pull/3451))
+  * See the Jewel component showcase for the available customizations
+* **[JEWEL-1239](https://youtrack.jetbrains.com/issue/JEWEL-1239)** Markdown images that fail to load now render as
+  clickable hyperlinks instead of falling back to raw Markdown syntax.
+  ([#3579](https://github.com/JetBrains/intellij-community/pull/3579))
+* **[JEWEL-1277](https://youtrack.jetbrains.com/issue/JEWEL-1277)** Added YAML front matter support for Markdown
+  documents; front matter renders as a key-value table. ([#3556](https://github.com/JetBrains/intellij-community/pull/3556))
+  * Note that nested tables are not supported yet.
+  * If you notice issues with front matter parsing or rendering do let us know by filing an issue.
+* **[JEWEL-1313](https://youtrack.jetbrains.com/issue/JEWEL-1313)**, **[JEWEL-1391](https://youtrack.jetbrains.com/issue/JEWEL-1391)**
+  in standalone, `ProvideMarkdownStyling` now defaults to `SimpleCodeHighlighter` instead of `NoOpCodeHighlighter`, so
+  fenced code blocks are highlighted automatically. ([#3503](https://github.com/JetBrains/intellij-community/pull/3503),
+  [#3617](https://github.com/JetBrains/intellij-community/pull/3617))
+  * Supported languages: Kotlin, Java, C, CSS, HTML, JavaScript, JSX, JSON, Python, Shell, SQL and YAML — request more by
+    filing a feature request on [YouTrack](https://youtrack.jetbrains.com), project `JEWEL`.
+  * Pass an explicit `codeHighlighter` to opt out or to substitute another implementation.
+  * Bridge implementation was already using the IDE's syntax highlight machinery, nothing changes there.
+  * Custom grammars can be supplied through `additionalGrammars`, which are searched before the built-in
+    ones and can therefore override them
+* **[JEWEL-1345](https://youtrack.jetbrains.com/issue/JEWEL-1345)** Custom Markdown block renderers can now override
+  attributed HTML-block rendering through `RenderHtmlBlockWithAttributes`, and image-only paragraph rendering through
+  `RenderImagesOnlyParagraph` ([#3547](https://github.com/JetBrains/intellij-community/pull/3547))
+
+### Bug fixes
+
+* **[JEWEL-1050](https://youtrack.jetbrains.com/issue/JEWEL-1050)** Fixed an issue looking up an entry in the LaF palette
+  with a gap in the middle of its color sequence (for example, declaring `Gray1` and `Gray3` but not `Gray2`); it would
+  return the wrong color for the missing index instead of falling back to a sensible default
+  ([#3592](https://github.com/JetBrains/intellij-community/pull/3592))
+* **[JEWEL-1193](https://youtrack.jetbrains.com/issue/JEWEL-1193)** Hoverable components without a dedicated active
+  color now show their hover appearance correctly; a hovered but unfocused component used to fall back to its active
+  appearance ([#3416](https://github.com/JetBrains/intellij-community/pull/3416))
+* **[JEWEL-1322](https://youtrack.jetbrains.com/issue/JEWEL-1322)** Bridge Markdown table stripes and alert colors now
+  follow IDE theme switches instead of staying on the theme that the IDE/app started with
+  ([#3591](https://github.com/JetBrains/intellij-community/pull/3591))
+* **[JEWEL-1369](https://youtrack.jetbrains.com/issue/JEWEL-1369)** Fixed icon stroking rendering incorrectly: icons
+  drawn from filled shapes were blanked out entirely, icons authored with `stroke` rather than `fill` were left in their
+  authored gray, and stroking was silently skipped for icons carrying no explicit SVG patcher. Stroking now recolors
+  both the `fill` and the `stroke` attribute, matches palette colors case-insensitively (including keyword spellings
+  such as `black`), and renders identically in the Swing and Compose frontends
+  ([#3585](https://github.com/JetBrains/intellij-community/pull/3585))
+* **[JEWEL-1370](https://youtrack.jetbrains.com/issue/JEWEL-1370)** Writing a color into a color attribute from an
+  `SvgPatcher` now also normalizes the paired opacity attribute — `fill-opacity` for `fill`, and likewise for `stroke`,
+  `stop-color`, and `flood-color`: the written color's alpha moves onto it, and it is removed when that color is opaque.
+  ([#3588](https://github.com/JetBrains/intellij-community/pull/3588))
+  * Custom patchers that relied on the document's authored opacity surviving will see it replaced.
+  * This aligns the behaviour to the IntelliJ Platform's SVG patcher.
+* **[JEWEL-1370](https://youtrack.jetbrains.com/issue/JEWEL-1370)** Stroked icons rendered through the new
+  cross-frontend icons API now behave like the legacy `IconLoader` path: icons shipping a hand-authored `_stroke.svg`
+  variant are resolved and recolored in the Compose frontend too, a shape's authored `fill-opacity` or `stroke-opacity`
+  no longer shades the stroke color, a translucent stroke color is no longer written into `fill` or `stroke` as
+  `#RRGGBBAA`, and three-digit shorthands such as `#fff` now match the stroke palette
+  ([#3588](https://github.com/JetBrains/intellij-community/pull/3588))
+* **[JEWEL-1387](https://youtrack.jetbrains.com/issue/JEWEL-1387)** Fixed native macOS window-chrome color and
+  full-screen-button updates for standalone Jewel applications running on JBR 25
+  ([#3598](https://github.com/JetBrains/intellij-community/pull/3598))
+* **[JEWEL-1388](https://youtrack.jetbrains.com/issue/JEWEL-1388)** The native macOS window handle is now resolved
+  through Compose's `ComposeWindow.windowHandle` instead of `sun.misc.Unsafe` and reflection into the JDK-internal
+  `sun.awt` and `sun.lwawt.macosx` classes ([#3604](https://github.com/JetBrains/intellij-community/pull/3604))
+  * This resolves warnings about terminally-deprecated API usage when running on JBR 25
+* **[JEWEL-1389](https://youtrack.jetbrains.com/issue/JEWEL-1389)** Removed unnecessary redraws in
+  `CircularProgressIndicator` ([#3599](https://github.com/JetBrains/intellij-community/pull/3599))
+* **[JEWEL-1396](https://youtrack.jetbrains.com/issue/JEWEL-1396)** The first Escape press in a speed-searchable
+  ComboBox now clears the speed-search query, and the second closes the popup, matching IJPL's Swing behaviour
+  ([#3610](https://github.com/JetBrains/intellij-community/pull/3610))
+* **[JEWEL-1396](https://youtrack.jetbrains.com/issue/JEWEL-1396)** Standalone custom popups route Escape key to the
+  appropriate popup renderer, preserving focusable menu behavior and preventing Escape from leaking to host dialogs
+  ([#3610](https://github.com/JetBrains/intellij-community/pull/3610))
+* **[JEWEL-1396](https://youtrack.jetbrains.com/issue/JEWEL-1396)** Fixed Escape not closing a `ComboBox` or
+  `EditableComboBox` popup while the pointer was over the component; the key was also swallowed, so it could not
+  reach the surrounding dialog ([#3622](https://github.com/JetBrains/intellij-community/pull/3622))
+* **[JEWEL-1396](https://youtrack.jetbrains.com/issue/JEWEL-1396)** Fixed `GotItTooltip` not closing on Escape in the
+  IDE, where the key was consumed by the popup renderer before the tooltip's own handler could run
+  ([#3622](https://github.com/JetBrains/intellij-community/pull/3622))
+* **[JEWEL-1404](https://youtrack.jetbrains.com/issue/JEWEL-1404)** The IDE theme bridge no longer swallows
+  `ProcessCanceledException` while retrying to read theme data ([#3624](https://github.com/JetBrains/intellij-community/pull/3624))
+
+### Deprecated API
+
+* **[JEWEL-1239](https://youtrack.jetbrains.com/issue/JEWEL-1239)** Deprecated
+  `ImageRendererExtension.renderImageContent`; use `renderImage` instead, which provides explicit loading, success, and
+  failed states ([#3579](https://github.com/JetBrains/intellij-community/pull/3579))
+* **[JEWEL-1322](https://youtrack.jetbrains.com/issue/JEWEL-1322)** Deprecated the `markdownStyling` parameter on
+  `Markdown` and `LazyMarkdown`; pass a `MarkdownBlockRenderer` that already carries the styling instead, normally
+  through `ProvideMarkdownStyling` ([#3591](https://github.com/JetBrains/intellij-community/pull/3591))
+
+## v0.40 (2026-08-11)
+
+| Min supported IJP versions | Compose Multiplatform version |
+|----------------------------|-------------------------------|
+| 2026.2.2                   | 1.11.0                        |
+
+### ⚠️ Important Changes
+
+* **[JEWEL-1323](https://youtrack.jetbrains.com/issue/JEWEL-1323)** Removed a batch of APIs that had been deprecated for
+  more than six months ([#3517](https://github.com/JetBrains/intellij-community/pull/3517)). See the migration guide
+  below if you still use any of them.
+
+### New features
+
+* **[JEWEL-1275](https://youtrack.jetbrains.com/issue/JEWEL-1275)** Scrollable containers and scrollbars now accept an
+  optional `ScrollbarAdapter`, allowing custom scrollbar thumb sizing and positioning for scrollable content
+  ([#3561](https://github.com/JetBrains/intellij-community/pull/3561))
+* **[JEWEL-1317](https://youtrack.jetbrains.com/issue/JEWEL-1317)** Added portable typography APIs through
+  `JewelTheme.typography`, providing default, editor, and console text styles derived with a requested size, weight, or
+  style ([#3567](https://github.com/JetBrains/intellij-community/pull/3567))
+
+### Bug fixes
+
+* **[JEWEL-1319](https://youtrack.jetbrains.com/issue/JEWEL-1319)** Improved `CircularProgressIndicator` performance by
+  drawing the spinner directly on a `Canvas` instead of generating and decoding SVG frames
+  ([#3563](https://github.com/JetBrains/intellij-community/pull/3563))
+* **[JEWEL-1355](https://youtrack.jetbrains.com/issue/JEWEL-1355)** Fixed `SpeedSearchableLazyColumn` selection when
+  filtering removes the previously selected item. Selection now starts with the topmost visible match; if no match is
+  visible, it scans forward below the viewport and then wraps to the first match from the top
+  ([#3564](https://github.com/JetBrains/intellij-community/pull/3564))
+* **[JEWEL-1359](https://youtrack.jetbrains.com/issue/JEWEL-1359)** Fixed intermittent Compose paste-action update
+  errors in the IDE ([#3570](https://github.com/JetBrains/intellij-community/pull/3570))
+
+### Deprecated API
+
+* **[JEWEL-1275](https://youtrack.jetbrains.com/issue/JEWEL-1275)** Deprecated the `VerticallyScrollableContainer`,
+  `HorizontallyScrollableContainer`, `VerticalScrollbar`, and `HorizontalScrollbar` overloads without an `adapter`
+  parameter ([#3561](https://github.com/JetBrains/intellij-community/pull/3561))
+
+### Migration guide for removed APIs
+
+* `foundation`:
+  * The `TextColors` secondary constructor was removed; use the primary constructor, supplying `disabledSelected` and
+    `warning`.
+  * The `ThemeDefinition` secondary constructor was removed; use the primary constructor, supplying
+    `DisabledAppearanceValues`.
+* `ide-laf-bridge`:
+  * The `TextColors` and `ThemeDefinition` secondary constructors were removed as in `foundation`.
+  * Both `bridgePainterProvider` functions were removed; use an `IconKey` with the `Icon` composable instead.
+  * The `compose`, `JewelComposePanel`, `composeWithoutTheme`, `JewelComposeNoThemePanel`, and
+    `ToolWindow.addComposeTab` overloads without `focusOnClickInside` were removed; use the overloads that provide it.
+  * `LocalComponent` was removed; use `foundation`'s `LocalComponent` instead.
+  * `Typography.regular`, `Typography.medium`, and `Typography.small` were removed; use the corresponding properties
+    from `JewelTheme.typography`.
+* `ide-laf-bridge-styling`:
+  * The `ProvideMarkdownStyling` overload taking `themeName` was removed; use the overload without it.
+  * `InlinesStyling.create` no longer takes `renderInlineHtml`; use the overload without it.
+* `int-ui-standalone`:
+  * `WhenScrolling.default` was replaced with the no-argument function `WhenScrolling.default()`.
+  * `standalonePainterProvider` was removed; use an `IconKey` with the `Icon` composable instead.
+* `markdown`:
+  * The `Markdown` and `LazyMarkdown` overloads taking `onTextClick` were removed; use the overloads without it.
+  * The deprecated lower-case Markdown block-rendering APIs were removed. Migrate `MarkdownBlockRenderer.render(...)`
+    and `renderThematicBreak(...)` to the matching `Render*` composables; migrate
+    `MarkdownBlockRendererExtension.render(...)` to `RenderCustomBlock(...)`. The replacement APIs do not take
+    `onTextClick`, because that callback was ignored.
+  * The `InlinesStyling` secondary constructor was removed; use the constructor without `renderInlineHtml`.
+* `ui`:
+  * `ColorFilter.disabled()` was removed; apply `Modifier.disabledAppearance()` to the component modifier instead.
+  * `InformationDefaultBanner`, `SuccessDefaultBanner`, `WarningDefaultBanner`, and `ErrorDefaultBanner` were renamed to
+    `DefaultInformationBanner`, `DefaultSuccessBanner`, `DefaultWarningBanner`, and `DefaultErrorBanner`.
+  * `InformationInlineBanner`, `SuccessInlineBanner`, `WarningInlineBanner`, and `ErrorInlineBanner` overloads without
+    link and icon actions were removed; use `InlineInformationBanner`, `InlineSuccessBanner`, `InlineWarningBanner`, and
+    `InlineErrorBanner` with `linkActions` and `iconActions`.
+  * `painterResource(resourcePath)` was removed; use an `IconKey` with `Icon` or `Image` instead.
+  * The `Tooltip` overload taking `AutoHideBehavior`, and `AutoHideBehavior` itself, were removed; configure
+    `TooltipAutoHideBehavior` through `TooltipStyle.autoHideBehavior`.
+  * The legacy `SimpleListItem` overloads were removed. Use `ListItemState` or the current `selected`/`active`
+    overloads, with `colorFilter` and `painterHints` as needed.
+  * `MenuManager` and `LocalMenuManager` were removed; obtain the `MenuController` through `LocalMenuController.current`.
+  * `MenuSeparator`, `MenuItemState`, `MenuItemState.of()`, `MenuSubmenuItem`, and `MenuItemColors.*For` are now
+    internal.
+  * All `TextStyle.copyWithSize()` functions were removed. To derive resized default, editor, or console typography, use
+    `JewelTheme.typography.rememberDefaultTextStyle`, `rememberEditorTextStyle`, or `rememberConsoleTextStyle`; apply
+    unrelated custom `TextStyle` properties separately as needed.
+  * The `ChipMetrics` secondary constructor without `minSize` was removed; use the constructor that supplies it.
+  * The `TooltipMetrics` secondary constructor and `defaults` function were removed; use the versions that supply
+    `regularDisappearDelay` and `fullDisappearDelay`.
+  * The no-argument `AwtColor.toRgbaHexString()` and `Color.toRgbaHexString()` overloads were removed; use
+    `toRgbaHexString(omitAlphaWhenFullyOpaque = true)` to retain their former behaviour.
+  * `Color.fromRGBAHexStringOrNull(rgba)` was removed; use `Color.fromRgbaHexStringOrNull(rgba)`.
+  * The `org.jetbrains.jewel.ui.component.Typography` object was removed. Use the `Typography` API exposed through
+    `JewelTheme.typography`.
+
+## v0.39.1 (2026-07-24)
+
+| Min supported IJP versions | Compose Multiplatform version | Standalone Version |
+|----------------------------|-------------------------------|--------------------|
+| 2026.2                     | 1.11.0                        | 0.39.1-262.9437.29 |
+
+### Bug fixes
+
+* **[JEWEL-1374](https://youtrack.jetbrains.com/issue/JEWEL-1374)** The published Jewel Standalone POMs now declare the
+  Icons API modules (`icons-api`, `icons-api-rendering`, `icons-impl`) as transitive dependencies. A plain
+  `implementation("org.jetbrains.jewel:jewel-int-ui-standalone:…")` now boots `IntUiTheme` without extra wiring —
+  previously it failed at startup with `NoClassDefFoundError: com/intellij/platform/icons/IconManager`
+
+## v0.39 (2026-07-14)
+
+| Min supported IJP versions | Compose Multiplatform version | Standalone Version |
+|----------------------------|-------------------------------|--------------------|
+| 2026.2                     | 1.11.0                        | 0.39.0-262.9437.21 |
+
+### ⚠️ Important Changes
+
+* **[JEWEL-993](https://youtrack.jetbrains.com/issue/JEWEL-993)** By default, scrollbars in scrollable containers and tabs
+  on macOS now respect the visibility option chosen in the user's macOS settings. To change the behaviour, provide a fixed
+  style, either `ScrollbarVisibility.WhenScrolling` or `ScrollbarVisibility.AlwaysVisible`
+  ([#3407](https://github.com/JetBrains/intellij-community/pull/3407))
+* **[JEWEL-1257](https://youtrack.jetbrains.com/issue/JEWEL-1257)** `ThemeColorPalette` now supports the Islands
+  palette format, which changes how palette colours are indexed ([#3523](https://github.com/JetBrains/intellij-community/pull/3523))
+* **[JEWEL-1290](https://youtrack.jetbrains.com/issue/JEWEL-1290)** `*DefaultBanner` no longer fills the available
+  width by default; it now wraps its content instead. If you want banners to span the full width, be sure to add
+  `modifier = Modifier.fillMaxWidth()` ([#3466](https://github.com/JetBrains/intellij-community/pull/3466))
+
+### New features
+
+* **[JEWEL-1257](https://youtrack.jetbrains.com/issue/JEWEL-1257)** Added support for the Islands colour palette format
+  in `ThemeColorPalette` ([#3523](https://github.com/JetBrains/intellij-community/pull/3523))
+  * `ThemeColorPalette` now includes a new `isIslands` parameter to distinguish between Islands and non-Islands theme
+    palettes, and its colour accessors support both classic and Islands indexing schemes
+  * `BridgeThemeColorPalette` now parses Islands palette keys, too, when applicable
+  * When using colour accessors, use the native index scheme for the palette: classic themes use `1, 2, 3, …`, while
+    Islands themes use `10, 20, 30, …`. For example, the Islands equivalent of `blueOrNull(1)` is `blueOrNull(10)`, and
+    `redOrNull(3)` becomes `redOrNull(30)`
+  * Note that at the time of writing the official Islands themes also contain the non-Islands palette entries, but that
+    is not guaranteed to be the case for third-party themes or in the future
+  * Contrary to non-Islands palettes, the Islands palette is identical in both light and dark themes, and semantic tokens
+    are layered on top of it; semantic tokens are not officially supported yet in Jewel, but you can read them from LaF
+* **[JEWEL-1267](https://youtrack.jetbrains.com/issue/JEWEL-1267)** Added support for sized images in Markdown
+  rendering — HTML `<img>` tags with `width` and `height` attributes, and GitLab flavoured Markdown image attribute blocks
+  (`{width=100 height=5px}`) are now parsed and rendered at the specified dimensions, with proportional scaling when
+  only one dimension is provided. ([#3527](https://github.com/JetBrains/intellij-community/pull/3527))
+  * For now, only pixel/unitless dimensions are supported. Percent sizing is ignored
+* **[JEWEL-1285](https://youtrack.jetbrains.com/issue/JEWEL-1285)** A new variation of `Popup` is available that takes
+  a `windowShape` factory, letting you apply a custom shape to the window that holds the popup
+  ([#3449](https://github.com/JetBrains/intellij-community/pull/3449))
+  * This is only useful when the `jewel.customPopupRender` system property flag is enabled, your project runs as a
+    standalone app (IJP plugins are unaffected), and `compose.interop.blending` is not enabled
+  * Keep in mind that clipping the window to a shape has limitations: Swing's `WindowTranslucency` can't render concave
+    corners properly, so depending on your shape you may see jagged edges. For this reason, it's highly encouraged to
+    also enable `compose.interop.blending` in your system properties
+
+### Bug fixes
+
+* **[JEWEL-1075](https://youtrack.jetbrains.com/issue/JEWEL-1075)** `VerticallyScrollableContainer` and
+  `HorizontallyScrollableContainer` no longer crash with `IllegalArgumentException` when placed inside a layout that
+  queries intrinsic measurements ([#3471](https://github.com/JetBrains/intellij-community/pull/3471))
+* **[JEWEL-1138](https://youtrack.jetbrains.com/issue/JEWEL-1138)** Markdown images now scale to fit the available
+  width and adjust their vertical space accordingly ([#3525](https://github.com/JetBrains/intellij-community/pull/3525))
+* **[JEWEL-1205](https://youtrack.jetbrains.com/issue/JEWEL-1205)** Menu items now have the correct size when rendered in
+  Presentation Mode ([#3419](https://github.com/JetBrains/intellij-community/pull/3419))
+* **[JEWEL-1287](https://youtrack.jetbrains.com/issue/JEWEL-1287)** Fixed `LazyTree` multi-selection highlights so
+  adjacent selected rows merge into a continuous selection block ([#3452](https://github.com/JetBrains/intellij-community/pull/3452))
+* **[JEWEL-1290](https://youtrack.jetbrains.com/issue/JEWEL-1290)** The paddings for `*DefaultBanner` components are now
+  customizable ([#3466](https://github.com/JetBrains/intellij-community/pull/3466))
+* **[JEWEL-1327](https://youtrack.jetbrains.com/issue/JEWEL-1327)** Markdown ordered lists no longer crash when the list
+  starts with `0`. For number formats such as roman and alphabetical, an item with index `0` renders as `0` and then
+  continues in the expected format (i.e., `i` for roman, `a` for alphabetical)
+  ([#3552](https://github.com/JetBrains/intellij-community/pull/3552))
+* **[IJPL-176416](https://youtrack.jetbrains.com/issue/IJPL-176416)** Improved standalone icon rendering with fading
+  animated icons and better interop with the old animated icons
+
+### Deprecated API
+
+* **[JEWEL-1257](https://youtrack.jetbrains.com/issue/JEWEL-1257)** The `ThemeColorPalette` constructor without the
+  `isIslands` parameter was removed from the visible API; specify `isIslands` when constructing palettes
+  ([#3523](https://github.com/JetBrains/intellij-community/pull/3523))
+  * The API is retained for binary compatibility for the time being, but please migrate as soon as possible
+* **[JEWEL-1285](https://youtrack.jetbrains.com/issue/JEWEL-1285)** `Popup` components without the `windowShape`
+  parameter are now deprecated ([#3449](https://github.com/JetBrains/intellij-community/pull/3449))
+
+## v0.38.1 (2026-07-24)
+
+| Min supported IJP versions | Compose Multiplatform version | Standalone Version  |
+|----------------------------|-------------------------------|---------------------|
+| 2026.2 beta 1              | 1.11.0                        | 0.38.1-262.8665.354 |
+
+### Bug fixes
+
+* **[JEWEL-1374](https://youtrack.jetbrains.com/issue/JEWEL-1374)** The published Jewel Standalone POMs now declare the
+  Icons API modules (`icons-api`, `icons-api-rendering`, `icons-impl`) as transitive dependencies. A plain
+  `implementation("org.jetbrains.jewel:jewel-int-ui-standalone:…")` now boots `IntUiTheme` without extra wiring —
+  previously it failed at startup with `NoClassDefFoundError: com/intellij/platform/icons/IconManager`
+
+## v0.38 (2026-06-30)
+
+| Min supported IJP versions | Compose Multiplatform version | Standalone Version  |
+|----------------------------|-------------------------------|---------------------|
+| 2026.2 beta 1              | 1.11.0                        | 0.38.0-262.8665.351 |
 
 ### ⚠️ Important Changes
 
@@ -24,13 +371,13 @@
   * Text context menu actions now respect the actual `enabled` state exposed by CMP
 * **[IJPL-176416](https://youtrack.jetbrains.com/issue/IJPL-176416)** Fixed standalone icon rendering so icons react
   correctly to theme, scaling, and update events after the new Icons API changes
-  ([`e6b2fee0`](https://github.com/JetBrains/intellij-community/commit/e6b2fee02b46c6d0cf6a6d1e0bc952240b977775))
+  ([`f5b0e05a`](https://github.com/JetBrains/intellij-community/commit/f5b0e05a9faab6566a7dfa2773db574171b66c35))
 
 ## v0.37 (2026-06-02)
 
-| Min supported IJP versions | Compose Multiplatform version |
-|----------------------------|-------------------------------|
-| 2026.1.3                   | 1.10.0                        |
+| Min supported IJP versions | Compose Multiplatform version | Standalone Version                      |
+|----------------------------|-------------------------------|-----------------------------------------|
+| 2026.1.3                   | 1.10.0                        | 0.37.0-261.26222.65, 0.37.0-262.4852.51 |
 
 ### ⚠️ Important Changes
 
@@ -126,9 +473,9 @@
 
 ## v0.36 (2026-04-27)
 
-| Min supported IJP versions | Compose Multiplatform version |
-|----------------------------|-------------------------------|
-| 2025.3.4, 2026.1.1         | 1.10.0                        |
+| Min supported IJP versions | Compose Multiplatform version | Standalone Version  |
+|----------------------------|-------------------------------|---------------------|
+| 2025.3.4, 2026.1.1         | 1.10.0                        | 0.36.0-261.24374.85 |
 
 ### ⚠️ Important Changes
 
@@ -164,9 +511,9 @@
 
 ## v0.35 (2026-03-30)
 
-| Min supported IJP versions | Compose Multiplatform version |
-|----------------------------|-------------------------------|
-| 2025.3.3, 2026.1.1         | 1.10.0                        |
+| Min supported IJP versions | Compose Multiplatform version | Standalone Version                        |
+|----------------------------|-------------------------------|-------------------------------------------|
+| 2025.3.3, 2026.1.1         | 1.10.0                        | 0.35.0-253.33813.55, 0.35.0-261.23567.198 |
 
 ### New features
 

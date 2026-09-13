@@ -2,21 +2,19 @@
 package com.intellij.python.junit5Tests.unit
 
 import com.intellij.openapi.application.readAction
-import com.intellij.openapi.extensions.ExtensionPointName
 import com.intellij.openapi.project.guessModuleDir
 import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.openapi.vfs.VirtualFile
+import com.intellij.python.junit5Tests.framework.pyModuleFixture
 import com.intellij.testFramework.ExtensionTestUtil
 import com.intellij.testFramework.common.timeoutRunBlocking
 import com.intellij.testFramework.common.waitUntilAssertSucceeds
 import com.intellij.testFramework.junit5.TestApplication
 import com.intellij.testFramework.junit5.fixture.disposableFixture
-import com.intellij.testFramework.junit5.fixture.moduleFixture
 import com.intellij.testFramework.junit5.fixture.pathInProjectFixture
 import com.intellij.testFramework.junit5.fixture.projectFixture
 import com.intellij.testFramework.junit5.fixture.sourceRootFixture
-import com.jetbrains.python.PyNames
-import com.jetbrains.python.PythonMockSdk
+import com.jetbrains.python.tools.sdkTools.PythonMockSdk
 import com.jetbrains.python.inspections.interpreter.PyInterpreterNotificationProvider
 import com.jetbrains.python.sdk.configuration.PyProjectSdkConfigurationExtension
 import com.jetbrains.python.sdk.pythonSdk
@@ -32,7 +30,7 @@ import kotlin.time.Duration.Companion.seconds
 class PyInterpreterInspectionTest {
   private val testDisposable by disposableFixture()
   private val projectFixture = projectFixture(openAfterCreation = true)
-  private val moduleFixture = projectFixture.moduleFixture(moduleType = PyNames.PYTHON_MODULE_ID)
+  private val moduleFixture = projectFixture.pyModuleFixture()
   private val sourceRootFixture = moduleFixture.sourceRootFixture(
     pathFixture = projectFixture.pathInProjectFixture(Path.of("")),
   )
@@ -44,8 +42,8 @@ class PyInterpreterInspectionTest {
   fun setUp() {
     sourceRootFixture.get()
     ExtensionTestUtil.maskExtensions(
-      ExtensionPointName.create("Pythonid.projectSdkConfigurationExtension"),
-      emptyList<PyProjectSdkConfigurationExtension>(),
+      PyProjectSdkConfigurationExtension.EP_NAME,
+      emptyList(),
       testDisposable,
     )
   }

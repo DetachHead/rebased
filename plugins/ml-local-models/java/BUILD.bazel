@@ -1,7 +1,6 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
 
 ### auto-generated section `build intellij.ml.models.local.java` start
-
 jvm_library(
     name = "java",
     srcs = glob(
@@ -68,6 +67,7 @@ jvm_library(
 exports_files(
     [
         "intellij.ml.models.local.java.iml",
+        "resources/intellij.ml.models.local.java.xml",
     ],
     visibility = ["//visibility:public"],
 )

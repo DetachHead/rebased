@@ -12,6 +12,7 @@ import com.intellij.openapi.application.WriteActionListener
 import com.intellij.openapi.application.WriteIntentReadActionListener
 import com.intellij.openapi.application.WriteLockReacquisitionListener
 import com.intellij.openapi.application.ex.ApplicationManagerEx
+import com.intellij.openapi.components.serviceOrNull
 import com.intellij.openapi.diagnostic.thisLogger
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.startup.ProjectActivity
@@ -19,7 +20,10 @@ import com.intellij.openapi.util.registry.Registry
 import com.intellij.util.concurrency.ThreadingAssertions
 import kotlinx.coroutines.ThreadContextElement
 import org.jetbrains.annotations.ApiStatus.Internal
+import org.jetbrains.annotations.TestOnly
 import org.jetbrains.annotations.VisibleForTesting
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.ConcurrentMap
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 import java.util.function.Supplier
@@ -35,6 +39,23 @@ object InternalPsiVersioning {
 
   private const val LOCK_PROHIBITION_FREEZE_PSI_VERSION_ADVICE = "Lock usage is forbidden by `PsiVersioningService#freezePsiVersion`. It is not allowed to use locks while PSI snapshot is frozen"
 
+  // it is important that this property is final so that JIT is able to optimize away such calls in production
+  @TestOnly
+  val IS_UNDER_TESTING: Boolean = System.getProperty("idea.is.unit.tests").toBoolean()
+
+  private val injectionHook: ThreadLocal<Runnable?> = ThreadLocal.withInitial { null }
+
+  @TestOnly
+  fun <T> withInjectionHook(injectionHook: Runnable, computation: () -> T): T {
+    val prev = this.injectionHook.get()
+    this.injectionHook.set(injectionHook)
+    try {
+      return computation()
+    } finally {
+      this.injectionHook.set(prev)
+    }
+  }
+
   // a reading operation with the available psi version
   fun <T> freezePsiVersion(action: () -> T): T {
     if (ApplicationManager.getApplication().isReadAccessAllowed) {
@@ -42,9 +63,12 @@ object InternalPsiVersioning {
     }
     val registry = PsiVersionRegistry.instance
     val latestVersion = registry.latestPublishedVersion
+    // todo: the process of entering into versioned environment should run a double-checked-locking loop where we would be able to avoid concurrent garbage collection of the frozen version.
     return ApplicationManagerEx.getApplicationEx().withLocksProhibited(LOCK_PROHIBITION_FREEZE_PSI_VERSION_ADVICE) {
-      initFreezePsiVersionSection(false, latestVersion).use {
-        action()
+      registry.rememberFrozenVersion(latestVersion) {
+        initFreezePsiVersionSection(false, latestVersion).use {
+          action()
+        }
       }
     }
   }
@@ -94,19 +118,30 @@ object InternalPsiVersioning {
     if (isInsideVersioningButNotLocks()) {
       return
     }
-    ThreadingAssertions.assertReadAccess()
+    ThreadingAssertions.softAssertReadAccess()
   }
 
   @JvmStatic
   fun getCurrentPsiVersion(): Long {
     val tlValue = threadLocalVersioningTracker.get()
     if (tlValue != null) {
+      runInjectionHook()
       return tlValue
     }
     // Unfortunately, throughout our codebase we have interactions with PSI that are not protected by any lock, especially in tests
     // Technically, it is possible to wrap all such cases in a read action/freezePsiVersion, but we decided to avoid useless assertions for now
     // also, this is a very hot path, so we'd like to avoid retrieval of service here
-    return PsiVersionRegistry.instance.latestPublishedVersion
+    val returnValue = PsiVersionRegistry.instance.latestPublishedVersion
+
+    runInjectionHook()
+
+    return returnValue
+  }
+
+  fun runInjectionHook() {
+    if (IS_UNDER_TESTING) {
+      injectionHook.get()?.run()
+    }
   }
 
   /**
@@ -209,20 +244,61 @@ object InternalPsiVersioning {
       val instance: PsiVersionRegistry by lazy { PsiVersionRegistry() }
     }
 
+    private val garbageCollector = ApplicationManager.getApplication().serviceOrNull<PsiVersioningGarbageCollector>()
+
     private val version = AtomicLong(0)
 
     val latestPublishedVersion: Long
       get() = version.get()
 
+
+    /**
+     * FileViewProvider subsystem is notoriously famous for dropping its data at random points of time
+     * When some computation captured a version, we must keep the data alive and available until the computation is finished.
+     */
+    val frozenPsiVersionsRegistry: ConcurrentMap<Long, Int> = ConcurrentHashMap<Long, Int>().apply { put(0, 1) }
+
+    fun <T> rememberFrozenVersion(version: Long, action: () -> T): T {
+      frozenPsiVersionsRegistry.compute(version) { _, v -> if (v == null) 1 else v + 1 }
+      try {
+        return action()
+      } finally {
+        decrementFrozenVersion(version)
+      }
+    }
+
+    internal fun registerCleanable(cleanable: PsiVersionCleanable) {
+      // service can be null in tests
+      garbageCollector?.registerCleanable(cleanable)
+    }
+
+
     fun incrementVersion(expected: Long) {
+      // the published version is always frozen, we have no right to remove it until it ends
+      frozenPsiVersionsRegistry[expected + 1] = 1
       val versionAdvanced = version.compareAndSet(expected, expected + 1)
       assert(versionAdvanced) {
         "Version modification failed: could not increment the version with $expected, because global version version is ${version.get()}"
       }
+      decrementFrozenVersion(expected)
+    }
+
+
+    private fun decrementFrozenVersion(version: Long) {
+      val newValue = frozenPsiVersionsRegistry.compute(version) { _, v ->
+        when (v) {
+          null -> error("Unpublished version $version is unexpected")
+          1 -> null
+          else -> v - 1
+        }
+      }
+      if (newValue == null) {
+        garbageCollector?.liveVersionsChanged(getFrozenKeys())
+      }
     }
 
     fun getFrozenKeys(): Set<Long> {
-      return setOf(latestPublishedVersion)
+      return frozenPsiVersionsRegistry.keys
     }
   }
 
@@ -375,14 +451,13 @@ object InternalPsiVersioning {
 
   fun initWriteActionSection(): AccessToken {
     val storedThreadLocal = threadLocalVersioningTracker.get()
-    return if (storedThreadLocal == null
-               // this branch can happen in tests where the context is reset to dispatch some events synchronously
-               || currentThreadContext()[PsiVersionWriteContextElement.Key] == null) {
+    val context = currentThreadContext()
+    return if (storedThreadLocal == null) {
       val psiVersionRegistry = PsiVersionRegistry.instance
       val existingVersion = psiVersionRegistry.latestPublishedVersion
       val newVersion = existingVersion + 1
       @Suppress("DEPRECATION")
-      val threadContextInstallation = installThreadContext(currentThreadContext() + PsiVersionWriteContextElement(newVersion), true)
+      val threadContextInstallation = installThreadContext(context + PsiVersionWriteContextElement(newVersion), true)
       threadLocalVersioningTracker.set(newVersion)
       object : AccessToken() {
         override fun finish() {
@@ -392,18 +467,35 @@ object InternalPsiVersioning {
           PsiVersionRegistry.instance.incrementVersion(latestVersion)
         }
       }
+    } else if (context[PsiVersionWriteContextElement.Key] == null) {
+      // can be lost due to malicious resetThreadContext
+      // so we just restore it back, this is a write action after all
+      @Suppress("DEPRECATION")
+      installThreadContext(currentThreadContext() + PsiVersionWriteContextElement(storedThreadLocal), true)
     } else {
       AccessToken.EMPTY_ACCESS_TOKEN
     }
   }
 
+  // this function is needed to get protection against malicious resetThreadContext
+  fun unsafeInstallThreadLocalVersion(version: Long): AccessToken {
+    val prevValue = threadLocalVersioningTracker.get()
+    threadLocalVersioningTracker.set(version)
+    return object : AccessToken() {
+      override fun finish() {
+        threadLocalVersioningTracker.set(prevValue)
+      }
+    }
+  }
+
   fun initReadActionSection(): AccessToken {
+    if (ApplicationManager.getApplication().isWriteIntentLockAcquired || ApplicationManager.getApplication().isWriteAccessAllowed) {
+      return AccessToken.EMPTY_ACCESS_TOKEN
+    }
     val latestVersion = PsiVersionRegistry.instance.latestPublishedVersion
     val writeElementVersion = currentThreadContext()[PsiVersionWriteContextElement.Key]?.version
     val correctVersion = when {
       writeElementVersion != null -> writeElementVersion
-      // this condition can happen if we are in service initialization, where contexts are independent from the thread
-      ApplicationManager.getApplication().isWriteAccessAllowed -> latestVersion + 1
       else -> latestVersion
     }
     val value = threadLocalVersioningTracker.get()
@@ -441,9 +533,7 @@ object InternalPsiVersioning {
   }
 
   override fun toString(): String {
-    val explanation = if (getCurrentPsiVersion() % 2 == 1L) {
-      " (Odd version -- changes are running in exclusive modification scope and they are invisible to anyone but this thread)"
-    } else if (getCurrentPsiVersion() % 2 == 0L && getCurrentPsiVersion() > PsiVersionRegistry.instance.latestPublishedVersion) {
+    val explanation = if (getCurrentPsiVersion() > PsiVersionRegistry.instance.latestPublishedVersion) {
       " (Thread-local version is ahead of the published version -- the changes happening in a write action and they will be published)"
     } else {
       ""

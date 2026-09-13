@@ -43,7 +43,7 @@
     <orderEntry type="module" module-name="intellij.platform.projectModel" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.projectModel.impl" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.ide.impl" scope="TEST" />
-    <orderEntry type="library" exported="" scope="TEST" name="jetbrains.intellij.deps.eclipse.jgit" level="project" />
+    <orderEntry type="module" module-name="intellij.libraries.jgit" exported="" scope="TEST" />
     <orderEntry type="library" scope="TEST" name="slf4j-api" level="project" />
     <orderEntry type="module" module-name="intellij.platform.serviceContainer" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.testFramework" scope="TEST" />
@@ -85,6 +85,9 @@
     <orderEntry type="module" module-name="intellij.regexp.tests" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.debugger.impl.tests" scope="TEST" />
     <orderEntry type="module" module-name="intellij.settingsSync.core" scope="TEST" />
+    <orderEntry type="module" module-name="intellij.libraries.junit4" scope="TEST" />
+    <orderEntry type="module" module-name="intellij.libraries.junit5" scope="TEST" />
+    <orderEntry type="module" module-name="intellij.libraries.junit5.params" scope="TEST" />
   </component>
   <component name="TestModuleProperties" production-module="intellij.settingsSync.core" />
 </module>

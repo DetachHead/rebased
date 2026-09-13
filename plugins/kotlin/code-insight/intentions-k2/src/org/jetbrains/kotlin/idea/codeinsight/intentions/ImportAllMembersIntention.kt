@@ -8,11 +8,9 @@ import com.intellij.modcommand.ModPsiUpdater
 import com.intellij.modcommand.Presentation
 import org.jetbrains.kotlin.analysis.api.KaSession
 import org.jetbrains.kotlin.analysis.api.components.ShortenStrategy
-import org.jetbrains.kotlin.analysis.api.components.containingDeclaration
-import org.jetbrains.kotlin.analysis.api.components.resolveToCall
-import org.jetbrains.kotlin.analysis.api.components.resolveToSymbol
-import org.jetbrains.kotlin.analysis.api.resolution.KaCallableMemberCall
-import org.jetbrains.kotlin.analysis.api.resolution.successfulCallOrNull
+import org.jetbrains.kotlin.analysis.api.resolution.resolveSuccessfulCall
+import org.jetbrains.kotlin.analysis.api.resolution.resolveSuccessfulSymbol
+import org.jetbrains.kotlin.analysis.api.resolution.simple
 import org.jetbrains.kotlin.analysis.api.resolution.symbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaCallableSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaClassKind
@@ -21,6 +19,7 @@ import org.jetbrains.kotlin.analysis.api.symbols.KaConstructorSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaDeclarationSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaNamedClassSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaSymbolOrigin
+import org.jetbrains.kotlin.analysis.api.symbols.containingDeclaration
 import org.jetbrains.kotlin.idea.base.analysis.api.utils.ShortenCommandForIde
 import org.jetbrains.kotlin.idea.base.analysis.api.utils.collectPossibleReferenceShorteningsForIde
 import org.jetbrains.kotlin.idea.base.analysis.api.utils.invokeShortening
@@ -50,6 +49,7 @@ import org.jetbrains.kotlin.psi.psiUtil.getQualifiedElementSelector
 import org.jetbrains.kotlin.psi.psiUtil.getQualifiedExpressionForReceiver
 import org.jetbrains.kotlin.psi.psiUtil.getQualifiedExpressionForSelector
 import org.jetbrains.kotlin.psi.psiUtil.isInImportDirective
+import org.jetbrains.kotlin.resolution.KtResolvable
 import org.jetbrains.kotlin.utils.addToStdlib.safeAs
 
 internal class ImportAllMembersIntention :
@@ -77,8 +77,11 @@ internal class ImportAllMembersIntention :
         (element is KtExpression && element.isOnTheLeftOfQualificationDot && !element.isInImportDirective()) ||
                 element is KtUserType
 
-    override fun KaSession.prepareContext(element: KtElement): Context? {
-        val actualReference = element.actualReference
+    context(session: KaSession)
+    override fun prepareContext(element: KtElement): Context? {
+        if (element.actualReference == null) {
+            return null
+        }
 
         val expression = when (element) {
             is KtUserType -> element.referenceExpression
@@ -86,7 +89,7 @@ internal class ImportAllMembersIntention :
             else -> null
         } ?: return null
 
-        val target = actualReference?.resolveToSymbol() as? KaNamedClassSymbol ?: return null
+        val target = (element.elementToImport as? KtResolvable)?.resolveSuccessfulSymbol() as? KaNamedClassSymbol ?: return null
         val classId = target.classId ?: return null
         if (!target.origin.isJavaSourceOrLibrary() &&
             (target.classKind == KaClassKind.OBJECT ||
@@ -135,7 +138,7 @@ internal class ImportAllMembersIntention :
         val shortenCommand = elementContext.shortenCommand
         val file = shortenCommand.targetFile.element ?: return
         removeExistingImportsWhichWillBecomeRedundantAfterAddingStarImports(shortenCommand.starImportsToAdd, file)
-        shortenCommand.invokeShortening()
+        shortenCommand.invokeShortening(results = null)
     }
 
     private fun removeExistingImportsWhichWillBecomeRedundantAfterAddingStarImports(
@@ -178,12 +181,20 @@ val KtElement.actualReference: KtReference?
         else -> null
     }
 
+val KtElement.elementToImport: KtElement?
+    get() = when (this) {
+        is KtDotQualifiedExpression -> this.getQualifiedElementSelector()
+        is KtExpression -> this
+        is KtUserType -> this
+        else -> null
+    }
+
 context(_: KaSession)
 private fun isReferenceToObjectMemberOrUnresolved(qualifiedAccess: KtExpression): Boolean {
     val selectorExpression: KtExpression? = qualifiedAccess.getQualifiedExpressionForReceiver()?.selectorExpression
     val referencedSymbol = when (selectorExpression) {
-        is KtCallExpression -> selectorExpression.resolveToCall()?.successfulCallOrNull<KaCallableMemberCall<*, *>>()?.symbol
-        is KtNameReferenceExpression -> selectorExpression.mainReference.resolveToSymbol()
+        is KtCallExpression -> selectorExpression.resolveSuccessfulCall()?.simple?.symbol
+        is KtNameReferenceExpression -> selectorExpression.resolveSuccessfulSymbol()
         else -> return false
     } ?: return true
     if (referencedSymbol is KaConstructorSymbol) return false
@@ -208,8 +219,8 @@ private fun KtFile.hasImportedEnumSyntheticMethodCall(): Boolean = importDirecti
         if (getQualifiedExpressionForSelector() != null) return false
         if (((this as? KtNameReferenceExpression)?.parent as? KtCallableReferenceExpression)?.receiverExpression != null) return false
         val referencedSymbol = when (this) {
-            is KtCallExpression -> resolveToCall()?.successfulCallOrNull<KaCallableMemberCall<*, *>>()?.symbol
-            is KtNameReferenceExpression -> mainReference.resolveToSymbol()
+            is KtCallExpression -> resolveSuccessfulSymbol()
+            is KtNameReferenceExpression -> resolveSuccessfulSymbol()
             else -> return false
         } ?: return false
         val referencedName = (referencedSymbol as? KaCallableSymbol)?.callableId?.callableName ?: return false

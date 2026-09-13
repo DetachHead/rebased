@@ -24,7 +24,6 @@ import com.intellij.ide.starter.runner.startIdeWithoutProject
 import com.intellij.ide.starter.telemetry.TestTelemetryService
 import com.intellij.ide.starter.telemetry.computeWithSpan
 import com.intellij.ide.starter.utils.FileSystem.deleteRecursivelyQuietly
-import com.intellij.ide.starter.utils.XmlBuilder
 import com.intellij.openapi.diagnostic.LogLevel
 import com.intellij.openapi.util.SystemInfo
 import com.intellij.openapi.util.io.findOrCreateFile
@@ -32,7 +31,6 @@ import com.intellij.tools.ide.performanceTesting.commands.CommandChain
 import com.intellij.tools.ide.performanceTesting.commands.MarshallableCommand
 import com.intellij.tools.ide.performanceTesting.commands.SdkObject
 import com.intellij.tools.ide.performanceTesting.commands.setupProjectSdk
-import com.intellij.tools.ide.util.common.logError
 import com.intellij.tools.ide.util.common.logOutput
 import com.intellij.tools.ide.util.common.replaceSpecialCharactersWithHyphens
 import com.intellij.ui.NewUiValue
@@ -44,16 +42,9 @@ import org.kodein.di.direct
 import org.kodein.di.factory
 import org.kodein.di.instance
 import org.kodein.di.newInstance
-import org.w3c.dom.Element
-import java.nio.file.Files
 import java.nio.file.Path
-import java.nio.file.Paths
 import java.util.Base64
-import javax.xml.xpath.XPath
-import javax.xml.xpath.XPathConstants
-import javax.xml.xpath.XPathFactory
 import kotlin.io.path.ExperimentalPathApi
-import kotlin.io.path.copyTo
 import kotlin.io.path.copyToRecursively
 import kotlin.io.path.createDirectories
 import kotlin.io.path.createFile
@@ -61,13 +52,9 @@ import kotlin.io.path.deleteIfExists
 import kotlin.io.path.div
 import kotlin.io.path.exists
 import kotlin.io.path.extension
-import kotlin.io.path.isDirectory
 import kotlin.io.path.isRegularFile
-import kotlin.io.path.listDirectoryEntries
-import kotlin.io.path.name
 import kotlin.io.path.notExists
 import kotlin.io.path.readBytes
-import kotlin.io.path.readText
 import kotlin.io.path.walk
 import kotlin.io.path.writeBytes
 import kotlin.io.path.writeText
@@ -88,6 +75,12 @@ open class IDETestContext(
   companion object {
     const val OPENTELEMETRY_FILE: String = "opentelemetry.json"
 
+    /** Keeps the name of `ArtifactRepositoryManager.PRIORITY_REPOSITORY_URL_PROPERTY`. */
+    const val JAR_REPOSITORY_PRIORITY_URL_PROPERTY: String = "idea.jar.repository.priority.url"
+
+    /** The mirror of Maven Central that the IDE artifact downloads must use in a test. */
+    const val CACHE_REDIRECTOR_MAVEN_CENTRAL_URL: String = "https://cache-redirector.jetbrains.com/maven-central"
+
     val SEARCH_EVERYWHERE_REGISTRY_KEYS: List<String> get() = listOf(
       "search.everywhere.new.enabled",
       "search.everywhere.new.cwm.client.enabled",
@@ -95,7 +88,7 @@ open class IDETestContext(
     )
   }
 
-  open fun copy(ide: InstalledIde? = null, resolvedProjectHome: Path? = null, sdk: SdkObject? = null): IDETestContext {
+  open fun copy(ide: InstalledIde? = null, resolvedProjectHome: Path? = null, sdk: SdkObject? = testCase.sdk): IDETestContext {
     require(sdk == null || testCase.projectInfo != NoProject) { "project must be specified to setup project SDK" }
     return IDETestContext(paths, ide ?: this.ide, testCase.copy(sdk = sdk), testName, resolvedProjectHome ?: this._resolvedProjectHome, profilerType,
                           publishers, isReportPublishingEnabled, preserveSystemDir)
@@ -191,6 +184,11 @@ open class IDETestContext(
   fun disableFusSendingOnIdeClose(): IDETestContext =
     applyVMOptionsPatch {
       addSystemProperty("feature.usage.event.log.send.on.ide.close", false)
+    }
+
+  fun disableFusSnapshotVersionFiltering(): IDETestContext =
+    applyVMOptionsPatch {
+      addSystemProperty("feature.usage.event.snapshot.filtering.disabled", true)
     }
 
   fun suppressStatisticsReport(): IDETestContext = applyVMOptionsPatch {
@@ -489,8 +487,13 @@ open class IDETestContext(
         collectNativeThreads = collectNativeThreads,
         stdOut = stdOut
       )
-      configure(runContext)
-
+      try {
+        configure(runContext)
+      }
+      catch (throwable: Throwable) {
+        runContext.publishArtifacts()
+        throw throwable
+      }
       try {
         val ideRunResult = runContext.runIdeSuspending()
         if (isReportPublishingEnabled) {
@@ -685,61 +688,10 @@ open class IDETestContext(
     return this
   }
 
-  fun addProjectToTrustedLocations(projectPath: Path? = null, addParentDir: Boolean = false, configPath: Path = paths.configDir): IDETestContext {
-    if (this.testCase.projectInfo == NoProject && projectPath == null) return this
-
-    val isRDProduct = this.ide.productCode == IdeInfoType.RIDER.productCode
-
-    val (path, expression) = when (addParentDir) {
-      true -> Pair(first = projectPath?.parent ?: this.resolvedProjectHome.normalize().parent, second = when (isRDProduct) {
-        true -> error("NOT_IMPLEMENTED please add a correct path")
-        else -> "//component[@name='Trusted.Paths.Settings']/option[@name='TRUSTED_PATHS']/list"
-      })
-      else -> Pair(first = projectPath ?: this.resolvedProjectHome.normalize(), second = when (isRDProduct) {
-        true -> "//component[@name='TrustedSolutionStore']/option[@name='trustedLocations']/set"
-        else -> "//component[@name='Trusted.Paths']/option[@name='TRUSTED_PROJECT_PATHS']/map"
-      })
-    }
-
-    val (trustedXmlPath, fileName) = when (isRDProduct) {
-      true -> configPath.toAbsolutePath().resolve("options/trustedSolutions.xml") to "trustedSolutions.xml"
-      else -> configPath.toAbsolutePath().resolve("options/trusted-paths.xml") to "trusted-paths.xml"
-    }
-
-    if (!trustedXmlPath.exists()) {
-      trustedXmlPath.parent.createDirectories()
-      Files.write(trustedXmlPath, this::class.java.classLoader.getResource(fileName)!!.readText().toByteArray())
-    }
-    else {
-      if (trustedXmlPath.readText().contains("\"$path\"")) {
-        logOutput("Trusted xml file content: ${trustedXmlPath.readText()}")
-        return this
-      }
-    }
-
-    try {
-      val xmlDoc = XmlBuilder.parse(trustedXmlPath)
-      val xp: XPath = XPathFactory.newInstance().newXPath()
-
-      val component = xp.evaluate(expression, xmlDoc, XPathConstants.NODE) as Element
-      val entry = when (addParentDir || isRDProduct) {
-        true -> xmlDoc.createElement("option").apply { setAttribute("value", "${path}") }
-        else -> xmlDoc.createElement("entry").apply {
-          setAttribute("key", "$path")
-          setAttribute("value", "true")
-        }
-      }
-      component.appendChild(entry)
-
-      XmlBuilder.writeDocument(xmlDoc, trustedXmlPath)
-      logOutput("Trusted xml file content: ${trustedXmlPath.readText()}")
-    }
-    catch (e: Exception) {
-      logError(e)
-    }
-    return this
-  }
-
+  @Deprecated("Declare the wanted state instead", ReplaceWith("setProjectTrustState(projectPath, configPath)"))
+  fun addProjectToTrustedLocations(projectPath: Path? = null, addParentDir: Boolean = false, configPath: Path = paths.configDir): IDETestContext =
+    if (addParentDir) addTrustedPath((projectPath ?: resolvedProjectHome.normalize()).parent)
+    else setProjectTrusted(projectPath, configPath)
 
   @Suppress("unused")
   fun copyExistingConfig(configPath: Path): IDETestContext {
@@ -755,8 +707,13 @@ open class IDETestContext(
     return this
   }
 
-  fun withProjectSdk(sdkObject: SdkObject) = copy(sdk = sdkObject)
+  /**
+   * Creates a copy and doesn't modify the current test context!
+   * Be sure to chain your calls.
+   */
+  fun copyWithProjectSdk(sdkObject: SdkObject): IDETestContext = copy(sdk = sdkObject)
 
+  @Deprecated("Use chained copyWithProjectSdk instead")
   fun setupSdk(sdkObjects: SdkObject?, cleanDirs: Boolean = true): IDETestContext = computeWithSpan("setupSdk") {
     if (sdkObjects == null) return this
     try {
@@ -795,21 +752,15 @@ open class IDETestContext(
       addSystemProperty("kotest.assertions.collection.enumerate.size", Int.MAX_VALUE)
     }
 
-  fun collectJBRDiagnosticFiles(javaProcessId: Long) {
-    if (javaProcessId == 0L) return
-    val userHome = System.getProperty("user.home")
-    val pathUserHome = Paths.get(userHome)
-    val javaErrorInIdeaFile = pathUserHome.resolve("java_error_in_idea_$javaProcessId.log")
-    val jbrErrFile = pathUserHome.resolve("jbr_err_pid$javaProcessId.log")
-    if (javaErrorInIdeaFile.exists()) {
-      javaErrorInIdeaFile.copyTo(paths.jbrDiagnostic.resolve(javaErrorInIdeaFile.name).createParentDirectories())
-    }
-    if (jbrErrFile.exists()) {
-      jbrErrFile.copyTo(paths.jbrDiagnostic.resolve(jbrErrFile.name).createParentDirectories())
-    }
-    if (paths.jbrDiagnostic.exists() && paths.jbrDiagnostic.listDirectoryEntries().isNotEmpty()) {
-      publishArtifact(paths.jbrDiagnostic)
-    }
+  /**
+   * Points the artifact downloads of the IDE at [CACHE_REDIRECTOR_MAVEN_CENTRAL_URL].
+   *
+   * `JarRepositoryManager` runs Eclipse Aether on the repositories of the project. The property
+   * puts the mirror first, and it keeps the repositories of the project as a fallback. A Gradle or
+   * a Maven redirect does not reach this code, because Aether reads no build-system configuration.
+   */
+  fun redirectJarRepositoriesToCacheRedirector(): IDETestContext = applyVMOptionsPatch {
+    addSystemProperty(JAR_REPOSITORY_PRIORITY_URL_PROPERTY, CACHE_REDIRECTOR_MAVEN_CENTRAL_URL)
   }
 
   fun acceptNonTrustedCertificates(): IDETestContext {
@@ -906,15 +857,15 @@ open class IDETestContext(
   }
 
   /**
-   * Configures a localhost proxy to disable internet access for the IDE
+   * Configures a localhost proxy to disable internet access or reroute traffic to an http stub for the IDE
    */
-  fun setLocalhostProxy(): IDETestContext {
+  fun setLocalhostProxy(port: Int = 3128): IDETestContext {
     writeConfigFile("options/proxy.settings.xml", """
       <application>
         <component name="HttpConfigurable">
           <option name="USE_HTTP_PROXY" value="true" />
           <option name="PROXY_HOST" value="localhost" />
-          <option name="PROXY_PORT" value="3128" />
+          <option name="PROXY_PORT" value="$port" />
           <option name="PROXY_EXCEPTIONS" value="" />
         </component>
       </application>

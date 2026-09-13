@@ -246,7 +246,12 @@ public abstract class NewVirtualFileSystem extends VirtualFileSystem implements 
             return child;
           }
         }
-        return new TransientVirtualFileImpl(childName, path, fileSystem, parent);
+        String childPath = parent.getPath() + '/' + childName;
+        TransientVirtualFileImpl child = new TransientVirtualFileImpl(childName, childPath, fileSystem, parent);
+        if (child.exists()) {
+          return child;
+        }
+        return null;
       }
     };
 
@@ -320,7 +325,7 @@ public abstract class NewVirtualFileSystem extends VirtualFileSystem implements 
     }
 
     var root = ManagingFS.getInstance().findRoot(rootPath, fileSystem);
-    if (root == null || !root.exists()) {
+    if (root == null || !root.isValid()) {
       return null;
     }
 

@@ -439,7 +439,8 @@ open class ExternalResourceManagerExBase(coroutineScope: CoroutineScope) : Exter
     incModificationCount()
   }
 
-  internal fun getStandardResources(): Collection<MutableMap<String, ExternalResource>> = standardResources.value.values
+  @ApiStatus.Internal
+  fun getStandardResources(): Collection<MutableMap<String, ExternalResource>> = standardResources.value.values
 
   override fun getDefaultHtmlDoctype(project: Project): String {
     val doctype = getProjectResources(project).defaultHtmlDoctype
@@ -471,8 +472,8 @@ open class ExternalResourceManagerExBase(coroutineScope: CoroutineScope) : Exter
     incModificationCount()
   }
 
-  override fun getUrlsByNamespace(project: Project): MultiMap<String, String>? {
-    return MultiMap()
+  override fun getUrlsByNamespace(project: Project): MultiMap<String, String> {
+    return UrlByNamespaceProvider.getInstance().getUrlsByNamespace(project)
   }
 
   private fun getCatalogManager(): XMLCatalogManager? {

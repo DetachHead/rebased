@@ -5,12 +5,13 @@ import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.project.Project
 import com.intellij.psi.util.parentOfType
 import org.jetbrains.kotlin.analysis.api.KaSession
-import org.jetbrains.kotlin.analysis.api.components.containingDeclaration
-import org.jetbrains.kotlin.analysis.api.components.resolveToCall
 import org.jetbrains.kotlin.analysis.api.fir.diagnostics.KaFirDiagnostic
-import org.jetbrains.kotlin.analysis.api.resolution.singleVariableAccessCall
+import org.jetbrains.kotlin.analysis.api.resolution.single
 import org.jetbrains.kotlin.analysis.api.resolution.symbol
+import org.jetbrains.kotlin.analysis.api.resolution.tryResolveCall
+import org.jetbrains.kotlin.analysis.api.resolution.variable
 import org.jetbrains.kotlin.analysis.api.symbols.KaValueParameterSymbol
+import org.jetbrains.kotlin.analysis.api.symbols.containingDeclaration
 import org.jetbrains.kotlin.analysis.api.symbols.symbol
 import org.jetbrains.kotlin.idea.base.psi.childrenDfsSequence
 import org.jetbrains.kotlin.idea.base.resources.KotlinBundle
@@ -27,7 +28,7 @@ import org.jetbrains.kotlin.util.graph.sortTopologically
 
 object ReorderParametersFixFactory {
 
-    val unInitializedParameter = KotlinQuickFixFactory.IntentionBased { diagnostic: KaFirDiagnostic.UninitializedParameter ->
+    val unInitializedParameter: KotlinQuickFixFactory.IntentionBased<KaFirDiagnostic.UninitializedParameter> = KotlinQuickFixFactory.IntentionBased { diagnostic: KaFirDiagnostic.UninitializedParameter ->
         createQuickFix(diagnostic)
     }
 
@@ -41,7 +42,7 @@ object ReorderParametersFixFactory {
                 parameter.defaultValue
                     ?.childrenDfsSequence()
                     ?.filterIsInstance<KtNameReferenceExpression>()
-                    ?.mapNotNull { it.resolveToCall()?.singleVariableAccessCall()?.partiallyAppliedSymbol?.symbol as? KaValueParameterSymbol }
+                    ?.mapNotNull { it.tryResolveCall()?.single?.variable?.symbol as? KaValueParameterSymbol }
                     ?.filter { it.containingDeclaration == functionSymbol }
                     ?.map { DirectedGraph.Edge(from = it.name.asString(), to = parameterName) }
                     ?.toList()

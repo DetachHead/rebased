@@ -59,7 +59,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
 
-import static com.intellij.platform.ide.navigation.NavigationServiceKt.navigateBlocking;
+import static com.intellij.platform.ide.navigation.NavigateUtil.requestNavigate;
 
 @ApiStatus.Internal
 public final class ShowUsagesTable extends JBTable implements UiDataProvider {
@@ -194,6 +194,7 @@ public final class ShowUsagesTable extends JBTable implements UiDataProvider {
         DataContext dataContext = parameters.editor != null ?
                                   DataManager.getInstance().getDataContext(parameters.editor.getContentComponent()) : null;
         var usageInfosToNavigate = new SmartList<UsageInfo>();
+        var navigatablesToNavigate = new SmartList<Navigatable>();
         for (Object usage : usages) {
           if (usage instanceof UsageInfo usageInfo) {
             PsiElement selectedElement = usageInfo.getElement();
@@ -213,14 +214,15 @@ public final class ShowUsagesTable extends JBTable implements UiDataProvider {
             usageInfosToNavigate.add(usageInfo);
           }
           else if (usage instanceof Navigatable navigatable) {
-            navigateBlocking(parameters.project, navigatable, NavigationOptions.requestFocus(), dataContext);
+            navigatablesToNavigate.add(navigatable);
           }
         }
         var popup = PopupUtil.getPopupContainerFor(this);
         if (popup instanceof AbstractPopup abstractPopup) {
           abstractPopup.setForceCancelOnFocusLoss(true); // Disable the Wayland focus workaround and allow it to close.
         }
-        UsageNavigation.getInstance(parameters.project).navigate(usageInfosToNavigate, true, dataContext);
+        requestNavigate(parameters.project, navigatablesToNavigate, NavigationOptions.requestFocus(), dataContext); // remdev (mostly?)
+        UsageNavigation.getInstance(parameters.project).navigate(usageInfosToNavigate, true);
       }
     };
   }

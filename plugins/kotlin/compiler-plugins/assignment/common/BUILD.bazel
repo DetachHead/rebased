@@ -1,10 +1,14 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
 load("//build:compiler-options.bzl", "create_kotlinc_options")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
 ### auto-generated section `build intellij.kotlin.compilerPlugins.assignment.fixes` start
-
 create_kotlinc_options(
     name = "custom_kotlin-compilerPlugins-assignment-fixes",
+    opt_in = [
+        "org.jetbrains.kotlin.analysis.api.KaExperimentalApi",
+        "org.jetbrains.kotlin.analysis.api.KaIdeApi",
+    ],
     x_context_parameters = True,
 )
 
@@ -30,12 +34,12 @@ jvm_library(
         "//platform/core-api:core",
         "@lib//:kotlin-stdlib",
         "//plugins/kotlin/code-insight/api",
-        "@lib//:kotlinc-analysis-api-k2",
-        "@lib//:kotlinc-kotlin-compiler-common",
+        "//libraries/kotlinc/analysis-api-k2:libraries-kotlinc-analysis-api-k2",
+        "//libraries/kotlinc/kotlin-compiler-common:libraries-kotlinc-kotlin-compiler-common",
         "//plugins/kotlin/base/analysis-api/analysis-api-utils:kotlin-base-analysis-utils",
         "//plugins/kotlin/fir",
-        "@lib//:kotlinc-analysis-api",
-        "@lib//:kotlinc-analysis-api-platform-interface",
+        "//libraries/kotlinc/analysis-api:libraries-kotlinc-analysis-api",
+        "//libraries/kotlinc/analysis-api-platform-interface:libraries-kotlinc-analysis-api-platform-interface",
         "//platform/util",
         "//platform/core-impl",
         "//platform/analysis-api:analysis",
@@ -44,6 +48,8 @@ jvm_library(
         "//plugins/kotlin/base/project-structure",
     ],
 )
+
+content_module_jar(module = ":kotlin-compilerPlugins-assignment-fixes")
 
 jvm_library(
     name = "kotlin-compilerPlugins-assignment-fixes_test_lib",
@@ -60,8 +66,12 @@ jvm_library(
         ":kotlin-compilerPlugins-assignment-fixes",
         "//platform/core-api:core_test_lib",
         "//plugins/kotlin/code-insight/api:api_test_lib",
+        "//libraries/kotlinc/analysis-api-k2:libraries-kotlinc-analysis-api-k2_test_lib",
+        "//libraries/kotlinc/kotlin-compiler-common:libraries-kotlinc-kotlin-compiler-common_test_lib",
         "//plugins/kotlin/base/analysis-api/analysis-api-utils:kotlin-base-analysis-utils_test_lib",
         "//plugins/kotlin/fir:fir_test_lib",
+        "//libraries/kotlinc/analysis-api:libraries-kotlinc-analysis-api_test_lib",
+        "//libraries/kotlinc/analysis-api-platform-interface:libraries-kotlinc-analysis-api-platform-interface_test_lib",
         "//platform/util:util_test_lib",
         "//platform/core-impl:core-impl_test_lib",
         "//platform/analysis-api:analysis_test_lib",
@@ -76,6 +86,7 @@ jvm_library(
 exports_files(
     [
         "intellij.kotlin.compilerPlugins.assignment.fixes.iml",
+        "resources/intellij.kotlin.compilerPlugins.assignment.fixes.xml",
     ],
     visibility = ["//visibility:public"],
 )

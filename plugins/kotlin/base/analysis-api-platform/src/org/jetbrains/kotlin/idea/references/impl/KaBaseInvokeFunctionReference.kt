@@ -2,28 +2,25 @@
 
 package org.jetbrains.kotlin.idea.references.impl
 
-import org.jetbrains.kotlin.analysis.api.KaExperimentalApi
 import org.jetbrains.kotlin.analysis.api.KaSession
-import org.jetbrains.kotlin.analysis.api.resolution.KaCallResolutionError
-import org.jetbrains.kotlin.analysis.api.resolution.KaCallResolutionSuccess
 import org.jetbrains.kotlin.analysis.api.resolution.KaImplicitInvokeCall
 import org.jetbrains.kotlin.analysis.api.resolution.KaMultiCallResolutionAttempt
+import org.jetbrains.kotlin.analysis.api.resolution.KaSimpleCallResolutionError
+import org.jetbrains.kotlin.analysis.api.resolution.KaSimpleCallResolutionSuccess
 import org.jetbrains.kotlin.analysis.api.resolution.symbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaSymbol
 import org.jetbrains.kotlin.idea.references.KtInvokeFunctionReference
 import org.jetbrains.kotlin.psi.KtCallExpression
-import org.jetbrains.kotlin.psi.KtExperimentalApi
 import org.jetbrains.kotlin.psi.KtImplementationDetail
 import org.jetbrains.kotlin.psi.KtImportAlias
 import org.jetbrains.kotlin.references.KotlinPsiReferenceProviderContributor
 
 @OptIn(KtImplementationDetail::class)
 internal class KaBaseInvokeFunctionReference(expression: KtCallExpression) : KtInvokeFunctionReference(expression), KaBaseReference {
-    @OptIn(KtExperimentalApi::class, KaExperimentalApi::class)
     override fun KaSession.resolveToSymbols(): Collection<KaSymbol> = when (val callResult = element.tryResolveCall()) {
         // There is no way to distinguish between the error regular and implicit calls, so by default only relevant errors are shown
-        is KaCallResolutionError -> callResult.candidateCalls.filterIsInstance<KaImplicitInvokeCall>().map { it.symbol }
-        is KaCallResolutionSuccess -> when (val call = callResult.call) {
+        is KaSimpleCallResolutionError -> callResult.candidateCalls.filterIsInstance<KaImplicitInvokeCall>().map { it.symbol }
+        is KaSimpleCallResolutionSuccess -> when (val call = callResult.call) {
             is KaImplicitInvokeCall -> listOf(call.symbol)
             else -> emptyList()
         }

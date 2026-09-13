@@ -13,6 +13,7 @@ import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.platform.lsp.api.LspServerState
 import com.intellij.platform.lsp.impl.LspClientImpl
 import com.intellij.platform.lsp.impl.LspClientManagerImpl
+import com.intellij.platform.lsp.impl.features.highlighting.LspHighlightingApplier
 import com.intellij.util.application
 import com.intellij.util.concurrency.AppExecutorUtil
 import com.intellij.util.concurrency.annotations.RequiresBackgroundThread
@@ -24,6 +25,9 @@ import kotlinx.coroutines.launch
 import org.eclipse.lsp4j.DidCloseTextDocumentParams
 import org.eclipse.lsp4j.TextDocumentSyncKind
 import java.util.Collections
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * Sends document lifecycle notifications (didOpen, didChange, didSave, didClose) and tracks which files are open on the server.
@@ -33,6 +37,22 @@ import java.util.Collections
 internal class LspDocumentSyncManager(private val client: LspClientImpl) {
 
   private val openedFiles: MutableSet<VirtualFile> = Collections.synchronizedSet(HashSet())
+  private val shutdown = AtomicBoolean(false)
+
+  /**
+   * The version this client has last declared to the server for each file it has ever been asked about,
+   * owned entirely by this class: [nextDocumentVersion] advances it by exactly one per notification sent,
+   * lazily starting a file at `0` the first time it's queried -- callers are not required to route through
+   * [open] first, since not every document-sync path in this codebase does (some poll timestamps instead of
+   * listening for document events). [close]/[shutdown] drop entries for files this instance's own open/close
+   * lifecycle knows are done with, as a memory optimization only: correctness never depends on it, since a
+   * fresh query for any file, closed or not, just restarts its own count from `0`.
+   *
+   * This is deliberately independent of [com.intellij.openapi.editor.ex.DocumentEx.getModificationSequence],
+   * which only promises to strictly increase on a text change, not by how much -- a delta some callers need
+   * to predict before an edit is even applied (see [com.intellij.platform.lsp.impl.documentSync.LspDidChangeUtil]).
+   */
+  private val documentVersions: MutableMap<VirtualFile, AtomicInteger> = ConcurrentHashMap()
 
   val openedFileCount: Int get() = openedFiles.size
 
@@ -43,14 +63,32 @@ internal class LspDocumentSyncManager(private val client: LspClientImpl) {
 
   fun forEachOpenedFile(action: (VirtualFile) -> Unit) = openedFiles.forEach(action)
 
-  fun clearOpenedFiles() {
+  /**
+   * The version last declared to the server for [file].
+   */
+  fun currentDocumentVersion(file: VirtualFile): Int = versionCounter(file).get()
+
+  /**
+   * Advances and returns the version to declare for [file]'s next `didOpen`/`didChange`. Safe to call
+   * regardless of when the underlying document mutation actually lands, since this owns the number outright.
+   */
+  fun nextDocumentVersion(file: VirtualFile): Int = versionCounter(file).incrementAndGet()
+
+  private fun versionCounter(file: VirtualFile): AtomicInteger =
+    documentVersions.computeIfAbsent(file) { AtomicInteger(0) }
+
+  fun shutdown() {
+    shutdown.set(true)
     openedFiles.clear()
+    documentVersions.clear()
   }
 
   @RequiresWriteLock
   fun open(file: VirtualFile) {
     if (client.state != LspServerState.Running) {
-      client.logError("Server is not in the Running state. Ignoring open($file)")
+      val message = "Server is not in the Running state. Ignoring open($file)"
+      // an open() scheduled before a server stop may land after it: the server is gone on purpose, not an error
+      if (client.state == LspServerState.Initializing && !shutdown.get()) client.logError(message) else client.logInfo(message)
       return
     }
 
@@ -64,6 +102,9 @@ internal class LspDocumentSyncManager(private val client: LspClientImpl) {
       client.documentMapping.getAdapterForFile(file).sendDidOpen(client, file, document)
 
       client.notifyFileOpened(file)
+      // In the pull model the client is responsible for the initial pull of a just-opened file.
+      // A pull-only server (no publishDiagnostics) would otherwise stay silent until the first daemon pass.
+      LspHighlightingApplier.getInstance(client.project).scheduleHighlightingRefresh(file)
       application.messageBus.syncPublisher(BreadcrumbsXmlWrapper.FORCE_RELOAD_BREADCRUMBS).run()
     }
     else {
@@ -73,10 +114,16 @@ internal class LspDocumentSyncManager(private val client: LspClientImpl) {
 
   @RequiresWriteLock
   fun close(file: VirtualFile) {
-    if (!openedFiles.remove(file)) {
-      client.logError("close() cannot be called for files that haven't been opened. Ignoring: $file")
+    if (!openedFiles.remove(file) || shutdown.get()) {
+      // Error should not be logged if the sync manager is disposed of, as the server state
+      // and thus sync manager state might have changed just after entering `open` method
+      // and caller is not able to sync on the server state
+      if (!shutdown.get()) {
+        client.logError("close() cannot be called for files that haven't been opened. Ignoring: $file")
+      }
       return
     }
+    documentVersions.remove(file)
 
     val document = FileDocumentManager.getInstance().getDocument(file)
     if (document == null) {
@@ -148,7 +195,7 @@ internal class LspDocumentSyncManager(private val client: LspClientImpl) {
     val didSaveOptions = client.getDidSaveOptions(file) ?: return
     val manager = LspClientManagerImpl.getInstanceImpl(client.project)
     manager.cs.launch {
-      // Using `readAction` guarantees that the write action in which `beforeDocumentSaving()` was called has finished,
+      // Using `readAction` guarantees that the write action in which calling `beforeDocumentSaving()` was called has finished,
       // so the file has been physically saved, therefore it's now good time to send `textDocument/didSave`
       readAction {
         client.documentMapping.getAdapterForFile(file).sendDidSave(client, file, document, didSaveOptions.includeText == true)

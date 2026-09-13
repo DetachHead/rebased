@@ -11,21 +11,28 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.TextRange
 import com.intellij.psi.PsiElement
 import org.jetbrains.kotlin.analysis.api.KaSession
-import org.jetbrains.kotlin.analysis.api.components.defaultType
-import org.jetbrains.kotlin.analysis.api.components.isSubtypeOf
-import org.jetbrains.kotlin.analysis.api.components.semanticallyEquals
 import org.jetbrains.kotlin.analysis.api.resolution.KaImplicitReceiverValue
-import org.jetbrains.kotlin.analysis.api.resolution.successfulFunctionCallOrNull
-import org.jetbrains.kotlin.analysis.api.resolution.successfulVariableAccessCall
+import org.jetbrains.kotlin.analysis.api.resolution.resolveSuccessfulCall
+import org.jetbrains.kotlin.analysis.api.resolution.simple
 import org.jetbrains.kotlin.analysis.api.resolution.symbol
+import org.jetbrains.kotlin.analysis.api.resolution.variable
 import org.jetbrains.kotlin.analysis.api.symbols.KaClassLikeSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaDeclarationSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaFunctionSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaReceiverParameterSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaSamConstructorSymbol
+import org.jetbrains.kotlin.analysis.api.symbols.containingSymbol
+import org.jetbrains.kotlin.analysis.api.symbols.fakeOverrideOriginal
 import org.jetbrains.kotlin.analysis.api.symbols.findClass
 import org.jetbrains.kotlin.analysis.api.symbols.receiverType
+import org.jetbrains.kotlin.analysis.api.symbols.samConstructor
+import org.jetbrains.kotlin.analysis.api.symbols.symbol
 import org.jetbrains.kotlin.analysis.api.types.KaType
+import org.jetbrains.kotlin.analysis.api.types.defaultType
+import org.jetbrains.kotlin.analysis.api.types.isFunctionalInterface
+import org.jetbrains.kotlin.analysis.api.types.isSubtypeOf
+import org.jetbrains.kotlin.analysis.api.types.isSuspendFunctionType
+import org.jetbrains.kotlin.analysis.api.types.semanticallyEquals
 import org.jetbrains.kotlin.analysis.api.types.symbol
 import org.jetbrains.kotlin.idea.base.resources.KotlinBundle
 import org.jetbrains.kotlin.idea.codeinsight.api.applicable.inspections.KotlinApplicableInspectionBase
@@ -33,6 +40,7 @@ import org.jetbrains.kotlin.idea.codeinsight.api.applicable.inspections.KotlinMo
 import org.jetbrains.kotlin.idea.codeinsight.api.applicators.ApplicabilityRange
 import org.jetbrains.kotlin.idea.codeinsight.utils.getCallExpressionSymbol
 import org.jetbrains.kotlin.idea.codeinsight.utils.isInlinedArgument
+import org.jetbrains.kotlin.idea.util.resolveSuccessfulExpressionCall
 import org.jetbrains.kotlin.name.Name
 import org.jetbrains.kotlin.psi.KtCallExpression
 import org.jetbrains.kotlin.psi.KtExpression
@@ -78,18 +86,18 @@ internal class SuspiciousImplicitCoroutineScopeReceiverAccessInspection :
         return qualifiedExpression == null
     }
 
-    override fun KaSession.prepareContext(element: KtExpression): Context? {
+    context(session: KaSession)
+    override fun prepareContext(element: KtExpression): Context? {
         // Resolve the call to check if it's a CoroutineScope function
-        val resolvedCall = element.resolveToCall()?.let { callInfo ->
+        val resolvedCall =
             when (element) {
-                is KtCallExpression -> callInfo.successfulFunctionCallOrNull()
-                is KtSimpleNameExpression -> callInfo.successfulVariableAccessCall()
+                is KtCallExpression -> element.resolveSuccessfulCall()
+                is KtSimpleNameExpression -> element.resolveSuccessfulExpressionCall()?.simple?.variable
                 else -> null
-            }
-        } ?: return null
+            } ?: return null
 
         // Check if the receiver is an implicit receiver
-        val callReceiver = resolvedCall.partiallyAppliedSymbol.run { extensionReceiver ?: dispatchReceiver }
+        val callReceiver = resolvedCall.run { extensionReceiver ?: dispatchReceiver }
         if (callReceiver !is KaImplicitReceiverValue) return null
 
         // Check if the receiver type is CoroutineScope
@@ -137,7 +145,8 @@ internal class SuspiciousImplicitCoroutineScopeReceiverAccessInspection :
     /**
      * Checks if there are any suspend functions or lambdas between the call PSI and the implicit ContextReceiver symbol PSI.
      */
-    private fun KaSession.hasSuspendFunctionsInPath(element: KtExpression, receiverOwnerSymbol: KaDeclarationSymbol): Boolean {
+    context(session: KaSession)
+    private fun hasSuspendFunctionsInPath(element: KtExpression, receiverOwnerSymbol: KaDeclarationSymbol): Boolean {
         var current: PsiElement? = element.parent
         val receiverOwnerDeclaration = receiverOwnerSymbol.psi ?: return false
 
@@ -152,7 +161,7 @@ internal class SuspiciousImplicitCoroutineScopeReceiverAccessInspection :
                 }
 
                 // Check if the matching parameter's return type is a suspend type
-                val (functionSymbol, argumentSymbol) = getCallExpressionSymbol(current) ?: continue
+                val (functionSymbol, argumentSymbol) = getCallExpressionSymbol(current) ?: return false
                 // Resolve the outer call of the lambda
                 val parameterType = argumentSymbol.returnType
 
@@ -162,7 +171,7 @@ internal class SuspiciousImplicitCoroutineScopeReceiverAccessInspection :
                     samConstructor?.samConstructorLambdaParameterType
                 } else {
                     parameterType
-                } ?: continue
+                } ?: return false
 
                 if (lambdaType.isSuspendFunctionType && !isAllowedSuspendingFunction(functionSymbol)) {
                     return true

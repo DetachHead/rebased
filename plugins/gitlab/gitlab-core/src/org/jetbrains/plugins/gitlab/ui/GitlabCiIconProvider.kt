@@ -5,15 +5,8 @@ import com.intellij.ide.FileIconProvider
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.vcs.gitlab.icons.GitlabIcons
-import org.jetbrains.annotations.ApiStatus
+import com.intellij.vcs.gitlab.shared.isGitlabCiFile
 import javax.swing.Icon
-
-private val GITLAB_CI_FILE_MASK = Regex(""".*\.gitlab-ci(\..*)?\.(yaml|yml)""")
-
-@ApiStatus.Internal
-fun isGitlabCiFile(file: VirtualFile): Boolean {
-  return GITLAB_CI_FILE_MASK.matches(file.name)
-}
 
 internal class GitlabCiIconProvider : FileIconProvider {
   override fun getIcon(file: VirtualFile, flags: Int, project: Project?): Icon? {

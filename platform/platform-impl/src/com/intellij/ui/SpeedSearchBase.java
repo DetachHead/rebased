@@ -4,6 +4,7 @@ package com.intellij.ui;
 import com.intellij.featureStatistics.FeatureUsageTracker;
 import com.intellij.icons.AllIcons;
 import com.intellij.ide.DataManager;
+import com.intellij.ide.IdeEventQueue;
 import com.intellij.ide.actions.speedSearch.SpeedSearchAction;
 import com.intellij.ide.impl.ProjectUtil;
 import com.intellij.ide.ui.UISettings;
@@ -124,6 +125,7 @@ public abstract class SpeedSearchBase<Comp extends JComponent> extends SpeedSear
   private String myRecentEnteredPrefix;
   private SpeedSearchComparator myComparator = new SpeedSearchComparator(false);
   private boolean myClearSearchOnNavigateNoMatch;
+  private boolean myAutoSelectionBySpeedSearch;
 
   private Disposable myListenerDisposable;
 
@@ -143,6 +145,18 @@ public abstract class SpeedSearchBase<Comp extends JComponent> extends SpeedSear
     myComponent = component;
 
     setupListeners();
+  }
+
+  /**
+   * Indicates whether {@code selectElement} was called automatically because the search text has changed.
+   * <p>
+   *   Only returns a meaningful value during {@link #selectElement(Object, String)} invocations.
+   * </p>
+   *
+   * @see #selectElement(Object, String)
+   */
+  protected boolean isAutoSelectionBySpeedSearch() {
+    return myAutoSelectionBySpeedSearch;
   }
 
   @Override
@@ -363,6 +377,37 @@ public abstract class SpeedSearchBase<Comp extends JComponent> extends SpeedSear
   }
 
   /**
+   * An overload with special handling for automatic selection.
+   * <p>
+   *   Allows the implementations to determine whether the element should actually be selected or just highlighted.
+   *   The choice can be made depending on whether the selection is performed automatically because the search pattern has changed
+   *   or because it was requested explicitly by an API call or by pressing a navigation key.
+   * </p>
+   *
+   * @param element the element to select
+   * @param selectedText the current search text
+   * @param autoSelectionBySpeedSearch {@code true} iff the selection is performed automatically due to a search text change,
+   *                                              as opposed to, e.g., pressing a navigation key
+   */
+  private void selectElement(Object element, String selectedText, boolean autoSelectionBySpeedSearch) {
+    myAutoSelectionBySpeedSearch = autoSelectionBySpeedSearch;
+    try {
+      selectElement(element, selectedText);
+    }
+    finally {
+      myAutoSelectionBySpeedSearch = false; // just in case, reset to the default
+    }
+  }
+
+  /**
+   * Updates the current selection.
+   * <p>
+   * When this function is invoked, {@link #isAutoSelectionBySpeedSearch()} will return {@code true}
+   * if the selection is performed automatically because the search pattern has changed.
+   * If the selection was changed by pressing a navigation key or by an API call (e.g. {@link #findAndSelectElement(String)}),
+   * then {@link #isAutoSelectionBySpeedSearch()} will return {@code false}.
+   * </p>
+   *
    * @param element      Element to select. Don't forget to convert model index to view index if needed (i.e. table.convertRowIndexToView(modelIndex), etc).
    * @param selectedText search text
    */
@@ -513,7 +558,7 @@ public abstract class SpeedSearchBase<Comp extends JComponent> extends SpeedSear
   public void showPopup(String searchText) {
     manageSearchPopup(createPopup(searchText));
     if (mySearchPopup != null && myComponent.isDisplayable()) {
-      mySearchPopup.refreshSelection();
+      mySearchPopup.updateSelection(findElement(searchText), searchText, true);
     }
   }
 
@@ -551,6 +596,20 @@ public abstract class SpeedSearchBase<Comp extends JComponent> extends SpeedSear
 
     if (mySearchPopup == null && e.getID() == InputMethodEvent.INPUT_METHOD_TEXT_CHANGED) {
       var text = e.getText();
+      // IJPL-158652: a space key is hijacked by an input method, but we need to treat it as a regular key press.
+      if (text != null && text.first() == ' ') {
+        // Note that the produced KeyEvent will commit the text, which will immediately cause another InputMethodEvent,
+        // so we check getCommittedCharacterCount to ignore the next event.
+        if (e.getCommittedCharacterCount() == 0) {
+          var window = ComponentUtil.getWindow(myComponent);
+          if (window != null) {
+            IdeEventQueue.getInstance().postEvent(
+              new KeyEvent(window, KeyEvent.KEY_PRESSED, e.getWhen(), 0, KeyEvent.VK_SPACE, ' ')
+            );
+          }
+        }
+        return; // we ignore both events here, as we don't want to start searching for a space either way
+      }
       if (text != null && text.first() != CharacterIterator.DONE) {
         showPopup();
       }
@@ -617,7 +676,7 @@ public abstract class SpeedSearchBase<Comp extends JComponent> extends SpeedSear
       mySearchPopup.updateSelection(findElement(searchQuery), searchQuery);
     }
     else {
-      selectElement(findElement(searchQuery), searchQuery);
+      selectElement(findElement(searchQuery), searchQuery, false);
     }
   }
 
@@ -626,7 +685,7 @@ public abstract class SpeedSearchBase<Comp extends JComponent> extends SpeedSear
       UIEventLogger.IncrementalSearchNextPrevItemSelected.log(myComponent.getClass());
       Object element = findTargetElement(keyCode, searchQuery);
       if (element != null) {
-        selectElement(element, searchQuery);
+        selectElement(element, searchQuery, false);
         return true;
       }
     }
@@ -681,7 +740,7 @@ public abstract class SpeedSearchBase<Comp extends JComponent> extends SpeedSear
           String newText = oldText.substring(0, offs) + str + oldText.substring(offs);
           super.insertString(offs, str, a);
           handleInsert(newText);
-          updateSelection(findElement(newText), mySearchField.getText());
+          updateSelection(findElement(newText), mySearchField.getText(), true);
         }
       });
 
@@ -735,7 +794,9 @@ public abstract class SpeedSearchBase<Comp extends JComponent> extends SpeedSear
         Object element;
 
         int navKeyCode = getNavigationKeyCode(e);
+        boolean autoSelect;
         if (navKeyCode != 0) {
+          autoSelect = false;
           element = findTargetElement(navKeyCode, s);
           if (myClearSearchOnNavigateNoMatch && element == null) {
             manageSearchPopup(null);
@@ -743,10 +804,11 @@ public abstract class SpeedSearchBase<Comp extends JComponent> extends SpeedSear
           }
         }
         else {
+          autoSelect = true;
           UIEventLogger.IncrementalSearchKeyTyped.log(myComponent.getClass());
           element = findElement(s);
         }
-        updateSelection(element, mySearchField.getText());
+        updateSelection(element, mySearchField.getText(), autoSelect);
       }
     }
 
@@ -757,7 +819,7 @@ public abstract class SpeedSearchBase<Comp extends JComponent> extends SpeedSear
         WriteIntentReadAction.run(() -> {
           updateLastPattern();
           String s = mySearchField.getText();
-          updateSelection(findElement(s), s);
+          updateSelection(findElement(s), s, true);
         });
       }
     }
@@ -769,8 +831,13 @@ public abstract class SpeedSearchBase<Comp extends JComponent> extends SpeedSear
 
     @ApiStatus.Internal
     protected void updateSelection(Object element, String selectedText) {
+      updateSelection(element, selectedText, false);
+    }
+
+    @ApiStatus.Internal
+    protected void updateSelection(Object element, String selectedText, boolean autoSelectionBySpeedSearch) {
       if (element != null) {
-        selectElement(element, selectedText);
+        selectElement(element, selectedText, autoSelectionBySpeedSearch);
         mySearchField.setForeground(FOREGROUND_COLOR);
       }
       else {

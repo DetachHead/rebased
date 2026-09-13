@@ -46,6 +46,7 @@ import com.intellij.openapi.editor.EditorFactory;
 import com.intellij.openapi.editor.FoldRegion;
 import com.intellij.openapi.editor.actionSystem.DocCommandGroupId;
 import com.intellij.openapi.editor.colors.EditorColorsManager;
+import com.intellij.openapi.editor.elf.Elf;
 import com.intellij.openapi.editor.event.CaretEvent;
 import com.intellij.openapi.editor.event.CaretListener;
 import com.intellij.openapi.editor.event.DocumentEvent;
@@ -117,6 +118,7 @@ import com.intellij.util.io.storage.HeavyProcessLatch;
 import com.intellij.util.messages.SimpleMessageBusConnection;
 import com.intellij.util.ui.EdtInvocationManager;
 import com.intellij.util.ui.UIUtil;
+import kotlinx.coroutines.CoroutineScope;
 import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
@@ -135,6 +137,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Predicate;
+import java.util.function.Supplier;
 
 /**
  * listen for any daemon-related activities and restart the daemon if needed
@@ -148,18 +151,19 @@ public final class DaemonListeners implements Disposable {
   private List<Editor> myActiveEditors = Collections.emptyList();
   private final AtomicLong myFoldingStateChanged = new AtomicLong();
   // some expensive flags, e.g. isMarkedExcluded and isCodeFragment are computed in BGT
-  private final Alarm myRecomputeFlagsInBGT = new Alarm(Alarm.ThreadToUse.POOLED_THREAD, this);
+  private final Alarm myRecomputeFlagsInBGT;
 
-  DaemonListeners(@NotNull Project project, @NotNull DaemonCodeAnalyzerImpl daemonCodeAnalyzer) {
+  DaemonListeners(@NotNull Project project, @NotNull DaemonCodeAnalyzerImpl daemonCodeAnalyzer, @NotNull CoroutineScope coroutineScope) {
     myProject = project;
     myDaemonCodeAnalyzer = daemonCodeAnalyzer;
+    myRecomputeFlagsInBGT = new Alarm(coroutineScope, Alarm.ThreadToUse.POOLED_THREAD);
 
     if (project.isDefault()) {
       myPsiChangeHandler = null;
       return;
     }
 
-    SimpleMessageBusConnection connection = myProject.getMessageBus().simpleConnect();
+    SimpleMessageBusConnection connection = myProject.getMessageBus().connect(coroutineScope);
     connection.subscribe(AppLifecycleListener.TOPIC, new AppLifecycleListener() {
       @Override
       public void appClosing() {
@@ -175,12 +179,14 @@ public final class DaemonListeners implements Disposable {
       public void beforeDocumentChange(@NotNull DocumentEvent e) {
         Document document = e.getDocument();
         VirtualFile virtualFile = FileDocumentManager.getInstance().getFile(document);
-        Project project = virtualFile == null ? null : guessProject(virtualFile);
-        //no need to stop daemon if something happened in the console or in non-physical document
-        if (!myProject.isDisposed() && ApplicationManager.getApplication().isDispatchThread() && worthBothering(document, project)
-          && !document.isInBulkUpdate()/*if the document is in the bulk mode, daemon was already stopped in bulkUpdateStarting()*/
+        // No need to stop daemon if something happened in the console or in non-physical document.
+        if (!myProject.isDisposed() &&
+            ApplicationManager.getApplication().isDispatchThread() &&
+            worthBothering(document, () -> virtualFile == null ? null : guessProject(virtualFile)) &&
+            !document.isInBulkUpdate() // If the document is in bulk mode, daemon was already stopped in bulkUpdateStarting().
         ) {
-          // do not restart daemon yet, wait for the psi events fired after the doc committed, PsiChangeHandler handled these events, updated FileStatusMap and called daemon restart
+          // Do not restart daemon yet. Wait for the PSI events after the document is committed; PsiChangeHandler handles them,
+          // updates FileStatusMap, and restarts the daemon.
           stopDaemon(false, "Before document change");
           UpdateHighlightersUtil.updateHighlightersByTyping(myProject, e);
           myDaemonCodeAnalyzer.getFileStatusMap().markFileScopeDirtyDefensively(document, e);
@@ -189,7 +195,7 @@ public final class DaemonListeners implements Disposable {
 
       @Override
       public void bulkUpdateStarting(@NotNull Document document) {
-        if (worthBothering(document, myProject)) {
+        if (worthBothering(document, () -> myProject)) {
           // avoid restarts until bulk mode is finished and daemon restarted
           stopDaemon(false, "Document bulk modifications started");
         }
@@ -197,7 +203,7 @@ public final class DaemonListeners implements Disposable {
 
       @Override
       public void bulkUpdateFinished(@NotNull Document document) {
-        if (worthBothering(document, myProject)) {
+        if (worthBothering(document, () -> myProject)) {
           stopDaemon(true, "Document bulk modifications finished");
         }
       }
@@ -211,13 +217,14 @@ public final class DaemonListeners implements Disposable {
         myEscPressed = false; // clear "Escape was pressed" flag on each caret change
 
         Editor editor = e.getEditor();
-        if (ComponentUtil.isShowing(editor.getContentComponent(), true) && worthBothering(editor.getDocument(), editor.getProject())) {
+        if (ComponentUtil.isShowing(editor.getContentComponent(), true) && worthBothering(editor.getDocument(), editor::getProject)) {
           ApplicationManager.getApplication().invokeLater(() -> {
             if (!myProject.isDisposed() && ComponentUtil.isShowing(editor.getContentComponent(), true)) {
               intentionsUI.invalidateForEditor(editor);
             }
           }, ModalityState.current(), myProject.getDisposed());
-          if (!psiDocumentManager.hasEventSystemEnabledUncommittedDocuments()) {
+          boolean elfGuard = Elf.getElf().isUnsupportedOperationGuardActive(); // hasEventSystemEnabledUncommittedDocuments is not supported yet for lock-free typing
+          if (elfGuard || !psiDocumentManager.hasEventSystemEnabledUncommittedDocuments()) {
             // daemon might want to auto-import a reference if the caret is close enough
             // but do not restart a daemon too early before PSI is committed,
             // because the typing would cause canceling daemon twice otherwise: on caret movement during typing and later on PSI commit after the doc modification
@@ -257,7 +264,7 @@ public final class DaemonListeners implements Disposable {
 
         Document document = editor.getDocument();
         boolean showing = ComponentUtil.isShowing(editor.getContentComponent(), true);
-        boolean worthBothering = worthBothering(document, editorProject);
+        boolean worthBothering = worthBothering(document, editor::getProject);
         if (!showing || !worthBothering) {
           if (DaemonCodeAnalyzerImpl.LOG.isDebugEnabled()) {
             DaemonCodeAnalyzerImpl.LOG.debug("Not worth bothering about editor created for: " + editor.getVirtualFile() + " because editor isShowing(): " +
@@ -326,8 +333,8 @@ public final class DaemonListeners implements Disposable {
         modCount = myFoldingStateChanged.get(); // daemon will restart by its own
       }
     });
-    Predicate<Document> isDocumentWorthBothering = document -> worthBothering(document, project);
-    myPsiChangeHandler = new PsiChangeHandler(myProject, daemonCodeAnalyzer.getFileStatusMap(), this, isDocumentWorthBothering);
+    Predicate<Document> isDocumentWorthBothering = document -> worthBothering(document, () -> project);
+    myPsiChangeHandler = new PsiChangeHandler(myProject, daemonCodeAnalyzer.getFileStatusMap(), this, coroutineScope, isDocumentWorthBothering);
 
     connection.subscribe(ModuleRootListener.TOPIC, new ModuleRootListener() {
       @Override
@@ -586,13 +593,14 @@ public final class DaemonListeners implements Disposable {
     name.addChangeListener(() -> stopDaemonAndRestartAllFiles(message), this);
   }
 
-  private boolean worthBothering(@Nullable Document document, @Nullable Project guessedProject) {
+  /**
+   * @param projectGuesser a computation that lazily retrieves the project. Can launch a read action
+   */
+  private boolean worthBothering(@Nullable Document document, @NotNull Supplier<@Nullable Project> projectGuesser) {
     if (document == null) {
       return true;
     }
-    if (guessedProject != null && guessedProject != myProject) {
-      return false;
-    }
+
     if (myProject.isDisposed()) {
       return false;
     }
@@ -613,6 +621,12 @@ public final class DaemonListeners implements Disposable {
       // if the document is from the debugger evaluate window, even if it contains a light file, it needs to be highlighted
       return true;
     }
+    if (document.getUserData(DaemonCodeAnalyzer.INTERACTIVE_NON_PHYSICAL_DOCUMENT) == myProject) {
+      // an editing surface built on a light file - an EditorTextField's own document - which its owner declared interactive.
+      // The daemon highlights such a document, so it must invalidate it too; the clauses below have nothing left to decide,
+      // because the marker already named the project and asserted that the document is edited on the write thread.
+      return true;
+    }
 
     if (virtualFile == null || virtualFile instanceof LightVirtualFile) {
       return false;
@@ -621,6 +635,11 @@ public final class DaemonListeners implements Disposable {
     if (document instanceof DocumentImpl impl && !impl.isWriteThreadOnly()) {
       return false;
     }
+    Project guessedProject = projectGuesser.get();
+    if (guessedProject != null && guessedProject != myProject) {
+      return false;
+    }
+
     return !isMarkedExcluded(document);
   }
 
@@ -724,7 +743,7 @@ public final class DaemonListeners implements Disposable {
     @Override
     public void commandStarted(@NotNull CommandEvent event) {
       Document affectedDocument = extractDocumentFromCommand(event);
-      if (!worthBothering(affectedDocument, event.getProject())) {
+      if (!worthBothering(affectedDocument, event::getProject)) {
         return;
       }
 
@@ -749,7 +768,7 @@ public final class DaemonListeners implements Disposable {
     @Override
     public void commandFinished(@NotNull CommandEvent event) {
       Document affectedDocument = extractDocumentFromCommand(event);
-      if (!worthBothering(affectedDocument, event.getProject())) {
+      if (!worthBothering(affectedDocument, event::getProject)) {
         return;
       }
 
@@ -829,7 +848,7 @@ public final class DaemonListeners implements Disposable {
     public void beforeEditorTyping(char c, @NotNull DataContext dataContext) {
       Editor editor = CommonDataKeys.EDITOR.getData(dataContext);
       //no need to stop daemon if something happened in the console
-      if (editor != null && !worthBothering(editor.getDocument(), editor.getProject())) {
+      if (editor != null && !worthBothering(editor.getDocument(), editor::getProject)) {
         return;
       }
       stopDaemon(false, "Editor typing"); // daemon will restart later after the document modification/PSI commit

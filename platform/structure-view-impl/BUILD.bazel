@@ -1,7 +1,7 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
 ### auto-generated section `build intellij.platform.structureView` start
-
 jvm_library(
     name = "structureView",
     srcs = glob(
@@ -21,6 +21,7 @@ jvm_library(
     exports = ["//platform/util"],
     deps = [
         # do not sort,
+        "//platform/kernel/rpc",
         "//platform/editor-ui-api:editor-ui",
         "//platform/util",
         "//platform/extensions",
@@ -54,6 +55,8 @@ jvm_library(
     ],
 )
 
+content_module_jar(module = ":structureView")
+
 jvm_library(
     name = "structureView_test_lib",
     testonly = True,
@@ -71,6 +74,7 @@ jvm_library(
     runtime_deps = [
         # do not sort,
         ":structureView",
+        "//platform/kernel/rpc:rpc_test_lib",
         "//platform/editor-ui-api:editor-ui_test_lib",
         "//platform/util:util_test_lib",
         "//platform/extensions:extensions_test_lib",
@@ -108,6 +112,8 @@ jvm_library(
 exports_files(
     [
         "intellij.platform.structureView.iml",
+        "resources/intellij.platform.structureView.xml",
+        "module-content.yaml",
     ],
     visibility = ["//visibility:public"],
 )

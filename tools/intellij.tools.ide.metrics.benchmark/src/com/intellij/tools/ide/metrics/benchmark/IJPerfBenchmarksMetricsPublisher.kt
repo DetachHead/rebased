@@ -7,11 +7,11 @@ import com.intellij.openapi.util.BuildNumber
 import com.intellij.openapi.util.io.FileUtil
 import com.intellij.platform.diagnostic.telemetry.TelemetryManager
 import com.intellij.teamcity.TeamCityClient
-import com.intellij.testFramework.BenchmarkTestInfo
 import com.intellij.testFramework.UsefulTestCase
 import com.intellij.tools.ide.metrics.collector.MetricsCollector
 import com.intellij.tools.ide.metrics.collector.metrics.PerformanceMetrics
 import com.intellij.tools.ide.metrics.collector.publishing.PerformanceMetricsDto
+import com.intellij.tools.ide.util.common.logOutput
 import com.intellij.tools.ide.util.common.withRetry
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -36,7 +36,12 @@ internal class IJPerfBenchmarksMetricsPublisher {
   companion object {
 
     fun getIdeTestLogFile(): Path = PathManager.getSystemDir().resolve("testlog").resolve("idea.log")
-    fun truncateTestLog(): Unit = run { getIdeTestLogFile().writer(options = arrayOf(StandardOpenOption.TRUNCATE_EXISTING)).write("") }
+    fun truncateTestLog() {
+      val testLog = getIdeTestLogFile()
+      if (Files.exists(testLog)) {
+        testLog.writer(options = arrayOf(StandardOpenOption.TRUNCATE_EXISTING)).use { }
+      }
+    }
 
     // for local testing
     private fun setBuildParams(vararg buildProperties: Pair<String, String>): Path {
@@ -70,14 +75,28 @@ internal class IJPerfBenchmarksMetricsPublisher {
                                                     vararg metricsCollectors: MetricsCollector): PerformanceMetricsDto {
       delay(1.seconds) // give some time to settle metrics (usually meters) that were published at the end of the test
 
-      val metrics: List<PerformanceMetrics.Metric> = withRetry("Telemetry metrics should be exported",
-                                                               retries = 10, delay = 300.milliseconds) {
-        TelemetryManager.getInstance().forceFlushMetrics()
-
-        metricsCollectors.flatMap {
-          it.collect(PathManager.getLogDir())
+      var lastFailure: Throwable? = null
+      val metrics: List<PerformanceMetrics.Metric>? = withRetry("Telemetry metrics should be exported",
+                                                                retries = 3, delay = 300.milliseconds) {
+        try {
+          TelemetryManager.getInstance().forceFlushMetrics()
+          metricsCollectors.flatMap {
+            it.collect(PathManager.getLogDir())
+          }
         }
-      }!!
+        catch (e: Throwable) {
+          lastFailure = e
+          throw e
+        }
+      }
+
+      if (metrics == null) {
+        val telemetryJsonFile = BenchmarksSpanMetricsCollector.getDefaultPathToTelemetrySpanJson()
+        runCatching {
+          teamCityClient.publishTeamCityArtifacts(source = telemetryJsonFile, artifactPath = uniqueTestIdentifier)
+        }.onFailure { logOutput("Failed to archive $telemetryJsonFile: ${it.message}") }
+        throw IllegalStateException("Failed to extract perf metrics for '$uniqueTestIdentifier'.", lastFailure)
+      }
 
       teamCityClient.publishTeamCityArtifacts(source = PathManager.getLogDir(), artifactPath = uniqueTestIdentifier)
       teamCityClient.publishTeamCityArtifacts(source = getIdeTestLogFile(), artifactPath = uniqueTestIdentifier)

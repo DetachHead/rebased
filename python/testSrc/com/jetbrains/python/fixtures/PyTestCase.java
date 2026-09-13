@@ -64,7 +64,6 @@ import com.jetbrains.python.PythonTestUtil;
 import com.jetbrains.python.codeInsight.typing.PyBundledStubs;
 import com.jetbrains.python.codeInsight.typing.PyTypeShed;
 import com.jetbrains.python.documentation.PyDocumentationSettings;
-import com.jetbrains.python.documentation.PyTypeRenderer.Feature;
 import com.jetbrains.python.documentation.PythonDocumentationProvider;
 import com.jetbrains.python.documentation.docstrings.DocStringFormat;
 import com.jetbrains.python.namespacePackages.PyNamespacePackagesService;
@@ -86,6 +85,7 @@ import org.junit.Assert;
 
 import java.io.File;
 import java.io.IOException;
+import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
@@ -115,6 +115,29 @@ public abstract class PyTestCase extends UsefulTestCase {
     myFixture = IdeaTestFixtureFactory.getFixtureFactory().createCodeInsightFixture(fixture, createTempDirFixture());
     myFixture.setTestDataPath(getTestDataPath());
     myFixture.setUp();
+
+    // Enable Any/Unknown type support by default in all tests; opt out per method or class with @PyAnyTypeDisabled.
+    Registry.get("python.type.any").setValue(!isPyAnyTypeDisabledForCurrentTest());
+  }
+
+  private boolean isPyAnyTypeDisabledForCurrentTest() {
+    for (Class<?> c = getClass(); c != null && PyTestCase.class.isAssignableFrom(c); c = c.getSuperclass()) {
+      if (c.isAnnotationPresent(PyAnyTypeDisabled.class)) {
+        return true;
+      }
+    }
+    String name = getName();
+    if (name != null) {
+      try {
+        Method testMethod = getClass().getMethod(name);
+        if (testMethod.isAnnotationPresent(PyAnyTypeDisabled.class)) {
+          return true;
+        }
+      }
+      catch (NoSuchMethodException ignored) {
+      }
+    }
+    return false;
   }
 
   @Override
@@ -137,6 +160,7 @@ public abstract class PyTestCase extends UsefulTestCase {
       addSuppressedException(e);
     }
     finally {
+      Registry.get("python.type.any").resetToDefault();
       super.tearDown();
     }
   }
@@ -650,7 +674,7 @@ public abstract class PyTestCase extends UsefulTestCase {
                                 @NotNull PyTypedElement element,
                                 @NotNull TypeEvalContext context) {
     final PyType actual = context.getType(element);
-    final String actualType = PythonDocumentationProvider.getTypeName(actual, context, Feature.UNSAFE_UNION);
+    final String actualType = PythonDocumentationProvider.getTypeName(actual, context);
     assertEquals(message, expectedType, actualType);
   }
 

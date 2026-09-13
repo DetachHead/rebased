@@ -7,18 +7,16 @@ import com.intellij.modcommand.ActionContext
 import com.intellij.modcommand.ModPsiUpdater
 import com.intellij.psi.SmartPsiElementPointer
 import com.intellij.psi.createSmartPointer
-import org.jetbrains.kotlin.analysis.api.KaExperimentalApi
 import org.jetbrains.kotlin.analysis.api.KaSession
-import org.jetbrains.kotlin.analysis.api.components.expressionType
-import org.jetbrains.kotlin.analysis.api.components.render
-import org.jetbrains.kotlin.analysis.api.components.semanticallyEquals
-import org.jetbrains.kotlin.analysis.api.components.type
-import org.jetbrains.kotlin.analysis.api.resolution.successfulFunctionCallOrNull
-import org.jetbrains.kotlin.analysis.api.resolution.symbol
+import org.jetbrains.kotlin.analysis.api.expressions.expressionType
+import org.jetbrains.kotlin.analysis.api.renderer.render
+import org.jetbrains.kotlin.analysis.api.resolution.resolveSuccessfulSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaSymbolVisibility.LOCAL
 import org.jetbrains.kotlin.analysis.api.types.KaClassType
 import org.jetbrains.kotlin.analysis.api.types.KaType
+import org.jetbrains.kotlin.analysis.api.types.semanticallyEquals
 import org.jetbrains.kotlin.analysis.api.types.symbol
+import org.jetbrains.kotlin.analysis.api.types.type
 import org.jetbrains.kotlin.idea.base.analysis.api.utils.shortenReferences
 import org.jetbrains.kotlin.idea.base.facet.platform.platform
 import org.jetbrains.kotlin.idea.base.psi.replaced
@@ -74,7 +72,8 @@ internal class AddThrowsAnnotationIntention : KotlinApplicableModCommandAction<K
         return true
     }
 
-    override fun KaSession.prepareContext(element: KtThrowExpression): Context? {
+    context(session: KaSession)
+    override fun prepareContext(element: KtThrowExpression): Context? {
         val type = element.thrownExpression?.expressionType ?: return null
         if (type.symbol?.visibility == LOCAL) {
             // Can't expose local declaration in the `throws` clause
@@ -100,8 +99,7 @@ internal class AddThrowsAnnotationIntention : KotlinApplicableModCommandAction<K
 
         if (firstArgument is KtCallExpression) {
             // Annotation arguments should be constants, so function calls are not allowed (except `arrayOf`)
-            val functionCall = firstArgument.resolveToCall()?.successfulFunctionCallOrNull() ?: return null
-            val fqName = functionCall.symbol.callableId?.asSingleFqName() ?: return null
+            val fqName = firstArgument.resolveSuccessfulSymbol()?.callableId?.asSingleFqName() ?: return null
             if (fqName != KOTLIN_ARRAY_OF_FQ_NAME) return null
         }
 
@@ -169,7 +167,6 @@ internal class AddThrowsAnnotationIntention : KotlinApplicableModCommandAction<K
     }
 }
 
-@OptIn(KaExperimentalApi::class)
 context(_: KaSession)
 private fun KaType.asAnnotationArgumentText(): String {
     // Account for typealiases: we want to render `RuntimeException` instead of `java.lang.RuntimeException`

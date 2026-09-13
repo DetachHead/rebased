@@ -116,4 +116,11 @@ public interface StatusBarWidgetFactory {
   default boolean isConfigurable() {
     return true;
   }
+
+  /**
+   * @return whether it is shown only in internal mode for development purposes
+   */
+  default boolean isInternal() {
+    return false;
+  }
 }

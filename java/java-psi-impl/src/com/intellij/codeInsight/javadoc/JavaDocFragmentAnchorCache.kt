@@ -5,6 +5,8 @@ import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
 import com.intellij.openapi.project.Project
 import com.intellij.psi.PsiClass
+import com.intellij.psi.PsiElement
+import com.intellij.psi.impl.compiled.ClsClassImpl
 import com.intellij.psi.javadoc.PsiDocComment
 import com.intellij.psi.javadoc.PsiDocFragmentName
 import com.intellij.psi.util.CachedValueProvider.Result
@@ -28,10 +30,11 @@ private class JavaDocFragmentCacheService {
   fun getAnchors(project: Project, psiClass: PsiClass): LinkedHashSet<JavaDocFragmentData> {
     val manager = CachedValuesManager.getManager(project)
     return manager.getCachedValue(psiClass) {
+      val targetClass = getMaybeSourceClass(psiClass)
       val result = LinkedHashSet<JavaDocFragmentData>().apply {
-        addAll(findIdsFromComment(psiClass.docComment))
-        for (method in psiClass.methods) addAll(findIdsFromComment(method.docComment))
-        for (field in psiClass.fields) addAll(findIdsFromComment(field.docComment))
+        addAll(findIdsFromComment(targetClass.docComment))
+        for (method in targetClass.methods) addAll(findIdsFromComment(method.docComment))
+        for (field in targetClass.fields) addAll(findIdsFromComment(field.docComment))
       }
       Result.create(result, PsiModificationTracker.MODIFICATION_COUNT)
     }
@@ -39,20 +42,26 @@ private class JavaDocFragmentCacheService {
 
   private fun findIdsFromComment(docComment: PsiDocComment?): List<JavaDocFragmentData> {
     val text = docComment?.text ?: return listOf()
-    if (" id=" !in text && " ID=" !in text) return listOf()
-    val offset = docComment.textOffset
-    return findIdsFromText(text)
-      .map { JavaDocFragmentData(it.name, it.offset + offset) }
+    return listOf(findIdsFromText(text, docComment.textOffset), findIdsFromSystemProperties(docComment)).flatten()
   }
 
-  private fun findIdsFromText(docText: String): List<JavaDocFragmentData> {
+  /** Collect usages of `{@systemProperty ...}` tags as ids since the `javadoc` tool creates ids from them */
+  private fun findIdsFromSystemProperties(docComment: PsiDocComment): List<JavaDocFragmentData> {
+    val properties = PsiDocComment.findInlineTagByName(docComment, "systemProperty")
+    return properties.filter { it.valueElement != null }.map {
+      JavaDocFragmentData(it.valueElement!!.text, it.textOffset)
+    }
+  }
+
+  private fun findIdsFromText(docText: String, offset: Int): List<JavaDocFragmentData> {
+    if (" id=" !in docText && " ID=" !in docText) return listOf()
     val results = ArrayList<JavaDocFragmentData>()
     val matcher = ID_PATTERN.matcher(docText)
 
     while (matcher.find()) {
       val id = matcher.group(1)
       if (id != null && !id.isBlank()) {
-        results.add(JavaDocFragmentData(id, matcher.start(1)))
+        results.add(JavaDocFragmentData(id, offset + matcher.start(1)))
       }
     }
 
@@ -78,4 +87,15 @@ fun resolveJavaDocFragment(project: Project, fragmentName: PsiDocFragmentName): 
              ?: return null
 
   return psiClass to data
+}
+
+/** Returns the source class if available for a given compiled class */
+fun getMaybeSourceClass(clazz: PsiClass): PsiClass {
+  if (clazz is ClsClassImpl) {
+    val navigationClass: PsiElement = clazz.getNavigationElement()
+    if (navigationClass is PsiClass) {
+      return navigationClass
+    }
+  }
+  return clazz
 }

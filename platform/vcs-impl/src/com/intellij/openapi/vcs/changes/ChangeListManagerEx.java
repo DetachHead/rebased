@@ -2,9 +2,11 @@
 package com.intellij.openapi.vcs.changes;
 
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.vcs.VcsException;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.util.concurrency.annotations.RequiresBackgroundThread;
 import com.intellij.util.concurrency.annotations.RequiresEdt;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
@@ -14,12 +16,15 @@ import org.jetbrains.concurrency.Promise;
 import java.util.Collection;
 import java.util.List;
 
+@ApiStatus.Experimental
 public abstract class ChangeListManagerEx extends ChangeListManager {
   public static @NotNull ChangeListManagerEx getInstanceEx(@NotNull Project project) {
     return (ChangeListManagerEx)getInstance(project);
   }
 
   public abstract boolean isInUpdate();
+
+  public abstract @Nullable VcsException getUpdateException();
 
   public abstract @NotNull Collection<LocalChangeList> getAffectedLists(@NotNull Collection<? extends Change> changes);
 

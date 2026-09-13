@@ -30,6 +30,7 @@
     'static com.intellij.mermaid.lang.lexer.MermaidTokens.Sankey.*'
     'static com.intellij.mermaid.lang.lexer.MermaidTokens.XYChart.*'
     'static com.intellij.mermaid.lang.lexer.MermaidTokens.Block.*'
+    'static com.intellij.mermaid.lang.lexer.MermaidTokens.Generic.*'
     'static com.intellij.mermaid.lang.parser.ParserUtils.*'
   ]
   generateTokens=false
@@ -60,6 +61,7 @@ private oldDiagram ::= pieHeader EOL* [pieBody]
   | quadrantHeader EOL* [quadrantBody]
   | xyChartHeader EOL* [xyChartBody]
   | blockDiagramHeader EOL* [blockDiagramBody]
+  | genericHeader EOL* [genericBody]
 
 private newDiagram ::= ZEN_UML
   | sankeyHeader EOL* [sankeyBody]
@@ -130,10 +132,15 @@ private flowchartStatement ::= vertexStatement (SEMICOLON vertexStatement)*
 
 private separator ::= EOL | SEMICOLON
 vertexStatement ::= nodeStatement [flowchartLinkStatement vertexStatement]
-flowchartLinkStatement ::= START_ARROW complexLinkText ARROW | ARROW [SEP complexLinkText SEP]
+flowchartLinkStatement ::= [edgeId] (START_ARROW complexLinkText ARROW | ARROW [SEP complexLinkText SEP])
+// mermaid 11.5+: `A e1@--> B` names the edge so it can be styled or animated later.
+edgeId ::= ID EDGE_ID_MARKER
 nodeStatement ::= (styledVertex | vertex)  [AMPERSAND nodeStatement]
 styledVertex ::= vertex STYLE_SEPARATOR STYLE_TARGET
-vertex ::= complexIdentifier [vertexText]
+// A node carries either the classic bracket shape or `@{ ... }` metadata, not both. Standalone
+// `e1@{ animate: true }` lines land here too: an id plus metadata is the same shape, and only the id's
+// meaning differs.
+vertex ::= complexIdentifier [metadata | vertexText]
 vertexText ::= OPEN_SQUARE nodeText CLOSE_SQUARE
   | OPEN_ROUND nodeText CLOSE_ROUND
   | STADIUM_START nodeText STADIUM_END
@@ -148,6 +155,22 @@ vertexText ::= OPEN_SQUARE nodeText CLOSE_SQUARE
   | TRAP_START nodeText TRAP_END
   | INV_TRAP_START nodeText INV_TRAP_END
   | DOUBLE_CIRCLE_START nodeText DOUBLE_CIRCLE_END
+
+// `A@{ shape: rect, label: "Hello" }` (mermaid 11.3+). Shared with sequence participants and actors
+// (`participant Alice@{ "type": "boundary" }`, 11.13+), which is why keys may be quoted as well as bare.
+//
+// Entries are separated by a comma or by a newline, matching how mermaid reads the mapping: on one line the
+// separator is the comma, and when it is spread over several lines the newline separates them and a trailing
+// comma would be taken as part of the value ("No such shape: rounded,").
+metadata ::= METADATA_START EOL* [metadataEntries] METADATA_END
+// One separator rule covering both spellings rather than two alternatives: written as
+// `EOL* COMMA EOL* | EOL+` the two share a leading `EOL*`, and the first alternative consuming the newline
+// before failing on the missing comma stops the second from being tried at all.
+private metadataEntries ::= metadataEntry ((EOL | COMMA)+ metadataEntry)* EOL*
+// Named metadataEntryValue, not metadataValue: the generated element type would otherwise collide with
+// the METADATA_VALUE token, and both are static-imported into the generated parser.
+metadataEntry ::= (METADATA_KEY | string) COLON metadataEntryValue
+metadataEntryValue ::= METADATA_VALUE | string
 
 nodeText ::=
     (maybeEmptyQuotedNodeText | maybeEmptyMdText) ALIAS+
@@ -196,7 +219,12 @@ classDefStatement ::= CLASS_DEF (STYLE_TARGET | DEFAULT) styleOptions
 
 flowchartClassStatement ::= CLASS identifier (COMMA identifier)* STYLE_TARGET
 
-styleOptions ::= STYLE_OPT COLON STYLE_VAL (COMMA STYLE_OPT COLON STYLE_VAL)*
+// STYLE_VAL+ rather than a single token: a CSS value may contain commas (`stroke-dasharray: 9,5`), and the
+// lexer emits those commas as value fragments rather than declaration separators, so a value arrives as
+// several adjacent tokens.
+styleOptions ::= styleDeclaration (COMMA styleDeclaration)*
+// The value is optional because mermaid accepts a declaration with no colon at all.
+styleDeclaration ::= STYLE_OPT [COLON STYLE_VAL+]
 
 
 sequenceHeader ::= SEQUENCE
@@ -232,7 +260,7 @@ deactivateStatement ::= DEACTIVATE complexIdentifier
 
 idAlias ::= ALIAS+
 
-actorStatement ::= [CREATE] (PARTICIPANT | ACTOR) complexIdentifier [AS idAlias]
+actorStatement ::= [CREATE] (PARTICIPANT | ACTOR) complexIdentifier [metadata] [AS idAlias]
   | DESTROY complexIdentifier
 
 signalStatement ::= complexIdentifier signal complexIdentifier COLON complexMessage
@@ -316,6 +344,7 @@ private classDiagramStatement ::= directionStatement
   | classDiagramClickStatement
   | accStatement
   | styleStatement
+  | classDefStatement
 
 classDiagramIdentifier ::= CLASS_ID+ | BACK_QUOTE quotedClassIdentifier BACK_QUOTE {
   mixin="com.intellij.mermaid.lang.psi.impl.MermaidNamedPsiElement"
@@ -325,7 +354,10 @@ quotedClassIdentifier ::= STRING_VALUE {
 }
 
 classStatement ::= classHeader [classBlock]
-classHeader ::= CLASS classDiagramIdentifier [generic] [classLabel] [STYLE_SEPARATOR ID] { implements="com.intellij.mermaid.lang.psi.MermaidClassDiagramIdentifierDeclarationHolder" }
+// The trailing annotation is `class Shape <<interface>>`, the one-line alternative to a separate
+// `<<interface>> Shape` statement (which annotationStatement already covers). The lexer already enters
+// the annotation state from pre_generic_class_diagram, so only the rule was missing.
+classHeader ::= CLASS classDiagramIdentifier [generic] [classLabel] [annotation] [STYLE_SEPARATOR ID] { implements="com.intellij.mermaid.lang.psi.MermaidClassDiagramIdentifierDeclarationHolder" }
 classBlock ::= OPEN_CURLY EOL* classMembers? CLOSE_CURLY { implements="com.intellij.mermaid.lang.psi.MermaidDiagramBlock" }
 classLabel ::= OPEN_SQUARE maybeEmptyString CLOSE_SQUARE
 
@@ -369,12 +401,15 @@ genericTypeId ::= GENERIC_TYPE+ {
 }
 
 namespaceStatement ::= namespaceHeader [namespaceBlock]
-namespaceHeader ::= NAMESPACE namespaceIdentifier
+// The optional label is `namespace Auth["Authentication Service"]`.
+namespaceHeader ::= NAMESPACE namespaceIdentifier [namespaceLabel]
+namespaceLabel ::= OPEN_SQUARE string CLOSE_SQUARE
 namespaceIdentifier ::= CLASS_ID+ { mixin="com.intellij.mermaid.lang.psi.impl.MermaidNamedPsiElement" }
 namespaceBlock ::= OPEN_CURLY EOL* namespaceStatements? CLOSE_CURLY { implements="com.intellij.mermaid.lang.psi.MermaidDiagramBlock" }
 private namespaceStatements ::= namespaceLines
 private namespaceLines ::= namespaceLine [namespaceLines]
-private namespaceLine ::= classStatement [EOL] | EOL
+// Namespaces nest as of mermaid 11.15, so a namespace body may contain further namespaces.
+private namespaceLine ::= classStatement [EOL] | namespaceStatement [EOL] | EOL
 
 relation ::= [cardinality] [relationTypeLeft] lineType [relationTypeRight] [cardinality]
 cardinality ::= maybeEmptyString
@@ -454,21 +489,38 @@ erHeader ::= ENTITY_RELATIONSHIP
 erBody ::= erLines { implements="com.intellij.mermaid.lang.psi.MermaidDiagramBlock" }
 private erLines ::= erLine [erLines]
 private erLine ::= erStatement [EOL] | EOL
-private erStatement ::= erRelationStatement
+private erStatement ::= erSubgraphStatement
+  | erRelationStatement
   | entityDeclaration
-  | erIdentifier [erIdentifierAlias]
+  | erIdentifier [erStyleClass] [erIdentifierAlias]
   | directive
   | accStatement
+  | styleStatement
+  | classDefStatement
+  | flowchartClassStatement
+  | directionStatement
 
-erRelationStatement ::= erIdentifier relationship erIdentifier COLON (complexLabel | maybeEmptyString)
+erRelationStatement ::= erIdentifier [erStyleClass] relationship erIdentifier [erStyleClass] COLON (complexLabel | maybeEmptyString)
 
 erIdentifier ::= ID | string {
   mixin="com.intellij.mermaid.lang.psi.impl.MermaidNamedPsiElement"
 }
 
-erIdentifierAlias ::= OPEN_SQUARE (ID | string) CLOSE_SQUARE
+// Free text rather than a single token: entity aliases are quoted (`PERSON["Person Entity"]`), but the
+// subgraph titles added in mermaid 11.17 are not (`subgraph id1 [title 1]`).
+erIdentifierAlias ::= OPEN_SQUARE (complexLabel | maybeEmptyString) CLOSE_SQUARE
 
-entityDeclaration ::= erIdentifier [erIdentifierAlias] erEntityBlock
+// erDiagram subgraphs, mermaid 11.17. Modelled on the flowchart ones, and nesting the same way: the block
+// is the ordinary line list, which already includes this rule and `direction`, and stops at END because no
+// statement starts with it.
+erSubgraphStatement ::= erSubgraphHeader erSubgraphBlock? END { implements="com.intellij.mermaid.lang.psi.MermaidFoldableElement" }
+erSubgraphHeader ::= SUBGRAPH erIdentifier [erIdentifierAlias]
+erSubgraphBlock ::= erLines { implements="com.intellij.mermaid.lang.psi.MermaidDiagramBlock" }
+// `PERSON:::someclass` attaches a classDef class. Kept out of erIdentifier so the identifier's own text
+// stays just the name, which is what the named-element mixin exposes to rename and find-usages.
+erStyleClass ::= STYLE_SEPARATOR ID
+
+entityDeclaration ::= erIdentifier [erStyleClass] [erIdentifierAlias] erEntityBlock
 
 relationship ::= erCardinality (IDENTIFYING | NON_IDENTIFYING) erCardinality
 private erCardinality ::= ZERO_OR_ONE | ONE_OR_MORE | ZERO_OR_MORE | ONLY_ONE | MD_PARENT
@@ -492,6 +544,7 @@ private ganttLine ::= ganttStatement [IGNORED] [EOL] | [IGNORED] EOL
 private ganttStatement ::= ganttDateFormatStatement
   | titleStatement
   | ganttExcludesStatement
+  | ganttWeekendStatement
   | ganttIncludesStatement
   | ganttAxisFormatStatement
   | ganttTodayMarkerStatement
@@ -516,6 +569,8 @@ private ganttSectionInnerStatement ::= ganttDataStatement
 
 ganttDateFormatStatement ::= DATE_FORMAT GANTT_VALUE+
 ganttExcludesStatement ::= EXCLUDES GANTT_VALUE+
+// `weekend friday` names which day counts as the weekend (mermaid 11.16).
+ganttWeekendStatement ::= WEEKEND GANTT_VALUE+
 ganttIncludesStatement ::= INCLUDES GANTT_VALUE+
 ganttAxisFormatStatement ::= AXIS_FORMAT GANTT_VALUE+
 ganttTodayMarkerStatement ::= TODAY_MARKER GANTT_VALUE+
@@ -534,6 +589,10 @@ private requirementStatement ::= requirementDef
   | relationshipDef
   | directive
   | accStatement
+  | styleStatement
+  | classDefStatement
+  | flowchartClassStatement
+  | directionStatement
 
 requirementDef ::= requirementHeader requirementBlock
 requirementType ::= REQUIREMENT
@@ -542,7 +601,8 @@ requirementType ::= REQUIREMENT
   | PERFORMANCE_REQUIREMENT
   | PHYSICAL_REQUIREMENT
   | DESIGN_CONSTRAINT
-requirementHeader ::= requirementType identifier
+// The name may be quoted, which is how markdown formatting gets into it: `requirement "__test_req__"`.
+requirementHeader ::= requirementType (identifier | string) [erStyleClass]
 private requirementValue ::= complexLabel | string
 
 requirementBlock ::= OPEN_CURLY EOL+ requirementBlockLines? CLOSE_CURLY { implements="com.intellij.mermaid.lang.psi.MermaidDiagramBlock" }
@@ -844,7 +904,11 @@ private quadrantStatement ::= titleStatement
   | axisDetailsStatement
   | quadrantDetailsStatement
 
-pointStatement ::= quadrantComplexText COLON point
+pointStatement ::= quadrantComplexText COLON point [pointRadius]
+// `radius: 12` after the coordinates sizes the point (mermaid 11.16).
+// The value is a QUADRANT_TEXT, not NUM: numbers are only lexed as NUM inside the coordinate brackets,
+// and outside them the quadrant body has a single catch-all text token.
+pointRadius ::= RADIUS COLON QUADRANT_TEXT
 point ::= OPEN_SQUARE NUM COMMA NUM CLOSE_SQUARE
 
 axisDetailsStatement ::= (X_AXIS | Y_AXIS) (quadrantComplexText) [ARROW quadrantComplexText?]
@@ -908,7 +972,9 @@ private yAxisData ::= xyChartText* arrowData
 lineStatement ::= LINE_KEYWORD [xyChartText] plotData
 barStatement ::= BAR_KEYWORD [xyChartText] plotData
 
-plotData ::= OPEN_SQUARE (NUM (COMMA NUM)*) CLOSE_SQUARE
+// mermaid 11.16 allows a label on individual points: `line [25 "Launch", 45, 72, 90 "Target Hit"]`.
+plotData ::= OPEN_SQUARE (plotPoint (COMMA plotPoint)*) CLOSE_SQUARE
+plotPoint ::= NUM [string]
 bandData ::= OPEN_SQUARE (xyChartText (COMMA xyChartText)*) CLOSE_SQUARE
 arrowData ::= NUM ARROW NUM
 private xyChartText ::= XY_CHART_TEXT | maybeEmptyString | maybeEmptyMdText
@@ -929,6 +995,25 @@ private blockDiagramStatement ::= directive
   | classDefStatement
   | flowchartClassStatement
   | styleStatement
+
+// Families mermaid renders but this grammar does not model in detail (packet, architecture, kanban,
+// radar, treemap, treeView, venn, wardley, ishikawa, eventmodeling, cynefin, railroad*, info). The body
+// is intentionally shapeless: the goal is only that the file stops being reported as one long error,
+// while comments, frontmatter, directives, accessibility statements and the preview keep working.
+// Replace a family's entry here with a real grammar when one is written.
+//
+// Attached to oldDiagram, so interleaved `%%{...}%%` directives are accepted: mermaid strips directives
+// in preprocessDiagram() before the diagram is ever detected or parsed, so they are valid for every
+// diagram type regardless of how new it is.
+genericHeader ::= GENERIC_DIAGRAM
+
+genericBody ::= genericLines { implements="com.intellij.mermaid.lang.psi.MermaidDiagramBlock" }
+private genericLines ::= genericLine [genericLines]
+private genericLine ::= genericStatement [separator] | separator
+private genericStatement ::= directive
+  | accStatement
+  | genericContent
+genericContent ::= (GENERIC_TEXT | string)+
 
 blockDiagramComplexStatement ::= (blockDiagramNodeStatementInner | spaceStatementInner) (blockDiagramNodeStatementInner | spaceStatementInner)+
 
@@ -986,7 +1071,11 @@ complexAccDescrMultilineValue ::= ACC_DESCR_MULTILINE_VALUE+ [EOL] | EOL
 string ::= DOUBLE_QUOTE STRING_VALUE DOUBLE_QUOTE
 private maybeEmptyString ::= DOUBLE_QUOTE DOUBLE_QUOTE | string
 
-complexIdentifier ::= ID+ {
+// The not-predicate stops an identifier from absorbing a following edge id: in `A e1@--> B` the two IDs
+// are adjacent, and without it `ID+` takes both, so the identifier becomes "A e1" and resolve, rename
+// and find-usages all see a name that does not exist. EDGE_ID_MARKER only occurs in flowcharts, so this
+// is inert for every other diagram that shares this rule.
+complexIdentifier ::= (ID !EDGE_ID_MARKER)+ {
   mixin="com.intellij.mermaid.lang.psi.impl.MermaidNamedPsiElement"
 }
 identifier ::= ID {

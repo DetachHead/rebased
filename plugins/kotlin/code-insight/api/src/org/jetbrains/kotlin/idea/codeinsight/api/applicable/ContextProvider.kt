@@ -1,11 +1,10 @@
 // Copyright 2000-2022 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.kotlin.idea.codeinsight.api.applicable
 
-import org.jetbrains.kotlin.analysis.api.KaExperimentalApi
 import org.jetbrains.kotlin.analysis.api.KaSession
-import org.jetbrains.kotlin.analysis.api.analyze
-import org.jetbrains.kotlin.analysis.api.analyzeCopy
 import org.jetbrains.kotlin.analysis.api.projectStructure.copyOrigin
+import org.jetbrains.kotlin.analysis.api.session.analyze
+import org.jetbrains.kotlin.analysis.api.session.analyzeCopy
 import org.jetbrains.kotlin.idea.codeinsight.api.applicable.extensions.KaDanglingFileResolutionModeProvider
 import org.jetbrains.kotlin.psi.KtElement
 
@@ -29,10 +28,10 @@ interface ContextProvider<E : KtElement, C : Any> {
      *
      * @param element a physical PSI
      */
-    fun KaSession.prepareContext(element: E): C?
+    context(session: KaSession)
+    fun prepareContext(element: E): C?
 }
 
-@OptIn(KaExperimentalApi::class)
 fun <E : KtElement, C : Any> ContextProvider<E, C>.getElementContext(
     element: E,
 ): C? = if (element.containingFile.copyOrigin == null) analyze(element) {

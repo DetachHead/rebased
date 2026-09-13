@@ -16,6 +16,7 @@
 package com.jetbrains.python.inspections;
 
 import com.intellij.codeInspection.LocalInspectionToolSession;
+import com.intellij.codeInspection.ProblemHighlightType;
 import com.intellij.codeInspection.ProblemsHolder;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiElementVisitor;
@@ -60,7 +61,11 @@ public final class PyAttributeOutsideInitInspection extends PyInspection {
   public @NotNull PsiElementVisitor buildVisitor(@NotNull ProblemsHolder holder,
                                                  boolean isOnTheFly,
                                                  @NotNull LocalInspectionToolSession session) {
-    return new Visitor(holder, PyInspectionVisitor.getContext(session));
+    TypeEvalContext context = PyInspectionVisitor.getContext(session);
+    if (context.getUsesExternalTypeEngine()) {
+      return PsiElementVisitor.EMPTY_VISITOR;
+    }
+    return new Visitor(holder, context);
   }
 
 
@@ -122,11 +127,13 @@ public final class PyAttributeOutsideInitInspection extends PyInspection {
           if (assignedValue == null) continue;
 
           if (expressionReferencesLocalName(assignedValue, node)) {
-            registerProblem(attribute, PyPsiBundle.message("INSP.attribute.outside.init", attributeName),
+            registerProblem(attribute, PyPsiBundle.problemMessage("INSP.attribute.outside.init", attributeName),
+                            ProblemHighlightType.GENERIC_ERROR_OR_WARNING,
                             new AddFieldQuickFix(attributeName, "None", containingClass.getName(), false));
           }
           else {
-            registerProblem(attribute, PyPsiBundle.message("INSP.attribute.outside.init", attributeName),
+            registerProblem(attribute, PyPsiBundle.problemMessage("INSP.attribute.outside.init", attributeName),
+                            ProblemHighlightType.GENERIC_ERROR_OR_WARNING,
                             new PyMoveAttributeToInitQuickFix(),
                             new AddFieldQuickFix(attributeName, "None", containingClass.getName(), false));
           }

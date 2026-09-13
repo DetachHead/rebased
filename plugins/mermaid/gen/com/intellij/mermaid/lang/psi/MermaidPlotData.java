@@ -7,4 +7,7 @@ import com.intellij.psi.PsiElement;
 
 public interface MermaidPlotData extends MermaidPsiElement {
 
+  @NotNull
+  List<MermaidPlotPoint> getPlotPointList();
+
 }

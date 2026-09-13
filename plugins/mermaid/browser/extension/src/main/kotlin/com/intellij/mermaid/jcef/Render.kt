@@ -3,7 +3,9 @@ package com.intellij.mermaid.jcef
 import com.intellij.mermaid.api.Mermaid
 import com.intellij.mermaid.api.MermaidRenderResult
 import com.intellij.mermaid.api.appendTo
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.await
+import kotlinx.coroutines.withContext
 import org.w3c.dom.Element
 import org.w3c.dom.asList
 
@@ -29,19 +31,24 @@ suspend fun renderBlock(
 
   val id = "mermaid-generated-$cacheId"
   try {
-    // Remove when `mermaid.render` will throw correct error messages
-    Mermaid.core.parse(content).await()
-
-    val renderResult = Mermaid.core.render(id, content).await()
+    // Never cancel a render mid-flight: mermaid uses shared global state and returns a promise that
+    // can't be aborted, so an overlapping follow-up render (see markdownExtensionMain) would corrupt it.
+    val renderResult = withContext(NonCancellable) {
+      // Remove when `mermaid.render` will throw correct error messages
+      Mermaid.core.parse(content).await()
+      Mermaid.core.render(id, content).await()
+    }
     renderResult.appendTo(block)
     val node = block.findSvgElement()
     checkNotNull(node) { "Failed to find svg node after append" }
 
     node.updatePieDiagramViewBox()
     node.convertExplicitHeightAndWidthAttributesToStyle()
+    node.recordNaturalWidth()
 
     nodeToLastValidHtml[block] = block.innerHTML
     renderResult.svg = block.innerHTML
+    applyZoom(block)
     return renderResult
   } catch (exception: Throwable) {
     console.error("Error while generating blocks:\n", exception)
@@ -50,7 +57,7 @@ suspend fun renderBlock(
   return null
 }
 
-private fun Element.findSvgElement(): Element? {
+internal fun Element.findSvgElement(): Element? {
   return findChildElement { it.nodeName == "svg" }
 }
 
@@ -64,6 +71,24 @@ private fun Element.convertExplicitHeightAndWidthAttributesToStyle() {
   setAttribute("style", "max-width: ${width}px;")
 }
 
+private val maxWidthPx = Regex("""max-width:\s*([\d.]+)px""")
+
+private fun Element.recordNaturalWidth() {
+  val width = findNaturalWidth()
+  if (width == null) {
+    console.warn("Could not determine the natural width of a mermaid diagram, so it will not be zoomable", this)
+    return
+  }
+  setAttribute("data-natural-width", width.toString())
+}
+
+private fun Element.findNaturalWidth(): Double? {
+  getAttribute("style")?.let { maxWidthPx.find(it)?.groupValues?.get(1)?.toDoubleOrNull() }?.let { return it }
+  getAttribute("width")?.toDoubleOrNull()?.let { return it }
+  getAttribute("viewBox")?.split(' ', ',')?.filter(String::isNotBlank)?.getOrNull(2)?.toDoubleOrNull()?.let { return it }
+  return getBoundingClientRect().width.takeIf { it > 0.0 }
+}
+
 private fun Element.updatePieDiagramViewBox() {
   if (getAttribute("aria-roledescription") != "pie") return
 
@@ -72,7 +97,8 @@ private fun Element.updatePieDiagramViewBox() {
   val height = getAttribute("viewBox")?.split(" ")?.lastOrNull()
   removeAttribute("viewBox")
   val rect = childElement.getBoundingClientRect()
-  setAttribute("viewBox", "0 0 ${rect.right} ${height ?: rect.bottom}")
+  val origin = getBoundingClientRect()
+  setAttribute("viewBox", "0 0 ${rect.right - origin.left} ${height ?: rect.bottom - origin.top}")
 }
 
 private fun Element.findChildElement(predicate: (Element) -> Boolean): Element? {

@@ -51,9 +51,13 @@ public final class GitRepositoryFiles {
   private static final @NonNls String REMOTES = "remotes";
   private static final @NonNls String SQUASH_MSG = "SQUASH_MSG";
   private static final @NonNls String HOOKS = "hooks";
-  private static final @NonNls String PRE_COMMIT_HOOK = "pre-commit";
-  private static final @NonNls String PRE_PUSH_HOOK = "pre-push";
-  private static final @NonNls String COMMIT_MSG_HOOK = "commit-msg";
+  /**
+   * Names of the files in the hookdir, which are also the names of the corresponding hook events
+   * used by the config-based hooks, see {@link GitConfig#getConfiguredHookEvents()}.
+   */
+  static final @NonNls String PRE_COMMIT_HOOK = "pre-commit";
+  static final @NonNls String PRE_PUSH_HOOK = "pre-push";
+  static final @NonNls String COMMIT_MSG_HOOK = "commit-msg";
   private static final @NonNls String SHALLOW = "shallow";
   private static final @NonNls String LOGS = "logs";
   private static final @NonNls String STASH = "stash";
@@ -183,6 +187,21 @@ public final class GitRepositoryFiles {
    */
   public @NotNull VirtualFile getWorktreeGitDir() {
     return myWorktreeDir;
+  }
+
+  /**
+   * The '.git' directory shared by all working trees of the underlying git repository
+   * (what {@code git rev-parse --git-common-dir} reports):
+   * <ul>
+   *   <li>a regular repository and each of its linked worktrees: {@code <root>/.git};</li>
+   *   <li>a bare repository and each of its worktrees: the bare {@code <root>/.git};</li>
+   *   <li>a submodule and each of its linked worktrees: {@code <parent>/.git/modules/<submodule>}.</li>
+   * </ul>
+   * Unlike {@link #getWorktreeGitDir()}, this is equal for every working tree of the same repository, which makes it
+   * the identity of that repository.
+   */
+  public @NotNull VirtualFile getCommonGitDir() {
+    return myMainDir;
   }
 
   /**

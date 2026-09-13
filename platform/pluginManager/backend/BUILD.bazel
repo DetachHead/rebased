@@ -1,7 +1,7 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
 ### auto-generated section `build intellij.platform.pluginManager.backend` start
-
 jvm_library(
     name = "backend",
     srcs = glob(
@@ -36,8 +36,11 @@ jvm_library(
         "//platform/platform-impl/update-checker",
         "//platform/ide-core",
         "//fleet/rhizomedb",
+        "//platform/pluginManager/shared.base",
     ],
 )
+
+content_module_jar(module = ":backend")
 
 jvm_library(
     name = "backend_test_lib",
@@ -66,6 +69,7 @@ jvm_library(
         "//platform/platform-impl/update-checker:update-checker_test_lib",
         "//platform/ide-core:ide-core_test_lib",
         "//fleet/rhizomedb:rhizomedb_test_lib",
+        "//platform/pluginManager/shared.base:shared.base_test_lib",
     ],
 )
 ### auto-generated section `build intellij.platform.pluginManager.backend` end
@@ -74,6 +78,8 @@ jvm_library(
 exports_files(
     [
         "intellij.platform.pluginManager.backend.iml",
+        "resources/intellij.platform.pluginManager.backend.xml",
+        "module-content.yaml",
     ],
     visibility = ["//visibility:public"],
 )

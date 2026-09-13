@@ -22,6 +22,23 @@ public abstract class SharedK2InspectionTestGenerated extends AbstractSharedK2In
     @TestMetadata("testData/inspections")
     public abstract static class Inspections extends AbstractSharedK2InspectionTest {
         @RunWith(JUnit3RunnerWithInners.class)
+        @TestMetadata("testData/inspections/concatenationToBuildCollection")
+        public abstract static class ConcatenationToBuildCollection extends AbstractSharedK2InspectionTest {
+            @RunWith(JUnit3RunnerWithInners.class)
+            @TestMetadata("testData/inspections/concatenationToBuildCollection/inspectionData")
+            public static class InspectionData extends AbstractSharedK2InspectionTest {
+                private void runTest(String testDataFilePath) throws Exception {
+                    KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
+                }
+
+                @TestMetadata("inspections.test")
+                public void testInspections_test() throws Exception {
+                    runTest("testData/inspections/concatenationToBuildCollection/inspectionData/inspections.test");
+                }
+            }
+        }
+
+        @RunWith(JUnit3RunnerWithInners.class)
         @TestMetadata("testData/inspections/constantConditionIf")
         public abstract static class ConstantConditionIf extends AbstractSharedK2InspectionTest {
             @RunWith(JUnit3RunnerWithInners.class)
@@ -483,6 +500,40 @@ public abstract class SharedK2InspectionTestGenerated extends AbstractSharedK2In
                     @TestMetadata("inspections.test")
                     public void testInspections_test() throws Exception {
                         runTest("testData/inspections/unusedImport/basic/inspectionData/inspections.test");
+                    }
+                }
+            }
+
+            @RunWith(JUnit3RunnerWithInners.class)
+            @TestMetadata("testData/inspections/unusedImport/contextSensitiveResolution")
+            public abstract static class ContextSensitiveResolution extends AbstractSharedK2InspectionTest {
+                @RunWith(JUnit3RunnerWithInners.class)
+                @TestMetadata("testData/inspections/unusedImport/contextSensitiveResolution/inspectionData")
+                public static class InspectionData extends AbstractSharedK2InspectionTest {
+                    private void runTest(String testDataFilePath) throws Exception {
+                        KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
+                    }
+
+                    @TestMetadata("inspections.test")
+                    public void testInspections_test() throws Exception {
+                        runTest("testData/inspections/unusedImport/contextSensitiveResolution/inspectionData/inspections.test");
+                    }
+                }
+            }
+
+            @RunWith(JUnit3RunnerWithInners.class)
+            @TestMetadata("testData/inspections/unusedImport/contextSensitiveResolutionDisabled")
+            public abstract static class ContextSensitiveResolutionDisabled extends AbstractSharedK2InspectionTest {
+                @RunWith(JUnit3RunnerWithInners.class)
+                @TestMetadata("testData/inspections/unusedImport/contextSensitiveResolutionDisabled/inspectionData")
+                public static class InspectionData extends AbstractSharedK2InspectionTest {
+                    private void runTest(String testDataFilePath) throws Exception {
+                        KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
+                    }
+
+                    @TestMetadata("inspections.test")
+                    public void testInspections_test() throws Exception {
+                        runTest("testData/inspections/unusedImport/contextSensitiveResolutionDisabled/inspectionData/inspections.test");
                     }
                 }
             }

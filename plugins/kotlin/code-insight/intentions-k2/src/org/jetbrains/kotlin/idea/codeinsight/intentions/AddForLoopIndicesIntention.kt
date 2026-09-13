@@ -8,9 +8,8 @@ import com.intellij.modcommand.ModPsiUpdater
 import com.intellij.modcommand.Presentation
 import com.intellij.openapi.util.TextRange
 import org.jetbrains.kotlin.analysis.api.KaSession
-import org.jetbrains.kotlin.analysis.api.analyze
-import org.jetbrains.kotlin.analysis.api.resolution.successfulFunctionCallOrNull
-import org.jetbrains.kotlin.analysis.api.resolution.symbol
+import org.jetbrains.kotlin.analysis.api.session.analyze
+import org.jetbrains.kotlin.analysis.api.symbols.KaCallableSymbol
 import org.jetbrains.kotlin.config.LanguageFeature.DeprecateNameMismatchInShortDestructuringWithParentheses
 import org.jetbrains.kotlin.config.LanguageFeature.EnableNameBasedDestructuringShortForm
 import org.jetbrains.kotlin.config.LanguageFeature.NameBasedDestructuring
@@ -20,6 +19,7 @@ import org.jetbrains.kotlin.idea.base.psi.replaced
 import org.jetbrains.kotlin.idea.base.resources.KotlinBundle
 import org.jetbrains.kotlin.idea.codeinsight.api.applicable.intentions.KotlinApplicableModCommandAction
 import org.jetbrains.kotlin.idea.codeinsight.utils.ChooseStringExpression
+import org.jetbrains.kotlin.idea.util.resolveSuccessfulExpressionSymbol
 import org.jetbrains.kotlin.name.FqName
 import org.jetbrains.kotlin.psi.KtBlockExpression
 import org.jetbrains.kotlin.psi.KtExpression
@@ -61,11 +61,12 @@ class AddForLoopIndicesIntention :
         return element.loopRange != null
     }
 
-    override fun KaSession.prepareContext(element: KtForExpression): Context? {
+    context(session: KaSession)
+    override fun prepareContext(element: KtForExpression): Context? {
         val loopRange = element.loopRange ?: return null
         val loopParameter = element.loopParameter ?: return null
 
-        val resolvedCall = loopRange.resolveToCall()?.successfulFunctionCallOrNull()?.symbol?.callableId?.asSingleFqName()
+        val resolvedCall = (loopRange.resolveSuccessfulExpressionSymbol() as? KaCallableSymbol)?.callableId?.asSingleFqName()
         if (resolvedCall in WITH_INDEX_FQ_NAMES) return null
 
         val psiFactory = KtPsiFactory(element.project)
@@ -75,7 +76,10 @@ class AddForLoopIndicesIntention :
         ).getContentElement() ?: return null
 
         analyze(potentialExpression) {
-            val potentialResolvedCall = potentialExpression.resolveToCall()?.successfulFunctionCallOrNull()?.symbol?.callableId?.asSingleFqName()
+            val potentialResolvedCall =
+                (potentialExpression.resolveSuccessfulExpressionSymbol() as? KaCallableSymbol)
+                    ?.callableId
+                    ?.asSingleFqName()
             if (potentialResolvedCall !in WITH_INDEX_FQ_NAMES) return null
         }
 

@@ -1,8 +1,10 @@
-// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.jetbrains.python.sdk;
 
+import com.intellij.python.sdk.backend.PythonInterpreter;
+import com.intellij.python.sdk.backend.PythonInterpreterKt;
+import com.intellij.python.sdk.backend.PythonBinaryExtKt;
 import com.intellij.execution.configurations.GeneralCommandLine;
-import com.intellij.execution.target.TargetEnvironmentConfiguration;
 import com.intellij.ide.DataManager;
 import com.intellij.notification.Notification;
 import com.intellij.notification.NotificationListener;
@@ -35,6 +37,8 @@ import com.intellij.util.ExceptionUtil;
 import com.intellij.util.PlatformUtils;
 import com.intellij.util.concurrency.annotations.RequiresBackgroundThread;
 import com.intellij.util.containers.ContainerUtil;
+import com.intellij.python.sdk.backend.PythonInterpreterExtKt;
+import com.intellij.remote.RemoteSdkException;
 import com.jetbrains.python.PyBundle;
 import com.jetbrains.python.PyNames;
 import com.jetbrains.python.parser.icons.PythonParserIcons;
@@ -44,7 +48,6 @@ import com.jetbrains.python.sdk.flavors.CPythonSdkFlavor;
 import com.jetbrains.python.sdk.flavors.PythonSdkFlavor;
 import com.jetbrains.python.sdk.impl.SdkInternalUtilKt;
 import com.jetbrains.python.sdk.legacy.PythonSdkUtil;
-import com.jetbrains.python.target.PyDetectedSdkAdditionalData;
 import com.jetbrains.python.target.PyInterpreterVersionUtil;
 import com.jetbrains.python.target.PyTargetAwareAdditionalData;
 import com.jetbrains.python.venvReader.VirtualEnvReaderKt;
@@ -76,7 +79,6 @@ import java.util.Objects;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 
-import static com.intellij.execution.target.TargetBasedSdks.loadTargetConfiguration;
 import static com.intellij.platform.ide.progress.TasksKt.runWithModalProgressBlocking;
 import static com.jetbrains.python.statistics.PythonSDKUpdaterIdsHolder.REFRESH_SKELETONS_FOR_REMOTE_INTERPRETER_FAILED;
 
@@ -131,7 +133,7 @@ public final class PythonSdkType extends SdkType {
   /**
    * This function doesn't support remote SDKs.
    *
-   * @deprecated Use {@link SdkExtKt#isSdkSeemsValid(Sdk)}
+   * @deprecated Use {@link PythonInterpreterExtKt#getPythonInfo(PythonInterpreter)}
    */
   @Override
   @Deprecated
@@ -172,7 +174,8 @@ public final class PythonSdkType extends SdkType {
         if (files.length != 0) {
           VirtualFile file = files[0];
 
-          record ValidationResult(boolean isValid, boolean isDirectory) {}
+          record ValidationResult(boolean isValid, boolean isDirectory) {
+          }
 
           ValidationResult result = runWithModalProgressBlocking(
             ModalTaskOwner.guess(), PyBundle.message("modal.progress.title.path.validation"), TaskCancellation.cancellable(),
@@ -205,8 +208,11 @@ public final class PythonSdkType extends SdkType {
       @Override
       public boolean isFileSelectable(@Nullable VirtualFile file) {
         if (file == null) return false;
-        Path pythonPath = VirtualEnvReaderKt.VirtualEnvReader().findPythonInPythonRoot(file.toNioPath());
-        return pythonPath != null;
+        // A regular file may be a Python binary or a wrapper script (e.g. a .bat/.sh launching Python), so allow
+        // selecting any file and let validateSelectedFiles() reject the invalid ones (PY-89236). A directory is
+        // selectable only when it contains a Python binary (the folder-selection feature from PY-86247).
+        if (!file.isDirectory()) return true;
+        return VirtualEnvReaderKt.VirtualEnvReader().findPythonInPythonRoot(file.toNioPath()) != null;
       }
     }
       .withTitle(PyBundle.message("sdk.select.path"))
@@ -263,8 +269,22 @@ public final class PythonSdkType extends SdkType {
    */
   public static void patchEnvironmentVariablesForVirtualenv(@NotNull Map<String, String> environment,
                                                             @NotNull Sdk sdk) {
-    final Map<String, String> virtualEnv = PySdkUtil.activateVirtualEnv(sdk);
-    if (!virtualEnv.isEmpty()) {
+    applyActivationEnvironment(environment, SdkExtKt.activationEnvironmentBlocking(sdk).getSuccessOrNull());
+  }
+
+  /**
+   * Merges an activation environment that the caller already read into {@code environment}.
+   * <p>
+   * Use this method when the caller runs on the EDT and cannot call {@code SdkExtKt.activationEnvironmentBlocking},
+   * which needs a background thread.
+   *
+   * @param environment the environment to patch
+   * @param virtualEnv  the activation environment, or {@code null} when the read failed
+   */
+  @ApiStatus.Internal
+  public static void applyActivationEnvironment(@NotNull Map<String, String> environment,
+                                                @Nullable Map<String, String> virtualEnv) {
+    if (virtualEnv != null && !virtualEnv.isEmpty()) {
       for (Map.Entry<String, String> entry : virtualEnv.entrySet()) {
         final String key = entry.getKey();
         final String value = entry.getValue();
@@ -294,11 +314,12 @@ public final class PythonSdkType extends SdkType {
       LOG.warn("Invalid SDK home path: " + sdkHome, e);
       return sdkHome;
     }
-    var pythonEnvironment = PythonEnvironmentKt.detectPythonEnvironment(pythonBinary).getSuccessOrNull();
+    var pythonEnvironment = PythonBinaryExtKt.detectPythonEnvironment(pythonBinary).getSuccessOrNull();
     if (pythonEnvironment == null) {
       return FileUtil.getLocationRelativeToUserHome(pythonBinary.toAbsolutePath().toString(), false);
     }
-    var path = pythonEnvironment instanceof HasPythonHome ? ((HasPythonHome)pythonEnvironment).getPythonHomePath() : pythonBinary;
+    var home = pythonEnvironment.getPythonHomePath();
+    var path = home != null ? home : pythonBinary;
     return FileUtil.getLocationRelativeToUserHome(path.toAbsolutePath().toString(), false);
   }
 
@@ -320,16 +341,6 @@ public final class PythonSdkType extends SdkType {
     String homePath = currentSdk.getHomePath();
 
     if (homePath != null) {
-
-      if (additional.getAttributeBooleanValue(PyDetectedSdkAdditionalData.PY_DETECTED_SDK_MARKER)) {
-        PyDetectedSdkAdditionalData data = new PyDetectedSdkAdditionalData(null, null);
-        data.load(additional);
-        TargetEnvironmentConfiguration targetEnvironmentConfiguration = loadTargetConfiguration(additional);
-        if (targetEnvironmentConfiguration != null) {
-          data.setTargetEnvironmentConfiguration(targetEnvironmentConfiguration);
-        }
-        return data;
-      }
 
       var targetAdditionalData = PyTargetAwareAdditionalData.loadTargetAwareData(currentSdk, additional);
       if (targetAdditionalData != null) {
@@ -398,7 +409,7 @@ public final class PythonSdkType extends SdkType {
           projectRef.set(CommonDataKeys.PROJECT.getData(DataManager.getInstance().getDataContext(ownerComponent)));
         }
         else {
-        projectRef.set(CommonDataKeys.PROJECT.getData(DataManager.getInstance().getDataContext()));
+          projectRef.set(CommonDataKeys.PROJECT.getData(DataManager.getInstance().getDataContext()));
         }
       });
     }
@@ -452,21 +463,26 @@ public final class PythonSdkType extends SdkType {
     }
     return path;
   }
-
+  /**
+   * @deprecated use {@link PythonInterpreterExtKt#getPythonInfo(PythonInterpreter)}
+   * or {@link com.intellij.python.community.execService.python.ApiKt#validatePythonAndGetInfo(Path, Continuation)}
+   */
+  @Deprecated(forRemoval = true)
   @Override
   public String getVersionString(@NotNull Sdk sdk) {
     SdkAdditionalData sdkAdditionalData = sdk.getSdkAdditionalData();
     if (sdkAdditionalData instanceof PyTargetAwareAdditionalData) {
       // TODO [targets] Cache version as for `PyRemoteSdkAdditionalDataBase`
-      String versionString;
       try {
-        versionString =
-          PyInterpreterVersionUtil.getInterpreterVersionForJava((PyTargetAwareAdditionalData)sdkAdditionalData).toPythonVersion();
+        return PyInterpreterVersionUtil.getInterpreterVersionForJava((PyTargetAwareAdditionalData)sdkAdditionalData).toPythonVersion();
       }
-      catch (Exception e) {
-        versionString = "undefined";
+      catch (RemoteSdkException e) {
+        // Null, not a placeholder: an unreachable target says nothing about the interpreter on it, and the version
+        // recorded for it is persisted. "undefined" was written to jdk.table.xml and outlived the outage that caused
+        // it, leaving the interpreter with no readable version for good. See PythonSdkUpdater.updateSdkVersion.
+        LOG.info("Cannot read the version of " + sdk.getName(), e);
+        return null;
       }
-      return versionString;
     }
     else {
       if (ApplicationManager.getApplication().isUnitTestMode()) {
@@ -481,6 +497,11 @@ public final class PythonSdkType extends SdkType {
     }
   }
 
+  /**
+   * @deprecated use {@link PythonInterpreterExtKt#getPythonInfo(PythonInterpreter)}
+   * or {@link com.intellij.python.community.execService.python.ApiKt#validatePythonAndGetInfo(Path, Continuation)}
+   */
+  @Deprecated(forRemoval = true)
   @Override
   public @Nullable String getVersionString(final @NotNull String sdkHome) {
     // Paths like \\wsl and ssh:// can't be used here
@@ -536,7 +557,8 @@ public final class PythonSdkType extends SdkType {
   }
 
   /**
-   * @deprecated use {@link PySdkUtil#getLanguageLevelForSdk(Sdk)} instead
+   * @deprecated use {@link PythonInterpreterExtKt#getPythonInfo(PythonInterpreter)}
+   * or {@link com.intellij.python.community.execService.python.ApiKt#validatePythonAndGetInfo(Path, Continuation)}
    */
   @Deprecated(forRemoval = true)
   public static @NotNull LanguageLevel getLanguageLevelForSdk(@Nullable Sdk sdk) {

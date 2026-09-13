@@ -28,13 +28,15 @@ val DEFAULT_BUNDLED_PLUGINS: PersistentList<String> = persistentListOf(
   "intellij.platform.bookmarks.plugin",
   "intellij.grid.core.plugin",
   "intellij.platform.navbar.plugin",
+  //"intellij.platform.problemView.plugin",
   //"intellij.platform.testRunner.plugin",
   "intellij.platform.recentFiles.plugin",
   //"intellij.platform.structuralSearch.plugin",
   "intellij.platform.structureView.plugin",
+  //"intellij.platform.tasks.plugin",
   //"intellij.platform.execution.serviceView.plugin",
   //"intellij.platform.todo.plugin",
-  //"intellij.platform.acp.plugin",
+  //"intellij.platform.vcs.plugin",
   "intellij.platform.images",
 )
 
@@ -95,6 +97,9 @@ class ProductModulesLayout {
    * it's strongly recommended to move that directory outside the module source roots.</strong>
    */
   internal val moduleExcludes: MutableMap<String, MutableList<String>> = LinkedHashMap()
+
+  @ApiStatus.Internal
+  fun getModuleExcludesModuleNames(): Set<String> = moduleExcludes.keys
 
   /**
    * Additional customizations of platform JARs. **This is a temporary property added to keep layout of some products.**

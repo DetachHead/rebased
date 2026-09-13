@@ -3,6 +3,7 @@
 
 package org.jetbrains.intellij.build.productLayout.discovery
 
+import com.intellij.platform.buildScripts.licenses.LibraryLicense
 import com.intellij.platform.pluginGraph.ContentModuleName
 import com.intellij.platform.pluginGraph.TargetName
 import com.intellij.platform.pluginSystem.parser.impl.elements.ModuleLoadingRuleValue
@@ -57,7 +58,7 @@ data class ModuleSetGenerationConfig(
   @JvmField val testPluginsByProduct: Map<String, Set<TargetName>> = emptyMap(),
 
   /**
-   * When true, scan module sources for test plugin descriptors and plugin-content.yaml
+   * When true, scan module sources for test plugin descriptors, and read the dev-distribution content population,
    * to enrich the PluginGraph in analysis-only flows.
    */
   @JvmField val includeTestPluginDescriptorsFromSources: Boolean = false,
@@ -78,6 +79,17 @@ data class ModuleSetGenerationConfig(
    * If a module has these libraries in production scope, a diff will be generated to fix it.
    */
   @JvmField val testingLibraries: Set<String> = emptySet(),
+  /**
+   * The library license entries the license validation rule checks against.
+   * An empty list turns that rule off.
+   */
+  @JvmField val libraryLicenses: List<LibraryLicense> = emptyList(),
+  /**
+   * The license entries the community license validation rule checks against.
+   * Pass the community list alone here. The ultimate superset holds the community list, so it hides a misplaced entry.
+   * An empty list turns that rule off.
+   */
+  @JvmField val communityLibraryLicenses: List<LibraryLicense> = emptyList(),
   /**
    * Modules allowed having specific testing libraries in production scope.
    * Maps module name to the set of testing library names it's allowed to have.
@@ -148,7 +160,7 @@ internal suspend fun generateAllProductXmlFiles(
     DiscoveredProduct(
       name = name,
       config = ProductConfiguration(
-        className = "test-product",
+        className = TEST_PRODUCT_CLASS_NAME,
         modules = emptyList(),
         pluginXmlPath = xmlPath,
       ),
@@ -172,7 +184,7 @@ internal suspend fun generateAllProductXmlFiles(
         // Extract ProductProperties class name for the source comment.
         // Use the declaring class of `getProductContentDescriptor` method.
         val productPropertiesClass = when (val props = discovered.properties) {
-          null -> "test-product"
+          null -> TEST_PRODUCT_CLASS_NAME
           else -> (props.javaClass.methods.firstOrNull { it.name == "getProductContentDescriptor" }?.declaringClass
                    ?: props.javaClass).name
         }

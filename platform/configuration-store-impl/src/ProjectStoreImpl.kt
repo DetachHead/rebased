@@ -35,7 +35,6 @@ import com.intellij.platform.eel.EelDescriptorWithIsolatedWorkspace
 import com.intellij.platform.eel.provider.asEelPath
 import com.intellij.platform.settings.SettingsController
 import com.intellij.serviceContainer.ComponentManagerImpl
-import com.intellij.util.io.Ksuid
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
@@ -51,9 +50,19 @@ import kotlin.io.path.invariantSeparatorsPathString
 
 internal const val VERSION_OPTION: String = "version"
 
-internal const val PROJECT_CONFIG_DIR: String = $$"$PROJECT_CONFIG_DIR$"
+@ApiStatus.Internal
+const val PROJECT_CONFIG_DIR: String = $$"$PROJECT_CONFIG_DIR$"
 
 private const val CONFIG_WORKSPACE_DIR = "workspace"
+
+@ApiStatus.Internal
+const val WORKSPACE_XML_FILE_NAME: String = "workspace.xml"
+
+@ApiStatus.Internal
+const val MISC_XML_FILE_NAME: String = "misc.xml"
+
+@ApiStatus.Internal
+const val CACHE_STATE_XML_FILE_NAME: String = "cache-state.xml"
 
 @ApiStatus.Internal
 open class ProjectStoreImpl(final override val project: Project) : ComponentStoreWithExtraComponents(), IProjectStore {
@@ -143,8 +152,8 @@ open class ProjectStoreImpl(final override val project: Project) : ComponentStor
       // PROJECT_CONFIG_DIR must be the first macro
       val dotIdea = storeDescriptor.dotIdea!!
       macros.add(Macro(PROJECT_CONFIG_DIR, dotIdea))
-      macros.add(Macro(StoragePathMacros.WORKSPACE_FILE, machineWorkspacePath ?: dotIdea.resolve("workspace.xml")))
-      macros.add(Macro(StoragePathMacros.PROJECT_FILE, dotIdea.resolve("misc.xml")))
+      macros.add(Macro(StoragePathMacros.WORKSPACE_FILE, machineWorkspacePath ?: dotIdea.resolve(WORKSPACE_XML_FILE_NAME)))
+      macros.add(Macro(StoragePathMacros.PROJECT_FILE, dotIdea.resolve(MISC_XML_FILE_NAME)))
 
       if (isUnitTestMode) {
         // load state only if there are existing files
@@ -167,7 +176,7 @@ open class ProjectStoreImpl(final override val project: Project) : ComponentStor
     val presentableUrl = if (storeDescriptor.dotIdea == null) file else storeDescriptor.projectIdentityFile
 
     val cacheFileName = getProjectCacheFileName(presentableUrl = presentableUrl.invariantSeparatorsPathString, projectName = "")
-    macros.add(Macro(StoragePathMacros.CACHE_FILE, projectsDataDir.resolve(cacheFileName).resolve("cache-state.xml")))
+    macros.add(Macro(StoragePathMacros.CACHE_FILE, projectsDataDir.resolve(cacheFileName).resolve(CACHE_STATE_XML_FILE_NAME)))
 
     storageManager.setMacros(macros)
 
@@ -179,7 +188,7 @@ open class ProjectStoreImpl(final override val project: Project) : ComponentStor
     var projectWorkspaceId = projectIdManager.id
     if (projectWorkspaceId == null) {
       // do not use the project name as part of id, to ensure a project dir rename does not cause data loss
-      projectWorkspaceId = Ksuid.generate()
+      projectWorkspaceId = ProjectWorkspaceId.generate()
       projectIdManager.id = projectWorkspaceId
     }
 
@@ -191,7 +200,7 @@ open class ProjectStoreImpl(final override val project: Project) : ComponentStor
       else {
         PathManager.getConfigDir()
       }
-      val productWorkspaceFile = basePath.resolve("$CONFIG_WORKSPACE_DIR/$projectWorkspaceId.xml")
+      val productWorkspaceFile = basePath.resolve("$CONFIG_WORKSPACE_DIR/${projectWorkspaceId.value}.xml")
       // storageManager.setMacros(macros) was called before, because we need to read a `ProjectIdManager` state to get projectWorkspaceId
       macros.add(Macro(StoragePathMacros.PRODUCT_WORKSPACE_FILE, productWorkspaceFile))
     }
@@ -210,7 +219,7 @@ open class ProjectStoreImpl(final override val project: Project) : ComponentStor
           defaultProject = defaultProject,
           element = element,
           storagePathResolver = { StoragePathMacros.PROJECT_FILE },  // doesn't matter; any path will be resolved as projectFilePath (see `fileResolver`)
-          fileResolver = { if (it == "workspace.xml") workspacePath else iprFile },
+          fileResolver = { if (it == WORKSPACE_XML_FILE_NAME) workspacePath else iprFile },
         )
       }
     }.getOrLogException(LOG)
@@ -235,7 +244,7 @@ open class ProjectStoreImpl(final override val project: Project) : ComponentStor
     }
 
   override val projectWorkspaceId: String?
-    get() = project.service<ProjectIdManager>().id
+    get() = project.service<ProjectIdManager>().id?.value
 
   final override fun <T : Any> getStorageSpecs(component: PersistentStateComponent<T>, stateSpec: State, operation: StateStorageOperation): List<Storage> {
     return storeDescriptor.getStorageSpecs(component = component, stateSpec = stateSpec, operation = operation, storageManager = storageManager)

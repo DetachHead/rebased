@@ -8,6 +8,17 @@ Module sets are **reusable collections of modules** that can be referenced as a 
 - **Organization**: Grouping related modules by functionality (e.g., VCS, XML, essential platform)
 - **Composition**: Building complex products from simple, composable building blocks
 
+## A module set is the last resort for a library module
+
+A library module takes the lowest route that works. A library that one plugin uses belongs to that plugin, as
+private content. A library whose types cross a plugin boundary belongs to the plugin that owns the API, and
+every dependent plugin reuses that copy. Only when neither route works does the module join a module set,
+because a set ships the library to every product that includes the set.
+
+Read [ADR 0005](../../../../../build/decisions/0005-a-library-copy-belongs-to-the-plugin-that-owns-its-api.md)
+for the decision, and [content-module-copy-conflict.md](validators/content-module-copy-conflict.md) for the rule
+that enforces the middle route.
+
 ## How Module Sets Work
 
 Module sets are **defined in Kotlin code** and **auto-generate XML files**:
@@ -46,7 +57,12 @@ fun discoverModuleSets(provider: Any): List<ModuleSet> {
 
 To regenerate XML files from Kotlin code:
 
-**Using JetBrains MCP (Recommended):**
+**Using Bazel (recommended):**
+```bash
+bazel run //platform/buildScripts:plugin-model-tool
+```
+
+**Using JetBrains MCP:**
 ```kotlin
 mcp__jetbrains__execute_run_configuration(configurationName="Generate Product Layouts")
 ```
@@ -128,7 +144,10 @@ fun ideCommon() = moduleSet("ide.common") {
 The Product DSL no longer creates module-set wrapper plugins. Existing wrappers under
 `community/module-set-plugins/generated/` and `module-set-plugins/generated/` are checked-in plugin modules and stay in place until they are migrated to hand-written wrappers.
 
-For new wrapper plugins, create a normal plugin module with `plugin.xml` and `plugin-content.yaml`, then add the plugin module to the product layout.
+For new wrapper plugins, create a normal plugin module with a `plugin.xml`, then add the plugin module to the product layout.
+A wrapper needs no packaging file of its own. The dev distribution derives the jar layout from the plugin's own `<content>`.
+No runtime descriptor marker is needed. Add a hand-written wrapper's JPS module name to `HAND_WRITTEN_MODULE_SET_PLUGIN_MODULES` in `ModuleSetPlugins.kt`.
+Generation intersects that build-time registry with each product's `ProductModulesLayout.bundledPluginModules`, so wrappers reach the graph without requiring duplicate Product DSL registration.
 
 ## Parameters Reference
 
@@ -279,7 +298,7 @@ See `/create-module-set` slash command for detailed instructions on creating a n
 **Quick checklist:**
 1. Add function to appropriate file (`CommunityModuleSets.kt` or `UltimateModuleSets.kt`)
 2. Write comprehensive KDoc (see existing examples)
-3. Run "Generate Product Layouts" to create XML
+3. Run `bazel run //platform/buildScripts:plugin-model-tool` to create XML, or the "Generate Product Layouts" run configuration
 4. Reference from products via `moduleSet(yourSet())`
 
 ## Discovering Available Module Sets

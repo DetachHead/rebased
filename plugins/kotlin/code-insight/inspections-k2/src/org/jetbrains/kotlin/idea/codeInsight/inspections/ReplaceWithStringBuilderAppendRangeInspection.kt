@@ -6,16 +6,26 @@ import com.intellij.codeInspection.ProblemsHolder
 import com.intellij.codeInspection.util.InspectionMessage
 import com.intellij.modcommand.ModPsiUpdater
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.util.TextRange
 import com.intellij.psi.SmartPsiElementPointer
 import com.intellij.psi.createSmartPointer
 import org.jetbrains.kotlin.analysis.api.KaSession
-import org.jetbrains.kotlin.analysis.api.resolution.singleFunctionCallOrNull
+import org.jetbrains.kotlin.analysis.api.expressions.expressionType
+import org.jetbrains.kotlin.analysis.api.resolution.function
+import org.jetbrains.kotlin.analysis.api.resolution.single
 import org.jetbrains.kotlin.analysis.api.resolution.symbol
+import org.jetbrains.kotlin.analysis.api.resolution.tryResolveCall
+import org.jetbrains.kotlin.analysis.api.types.KaStandardTypeClassIds
 import org.jetbrains.kotlin.analysis.api.types.KaType
+import org.jetbrains.kotlin.analysis.api.types.arrayElementType
+import org.jetbrains.kotlin.analysis.api.types.classId
+import org.jetbrains.kotlin.analysis.api.types.isArrayOrPrimitiveArray
+import org.jetbrains.kotlin.analysis.api.types.isNullable
 import org.jetbrains.kotlin.idea.base.facet.platform.platform
 import org.jetbrains.kotlin.idea.base.resources.KotlinBundle
 import org.jetbrains.kotlin.idea.codeinsight.api.applicable.inspections.KotlinApplicableInspectionBase
 import org.jetbrains.kotlin.idea.codeinsight.api.applicable.inspections.KotlinModCommandQuickFix
+import org.jetbrains.kotlin.idea.codeinsights.impl.base.applicators.ApplicabilityRanges
 import org.jetbrains.kotlin.name.Name
 import org.jetbrains.kotlin.platform.jvm.isJvm
 import org.jetbrains.kotlin.psi.KtCallExpression
@@ -52,13 +62,14 @@ internal class ReplaceWithStringBuilderAppendRangeInspection :
     override fun createQuickFix(element: KtCallExpression, context: Context): KotlinModCommandQuickFix<KtCallExpression> =
         ReplaceFix(context)
 
-    override fun KaSession.prepareContext(element: KtCallExpression): Context? {
+    context(session: KaSession)
+    override fun prepareContext(element: KtCallExpression): Context? {
         if (!element.platform.isJvm()) return null
         val calleeExpression = element.calleeExpression ?: return null
         if (calleeExpression.text != appendFunctionName.asString()) return null
         if (element.valueArguments.size != 3) return null
 
-        val resolvedCall = element.resolveToCall()?.singleFunctionCallOrNull() ?: return null
+        val resolvedCall = element.tryResolveCall()?.single?.function ?: return null
         val symbol = resolvedCall.symbol
 
         val parameters = symbol.valueParameters
@@ -68,7 +79,7 @@ internal class ReplaceWithStringBuilderAppendRangeInspection :
         val secondParamType = parameters[1].returnType
         val thirdParamType = parameters[2].returnType
 
-        if (!isCharArrayType(firstParamType) || !secondParamType.isIntType || !thirdParamType.isIntType) {
+        if (!isCharArrayType(firstParamType) || secondParamType.classId != KaStandardTypeClassIds.INT || thirdParamType.classId != KaStandardTypeClassIds.INT) {
             return null
         }
 
@@ -94,21 +105,17 @@ internal class ReplaceWithStringBuilderAppendRangeInspection :
         )
     }
 
-    private fun KaSession.isCharArrayType(type: KaType): Boolean {
-        return type.isArrayOrPrimitiveArray &&
-                type.arrayElementType?.isCharType == true
+    context(session: KaSession)
+    private fun isCharArrayType(type: KaType): Boolean =
+        type.isArrayOrPrimitiveArray &&
+            type.arrayElementType?.classId == KaStandardTypeClassIds.CHAR
 
-    }
-
-    private fun KaSession.isNullable(expression: KtExpression): Boolean {
+    context(session: KaSession)
+    private fun isNullable(expression: KtExpression): Boolean {
         val type = expression.expressionType ?: return false
 
         // Check if we're inside a null-check context
-        if (isInNullCheckContext(expression)) {
-            return false // Smart cast to non-null
-        }
-
-        return type.isNullable
+        return !isInNullCheckContext(expression) && type.isNullable
     }
 
     private fun isInNullCheckContext(expression: KtExpression): Boolean {
@@ -168,6 +175,10 @@ internal class ReplaceWithStringBuilderAppendRangeInspection :
 
         private fun KtPsiFactory.createCalleeExpression(functionName: String): KtExpression =
             (createExpression("$functionName()") as KtCallExpression).calleeExpression!!
+    }
+
+    override fun getApplicableRanges(element: KtCallExpression): List<TextRange> {
+        return ApplicabilityRanges.calleeExpression(element)
     }
 }
 

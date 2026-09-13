@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.internal.statistic.collectors.fus.fileTypes;
 
 import com.intellij.internal.statistic.beans.MetricEvent;
@@ -11,21 +11,19 @@ import com.intellij.internal.statistic.eventLog.events.ObjectListEventField;
 import com.intellij.internal.statistic.eventLog.events.RoundedIntEventField;
 import com.intellij.internal.statistic.eventLog.events.StringEventField;
 import com.intellij.internal.statistic.eventLog.events.VarargEventId;
-import com.intellij.internal.statistic.eventLog.validator.ValidationResultType;
-import com.intellij.internal.statistic.eventLog.validator.rules.EventContext;
-import com.intellij.internal.statistic.eventLog.validator.rules.impl.CustomValidationRule;
 import com.intellij.internal.statistic.service.fus.collectors.ProjectUsagesCollector;
 import com.intellij.internal.statistic.utils.PluginInfo;
 import com.intellij.internal.statistic.utils.PluginInfoDetectorKt;
 import com.intellij.openapi.components.impl.stores.IProjectStore;
 import com.intellij.openapi.fileTypes.FileType;
 import com.intellij.openapi.fileTypes.FileTypeManager;
+import com.intellij.openapi.fileTypes.impl.FileTypeValidationRule;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.roots.ProjectFileIndex;
-import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.project.ProjectKt;
-import com.intellij.util.containers.ObjectIntHashMap;
-import com.intellij.util.containers.ObjectIntMap;
+import com.intellij.util.ArrayUtil;
+import it.unimi.dsi.fastutil.objects.Object2IntMap;
+import it.unimi.dsi.fastutil.objects.Object2IntOpenHashMap;
 import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 
@@ -36,6 +34,9 @@ import java.util.Set;
 
 import static java.util.Collections.emptySet;
 
+/**
+ * @see FileTypeValidationRule
+ */
 @ApiStatus.Internal
 public final class FileTypeUsagesCollector extends ProjectUsagesCollector {
   private static final String DEFAULT_ID = "third.party";
@@ -81,23 +82,27 @@ public final class FileTypeUsagesCollector extends ProjectUsagesCollector {
   protected @NotNull Set<MetricEvent> getMetrics(@NotNull Project project) {
     if (project.isDisposed()) return emptySet();
 
-    final ProjectFileIndex projectFileIndex = ProjectFileIndex.getInstance(project);
-    final IProjectStore stateStore = ProjectKt.getStateStore(project);
-    final ObjectIntMap<FileType> filesByTypeCount = new ObjectIntHashMap<>();
-    final var fileTypeMappingsCounter = new OriginalFileTypeCounter();
-    final var fileExtensionCounter = new FileExtensionCounter();
+    ProjectFileIndex projectFileIndex = ProjectFileIndex.getInstance(project);
+    IProjectStore stateStore = ProjectKt.getStateStore(project);
+    Object2IntMap<FileType> filesByTypeCount = new Object2IntOpenHashMap<>();
+    var fileTypeMappingsCounter = new OriginalFileTypeCounter();
+    var fileExtensionCounter = new FileExtensionCounter();
+
+    FileTypeManager fileTypeManager = FileTypeManager.getInstance();
+
     projectFileIndex.iterateContent(
       file -> {
-        final FileType type = file.getFileType();
+        // do not trigger DetectedByContentFileType handling, do not read files
+        FileType type = fileTypeManager.getFileTypeByFile(file, ArrayUtil.EMPTY_BYTE_ARRAY);
         filesByTypeCount.put(type, filesByTypeCount.getOrDefault(type, 0) + 1);
-        final String fileExtension = file.getExtension();
+        String fileExtension = file.getExtension();
 
         if (fileExtension == null) {
           fileTypeMappingsCounter.recordOriginalFileType(type, null);
           return true;
         }
 
-        final var fileTypeByExtension = FileTypeManager.getInstance().getFileTypeByExtension(fileExtension);
+        var fileTypeByExtension = FileTypeManager.getInstance().getFileTypeByExtension(fileExtension);
         fileTypeMappingsCounter.recordOriginalFileType(type, fileTypeByExtension);
         fileExtensionCounter.recordOriginalFileType(fileExtension);
         return true;
@@ -111,7 +116,7 @@ public final class FileTypeUsagesCollector extends ProjectUsagesCollector {
       List<EventPair<?>> eventPairs = new ArrayList<>(4);
       eventPairs.add(EventFields.PluginInfoFromInstance.with(fileType));
       eventPairs.add(EventFields.FileType.with(fileType));
-      eventPairs.add(COUNT.with(filesByTypeCount.get(fileType)));
+      eventPairs.add(COUNT.with(filesByTypeCount.getInt(fileType)));
       eventPairs.add(FILE_TYPE_BY_EXTENSION_PERCENT.with(fileTypeMappingsCounter.getFileTypeSchemaUsagePercentage(fileType)));
       events.add(FILE_TYPE_IN_PROJECT.metric(eventPairs));
     }
@@ -131,25 +136,5 @@ public final class FileTypeUsagesCollector extends ProjectUsagesCollector {
   public static String getSafeFileTypeName(@NotNull FileType fileType) {
     final PluginInfo info = PluginInfoDetectorKt.getPluginInfo(fileType.getClass());
     return info.isDevelopedByJetBrains() ? fileType.getName() : DEFAULT_ID;
-  }
-
-  public static final class ValidationRule extends CustomValidationRule {
-    @Override
-    public @NotNull String getRuleId() {
-      return "file_type";
-    }
-
-    @Override
-    protected @NotNull ValidationResultType doValidate(@NotNull String data, @NotNull EventContext context) {
-      if (isThirdPartyValue(data)) return ValidationResultType.ACCEPTED;
-
-      final FileType fileType = FileTypeManager.getInstance().findFileTypeByName(data);
-      if (fileType == null || !StringUtil.equals(fileType.getName(), data)) {
-        return ValidationResultType.REJECTED;
-      }
-
-      final boolean isDevelopedByJB = PluginInfoDetectorKt.getPluginInfo(fileType.getClass()).isDevelopedByJetBrains();
-      return isDevelopedByJB ? ValidationResultType.ACCEPTED : ValidationResultType.THIRD_PARTY;
-    }
   }
 }

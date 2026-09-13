@@ -18,17 +18,20 @@ import com.intellij.psi.search.LocalSearchScope
 import com.intellij.psi.util.PsiTreeUtil
 import com.intellij.psi.util.elementType
 import com.intellij.util.Consumer
-import org.jetbrains.kotlin.analysis.api.analyze
 import org.jetbrains.kotlin.analysis.api.resolution.KaExplicitReceiverValue
 import org.jetbrains.kotlin.analysis.api.resolution.KaImplicitReceiverValue
-import org.jetbrains.kotlin.analysis.api.resolution.singleFunctionCallOrNull
-import org.jetbrains.kotlin.analysis.api.resolution.successfulFunctionCallOrNull
+import org.jetbrains.kotlin.analysis.api.resolution.function
+import org.jetbrains.kotlin.analysis.api.resolution.resolveSuccessfulCall
+import org.jetbrains.kotlin.analysis.api.resolution.single
+import org.jetbrains.kotlin.analysis.api.session.analyze
 import org.jetbrains.kotlin.analysis.api.symbols.KaReceiverParameterSymbol
+import org.jetbrains.kotlin.analysis.api.symbols.containingSymbol
 import org.jetbrains.kotlin.idea.codeinsight.utils.StandardKotlinNames
 import org.jetbrains.kotlin.idea.codeinsight.utils.doesBelongToLoop
 import org.jetbrains.kotlin.idea.codeinsight.utils.findRelevantLoopForExpression
 import org.jetbrains.kotlin.idea.references.mainReference
 import org.jetbrains.kotlin.idea.references.unwrappedTargets
+import org.jetbrains.kotlin.idea.util.tryResolveExpressionCall
 import org.jetbrains.kotlin.lexer.KtTokens
 import org.jetbrains.kotlin.name.CallableId
 import org.jetbrains.kotlin.psi.KtBinaryExpression
@@ -517,7 +520,7 @@ abstract class AbstractKotlinHighlightExitPointsHandlerFactory : HighlightUsages
 
     private fun findMatchingBuilderPoints(call: KtCallExpression): BuilderPoint? {
         val callableId = analyze(call) {
-            call.resolveToCall()?.successfulFunctionCallOrNull()
+            call.resolveSuccessfulCall()
                 ?.signature?.symbol?.callableId
         } ?: return null
         return generatorPairs[callableId]
@@ -528,7 +531,7 @@ abstract class AbstractKotlinHighlightExitPointsHandlerFactory : HighlightUsages
         expectedCallables: Collection<CallableId>,
         generatorLambda: KtLambdaExpression
     ): Boolean = analyze(expression) {
-        val call = expression.resolveToCall()?.singleFunctionCallOrNull() ?: return@analyze false
+        val call = expression.tryResolveExpressionCall()?.single?.function ?: return@analyze false
         if (call.signature.symbol.callableId !in expectedCallables) return@analyze false
 
         val receiver = call.extensionReceiver ?: call.dispatchReceiver ?: return@analyze false

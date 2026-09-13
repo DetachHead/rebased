@@ -7,7 +7,6 @@ import com.intellij.ide.CliResult;
 import com.intellij.ide.SpecialConfigFiles;
 import com.intellij.idea.AppExitCodes;
 import com.intellij.idea.LoggerFactory;
-import com.intellij.jna.JnaLoader;
 import com.intellij.openapi.diagnostic.Attachment;
 import com.intellij.openapi.diagnostic.DelegatingLogger;
 import com.intellij.openapi.diagnostic.ExceptionWithAttachments;
@@ -18,7 +17,6 @@ import com.intellij.openapi.util.io.NioFiles;
 import com.intellij.ui.User32Ex;
 import com.intellij.util.Suppressions;
 import com.intellij.util.system.OS;
-import com.sun.jna.platform.win32.WinDef;
 import com.sun.tools.attach.VirtualMachine;
 import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.Nls;
@@ -276,19 +274,7 @@ public final class DirectoryLock {
 
   private @Nullable CliResult tryListen() throws IOException {
     var serverChannel = ServerSocketChannel.open(myFallbackMode ? StandardProtocolFamily.INET : StandardProtocolFamily.UNIX);
-
-    SocketAddress address;
-    if (myFallbackMode) {
-      Files.writeString(myPortFile, "0", StandardOpenOption.CREATE_NEW);
-      address = new InetSocketAddress(InetAddress.getByAddress(new byte[]{127, 0, 0, 1}), 0);
-    }
-    else if (myRedirectedPortFile != null) {
-      Files.writeString(myPortFile, myRedirectedPortFile.toString(), StandardOpenOption.CREATE_NEW);
-      address = UnixDomainSocketAddress.of(myRedirectedPortFile);
-    }
-    else {
-      address = UnixDomainSocketAddress.of(myPortFile);
-    }
+    var address = getListenAddress();
 
     LOG.debug("binding to " + address);
     serverChannel.bind(address);
@@ -312,24 +298,26 @@ public final class DirectoryLock {
     return null;
   }
 
+  private SocketAddress getListenAddress() throws IOException {
+    if (myFallbackMode) {
+      Files.writeString(myPortFile, "0", StandardOpenOption.CREATE_NEW);
+      return new InetSocketAddress(InetAddress.getByAddress(new byte[]{127, 0, 0, 1}), 0);
+    }
+    else if (myRedirectedPortFile != null) {
+      Files.writeString(myPortFile, myRedirectedPortFile.toString(), StandardOpenOption.CREATE_NEW);
+      return UnixDomainSocketAddress.of(myRedirectedPortFile);
+    }
+    else {
+      return UnixDomainSocketAddress.of(myPortFile);
+    }
+  }
+
   private CliResult tryConnect(List<String> args, Path currentDirectory) throws IOException {
     var pf = myFallbackMode ? StandardProtocolFamily.INET : StandardProtocolFamily.UNIX;
+    var address = getConnectAddress();
+
     try (var socketChannel = SocketChannel.open(pf); var selector = Selector.open()) {
       socketChannel.configureBlocking(false);
-
-      SocketAddress address;
-      if (myFallbackMode) {
-        var port = 0;
-        try { port = Integer.parseInt(Files.readString(myPortFile)); }
-        catch (NumberFormatException e) { throw new SocketException("Invalid port; " + e.getMessage()); }
-        address = new InetSocketAddress(InetAddress.getByAddress(new byte[]{127, 0, 0, 1}), port);
-      }
-      else if (myRedirectedPortFile != null) {
-        address = UnixDomainSocketAddress.of(Files.readString(myPortFile));
-      }
-      else {
-        address = UnixDomainSocketAddress.of(myPortFile);
-      }
 
       LOG.debug("connecting to " + address);
       socketChannel.register(selector, SelectionKey.OP_CONNECT);
@@ -365,10 +353,25 @@ public final class DirectoryLock {
     }
   }
 
+  private SocketAddress getConnectAddress() throws IOException {
+    if (myFallbackMode) {
+      var port = 0;
+      try { port = Integer.parseInt(Files.readString(myPortFile)); }
+      catch (NumberFormatException e) { throw new SocketException("Invalid port; " + e.getMessage()); }
+      return new InetSocketAddress(InetAddress.getByAddress(new byte[]{127, 0, 0, 1}), port);
+    }
+    else if (myRedirectedPortFile != null) {
+      return UnixDomainSocketAddress.of(Files.readString(myPortFile));
+    }
+    else {
+      return UnixDomainSocketAddress.of(myPortFile);
+    }
+  }
+
   private void allowActivation() {
-    if (OS.CURRENT == OS.Windows && JnaLoader.isLoaded()) {
+    if (OS.CURRENT == OS.Windows) {
       try {
-        User32Ex.INSTANCE.AllowSetForegroundWindow(new WinDef.DWORD(remotePID()));
+        User32Ex.allowSetForegroundWindow(remotePID());
       }
       catch (Throwable t) {
         LOG.debug(t);

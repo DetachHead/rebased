@@ -7,8 +7,9 @@ import com.intellij.modcommand.ActionContext
 import com.intellij.modcommand.ModPsiUpdater
 import com.intellij.modcommand.Presentation
 import com.intellij.openapi.util.TextRange
-import org.jetbrains.kotlin.analysis.api.KaExperimentalApi
 import org.jetbrains.kotlin.analysis.api.KaSession
+import org.jetbrains.kotlin.analysis.api.expressions.expressionType
+import org.jetbrains.kotlin.analysis.api.renderer.render
 import org.jetbrains.kotlin.analysis.api.types.KaErrorType
 import org.jetbrains.kotlin.idea.base.analysis.api.utils.shortenReferences
 import org.jetbrains.kotlin.idea.base.resources.KotlinBundle
@@ -38,8 +39,8 @@ internal class SplitPropertyDeclarationIntention :
         return element.initializer != null
     }
 
-    @OptIn(KaExperimentalApi::class)
-    override fun KaSession.prepareContext(element: KtProperty): Context? {
+    context(session: KaSession)
+    override fun prepareContext(element: KtProperty): Context? {
         val ktType = element.initializer?.expressionType ?: return null
         return Context(if (ktType is KaErrorType) null else ktType.render(position = Variance.OUT_VARIANCE))
     }

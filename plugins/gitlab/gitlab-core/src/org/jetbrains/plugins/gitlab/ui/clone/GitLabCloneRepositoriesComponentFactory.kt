@@ -17,6 +17,7 @@ import com.intellij.openapi.fileChooser.FileChooserDescriptorFactory
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.DialogPanel
 import com.intellij.openapi.ui.TextFieldWithBrowseButton
+import com.intellij.openapi.vcs.VcsBundle
 import com.intellij.ui.CollectionListModel
 import com.intellij.ui.DocumentAdapter
 import com.intellij.ui.SearchTextField
@@ -42,6 +43,7 @@ import org.jetbrains.plugins.gitlab.authentication.accounts.GitLabAccount
 import org.jetbrains.plugins.gitlab.ui.clone.model.GitLabCloneRepositoriesViewModel
 import org.jetbrains.plugins.gitlab.ui.clone.model.GitLabCloneRepositoriesViewModel.SearchModel
 import org.jetbrains.plugins.gitlab.ui.clone.model.GitLabCloneViewModel
+import org.jetbrains.plugins.gitlab.util.GitLabBundle
 import javax.swing.JComponent
 import javax.swing.JSeparator
 import javax.swing.ListCellRenderer
@@ -89,7 +91,7 @@ internal object GitLabCloneRepositoriesComponentFactory {
           .resizableColumn()
           .align(Align.FILL)
       }.resizableRow()
-      row(CollaborationToolsBundle.message("clone.dialog.directory.to.clone.label.text")) {
+      row(VcsBundle.message("clone.dialog.directory.to.clone.label.text")) {
         cell(directoryField)
           .align(AlignX.FILL)
           .validationOnApply {
@@ -240,14 +242,24 @@ internal object GitLabCloneRepositoriesComponentFactory {
   }
 
   private class AccountsPopupConfig(cloneVm: GitLabCloneViewModel) : CompactAccountsPanelFactory.PopupConfig<GitLabAccount> {
+    private val loginViaOAuthAction: AccountMenuItem.Action = AccountMenuItem.Action(
+      GitLabBundle.message("account.add.popup.text"),
+      { cloneVm.requestOAuthLogin() },
+      showSeparatorAbove = true
+    )
+    private val loginViaOAuthToCustomServerAction: AccountMenuItem.Action =
+      AccountMenuItem.Action(GitLabBundle.message("account.add.custom.server.popup.text"),
+                             { cloneVm.switchToOAuthLoginPanel(account = null) },
+                             showSeparatorAbove = false)
     private val loginWithTokenAction: AccountMenuItem.Action = AccountMenuItem.Action(
       CollaborationToolsBundle.message("clone.dialog.login.with.token.action"),
-      { cloneVm.switchToLoginPanel(account = null) },
+      { cloneVm.switchToTokenLoginPanel(account = null) },
       showSeparatorAbove = true
     )
 
     override val avatarSize: Int = VcsCloneDialogUiSpec.Components.popupMenuAvatarSize
 
-    override fun createActions(): Collection<AccountMenuItem.Action> = listOf(loginWithTokenAction)
+    override fun createActions(): Collection<AccountMenuItem.Action> =
+      listOf(loginViaOAuthAction, loginViaOAuthToCustomServerAction, loginWithTokenAction)
   }
 }

@@ -24,13 +24,6 @@ concurrent.interpreters._crossinterp.UNBOUND_REMOVE
 # Condition functions are exported in __init__
 threading.Condition.locked
 
-# Starting with Python 3.14.1, these methods accept None for some of their
-# parameters, but would raise a TypeError with Python 3.14.0.
-mmap.mmap.find
-mmap.mmap.flush
-mmap.mmap.rfind
-multiprocessing.process.BaseProcess.__init__
-
 # ====================================
 # Pre-existing errors from Python 3.13
 # ====================================
@@ -61,6 +54,16 @@ tkinter.simpledialog.[A-Z_]+
 tkinter.simpledialog.TclVersion
 tkinter.simpledialog.TkVersion
 
+# The runtime does some hacks to deprecate passing various parameters
+# positionally or by keyword. We just present a signature in the stub
+# that describes the way users are supposed to call the constructor.
+typing_extensions.sentinel.__init__
+
+# TypeVarTuple is a wrapper class that returns typing.TypeVarTuple instances.
+# Keep __new__ checked because it is the wrapper's public constructor.
+typing_extensions\.TypeVarTuple
+typing_extensions\.TypeVarTuple\.(?!__new__).*
+
 
 # =============================================================
 # Allowlist entries that cannot or should not be fixed; <3.15
@@ -80,6 +83,10 @@ typing(_extensions)?\.IO\.writelines
 # These have a pos-or-keyword first parameter at runtime, but deliberately have a pos-only first parameter in the stub. #6812
 posixpath.join
 ntpath.join
+
+# runtime is *args, **kwargs due to a wrapper; we have more accurate signatures in the stubs
+_frozen_importlib_external.FileLoader.load_module
+importlib.abc.FileLoader.load_module
 
 
 # =============================================================

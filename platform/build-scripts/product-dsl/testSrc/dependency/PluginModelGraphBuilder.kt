@@ -18,6 +18,7 @@ import com.intellij.platform.pluginGraph.EDGE_CONTENT_MODULE_DEPENDS_ON_TEST
 import com.intellij.platform.pluginGraph.EDGE_INCLUDES_MODULE_SET
 import com.intellij.platform.pluginGraph.EDGE_MAIN_TARGET
 import com.intellij.platform.pluginGraph.EDGE_NESTED_SET
+import com.intellij.platform.pluginGraph.EDGE_PLUGIN_DECLARES_ALIAS
 import com.intellij.platform.pluginGraph.EDGE_PLUGIN_XML_DEPENDS_ON_CONTENT_MODULE
 import com.intellij.platform.pluginGraph.EDGE_TARGET_DEPENDS_ON
 import com.intellij.platform.pluginGraph.PLUGIN_DEP_LEGACY_MASK
@@ -74,8 +75,17 @@ internal class TestPluginGraphBuilder {
 
   internal fun getOrCreateTarget(name: TargetName): Int = delegate.addTarget(name)
 
-  internal fun getOrCreatePlugin(name: TargetName, isTest: Boolean = false, isDslDefined: Boolean = false): Int {
-    return delegate.addPlugin(name, isTest, isDslDefined, pluginId = PluginId(name.value))
+  internal fun getOrCreatePlugin(
+    name: TargetName,
+    isTest: Boolean = false,
+    isDslDefined: Boolean = false,
+  ): Int {
+    return delegate.addPlugin(
+      name = name,
+      isTest = isTest,
+      isDslDefined = isDslDefined,
+      pluginId = PluginId(name.value),
+    )
   }
 
   internal fun getOrCreateModule(name: ContentModuleName): Int = delegate.markContentModuleHasDescriptor(name)
@@ -112,7 +122,7 @@ internal class TestPluginGraphBuilder {
     delegate.addPluginDependencyEdgeForTest(sourcePluginId, depId, isOptional, formatMask, hasConfigFile)
   }
 
-  internal suspend fun markDescriptorModules(descriptorCache: ModuleDescriptorCache) {
+  internal fun markDescriptorModules(descriptorCache: ModuleDescriptorCache) {
     delegate.markDescriptorModules(descriptorCache)
   }
 
@@ -252,6 +262,23 @@ internal class TestPluginGraphBuilder {
     val pluginId = getOrCreatePlugin(TargetName(pluginName), isTest = false)
     val targetId = getOrCreateTarget(TargetName(pluginName))
     addEdge(pluginId, targetId, EDGE_MAIN_TARGET)
+  }
+
+  /**
+   * Declare a plugin alias in the shape that the production model builds.
+   *
+   * A plugin declares an alias with `<module value="..."/>` in its `plugin.xml`. Production keeps the
+   * alias ID on a separate alias node, the product bundles that node, and the declaring plugin links
+   * to it. A `<plugin id="the-alias"/>` dependency lands on the alias node, so a walk that must find
+   * the declaring plugin takes the alias edge as an extra hop.
+   *
+   * Call this after [product] and [plugin] declare the two nodes, so that no placeholder is made.
+   */
+  fun pluginAlias(productName: String, pluginName: String, alias: String) {
+    val pluginNodeId = getOrCreatePlugin(TargetName(pluginName))
+    val aliasNodeId = delegate.addAliasPlugin(PluginId(alias))
+    addEdge(getOrCreateProduct(productName), aliasNodeId, EDGE_BUNDLES)
+    addEdge(pluginNodeId, aliasNodeId, EDGE_PLUGIN_DECLARES_ALIAS)
   }
 
   /**
@@ -468,7 +495,7 @@ internal class GraphTargetBuilder(
  */
 internal inline fun pluginGraph(block: TestPluginGraphBuilder.() -> Unit): PluginGraph = TestPluginGraphBuilder().apply(block).build()
 
-internal suspend fun pluginGraphWithDescriptors(
+internal fun pluginGraphWithDescriptors(
   descriptorCache: ModuleDescriptorCache,
   block: TestPluginGraphBuilder.() -> Unit,
 ): PluginGraph {

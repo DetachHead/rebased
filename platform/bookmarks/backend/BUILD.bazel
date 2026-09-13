@@ -1,7 +1,7 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
 ### auto-generated section `build intellij.platform.bookmarks.backend` start
-
 jvm_library(
     name = "backend",
     srcs = glob(
@@ -32,8 +32,11 @@ jvm_library(
         "//platform/kernel/backend",
         "//platform/project/shared:project",
         "//fleet/rhizomedb",
+        "//platform/kernel/rpc.backend",
     ],
 )
+
+content_module_jar(module = ":backend")
 
 jvm_library(
     name = "backend_test_lib",
@@ -62,6 +65,7 @@ jvm_library(
         "//platform/kernel/backend:backend_test_lib",
         "//platform/project/shared:project_test_lib",
         "//fleet/rhizomedb:rhizomedb_test_lib",
+        "//platform/kernel/rpc.backend:rpc.backend_test_lib",
     ],
 )
 ### auto-generated section `build intellij.platform.bookmarks.backend` end
@@ -70,6 +74,8 @@ jvm_library(
 exports_files(
     [
         "intellij.platform.bookmarks.backend.iml",
+        "resources/intellij.platform.bookmarks.backend.xml",
+        "module-content.yaml",
     ],
     visibility = ["//visibility:public"],
 )

@@ -3,17 +3,17 @@
 
 package com.intellij.platform.eel.provider
 
-import com.intellij.platform.eel.EelDescriptor
 import com.intellij.platform.eel.EelOsFamily
 import com.intellij.platform.eel.EelPathBoundDescriptor
 import com.intellij.platform.eel.annotations.MultiRoutingFileSystemPath
 import com.intellij.platform.eel.channels.EelDelicateApi
-import com.intellij.platform.eel.provider.utils.impl.localToIjent
 import com.intellij.platform.eel.path.EelPath
 import com.intellij.platform.eel.path.EelPathException
 import com.intellij.platform.eel.provider.utils.WindowsPathUtils
+import com.intellij.platform.eel.provider.utils.impl.localToIjent
 import org.jetbrains.annotations.ApiStatus
 import java.nio.file.Path
+import java.nio.file.Paths
 import java.util.logging.Logger
 
 private val LOG = Logger.getLogger("com.intellij.platform.eel.provider.EelNioBridge")
@@ -35,21 +35,14 @@ private val LOG = Logger.getLogger("com.intellij.platform.eel.provider.EelNioBri
 @Throws(IllegalArgumentException::class)
 @ApiStatus.Experimental
 fun EelPath.asNioPath(): @MultiRoutingFileSystemPath Path {
-  return asNioPathOrNull()
-         ?: throw IllegalArgumentException("Could not convert $this to NIO path, descriptor is $descriptor")
-}
-
-/** See docs for [asNioPath] */
-@Deprecated("It never returns null anymore")
-@ApiStatus.Experimental
-fun EelPath.asNioPathOrNull(): @MultiRoutingFileSystemPath Path? {
   if (descriptor === LocalEelDescriptor) {
-    return Path.of(toString())
+    return Paths.get(toString())
   }
 
   // Comparing strings because `Path.of("\\wsl.localhost\distro\").equals(Path.of("\\wsl$\distro\")) == true`
   // If the project works with `wsl$` paths, this function must return `wsl$` paths, and the same for `wsl.localhost`.
-  val root = (descriptor as? EelPathBoundDescriptor)?.rootPath ?: return null
+  val root = (descriptor as? EelPathBoundDescriptor)?.rootPath
+             ?: throw IllegalArgumentException("Could not convert $this to NIO path, descriptor is $descriptor")
 
   if (LOG.isLoggable(java.util.logging.Level.FINEST)) {
     LOG.finest("asNioPathOrNull(): path=$this descriptor=$descriptor rootPath=$root")
@@ -85,15 +78,7 @@ fun EelPath.asNioPathOrNull(): @MultiRoutingFileSystemPath Path? {
 @Throws(EelPathException::class)
 @ApiStatus.Experimental
 fun Path.asEelPath(): EelPath {
-  return asEelPath(getEelDescriptor())
-}
-
-/**
- * [descriptor] should be exactly `this.getEelDescriptor()`. This method exists only to avoid calling `getEelDescriptor()` twice.
- */
-@Throws(EelPathException::class)
-@ApiStatus.Experimental
-fun Path.asEelPath(descriptor: EelDescriptor): EelPath {
+  val descriptor = getEelDescriptor()
   if (descriptor is LocalEelDescriptor) {
     return EelPath.parse(toString(), descriptor)
   }

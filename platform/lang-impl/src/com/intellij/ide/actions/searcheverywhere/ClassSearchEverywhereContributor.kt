@@ -24,6 +24,7 @@ import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.vfs.VirtualFile
+import com.intellij.openapi.wm.ex.WelcomeScreenProjectProvider
 import com.intellij.platform.backend.navigation.NavigationRequest
 import com.intellij.pom.Navigatable
 import com.intellij.psi.PsiElement
@@ -36,6 +37,7 @@ import java.util.regex.Pattern
 private val patternToDetectMembers = Pattern.compile("(.+)(#)(.*)")
 private val LOG = logger<ClassSearchEverywhereContributor>()
 
+@Deprecated("The old Search Everywhere is being sunset in favor of the new (Split) Search Everywhere (com.intellij.platform.searchEverywhere).")
 open class ClassSearchEverywhereContributor @Internal constructor(event: AnActionEvent, contributorModules: List<SearchEverywhereContributorModule>?)
   : AbstractGotoSEContributor(event, contributorModules), EssentialContributor, SearchEverywherePreviewProvider {
   private val filter = createLanguageFilter(event.getRequiredData(CommonDataKeys.PROJECT))
@@ -123,6 +125,12 @@ open class ClassSearchEverywhereContributor @Internal constructor(event: AnActio
   class Factory : SearchEverywhereContributorFactory<Any?> {
     override fun createContributor(initEvent: AnActionEvent): SearchEverywhereContributor<Any?> {
       return PSIPresentationBgRendererWrapper.wrapIfNecessary(ClassSearchEverywhereContributor(initEvent))
+    }
+
+    override fun isAvailable(project: Project): Boolean {
+      // The welcome-screen project has no source, so the contributor can never return a result.
+      return !WelcomeScreenProjectProvider.isWelcomeScreenProject(project) &&
+             GotoContributorsAvailabilityService.hasLocalClassContributors(project)
     }
   }
 }

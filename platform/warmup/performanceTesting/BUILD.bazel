@@ -1,7 +1,6 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
 
 ### auto-generated section `build intellij.platform.warmup.performanceTesting` start
-
 jvm_library(
     name = "performanceTesting",
     srcs = glob(
@@ -60,6 +59,7 @@ jvm_library(
 exports_files(
     [
         "intellij.platform.warmup.performanceTesting.iml",
+        "resources/intellij.platform.warmup.performanceTesting.xml",
     ],
     visibility = ["//visibility:public"],
 )

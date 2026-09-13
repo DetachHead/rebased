@@ -15,6 +15,7 @@ import com.intellij.ui.components.labels.LinkLabel
 import com.intellij.ui.components.labels.LinkListener
 import com.intellij.ui.components.panels.HorizontalLayout
 import com.intellij.ui.dsl.builder.DslComponentProperty
+import com.intellij.ui.dsl.builder.VerticalComponentGap
 import com.intellij.ui.dsl.gridLayout.UnscaledGaps
 import com.intellij.ui.scale.JBUIScale
 import com.intellij.util.ui.FinalLayoutWrapper
@@ -30,6 +31,7 @@ import java.awt.LayoutManager2
 import java.awt.event.ActionListener
 import java.awt.event.MouseEvent
 import javax.swing.Icon
+import javax.swing.JButton
 import javax.swing.JComponent
 import javax.swing.JPanel
 import javax.swing.Timer
@@ -127,6 +129,7 @@ open class InlineBanner private constructor(
     centerPanel.add(myActionPanel)
 
     putClientProperty(DslComponentProperty.VISUAL_PADDINGS, UnscaledGaps.EMPTY)
+    putClientProperty(DslComponentProperty.VERTICAL_COMPONENT_GAP, VerticalComponentGap.BOTH)
   }
 
   private fun createInplaceButton(tooltip: @Nls String, icon: Icon, listener: ActionListener): JComponent {
@@ -182,12 +185,30 @@ open class InlineBanner private constructor(
   }
 
   fun addAction(name: @Nls String, icon: Icon?, action: Runnable): LinkLabel<Runnable> {
-    myActionPanel.isVisible = true
     val label = object : LinkLabel<Runnable>(name, icon, { _, action -> action.run() }, action) {
       override fun getTextColor() = JBUI.CurrentTheme.Link.Foreground.ENABLED
     }
-    myActionPanel.add(label, myActionPanel.componentCount - 1)
+    addAction(label)
     return label
+  }
+
+  @ApiStatus.Internal
+  fun addDefaultButtonAction(name: @Nls String, action: Runnable): JButton {
+    val button = object : JButton(name) {
+      override fun isDefaultButton() = true
+    }
+    button.isOpaque = false
+    button.addActionListener {
+      action.run()
+    }
+    addAction(button)
+    return button
+  }
+
+  @ApiStatus.Internal
+  fun addAction(action: JComponent) {
+    myActionPanel.isVisible = true
+    myActionPanel.add(action, myActionPanel.componentCount - 1)
   }
 
   fun addAction(name: @Nls String, action: Runnable): InlineBanner {
@@ -207,6 +228,9 @@ open class InlineBanner private constructor(
     updateButtonsSize()
     return this
   }
+
+  @ApiStatus.Internal
+  fun getCloseAction(): Runnable? = myCloseAction
 
   fun setCloseAction(action: Runnable): InlineBanner {
     myCloseAction = action

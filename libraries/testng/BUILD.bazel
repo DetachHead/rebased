@@ -1,7 +1,7 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
 ### auto-generated section `build intellij.libraries.testng` start
-
 jvm_library(
     name = "testng",
     srcs = glob(
@@ -18,6 +18,8 @@ jvm_library(
     runtime_deps = ["@lib//:test_n_g"],
 )
 
+content_module_jar(module = ":testng")
+
 jvm_library(
     name = "testng_test_lib",
     testonly = True,
@@ -25,6 +27,7 @@ jvm_library(
         [],
         allow_empty = True,
     ),
+    kotlinc_opts = "@community//:k8",
     module_name = "intellij.libraries.testng",
     visibility = ["//visibility:public"],
     exports = ["@lib//:test_n_g"],
@@ -36,6 +39,7 @@ jvm_library(
 exports_files(
     [
         "intellij.libraries.testng.iml",
+        "resources/intellij.libraries.testng.xml",
     ],
     visibility = ["//visibility:public"],
 )

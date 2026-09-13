@@ -1,8 +1,8 @@
 load("@community//build:tests-options.bzl", "jps_test")
 load("@rules_jvm//:jvm.bzl", "jvm_library")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
 ### auto-generated section `build intellij.vcs.git.coverage` start
-
 jvm_library(
     name = "vcs-git-coverage",
     srcs = glob(
@@ -38,6 +38,8 @@ jvm_library(
         "//platform/vcs-impl/shared",
     ],
 )
+
+content_module_jar(module = ":vcs-git-coverage")
 
 jvm_library(
     name = "vcs-git-coverage_test_lib",
@@ -75,13 +77,13 @@ jvm_library(
 exports_files(
     [
         "intellij.vcs.git.coverage.iml",
+        "resources/intellij.vcs.git.coverage.xml",
     ],
     visibility = ["//visibility:public"],
 )
 ### auto-generated section `iml intellij.vcs.git.coverage` end
 
 ### auto-generated section `build intellij.vcs.git.coverage.tests` start
-
 jvm_library(
     name = "vcs-git-coverage-tests",
     srcs = glob(
@@ -159,7 +161,6 @@ exports_files(
 ### auto-generated section `iml intellij.vcs.git.coverage.tests` end
 
 ### auto-generated section `test intellij.vcs.git.coverage.tests` start
-
 jps_test(
     name = "vcs-git-coverage-tests_test",
     runtime_deps = [":vcs-git-coverage-tests_test_lib"],

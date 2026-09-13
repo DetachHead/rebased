@@ -1,7 +1,7 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
 ### auto-generated section `build intellij.java.codeserver.highlighting` start
-
 jvm_library(
     name = "highlighting",
     srcs = glob(
@@ -21,7 +21,7 @@ jvm_library(
     runtime_deps = ["//platform/backend"],
     deps = [
         # do not sort,
-        "@lib//:jetbrains-annotations",
+        "//libraries/jetbrains/annotations",
         "//libraries/stream",
         "//platform/core-api:core",
         "//platform/core-impl",
@@ -40,6 +40,8 @@ jvm_library(
     ],
 )
 
+content_module_jar(module = ":highlighting")
+
 jvm_library(
     name = "highlighting_test_lib",
     testonly = True,
@@ -52,6 +54,7 @@ jvm_library(
     runtime_deps = [
         # do not sort,
         ":highlighting",
+        "//libraries/jetbrains/annotations:annotations_test_lib",
         "//libraries/stream:stream_test_lib",
         "//platform/core-api:core_test_lib",
         "//platform/core-impl:core-impl_test_lib",
@@ -76,6 +79,8 @@ jvm_library(
 exports_files(
     [
         "intellij.java.codeserver.highlighting.iml",
+        "resources/META-INF/JavaCodeServerHighlighting.xml",
+        "resources/intellij.java.codeserver.highlighting.xml",
     ],
     visibility = ["//visibility:public"],
 )

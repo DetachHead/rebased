@@ -612,6 +612,17 @@ public class NodeRendererSettings implements PersistentStateComponent<Element> {
           return inCollection && !isMuted() ? null : super.getType();
         }
 
+        @Override
+        public boolean isTemporary() {
+          // the label of this node is the label of the two child descriptors
+          return super.isTemporary() || isChildPending(KEY_DESCRIPTOR) || isChildPending(VALUE_DESCRIPTOR);
+        }
+
+        private boolean isChildPending(Key<ValueDescriptorImpl> key) {
+          ValueDescriptorImpl valueDescriptor = myValueDescriptor.getUserData(key);
+          return valueDescriptor != null && valueDescriptor.hasPendingLabelUpdate();
+        }
+
         private boolean isMuted() {
           return myValueDescriptor.getUserData(RENDERER_MUTED) != null && !OnDemandRenderer.isCalculated(myValueDescriptor);
         }
@@ -651,14 +662,12 @@ public class NodeRendererSettings implements PersistentStateComponent<Element> {
       for (String annotationFqn : annotationFqns) {
         PsiClass annotationClass = JavaPsiFacade.getInstance(project).findClass(annotationFqn, GlobalSearchScope.allScope(project));
         if (annotationClass == null) continue;
-        AnnotatedElementsSearch.searchElements(annotationClass, GlobalSearchScope.allScope(project), types)
-          .asIterable()
-          .forEach((PsiModifierListOwner owner) -> {
-            R element = consumer.apply(owner, AnnotationUtil.findAnnotation(owner, annotationFqn));
-            if (element != null) {
-              result.add(element);
-            }
-          });
+        for (T owner : AnnotatedElementsSearch.searchElements(annotationClass, GlobalSearchScope.allScope(project), types).findAll()) {
+          R element = consumer.apply(owner, AnnotationUtil.findAnnotation(owner, annotationFqn));
+          if (element != null) {
+            result.add(element);
+          }
+        }
       }
       return result;
     }).executeSynchronously();

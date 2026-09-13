@@ -1,7 +1,7 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
 ### auto-generated section `build intellij.kotlin.projectWizard.maven` start
-
 jvm_library(
     name = "maven",
     srcs = glob(
@@ -38,6 +38,8 @@ jvm_library(
     ],
 )
 
+content_module_jar(module = ":maven")
+
 jvm_library(
     name = "maven_test_lib",
     testonly = True,
@@ -72,6 +74,7 @@ jvm_library(
 exports_files(
     [
         "intellij.kotlin.projectWizard.maven.iml",
+        "resources/intellij.kotlin.projectWizard.maven.xml",
     ],
     visibility = ["//visibility:public"],
 )

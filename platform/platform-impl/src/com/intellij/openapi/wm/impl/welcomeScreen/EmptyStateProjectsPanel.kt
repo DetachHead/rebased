@@ -17,9 +17,9 @@ import com.intellij.openapi.actionSystem.ex.ActionUtil
 import com.intellij.openapi.actionSystem.ex.CustomComponentAction
 import com.intellij.openapi.actionSystem.impl.ActionToolbarImpl
 import com.intellij.openapi.actionSystem.toolbarLayout.ToolbarLayoutStrategy
+import com.intellij.openapi.application.UI
 import com.intellij.openapi.ui.popup.JBPopupFactory
 import com.intellij.openapi.util.Key
-import com.intellij.openapi.util.registry.Registry
 import com.intellij.openapi.wm.IdeFocusManager
 import com.intellij.ui.components.DropDownLink
 import com.intellij.ui.dsl.builder.AlignX
@@ -27,9 +27,13 @@ import com.intellij.ui.dsl.builder.panel
 import com.intellij.ui.dsl.gridLayout.UnscaledGaps
 import com.intellij.ui.dsl.gridLayout.UnscaledGapsY
 import com.intellij.ui.scale.JBUIScale.scale
+import com.intellij.util.cancelOnDispose
 import com.intellij.util.concurrency.annotations.RequiresEdt
+import com.intellij.util.io.SuperUserStatus
 import com.intellij.util.ui.FocusUtil
 import com.intellij.util.ui.JBUI
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import org.jetbrains.annotations.ApiStatus.Internal
 import java.awt.Font
 import java.util.concurrent.ConcurrentHashMap
@@ -40,6 +44,13 @@ internal fun emptyStateProjectPanel(disposable: Disposable): JComponent = panel 
   row {
     label(WelcomeScreenComponentFactory.getApplicationTitle()).applyToComponent {
       font = font.deriveFont(font.getSize() + scale(13).toFloat()).deriveFont(Font.BOLD)
+      val label = this
+      SuperUserStatus.whenKnown {
+        withContext(Dispatchers.UI)  {
+          label.text = WelcomeScreenComponentFactory.getApplicationTitle ()
+        }
+      }
+        .cancelOnDispose(disposable)
     }.customize(UnscaledGaps(top = 105, bottom = 21))
       .align(AlignX.CENTER)
   }
@@ -181,7 +192,7 @@ private fun createActionsToolbar(actionGroup: ActionGroup): ActionToolbarImpl {
       }
     }
   }
-  actionToolbar.setLayoutStrategy(ToolbarLayoutStrategy.WRAP_STRATEGY)
+  actionToolbar.setLayoutStrategy(ToolbarLayoutStrategy.EQUAL_SIZE_WRAP_STRATEGY)
   actionToolbar.setTargetComponent(actionToolbar.component)
   actionToolbar.setOpaque(false)
   return actionToolbar

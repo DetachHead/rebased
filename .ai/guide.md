@@ -1,19 +1,33 @@
 {{PARTIAL:frontmatter}}
 
 <!-- TEMPLATE:COMMENT -->
-To regenerate, run `node community/.ai/render-guides.mjs`.
+To regenerate, run `bazel run //.ai:render-guides`.
 <!-- /TEMPLATE:COMMENT -->
-
-**Always display the output of SessionStart hooks verbatim to the user at the start of conversation**
 
 **Critical:** These guidelines MUST be followed at all times.
 
 ## Project Invariants
 
-- The repository is a large monorepo with multiple IDE products and plugins.
-- Module/plugin directories may contain their own AGENTS/CLAUDE instructions; follow them when present.
-- `*.iml` files are the source of truth and auto-generate `BUILD.bazel` files.
+- A module or plugin directory can hold its own AGENTS or CLAUDE instructions. Follow them when they are present.
+- `*.iml` files are the source of truth. They generate the `BUILD.bazel` files.
+<!-- IF_EDITION:ULTIMATE -->- Register a new or edited JPS module `.iml` with `bun build/jps-module.mjs register <path-to-iml> --fix-iml-eof`, then run `./build/jpsModelToBazel.cmd`. Never edit `.idea/modules.xml` by hand. The command keeps both `modules.xml` files in canonical order.<!-- /IF_EDITION:ULTIMATE --><!-- IF_EDITION:COMMUNITY -->- Register a new or edited JPS module `.iml` with `bun build/jps-module.mjs register <path-to-iml> --fix-iml-eof`, then run `./build/jpsModelToBazelCommunityOnly.cmd`. Never edit `.idea/modules.xml` by hand. The command keeps `modules.xml` in canonical order.<!-- /IF_EDITION:COMMUNITY -->
 - User-visible strings belong in `*.properties` for localization.
+
+## Writing
+
+Write every user-visible artifact in [ASD-STE100 Simplified Technical English](https://www.asd-ste100.org/), and keep it short. This covers a comment, KDoc, a commit message, documentation, a spec, and a report to the user. Use the active voice and a simple tense, state one topic per sentence, write positively, and use no noun cluster longer than three words. The five that catch most of the damage here:
+
+- Keep a sentence at or under 25 words.
+- Make an aside its own sentence. Do not put it between dashes.
+- Keep the articles. Write "the session", not "session".
+- One term per concept. Never introduce a synonym for a term the area already defines.
+- Say what you left out and why. Do not pad a report to look complete.
+
+Each kind of text has one home. Rationale and evidence for a change go in the commit message, not in a code comment. Document a declaration in KDoc on it, not in a `README.md`.
+
+## Workspace Isolation
+
+Do not create a Git worktree or a clone, and do not install a workspace manager, on your own initiative. Read [Workspace Isolation](./workspace-isolation.md) before any workspace-isolation action. It also covers the explicit-request exception.
 
 {{PARTIAL:module-specific}}
 
@@ -23,107 +37,55 @@ To regenerate, run `node community/.ai/render-guides.mjs`.
 
 ### After Code Changes
 
-- **Run affected tests:** `./tests.cmd --module <module> --test <FQN or wildcard>` (**FQN required; simple class names do not match; always specify the test module directly**), or `node --test <file>` for `*.test.mjs`.
-  `tests.cmd` performs Bazel compilation internally, so a separate `bazel build` step is not needed when tests will be run.
-  Module-specific rules may override the runner. Skip if plugin has no tests. See [TESTING](../.agents/skills/testing/SKILL.md).
-- **Bazel compilation without tests:** when only verifying compilation (no tests to run), use `bazel build <target>` for affected modules. Skip if only `.js`, `.mjs`, `.md`, `.txt`, or `.json` files are modified.
-- After modifying `*.iml`, `BUILD.bazel`, or `.idea/` files: run `./build/jpsModelToBazel.cmd`.
+- **Run the affected tests:** `./tests.cmd --module <module> --test <FQN or wildcard>`, or `node --test <file>` for a `*.test.mjs` file. An FQN is required, and a simple class name matches nothing. Always name the test module. `tests.cmd` compiles with Bazel itself, so a separate `bazel build` step is not needed. A module rule can override the runner. Skip this when the plugin has no tests. See [TESTING](../.agents/skills/testing/SKILL.md).
+- **Bazel compilation without tests:** to verify compilation only, run `bazel build <target>` for the affected modules. Skip this when you changed only `.js`, `.mjs`, `.md`, `.txt`, or `.json` files.
+- After you change a Bazel or Starlark source (`BUILD`, `BUILD.bazel`, `MODULE.bazel`, `WORKSPACE`, `WORKSPACE.bazel`, or `*.bzl`), run `bazel run //:format.check`. If it reports a diff, run `bazel run //:format`, inspect the changes, and run the check again.
+<!-- IF_EDITION:ULTIMATE -->- After you change an `*.iml`, a `BUILD.bazel`, or a `.idea/` file, run `./build/jpsModelToBazel.cmd`.<!-- /IF_EDITION:ULTIMATE --><!-- IF_EDITION:COMMUNITY -->- After you change an `*.iml`, a `BUILD.bazel`, or a `.idea/` file, run `./build/jpsModelToBazelCommunityOnly.cmd`.<!-- /IF_EDITION:COMMUNITY -->
 
 ### After Writing Code
 
-- Use `lint_files` to check files for warnings.
-  Fix any warnings related to the code changes made. You may ignore unrelated warnings.
+- Use `lint_files` to check the files for warnings when ijproxy or JetBrains MCP is available. Fix every warning that belongs to your changes. You can ignore an unrelated warning.
 
 ## Repository-wide rules
 
-Preserve IDE-serialized .iml files in canonical form. Do not:
+Keep IDE-serialized `.iml` files in canonical form. Do not:
 
-- add comments
+- add a comment
 - auto-format
-- normalize (structure or whitespace)
-- add a trailing newline at end of file
-- prune (remove) empty tags
-- reorder elements or attributes
+- normalize the structure or the whitespace
+- add a trailing newline at the end of the file
+- remove an empty tag
+- reorder an element or an attribute
 
-## Tools (use in this order)
+## Tools
 
-## Skills
+Never use the `code-search` skill. The search tools below replace it. Recipes, the Windows rules, and the full tool inventory: [Tools Reference](./tools.md).
 
-Never use the `search-tools-instructions` skill. See ijproxy for search tools.
+### Search & navigation (ijproxy preferred)
 
-### ijproxy (required)
+Use `search_symbol` for a class, a method, or a field. Use `search_file` to find a file by glob. Use `search_text` and `search_regex` for a string, a comment, or another match that is not a symbol.
 <!-- IF_TOOL:CODEX -->
-- Read: `mcp__ijproxy__read_file`
-- Edit/Write: `mcp__ijproxy__apply_patch`
-- **Search symbols (preferred):** `mcp__ijproxy__search_symbol`
-- Find files (glob): `mcp__ijproxy__search_file`
-- Search text: `mcp__ijproxy__search_text`
-- Search regex: `mcp__ijproxy__search_regex`
-- List dir: `mcp__ijproxy__list_dir`
+Codex exposes these as `mcp__ijproxy__<name>`. Inspect the deferred tool catalog (`ALL_TOOLS`) for them before you use a shell or a non-ijproxy fallback.
 <!-- /IF_TOOL:CODEX -->
-<!-- IF_TOOL:CLAUDE -->
-- Read: `read_file`
-- Edit/Write: `apply_patch`
-- **Search symbols (preferred):** `search_symbol`
-- Find files (glob): `search_file`
-- Search text: `search_text`
-- Search regex: `search_regex`
-- List dir: `list_dir`
-<!-- /IF_TOOL:CLAUDE -->
-<!-- IF_TOOL:JUNIE -->
-- Read: `read_file`
-- Edit/Write: `apply_patch`
-- **Search symbols (preferred):** `search_symbol`
-- Find files (glob): `search_file`
-- Search text: `search_text`
-- Search regex: `search_regex`
-- List dir: `list_dir`
-<!-- /IF_TOOL:JUNIE -->
-
-### Client fallback (no MCP)
-<!-- IF_EDITION:ULTIMATE -->
-- **No MCP:** use `./community/tools/fd.cmd` (file search) and `./community/tools/rg.cmd` (text/regex search). These are the only allowed shell file ops on repo paths.
-<!-- /IF_EDITION:ULTIMATE -->
-<!-- IF_EDITION:COMMUNITY -->
-- **No MCP:** use `./tools/fd.cmd` (file search) and `./tools/rg.cmd` (text/regex search). These are the only allowed shell file ops on repo paths.
-<!-- /IF_EDITION:COMMUNITY -->
 
 ### IDE-backed semantic tools
-Available via ijproxy or JetBrains MCP. Use these for semantic operations; avoid manual search/replace when a refactor exists.
 
-- **Default to `search_symbol` (if available) for classes/methods/fields; use `search_text`/`search_regex` mainly for strings, comments, and non-symbol matches.**
-- Inspections & symbol info: `get_file_problems`, `get_symbol_info`
-- Refactors: `rename` (ijproxy) / `rename_refactoring` (JetBrains MCP); use for renames and avoid manual search/replace.
-- Formatting: `reformat_file`
-- Concurrency checks: `find_threading_requirements_usages`, `find_lock_requirements_usages`
-- Project structure & VCS: `get_project_modules`, `get_project_dependencies`, `get_repositories`, `git_status`
-- Run configs: `get_run_configurations`, `execute_run_configuration`
+Available through ijproxy or JetBrains MCP: `lint_files`, `get_symbol_info`, `rename`, `reformat_file`, the threading and lock checks, and the project, VCS and run-configuration tools. Prefer a real refactoring over a manual search and replace.
 
 ### Tooling rules
-- When ijproxy MCP is available, all repo file ops (read/search/edit/write) MUST use ijproxy tools. Do not use JetBrains MCP or generic tools.
-- Fallback tools (JetBrains MCP / client) are allowed only when ijproxy is unavailable.
-<!-- IF_TOOL:CODEX -->
-- For repo edits, use `mcp__ijproxy__apply_patch`. Generic `apply_patch` is forbidden unless ijproxy is unavailable.
-<!-- /IF_TOOL:CODEX -->
-<!-- IF_TOOL:CLAUDE -->
-- For repo edits, use the ijproxy edit/write tools listed above. Generic edit/write fallbacks are forbidden unless ijproxy is unavailable.
-<!-- /IF_TOOL:CLAUDE -->
-<!-- IF_TOOL:JUNIE -->
-- For repo edits, use the ijproxy edit/write tools listed above. Generic edit/write fallbacks are forbidden unless ijproxy is unavailable.
-<!-- /IF_TOOL:JUNIE -->
-<!-- IF_EDITION:ULTIMATE -->
-- Never shell for file ops (`cat`, `sed`, `find`, `grep`) on repo paths, except the client fallback (`./community/tools/fd.cmd`, `./community/tools/rg.cmd`) when no MCP is available.
-<!-- /IF_EDITION:ULTIMATE -->
-<!-- IF_EDITION:COMMUNITY -->
-- Never shell for file ops (`cat`, `sed`, `find`, `grep`) on repo paths, except the client fallback (`./tools/fd.cmd`, `./tools/rg.cmd`) when no MCP is available.
-<!-- /IF_EDITION:COMMUNITY -->
-- Shell OK for: git (prefer `git_status` if the tool is available), build/test.
-<!-- IF_EDITION:ULTIMATE -->
-- Outside repo: native shell permitted, except for text/file search — use `./community/tools/rg.cmd` and `./community/tools/fd.cmd` (absolute paths OK) instead of native `grep`/`find`.
-<!-- /IF_EDITION:ULTIMATE -->
-<!-- IF_EDITION:COMMUNITY -->
-- Outside repo: native shell permitted, except for text/file search — use `./tools/rg.cmd` and `./tools/fd.cmd` (absolute paths OK) instead of native `grep`/`find`.
-<!-- /IF_EDITION:COMMUNITY -->
+
+- Prefer ijproxy for a content or symbol **search** and for a semantic operation. Fall back to JetBrains MCP, then to `{{TOOLS_DIR}}/fd.cmd` (files) and `{{TOOLS_DIR}}/rg.cmd` (text and regex), only when ijproxy is unavailable. Pass `-H` to see a dot-directory such as `.agents/`.
+<!-- IF_EDITION:ULTIMATE -->- Ask the Product DSL for a plugin model answer, not `rg` or `bazel cquery`: `bazel run //platform/buildScripts:plugin-model-tool -- --json='<request>'`. The `plugin-model-analyzer` skill holds the request shapes.<!-- /IF_EDITION:ULTIMATE -->
+- Do not shell out for a file **search**, inside the repo or outside it. This is enforced: the `Glob` and `Grep` tools are denied, and so are the `grep` and `find` commands in every pipeline position.
+- Prefer a spelling the allowlist knows, because a novel one asks for a prompt. Add a new entry to `{{COMMUNITY_DIR}}.ai/tool-permissions.json`, never to a harness allowlist.
+- Shell is allowed where this guide documents it, and for git, build, and test. Prefer `git_status` when that tool is available. Outside the working copy it is task-scoped: read what this repo's tooling produced, or what the user or a skill named, and never survey the machine.
+
+### Skills
+
+The harness can list skill *names* only, without a description. When a task looks like something a skill covers, read the index for what each name does before you improvise:
+
+<!-- IF_EDITION:ULTIMATE -->- Skill index: [`.agents/skills/INDEX.md`](../../.agents/skills/INDEX.md)<!-- /IF_EDITION:ULTIMATE -->
+<!-- IF_EDITION:COMMUNITY -->- Skill index: [`.agents/skills/INDEX.md`](../.agents/skills/INDEX.md)<!-- /IF_EDITION:COMMUNITY -->
 
 {{PARTIAL:knowledge-mcps}}
 

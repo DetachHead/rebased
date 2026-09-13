@@ -1,6 +1,13 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
+load("//build:compiler-options.bzl", "create_kotlinc_options")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
 ### auto-generated section `build intellij.platform.eel.tcp` start
+create_kotlinc_options(
+    name = "custom_eel-tcp",
+    warn = "error",
+    x_warning_level = ["DEPRECATION:warning"],
+)
 
 jvm_library(
     name = "eel-tcp",
@@ -12,6 +19,7 @@ jvm_library(
         ],
         allow_empty = True,
     ),
+    kotlinc_opts = ":custom_eel-tcp",
     module_name = "intellij.platform.eel.tcp",
     resource_strip_prefix = "resources",
     resources = glob(
@@ -20,7 +28,7 @@ jvm_library(
     visibility = ["//visibility:public"],
     deps = [
         # do not sort,
-        "@lib//:jetbrains-annotations",
+        "//libraries/jetbrains/annotations",
         "//libraries/kotlinx/coroutines/core",
         "@lib//:kotlin-stdlib",
         "//platform/eel-provider",
@@ -30,6 +38,7 @@ jvm_library(
         "//platform/ijent/impl",
         "//platform/util-ex",
         "//platform/util",
+        "//platform/util/annotations",
         "//platform/util/coroutines",
         "//platform/core-api:core",
         "//platform/core-nio-fs",
@@ -43,6 +52,8 @@ jvm_library(
     ],
 )
 
+content_module_jar(module = ":eel-tcp")
+
 jvm_library(
     name = "eel-tcp_test_lib",
     testonly = True,
@@ -50,11 +61,13 @@ jvm_library(
         [],
         allow_empty = True,
     ),
+    kotlinc_opts = ":custom_eel-tcp",
     module_name = "intellij.platform.eel.tcp",
     visibility = ["//visibility:public"],
     runtime_deps = [
         # do not sort,
         ":eel-tcp",
+        "//libraries/jetbrains/annotations:annotations_test_lib",
         "//libraries/kotlinx/coroutines/core:core_test_lib",
         "//platform/eel-provider:eel-provider_test_lib",
         "//platform/eel:eel_test_lib",
@@ -63,6 +76,7 @@ jvm_library(
         "//platform/ijent/impl:impl_test_lib",
         "//platform/util-ex:util-ex_test_lib",
         "//platform/util:util_test_lib",
+        "//platform/util/annotations:annotations_test_lib",
         "//platform/util/coroutines:coroutines_test_lib",
         "//platform/core-api:core_test_lib",
         "//platform/core-nio-fs:core-nio-fs_test_lib",
@@ -81,6 +95,8 @@ jvm_library(
 exports_files(
     [
         "intellij.platform.eel.tcp.iml",
+        "resources/intellij.platform.eel.tcp.xml",
+        "module-content.yaml",
     ],
     visibility = ["//visibility:public"],
 )

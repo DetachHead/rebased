@@ -3,9 +3,11 @@
   <dependencies>
     <module name="intellij.libraries.jediterm.core"/>
     <module name="intellij.libraries.jediterm.ui"/>
+    <module name="intellij.libraries.jetbrains.annotations"/>
     <module name="intellij.libraries.kotlinx.coroutines.core"/>
     <module name="intellij.libraries.pty4j"/>
     <module name="intellij.platform.core"/>
+    <module name="intellij.platform.core.impl"/>
     <module name="intellij.platform.core.ui"/>
     <module name="intellij.platform.editor.ui"/>
     <module name="intellij.platform.eel.nioFs.impl"/>
@@ -13,7 +15,9 @@
     <module name="intellij.platform.execution.impl"/>
     <module name="intellij.platform.ide"/>
     <module name="intellij.platform.ide.core"/>
+    <module name="intellij.platform.ide.core.impl"/>
     <module name="intellij.platform.ide.impl"/>
+    <module name="intellij.platform.ide.progress"/>
     <module name="intellij.platform.lang"/>
     <module name="intellij.platform.projectModel"/>
     <module name="intellij.platform.util.coroutines"/>
@@ -40,6 +44,10 @@
         id="com.intellij.platform.ijent.community.ui.actions.dashboard.ShowIjentDashboardAction"
         class="com.intellij.platform.ijent.community.ui.actions.dashboard.ShowIjentDashboardAction"
         internal="true"/>
+      <action
+        id="com.intellij.platform.ijent.community.ui.actions.dashboard.EmulateIjentFreezeAction"
+        class="com.intellij.platform.ijent.community.ui.actions.dashboard.EmulateIjentFreezeAction"
+        internal="true"/>
     </group>
   </actions>
   <extensionPoints>
@@ -50,6 +58,17 @@
     <ijent.dashboard.tab implementation="com.intellij.platform.ijent.community.ui.actions.dashboard.IjentDashboardTabInfo"/>
     <ijent.dashboard.tab implementation="com.intellij.platform.ijent.community.ui.actions.dashboard.IjentDashboardTabEnvVars"/>
     <project.root.unavailable implementation="com.intellij.platform.ijent.community.ui.actions.unavailable.IjentUnavailableDialogHandler"/>
+    <notificationGroup
+      id="IJent.EnvironmentVariables"
+      displayType="BALLOON"
+      bundle="messages.IjentImplBundle"
+      key="notification.group.ijent.env.vars"/>
+    <applicationService
+      serviceInterface="com.intellij.platform.eel.EnvironmentVariablesAwaitReporter"
+      serviceImplementation="com.intellij.platform.ijent.community.ui.settings.EnvironmentVariablesAwaitReporterImpl"/>
+    <applicationService
+      serviceInterface="com.intellij.platform.ijent.LoginShellEnvVarModeProvider"
+      serviceImplementation="com.intellij.platform.ijent.community.ui.settings.LoginShellEnvVarModeProviderImpl"/>
     <advancedSetting
       id="container.environments.env.var.shell.mode"
       enumClass="com.intellij.platform.ijent.community.ui.settings.LoginShellEnvVarModeProviderImpl$EnvVarShellMode"

@@ -18,7 +18,7 @@ import com.intellij.openapi.actionSystem.ToggleAction
 import com.intellij.openapi.project.DumbAware
 import com.intellij.openapi.project.Project
 import com.intellij.platform.debugger.impl.rpc.XValueId
-import com.intellij.platform.debugger.impl.shared.FrontendDescriptorStateManager
+import com.intellij.platform.debugger.impl.shared.CustomDescriptorStateManager
 import com.intellij.platform.debugger.impl.shared.SplitDebuggerAction
 import com.intellij.platform.debugger.impl.shared.proxy.XDebugManagerProxy
 import com.intellij.platform.debugger.impl.shared.proxy.XDebugSessionProxy
@@ -122,7 +122,7 @@ internal fun setRendererForNodes(e: AnActionEvent, rendererId: NodeRendererId?) 
   val session = DebuggerUIUtil.getSessionProxy(e) ?: return
   val selectedNodesWithJavaValues = getSelectedJavaValuesWithDescriptors(e).map { it.first to it.second }
 
-  session.coroutineScope.launch {
+  e.coroutineScope.launch {
     val xValues = selectedNodesWithJavaValues.map { it.second }
     xValues.withId(session) { ids ->
       JavaDebuggerSessionApi.getInstance().setRenderer(rendererId, ids)
@@ -137,7 +137,7 @@ internal fun setRendererForNodes(e: AnActionEvent, rendererId: NodeRendererId?) 
 }
 
 private fun JavaValueDescriptor.getState(project: Project): JavaValueDescriptorState? =
-  FrontendDescriptorStateManager.getInstance(project).getState(this) as? JavaValueDescriptorState
+  CustomDescriptorStateManager.getInstance(project).getState(this) as? JavaValueDescriptorState
 
 internal suspend fun <T> List<XValue>.withId(session: XDebugSessionProxy, block: suspend (List<XValueId>) -> T): T {
   val ids = mutableListOf<XValueId>()
@@ -156,5 +156,3 @@ internal suspend fun <T> List<XValue>.withId(session: XDebugSessionProxy, block:
 
   return rec(0)
 }
-
-

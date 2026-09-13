@@ -1,42 +1,47 @@
 // Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.kotlin.idea.k2.refactoring.inline.codeInliner
 
+import com.intellij.openapi.util.NlsSafe
 import com.intellij.psi.createSmartPointer
 import com.intellij.psi.search.LocalSearchScope
 import com.intellij.psi.util.PsiTreeUtil
-import org.jetbrains.kotlin.analysis.api.KaExperimentalApi
 import org.jetbrains.kotlin.analysis.api.KaSession
-import org.jetbrains.kotlin.analysis.api.analyze
-import org.jetbrains.kotlin.analysis.api.components.isBooleanType
-import org.jetbrains.kotlin.analysis.api.components.isByteType
-import org.jetbrains.kotlin.analysis.api.components.isCharType
-import org.jetbrains.kotlin.analysis.api.components.isDoubleType
-import org.jetbrains.kotlin.analysis.api.components.isFloatType
-import org.jetbrains.kotlin.analysis.api.components.isIntType
-import org.jetbrains.kotlin.analysis.api.components.isLongType
-import org.jetbrains.kotlin.analysis.api.components.isMarkedNullable
-import org.jetbrains.kotlin.analysis.api.components.isShortType
-import org.jetbrains.kotlin.analysis.api.components.render
-import org.jetbrains.kotlin.analysis.api.resolution.KaCallableMemberCall
+import org.jetbrains.kotlin.analysis.api.components.returnType
+import org.jetbrains.kotlin.analysis.api.expressions.expressionType
+import org.jetbrains.kotlin.analysis.api.expressions.isUsedAsExpression
+import org.jetbrains.kotlin.analysis.api.renderer.render
+import org.jetbrains.kotlin.analysis.api.resolution.KaExplicitReceiverValue
 import org.jetbrains.kotlin.analysis.api.resolution.KaImplicitReceiverValue
-import org.jetbrains.kotlin.analysis.api.resolution.singleCallOrNull
-import org.jetbrains.kotlin.analysis.api.resolution.singleFunctionCallOrNull
+import org.jetbrains.kotlin.analysis.api.resolution.KaReceiverValue
+import org.jetbrains.kotlin.analysis.api.resolution.function
+import org.jetbrains.kotlin.analysis.api.resolution.simple
+import org.jetbrains.kotlin.analysis.api.resolution.single
 import org.jetbrains.kotlin.analysis.api.resolution.symbol
+import org.jetbrains.kotlin.analysis.api.resolution.tryResolveCall
+import org.jetbrains.kotlin.analysis.api.session.analyze
 import org.jetbrains.kotlin.analysis.api.symbols.KaAnonymousObjectSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaClassSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaClassifierSymbol
+import org.jetbrains.kotlin.analysis.api.symbols.KaContextParameterSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaNamedFunctionSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaReceiverParameterSymbol
+import org.jetbrains.kotlin.analysis.api.symbols.symbol
 import org.jetbrains.kotlin.analysis.api.types.KaClassType
 import org.jetbrains.kotlin.analysis.api.types.KaErrorType
 import org.jetbrains.kotlin.analysis.api.types.KaFlexibleType
 import org.jetbrains.kotlin.analysis.api.types.KaFunctionType
+import org.jetbrains.kotlin.analysis.api.types.KaStandardTypeClassIds
 import org.jetbrains.kotlin.analysis.api.types.KaType
+import org.jetbrains.kotlin.analysis.api.types.approximateToDenotableSubtypeOrSelf
+import org.jetbrains.kotlin.analysis.api.types.arrayElementType
+import org.jetbrains.kotlin.analysis.api.types.classId
+import org.jetbrains.kotlin.analysis.api.types.isMarkedNullable
 import org.jetbrains.kotlin.config.LanguageFeature
 import org.jetbrains.kotlin.idea.base.codeInsight.KotlinDeclarationNameValidator
 import org.jetbrains.kotlin.idea.base.codeInsight.KotlinNameSuggester
 import org.jetbrains.kotlin.idea.base.codeInsight.KotlinNameSuggestionProvider
 import org.jetbrains.kotlin.idea.base.projectStructure.languageVersionSettings
+import org.jetbrains.kotlin.idea.base.psi.AddLabelUtil
 import org.jetbrains.kotlin.idea.base.psi.imports.addImport
 import org.jetbrains.kotlin.idea.base.searching.usages.ReferencesSearchScopeHelper
 import org.jetbrains.kotlin.idea.core.CollectingNameValidator
@@ -84,6 +89,7 @@ import org.jetbrains.kotlin.psi.KtFile
 import org.jetbrains.kotlin.psi.KtFunction
 import org.jetbrains.kotlin.psi.KtFunctionLiteral
 import org.jetbrains.kotlin.psi.KtInstanceExpressionWithLabel
+import org.jetbrains.kotlin.psi.KtLabeledExpression
 import org.jetbrains.kotlin.psi.KtLambdaExpression
 import org.jetbrains.kotlin.psi.KtLoopExpression
 import org.jetbrains.kotlin.psi.KtModifierListOwner
@@ -116,6 +122,7 @@ import org.jetbrains.kotlin.psi.psiUtil.getStrictParentOfType
 import org.jetbrains.kotlin.psi.psiUtil.parameterIndex
 import org.jetbrains.kotlin.psi.psiUtil.parentsWithSelf
 import org.jetbrains.kotlin.psi.psiUtil.startOffset
+import org.jetbrains.kotlin.resolution.KtResolvableCall
 import org.jetbrains.kotlin.types.Variance
 import org.jetbrains.kotlin.utils.addIfNotNull
 
@@ -126,14 +133,25 @@ class CodeInliner(
     private val replacement: CodeToInline
 ) : AbstractCodeInliner<KtElement, KtParameter, KaType, KtDeclaration>(call, replacement) {
     private val mapping: Map<KtExpression, Name>? = analyze(call) {
-        treeUpToCall().resolveToCall()?.singleFunctionCallOrNull()?.argumentMapping?.mapValues { e -> e.value.name }
+        val treeUpToCall = treeUpToCall() as? KtResolvableCall ?: return@analyze null
+        treeUpToCall.tryResolveCall()?.single?.function?.valueArgumentMapping?.mapValues { e -> e.value.name }
     }
 
-    @OptIn(KaExperimentalApi::class)
     private val contextArguments: List<String?>? = analyze(call) {
-        treeUpToCall().resolveToCall()?.singleCallOrNull<KaCallableMemberCall<*, *>>()?.partiallyAppliedSymbol?.contextArguments?.map {
+        val treeUpToCall = treeUpToCall() as? KtResolvableCall ?: return@analyze null
+        treeUpToCall.tryResolveCall()?.single?.simple?.contextArguments?.map {
             createReplacementForContextArgument(it)
         }
+    }
+
+    private val explicitContextArguments: Map<Name, String>? = analyze(call) {
+        val treeUpToCall = treeUpToCall() as? KtResolvableCall ?: return@analyze null
+        val singleCall = treeUpToCall.tryResolveCall()?.single?.simple ?: return@analyze null
+        singleCall.symbol.contextParameters.zip(singleCall.contextArguments)
+            .mapNotNull<Pair<KaContextParameterSymbol, KaReceiverValue>, Pair<Name, @NlsSafe String>> { (cp, cpArg) ->
+                val explicitArg = (cpArg as? KaExplicitReceiverValue)?.expression?.text ?: return@mapNotNull null
+                cp.name to explicitArg
+            }.toMap()
     }
 
     private fun treeUpToCall(): KtElement {
@@ -144,7 +162,6 @@ class CodeInliner(
         return gParent as? KtSuperTypeCallEntry ?: gParent as? KtAnnotationEntry ?: call
     }
 
-    @OptIn(KaExperimentalApi::class)
     fun doInline(): KtElement? {
         val qualifiedElement = if (call is KtExpression) {
             call.getQualifiedExpressionForSelector()
@@ -157,10 +174,9 @@ class CodeInliner(
         val originalDeclaration = analyze(call) {
             //it might resolve in java method which is converted to kotlin by j2k
             //the originalDeclaration in this case should point to the converted non-physical function
-            (call.parent as? KtCallableReferenceExpression
-                ?: treeUpToCall())
-                .resolveToCall()
-                ?.singleCallOrNull<KaCallableMemberCall<*, *>>()?.partiallyAppliedSymbol?.symbol?.psi?.navigationElement as? KtDeclaration
+            val resolvableCall = (call.parent as? KtCallableReferenceExpression
+                ?: treeUpToCall()) as? KtResolvableCall
+            resolvableCall?.tryResolveCall()?.single?.simple?.symbol?.psi?.navigationElement as? KtDeclaration
                 ?: replacement.originalDeclaration
         } ?: return null
         val callableForParameters = (if (assignment != null && originalDeclaration is KtProperty)
@@ -175,7 +191,7 @@ class CodeInliner(
             && !codeToInline.alwaysKeepMainExpression
             && assignment == null
             && elementToBeReplaced is KtExpression
-            && !analyze(elementToBeReplaced) { elementToBeReplaced.isUsedAsExpression }
+            && analyze(elementToBeReplaced) { !elementToBeReplaced.isUsedAsExpression }
             && !codeToInline.mainExpression.shouldKeepValue(usageCount = 0)
             && elementToBeReplaced.getStrictParentOfType<KtAnnotationEntry>() == null
         ) {
@@ -207,6 +223,8 @@ class CodeInliner(
 
         var receiver = usageExpression?.receiverExpression()
         receiver?.putCopyableUserData(USER_CODE_KEY, Unit)
+        val labelsToAdd = mutableListOf<Pair<KtLambdaExpression, String>>()
+        val labelsToReplace = mutableMapOf<String, String>()
 
         var receiverType =
             receiver?.let {
@@ -217,18 +235,23 @@ class CodeInliner(
 
         if (receiver == null) {
             analyze(call) {
-                val partiallyAppliedSymbol =
-                    call.resolveToCall()?.singleCallOrNull<KaCallableMemberCall<*, *>>()?.partiallyAppliedSymbol
-                val receiverValue = partiallyAppliedSymbol?.extensionReceiver ?: partiallyAppliedSymbol?.dispatchReceiver
+                val singleCall =
+                    (call as? KtResolvableCall)?.tryResolveCall()?.single?.simple
+                val receiverValue = singleCall?.extensionReceiver ?: singleCall?.dispatchReceiver
                 if (receiverValue is KaImplicitReceiverValue) {
                     val symbol = receiverValue.symbol
                     val thisText = when {
                         symbol is KaClassSymbol && symbol.classKind.isObject && symbol.name != null -> symbol.name!!.asString()
                         symbol is KaClassifierSymbol && symbol !is KaAnonymousObjectSymbol -> "this@" + symbol.name!!.asString()
                         symbol is KaReceiverParameterSymbol -> {
-                            val name = (symbol.psi as? KtFunctionLiteral)?.findLabelAndCall()?.first
-                                ?: symbol.owningCallableSymbol.callableId?.callableName
-                            name?.asString()?.let { "this@$it" } ?: "this"
+                            val name = receiverLabelName(
+                                symbol.psi as? KtFunctionLiteral,
+                                symbol.owningCallableSymbol.callableId?.callableName,
+                                labelsToAdd,
+                                labelsToReplace
+                            )
+
+                            name?.let { "this@$it" } ?: "this"
                         }
 
                         else -> "this"
@@ -271,8 +294,10 @@ class CodeInliner(
             namer = { it.nameAsSafeName },
             typeRetriever = {
                 analyze(call) {
-                    call.resolveToCall()
-                        ?.singleFunctionCallOrNull()?.typeArgumentsMapping?.entries?.find { entry -> entry.key.psi?.navigationElement == it }?.value
+                    val functionCall = (call as? KtResolvableCall)?.tryResolveCall()?.single?.function
+                    functionCall?.typeArgumentsMapping?.entries?.find { entry ->
+                        entry.key.psi?.navigationElement == it
+                    }?.value
                 }
             },
             renderType = {
@@ -327,8 +352,14 @@ class CodeInliner(
             is KtSuperTypeCallEntry -> SuperTypeCallEntryReplacementPerformer(codeToInline, elementToBeReplaced)
             else -> error("Unsupported element: $elementToBeReplaced")
         }
+        val labelPointersToAdd = labelsToAdd.map { (expression, labelName) -> expression.createSmartPointer() to labelName }
         return performer.doIt { range ->
             val pointers = range.filterIsInstance<KtElement>().map { it.createSmartPointer() }.toList()
+            labelPointersToAdd.forEach { (pointer, labelName) ->
+                val expression = pointer.element ?: return@forEach
+                if (expression.parent is KtLabeledExpression) return@forEach
+                AddLabelUtil.addLabel(expression, labelName).putCopyableUserData(InlineDataKeys.GENERATED_LABEL_KEY, Unit)
+            }
             val declarations =
                 pointers.mapNotNull { pointer -> pointer.element?.takeIf { it.getCopyableUserData(NEW_DECLARATION_KEY) != null } as? KtNamedDeclaration }
             if (declarations.isNotEmpty()) {
@@ -337,6 +368,30 @@ class CodeInliner(
             }
             InlinePostProcessor.postProcessInsertedCode(pointers, commentSaver)
         }
+    }
+
+    override fun getContextParameterExplicitArgument(cp: Name): String? {
+        return explicitContextArguments?.get(cp)
+    }
+
+    private fun receiverLabelName(
+        functionLiteral: KtFunctionLiteral?,
+        callableName: Name?,
+        labelsToAdd: MutableList<Pair<KtLambdaExpression, String>>,
+        labelsToReplace: MutableMap<String, String>,
+    ): String? {
+        val lambdaExpression = functionLiteral?.parent as? KtLambdaExpression
+        (lambdaExpression?.parent as? KtLabeledExpression)?.getLabelName()?.let { return it }
+
+        val (labelName, callExpression) = functionLiteral?.findLabelAndCall() ?: (callableName to null)
+        val name = labelName?.asString() ?: callableName?.asString() ?: return null
+        if (callExpression == null || AddLabelUtil.isLabelNameUnique(callExpression, name)) return name
+        if (lambdaExpression == null) return name
+
+        val uniqueName = AddLabelUtil.getUniqueLabelName(callExpression, name)
+        labelsToAdd += lambdaExpression to uniqueName
+        labelsToReplace[name] = uniqueName
+        return uniqueName
     }
 
     private fun keepInfixFormIfPossible(importDescriptors: List<KtNamedDeclaration>) {
@@ -394,14 +449,14 @@ class CodeInliner(
     context(_: KaSession)
     private fun arrayOfFunctionName(elementType: KaType): String {
         return when {
-            elementType.isIntType -> "kotlin.intArrayOf"
-            elementType.isLongType -> "kotlin.longArrayOf"
-            elementType.isShortType -> "kotlin.shortArrayOf"
-            elementType.isCharType -> "kotlin.charArrayOf"
-            elementType.isBooleanType -> "kotlin.booleanArrayOf"
-            elementType.isByteType -> "kotlin.byteArrayOf"
-            elementType.isDoubleType -> "kotlin.doubleArrayOf"
-            elementType.isFloatType -> "kotlin.floatArrayOf"
+            elementType.classId == KaStandardTypeClassIds.INT -> "kotlin.intArrayOf"
+            elementType.classId == KaStandardTypeClassIds.LONG -> "kotlin.longArrayOf"
+            elementType.classId == KaStandardTypeClassIds.SHORT -> "kotlin.shortArrayOf"
+            elementType.classId == KaStandardTypeClassIds.CHAR -> "kotlin.charArrayOf"
+            elementType.classId == KaStandardTypeClassIds.BOOLEAN -> "kotlin.booleanArrayOf"
+            elementType.classId == KaStandardTypeClassIds.BYTE -> "kotlin.byteArrayOf"
+            elementType.classId == KaStandardTypeClassIds.DOUBLE -> "kotlin.doubleArrayOf"
+            elementType.classId == KaStandardTypeClassIds.FLOAT -> "kotlin.floatArrayOf"
             elementType is KaErrorType -> "kotlin.arrayOf"
             else -> "kotlin.arrayOf"
         }
@@ -498,7 +553,6 @@ class CodeInliner(
         return defaultValueFromExpect ?: parameter.defaultValue
     }
 
-    @OptIn(KaExperimentalApi::class)
     context(_: KaSession)
     private fun createTypeDescription(type: KaType?): TypeDescription? {
         if (type == null) return null

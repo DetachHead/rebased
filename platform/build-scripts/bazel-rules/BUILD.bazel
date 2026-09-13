@@ -1,0 +1,81 @@
+load("@bazel_skylib//rules:common_settings.bzl", "bool_flag")
+load(":dev_dist_content_test.bzl", "dev_dist_content_test_suite")
+
+# Whether the packaging actions of a dev distribution write a Jaeger-JSON span file beside each of their outputs.
+#
+# Off by default, and off means *absent*: no rule declares a span output and no argument mentions one, so every action
+# key, argument list and declared output set is exactly what it was before this flag existed. That is the point - these
+# actions are the dev build, and a measurement that re-keys them measures a different build.
+#
+# It lives in this package because the rules that read it are here (`intellij_dev_dist.bzl`, `content_module_jar.bzl`),
+# and it is public rather than package-private because it is set from the command line of the repository that wraps this
+# one:
+#
+#     bazel build //build:idea_air_dist --@community//platform/build-scripts/bazel-rules:trace_spans
+bool_flag(
+    name = "trace_spans",
+    build_setting_default = False,
+    visibility = ["//visibility:public"],
+)
+
+# Whether a dev-distribution fragment writes out the packaging recipe it executed, beside its own outputs.
+#
+# A sibling of `trace_spans` rather than a reuse of it, with the same shape and the same off-means-absent rule.
+# Separate because the two answer different questions and are wanted at different times: `trace_spans` measures a
+# build, and its protocol requires holding it constant across a comparison and reading it only from a cold run, while
+# a recipe is wanted from ordinary builds - by the executed-versus-committed check and by the replay gate, neither of
+# which is a measurement. Folding the recipe into `trace_spans` would make every request for one also take span output
+# and re-key every action a measured comparison had pinned.
+#
+#     bazel build //build:idea_air_dist --@community//platform/build-scripts/bazel-rules:dev_dist_plans \
+#       --output_groups=+dev_dist_plans
+bool_flag(
+    name = "dev_dist_plans",
+    build_setting_default = False,
+    visibility = ["//visibility:public"],
+)
+
+# Whether a dev-distribution fragment writes out the plugin descriptors it patched, beside its own outputs.
+#
+# The third flag of this shape, with the same off-means-absent rule as `trace_spans` and `dev_dist_plans`. It is
+# separate from `dev_dist_plans` for a reason of its own. A recipe is wanted from an ordinary build, by the replay gate
+# among others. Every descriptor of every plugin is several megabytes that the gate has no use for.
+#
+# "Patched" is in the name because `build/dev_dist_descriptors.bzl` already names the descriptor *inputs* a fragment
+# declares. This flag is about the descriptors a fragment *wrote*.
+#
+#     bazel build //build:idea_air_dist --@community//platform/build-scripts/bazel-rules:dev_dist_patched_descriptors \
+#       --output_groups=+dev_dist_patched_descriptors
+bool_flag(
+    name = "dev_dist_patched_descriptors",
+    build_setting_default = False,
+    visibility = ["//visibility:public"],
+)
+
+# Whether every `dev_dist_plugin_descriptor` target also runs the JVM reference tool, beside the Go executor.
+#
+# The fourth flag of this shape, and the only one that adds an **action** rather than a side output of one. The two
+# producers write one plugin's descriptor from one request, and `./build/dev-dist.cmd descriptors --two-producer`
+# compares their bytes. Off means the reference file does not exist, so an ordinary build runs one action per plugin
+# and the primary action's key is the same either way.
+#
+#     bazel build //build/dev-dist-descriptors:idea_plugin_descriptors \
+#       --@community//platform/build-scripts/bazel-rules:dev_dist_descriptor_reference
+bool_flag(
+    name = "dev_dist_descriptor_reference",
+    build_setting_default = False,
+    visibility = ["//visibility:public"],
+)
+
+dev_dist_content_test_suite(name = "dev_dist_content_tests")
+
+test_suite(
+    name = "bazel_rules_tests",
+    tests = [
+        ":dev_dist_content_tests",
+        "//platform/build-scripts/bazel-rules/ij-plugin-packager/tests:ij-plugin-packager-tests",
+        "@jps_to_bazel//:bazel-generator-integration-tests",
+        "@jps_to_bazel//:kotlinc-project-defaults-tests",
+    ],
+    visibility = ["//visibility:public"],
+)

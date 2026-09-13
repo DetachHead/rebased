@@ -9,14 +9,20 @@ import com.intellij.refactoring.HelpID
 import com.intellij.refactoring.RefactoringBundle
 import com.intellij.refactoring.actions.ChangeSignatureAction
 import com.intellij.refactoring.util.CommonRefactoringUtil
-import org.jetbrains.kotlin.analysis.api.analyze
 import org.jetbrains.kotlin.analysis.api.permissions.KaAllowAnalysisOnEdt
 import org.jetbrains.kotlin.analysis.api.permissions.allowAnalysisOnEdt
+import org.jetbrains.kotlin.analysis.api.resolution.resolveSuccessfulSymbol
+import org.jetbrains.kotlin.analysis.api.resolution.simple
+import org.jetbrains.kotlin.analysis.api.resolution.single
+import org.jetbrains.kotlin.analysis.api.resolution.tryResolveCall
+import org.jetbrains.kotlin.analysis.api.session.analyze
 import org.jetbrains.kotlin.analysis.api.symbols.KaConstructorSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaLocalVariableSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaNamedFunctionSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaSymbolOrigin
 import org.jetbrains.kotlin.analysis.api.symbols.KaValueParameterSymbol
+import org.jetbrains.kotlin.analysis.api.symbols.containingDeclaration
+import org.jetbrains.kotlin.analysis.api.symbols.symbol
 import org.jetbrains.kotlin.idea.base.projectStructure.getKaModule
 import org.jetbrains.kotlin.idea.base.psi.KotlinPsiHeuristics
 import org.jetbrains.kotlin.idea.k2.refactoring.changeSignature.ui.KotlinChangePropertySignatureDialog
@@ -35,6 +41,7 @@ import org.jetbrains.kotlin.psi.KtParameter
 import org.jetbrains.kotlin.psi.KtProperty
 import org.jetbrains.kotlin.psi.KtReferenceExpression
 import org.jetbrains.kotlin.psi.allConstructors
+import org.jetbrains.kotlin.resolution.KtResolvableCall
 import org.jetbrains.kotlin.util.OperatorNameConventions
 
 object KotlinChangeSignatureHandler : KotlinChangeSignatureHandlerBase() {
@@ -75,9 +82,11 @@ object KotlinChangeSignatureHandler : KotlinChangeSignatureHandlerBase() {
                             ?: if (element.allConstructors.isEmpty()) element.takeUnless { it.isInterface() }?.symbol else null
                     }
                     is KtReferenceExpression -> {
-                        val symbol = element.mainReference.resolveToSymbol()
+                        val symbol =
+                            (element as? KtResolvableCall)?.tryResolveCall()?.single?.simple?.signature?.symbol
+                                ?: element.resolveSuccessfulSymbol()
                         when {
-                          symbol is KaValueParameterSymbol && symbol.generatedPrimaryConstructorProperty == null -> null
+                          symbol is KaValueParameterSymbol && symbol.primaryConstructorProperty == null -> null
                           symbol is KaConstructorSymbol && symbol.origin == KaSymbolOrigin.SOURCE_MEMBER_GENERATED -> symbol.containingDeclaration
                           else -> symbol
                         }

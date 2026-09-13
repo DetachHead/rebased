@@ -41,7 +41,6 @@ import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
-import org.jetbrains.annotations.TestOnly;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -112,10 +111,6 @@ public sealed class GeneralHighlightingPass extends ProgressableTextEditorHighli
 
   private @NotNull PsiFile getFile() {
     return myFile;
-  }
-
-  public static void assertHighlightingPassNotRunning() {
-    HighlightVisitorRunner.assertHighlightingPassNotRunning();
   }
 
   @Override
@@ -263,7 +258,7 @@ public sealed class GeneralHighlightingPass extends ProgressableTextEditorHighli
   public static final int POST_UPDATE_ALL = 5;
   private static final AtomicInteger RESTART_REQUESTS = new AtomicInteger();
 
-  @TestOnly
+  @ApiStatus.Internal
   public static boolean isRestartPending() {
     return RESTART_REQUESTS.get() > 0;
   }
@@ -330,7 +325,7 @@ public sealed class GeneralHighlightingPass extends ProgressableTextEditorHighli
   @RequiresBackgroundThread
   private void reportErrorsToWolf(boolean hasErrors) {
     ThreadingAssertions.assertBackgroundThread();
-    if (!getFile().getViewProvider().isPhysical()) return; // e.g. errors in evaluate expression
+    if (!getFile().getViewProvider().correspondsToRealFile()) return; // e.g. errors in evaluate expression
     Project project = getFile().getProject();
     if (!PsiManager.getInstance(project).isInProject(getFile())) return; // do not report problems in libraries
     VirtualFile file = getFile().getVirtualFile();

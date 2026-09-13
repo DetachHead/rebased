@@ -4,17 +4,12 @@ package org.jetbrains.kotlin.idea.base.analysis.api.utils
 import com.intellij.psi.util.findParentOfType
 import com.intellij.psi.util.findTopmostParentOfType
 import org.jetbrains.annotations.ApiStatus
-import org.jetbrains.kotlin.analysis.api.KaExperimentalApi
 import org.jetbrains.kotlin.analysis.api.KaSession
-import org.jetbrains.kotlin.analysis.api.analyze
-import org.jetbrains.kotlin.analysis.api.components.allOverriddenSymbols
-import org.jetbrains.kotlin.analysis.api.components.declaredMemberScope
-import org.jetbrains.kotlin.analysis.api.components.isMarkedNullable
-import org.jetbrains.kotlin.analysis.api.components.memberScope
-import org.jetbrains.kotlin.analysis.api.components.resolveCall
-import org.jetbrains.kotlin.analysis.api.components.semanticallyEquals
-import org.jetbrains.kotlin.analysis.api.components.withNullability
+import org.jetbrains.kotlin.analysis.api.resolution.resolveSuccessfulCall
 import org.jetbrains.kotlin.analysis.api.resolution.symbol
+import org.jetbrains.kotlin.analysis.api.scopes.declaredMemberScope
+import org.jetbrains.kotlin.analysis.api.scopes.memberScope
+import org.jetbrains.kotlin.analysis.api.session.analyze
 import org.jetbrains.kotlin.analysis.api.symbols.KaCallableSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaClassKind
 import org.jetbrains.kotlin.analysis.api.symbols.KaNamedClassSymbol
@@ -23,7 +18,11 @@ import org.jetbrains.kotlin.analysis.api.symbols.KaSamConstructorSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaSymbolModality
 import org.jetbrains.kotlin.analysis.api.symbols.KaSymbolOrigin
+import org.jetbrains.kotlin.analysis.api.symbols.allOverriddenSymbols
+import org.jetbrains.kotlin.analysis.api.types.isMarkedNullable
+import org.jetbrains.kotlin.analysis.api.types.semanticallyEquals
 import org.jetbrains.kotlin.analysis.api.types.symbol
+import org.jetbrains.kotlin.analysis.api.types.withNullability
 import org.jetbrains.kotlin.idea.base.psi.copied
 import org.jetbrains.kotlin.idea.base.psi.samConstructorValueArgument
 import org.jetbrains.kotlin.name.CallableId
@@ -111,7 +110,6 @@ private fun createAnalyzableExpression(
 
     return copied to newCall
 }
-@OptIn(KaExperimentalApi::class)
 context(_: KaSession)
 private fun canBeReplaced(
     parentCall: KtCallExpression,
@@ -130,8 +128,8 @@ private fun canBeReplaced(
     val contentElement = dotQualifiedExpression ?: callExpression ?: return false
 
     analyze(contentElement) {
-        val newSymbol = contentElement.getPossiblyQualifiedCallExpression()?.resolveCall()?.symbol ?: return false
-        val originalSymbol = parentCall.resolveCall()?.symbol ?: return false
+        val newSymbol = contentElement.getPossiblyQualifiedCallExpression()?.resolveSuccessfulCall()?.symbol ?: return false
+        val originalSymbol = parentCall.resolveSuccessfulCall()?.symbol ?: return false
         return newSymbol.equalsOrEqualsByPsi(originalSymbol)
     }
 }
@@ -145,14 +143,13 @@ fun KaSymbol?.equalsOrEqualsByPsi(other: KaSymbol?): Boolean {
     return other != null && thisPsi == other.psi
 }
 
-@OptIn(KaExperimentalApi::class)
 @ApiStatus.Internal
 context(_: KaSession)
 fun samConstructorCallsToBeConverted(functionCall: KtCallExpression): Collection<KtCallExpression> {
     val valueArguments = functionCall.valueArguments
     if (valueArguments.none { canBeSamConstructorCall(it) }) return emptyList()
 
-    val resolvedFunctionCall = functionCall.resolveCall() ?: return emptyList()
+    val resolvedFunctionCall = functionCall.resolveSuccessfulCall() ?: return emptyList()
 
     /**
      * Checks that SAM conversion for [arg] and [call] in the argument position is possible
@@ -168,7 +165,7 @@ fun samConstructorCallsToBeConverted(functionCall: KtCallExpression): Collection
      * SAM constructor will lead to passing object of different type.
      */
     fun samConversionIsPossible(arg: KtValueArgument, call: KtCallExpression): Boolean {
-        val functionCall = call.resolveCall()
+        val functionCall = call.resolveSuccessfulCall()
         // we suppose that SAM constructors return type is always not nullable
         (functionCall?.symbol as? KaSamConstructorSymbol)?.takeUnless { it.returnType.isMarkedNullable }
             ?: return false
@@ -176,7 +173,7 @@ fun samConstructorCallsToBeConverted(functionCall: KtCallExpression): Collection
 
         val argumentExpression = arg.getArgumentExpression()
 
-        val signature = resolvedFunctionCall.argumentMapping[argumentExpression]
+        val signature = resolvedFunctionCall.valueArgumentMapping[argumentExpression]
             ?: return false
 
         val signatureReturnType = signature.symbol.returnType.withNullability(isMarkedNullable = false)

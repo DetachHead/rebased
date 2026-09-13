@@ -1,7 +1,7 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
 ### auto-generated section `build intellij.devkit.scaffolding` start
-
 jvm_library(
     name = "scaffolding",
     srcs = glob(
@@ -43,8 +43,11 @@ jvm_library(
         "//java/java-impl:impl",
         "//plugins/devkit/devkit-core:core",
         "//platform/progress/shared:ide-progress",
+        "//java/java-backend:backend",
     ],
 )
+
+content_module_jar(module = ":scaffolding")
 
 jvm_library(
     name = "scaffolding_test_lib",
@@ -80,6 +83,7 @@ jvm_library(
         "//java/java-impl:impl_test_lib",
         "//plugins/devkit/devkit-core:core_test_lib",
         "//platform/progress/shared:ide-progress_test_lib",
+        "//java/java-backend:backend_test_lib",
     ],
 )
 ### auto-generated section `build intellij.devkit.scaffolding` end
@@ -88,6 +92,7 @@ jvm_library(
 exports_files(
     [
         "intellij.devkit.scaffolding.iml",
+        "resources/intellij.devkit.scaffolding.xml",
     ],
     visibility = ["//visibility:public"],
 )

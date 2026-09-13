@@ -13,9 +13,9 @@ import com.intellij.openapi.project.ProjectManager
 import com.intellij.openapi.roots.ProjectFileIndex
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.psi.PsiManager
+import com.intellij.vcs.gitlab.shared.isGitlabCiFile
 import kotlinx.coroutines.withTimeoutOrNull
 import org.jetbrains.annotations.VisibleForTesting
-import org.jetbrains.plugins.gitlab.ui.isGitlabCiFile
 import org.jetbrains.yaml.psi.YAMLDocument
 import org.jetbrains.yaml.psi.YAMLFile
 import org.jetbrains.yaml.psi.YAMLMapping

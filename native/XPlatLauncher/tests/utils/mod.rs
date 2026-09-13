@@ -1,15 +1,15 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 
-use std::{env, fs, thread, time};
 use std::collections::HashMap;
 use std::fmt::{Debug, Formatter};
 use std::fs::{File, OpenOptions};
-use std::io::{Write};
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus, Stdio};
 use std::sync::LazyLock;
+use std::{env, fs, thread, time};
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use log::debug;
 use serde::{Deserialize, Serialize};
 use tempfile::{Builder, TempDir};
@@ -71,6 +71,21 @@ impl<'a> TestEnvironment<'a> {
         self.to_delete.push(vm_options_file.clone());
         Self::create_file(&vm_options_file, content);
         vm_options_file
+    }
+
+    pub fn create_managed_vm_options(&mut self, content: &str) -> PathBuf {
+        let config_dir = self.create_temp_dir("managed-config");
+        let overlay = self.create_managed_vm_options_in(&config_dir, content);
+        self.create_toolbox_vm_options(&format!("-Didea.config.path={}\n", config_dir.display()));
+        overlay
+    }
+
+    pub fn create_managed_vm_options_in(&self, config_dir: &Path, content: &str) -> PathBuf {
+        let overlay_dir = config_dir.join("tbe");
+        fs::create_dir(&overlay_dir).unwrap();
+        let overlay = overlay_dir.join("managed-backend.vmoptions");
+        Self::create_file(&overlay, content);
+        overlay
     }
 
     fn create_file(file: &Path, content: &str) {

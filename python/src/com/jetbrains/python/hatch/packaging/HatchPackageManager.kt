@@ -4,46 +4,79 @@ package com.jetbrains.python.hatch.packaging
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.projectRoots.Sdk
 import com.intellij.platform.eel.provider.localEel
+import com.intellij.python.hatch.HatchPyTool
 import com.intellij.python.hatch.HatchService
-import com.intellij.python.hatch.getHatchService
 import com.intellij.python.pyproject.PY_PROJECT_TOML
+import com.intellij.python.pyproject.PyProjectToml
+import com.intellij.python.pytools.resolveExecutable
+import com.intellij.python.requirements.parser.PyRequirementParser
+import com.jetbrains.python.Result
 import com.jetbrains.python.errorProcessing.PyResult
-import com.jetbrains.python.hatch.sdk.HatchSdkAdditionalData
+import com.jetbrains.python.hatch.sdk.createHatchServiceAsync
 import com.jetbrains.python.hatch.sdk.isHatch
+import com.jetbrains.python.packaging.common.PythonPackage
+import com.jetbrains.python.packaging.common.toPythonPackage
+import com.jetbrains.python.packaging.management.PythonManagerCliSpec
 import com.jetbrains.python.packaging.management.PythonPackageManager
 import com.jetbrains.python.packaging.management.PythonPackageManagerProvider
 import com.jetbrains.python.packaging.pip.PipPythonPackageManager
+import com.jetbrains.python.packaging.utils.PyPackageCoroutine
 import com.jetbrains.python.sdk.add.v2.toFileSystem
+import kotlinx.coroutines.Deferred
 import java.nio.file.Path
 
-internal class HatchPackageManager(project: Project, sdk: Sdk) : PipPythonPackageManager(project, sdk) {
-  fun getSdkAdditionalData(): HatchSdkAdditionalData {
-    return sdk.sdkAdditionalData as? HatchSdkAdditionalData
-           ?: error("SDK [${sdk.name}] has illegal state, " +
-                    "additional data has to be ${HatchSdkAdditionalData::class.java.name}, " +
-                    "but was ${sdk.sdkAdditionalData?.javaClass?.name}")
+internal class HatchPackageManager(
+  project: Project,
+  sdk: Sdk,
+  hatchServiceDeferred: Deferred<PyResult<HatchService<*>>>,
+) : PipPythonPackageManager(project, sdk) {
+  override val cliSpecs: List<PythonManagerCliSpec> = listOf(
+    PythonManagerCliSpec("hatch", { HatchPyTool.getInstance().resolveExecutable(localEel.toFileSystem())?.path }),
+    PythonManagerCliSpec("pip", { sdk.homePath?.let { Path.of(it) } }, runAsModule = true),
+  )
+
+  private lateinit var hatchService: PyResult<HatchService<*>>
+  private val hatchServiceDeferred = hatchServiceDeferred.cancelWithManager()
+
+  private suspend fun <T> withHatch(action: suspend (HatchService<*>) -> PyResult<T>): PyResult<T> {
+    if (!this::hatchService.isInitialized) {
+      hatchService = hatchServiceDeferred.await()
+    }
+
+    return when (val hatchServiceResult = hatchService) {
+      is Result.Success -> action(hatchServiceResult.result)
+      is Result.Failure -> hatchServiceResult
+    }
   }
 
   override suspend fun syncLockedCommand(): PyResult<Unit> {
-    val hatchService = getHatchService().getOr { return it }
-    return hatchService.syncDependencies().mapSuccess { }
-  }
-
-  suspend fun getHatchService(): PyResult<HatchService> {
-    val data = getSdkAdditionalData()
-    val workingDirectory = data.hatchWorkingDirectory
-    return workingDirectory.getHatchService(fileSystem = localEel.toFileSystem(), hatchEnvironmentName = data.hatchEnvironmentName)
+    return withHatch { hatch -> hatch.syncDependencies().mapSuccess { } }
   }
 
   override val dependenciesFilesRelativePaths: List<Path>
     get() = listOf(
       Path.of(PY_PROJECT_TOML),
     )
+
+  override suspend fun listDeclaredPackages(): PyResult<List<PythonPackage>>? {
+    val pyProjectFile = getRootDependenciesFile() ?: return null
+    val pyProject = PyProjectToml.parseCached(project, pyProjectFile.virtualFile)
+                    ?: return PyResult.success(emptyList())
+
+    val packages = pyProject.allDeclaredDeps
+      .mapNotNull { PyRequirementParser.fromLine(it, project) }
+      .map { it.toPythonPackage() }
+    return PyResult.success(packages)
+  }
 }
 
 internal class HatchPackageManagerProvider : PythonPackageManagerProvider {
-  override fun createPackageManagerForSdk(project: Project, sdk: Sdk): PythonPackageManager? = when {
-    sdk.isHatch -> HatchPackageManager(project, sdk)
-    else -> null
+  override fun createPackageManagerForSdk(project: Project, sdk: Sdk): PythonPackageManager? {
+    if (!sdk.isHatch) {
+      return null
+    }
+
+    val hatchService = sdk.createHatchServiceAsync(PyPackageCoroutine.getScope(project)) ?: return null
+    return HatchPackageManager(project, sdk, hatchService)
   }
 }

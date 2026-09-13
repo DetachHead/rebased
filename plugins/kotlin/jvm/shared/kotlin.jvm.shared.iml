@@ -4,7 +4,7 @@
     <facet type="kotlin-language" name="Kotlin">
       <configuration version="5" platform="JVM 25" allPlatforms="JVM [25]" useProjectSettings="false">
         <compilerSettings>
-          <option name="additionalArguments" value="-Xjvm-default=all -opt-in=org.jetbrains.kotlin.idea.base.util.K1ModeProjectStructureApi -opt-in=org.jetbrains.kotlin.analysis.api.KaNonPublicApi -opt-in=org.jetbrains.kotlin.analysis.api.KaContextParameterApi -opt-in=org.jetbrains.kotlin.utils.addToStdlib.UnsafeCastFunction -XXLanguage:+AllowEagerSupertypeAccessibilityChecks -progressive" />
+          <option name="additionalArguments" value="-Xjvm-default=all -opt-in=org.jetbrains.kotlin.idea.base.util.K1ModeProjectStructureApi -opt-in=org.jetbrains.kotlin.analysis.api.KaNonPublicApi -opt-in=org.jetbrains.kotlin.analysis.api.KaContextParameterApi -opt-in=org.jetbrains.kotlin.utils.addToStdlib.UnsafeCastFunction -XXLanguage:+AllowEagerSupertypeAccessibilityChecks -progressive -opt-in=org.jetbrains.kotlin.analysis.api.KaExperimentalApi -opt-in=org.jetbrains.kotlin.analysis.api.KaIdeApi" />
         </compilerSettings>
         <compilerArguments>
           <stringArguments>
@@ -34,7 +34,7 @@
     <orderEntry type="module" module-name="intellij.platform.projectModel" />
     <orderEntry type="module" module-name="intellij.platform.util.jdom" />
     <orderEntry type="module" module-name="intellij.libraries.gson" />
-    <orderEntry type="library" name="kotlinc.kotlin-compiler-common" level="project" />
+    <orderEntry type="module" module-name="intellij.libraries.kotlinc.kotlin.compiler.common" />
     <orderEntry type="module" module-name="intellij.platform.ide.impl" />
     <orderEntry type="module" module-name="intellij.kotlin.base.compilerConfiguration" />
     <orderEntry type="module" module-name="intellij.kotlin.base.plugin" />
@@ -50,16 +50,14 @@
     <orderEntry type="module" module-name="intellij.kotlin.base.statistics" />
     <orderEntry type="module" module-name="intellij.kotlin.projectConfiguration" />
     <orderEntry type="module" module-name="kotlin.fir.frontend-independent" />
-    <orderEntry type="library" name="kotlinc.kotlin-jps-common" level="project" />
-    <orderEntry type="module" module-name="intellij.platform.vcs" />
+    <orderEntry type="module" module-name="intellij.libraries.kotlinc.kotlin.jps.common" />
+    <orderEntry type="module" module-name="intellij.platform.vcs.core" />
     <orderEntry type="module" module-name="intellij.kotlin.base.psi" />
-    <orderEntry type="module" module-name="kotlin.inspections" />
     <orderEntry type="module" module-name="intellij.kotlin.formatter" />
     <orderEntry type="module" module-name="intellij.kotlin.runConfigurations.jvm" />
     <orderEntry type="module" module-name="intellij.platform.externalSystem" />
     <orderEntry type="module" module-name="intellij.java.ui" />
     <orderEntry type="module" module-name="intellij.platform.boot" />
-    <orderEntry type="module" module-name="intellij.platform.diff.impl" />
     <orderEntry type="module" module-name="intellij.platform.vcs.impl" />
     <orderEntry type="module" module-name="intellij.platform.externalSystem.impl" />
     <orderEntry type="module" module-name="intellij.platform.lvcs.impl" />
@@ -76,18 +74,17 @@
     <orderEntry type="module" module-name="intellij.kotlin.base.indices" />
     <orderEntry type="module" module-name="intellij.kotlin.codeInsight.api" />
     <orderEntry type="module" module-name="intellij.kotlin.ide" />
-    <orderEntry type="module" module-name="kotlin.jsr223" />
+    <orderEntry type="module" module-name="intellij.kotlin.jsr223" />
     <orderEntry type="module" module-name="intellij.platform.util.coroutines" />
     <orderEntry type="module" module-name="intellij.platform.core" />
     <orderEntry type="module" module-name="intellij.platform.core.impl" />
-    <orderEntry type="library" name="kotlinc.analysis-api" level="project" />
+    <orderEntry type="module" module-name="intellij.libraries.kotlinc.analysis.api" />
     <orderEntry type="module" module-name="intellij.libraries.asm" />
     <orderEntry type="module" module-name="intellij.platform.ide.core.impl" />
     <orderEntry type="module" module-name="intellij.platform.ide.core" />
     <orderEntry type="module" module-name="intellij.platform.util" />
     <orderEntry type="module" module-name="intellij.platform.util.ui" />
     <orderEntry type="module" module-name="intellij.platform.editor.ui" />
-    <orderEntry type="module" module-name="intellij.kotlin.base.scripting.shared" />
     <orderEntry type="module" module-name="intellij.platform.execution" />
     <orderEntry type="module" module-name="intellij.platform.statistics" />
     <orderEntry type="module" module-name="intellij.kotlin.codeInsight.shared" />

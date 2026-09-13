@@ -11,6 +11,7 @@ import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.fileEditor.OpenFileDescriptor
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.vfs.VirtualFile
+import com.intellij.openapi.vfs.newvfs.CacheAvoidingVirtualFile
 import com.intellij.platform.backend.navigation.NavigationRequest
 import com.intellij.platform.backend.navigation.NavigationRequests
 import com.intellij.platform.backend.navigation.impl.RawNavigationRequest
@@ -21,8 +22,10 @@ import com.intellij.platform.util.coroutines.sync.OverflowSemaphore
 import com.intellij.pom.Navigatable
 import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiFile
+import com.intellij.psi.PsiFileSystemItem
 import com.intellij.psi.util.PsiUtilCore
 import com.intellij.util.IntPair
+import com.intellij.util.concurrency.annotations.RequiresReadLock
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.launch
@@ -57,77 +60,102 @@ open class SearchEverywhereNavigationHandler(val project: Project) {
   }
 
   fun gotoSelectedItem(selected: PsiElement, modifiers: Int, searchText: String, offset: Int = -1) {
+    val navigationOptions = NavigationOptions.defaultOptions()
+      .openInRightSplit((modifiers and InputEvent.SHIFT_DOWN_MASK) != 0)
+      .preserveCaret(true).forceFocus(true)
+    // the client id must reach the navigation
     project.service<SearchEverywhereContributorCoroutineScopeHolder>().coroutineScope.launch(ClientId.coroutineContext()) {
-      val navigatingAction = readAction { tryMakeNavigatingFunction(selected, modifiers, searchText, offset) }
-      if (navigatingAction != null) {
-        navigatingAction()
-      }
-      else {
-        LOG.warn("Selected $selected produced an invalid navigation action! Doing nothing!")
+      val navigationService = project.serviceAsync<NavigationService>()
+      semaphore.withPermit {
+        navigationService.navigateRequests(navigationOptions) {
+          makeNavigationRequests(selected, searchText, offset)
+        }
       }
     }
   }
 
-  private fun tryMakeNavigatingFunction(selected: PsiElement, modifiers: Int, searchText: String, offset: Int): (suspend () -> Unit)? {
-    if (!selected.isValid) {
-      LOG.warn("Cannot navigate to invalid PsiElement")
+  private suspend fun makeNavigationRequests(selected: PsiElement, searchText: String, offset: Int): Collection<NavigationRequest> {
+    val target = readAction {
+      if (!selected.isValid) {
+        LOG.warn("Cannot navigate to invalid PsiElement")
+        return@readAction null
+      }
+
+      val psiElement = preparePsi(selected, searchText)
+      val file =
+        if (selected is PsiFile) selected.virtualFile
+        else PsiUtilCore.getVirtualFile(psiElement)
+      psiElement to file
+    } ?: return emptyList()
+
+    val (rawPsiElement, rawFile) = target
+    if (rawFile == null) {
+      // Navigation items from rd protocol often lack .containingFile or other PSI extensions, and are only expected to be
+      // navigated through the Navigatable API.
+      // This fallback is for items like that.
+      val navigatable = rawPsiElement as? Navigatable
+      if (navigatable == null) {
+        LOG.warn("Cannot navigate to invalid PsiElement (psiElement=$rawPsiElement)")
+        return emptyList()
+      }
+      return listOf(RawNavigationRequest(navigatable, true))
+    }
+
+    // An item may be backed by a cache-avoiding file (e.g. a file outside the project found by its absolute path).
+    // Now that the user is really opening it, the file has to become a regular one: an editor, its document and VFS events
+    // all rely on a single VirtualFile instance per path, which cache-avoiding files do not provide.
+    // Deliberately done outside the read action above: it does IO and puts new entries into the VFS cache.
+    val file = rawFile.asCacheableOrSelf()
+    if (file == null) {
+      LOG.warn("Cannot navigate: $rawFile cannot be added to VFS")
+      return emptyList()
+    }
+
+    val extendedNavigatable = lineAndColumnNavigatable(file, searchText)
+    if (extendedNavigatable != null) {
+      // navigates by the file alone, so there is no need to build PSI for the element
+      triggerLineOrColumnFeatureUsed(extendedNavigatable)
+      return listOfNotNull(rawNavigationRequest(extendedNavigatable))
+    }
+
+    @Suppress("UseVirtualFileEquals")
+    val psiElement = if (file === rawFile) rawPsiElement else readAction { reResolveOnCacheableFile(rawPsiElement, file) }
+    return listOfNotNull(
+      createSourceNavigationRequest(project = project, element = psiElement, file = file, searchText = searchText, offset = offset)
+    )
+  }
+
+  /**
+   * @return a regular VFS file for [this], adding it to the VFS cache if needed, or null if it no longer exists;
+   * [this] itself if it is a regular file already
+   */
+  private fun VirtualFile.asCacheableOrSelf(): VirtualFile? =
+    if (this is CacheAvoidingVirtualFile) asCacheable() else this
+
+  /**
+   * Re-resolves an element that was found on a cache-avoiding [file] against its regular counterpart,
+   * so that navigation doesn't use the cache-avoiding file behind our back.
+   *
+   * Only file system items can be re-resolved this way; for anything else navigation may still go through
+   * the cache-avoiding file, hence the warning.
+   */
+  @RequiresReadLock
+  private fun reResolveOnCacheableFile(element: PsiElement, file: VirtualFile): PsiElement {
+    val reResolved = if (element is PsiFileSystemItem) PsiUtilCore.findFileSystemItem(project, file) else null
+    if (reResolved == null) {
+      LOG.warn("Cannot re-resolve $element on $file, navigating through a cache-avoiding file")
+      return element
+    }
+    return reResolved
+  }
+
+  private fun lineAndColumnNavigatable(file: VirtualFile, searchText: String): OpenFileDescriptor? {
+    val position = getLineAndColumn(searchText)
+    if (position.first < 0 && position.second < 0) {
       return null
     }
-
-    val psiElement = preparePsi(selected, searchText)
-    val file =
-      if (selected is PsiFile) selected.virtualFile
-      else PsiUtilCore.getVirtualFile(psiElement)
-
-    val extendedNavigatable = if (file == null) {
-      null
-    }
-    else {
-      val position = getLineAndColumn(searchText)
-      if (position.first >= 0 || position.second >= 0) {
-        //todo create a navigation request by line&column, not by offset only
-        OpenFileDescriptor(project, file, position.first, position.second)
-      }
-      else {
-        null
-      }
-    }
-
-    return suspend {
-      val navigationOptions = NavigationOptions.defaultOptions()
-        .openInRightSplit((modifiers and InputEvent.SHIFT_DOWN_MASK) != 0)
-        .preserveCaret(true).forceFocus(true)
-      if (extendedNavigatable == null) {
-        if (file == null) {
-          val navigatable = psiElement as? Navigatable
-          if (navigatable != null) {
-            // Navigation items from rd protocol often lack .containingFile or other PSI extensions, and are only expected to be
-            // navigated through the Navigatable API.
-            // This fallback is for items like that.
-            val navRequest = RawNavigationRequest(navigatable, true)
-            semaphore.withPermit {
-              project.serviceAsync<NavigationService>().navigate(navRequest, navigationOptions, null)
-            }
-          }
-          else {
-            LOG.warn("Cannot navigate to invalid PsiElement (psiElement=$psiElement)")
-          }
-        }
-        else {
-          createSourceNavigationRequest(project = project, element = psiElement, file = file, searchText = searchText, offset = offset)?.let {
-            semaphore.withPermit {
-              project.serviceAsync<NavigationService>().navigate(it, navigationOptions, null)
-            }
-          }
-        }
-      }
-      else {
-        semaphore.withPermit {
-          project.serviceAsync<NavigationService>().navigate(extendedNavigatable, navigationOptions)
-          triggerLineOrColumnFeatureUsed(extendedNavigatable)
-        }
-      }
-    }
+    //todo create a navigation request by line&column, not by offset only
+    return OpenFileDescriptor(project, file, position.first, position.second)
   }
 
   open suspend fun createSourceNavigationRequest(
@@ -151,6 +179,13 @@ open class SearchEverywhereNavigationHandler(val project: Project) {
   }
 
   protected open suspend fun triggerLineOrColumnFeatureUsed(extendedNavigatable: Navigatable) {}
+
+  /**
+   * The same request [NavigationService] would build for [navigatable] on its own, see [Navigatable.navigationRequest].
+   */
+  private fun rawNavigationRequest(navigatable: Navigatable): NavigationRequest? {
+    return if (navigatable.canNavigate()) RawNavigationRequest(navigatable, navigatable.canNavigateToSource()) else null
+  }
 
   private fun preparePsi(originalPsiElement: PsiElement, searchText: String): PsiElement {
     var psiElement = originalPsiElement

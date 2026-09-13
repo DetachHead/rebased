@@ -1,8 +1,8 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
 load("//build:compiler-options.bzl", "create_kotlinc_options")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
 ### auto-generated section `build intellij.platform.kernel.backend` start
-
 create_kotlinc_options(
     name = "custom_backend",
     opt_in = [
@@ -28,18 +28,14 @@ jvm_library(
         ["resources/**/*"],
     ),
     visibility = ["//visibility:public"],
-    exports = [
-        # do not sort,
-        "//platform/kernel/shared:kernel",
-        "//platform/kernel/rpc.backend",
-    ],
+    exports = ["//platform/kernel/shared:kernel"],
     runtime_deps = ["//platform/backend"],
     deps = [
         # do not sort,
         "//platform/extensions",
         "//platform/util",
         "//libraries/kotlinx/collections-immutable:libraries-kotlinx-collections-immutable",
-        "@lib//:jetbrains-annotations",
+        "//libraries/jetbrains/annotations",
         "//platform/util/coroutines",
         "//platform/kernel/shared:kernel",
         "//platform/kernel/rpc.backend",
@@ -47,6 +43,8 @@ jvm_library(
         "//fleet/rhizomedb",
     ],
 )
+
+content_module_jar(module = ":backend")
 
 jvm_library(
     name = "backend_test_lib",
@@ -62,8 +60,6 @@ jvm_library(
         # do not sort,
         "//platform/kernel/shared:kernel",
         "//platform/kernel/shared:kernel_test_lib",
-        "//platform/kernel/rpc.backend",
-        "//platform/kernel/rpc.backend:rpc.backend_test_lib",
     ],
     runtime_deps = [
         # do not sort,
@@ -72,6 +68,7 @@ jvm_library(
         "//platform/extensions:extensions_test_lib",
         "//platform/util:util_test_lib",
         "//libraries/kotlinx/collections-immutable:libraries-kotlinx-collections-immutable_test_lib",
+        "//libraries/jetbrains/annotations:annotations_test_lib",
         "//platform/util/coroutines:coroutines_test_lib",
         "//platform/kernel/shared:kernel_test_lib",
         "//platform/kernel/rpc.backend:rpc.backend_test_lib",
@@ -85,6 +82,8 @@ jvm_library(
 exports_files(
     [
         "intellij.platform.kernel.backend.iml",
+        "resources/intellij.platform.kernel.backend.xml",
+        "module-content.yaml",
     ],
     visibility = ["//visibility:public"],
 )

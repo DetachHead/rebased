@@ -18,7 +18,7 @@
     <module name="intellij.libraries.jackson.jr.objects" loading="embedded"/>
     <module name="intellij.libraries.jackson.databind" loading="embedded"/>
     <module name="intellij.libraries.jackson.dataformat.xml"/>
-    <module name="intellij.libraries.jackson.dataformat.yaml" loading="embedded"/>
+    <module name="intellij.libraries.jackson.dataformat.yaml"/>
     <module name="intellij.libraries.jackson.dataformat.toml"/>
     <module name="intellij.libraries.jackson.datatype.jdk8"/>
     <module name="intellij.libraries.jackson.datatype.jsr310"/>
@@ -29,15 +29,26 @@
     <module name="intellij.libraries.jackson3" loading="embedded"/>
     <module name="intellij.libraries.jackson3.jr.objects" loading="embedded"/>
     <module name="intellij.libraries.jackson3.databind" loading="embedded"/>
-    <module name="intellij.libraries.jackson3.dataformat.yaml" loading="embedded"/>
+    <module name="intellij.libraries.jackson3.dataformat.yaml"/>
+    <module name="intellij.libraries.jackson3.dataformat.toml"/>
     <module name="intellij.libraries.jackson3.module.kotlin" loading="embedded"/>
+    <!-- endregion -->
+
+    <!-- region nested: essential > essential.minimal > core.lang > core.ide > core.platform > libraries.platform > libraries.ktor -->
+    <module name="intellij.libraries.ktor.io" loading="embedded"/>
+    <module name="intellij.libraries.ktor.utils" loading="embedded"/>
+    <module name="intellij.libraries.ktor.network.tls" loading="embedded"/>
+    <module name="intellij.libraries.ktor.client" loading="embedded"/>
+    <module name="intellij.libraries.ktor.client.cio"/>
+    <module name="intellij.libraries.ktor.server.cio"/>
     <!-- endregion -->
 
     <!-- region direct modules -->
     <module name="intellij.libraries.java.compatibility" loading="embedded"/>
+    <module name="intellij.libraries.jetbrains.annotations" loading="embedded"/>
     <module name="intellij.libraries.kotlin.reflect" loading="embedded"/>
     <module name="intellij.libraries.kotlinx.io" loading="embedded"/>
-    <module name="intellij.libraries.kotlinx.serialization.cbor" loading="embedded"/>
+    <module name="intellij.libraries.kotlinx.serialization.cbor"/>
     <module name="intellij.libraries.kotlinx.serialization.core" loading="embedded"/>
     <module name="intellij.libraries.kotlinx.serialization.json" loading="embedded"/>
     <module name="intellij.libraries.kotlinx.serialization.protobuf" loading="embedded"/>
@@ -46,11 +57,11 @@
     <module name="intellij.libraries.kotlinx.html" loading="embedded"/>
     <module name="intellij.libraries.kotlinx.coroutines.core" loading="embedded"/>
     <module name="intellij.libraries.kotlinx.coroutines.debug" loading="embedded"/>
-    <module name="intellij.libraries.kotlinx.coroutines.guava"/>
     <module name="intellij.libraries.kotlinx.coroutines.slf4j" loading="embedded"/>
+    <module name="intellij.libraries.kotlinx.coroutines.guava"/>
     <module name="intellij.libraries.aalto.xml" loading="embedded"/>
     <module name="intellij.libraries.asm" loading="embedded"/>
-    <module name="intellij.libraries.asm.tools" loading="embedded"/>
+    <module name="intellij.libraries.asm.tools"/>
     <module name="intellij.libraries.automaton" loading="embedded"/>
     <module name="intellij.libraries.bouncy.castle.provider" loading="embedded"/>
     <module name="intellij.libraries.bouncy.castle.pgp" loading="embedded"/>
@@ -66,25 +77,26 @@
     <module name="intellij.libraries.commons.lang3" loading="embedded"/>
     <module name="intellij.libraries.commons.logging" loading="embedded"/>
     <module name="intellij.libraries.fastutil" loading="embedded"/>
+    <module name="intellij.libraries.fus.ap.validation" loading="embedded"/>
     <module name="intellij.libraries.gson" loading="embedded"/>
     <module name="intellij.libraries.guava" loading="embedded"/>
     <module name="intellij.libraries.hash4j" loading="embedded"/>
     <module name="intellij.libraries.hdr.histogram" loading="embedded"/>
     <module name="intellij.libraries.http.client" loading="embedded"/>
-    <module name="intellij.libraries.icu4j" loading="embedded"/>
     <module name="intellij.libraries.imgscalr" loading="embedded"/>
     <module name="intellij.libraries.ini4j" loading="embedded"/>
     <module name="intellij.libraries.ion" loading="embedded"/>
-    <module name="intellij.libraries.java.websocket" loading="embedded"/>
+    <module name="intellij.libraries.java.websocket"/>
     <module name="intellij.libraries.javax.annotation" loading="embedded"/>
     <module name="intellij.libraries.jaxen" loading="embedded"/>
     <module name="intellij.libraries.jbr" loading="embedded"/>
     <module name="intellij.libraries.jcip" loading="embedded"/>
+    <module name="intellij.libraries.jna" loading="embedded"/>
     <module name="intellij.libraries.jsoup" loading="embedded"/>
-    <module name="intellij.libraries.jsonpath" loading="embedded"/>
+    <module name="intellij.libraries.jsonpath"/>
     <module name="intellij.libraries.jsvg" loading="embedded"/>
     <module name="intellij.libraries.jvm.native.trusted.roots" loading="embedded"/>
-    <module name="intellij.libraries.jzlib" loading="embedded"/>
+    <module name="intellij.libraries.jzlib"/>
     <module name="intellij.libraries.kryo5" loading="embedded"/>
     <module name="intellij.libraries.lz4" loading="embedded"/>
     <module name="intellij.libraries.markdown" loading="embedded"/>
@@ -92,24 +104,39 @@
     <module name="intellij.libraries.netty.buffer" loading="embedded"/>
     <module name="intellij.libraries.netty.codec.compression" loading="embedded"/>
     <module name="intellij.libraries.netty.codec.http" loading="embedded"/>
-    <module name="intellij.libraries.netty.handler.proxy" loading="embedded"/>
+    <module name="intellij.libraries.netty.codec.protobuf" loading="embedded"/>
+    <module name="intellij.libraries.netty.handler.proxy"/>
     <module name="intellij.libraries.oro.matcher" loading="embedded"/>
     <module name="intellij.libraries.protobuf" loading="embedded"/>
+    <module name="intellij.libraries.protobuf.kotlin"/>
+    <module name="intellij.libraries.protobuf.java.util"/>
     <module name="intellij.libraries.proxy.vole" loading="embedded"/>
     <module name="intellij.libraries.rhino" loading="embedded"/>
-    <module name="intellij.libraries.semver" loading="embedded"/>
+    <module name="intellij.libraries.semver"/>
     <module name="intellij.libraries.snakeyaml" loading="embedded"/>
     <module name="intellij.libraries.snakeyaml.engine" loading="embedded"/>
     <module name="intellij.libraries.stream" loading="embedded"/>
+    <module name="intellij.libraries.teamcity.service.messages"/>
     <module name="intellij.libraries.velocity" loading="embedded"/>
     <module name="intellij.libraries.xtext.xbase" loading="embedded"/>
     <module name="intellij.libraries.xz" loading="embedded"/>
+    <!-- endregion -->
+    <!-- endregion -->
+
+    <!-- region nested: essential > essential.minimal > core.lang > core.ide > core.platform > libraries.dap -->
+    <module name="intellij.libraries.eclipse.lsp4j.debug"/>
+    <module name="intellij.libraries.eclipse.lsp4j.jsonrpc.debug"/>
+    <!-- endregion -->
+
+    <!-- region nested: essential > essential.minimal > core.lang > core.ide > core.platform > telemetry -->
+    <!-- region nested: essential > essential.minimal > core.lang > core.ide > core.platform > telemetry > libraries.opentelemetry -->
     <module name="intellij.libraries.opentelemetry" loading="embedded"/>
     <module name="intellij.libraries.opentelemetry.extension.kotlin" loading="embedded"/>
-    <module name="intellij.libraries.opentelemetry.exporter.otlp.common" loading="embedded"/>
     <module name="intellij.libraries.opentelemetry.semconv" loading="embedded"/>
-    <module name="intellij.libraries.opentelemetry.sdk.autoconfigure.spi" loading="embedded"/>
-    <module name="intellij.libraries.opentelemetry.exporter.sender.jdk" loading="embedded"/>
+    <!-- endregion -->
+
+    <!-- region direct modules -->
+    <module name="intellij.platform.diagnostic.telemetry" loading="embedded"/>
     <!-- endregion -->
     <!-- endregion -->
 
@@ -135,34 +162,36 @@
     <!-- endregion -->
 
     <!-- region direct modules -->
-    <module name="intellij.platform.rpc" loading="embedded"/>
+    <module name="intellij.platform.klogger" loading="embedded"/>
+    <module name="intellij.platform.rpc"/>
+    <module name="intellij.platform.rpc.lite" loading="embedded"/>
     <module name="intellij.platform.kernel" loading="embedded"/>
     <!-- endregion -->
     <!-- endregion -->
 
     <!-- region direct modules -->
     <module name="intellij.platform.runtime.product" loading="embedded"/>
-    <module name="intellij.platform.diagnostic.telemetry" loading="embedded"/>
     <module name="intellij.platform.util.ex" loading="embedded"/>
     <module name="intellij.platform.util.ui" loading="embedded"/>
     <module name="intellij.platform.util.coroutines" loading="embedded"/>
-    <module name="intellij.platform.icons.impl.intellij" loading="embedded"/>
     <module name="intellij.platform.locking.impl" loading="embedded"/>
     <module name="intellij.platform.core" loading="embedded"/>
     <module name="intellij.platform.core.ui" loading="embedded"/>
     <module name="intellij.platform.core.impl" loading="embedded"/>
     <module name="intellij.platform.indexing" loading="embedded"/>
     <module name="intellij.platform.projectFrame" loading="embedded"/>
-    <module name="intellij.platform.welcomeScreen" loading="embedded"/>
-    <module name="intellij.platform.welcomeScreen.impl" loading="embedded"/>
     <module name="intellij.platform.codeStyle" loading="embedded"/>
     <module name="intellij.platform.editor.ex" loading="embedded"/>
     <module name="intellij.platform.editor.ui" loading="embedded"/>
     <module name="intellij.platform.projectModel" loading="embedded"/>
     <module name="intellij.platform.projectModel.impl" loading="embedded"/>
+    <module name="intellij.platform.instanceContainer" loading="embedded"/>
+    <module name="intellij.platform.serviceContainer" loading="embedded"/>
+    <module name="intellij.platform.workspace.jps" loading="embedded"/>
     <module name="intellij.platform.analysis" loading="embedded"/>
     <module name="intellij.platform.analysis.impl" loading="embedded"/>
     <module name="intellij.platform.ide.core" loading="embedded"/>
+    <module name="intellij.platform.ide.core.impl" loading="embedded"/>
     <module name="intellij.platform.ide.core.plugins" loading="embedded"/>
     <!-- endregion -->
     <!-- endregion -->
@@ -172,10 +201,10 @@
     <module name="intellij.libraries.jediterm.ui" loading="embedded"/>
     <module name="intellij.libraries.jgoodies.common" loading="embedded"/>
     <module name="intellij.libraries.jgoodies.forms" loading="embedded"/>
-    <module name="intellij.libraries.jsch.agent.proxy" loading="embedded"/>
+    <module name="intellij.libraries.jsch.agent.proxy"/>
     <module name="intellij.libraries.miglayout.swing" loading="embedded"/>
     <module name="intellij.libraries.pty4j" loading="embedded"/>
-    <module name="intellij.libraries.sshj" loading="embedded"/>
+    <module name="intellij.libraries.sshj"/>
     <module name="intellij.libraries.swingx" loading="embedded"/>
     <module name="intellij.libraries.winp" loading="embedded"/>
     <module name="intellij.libraries.rd.core" loading="embedded"/>
@@ -186,6 +215,7 @@
 
     <!-- region direct modules -->
     <module name="intellij.platform.ide" loading="embedded"/>
+    <module name="intellij.platform.welcomeScreen" loading="embedded"/>
     <module name="intellij.platform.remoteServers.agent.rt" loading="embedded"/>
     <module name="intellij.platform.remoteServers" loading="embedded"/>
     <module name="intellij.platform.usageView" loading="embedded"/>
@@ -193,9 +223,23 @@
     <!-- endregion -->
     <!-- endregion -->
 
+    <!-- region nested: essential > essential.minimal > core.lang > telemetry.impl -->
+    <!-- region nested: essential > essential.minimal > core.lang > telemetry.impl > libraries.opentelemetry.exporter -->
+    <module name="intellij.libraries.opentelemetry.exporter.otlp.common" loading="embedded"/>
+    <module name="intellij.libraries.opentelemetry.sdk.autoconfigure.spi" loading="embedded"/>
+    <module name="intellij.libraries.opentelemetry.exporter.sender.jdk" loading="embedded"/>
+    <!-- endregion -->
+
+    <!-- region direct modules -->
+    <module name="intellij.platform.diagnostic.telemetry.impl" loading="embedded"/>
+    <!-- endregion -->
+    <!-- endregion -->
+
     <!-- region direct modules -->
     <module name="intellij.platform.macro" loading="embedded"/>
     <module name="intellij.platform.usageView.impl" loading="embedded"/>
+    <module name="intellij.platform.welcomeScreen.impl" loading="embedded"/>
+    <module name="intellij.platform.icons.impl.intellij" loading="embedded"/>
     <module name="intellij.platform.execution" loading="embedded"/>
     <module name="intellij.platform.execution.impl" loading="embedded"/>
     <module name="intellij.platform.lvcs" loading="embedded"/>
@@ -205,18 +249,25 @@
     <module name="intellij.platform.testIntegration.ui" loading="embedded"/>
     <module name="intellij.platform.lang" loading="embedded"/>
     <module name="intellij.platform.lang.impl" loading="embedded"/>
+    <module name="intellij.platform.syntax.psi" loading="embedded"/>
     <module name="intellij.platform.statistics" loading="embedded"/>
     <module name="intellij.platform.statistics.config" loading="embedded"/>
     <module name="intellij.platform.statistics.uploader" loading="embedded"/>
     <module name="intellij.platform.experiment" loading="embedded"/>
+    <module name="intellij.platform.project" loading="embedded"/>
+    <module name="intellij.platform.ide.progress" loading="embedded"/>
+    <module name="intellij.platform.codeStyle.impl" loading="embedded"/>
+    <module name="intellij.platform.refactoring" loading="embedded"/>
     <module name="intellij.platform.ide.impl" loading="embedded"/>
+    <module name="intellij.platform.ide.pluginSignatureVerifier"/>
+    <module name="intellij.libraries.zip.signer"/>
     <module name="intellij.platform.rd.community" loading="embedded"/>
-    <module name="intellij.platform.ide.ui.inspector" loading="embedded"/>
     <module name="intellij.platform.remote.core" loading="embedded"/>
     <module name="intellij.platform.ide.remote" loading="embedded"/>
     <module name="intellij.platform.threadDumpParser" loading="embedded"/>
     <module name="intellij.platform.ide.favoritesTreeView" loading="embedded"/>
     <module name="intellij.platform.ide.designer" loading="embedded"/>
+    <module name="intellij.platform.ide.bootstrap" loading="embedded"/>
     <module name="intellij.platform.bootstrap" loading="embedded"/>
     <module name="intellij.platform.backend.workspace.impl"/>
     <module name="intellij.platform.ide.concurrency" loading="embedded"/>
@@ -241,19 +292,9 @@
     <module name="intellij.platform.rpc.topics.frontend"/>
     <!-- endregion -->
 
-    <!-- region nested: essential > essential.minimal > libraries.ktor -->
-    <module name="intellij.libraries.ktor.io" loading="embedded"/>
-    <module name="intellij.libraries.ktor.utils" loading="embedded"/>
-    <module name="intellij.libraries.ktor.network.tls" loading="embedded"/>
-    <module name="intellij.libraries.ktor.server.cio" loading="embedded"/>
-    <module name="intellij.libraries.ktor.client" loading="embedded"/>
-    <module name="intellij.libraries.ktor.client.cio" loading="embedded"/>
-    <!-- endregion -->
-
     <!-- region direct modules -->
     <module name="intellij.libraries.download.pgp.verifier" loading="embedded"/>
     <module name="intellij.remoteDev.util" loading="embedded"/>
-    <module name="intellij.libraries.teamcity.service.messages" loading="embedded"/>
     <module name="intellij.platform.buildScripts.downloader"/>
     <module name="intellij.platform.credentialStore.ui" loading="embedded"/>
     <module name="intellij.platform.credentialStore.impl" loading="embedded"/>
@@ -262,6 +303,7 @@
     <module name="intellij.platform.project.backend"/>
     <module name="intellij.platform.progress.backend"/>
     <module name="intellij.platform.lang.impl.backend"/>
+    <module name="intellij.platform.indexing.impl.backend"/>
     <module name="intellij.platform.frontend"/>
     <module name="intellij.platform.monolith"/>
     <module name="intellij.platform.editor"/>
@@ -279,31 +321,30 @@
     <!-- region nested: essential > debugger -->
     <module name="intellij.platform.debugger.impl.frontend"/>
     <module name="intellij.platform.debugger.impl.backend"/>
-    <module name="intellij.platform.debugger.impl.shared" loading="embedded"/>
-    <module name="intellij.platform.debugger.impl.rpc" loading="embedded"/>
-    <module name="intellij.platform.debugger.impl.ui" loading="embedded"/>
-    <module name="intellij.platform.debugger" loading="embedded"/>
-    <module name="intellij.platform.debugger.impl" loading="embedded"/>
-    <!-- endregion -->
-
-    <!-- region nested: essential > problemsView -->
-    <module name="intellij.platform.problemsView.frontend"/>
-    <module name="intellij.platform.problemsView.backend"/>
-    <module name="intellij.platform.problemsView.shared"/>
+    <module name="intellij.platform.debugger.impl.shared"/>
+    <module name="intellij.platform.debugger.impl.rpc"/>
+    <module name="intellij.platform.debugger.impl.ui"/>
+    <module name="intellij.platform.debugger"/>
+    <module name="intellij.platform.debugger.impl"/>
     <!-- endregion -->
 
     <!-- region direct modules -->
-    <module name="intellij.platform.scopes" loading="embedded"/>
+    <module name="intellij.platform.scopes"/>
     <module name="intellij.platform.scopes.backend"/>
     <module name="intellij.platform.find"/>
     <module name="intellij.platform.find.backend"/>
     <module name="intellij.platform.editor.frontend"/>
     <module name="intellij.platform.managed.cache"/>
     <module name="intellij.platform.managed.cache.backend"/>
+    <module name="intellij.platform.ide.internal"/>
+    <module name="intellij.platform.ide.internal.backend"/>
     <module name="intellij.platform.feedback" loading="embedded"/>
+    <module name="intellij.platform.pluginManager.shared.base"/>
     <module name="intellij.platform.pluginManager.shared"/>
     <module name="intellij.platform.pluginManager.backend"/>
     <module name="intellij.platform.pluginManager.frontend"/>
+    <module name="intellij.platform.ide.updateChecker" loading="embedded"/>
+    <module name="intellij.platform.ide.updateChecker.backend"/>
     <module name="intellij.platform.execution.impl.frontend"/>
     <module name="intellij.platform.execution.impl.backend"/>
     <module name="intellij.platform.eel.tcp"/>
@@ -322,8 +363,10 @@
     <!-- region nested: compose -->
     <module name="intellij.libraries.skiko"/>
     <module name="intellij.libraries.coil"/>
+    <module name="intellij.libraries.compose.swing"/>
     <module name="intellij.platform.compose"/>
     <module name="intellij.platform.compose.markdown"/>
+    <module name="intellij.platform.compose.swing"/>
     <module name="intellij.platform.jewel.foundation"/>
     <module name="intellij.libraries.compose.foundation.desktop"/>
     <module name="intellij.libraries.compose.runtime.desktop"/>
@@ -334,54 +377,63 @@
     <module name="intellij.platform.jewel.markdown.extensions.gfmAlerts"/>
     <module name="intellij.platform.jewel.markdown.extensions.gfmTables"/>
     <module name="intellij.platform.jewel.markdown.extensions.gfmStrikethrough"/>
+    <module name="intellij.platform.jewel.markdown.extensions.frontMatter"/>
     <module name="intellij.platform.jewel.markdown.extensions.images"/>
     <module name="intellij.platform.jewel.markdown.core"/>
     <!-- endregion -->
 
-    <!-- region nested: vcs -->
-    <!-- region nested: vcs > vcs.shared -->
+    <!-- region nested: libraries.ide.common -->
+    <module name="intellij.libraries.javax.activation"/>
+    <module name="intellij.libraries.opencsv"/>
+    <module name="intellij.libraries.lucene.common"/>
+    <module name="intellij.libraries.jettison"/>
+    <module name="intellij.libraries.oshi.core"/>
+    <module name="intellij.libraries.xstream"/>
+    <module name="intellij.libraries.commons.text"/>
+    <!-- endregion -->
+
+    <!-- region nested: vcs.shared -->
     <module name="intellij.platform.vcs.core" loading="embedded"/>
     <module name="intellij.platform.vcs.shared" loading="embedded"/>
     <module name="intellij.platform.vcs.impl.shared"/>
     <module name="intellij.platform.vcs.dvcs.impl.shared"/>
     <!-- endregion -->
 
+    <!-- region nested: lsp -->
+    <!-- region nested: lsp > libraries.lsp4j -->
+    <module name="intellij.libraries.eclipse.lsp4j" loading="embedded"/>
+    <module name="intellij.libraries.eclipse.lsp4j.jsonrpc" loading="embedded"/>
+    <!-- endregion -->
+
     <!-- region direct modules -->
-    <module name="intellij.platform.vcs.impl"/>
-    <module name="intellij.platform.vcs.impl.exec"/>
-    <module name="intellij.platform.vcs.impl.debugger"/>
-    <module name="intellij.platform.vcs.impl.lang"/>
-    <module name="intellij.platform.vcs.impl.lang.actions"/>
-    <module name="intellij.platform.vcs.log"/>
-    <module name="intellij.platform.vcs.log.impl"/>
-    <module name="intellij.platform.sqlite"/>
-    <module name="intellij.platform.vcs.log.graph"/>
-    <module name="intellij.platform.vcs.log.graph.impl"/>
-    <module name="intellij.platform.vcs.dvcs"/>
-    <module name="intellij.platform.vcs.dvcs.impl"/>
-    <module name="intellij.platform.vcs" loading="embedded"/>
+    <module name="intellij.platform.lsp" loading="embedded"/>
+    <module name="intellij.platform.lsp.impl" loading="embedded"/>
+    <module name="intellij.platform.lsp.impl.structureView"/>
     <!-- endregion -->
     <!-- endregion -->
 
     <!-- region nested: xml -->
-    <module name="intellij.xml.dom" loading="embedded"/>
-    <module name="intellij.xml.dom.impl" loading="embedded"/>
+    <module name="intellij.xml.dom"/>
+    <module name="intellij.xml.dom.impl"/>
     <module name="intellij.xml.structureView"/>
     <module name="intellij.xml.structureView.impl"/>
-    <module name="intellij.xml.psi" loading="embedded"/>
-    <module name="intellij.xml.psi.impl" loading="embedded"/>
-    <module name="intellij.xml.analysis" loading="embedded"/>
+    <module name="intellij.xml.psi"/>
+    <module name="intellij.xml.psi.impl"/>
+    <module name="intellij.xml.analysis"/>
     <module name="intellij.xml.emmet"/>
+    <module name="intellij.xml.emmet.shared"/>
     <module name="intellij.xml.emmet.backend"/>
     <module name="intellij.xml.emmet.frontend"/>
-    <module name="intellij.xml.ui.common" loading="embedded"/>
-    <module name="intellij.xml.parser" loading="embedded"/>
-    <module name="intellij.xml.syntax" loading="embedded"/>
+    <module name="intellij.xml.ui.common"/>
+    <module name="intellij.xml.parser"/>
+    <module name="intellij.xml.syntax"/>
     <module name="intellij.relaxng"/>
-    <module name="intellij.xml.impl" loading="embedded"/>
-    <module name="intellij.xml.analysis.impl" loading="embedded"/>
     <module name="intellij.libraries.cglib" loading="embedded"/>
-    <module name="intellij.libraries.xerces" loading="embedded"/>
+    <module name="intellij.libraries.isorelax"/>
+    <module name="intellij.libraries.jing"/>
+    <module name="intellij.libraries.xerces"/>
+    <module name="intellij.xml.impl"/>
+    <module name="intellij.xml.analysis.impl"/>
     <module name="intellij.xml.langInjection"/>
     <module name="intellij.xml.langInjection.xpath"/>
     <!-- endregion -->
@@ -395,10 +447,6 @@
     <module name="intellij.platform.collaborationTools"/>
     <module name="intellij.platform.collaborationTools.auth"/>
     <module name="intellij.platform.collaborationTools.auth.base"/>
-    <module name="intellij.platform.tasks"/>
-    <module name="intellij.platform.tasks.impl"/>
-    <module name="intellij.platform.tasks.impl.bookmarks"/>
-    <module name="intellij.platform.tasks.impl.debugger"/>
     <module name="intellij.platform.scriptDebugger.ui"/>
     <module name="intellij.platform.scriptDebugger.backend"/>
     <module name="intellij.platform.scriptDebugger.protocolReaderRuntime"/>
@@ -407,22 +455,28 @@
     <module name="intellij.platform.diagnostic.freezeAnalyzer"/>
     <module name="intellij.platform.warmup"/>
     <module name="intellij.platform.inspect"/>
+    <module name="intellij.libraries.jgit"/>
     <module name="intellij.settingsSync.core"/>
     <module name="intellij.spellchecker"/>
+    <module name="intellij.spellchecker.vcs"/>
     <module name="intellij.spellchecker.xml"/>
     <module name="intellij.platform.buildView"/>
     <module name="intellij.platform.buildView.backend"/>
     <module name="intellij.platform.buildView.frontend"/>
+    <module name="intellij.platform.projectView"/>
+    <module name="intellij.platform.projectView.backend"/>
+    <module name="intellij.platform.projectView.frontend"/>
     <module name="intellij.emojipicker"/>
     <module name="intellij.platform.ide.impl.wsl"/>
     <module name="intellij.platform.diagnostic.telemetry.agent.extension"/>
-    <module name="intellij.platform.polySymbols.backend" loading="embedded"/>
-    <module name="intellij.regexp" loading="embedded"/>
+    <module name="intellij.platform.polySymbols.backend"/>
+    <module name="intellij.regexp"/>
     <module name="intellij.platform.langInjection"/>
     <module name="intellij.platform.langInjection.backend"/>
     <module name="intellij.libraries.grpc"/>
     <module name="intellij.libraries.grpc.netty.shaded"/>
     <module name="intellij.libraries.jspecify"/>
+    <module name="intellij.platform.vcs" loading="embedded"/>
     <module name="intellij.libraries.batik" loading="embedded"/>
     <!-- endregion -->
   </content>

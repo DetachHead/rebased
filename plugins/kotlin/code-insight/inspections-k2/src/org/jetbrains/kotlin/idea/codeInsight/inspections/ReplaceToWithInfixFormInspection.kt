@@ -7,8 +7,7 @@ import com.intellij.codeInspection.util.IntentionFamilyName
 import com.intellij.modcommand.ModPsiUpdater
 import com.intellij.openapi.project.Project
 import org.jetbrains.kotlin.analysis.api.KaSession
-import org.jetbrains.kotlin.analysis.api.resolution.successfulFunctionCallOrNull
-import org.jetbrains.kotlin.analysis.api.resolution.symbol
+import org.jetbrains.kotlin.analysis.api.resolution.resolveSuccessfulSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaNamedFunctionSymbol
 import org.jetbrains.kotlin.idea.base.resources.KotlinBundle
 import org.jetbrains.kotlin.idea.codeinsight.api.applicable.asUnit
@@ -46,9 +45,9 @@ internal class ReplaceToWithInfixFormInspection : KotlinApplicableInspectionBase
                 element.calleeName == TO_FUNCTION_NAME
     }
 
-    override fun KaSession.prepareContext(element: KtDotQualifiedExpression): Unit? {
-        val call = element.resolveToCall()?.successfulFunctionCallOrNull() ?: return null
-        val functionSymbol = call.symbol as? KaNamedFunctionSymbol ?: return null
+    context(session: KaSession)
+    override fun prepareContext(element: KtDotQualifiedExpression): Unit? {
+        val functionSymbol = element.resolveSuccessfulSymbol() as? KaNamedFunctionSymbol ?: return null
         return functionSymbol.isInfix.asUnit
     }
 

@@ -7,13 +7,15 @@ import com.intellij.diagnostic.MessagePoolAdvisor.EntryReadEvent
 import com.intellij.diagnostic.MessagePoolAdvisor.PoolClearedEvent
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.diagnostic.Attachment
-import com.intellij.openapi.diagnostic.IdeaLoggingEvent
 import com.intellij.util.SlowOperations
 import com.intellij.util.containers.ContainerUtil
+import kotlinx.coroutines.CoroutineName
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
-import kotlinx.coroutines.DelicateCoroutinesApi
-import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
+import kotlinx.coroutines.job
+import kotlinx.coroutines.joinAll
 import org.jetbrains.annotations.ApiStatus
 
 /**
@@ -34,15 +36,8 @@ object MessagePool {
 
   private val myErrors: MutableList<AbstractMessage> = ContainerUtil.createLockFreeCopyOnWriteList()
   private val myAdvisors: MutableList<MessagePoolAdvisor> = ContainerUtil.createLockFreeCopyOnWriteList()
-
-  @Suppress("DeprecatedCallableAddReplaceWith")
-  @Deprecated("use 'addErrorMessage' instead", level = DeprecationLevel.ERROR)
-  fun addIdeFatalMessage(event: IdeaLoggingEvent) {
-    addErrorMessage(
-      if (event.data is AbstractMessage) event.data as AbstractMessage
-      else LogMessage(event.throwable, event.message, mutableListOf<Attachment>())
-    )
-  }
+  @Suppress("RAW_SCOPE_CREATION") // MessagePool is a process-wide singleton.
+  private val coroutineScope = CoroutineScope(SupervisorJob() + CoroutineName("MessagePool"))
 
   @Suppress("DeprecatedCallableAddReplaceWith")
   @Deprecated("use 'addErrorMessage' instead", level = DeprecationLevel.ERROR)
@@ -50,9 +45,8 @@ object MessagePool {
     addErrorMessage(message)
   }
 
-  @OptIn(DelicateCoroutinesApi::class)
   fun addErrorMessage(message: AbstractMessage): Deferred<Unit> {
-    return GlobalScope.async { // must be functioning even during startup
+    return coroutineScope.async { // must be functioning even during startup
       if (myErrors.size < MAX_POOL_SIZE) {
         doAddMessage(message)
       }
@@ -60,6 +54,11 @@ object MessagePool {
         doAddMessage(LogMessage(TooManyErrorsException(), null, mutableListOf<Attachment>()))
       }
     }
+  }
+
+  /** Waits for every [addErrorMessage] call issued before this call to finish notifying advisors. */
+  suspend fun awaitPendingJobs() {
+    coroutineScope.coroutineContext.job.children.toList().joinAll()
   }
 
   val state: State
@@ -116,6 +115,8 @@ object MessagePool {
   }
 
   private suspend fun doAddMessage(message: AbstractMessage) {
+    if (myErrors.lastOrNull() == message) return // already added
+
     val beforeEvent = BeforeEntryAddedEvent(message)
     for (listener in myAdvisors) {
       if (!listener.beforeEntryAdded(beforeEvent)) {

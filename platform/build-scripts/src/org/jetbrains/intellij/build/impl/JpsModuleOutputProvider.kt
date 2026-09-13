@@ -3,8 +3,6 @@
 
 package org.jetbrains.intellij.build.impl
 
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 import org.jetbrains.annotations.ApiStatus.Internal
 import org.jetbrains.intellij.build.ModuleOutputProvider
 import org.jetbrains.jps.model.JpsProject
@@ -48,13 +46,13 @@ internal class JpsModuleOutputProvider(
 
   override fun getAllModules(): List<JpsModule> = state.modules
 
-  override suspend fun readFileContentFromModuleOutput(module: JpsModule, relativePath: String, forTests: Boolean): ByteArray? {
+  override fun readFileContentFromModuleOutput(module: JpsModule, relativePath: String, forTests: Boolean): ByteArray? {
     val outputDir = requireNotNull(JpsJavaExtensionService.getInstance().getOutputDirectoryPath(/* module = */ module, /* forTests = */ forTests)) {
       "Output directory for ${module.name} isn't set"
     }
     val file = outputDir.resolve(relativePath)
     try {
-      return withContext(Dispatchers.IO) { Files.readAllBytes(file) }
+      return Files.readAllBytes(file)
     }
     catch (_: NoSuchFileException) {
       return null
@@ -94,7 +92,7 @@ internal class JpsModuleOutputProvider(
     return listOf(file)
   }
 
-  override suspend fun findFileInAnyModuleOutput(relativePath: String, moduleNamePrefix: String?, processedModules: MutableSet<String>?): ByteArray? {
+  override fun findFileInAnyModuleOutput(relativePath: String, moduleNamePrefix: String?, processedModules: MutableSet<String>?): ByteArray? {
     return findFileInAnyModuleOutput(
       modules = state.modules,
       relativePath = relativePath,

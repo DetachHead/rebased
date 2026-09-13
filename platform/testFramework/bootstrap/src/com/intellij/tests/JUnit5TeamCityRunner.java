@@ -18,6 +18,7 @@ import org.junit.platform.engine.FilterResult;
 import org.junit.platform.engine.TestDescriptor;
 import org.junit.platform.engine.TestExecutionResult;
 import org.junit.platform.engine.TestSource;
+import org.junit.platform.engine.UniqueId;
 import org.junit.platform.engine.discovery.ClassNameFilter;
 import org.junit.platform.engine.discovery.DiscoverySelectors;
 import org.junit.platform.engine.reporting.ReportEntry;
@@ -47,17 +48,19 @@ import java.lang.annotation.Annotation;
 import java.lang.invoke.MethodHandle;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.MethodType;
+import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.Deque;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.Set;
 import java.util.logging.Level;
 import java.util.logging.LogRecord;
@@ -81,6 +84,7 @@ public final class JUnit5TeamCityRunner {
   private static final String REVERSE_ORDER = System.getProperty("intellij.build.test.reverse.order");
   private static final String INCLUDE_TAGS = System.getProperty("intellij.build.test.tags");
   private static final String EXCLUDE_TAGS = System.getProperty("intellij.build.test.excluded.tags");
+  private static final String RIDER_TEST_EXECUTION_LISTENER = System.getProperty("intellij.build.test.rider.test.execution.listener");
 
   static boolean isUnderTeamCity() {
     var teamCityVersion = System.getenv("TEAMCITY_VERSION");
@@ -148,7 +152,7 @@ public final class JUnit5TeamCityRunner {
         .build();
       TestPlan testPlan = launcher.discover(discoveryRequest);
 
-      listener = isUnderTeamCity() ? new TCExecutionListener() : new ConsoleTestExecutionListener();
+      listener = isUnderTeamCity() ? getTeamCityListener() : new ConsoleTestExecutionListener();
 
       if (LIST_CLASSES != null) {
         saveListOfTestClasses(testPlan);  // save only
@@ -212,6 +216,16 @@ public final class JUnit5TeamCityRunner {
     if (isUnderTeamCity()) {
       System.out.println(new TestFinished(testName, 0));
     }
+  }
+
+  private static TestExecutionListenerEx getTeamCityListener()
+    throws ClassNotFoundException, NoSuchMethodException, InvocationTargetException, InstantiationException, IllegalAccessException {
+    if (RIDER_TEST_EXECUTION_LISTENER == null)
+      return new TCExecutionListener();
+    ClassLoader classLoader = Thread.currentThread().getContextClassLoader();
+    //noinspection unchecked
+    Class<TestExecutionListenerEx> tcListenerClass = (Class<TestExecutionListenerEx>) Class.forName(RIDER_TEST_EXECUTION_LISTENER, true, classLoader);
+    return tcListenerClass.getDeclaredConstructor().newInstance();
   }
 
   private static boolean assertNoUnhandledExceptions_isLeak(String testFailedServiceMessage) {
@@ -465,12 +479,21 @@ public final class JUnit5TeamCityRunner {
      * The same constant as com.intellij.rt.execution.TestListenerProtocol.CLASS_CONFIGURATION
      */
     private static final String CLASS_CONFIGURATION = "Class Configuration";
+    /**
+     * The same constant as {@code org.junit.jupiter.engine.descriptor.ClassTemplateInvocationTestDescriptor.SEGMENT_TYPE},
+     * not referenced directly: that class is {@code @API(INTERNAL)} and lives in an engine this module must not depend on.
+     * Keyed on the segment type rather than on an engine id on purpose - the very same shape is produced by
+     * {@code com.intellij.database.testFramework.eagerParams} under {@code [engine:intellij-eager-params]}.
+     */
+    private static final String CLASS_TEMPLATE_INVOCATION_SEGMENT = "class-template-invocation";
     private final PrintStream myPrintStream;
 
     private TestPlan myTestPlan;
     private long myCurrentTestStart = 0;
     private int myFinishCount = 0;
     private boolean myHasFailures = false;
+    // Test suites currently open via testSuiteStarted; TeamCity prefixes test names with exactly these
+    private final Deque<String> myOpenSuites = new ArrayDeque<>();
     private static final int MAX_STACKTRACE_MESSAGE_LENGTH =
       Integer.getInteger("intellij.build.test.stacktrace.max.length", 100 * 1024);
 
@@ -533,7 +556,11 @@ public final class JUnit5TeamCityRunner {
       }
       else if (hasNonTrivialParent(testIdentifier)) {
         myFinishCount = 0;
-        if (shouldReportAsTestSuite(testIdentifier)) myPrintStream.println(new TestSuiteStarted(getName(testIdentifier)));
+        if (shouldReportAsTestSuite(testIdentifier)) {
+          String suiteName = getName(testIdentifier);
+          myOpenSuites.addLast(suiteName);
+          myPrintStream.println(new TestSuiteStarted(suiteName));
+        }
       }
     }
 
@@ -570,7 +597,7 @@ public final class JUnit5TeamCityRunner {
           testFailure(testIdentifier, ServiceMessageTypes.TEST_IGNORED, throwableOptional, duration, reason);
         }
 
-        TestLocationStorage.recordTestLocation(testIdentifier, status, getTestNameForMetadata(testIdentifier));
+        TestLocationStorage.recordTestLocation(testIdentifier, status, fullTestName(testIdentifier));
 
         testFinished(testIdentifier, duration);
         myFinishCount++;
@@ -596,7 +623,10 @@ public final class JUnit5TeamCityRunner {
             myFinishCount = 0;
           }
         }
-        if (shouldReportAsTestSuite) myPrintStream.println(new TestSuiteFinished(getName(testIdentifier)));
+        if (shouldReportAsTestSuite) {
+          myPrintStream.println(new TestSuiteFinished(getName(testIdentifier)));
+          myOpenSuites.pollLast();
+        }
         if (status == TestExecutionResult.Status.ABORTED) myCurrentTestStart = 1;  // mark ignored classes as #smthExecuted
       }
       else {
@@ -617,6 +647,27 @@ public final class JUnit5TeamCityRunner {
 
     private static boolean hasNonTrivialParent(TestIdentifier testIdentifier) {
       return testIdentifier.getParentId().isPresent();
+    }
+
+    /**
+     * The full name TeamCity knows this test by: the test suites currently open (exactly as reported via
+     * testSuiteStarted) prepended to the testStarted name — except that TeamCity omits a suite whose name the
+     * test name already starts with (e.g. the class-named suite of a JUnit 4 Parameterized runner). Suites are
+     * not deduplicated against each other, only against the test name (verified against production build logs
+     * and the TeamCity testOccurrences API). testMetadata attached after the run is matched against precisely
+     * this composed name.
+     */
+    private String fullTestName(TestIdentifier testIdentifier) {
+      String name = getName(testIdentifier);
+      if (myOpenSuites.isEmpty()) return name;
+      StringBuilder result = new StringBuilder();
+      for (String suite : myOpenSuites) {
+        // the '.' boundary matters: a name continuing the suite with '$' (nested class) keeps the prefix in TC
+        if (!name.equals(suite) && !name.startsWith(suite + ".")) {
+          result.append(suite).append(": ");
+        }
+      }
+      return result.append(name).toString();
     }
 
     private static boolean shouldReportAsTestSuite(TestIdentifier testIdentifier) {
@@ -654,28 +705,97 @@ public final class JUnit5TeamCityRunner {
       testFailure(getName(testIdentifier), messageName, ex, duration, reason);
     }
 
-    private static String getName(TestIdentifier testIdentifier) {
+    private String getName(TestIdentifier testIdentifier) {
+      return getName(testIdentifier, myTestPlan);
+    }
+
+    /**
+     * The flat name TeamCity knows this node by.
+     *
+     * <p>TeamCity has no tree: an occurrence is identified by (open suites, name), so two nodes differing only in
+     * which {@code @ParameterizedClass} invocation they belong to must differ in this string, or TeamCity merges
+     * them into one occurrence. {@link TestSource} cannot tell them apart - every invocation of a class template
+     * carries the {@link ClassSource} of the template class itself - so the invocations are read off the ancestors
+     * instead, see {@link #invocationQualifier}.
+     *
+     * <p>Package-private for {@code JUnit5TeamCityRunnerForTestAllSuiteTest}; {@code testPlan} may be {@code null}.
+     */
+    static String getName(TestIdentifier testIdentifier, TestPlan testPlan) {
       String displayName = testIdentifier.getDisplayName();
+      String invocations = invocationQualifier(testIdentifier, testPlan);
       return testIdentifier.getSource()
         .map(s -> {
           if (s instanceof ClassSource) {
             String className = ((ClassSource)s).getClassName();
             if (className.equals(TestSuite.class.getName()) || className.equals(displayName)) {
               //class level failure
-              return displayName;
+              return displayName + invocations;
             }
             String withDisplayName = "." + displayName;
-            return className.endsWith(withDisplayName) ? className
-                                                       : className + withDisplayName;
+            return className.endsWith(withDisplayName) ? className + invocations
+                                                       : className + invocations + withDisplayName;
           }
           if (s instanceof MethodSource) {
             String className = ((MethodSource)s).getClassName();
             String methodName = ((MethodSource)s).getMethodName();
-            return displayName.startsWith(methodName) ? className + "." + displayName
-                                                      : className + "." + methodName + "[" + displayName + "]";
+            // the class invocations go before the parameter display name, so that the qualifiers read root to leaf
+            return displayName.startsWith(methodName) ? className + "." + displayName + invocations
+                                                      : className + "." + methodName + invocations +
+                                                        "[" + displayName + "]";
           }
           return null;
-        }).orElse(displayName);
+        }).orElse(displayName + invocations);
+    }
+
+    /**
+     * The display names of every {@code class-template-invocation} node this one is nested in, each in brackets,
+     * ordered root to leaf; {@code ""} when there are none.
+     *
+     * <p>The node's own last segment is excluded: an invocation node is named by its own display name already.
+     *
+     * <p>The unique id is authoritative for how many qualifiers there are and in which order; the test plan is
+     * consulted only to upgrade the bare segment value ({@code #1}) to the human-readable invocation display name
+     * ({@code [1] alpha}). That split is what keeps this defensive: the plan is absent on the paths that report
+     * before {@code testPlanExecutionStarted}, and {@link TestPlan#getTestIdentifier} throws for any node the
+     * launcher never added, so every level degrades on its own to {@code #N} - unique, if not pretty - instead of
+     * losing the qualifier or its position.
+     */
+    private static String invocationQualifier(TestIdentifier testIdentifier, TestPlan testPlan) {
+      UniqueId uniqueId = testIdentifier.getUniqueIdObject();
+      List<UniqueId.Segment> segments = uniqueId.getSegments();
+      int count = 0;
+      for (int i = 0; i < segments.size() - 1; i++) {  // the last segment names this node, not an ancestor
+        if (CLASS_TEMPLATE_INVOCATION_SEGMENT.equals(segments.get(i).getType())) count++;
+      }
+      if (count == 0) return "";  // the overwhelmingly common case: no plan lookup, no allocation
+
+      String[] names = new String[count];
+      UniqueId ancestor = uniqueId;
+      for (int i = segments.size() - 2; i >= 0 && count > 0; i--) {
+        ancestor = ancestor.removeLastSegment();  // now ends with segments.get(i)
+        UniqueId.Segment segment = segments.get(i);
+        if (!CLASS_TEMPLATE_INVOCATION_SEGMENT.equals(segment.getType())) continue;
+        names[--count] = invocationName(testPlan, ancestor, segment);  // walked leaf to root, stored root to leaf
+      }
+
+      StringBuilder result = new StringBuilder();
+      for (String name : names) {
+        result.append('[').append(name).append(']');
+      }
+      return result.toString();
+    }
+
+    private static String invocationName(TestPlan testPlan, UniqueId uniqueId, UniqueId.Segment segment) {
+      if (testPlan != null) {
+        try {
+          String displayName = testPlan.getTestIdentifier(uniqueId).getDisplayName();
+          if (displayName != null && !displayName.isEmpty()) return displayName;
+        }
+        catch (RuntimeException ignored) {
+          // PreconditionViolationException: no such node in this plan. Fall through to the index, always available.
+        }
+      }
+      return segment.getValue();  // "#1"
     }
 
     private void testFailure(String methodName,
@@ -756,49 +876,6 @@ public final class JUnit5TeamCityRunner {
       ex.printStackTrace(writer);
       writer.close();
       return stringWriter.toString();
-    }
-
-    /**
-     * Required for TC to match parametrized and factory tests when we attach metadata after the run
-     */
-    private String getFullTestPath(TestIdentifier testIdentifier) {
-      List<String> names = new ArrayList<>();
-      Optional<TestIdentifier> parent = myTestPlan.getParent(testIdentifier);
-      boolean isImmediateParent = true;
-
-      while (parent.isPresent()) {
-        TestIdentifier p = parent.get();
-        if (hasNonTrivialParent(p)) {
-          // Skip class-level parent only if it's the immediate parent of a method test
-          // (getName already includes the class name)
-          boolean skipClassParent = isImmediateParent
-                                    && p.getSource().orElse(null) instanceof ClassSource cs
-                                    && testIdentifier.getSource().orElse(null) instanceof MethodSource ms
-                                    && cs.getClassName().equals(ms.getClassName());
-
-          if (!skipClassParent) {
-            names.add(p.getSource().map(s -> switch (s) {
-              case ClassSource source -> source.getClassName();
-              case MethodSource ms -> ms.getClassName() + "." + p.getDisplayName();
-              default -> p.getDisplayName();
-            }).orElse(p.getDisplayName()));
-          }
-        }
-        parent = myTestPlan.getParent(p);
-        isImmediateParent = false;
-      }
-
-      Collections.reverse(names);
-      names.add(getName(testIdentifier));
-      return String.join(": ", names);
-    }
-
-    private String getTestNameForMetadata(TestIdentifier testIdentifier) {
-      boolean parentIsMethodSource = myTestPlan.getParent(testIdentifier)
-        .flatMap(TestIdentifier::getSource)
-        .filter(source -> source instanceof MethodSource)
-        .isPresent();
-      return parentIsMethodSource ? getFullTestPath(testIdentifier) : getName(testIdentifier);
     }
 
     static class LimitedStackTracePrintWriter extends PrintWriter {
@@ -929,12 +1006,25 @@ public final class JUnit5TeamCityRunner {
       }
     }
 
+    private final Set<String> includedClasses = new HashSet<>();
+    private final Set<String> excludedClasses = new HashSet<>();
+
+    public Boolean hasExcludedClasses() {
+      return !excludedClasses.isEmpty();
+    }
+
+    public Boolean hasIncludedClasses() {
+      return !includedClasses.isEmpty();
+    }
+
     @Override
     public FilterResult apply(String className) {
       try {
         if ((boolean)matchesCurrentBucket.invokeExact(className)) {
+          includedClasses.add(className);
           return FilterResult.included(null);
         }
+        excludedClasses.add(className);
         return FilterResult.excluded(null);
       }
       catch (Throwable e) {

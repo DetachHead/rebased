@@ -88,11 +88,11 @@ import com.jetbrains.python.run.target.HelpersAwareTargetEnvironmentRequest;
 import com.jetbrains.python.run.target.PySdkTargetPaths;
 import com.jetbrains.python.run.target.PythonCommandLineTargetEnvironmentProvider;
 import com.jetbrains.python.sdk.PySdkExtKt;
-import com.jetbrains.python.sdk.PySdkUtil;
 import com.jetbrains.python.sdk.PythonEnvUtil;
+import com.intellij.python.sdk.backend.PythonInterpreter;
+import com.intellij.python.sdk.backend.PythonInterpreterKt;
 import com.jetbrains.python.sdk.PythonSdkAdditionalData;
-import com.jetbrains.python.sdk.PyRichSdk;
-import com.jetbrains.python.sdk.PyRichSdkKt;
+import com.jetbrains.python.sdk.SdkExtKt;
 import com.jetbrains.python.sdk.flavors.PythonSdkFlavor;
 import com.jetbrains.python.sdk.flavors.conda.CondaPythonExecKt;
 import com.jetbrains.python.sdk.legacy.PythonSdkUtil;
@@ -110,7 +110,6 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -330,6 +329,8 @@ public abstract class PythonCommandLineState extends CommandLineState {
    */
   protected @NotNull ProcessHandler startProcess(PythonProcessStarter processStarter, CommandLinePatcher... patchers)
     throws ExecutionException {
+    PyLaunchPreparer.prepareAllBlocking(getEnvironment());
+
     GeneralCommandLine commandLine = generateCommandLine(patchers);
 
     // Extend command line
@@ -355,6 +356,8 @@ public abstract class PythonCommandLineState extends CommandLineState {
    */
   protected @NotNull ProcessHandler startProcess(@NotNull PythonScriptTargetedCommandLineBuilder builder)
     throws ExecutionException {
+    PyLaunchPreparer.prepareAllBlocking(getEnvironment());
+
     HelpersAwareTargetEnvironmentRequest helpersAwareTargetRequest = getPythonTargetInterpreter();
 
     Sdk sdk = getSdk();
@@ -393,8 +396,11 @@ public abstract class PythonCommandLineState extends CommandLineState {
     if (sdk != null && getEnableRunTool()) {
       PyRunToolProvider runToolProvider = PyRunToolProvider.forSdk(sdk);
       if (runToolProvider != null && useRunTool(myConfig, sdk)) {
-        runToolParameters = PythonCommandLineStateExKt.getRunToolParametersForJvm(runToolProvider, sdk);
-        PyRunToolUsageCollector.logRun(myConfig.getProject(), PyRunToolIds.idOf(runToolProvider));
+        // Resolved here rather than in the tool: only the configuration knows whether it runs a bare script.
+        PyBareScriptConfiguration bareScript = myConfig.asBareScriptConfiguration();
+        Path scriptModeTarget = bareScript == null ? null : bareScript.getInlineScriptTarget();
+        runToolParameters = PythonCommandLineStateExKt.getRunToolParametersForJvm(runToolProvider, sdk, scriptModeTarget);
+        PyRunToolUsageCollector.logRun(myConfig.getProject(), PyRunToolIds.idOf(runToolProvider), scriptModeTarget != null);
       }
     }
 
@@ -739,11 +745,7 @@ public abstract class PythonCommandLineState extends CommandLineState {
                                       boolean isDebug,
                                       @NotNull HelpersAwareTargetEnvironmentRequest helpersAwareTargetRequest,
                                       @Nullable Sdk sdk) {
-    boolean addPyCharmHosted = true;
-    if (sdk != null && !CondaPythonExecKt.getUsePythonForLocalConda()) {
-      addPyCharmHosted = PySdkExtKt.getOrCreateAdditionalData(sdk).getFlavor().providePyCharmHosted();
-    }
-    final Map<String, String> env = prepareEnv(project, runParams, addPyCharmHosted);
+    final Map<String, String> env = prepareEnv(project, runParams, shouldAddPyCharmHosted(sdk));
 
     setupEncodingEnvs(commandLine, commandLine.getCharset());
 
@@ -768,21 +770,51 @@ public abstract class PythonCommandLineState extends CommandLineState {
     if (runParams.getEnvs() != null) {
       env.putAll(runParams.getEnvs());
     }
-    addCommonEnvironmentVariables(getInterpreterPath(project, runParams), env, addPyCharmHosted);
-
-    setupVirtualEnvVariables(runParams, env);
+    addCommonAndVirtualEnvVariables(project, runParams, env, addPyCharmHosted);
     return env;
+  }
+
+  /**
+   * @see PythonSdkFlavor#providePyCharmHosted()
+   */
+  @ApiStatus.Internal
+  public static boolean shouldAddPyCharmHosted(@Nullable Sdk sdk) {
+    if (sdk == null || CondaPythonExecKt.getUsePythonForLocalConda()) return true;
+    return PySdkExtKt.getOrCreateAdditionalData(sdk).getFlavor().providePyCharmHosted();
+  }
+
+  /**
+   * Adds the environment variables every launched Python process is expected to have: the common ones
+   * ({@code PYTHONUNBUFFERED}, {@code PYCHARM_HOSTED}, …) and the ones produced by activating the
+   * virtualenv of {@link PythonRunParams#getSdk()}.
+   * <p>
+   * {@code env} is expected to already contain the environment variables from the run configuration
+   * (env files and {@link PythonRunParams#getEnvs()}), because the user-specified ones win over the
+   * activated ones.
+   * <p>
+   * Meant for launchers that don't build their command line through {@link #startProcess}, most notably
+   * the debugpy DAP backend, which passes the environment to the debug adapter instead.
+   */
+  @ApiStatus.Internal
+  public static void addCommonAndVirtualEnvVariables(@NotNull Project project,
+                                                     @NotNull PythonRunParams runParams,
+                                                     @NotNull Map<String, String> env,
+                                                     boolean addPyCharmHosted) {
+    addCommonEnvironmentVariables(getInterpreterPath(project, runParams), env, addPyCharmHosted);
+    setupVirtualEnvVariables(runParams, env);
   }
 
   private static void setupVirtualEnvVariables(PythonRunParams runParams, Map<String, String> env) {
     Sdk sdk = runParams.getSdk();
     if (sdk == null) return;
 
-    PyRichSdk pyRichSdk = PyRichSdkKt.pyRichSdk(sdk, false);
-    boolean shouldActivate = (Registry.is("python.activate.virtualenv.on.run") && pyRichSdk.isActivatable());
+    PythonInterpreter pythonInterpreter = PythonInterpreterKt.pythonInterpreter(sdk, false);
+    boolean shouldActivate = (Registry.is("python.activate.virtualenv.on.run") && pythonInterpreter.isActivatable());
     if (!shouldActivate) return;
 
-    Map<String, String> activated = PySdkUtil.activateVirtualEnv(sdk);
+    // A failed activation read is already logged by ActivatableEnvironmentService; fall back to no extra vars here.
+    Map<String, String> activated = SdkExtKt.activationEnvironmentBlocking(sdk).getSuccessOrNull();
+    if (activated == null) activated = Map.of();
     env.putAll(activated);
 
     // User-specified env vars override activated ones, with special PATH merging
@@ -879,24 +911,6 @@ public abstract class PythonCommandLineState extends CommandLineState {
       initPythonPath(commandLine, passParentEnvs, pathList, sdkHome);
     }
   }
-
-  @ApiStatus.Internal
-  public static @NotNull Map<String, String> buildPythonPath(@NotNull AbstractPythonRunConfiguration<?> configuration,
-                                                             boolean passParentEnvs) {
-    Map<String, String> envs = new HashMap<>(configuration.getEnvs());
-    Module module = configuration.getModule();
-    Sdk sdk = configuration.getSdk();
-
-    if (sdk != null) {
-      List<String> pathList = new ArrayList<>();
-      pathList.addAll(getAddedPaths(sdk));
-      pathList.addAll(collectPythonPath(module, configuration.shouldAddContentRoots(), configuration.shouldAddSourceRoots()));
-      PythonEnvUtil.initPythonPath(envs, passParentEnvs, pathList);
-    }
-
-    return envs;
-  }
-
 
   @ApiStatus.Internal
   public static void buildPythonPath(@NotNull Project project,

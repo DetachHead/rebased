@@ -11,13 +11,12 @@ import com.intellij.execution.configurations.RunConfigurationBase
 import com.intellij.execution.configurations.RunnerSettings
 import com.intellij.execution.scratch.JavaScratchConfiguration
 import com.intellij.openapi.application.PathManager
+import com.intellij.openapi.application.ReadAction
 import com.intellij.openapi.project.IntelliJProjectUtil
 import com.intellij.platform.eel.provider.asEelPath
 import com.intellij.util.PlatformUtils
 import com.intellij.util.lang.UrlClassLoader
 import org.jetbrains.idea.devkit.requestHandlers.passDataAboutBuiltInServer
-import java.nio.file.Files
-import java.nio.file.NoSuchFileException
 import java.nio.file.Path
 import kotlin.io.path.invariantSeparatorsPathString
 
@@ -34,12 +33,13 @@ internal class DevKitApplicationPatcher : RunConfigurationExtension() {
       !IntelliJProjectUtil.isIntelliJPlatformProject(project)
     ) return
 
-    val mainClass = configuration.runClass ?: return
+    val mainClass = ReadAction.nonBlocking<String> {
+      configuration.runClass
+    }.executeSynchronously() ?: return
 
     passDataAboutBuiltInServer(javaParameters, project)
     val vmParameters = javaParameters.vmParametersList
-    val module = configuration.configurationModule.module ?: return
-    val jdk = JavaParameters.getJdkToRunModule(module, true) ?: return
+    val (module, jdk) = getRunConfigurationModuleAndJdk(configuration) ?: return
     if (!vmParameters.getPropertyValue("intellij.devkit.skip.automatic.add.opens").toBoolean()) {
       DevKitPatcherHelper.appendAddOpensWhenNeeded(project, jdk, vmParameters)
     }
@@ -119,24 +119,6 @@ internal class DevKitApplicationPatcher : RunConfigurationExtension() {
       vmParameters.addProperty(PathManager.PROPERTY_PLUGINS_PATH, "${dir}/config/plugins")
       vmParameters.addProperty(PathManager.PROPERTY_SYSTEM_PATH, "${dir}/system")
       vmParameters.addProperty(PathManager.PROPERTY_LOG_PATH, "${dir}/system/log")
-    }
-
-    val runDir = workingDirectory.resolve("out/dev-run/${productClassifier}")
-    if (vmParameters.getPropertyValue("idea.dev.skip.build").toBoolean()) {
-      // todo broken for now, if this mode will be needed, proper binary maybe implemented
-      vmParameters.addProperty(PathManager.PROPERTY_HOME_PATH, runDir.invariantSeparatorsPathString)
-      val files = try {
-        Files.readAllLines(runDir.resolve("core-classpath.txt"))
-      }
-      catch (_: NoSuchFileException) {
-        null
-      }
-
-      if (files != null) {
-        javaParameters.classPath.clear()
-        javaParameters.classPath.addAll(files)
-        javaParameters.mainClass = "com.intellij.idea.Main"
-      }
     }
 
     vmParameters.addProperty("idea.vendor.name", "JetBrains")
