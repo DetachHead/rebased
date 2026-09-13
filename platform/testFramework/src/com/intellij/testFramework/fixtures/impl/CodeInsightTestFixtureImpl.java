@@ -1537,11 +1537,12 @@ public class CodeInsightTestFixtureImpl extends BaseFixture implements CodeInsig
       // Facets may create virtual file pointers lazily on first root access (e.g. WebRoot/ConfigFile pointers).
       // Materialize them now so they belong to the tracker baseline instead of being reported as leaks: facets of
       // a reused light project are not disposed per-test (see LightPlatformTestCase project reuse).
-      for (Facet<?> facet : FacetManager.getInstance(module).getAllFacets()) {
-        if (facet instanceof FacetRootsProvider) {
-          ((FacetRootsProvider)facet).getFacetRoots();
-        }
-      }
+      // facets disabled in rebased
+      //for (Facet<?> facet : FacetManager.getInstance(module).getAllFacets()) {
+      //  if (facet instanceof FacetRootsProvider) {
+      //    ((FacetRootsProvider)facet).getFacetRoots();
+      //  }
+      //}
     }
     if (shouldTrackVirtualFilePointers()) {
       myVirtualFilePointerTracker = new VirtualFilePointerTracker();
