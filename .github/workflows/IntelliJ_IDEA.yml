@@ -5,7 +5,7 @@ on:
   push:
     branches:
       - master
-      - release/*
+      - signpath
 
   # we only run on pull_request when the source branch name doesn't start with "release/". unfortunately branches-ignore refers to
   # the source branch not the target branch so we can't do that here. we use an `if` statement in the get_version job instead
