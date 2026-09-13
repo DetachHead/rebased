@@ -83,7 +83,6 @@ jvm_library(
         "//java/testFramework:testFramework_test_lib",
         "//libraries/kotlinc/kotlin-compiler-common:libraries-kotlinc-kotlin-compiler-common",
         "//libraries/kotlinc/kotlin-compiler-common:libraries-kotlinc-kotlin-compiler-common_test_lib",
-
         "//java/debugger/impl",
         "//java/debugger/impl:impl_test_lib",
         "@lib//:kotlinc-compose-compiler-plugin",

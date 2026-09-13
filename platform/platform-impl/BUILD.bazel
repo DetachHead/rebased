@@ -204,7 +204,35 @@ jvm_library(
         "//platform/forms_rt:java-guiForms-rt",
         "//fleet/rhizomedb",
         "@lib//:jetbrains-intellij-deps-java-atk-wrapper-linux",
+        "//platform/eel-nioFs-impl",
         "//libraries/markdown",
+    ],
+)
+
+content_module_jar(
+    libraries = ["@lib//:diogen-analysis"],
+    module = ":ide-impl",
+    modules_after = [
+        # do not sort,
+        "//platform/platform-impl/recentProjects",
+        "//platform/platform-impl/rpc",
+        "//platform/platform-impl/ui",
+        "//platform/platform-util-io-impl:ide-util-io-impl",
+        "//platform/platform-util-netty:ide-util-netty",
+        "//platform/ijent",
+        "//platform/ijent/buildConstants",
+        "//platform/ijent/impl",
+        "//platform/jbr",
+        "//platform/object-serializer",
+        "//platform/pratt",
+        "//platform/platform-resources:resources",
+        "//platform/platform-resources-en:resources-en",
+        "//platform/syntax/syntax-tree:tree",
+    ],
+    modules_before = [
+        # do not sort,
+        "//platform/buildData",
+        "//platform/diagnostic/startUpPerformanceReporter",
     ],
 )
 

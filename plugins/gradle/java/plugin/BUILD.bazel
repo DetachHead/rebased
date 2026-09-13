@@ -45,8 +45,6 @@ dev_dist_plugin(
     descriptor_module = ":plugin",
     prepacked_content_modules = [
         "//plugins/gradle-maven:gradle-java-maven_content_module_jar",
-        "//plugins/gradle/gradle-dependency-updater:dependencyUpdater_content_module_jar",
-        "//plugins/gradle/intellij.gradle.analysis:analysis_content_module_jar",
         "//plugins/gradle/java/coverage:coverage_content_module_jar",
         "//plugins/gradle/java/groovy/ml:ml_content_module_jar",
         "//plugins/gradle/java/groovy/toml:toml_content_module_jar",

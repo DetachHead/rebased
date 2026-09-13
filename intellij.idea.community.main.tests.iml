@@ -87,7 +87,6 @@
     <orderEntry type="module" module-name="intellij.platform.backend.observation.tests" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.collaborationTools.tests" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.credentialStore.impl.tests" scope="TEST" />
-    <orderEntry type="module" module-name="intellij.platform.diagnostic.freezeAnalyzer.tests" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.externalProcessAuthHelper.tests" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.ide.concurrency.tests" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.buildScripts.usages.tests" scope="TEST" />
