@@ -142,7 +142,14 @@ jobs:
           # AppRun file
           cat > appdir/AppRun <<'EOF'
           #!/bin/bash
-          exec "$APPDIR/usr/bin/rebased" "$@"
+          export IDEA_RESTART_VIA_EXIT_CODE=88
+          while true; do
+            "$APPDIR/usr/bin/rebased" "$@"
+            exit_code=$?
+            if [ "$exit_code" -ne "$IDEA_RESTART_VIA_EXIT_CODE" ]; then
+              exit "$exit_code"
+            fi
+          done
           EOF
           chmod +x appdir/AppRun
           
