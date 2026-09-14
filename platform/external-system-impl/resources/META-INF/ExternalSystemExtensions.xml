@@ -147,7 +147,8 @@
 
     <trustedProjectsLocator implementation="com.intellij.openapi.externalSystem.service.project.trusted.ExternalSystemTrustedProjectsLocator"/>
 
-    <recoveryAction implementation="com.intellij.openapi.externalSystem.service.project.manage.ExternalSystemRecoveryAction"/>
+    <!--disabled in rebased, which does not support build systems-->
+    <!--<recoveryAction implementation="com.intellij.openapi.externalSystem.service.project.manage.ExternalSystemRecoveryAction"/>-->
 
     <externalSystemRecoveryContributor implementation="com.intellij.openapi.externalSystem.service.project.manage.ExternalProjectDataRecoveryContributor$Factory"/>
     <projectSettings service="com.intellij.openapi.externalSystem.service.project.manage.ExternalProjectsManagerImpl"/>
