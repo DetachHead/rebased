@@ -2,40 +2,10 @@
 # TODO: Allowlist entries that should be fixed
 # ============================================
 
-_frozen_importlib.BuiltinImporter.load_module
-_frozen_importlib.FrozenImporter.load_module
-_frozen_importlib_external.FileFinder.discover
-_frozen_importlib_external.NamespaceLoader.load_module
-_frozen_importlib_external.NamespacePath
 _frozen_importlib_external.PathFinder.discover
-_frozen_importlib_external.SourceFileLoader.source_to_code
-_frozen_importlib_external.SourceLoader.source_to_code
-_frozen_importlib_external._LoaderBasics.load_module
-_frozen_importlib_external.cache_from_source
-_struct.Struct.pack_into
-_struct.pack
-_struct.pack_into
-_thread.RLock.__exit__
-_thread.lock.__exit__
-copy.deepcopy
 dataclasses.MISSING
 dataclasses._MISSING_TYPE
 dataclasses.field
-doctest.DocTestRunner.report_skip
-importlib._abc.Loader.load_module
-importlib._bootstrap_external.NamespacePath
-importlib.abc.InspectLoader.source_to_code
-importlib.abc.MetaPathFinder.discover
-importlib.abc.PathEntryFinder.discover
-importlib.resources._common.package_to_anchor
-mailbox.Mailbox.__enter__
-mailbox.Mailbox.__exit__
-mailbox._ProxyFile.__class_getitem__
-multiprocessing.process.BaseProcess.__init__
-threading.Condition.locked
-tkinter.Image.__iter__
-tkinter.Misc.__iter__
-tkinter.font.Font.__iter__
 
 # =============================================================
 # Allowlist entries that cannot or should not be fixed; >= 3.15
@@ -98,6 +68,9 @@ concurrent.interpreters._crossinterp.UnboundItem.singleton
 concurrent.interpreters._crossinterp.UNBOUND_ERROR
 concurrent.interpreters._crossinterp.UNBOUND_REMOVE
 
+# Condition functions are exported in __init__
+threading.Condition.locked
+
 # Assigning `__new__` causes `func` not to get recognized.
 functools.partialmethod.__new__
 
@@ -130,6 +103,11 @@ types.UnionType.__qualname__
 # Allowlist entries that cannot or should not be fixed; >= 3.13
 # =============================================================
 
+# `cleanup_socket` was added in 3.13 to the concrete `_UnixSelectorEventLoop.create_unix_server`,
+# not to the abstract `AbstractEventLoop.create_unix_server`. The stub adds it on the abstract
+# method so code typing the loop as `AbstractEventLoop` can still pass `cleanup_socket=...`. See #15742.
+asyncio.events.AbstractEventLoop.create_unix_server
+
 _pyrepl\..+  # The internal implementation of the REPL on py313+; not for public consumption
 codecs.backslashreplace_errors  # Runtime incorrectly has `self`
 codecs.ignore_errors  # Runtime incorrectly has `self`
@@ -154,13 +132,12 @@ types.MappingProxyType.get
 
 typing_extensions.Protocol  # Super-special typing primitive
 
+copy.replace  # Cannot have keyword-only ParamSpec
+
 
 # =============================================================
 # Allowlist entries that cannot or should not be fixed; >= 3.12
 # =============================================================
-
-# Deprecated argument is supported at runtime by renaming it through a decorator.
-importlib.resources._common.files
 
 sys._monitoring  # Doesn't really exist. See comments in the stub.
 sys.__jit  # Similar to sys._monitoring

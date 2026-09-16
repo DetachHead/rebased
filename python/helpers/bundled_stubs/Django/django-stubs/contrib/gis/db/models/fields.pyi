@@ -16,14 +16,16 @@ from django.core.validators import _ValidatorCallable
 from django.db.models import Model
 from django.db.models.expressions import Combinable, Expression
 from django.db.models.fields import NOT_PROVIDED, Field, _ErrorMessagesMapping
+from django.db.models.sql.compiler import _AsSqlType
+from django.forms.widgets import Widget
 from django.utils.choices import _Choices
 from django.utils.functional import _StrOrPromise
 from typing_extensions import TypeVar, override
 
 # __set__ value type
-_ST = TypeVar("_ST")
+_ST = TypeVar("_ST", contravariant=True)
 # __get__ return type
-_GT = TypeVar("_GT")
+_GT = TypeVar("_GT", covariant=True)
 
 class SRIDCacheEntry(NamedTuple):
     units: Any
@@ -75,7 +77,7 @@ class BaseSpatialField(Field[_ST, _GT]):
     def units(self, connection: Any) -> Any: ...
     def units_name(self, connection: Any) -> Any: ...
     def geodetic(self, connection: Any) -> Any: ...
-    def get_placeholder(self, value: Any, compiler: Any, connection: Any) -> Any: ...
+    def get_placeholder_sql(self, value: Any, compiler: Any, connection: Any) -> _AsSqlType: ...
     def get_srid(self, obj: Any) -> Any: ...
     @override
     def get_db_prep_value(self, value: Any, connection: Any, *args: Any, **kwargs: Any) -> Any: ...
@@ -93,6 +95,7 @@ class GeometryField(BaseSpatialField[_ST, _GT]):
         *,
         extent: tuple[float, float, float, float] = ...,
         tolerance: float = 0.05,
+        max_geom_collections: int | None = ...,
         srid: int = 4326,
         spatial_index: bool = True,
         name: str | None = ...,
@@ -125,10 +128,23 @@ class GeometryField(BaseSpatialField[_ST, _GT]):
         self,
         *,
         form_class: type[forms.GeometryField] | None = ...,
+        choices_form_class: type[forms.GeometryField] | None = ...,
+        required: bool = ...,
+        widget: Widget | type[Widget] | None = ...,
+        label: _StrOrPromise | None = ...,
+        initial: Any | None = ...,
+        help_text: _StrOrPromise = ...,
+        error_messages: _ErrorMessagesMapping | None = ...,
+        show_hidden_initial: bool = ...,
+        validators: Iterable[_ValidatorCallable] = ...,
+        localize: bool = ...,
+        disabled: bool = ...,
+        label_suffix: str | None = ...,
+        # GeometryField adds `geom_type` and `srid`
         geom_type: str = ...,
         srid: Any = ...,
         **kwargs: Any,
-    ) -> forms.GeometryField: ...
+    ) -> forms.GeometryField | None: ...
 
 class PointField(GeometryField[_ST, _GT]):
     _pyi_private_set_type: Point | Combinable
@@ -190,7 +206,7 @@ class ExtentField(Field[Any, Any]):
     @override
     def get_internal_type(self) -> str: ...
 
-class RasterField(BaseSpatialField):
+class RasterField(BaseSpatialField[_ST, _GT]):
     @override
     def db_type(self, connection: Any) -> Any: ...
     def from_db_value(self, value: Any, expression: Any, connection: Any) -> Any: ...

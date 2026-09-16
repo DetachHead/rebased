@@ -2143,7 +2143,7 @@ class PyCallableTypeTest : PyCodeInsightTestCase() {
 
     @Test
     @TestFor(issues = ["PY-82871"])
-    fun `Concatenate with ellipsis assignability`() = test("""
+    fun `Concatenate with ellipsis assignability`() = test(TestOptions(enablePyAnyType = false), """
       from typing import Callable, Concatenate
 
       call: Callable[Concatenate[int, ...], str]
@@ -2810,5 +2810,14 @@ class PyCallableTypeTest : PyCodeInsightTestCase() {
         pass
 
     f(g)
+    """)
+
+  @Test
+  @TestFor(issues = ["PY-90658"])
+  fun `lambda parameter type inferred when expected type is a union`() = test("""
+    from typing import Callable
+    
+    _: Callable[[int], int] | None = lambda a: a
+    #                                       └ TYPE int
     """)
 }

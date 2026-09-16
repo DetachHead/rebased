@@ -33,7 +33,6 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.takeOrElse
 import androidx.compose.ui.window.PopupPositionProvider
-import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import org.jetbrains.annotations.ApiStatus
@@ -76,6 +75,7 @@ import org.jetbrains.jewel.ui.theme.popupContainerStyle
  * **Swing equivalent:**
  * [`ComboBox`](https://github.com/JetBrains/intellij-community/blob/master/platform/platform-api/src/com/intellij/openapi/ui/ComboBox.java)
  *
+ * @param T the type of items in the list.
  * @param items The list of items to display in the dropdown
  * @param selectedIndex The index of the currently selected item
  * @param onSelectedItemChange Called when an item is selected, with the new index
@@ -168,6 +168,7 @@ public fun <T : Any> ListComboBox(
  * **Swing equivalent:**
  * [`ComboBox`](https://github.com/JetBrains/intellij-community/blob/master/platform/platform-api/src/com/intellij/openapi/ui/ComboBox.java)
  *
+ * @param T the type of items in the list.
  * @param items The list of items to display in the dropdown
  * @param selectedIndex The index of the currently selected item
  * @param onSelectedItemChange Called when an item is selected, with the new index
@@ -418,6 +419,7 @@ public fun ListComboBox(
  * @param selectedIndex The index of the currently selected item
  * @param onSelectedItemChange Called when the selected item changes, with the new index and item
  * @param modifier Modifier to be applied to the combo box
+ * @param popupModifier Modifier to be applied to the popup of the combo box
  * @param enabled Controls whether the combo box can be interacted with
  * @param outline The outline style to be applied to the combo box
  * @param maxPopupHeight The maximum height of the popup list. If unspecified, the height is automatically calculated
@@ -717,9 +719,7 @@ internal fun <T : Any> ListComboBoxImpl(
     }
 
     fun handlePopupKeyDown(event: androidx.compose.ui.input.key.KeyEvent): Boolean =
-        if (!popupManager.isPopupVisible.value) {
-            false
-        } else {
+        popupManager.isPopupVisible.value &&
             when (event.key) {
                 Key.MoveHome -> selectHome()
                 Key.MoveEnd -> selectEnd()
@@ -727,19 +727,21 @@ internal fun <T : Any> ListComboBoxImpl(
                     navigateDown()
                     true
                 }
+
                 Key.DirectionUp -> {
                     navigateUp()
                     true
                 }
+
                 Key.Enter,
                 Key.NumPadEnter -> {
                     commitSelectionFromHoverOrMapped()
                     popupManager.setPopupVisible(false)
                     true
                 }
+
                 else -> false
             }
-        }
 
     // This logic ensures that the popup size does not change based on the combo box size if the popup is visible
     LaunchedEffect(currentComboBoxSize, popupManager.isPopupVisible.value) {
@@ -753,8 +755,7 @@ internal fun <T : Any> ListComboBoxImpl(
             modifier
                 .onSizeChanged { currentComboBoxSize = with(density) { DpSize(it.width.toDp(), it.height.toDp()) } }
                 .onPreviewKeyEvent {
-                    if (it.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
-                    return@onPreviewKeyEvent handlePopupKeyDown(it)
+                    return@onPreviewKeyEvent it.type == KeyEventType.KeyDown && handlePopupKeyDown(it)
                 },
         popupModifier = popupModifier,
         enabled = enabled,
@@ -995,7 +996,7 @@ private fun <T : Any> PopupContent(
 
     LaunchedEffect(Unit) {
         // Only run the call when the list is actually visible
-        val visibleItems = snapshotFlow { listState.visibleItemsRange }.filter { it.first >= 0 && it.last >= 0 }.first()
+        val visibleItems = snapshotFlow { listState.visibleItemsRange }.first { it.first >= 0 && it.last >= 0 }
 
         val indexToShow = currentlySelectedIndex.takeIfInBoundsOrZero(items.indices)
         if (indexToShow !in visibleItems) {

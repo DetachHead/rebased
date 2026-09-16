@@ -77,7 +77,7 @@ import com.jetbrains.python.psi.types.PyTypeChecker
 import com.jetbrains.python.psi.types.PyTypeChecker.getSubstitutionsWithUnresolvedReturnGenerics
 import com.jetbrains.python.psi.types.PyTypeInferenceCspFactory
 import com.jetbrains.python.psi.types.PyTypeMember
-import com.jetbrains.python.psi.types.PyTypeUtil.components
+import com.jetbrains.python.psi.types.PyTypeUtil.compositeComponents
 import com.jetbrains.python.psi.types.PyTypeUtil.toStream
 import com.jetbrains.python.psi.types.PyUnionType
 import com.jetbrains.python.psi.types.PyUnpackedTupleType
@@ -293,7 +293,7 @@ object PyCallExpressionHelper {
     val file = expression.containingFile
     if (file == null || !PythonRuntimeService.getInstance().isInPydevConsole(file)) return mutableListOf()
     val calleeType = getCalleeType(expression, resolveContext)
-    return calleeType.components.filterIsInstance<PyCallableType>()
+    return calleeType.compositeComponents.filterIsInstance<PyCallableType>()
   }
 
   private fun List<PsiElement>.selectCallableTypes(context: TypeEvalContext): List<PyCallableType> {
@@ -693,7 +693,7 @@ object PyCallExpressionHelper {
     if (matchingOverloads.isEmpty()) {
       return types
         .map { it.getCallType(context, callSite) }
-        .let { PyUnionType.union(it) }
+        .let { PyUnsafeUnionType.unsafeUnion(it) }
     }
     if (matchingOverloads.size == 1) {
       return matchingOverloads[0].getCallType(context, callSite)
@@ -704,7 +704,7 @@ object PyCallExpressionHelper {
     if (someArgumentsHaveUnknownType) {
       return matchingOverloads
         .map { it.getCallType(context, callSite) }
-        .let { PyUnionType.union(it) }
+        .let { PyUnsafeUnionType.unsafeUnion(it) }
     }
     return matchingOverloads.firstOrNull()?.getCallType(context, callSite) ?: PyAnyType.unknown
   }
@@ -1244,8 +1244,8 @@ object PyCallExpressionHelper {
   fun analyzeArguments(
     arguments: List<PyExpression>,
     parameters: List<PyCallableParameter>,
-  context: TypeEvalContext,
-): ArgumentMappingResults {
+    context: TypeEvalContext,
+  ): ArgumentMappingResults {
     val hasSlashParameter = parameters.any { it.isPositionOnlySeparator }
     val firstExplicitParam = parameters.dropWhile { it.isSelf }.firstOrNull()
     val oldStylePositionalOnly = firstExplicitParam != null && isLegacyPositionalOnly(firstExplicitParam)

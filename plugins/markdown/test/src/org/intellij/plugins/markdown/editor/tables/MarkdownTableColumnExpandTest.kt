@@ -2,6 +2,9 @@
 package org.intellij.plugins.markdown.editor.tables
 
 import com.intellij.testFramework.LightPlatformCodeInsightTestCase
+import com.intellij.openapi.util.Disposer
+import org.intellij.plugins.markdown.settings.MarkdownCodeInsightSettings
+import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.junit.runners.JUnit4
@@ -9,6 +12,14 @@ import org.junit.runners.JUnit4
 @RunWith(JUnit4::class)
 @Suppress("MarkdownIncorrectTableFormatting")
 class MarkdownTableColumnExpandTest: LightPlatformCodeInsightTestCase() {
+  @Before
+  fun enableTableReformatting() {
+    val settings = MarkdownCodeInsightSettings.getInstance()
+    val old = settings.state.reformatTablesOnType
+    settings.state.reformatTablesOnType = true
+    Disposer.register(testRootDisposable) { settings.state.reformatTablesOnType = old }
+  }
+
   @Test
   fun `test right after cell content`() {
     // language=Markdown

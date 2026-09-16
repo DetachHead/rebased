@@ -6,10 +6,12 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.async
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.consumeEach
 import kotlinx.coroutines.completeWith
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.supervisorScope
 
 /**
  * A utility class designed to serialize and manage the execution of asynchronous RPC requests.
@@ -53,12 +55,22 @@ internal class SequentialRpcRequestsExecutor private constructor() {
     val result = CompletableDeferred<T>()
 
     override suspend fun performRequest() {
-      val result = runCatching { request() }
-      this.result.completeWith(result)
+      if (!result.isActive) return
+      try {
+        supervisorScope {
+          val requestResult = async { request() }
+          result.invokeOnCompletion { requestResult.cancel() }
+          result.completeWith(runCatching { requestResult.await() })
+        }
+      }
+      finally {
+        result.cancel()
+      }
+
     }
 
     override fun markUndelivered() {
-      this.result.cancel()
+      result.cancel()
     }
   }
 

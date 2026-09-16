@@ -94,7 +94,7 @@ open class RebasedProperties(private val communityHomeDir: Path) : JetBrainsProd
       "intellij.platform.util.zip",
     )
     mavenArtifacts.validateForMavenCentralPublication = { module ->
-      JewelMavenArtifacts.isPublishedJewelModule(module)
+      JewelMavenArtifacts.isPublishedJewelModule(module) || JewelMavenArtifacts.isPublishedPlatformDependency(module)
     }
     mavenArtifacts.patchCoordinates = { module, coordinates ->
       when {
@@ -115,7 +115,8 @@ open class RebasedProperties(private val communityHomeDir: Path) : JetBrainsProd
       }
     }
     mavenArtifacts.isJavadocJarRequired = {
-      JewelMavenArtifacts.isPublishedJewelModule(it) && it.name != "intellij.platform.jewel.intUi.decoratedWindow"
+      JewelMavenArtifacts.isPublishedPlatformDependency(it) ||
+      (JewelMavenArtifacts.isPublishedJewelModule(it) && it.name != "intellij.platform.jewel.intUi.decoratedWindow")
     }
     mavenArtifacts.validate = { context, artifacts ->
       JewelMavenArtifacts.validate(context, artifacts)

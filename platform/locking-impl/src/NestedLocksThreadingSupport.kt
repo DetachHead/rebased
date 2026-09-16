@@ -37,6 +37,7 @@ import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.Runnable
 import kotlinx.coroutines.withContext
 import org.jetbrains.annotations.ApiStatus
+import java.lang.ref.WeakReference
 import java.util.Arrays
 import java.util.Collections
 import java.util.concurrent.CopyOnWriteArrayList
@@ -1018,7 +1019,7 @@ class NestedLocksThreadingSupport : ThreadingSupport {
     finally {
       drainWriteActionFollowups()
       writeIntentInitResult.release()
-      if (myWriteActionsStack.isEmpty()) {
+      if (isOutermostWriteAction()) {
         fireAfterWriteActionFinished(writeIntentInitResult.listeners, clazz)
       }
     }
@@ -1032,7 +1033,7 @@ class NestedLocksThreadingSupport : ThreadingSupport {
       return proceedWithSuspendWriteLockAcquisitionFromWriteIntent(computationState, writeIntentInitResult, clazz, computation)
     }
     finally {
-      if (myWriteActionsStack.isEmpty()) {
+      if (isOutermostWriteAction()) {
         fireAfterWriteActionFinished(writeIntentInitResult.listeners, clazz)
       }
     }
@@ -1104,7 +1105,7 @@ class NestedLocksThreadingSupport : ThreadingSupport {
     }
     finally {
       cleanup()
-      if (myWriteActionsStack.isEmpty()) {
+      if (isOutermostWriteAction()) {
         fireAfterWriteActionFinished(frozenListeners, clazz)
       }
     }
@@ -1198,7 +1199,7 @@ class NestedLocksThreadingSupport : ThreadingSupport {
 
     startPendingWriteAction(state)
 
-    if (myWriteActionsStack.isEmpty()) {
+    if (isOutermostWriteAction()) {
       fireBeforeWriteActionStart(frozenListeners, clazz)
     }
     return frozenListeners
@@ -1310,6 +1311,18 @@ class NestedLocksThreadingSupport : ThreadingSupport {
     }
   }
 
+  /**
+   * A write action is the outermost one when the write-action stack holds no entries above [myWriteStackBase].
+   *
+   * In the common case [myWriteStackBase] is `0`, so this is equivalent to [myWriteActionsStack] being empty.
+   * During a suspending write action the outer write action is downgraded to a write-intent lock and the base is
+   * advanced past it (see [downgradeWriteLockToWriteIntent]) without popping it from the stack; a write action that
+   * starts inside that window is therefore outermost relative to the base even though the stack is not literally
+   * empty. The outermost-boundary listeners ([fireBeforeWriteActionStart]/[fireAfterWriteActionFinished]) must fire
+   * for it so that write-action-priority reads get cancelled.
+   */
+  private fun isOutermostWriteAction(): Boolean = myWriteActionsStack.size == myWriteStackBase
+
   fun downgradeWriteLockToWriteIntent(): AccessToken {
     val state = getComputationState()
     val permit = state.getThisThreadPermit()
@@ -1335,6 +1348,10 @@ class NestedLocksThreadingSupport : ThreadingSupport {
     return object : AccessToken() {
       override fun finish() {
         myWriteActionPending.get()[state.level()].incrementAndGet()
+        val newThisLevelPermit = state.getThisThreadPermit()
+        require(newThisLevelPermit is ParallelizablePermit.WriteIntent) {
+          "When suspending write action is finishing, the thread must hold write-intent lock"
+        }
         val (newWritePermits, newWritePermit) = try {
           myWriteLockReacquisitionListener.zip(listOfReacquisitionData).forEachGuaranteed { (listener, data) ->
             @Suppress("UNCHECKED_CAST")
@@ -1342,7 +1359,7 @@ class NestedLocksThreadingSupport : ThreadingSupport {
             castedListener.beforeWriteLockReacquired(data)
           }
           val newWritePermit = runSuspendMaybeConsuming(false) {
-            rootWriteIntentPermit.acquireWriteActionPermit()
+            newThisLevelPermit.writeIntentPermit.acquireWriteActionPermit()
           }
           myWriteLockReacquisitionListener.zip(listOfReacquisitionData).forEachGuaranteed { (listener, data) ->
             @Suppress("UNCHECKED_CAST")
@@ -1360,7 +1377,7 @@ class NestedLocksThreadingSupport : ThreadingSupport {
         finally {
           myWriteActionPending.get()[state.level()].decrementAndGet()
         }
-        hack_setPublishedPermitData(exposedPermitData.copy(writePermitStack = newWritePermits, finalWritePermit = newWritePermit))
+        hack_setPublishedPermitData(exposedPermitData.copy(writePermitStack = newWritePermits, finalWritePermit = newWritePermit, originalWriteIntentPermit = newThisLevelPermit.writeIntentPermit, oldPermit = newThisLevelPermit.writeIntentPermit))
         myWriteAcquired = Thread.currentThread()
         myWriteStackBase = prevBase
       }
@@ -1681,6 +1698,22 @@ class NestedLocksThreadingSupport : ThreadingSupport {
       "The executor must run the action synchronously"
     }
   }
+
+  override fun dumpSomeDiagnosticInfo(thread: Thread): List<String> {
+    val r = mutableListOf<String>()
+    val readActionsInThread = pokeThreadLocalValueWithStick(thread, myReadActionsInThread)
+    if (readActionsInThread != null && readActionsInThread.toString() != "0") {
+      r += "(nested read actions: $readActionsInThread)"
+    }
+    val topMostReadAction = pokeThreadLocalValueWithStick(thread, myTopmostReadAction)
+    if (topMostReadAction != null && topMostReadAction.toString() != "false") {
+      r += "(in top-most read action)"
+    }
+    if (myWriteAcquired == thread) {
+      r += "(write action acquired)"
+    }
+    return r
+  }
 }
 
 
@@ -1770,3 +1803,30 @@ private data class PermitWaitingInterceptor(
   val consumer: (Deferred<*>) -> Unit,
 )
 
+private fun pokeThreadLocalValueWithStick(targetThread: Thread, targetThreadLocal: ThreadLocal<*>): Any? {
+  try {
+    // 1. Get the 'threadLocals' field from the target Thread object
+    val threadLocalsField = Thread::class.java.getDeclaredField("threadLocals")
+    threadLocalsField.setAccessible(true)
+    val threadLocalMap = threadLocalsField.get(targetThread)
+    if (threadLocalMap == null) {
+      return null // Map hasn't been initialized yet
+    }
+    // 2. Locate the 'getEntry' method inside ThreadLocalMap
+    val getEntryMethod = Class.forName($$"java.lang.ThreadLocal$ThreadLocalMap").getDeclaredMethod("getEntry", ThreadLocal::class.java)
+    getEntryMethod.setAccessible(true)
+    // 3. Invoke 'getEntry' to extract the map entry for your ThreadLocal key
+    val entry = getEntryMethod.invoke(threadLocalMap, targetThreadLocal) as WeakReference<*>?
+    if (entry == null) {
+      return null
+    }
+    // 4. Extract the 'value' field from that Entry
+    val valueField = Class.forName($$"java.lang.ThreadLocal$ThreadLocalMap$Entry").getDeclaredField("value")
+    valueField.setAccessible(true)
+    return valueField.get(entry)
+  }
+  catch (e: Exception) {
+    e.printStackTrace()
+    return null
+  }
+}

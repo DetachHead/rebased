@@ -1,4 +1,4 @@
-name: Daily test
+name: Daily tests
 
 on:
   workflow_dispatch:
@@ -43,9 +43,11 @@ jobs:
       fail-fast: false
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
       - name: Set up Python ${{ matrix.python-version }} on ${{ matrix.os }}
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: ${{ matrix.python-version }}
           cache: pip
@@ -67,8 +69,10 @@ jobs:
         shard-index: [0, 1, 2, 3]
       fail-fast: false
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-python@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: "3.13"
           cache: pip
@@ -82,19 +86,24 @@ jobs:
         run: |
           PACKAGES=$(python tests/get_stubtest_system_requirements.py)
 
+          # System package names contain no whitespace or glob characters, so word splitting is intentional.
+          # shellcheck disable=SC2086
           if [ "${{ runner.os }}" = "Linux" ]; then
             if [ -n "$PACKAGES" ]; then
-              printf "Installing APT packages:\n  $(echo $PACKAGES | sed 's/ /\n  /g')\n"
+              printf 'Installing APT packages:\n'
+              printf '  %s\n' $PACKAGES
               sudo apt-get update -q && sudo apt-get install -qy $PACKAGES
             fi
           else
             if [ "${{ runner.os }}" = "macOS" ] && [ -n "$PACKAGES" ]; then
-              printf "Installing Homebrew packages:\n  $(echo $PACKAGES | sed 's/ /\n  /g')\n"
+              printf 'Installing Homebrew packages:\n'
+              printf '  %s\n' $PACKAGES
               brew install -q $PACKAGES
             fi
 
             if [ "${{ runner.os }}" = "Windows" ] && [ -n "$PACKAGES" ]; then
-              printf "Installing Chocolatey packages:\n  $(echo $PACKAGES | sed 's/ /\n  /g')\n"
+              printf 'Installing Chocolatey packages:\n'
+              printf '  %s\n' $PACKAGES
               choco install -y $PACKAGES
             fi
           fi
@@ -115,15 +124,17 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout typeshed
-        uses: actions/checkout@v6
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           path: typeshed
+          persist-credentials: false
       - name: Checkout stub_uploader
-        uses: actions/checkout@v6
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           repository: typeshed-internal/stub_uploader
           path: stub_uploader
-      - uses: astral-sh/setup-uv@v7
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
         with:
           version-file: "typeshed/requirements-tests.txt"
       - name: Run tests
@@ -141,7 +152,7 @@ jobs:
     permissions:
       issues: write
     steps:
-      - uses: actions/github-script@v8
+      - uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |

@@ -19,7 +19,7 @@ import androidx.compose.ui.test.hasAnyAncestor
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.ComposeContentTestRule
-import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.unit.dp
@@ -77,7 +77,7 @@ class SpeedSearchableComboBoxTest {
     }
 
     @Test
-    fun `should hide on esc press`() = runComposeTest {
+    fun `should hide speed search before closing the popup on esc press`() = runComposeTest {
         comboBox.performClick()
 
         comboBox.performKeyPress("Item", rule = this)
@@ -85,6 +85,10 @@ class SpeedSearchableComboBoxTest {
 
         comboBox.performKeyPress(Key.Escape, rule = this)
         onSpeedSearchAreaInput.assertDoesNotExist()
+        onNodeWithTag("Jewel.ComboBox.Popup").assertIsDisplayed()
+
+        comboBox.performKeyPress(Key.Escape, rule = this)
+        onNodeWithTag("Jewel.ComboBox.Popup").assertDoesNotExist()
     }
 
     @Test

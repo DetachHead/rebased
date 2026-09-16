@@ -15,6 +15,7 @@ import com.intellij.openapi.editor.markup.RangeHighlighter
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.openapi.vfs.findDocument
+import com.intellij.platform.debugger.impl.frontend.util.SequentialRpcRequestsExecutor
 import com.intellij.platform.debugger.impl.rpc.XBreakpointApi
 import com.intellij.platform.debugger.impl.rpc.XBreakpointDto
 import com.intellij.platform.debugger.impl.rpc.XLineBreakpointInfo
@@ -72,7 +73,11 @@ private sealed interface BreakpointRequest {
   }
 }
 
-private class RequestsDebouncer(cs: CoroutineScope, private val breakpoint: XLineBreakpointProxy) {
+private class RequestsDebouncer(
+  cs: CoroutineScope,
+  private val breakpoint: XLineBreakpointProxy,
+  private val sequentialExecutor: SequentialRpcRequestsExecutor,
+) {
   private val debouncedRequests = Channel<BreakpointRequest>(Channel.UNLIMITED)
 
   init {
@@ -89,7 +94,15 @@ private class RequestsDebouncer(cs: CoroutineScope, private val breakpoint: XLin
     val channel = Channel<BreakpointRequest>()
     launch {
       channel.consumeAsFlow().collectLatest {
-        it.sendRequest(breakpoint, it.requestId)
+        val request = sequentialExecutor.submit {
+          it.sendRequest(breakpoint, it.requestId)
+        }
+        try {
+          request.await()
+        }
+        finally {
+          request.cancel()
+        }
       }
     }
     return channel
@@ -106,8 +119,9 @@ internal class FrontendXLineBreakpointProxy(
   dto: XBreakpointDto,
   override val type: XLineBreakpointTypeProxy,
   manager: FrontendXBreakpointManager,
+  creationTrigger: XBreakpointCreationTrigger,
 ) : FrontendXBreakpointProxy(project, parentCs, dto, type, manager.breakpointRequestCounter), XLineBreakpointProxy {
-  private val debouncer = RequestsDebouncer(cs, this)
+  private val debouncer = RequestsDebouncer(cs, this, sequentialExecutor)
 
   private var lineSourcePosition: XSourcePosition? = null
 
@@ -128,7 +142,7 @@ internal class FrontendXLineBreakpointProxy(
    * Attachments are notified when the breakpoint state changes.
    */
   override val attachments: List<XBreakpointAttachment> =
-    FrontendXLineBreakpointAttachmentProvider.createAttachments(this, attachmentScope)
+    FrontendXLineBreakpointAttachmentProvider.createAttachments(this, attachmentScope, creationTrigger)
 
   override fun isTemporary(): Boolean {
     return lineBreakpointInfo.isTemporary

@@ -88,12 +88,20 @@ The Python plug-in provides smart editing for Python scripts. The feature set of
     <module name="intellij.python.grazie"/>
     <module name="intellij.python.langInjection"/>
     <module name="intellij.python.markdown"/>
+    <module name="intellij.python.mcp"/>
     <module name="intellij.python.ml.features"/>
     <module name="intellij.python.terminal.shared"/>
     <module name="intellij.python.terminal.backend"/>
     <module name="intellij.python.terminal.frontend"/>
     <module name="intellij.python.pytools.ui"/>
     <module name="intellij.python.black"/>
+    <module name="intellij.python.lsp.core"/>
+    <module name="intellij.python.lsp.impl"/>
+    <module name="intellij.python.typeEngine"/>
+    <module name="intellij.python.ty"/>
+    <module name="intellij.python.ruff"/>
+    <module name="intellij.python.pyrefly"/>
+    <module name="intellij.python.pyright"/>
   </content>
   <content>
     <module name="intellij.libraries.tuweni.toml"/>

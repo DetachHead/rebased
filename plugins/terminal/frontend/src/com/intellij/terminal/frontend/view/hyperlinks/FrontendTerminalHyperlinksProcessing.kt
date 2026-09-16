@@ -5,7 +5,6 @@ import com.intellij.execution.impl.EditorTextDecorationApplier
 import com.intellij.execution.impl.buildHighlighting
 import com.intellij.execution.impl.buildHyperlink
 import com.intellij.execution.impl.buildInlay
-import com.intellij.execution.impl.createEditorTextDecorationApplier
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.EDT
 import com.intellij.openapi.application.ModalityState
@@ -13,7 +12,6 @@ import com.intellij.openapi.application.UI
 import com.intellij.openapi.application.asContextElement
 import com.intellij.openapi.diagnostic.fileLogger
 import com.intellij.openapi.editor.event.EditorMouseEvent
-import com.intellij.openapi.editor.ex.EditorEx
 import com.intellij.openapi.project.Project
 import com.intellij.platform.eel.EelDescriptor
 import com.intellij.platform.project.projectId
@@ -76,7 +74,7 @@ import kotlin.time.Duration.Companion.seconds
 fun installHyperlinksProcessing(
   project: Project,
   outputModel: TerminalOutputModel,
-  editor: EditorEx,
+  decorationApplier: EditorTextDecorationApplier,
   sessionModel: TerminalSessionModel,
   eelDescriptor: EelDescriptor,
   coroutineScope: CoroutineScope,
@@ -85,13 +83,12 @@ fun installHyperlinksProcessing(
   // `TerminalHyperlinksOutputEvent.TaskFinished` event has been observed.
   val lastFinishedTaskStamp = MutableStateFlow(0L)
   val sessionIdDeferred = CompletableDeferred<TerminalHyperlinksSessionId>(coroutineScope.coroutineContext.job)
-  val applier = createEditorTextDecorationApplier(editor, coroutineScope.asDisposable())
 
   coroutineScope.launch {
-    processHyperlinks(project, outputModel, sessionModel, eelDescriptor, sessionIdDeferred, applier, lastFinishedTaskStamp)
+    processHyperlinks(project, outputModel, sessionModel, eelDescriptor, sessionIdDeferred, decorationApplier, lastFinishedTaskStamp)
   }
 
-  return FrontendTerminalHyperlinkFacade(sessionIdDeferred, applier, lastFinishedTaskStamp)
+  return FrontendTerminalHyperlinkFacade(sessionIdDeferred, decorationApplier, lastFinishedTaskStamp)
 }
 
 private suspend fun processHyperlinks(

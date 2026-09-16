@@ -26,6 +26,7 @@ interface FileSystem<P : PathHolder> {
   val isReadOnly: Boolean
   val isBrowsable: Boolean
   val isLocal: Boolean
+  val toolPathCanBePersisted: Boolean
   val userReadableName: @NonNls String
   val platformAndRoot: PlatformAndRoot
 
@@ -69,7 +70,7 @@ interface FileSystem<P : PathHolder> {
   suspend fun detectSelectableVenv(projectPathPrefix: Path): List<DetectedSelectableInterpreter<P>>
   fun preferredInterpreterBasePath(): P? = null
   fun resolvePythonBinary(pythonHome: P): P?
-  fun resolvePythonHome(pythonBinary: P): P
+  fun resolvePythonHome(pythonHomeOrBinary: P): P
   fun getVenvName(pythonHome: P): String?
 
   fun getBinaryToExec(path: P, workingDir: Path? = null): BinaryToExec
@@ -83,11 +84,7 @@ interface FileSystem<P : PathHolder> {
   fun normalizePathToRemote(path: P): P
 
   suspend fun detectEnvironments(workingDir: Path, uiInfoGetter: (P) -> PyToolUIInfo?): List<DetectedSelectableInterpreter<P>>
-  suspend fun detectTool(
-    toolName: String,
-    additionalSearchPaths: List<P> = listOf(),
-    filter: (P) -> Boolean = { true },
-  ): P?
+  suspend fun detectTool(toolSpec: ToolCommandSpec, filter: (P) -> Boolean = { true }): P?
 
   suspend fun probeTools(toolSpecs: List<ToolCommandSpec>): PyResult<Map<String, ToolProbeResult<P>>>
 

@@ -287,6 +287,7 @@ libraries/kotlinx/serialization/cbor
 libraries/kotlinx/serialization/core
 libraries/kotlinx/serialization/json
 libraries/kotlinx/serialization/protobuf
+libraries/kryo2
 libraries/kryo5
 libraries/ktor/client
 libraries/ktor/client-cio
@@ -503,6 +504,7 @@ platform/jewel/int-ui/int-ui-standalone
 platform/jewel/int-ui/int-ui-standalone-tests
 platform/jewel/markdown/core
 platform/jewel/markdown/extensions/autolink
+platform/jewel/markdown/extensions/front-matter
 platform/jewel/markdown/extensions/gfm-alerts
 platform/jewel/markdown/extensions/gfm-strikethrough
 platform/jewel/markdown/extensions/gfm-tables
@@ -825,6 +827,7 @@ plugins/devkit/devkit-tests
 plugins/devkit/intellij.devkit.compose
 plugins/devkit/intellij.devkit.debugger
 plugins/devkit/intellij.devkit.gradle
+plugins/devkit/intellij.devkit.gradle.tooling
 plugins/devkit/intellij.devkit.i18n
 plugins/devkit/intellij.devkit.intelliLang
 plugins/devkit/intellij.devkit.mcp
@@ -1178,6 +1181,7 @@ plugins/markdown/core
 plugins/markdown/core/backend
 plugins/markdown/core/frontend
 plugins/markdown/fenceInjection
+plugins/markdown/figmaAdvertiser
 plugins/markdown/frontmatter
 plugins/markdown/frontmatter/toml
 plugins/markdown/frontmatter/yaml
@@ -1341,6 +1345,7 @@ python/intellij.python.community.communityOnly
 python/intellij.python.ml.features
 python/interpreters
 python/junit5Tests-framework
+python/mcp
 python/openapi
 python/pipenv
 python/pluginCore
@@ -1359,6 +1364,8 @@ python/python-external-index
 python/python-features-trainer
 python/python-grazie
 python/python-hatch
+python/python-lsp-core
+python/python-lsp-impl
 python/python-markdown
 python/python-packaging
 python/python-parser
@@ -1370,11 +1377,14 @@ python/python-process-output/frontend
 python/python-psi-api
 python/python-psi-impl
 python/python-pyproject
+python/python-pyrefly
+python/python-pyright
 python/python-pytools
 python/python-pytools-ui
 python/python-pytools/tests
 python/python-requirements
 python/python-restructuredtext
+python/python-ruff
 python/python-sdk
 python/python-sdk-configurator/backend
 python/python-sdk-configurator/common
@@ -1389,6 +1399,8 @@ python/python-test-env/junit4
 python/python-test-env/junit5
 python/python-test-env/plain
 python/python-test-env/uv
+python/python-ty
+python/python-type-engine
 python/python-uv/backend
 python/python-uv/common
 python/python-uv/tests

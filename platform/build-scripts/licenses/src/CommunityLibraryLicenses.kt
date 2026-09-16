@@ -56,6 +56,10 @@ object CommunityLibraryLicenses {
       .copyrightText("Copyright (C) The Android Open Source Project")
       .suppliedByOrganizations(Suppliers.GOOGLE),
 
+    androidDependency("AndroidX Navigation Event Compose Desktop", libraryName = "androidx.navigationevent.navigationevent.compose.desktop"),
+
+    androidDependency("AndroidX Navigation Event Desktop", libraryName = "androidx.navigationevent.navigationevent.desktop"),
+
     LibraryLicense("antlr4-runtime", libraryName = "antlr4-runtime", url = "https://github.com/antlr/antlr4")
       .newBsd("https://github.com/antlr/antlr4/blob/dev/LICENSE.txt"),
 
@@ -1494,7 +1498,7 @@ object CommunityLibraryLicenses {
     jetbrainsLibrary("find-file-model"),
     jetbrainsLibrary("find-file-model-experimental"),
     jetbrainsLibrary("git-learning-project"),
-    jetbrainsLibrary("jetbrains.compose.components.ui.tooling.preview.desktop"),
+    jetbrainsLibrary("jetbrains.ai.completion.trigger.nes.polyglot"),jetbrainsLibrary("jetbrains.compose.components.ui.tooling.preview.desktop"),
     jetbrainsLibrary("jetbrains.compose.hot.reload.devtools.api"),
     jetbrainsLibrary("jetbrains.compose.hot.reload.gradle.idea"),
     jetbrainsLibrary("jetbrains.intellij.deps.rwmutex.idea"),
@@ -1561,7 +1565,6 @@ object CommunityLibraryLicenses {
     jetbrainsLibrary("workspace-model-codegen"),
   )
 }
-
 private fun ffmpegLibraryLicense(name: String): LibraryLicense {
   return LibraryLicense(
     name = name,

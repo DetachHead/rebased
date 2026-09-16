@@ -904,6 +904,14 @@ The refresh itself is toggled by (Preferences | Appearance &amp; Behavior | Syst
                         serviceImplementation="com.intellij.notification.impl.NotificationsManagerImpl"/>
     <applicationService serviceInterface="com.intellij.notification.NotificationsConfiguration"
                         serviceImplementation="com.intellij.notification.impl.NotificationsConfigurationImpl"/>
+    <applicationService serviceInterface="com.intellij.notification.DoNotAskAppManager"
+                        serviceImplementation="com.intellij.notification.impl.DoNotAskAppManagerImpl"/>
+    <projectService serviceInterface="com.intellij.notification.DoNotAskProjectManager"
+                    serviceImplementation="com.intellij.notification.impl.DoNotAskProjectManagerImpl"/>
+
+    <applicationSettings service="com.intellij.notification.impl.DoNotAskAppManagerImpl"/>
+
+    <projectSettings service="com.intellij.notification.impl.DoNotAskProjectManagerImpl"/>
 
     <applicationSettings service="com.intellij.notification.impl.NotificationsConfigurationImpl"/>
 
@@ -1906,6 +1914,10 @@ The refresh itself is toggled by (Preferences | Appearance &amp; Behavior | Syst
                  description="Report UI freezes to JetBrains"/>
     <registryKey key="freeze.reporter.maxDumpDuration.ms" defaultValue="40000"
                  description="Maximum duration of the 'report.txt' performance snapshot in ms"/>
+    <registryKey key="freeze.reporter.duration.threshold.seconds" defaultValue="10"
+                 description="Report UI freezes longer than the specified duration in seconds"/>
+    <registryKey key="ide.errors.deduplicate" defaultValue="true"
+                 description="Group error reports with identical stack traces in the error dialog"/>
     <registryKey key="freeze.reporter.profiling" defaultValue="true"
                  description="Start CPU profiling when the IDE is frozen"/>
     <registryKey key="freeze.reporter.profiling.all.threads" defaultValue="true"
@@ -2047,6 +2059,9 @@ The refresh itself is toggled by (Preferences | Appearance &amp; Behavior | Syst
     <registryKey key="ide.idle.memory.cleaner.delay"
                  defaultValue="5000"
                  description="A delay in milliseconds between the IDE becoming idle and the memory cleaning being performed"/>
+    <registryKey key="ide.idle.memory.cleaner.enabled.page.cache.release"
+                 defaultValue="false"
+                 description="Flush and release allocated direct buffers to OS when IDE becomes idle"/>
     <registryKey key="progresses.show.counter.icon.instead.of.show.link"
                  defaultValue="true"
                  description="Progresses would be shown with an icon with their number in status bar instead of Show All link"/>

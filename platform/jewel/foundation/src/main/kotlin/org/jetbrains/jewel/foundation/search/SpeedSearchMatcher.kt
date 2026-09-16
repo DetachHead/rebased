@@ -4,11 +4,11 @@ package org.jetbrains.jewel.foundation.search
 import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.jewel.foundation.GenerateDataFunctions
 import org.jetbrains.jewel.foundation.InternalJewelApi
-import org.jetbrains.jewel.foundation.search.SpeedSearchMatcher.Companion.patternMatcher
 import org.jetbrains.jewel.foundation.search.SpeedSearchMatcher.MatchResult
 import org.jetbrains.jewel.foundation.search.impl.ExactSubstringSpeedSearchMatcher
 import org.jetbrains.jewel.foundation.search.impl.PatternSpeedSearchMatcher
 
+/** A functional interface for matching text against a search pattern, returning matched character ranges. */
 public fun interface SpeedSearchMatcher {
     /**
      * Returns a [MatchResult.Match] with a list of ranges from the where the pattern matches, or [MatchResult.NoMatch]
@@ -22,6 +22,7 @@ public fun interface SpeedSearchMatcher {
      */
     public fun matches(text: CharSequence?): MatchResult = matches(text?.toString())
 
+    /** Factory methods for creating [SpeedSearchMatcher] instances: [exactSubstringMatcher] and [patternMatcher]. */
     public companion object {
         /**
          * Returns a [SpeedSearchMatcher] that searches for the given [pattern] in the text.
@@ -85,9 +86,12 @@ public fun interface SpeedSearchMatcher {
             )
     }
 
+    /** The result of a [SpeedSearchMatcher.matches] call: either [NoMatch] or a [Match] with matched ranges. */
     public sealed interface MatchResult {
+        /** Indicates that the text did not match the search pattern. */
         public object NoMatch : MatchResult
 
+        /** Indicates a successful match, containing the list of matched [ranges] within the text. */
         @GenerateDataFunctions
         public class Match(public val ranges: List<IntRange>) : MatchResult {
             override fun equals(other: Any?): Boolean {
@@ -104,6 +108,7 @@ public fun interface SpeedSearchMatcher {
             override fun toString(): String = "Match(ranges=$ranges)"
         }
 
+        /** Companion object for [MatchResult]. */
         public companion object {
             internal fun from(ranges: List<IntRange>?): MatchResult =
                 if (ranges.isNullOrEmpty()) NoMatch else Match(ranges)
@@ -180,7 +185,7 @@ public enum class MatchingCaseSensitivity {
 @InternalJewelApi
 @ApiStatus.Internal
 public object EmptySpeedSearchMatcher : SpeedSearchMatcher {
-    override fun matches(text: String?): SpeedSearchMatcher.MatchResult = SpeedSearchMatcher.MatchResult.NoMatch
+    override fun matches(text: String?): MatchResult = MatchResult.NoMatch
 }
 
 /**
@@ -196,12 +201,11 @@ public object EmptySpeedSearchMatcher : SpeedSearchMatcher {
  * matcher.doesMatch("baz") // false
  * ```
  *
- * @param text The text to check for matches. If null, returns false.
+ * @param matcher The [SpeedSearchMatcher] to use for matching.
  * @return `true` if the text matches the pattern, `false` otherwise.
  * @see SpeedSearchMatcher.matches for the underlying match result with ranges
  */
-public fun CharSequence.matches(matcher: SpeedSearchMatcher): Boolean =
-    matcher.matches(this) != SpeedSearchMatcher.MatchResult.NoMatch
+public fun CharSequence.matches(matcher: SpeedSearchMatcher): Boolean = matcher.matches(this) != MatchResult.NoMatch
 
 /**
  * Filters an iterable collection based on whether items match the given [SpeedSearchMatcher].
@@ -255,6 +259,7 @@ public fun <T> Iterable<T>.filter(
  * // Returns: ["React"]
  * ```
  *
+ * @param T the type of items in the collection, constrained to [CharSequence].
  * @param matcher The [SpeedSearchMatcher] to use for filtering.
  * @return A list containing only the strings that match the search pattern.
  * @see filter for filtering collections of other types

@@ -5,11 +5,21 @@ import com.intellij.codeInsight.inline.completion.InlineCompletionEapSupport
 import com.intellij.codeInsight.inline.completion.logs.InlineCompletionLogsContainer.Phase
 import com.intellij.internal.statistic.FUCollectorTestCase
 import com.intellij.internal.statistic.eventLog.events.EventFields
+import com.intellij.openapi.project.Project
 import com.intellij.testFramework.ExtensionTestUtil
+import com.intellij.testFramework.LeakHunter
 import com.intellij.testFramework.LightPlatformTestCase
+import com.intellij.testFramework.common.timeoutRunBlocking
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.launch
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.junit.runners.JUnit4
+import java.util.concurrent.ConcurrentLinkedQueue
 
 /**
  * Tests for [InlineCompletionLogsContainer.logCurrent] logic
@@ -32,13 +42,13 @@ class InlineCompletionLogsContainerTest : LightPlatformTestCase() {
   @Test
   fun testEapLogs() {
     withEap(true) {
-      val logsContainer = InlineCompletionLogsContainer()
+      val logsContainer = InlineCompletionLogsContainer.createUnregistered()
       logsContainer.mockRandom(1f)
       logsContainer.add(TestPhasedLogs.basicTestField with 42)
       logsContainer.add(TestPhasedLogs.fullTestField with 1337)
 
       val logs = FUCollectorTestCase.collectLogEvents(recorder = "ML", parentDisposable = testRootDisposable, escapeChars = true) {
-        logsContainer.logCurrent()
+        logsContainer.logCurrent(project = null)
       }
 
       // expect both logs
@@ -60,13 +70,13 @@ class InlineCompletionLogsContainerTest : LightPlatformTestCase() {
   @Test
   fun testFullLogsForRelease() {
     withEap(false) {
-      val logsContainer = InlineCompletionLogsContainer()
+      val logsContainer = InlineCompletionLogsContainer.createUnregistered()
       logsContainer.mockRandom(0f)
       logsContainer.add(TestPhasedLogs.basicTestField with 42)
       logsContainer.add(TestPhasedLogs.fullTestField with 1337)
 
       val logs = FUCollectorTestCase.collectLogEvents(recorder = "ML", parentDisposable = testRootDisposable, escapeChars = true) {
-        logsContainer.logCurrent()
+        logsContainer.logCurrent(project = null)
       }
 
       // expect both logs
@@ -88,14 +98,14 @@ class InlineCompletionLogsContainerTest : LightPlatformTestCase() {
   @Test
   fun testFullLogsForReleaseRandomPass() {
     withEap(false) {
-      val logsContainer = InlineCompletionLogsContainer()
+      val logsContainer = InlineCompletionLogsContainer.createUnregistered()
       logsContainer.mockRandom(1f)
       logsContainer.forceFullLogs()
       logsContainer.add(TestPhasedLogs.basicTestField with 42)
       logsContainer.add(TestPhasedLogs.fullTestField with 1337)
 
       val logs = FUCollectorTestCase.collectLogEvents(recorder = "ML", parentDisposable = testRootDisposable, escapeChars = true) {
-        logsContainer.logCurrent()
+        logsContainer.logCurrent(project = null)
       }
 
       // expect both logs
@@ -110,44 +120,161 @@ class InlineCompletionLogsContainerTest : LightPlatformTestCase() {
       )
     }
   }
-
-  /**
-   * Test that only basic fields are recorded for (eap = false, don't pass the random threshold, not random pass)
-   */
-  @Test
-  fun testFullLogFiltered() {
-    withEap(false) {
-      val logsContainer = InlineCompletionLogsContainer()
-      logsContainer.mockRandom(1f)
-      logsContainer.add(TestPhasedLogs.basicTestField with 42)
-      logsContainer.add(TestPhasedLogs.fullTestField with 1337)
-
-      val logs = FUCollectorTestCase.collectLogEvents(recorder = "ML", parentDisposable = testRootDisposable, escapeChars = true) {
-        logsContainer.logCurrent()
-      }
-
-      // expect only the basic log
-      assertMaps(
-        mapOf(
-          "inline_api_starting" to mapOf(
-            "basic_test_field" to "42"
-          )
-        ),
-        logs.first().event.data
-      )
-    }
-  }
-
   /**
    * Fields which are not registered for a specific phase are not allowed.
    */
   @Test
   fun testPhaseNotFoundForField() {
-    val logsContainer = InlineCompletionLogsContainer()
+    val logsContainer = InlineCompletionLogsContainer.createUnregistered()
     logsContainer.mockRandom(1f)
     assertThrows(IllegalArgumentException::class.java) {
       logsContainer.add(EventFields.Boolean("incorrect_field").with(false))
     }
+  }
+
+  /**
+   * The same field added several times per session (e.g. repeated postprocessing passes or `updateLatestLogs`)
+   * must not accumulate into duplicate logs: the container keeps a single entry with the latest value.
+   * Two logs with the same field name in one phase would otherwise break mlapi feature selection.
+   */
+  @Test
+  fun testDuplicateFieldKeepsOnlyLatest(): Unit = timeoutRunBlocking {
+    val logsContainer = InlineCompletionLogsContainer.createUnregistered()
+    logsContainer.mockRandom(1f)
+    logsContainer.add(TestPhasedLogs.basicTestField with 42)
+    logsContainer.add(TestPhasedLogs.basicTestField with 99)
+
+    val phased = logsContainer.awaitAndGetCurrentLogsPhased()
+      .getValue(Phase.INLINE_API_STARTING)
+      .filter { it.field.name == "basic_test_field" }
+    assertEquals("Duplicate field must not accumulate", 1, phased.size)
+    assertEquals("The latest value must be kept", 99, phased.single().data)
+
+    val flat = logsContainer.awaitAndGetCurrentLogs().filter { it.field.name == "basic_test_field" }
+    assertEquals("Duplicate field must not accumulate", 1, flat.size)
+    assertEquals("The latest value must be kept", 99, flat.single().data)
+  }
+
+  /**
+   * The value logged for a field written twice is the latest one.
+   */
+  @Test
+  fun testDuplicateFieldLogsLatestValue() {
+      val logsContainer = InlineCompletionLogsContainer.createUnregistered()
+      logsContainer.mockRandom(1f)
+      logsContainer.add(TestPhasedLogs.basicTestField with 42)
+      logsContainer.add(TestPhasedLogs.basicTestField with 99)
+
+      val logs = FUCollectorTestCase.collectLogEvents(recorder = "ML", parentDisposable = testRootDisposable, escapeChars = true) {
+        logsContainer.logCurrent(project = null)
+      }
+
+      assertMaps(
+        mapOf(
+          "inline_api_starting" to mapOf(
+            "basic_test_field" to "99",
+          )
+        ),
+        logs.first().event.data
+      )
+  }
+
+  /**
+   * The container lives in the editor user data and is captured by async logging jobs running on an application-level scope,
+   * so it must never hold a strong reference to a project: the project is passed to [InlineCompletionLogsContainer.logCurrent]
+   * instead. See LLM-17026.
+   */
+  @Test
+  fun testContainerDoesNotRetainProject() {
+    val logsContainer = InlineCompletionLogsContainer.createUnregistered()
+    logsContainer.mockRandom(1f)
+    // Only a primitive field and no `addAsync` on purpose: `DebugReflectionUtil.isTrivial` treats only primitives, strings and
+    // arrays as trivial, so an `EventFields.Class` value would make LeakHunter walk the statics of the logged class, and a job
+    // left in `asyncAdds` would open a path into the application-level scope.
+    logsContainer.add(TestPhasedLogs.basicTestField with 42)
+
+    val logs = FUCollectorTestCase.collectLogEvents(recorder = "ML", parentDisposable = testRootDisposable, escapeChars = true) {
+      logsContainer.logCurrent(project)
+    }
+
+    assertNotNull("The project must still be reported in the FUS event", logs.first().event.data["project"])
+    LeakHunter.checkLeak(logsContainer, Project::class.java)
+  }
+
+  /**
+   * A canceled awaiter must not drop a still running async add from the cancellation registry:
+   * [InlineCompletionLogsContainer.logCurrent] must still be able to cancel it, otherwise the add keeps running on the
+   * application-level scope and retains everything its block captured. See LLM-17026.
+   */
+  @Test
+  fun testCanceledAwaitDoesNotStrandAsyncAdd(): Unit = timeoutRunBlocking {
+    val logsContainer = InlineCompletionLogsContainer.createUnregistered()
+    logsContainer.mockRandom(1f)
+    val started = CompletableDeferred<Unit>()
+    val blockCanceled = CompletableDeferred<Unit>()
+    logsContainer.addAsync {
+      started.complete(Unit)
+      try {
+        awaitCancellation()
+      }
+      finally {
+        blockCanceled.complete(Unit)
+      }
+    }
+    started.await()
+
+    try {
+      // `Dispatchers.Unconfined` runs the awaiter eagerly on this thread up to its first real suspension,
+      // so it is guaranteed to be inside `join` by the time `launch` returns.
+      val awaiter = launch(Dispatchers.Unconfined) { logsContainer.awaitAndGetCurrentLogs() }
+      awaiter.cancelAndJoin()
+    }
+    finally {
+      logsContainer.logCurrent(project = null)
+    }
+    blockCanceled.await()
+  }
+
+  /**
+   * Once the container has been finalized, a late async add must not start: there is no later [InlineCompletionLogsContainer.logCurrent]
+   * call that could cancel it or send its result.
+   */
+  @Test
+  fun testAsyncAddAfterLogCurrentDoesNotStart(): Unit = timeoutRunBlocking {
+    val logsContainer = InlineCompletionLogsContainer.createUnregistered()
+    logsContainer.mockRandom(1f)
+    logsContainer.logCurrent(project = null)
+    val started = CompletableDeferred<Unit>()
+
+    logsContainer.addAsync {
+      started.complete(Unit)
+      listOf(TestPhasedLogs.basicTestField with 42)
+    }
+    logsContainer.awaitAndGetCurrentLogs()
+
+    assertFalse("An async add submitted after logCurrent must not start", started.isCompleted)
+  }
+
+  /**
+   * The snapshot of the pending async adds must tolerate a job that removes itself while the snapshot is taken.
+   * `Iterable.toList` does not: for one element it reads `size` and then calls `iterator().next()`. See LLM-30822.
+   */
+  @Test
+  fun testAwaitToleratesAsyncAddRemovedDuringSnapshot(): Unit = timeoutRunBlocking {
+    val logsContainer = InlineCompletionLogsContainer.createUnregistered(asyncAddsContainer = VanishedAsyncAdds())
+    logsContainer.mockRandom(1f)
+    logsContainer.add(TestPhasedLogs.basicTestField with 42)
+
+    val logs = logsContainer.awaitAndGetCurrentLogs().filter { it.field.name == "basic_test_field" }
+    assertEquals("The await must return the logs", 42, logs.single().data)
+  }
+
+  /**
+   * Models the race: `size` still counts a job, and the queue is already empty.
+   */
+  private class VanishedAsyncAdds : ConcurrentLinkedQueue<Job>() {
+    override val size: Int
+      get() = 1
   }
 
   private fun withEap(isEAP: Boolean, action: () -> Unit) {
@@ -161,10 +288,11 @@ class InlineCompletionLogsContainerTest : LightPlatformTestCase() {
 
   private fun assertDeepEquals(expected: Any, actual: Any) {
     if (expected is Map<*,*> && actual is Map<*,*>) {
-      assertMaps(expected as Map<String, *>, actual as Map<String, *>);
+      @Suppress("UNCHECKED_CAST")
+      assertMaps(expected as Map<String, *>, actual as Map<String, *>)
     } else {
       // we expect only primitive types otherwise
-      assertEquals(expected.toString(), actual.toString());
+      assertEquals(expected.toString(), actual.toString())
     }
   }
 
