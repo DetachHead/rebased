@@ -278,7 +278,7 @@ class InfoAndProgressPanel internal constructor(
   private fun getPopup(): ProcessPopup {
     var result = popup
     if (result == null) {
-      result = ProcessPopup(this)
+      result = ProcessPopup(this, statusBar.project)
       popup = result
     }
     return result
