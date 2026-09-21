@@ -1,8 +1,7 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.openapi.updateSettings
 
-import com.intellij.ide.IdeBundle
-import com.intellij.openapi.application.ex.ApplicationInfoEx
+import com.intellij.openapi.application.ApplicationNamesInfo
 import com.intellij.openapi.components.service
 import com.intellij.openapi.updateSettings.impl.ChannelStatus
 import com.intellij.openapi.updateSettings.impl.UpdateChannel
@@ -69,10 +68,7 @@ open class UpdateStrategyCustomization {
    * it is shown in UI instead of the channel chooser, and the user won't be able to change the update channel.
    */
   @NlsContexts.DetailedDescription
-  open fun getChannelSelectionLockedMessage(): String? =
-    if (ApplicationInfoEx.getInstanceEx().isMajorEAP && forceEapUpdateChannelForEapBuilds())
-      IdeBundle.message("updates.settings.channel.locked")
-    else null
+  open fun getChannelSelectionLockedMessage(): String? = "${ApplicationNamesInfo.getInstance().fullProductName} does not currently do EAP releases."
 
   /**
    * Override this property and return `true` to show [What's New][com.intellij.platform.ide.customization.ExternalProductResourceUrls.whatIsNewPageUrl]
