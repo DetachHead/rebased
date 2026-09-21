@@ -84,7 +84,7 @@ class GitVcsOptions : BaseState() {
   internal var incomingCheckStrategy: GitIncomingCheckStrategy by enum(GitIncomingCheckStrategy.Auto)
 
   @get:OptionTag("INCOMING_COMMITS_CHECK_STRATEGY")
-  var incomingCommitsCheckStrategy: GitIncomingRemoteCheckStrategy by enum<GitIncomingRemoteCheckStrategy>(GitIncomingRemoteCheckStrategy.LS_REMOTE)
+  var incomingCommitsCheckStrategy: GitIncomingRemoteCheckStrategy by enum<GitIncomingRemoteCheckStrategy>(GitIncomingRemoteCheckStrategy.FETCH)
 
   @get:OptionTag("SIGN_OFF_COMMIT")
   var isSignOffCommit: Boolean by property(false)
