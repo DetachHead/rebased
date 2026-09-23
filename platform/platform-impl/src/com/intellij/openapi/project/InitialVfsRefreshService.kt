@@ -1,7 +1,6 @@
 // Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.openapi.project
 
-import com.intellij.ide.GeneralSettings
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.diagnostic.debug
 import com.intellij.openapi.diagnostic.logger
@@ -14,7 +13,6 @@ import com.intellij.util.awaitCancellationAndInvoke
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.job
-import kotlinx.coroutines.launch
 import org.jetbrains.annotations.ApiStatus
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
@@ -41,50 +39,28 @@ class InitialVfsRefreshService(private val project: Project, private val corouti
   private val started: AtomicBoolean = AtomicBoolean(false)
   private val job = CompletableDeferred<Unit>(parent = coroutineScope.coroutineContext.job)
 
-  private fun shouldSkip() =
-    System.getProperty("ij.indexes.skip.initial.refresh").toBoolean() || !GeneralSettings.getInstance().indexing || application.isUnitTestMode()
-
-  @Suppress("DuplicatedCode")
-  fun scheduleInitialVfsRefresh() {
+  fun skipVcsRefresh() {
     if (started.getAndSet(true)) {
       return
     }
 
     val projectId = project.getLocationHash()
     val logger = logger<InitialVfsRefreshService>()
-    if (shouldSkip()) {
-      logger.debug { "$projectId: initial VFS refresh skipped" }
-      job.complete(Unit)
-      return
-    }
 
-    coroutineScope.launch {
-      @OptIn(AwaitCancellationAndInvoke::class)
-      try {
-        logger.info("$projectId: marking roots for initial VFS refresh")
-        val roots = ProjectRootManagerEx.getInstanceEx(project).markRootsForRefresh()
-        logger.info("$projectId: starting initial VFS refresh of ${roots.size} roots")
-        val t = System.nanoTime()
-        RefreshQueue.getInstance().refresh(/*async: */true, roots)
-        val duration = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - t)
-        logger.info("${projectId}: initial VFS refresh finished in ${duration} ms")
-        VfsUsageCollector.logInitialRefresh(project, duration)
-      }
-      finally {
-        job.complete(Unit)
-      }
-    }
+    // in rebased
+    logger.debug { "$projectId: initial VFS refresh skipped" }
+    job.complete(Unit)
   }
 
-  @Suppress("DuplicatedCode")
-  fun runInitialVfsRefresh() {
+  // not used in rebased, but kept here to reduce upstream conflicts
+  private fun runInitialVfsRefresh() {
     if (started.getAndSet(true)) {
       return
     }
 
     val projectId = project.getLocationHash()
     val logger = logger<InitialVfsRefreshService>()
-    if (shouldSkip()) {
+    if (System.getProperty("ij.indexes.skip.initial.refresh").toBoolean() || application.isUnitTestMode()) {
       logger.debug { "${projectId}: initial VFS refresh skipped" }
       job.complete(Unit)
       return

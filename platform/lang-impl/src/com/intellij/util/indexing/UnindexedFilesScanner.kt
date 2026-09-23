@@ -1,7 +1,6 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.util.indexing
 
-import com.intellij.ide.GeneralSettings
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.diagnostic.ControlFlowException
 import com.intellij.openapi.diagnostic.Logger
@@ -384,26 +383,22 @@ class UnindexedFilesScanner(
     return scanningIterators.predefinedIndexableFilesIterators
   }
 
-  private fun scanAndUpdateUnindexedFiles(
-    scanningIterators: ScanningIterators,
-  ) {
+  private fun scanAndUpdateUnindexedFiles() {
     try {
       if (!IndexInfrastructure.hasIndices()) {
         scanningHistory.setWasCancelled("'idea.skip.indices.initialization' flag is set")
         return
       }
-      scanUnindexedFiles(scanningIterators)
+      scanUnindexedFiles()
     }
     finally {
       (project as UserDataHolderEx).replace(FIRST_SCANNING_REQUESTED, FirstScanningState.REQUESTED, FirstScanningState.PERFORMED)
     }
   }
 
-  private fun scanUnindexedFiles(
-    scanningIterators: ScanningIterators,
-  ) {
-    logInfo("Started scanning for indexing of [" + project.name + "]. Reason: " + scanningIterators.indexingReason)
-    // all other scanning is disabled in Rebased, we only care about vcs
+  private fun scanUnindexedFiles() {
+    // scanning is disabled in Rebased
+    //logInfo("Started scanning for indexing of [" + project.name + "]. Reason: " + scanningIterators.indexingReason)
     //progressReporter.setText(IndexingBundle.message("progress.indexing.scanning"))
     //
     //if (scanningIterators.isFullIndexUpdate()) {
@@ -412,15 +407,10 @@ class UnindexedFilesScanner(
     //
     //scan(indicator, progressReporter, markRef, scanningIterators)
 
-    // even if indexing is disabled, we still need to do this, otherwise it hangs waiting for a scan that was never scheduled, or something
     // the full VFS refresh makes sense only after it's loaded, i.e., after scanning files to index is finished
+    // even tho indexing is disabled in rebased, we still need to do this otherwise it hangs waiting for a scan that was never scheduled or something.
     val service = project.getService(InitialVfsRefreshService::class.java)
-    if (ApplicationManager.getApplication().isCommandLine && !CoreProgressManager.shouldKeepTasksAsynchronousInHeadlessMode()) {
-      service.runInitialVfsRefresh()
-    }
-    else {
-      service.scheduleInitialVfsRefresh()
-    }
+    service.skipVcsRefresh()
   }
 
   internal class ScanningSession(
@@ -664,7 +654,7 @@ class UnindexedFilesScanner(
           var successfullyFinished = false
           try {
             (GistManager.getInstance() as GistManagerImpl).runWithMergingDependentCacheInvalidations {
-              scanAndUpdateUnindexedFiles(scanningParameters)
+              scanAndUpdateUnindexedFiles()
             }
             successfullyFinished = true
           }
