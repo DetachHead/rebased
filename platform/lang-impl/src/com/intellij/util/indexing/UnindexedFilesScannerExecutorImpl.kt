@@ -309,7 +309,7 @@ class UnindexedFilesScannerExecutorImpl(private val project: Project, cs: Corout
       (GistManager.getInstance() as GistManagerImpl).mergeDependentCacheInvalidations().use {
         task.applyDelayedPushOperations(scanningHistory)
       }
-      task.perform(taskIndicator, scanningHistory, scanningParameters)
+      task.perform(taskIndicator, progressReporter, scanningHistory, scanningParameters)
 
       progressScope.cancel()
       return@coroutineScope scanningHistory
