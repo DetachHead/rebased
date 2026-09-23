@@ -1,6 +1,7 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.util.indexing
 
+import com.intellij.ide.GeneralSettings
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.diagnostic.ControlFlowException
 import com.intellij.openapi.diagnostic.Logger
@@ -411,6 +412,7 @@ class UnindexedFilesScanner(
     //
     //scan(indicator, progressReporter, markRef, scanningIterators)
 
+    // even if indexing is disabled, we still need to do this, otherwise it hangs waiting for a scan that was never scheduled, or something
     // the full VFS refresh makes sense only after it's loaded, i.e., after scanning files to index is finished
     val service = project.getService(InitialVfsRefreshService::class.java)
     if (ApplicationManager.getApplication().isCommandLine && !CoreProgressManager.shouldKeepTasksAsynchronousInHeadlessMode()) {

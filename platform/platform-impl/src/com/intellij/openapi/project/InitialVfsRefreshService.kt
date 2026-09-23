@@ -1,6 +1,7 @@
 // Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.openapi.project
 
+import com.intellij.ide.GeneralSettings
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.diagnostic.debug
 import com.intellij.openapi.diagnostic.logger
@@ -40,6 +41,9 @@ class InitialVfsRefreshService(private val project: Project, private val corouti
   private val started: AtomicBoolean = AtomicBoolean(false)
   private val job = CompletableDeferred<Unit>(parent = coroutineScope.coroutineContext.job)
 
+  private fun shouldSkip() =
+    System.getProperty("ij.indexes.skip.initial.refresh").toBoolean() || !GeneralSettings.getInstance().indexing || application.isUnitTestMode()
+
   @Suppress("DuplicatedCode")
   fun scheduleInitialVfsRefresh() {
     if (started.getAndSet(true)) {
@@ -48,7 +52,7 @@ class InitialVfsRefreshService(private val project: Project, private val corouti
 
     val projectId = project.getLocationHash()
     val logger = logger<InitialVfsRefreshService>()
-    if (System.getProperty("ij.indexes.skip.initial.refresh").toBoolean() || application.isUnitTestMode()) {
+    if (shouldSkip()) {
       logger.debug { "$projectId: initial VFS refresh skipped" }
       job.complete(Unit)
       return
@@ -80,7 +84,7 @@ class InitialVfsRefreshService(private val project: Project, private val corouti
 
     val projectId = project.getLocationHash()
     val logger = logger<InitialVfsRefreshService>()
-    if (System.getProperty("ij.indexes.skip.initial.refresh").toBoolean() || application.isUnitTestMode()) {
+    if (shouldSkip()) {
       logger.debug { "${projectId}: initial VFS refresh skipped" }
       job.complete(Unit)
       return
