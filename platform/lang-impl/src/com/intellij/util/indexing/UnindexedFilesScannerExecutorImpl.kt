@@ -109,7 +109,7 @@ class UnindexedFilesScannerExecutorImpl(private val project: Project, cs: Corout
   init {
     // Note about Dispatchers.IO: we'll do "runBlocking" in UnindexedFilesScanner.ScanningSession.collectIndexableFilesConcurrently
     // Make sure that we are not using limited dispatchers here (e.g., Dispatchers.Default).
-    cs.takeIf { GeneralSettings.getInstance().indexing }?.childScope("Scanning (root)", Dispatchers.IO)?.launch {
+    cs.childScope("Scanning (root)", Dispatchers.IO).launch {
       suspendIfShouldStartSuspended()
 
       val nextTaskExecutionAllowed: Flow<Boolean> = nextTaskExecutionAllowed()
