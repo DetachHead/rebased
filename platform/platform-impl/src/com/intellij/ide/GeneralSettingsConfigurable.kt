@@ -13,6 +13,7 @@ import com.intellij.openapi.fileChooser.PathChooserDialog
 import com.intellij.openapi.help.HelpManager
 import com.intellij.openapi.options.BackedByPersistentState
 import com.intellij.openapi.options.BoundCompositeSearchableConfigurable
+import com.intellij.openapi.options.Configurable
 import com.intellij.openapi.options.SearchableConfigurable
 import com.intellij.openapi.options.ex.ConfigurableWrapper
 import com.intellij.openapi.project.Project
@@ -24,6 +25,7 @@ import com.intellij.platform.ide.core.customization.IdeLifecycleUiCustomization
 import com.intellij.platform.ide.core.customization.ProjectLifecycleUiCustomization
 import com.intellij.platform.ide.core.customization.ProjectLifecycleUiCustomization.ReopenProjectsOnStartupMode
 import com.intellij.ui.IdeUICustomization
+import com.intellij.ui.components.Badge
 import com.intellij.ui.dsl.builder.BottomGap
 import com.intellij.ui.dsl.builder.COLUMNS_MEDIUM
 import com.intellij.ui.dsl.builder.RightGap
@@ -61,6 +63,8 @@ private val myChkUseSafeWrite
   get() = CheckboxDescriptor(IdeBundle.message("checkbox.safe.write"), model::isUseSafeWrite)
 private val myChkStoreProjectSettingsInProjectRoot
   get() = CheckboxDescriptor(message("checkbox.store.project.settings.in.project.root"), model::storeProjectSettingsInProjectRoot)
+private val myChkIndexing
+  get() = CheckboxDescriptor(message("checkbox.indexing"), model::indexing)
 
 internal val allOptionDescriptors: List<BooleanOptionDescription>
   get() =
@@ -73,7 +77,8 @@ internal val allOptionDescriptors: List<BooleanOptionDescription>
       myChkSaveOnFrameDeactivation,
       myChkAutoSaveIfInactive,
       myChkUseSafeWrite,
-      myChkStoreProjectSettingsInProjectRoot
+      myChkStoreProjectSettingsInProjectRoot,
+      myChkIndexing
     )
     .map(CheckboxDescriptor::asUiOptionDescriptor)
 
@@ -90,7 +95,8 @@ internal val allOptionDescriptors: List<BooleanOptionDescription>
 internal class GeneralSettingsConfigurable(private val project: Project) :
   BoundCompositeSearchableConfigurable<SearchableConfigurable>(IdeBundle.message("title.general"), "preferences.general"),
   SearchableConfigurable,
-  BackedByPersistentState
+  BackedByPersistentState,
+  Configurable.NewOptions
 {
   @ApiStatus.Internal
   override fun getBackingComponents(): Collection<PersistentStateComponent<*>> =
@@ -142,10 +148,16 @@ internal class GeneralSettingsConfigurable(private val project: Project) :
               .comment(IdeBundle.message("settings.general.directory.preselected"), 80)
           }
         }
+        val productName = ApplicationNamesInfo.getInstance().productName
         row {
           checkBox(myChkStoreProjectSettingsInProjectRoot)
             .comment(message("ide.restart.required.comment"))
-            .contextHelp(message("tooltip.store.project.settings.in.project.root", ApplicationNamesInfo.getInstance().productName))
+            .contextHelp(message("tooltip.store.project.settings.in.project.root", productName))
+        }
+        row {
+          checkBox(myChkIndexing)
+            .contextHelp(message("tooltip.indexing", productName))
+          icon(Badge.new)
         }
       }
 

@@ -77,6 +77,16 @@ To address this problem, Rebased allows you to disable the creation of the `.ide
 > [!NOTE]
 > This does not disable project-level config. Instead, Rebased will store each project's config inside a single centralized `.idea` directory in the same place as the IDE's global settings.
 
+### Option to disable indexing
+
+In order for the search feature to work reliably, JetBrains IDEs will scan and index all the files in your project. You can disable the indexing if you don't need to search your project with Rebased, if for example you use a separate IDE that has its own search functionality:
+
+1. Go to *Settings > Appearance and Behavior > System Settings*
+2. Uncheck "Enable indexing files for search"
+
+> [!NOTE]
+> This does not entirely disable project analysis, as some scanning is still needed in order for Rebased to be able to track unversioned files to show in the git changes list.
+
 ### Additional TextMate bundles
 
 IntelliJ Community Edition includes syntax highlighting for many languages, even when their corresponding language plugin is not installed, thanks to the [TextMate Bundles](https://plugins.jetbrains.com/plugin/7221) plugin.

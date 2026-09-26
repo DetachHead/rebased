@@ -149,6 +149,12 @@ class GeneralSettings : PersistentStateComponent<GeneralSettingsState> {
       state.storeProjectSettingsInProjectRoot = value
     }
 
+  var indexing: Boolean
+    get() = state.indexing
+    set(value) {
+      state.indexing = value
+    }
+
   init {
     val app = ApplicationManager.getApplication()
     if (app != null && !app.isHeadlessEnvironment &&
@@ -273,7 +279,9 @@ data class GeneralSettingsState(
   @JvmField
   var supportScreenReaders: Boolean = false,
   @JvmField
-  var storeProjectSettingsInProjectRoot: Boolean = true
+  var storeProjectSettingsInProjectRoot: Boolean = true,
+  @JvmField
+  var indexing: Boolean = true
 )
 
 enum class ProcessCloseConfirmation {
