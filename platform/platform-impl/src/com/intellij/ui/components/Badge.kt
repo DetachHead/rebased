@@ -72,6 +72,9 @@ class Badge(
 
     @JvmField
     val freeDisabled: Icon = ImmutableBadge(IdeBundle.message("badge.text.free"), ColorType.GREEN, false)
+
+    @JvmField
+    val rebasedSetting: Icon = ImmutableBadge(IdeBundle.message("badge.text.rebased.setting"), ColorType.GRAY_SECONDARY)
   }
 
   /**
