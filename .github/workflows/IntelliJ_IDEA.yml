@@ -5,7 +5,7 @@ on:
   push:
     branches:
       - master
-      - release/*
+      - signpath
 
   # we only run on pull_request when the source branch name doesn't start with "release/". unfortunately branches-ignore refers to
   # the source branch not the target branch so we can't do that here. we use an `if` statement in the get_version job instead
@@ -41,6 +41,7 @@ jobs:
   build:
     needs: get_version
     uses: ./.github/workflows/ide_build_and_upload.yml
+    secrets: inherit
     with:
       artifacts_dir: out/idea-ce/artifacts
       product: intellij_idea
@@ -67,11 +68,12 @@ jobs:
           prerelease: false
           draft: true
           files: |
-            **/*.tar.gz
-            **/*.AppImage
-            **/*.zsync
-            **/*.exe
+            linux-*/*.tar.gz
+            linux-*/*.AppImage
+            linux-*/*.zsync
+            linux-*/*.spdx.json
+            windows-signed/rebased.exe
+            windows-signed/*.spdx.json
             **/*.win.zip
-            **/*.dmg
-            **/*.spdx.json
-            
+            mac-*/*.dmg
+            mac-*/*.spdx.json
