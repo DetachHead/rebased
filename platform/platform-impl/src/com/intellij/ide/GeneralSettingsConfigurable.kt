@@ -153,10 +153,12 @@ internal class GeneralSettingsConfigurable(private val project: Project) :
           checkBox(myChkStoreProjectSettingsInProjectRoot)
             .comment(message("ide.restart.required.comment"))
             .contextHelp(message("tooltip.store.project.settings.in.project.root", productName))
+          icon(Badge.rebasedSetting)
         }
         row {
           checkBox(myChkIndexing)
             .contextHelp(message("tooltip.indexing", productName))
+          icon(Badge.rebasedSetting)
           icon(Badge.new)
         }
       }

@@ -15,6 +15,7 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.DialogPanel
 import com.intellij.openapi.vcs.ProjectLevelVcsManager
 import com.intellij.openapi.vcs.VcsListener
+import com.intellij.ui.components.Badge
 import com.intellij.ui.components.JBCheckBox
 import com.intellij.ui.dsl.builder.Cell
 import com.intellij.ui.dsl.builder.Panel
@@ -60,8 +61,11 @@ internal class VcsLogConfigurable(
     val vcsNamesToShow = getVcsNames()
     return panel {
       group("Location") {
-        booleanPropertyCheckboxRow("action.Vcs.Log.ShowInEditor.description", CommonUiProperties.SHOW_IN_EDITOR,
-                                   applicationSettings)
+        row {
+          booleanPropertyCheckbox(VcsLogBundle.message("action.Vcs.Log.ShowInEditor.description"), CommonUiProperties.SHOW_IN_EDITOR,
+                                     applicationSettings)
+          icon(Badge.rebasedSetting)
+        }
       }
       group(VcsLogBundle.message("group.Vcs.Log.PresentationSettings.text")) {
         booleanPropertyCheckboxRow("action.Vcs.Log.CompactReferencesView.description", CommonUiProperties.COMPACT_REFERENCES_VIEW,
