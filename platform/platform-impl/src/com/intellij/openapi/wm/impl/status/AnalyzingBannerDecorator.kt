@@ -1,10 +1,13 @@
 // Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.openapi.wm.impl.status
 
-import com.intellij.help.impl.HelpManagerImpl
-import com.intellij.ide.BrowserUtil
-import com.intellij.ide.IdeBundle
+import com.intellij.ide.GeneralSettings
+import com.intellij.ide.GeneralSettingsConfigurable
 import com.intellij.ide.util.PropertiesComponent
+import com.intellij.openapi.application.ApplicationBundle
+import com.intellij.openapi.application.ApplicationNamesInfo
+import com.intellij.openapi.options.ShowSettingsUtil
+import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.popup.JBPopup
 import com.intellij.openapi.util.registry.Registry
 import com.intellij.openapi.wm.impl.status.ProcessPopup.hideSeparator
@@ -20,7 +23,7 @@ import javax.swing.JPanel
  * Increases the popup minimum size when the banner appears and decreases it when it disappears.
  * So, the popup is large enough to fit the banner.
  */
-internal class AnalyzingBannerDecorator(private val panel: JPanel, private val popupGetter: () -> JBPopup?, onBannerClose: Runnable) {
+internal class AnalyzingBannerDecorator(private val panel: JPanel, private val popupGetter: () -> JBPopup?, onBannerClose: Runnable, private val project: Project) {
 
   /**
    * Component of analyzing progress,
@@ -39,7 +42,13 @@ internal class AnalyzingBannerDecorator(private val panel: JPanel, private val p
     if (analyzingComponent == null && isAnalyzingIndicator(indicator)) {
       analyzingComponent = indicator.component
       panel.add(analyzingComponent, 0, 0)
-      panel.add(banner, 1, 1)
+
+      // in rebased we change this message to oinly be relevant if indexing is enabled,
+      // but the indicator can still show up when scanning for untracked files, in which case
+      // the message in the banner is not relevant.
+      if (GeneralSettings.getInstance().indexing) {
+        panel.add(banner, 1, 1)
+      }
     }
   }
 
@@ -88,12 +97,11 @@ internal class AnalyzingBannerDecorator(private val panel: JPanel, private val p
 
   private fun createBanner(revalidatePanel: Runnable): Component {
     val banner = InlineBanner().apply {
-      setMessage(IndexingBundle.message("progress.indexing.banner.text"))
-      addAction(IdeBundle.message("link.learn.more")) {
-        val url = HelpManagerImpl.getHelpUrl("Project-analysis")
-        if (url != null) {
-          BrowserUtil.browse(url)
-        }
+      setMessage(IndexingBundle.message("progress.indexing.banner.text", ApplicationNamesInfo.getInstance().productName))
+      // reuse an existing string that says the same thing we want even though this is for a different unrelated settings.
+      // this way language packs will still work despite us having no way to support them properly, see https://github.com/DetachHead/rebased/issues/106
+      addAction(ApplicationBundle.message("settings.editor.general.appearance"), null) {
+        ShowSettingsUtil.getInstance().showSettingsDialog(project, GeneralSettingsConfigurable::class.java)
       }
 
       if (ExperimentalUI.isNewUI()) {

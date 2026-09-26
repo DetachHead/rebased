@@ -59,7 +59,7 @@ final class ProcessPopup {
   private final AnalyzingBannerDecorator myAnalyzingBannerDecorator;
   private final SeparatorDecorator mySeparatorDecorator;
 
-  ProcessPopup(@NotNull InfoAndProgressPanel progressPanel) {
+  ProcessPopup(@NotNull InfoAndProgressPanel progressPanel, Project project) {
     myProgressPanel = progressPanel;
 
     myIndicatorPanel =
@@ -74,7 +74,7 @@ final class ProcessPopup {
     myAnalyzingBannerDecorator = new AnalyzingBannerDecorator(myIndicatorPanel, () -> myPopup, () -> {
       SeparatorDecorator.placeSeparators(myIndicatorPanel);
       revalidateAll();
-    });
+    }, project);
     mySeparatorDecorator = new SeparatorDecorator(myIndicatorPanel);
 
     myContentPanel = new JBScrollPane(myIndicatorPanel, VERTICAL_SCROLLBAR_AS_NEEDED, HORIZONTAL_SCROLLBAR_NEVER);
