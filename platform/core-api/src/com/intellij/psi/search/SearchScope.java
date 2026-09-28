@@ -78,6 +78,15 @@ public abstract class SearchScope {
   public boolean containsNonIndexed(@NotNull VirtualFile file) { return contains(file); }
 
   /**
+   * whether this search scope should be selected by default. note that this is exclusive to rebased and also half-assed (no consideration
+   * for whether multiple search scopes want to be selected by default, but we only want to do this with one scope anyway)
+   */
+  @Contract(pure = true)
+  public boolean isDefaultSelected() {
+    return false;
+  }
+
+  /**
    * @return true if the scope is a special constant denoting an empty GlobalSearchScope or LocalSearchScope
    */
   public static boolean isEmptyScope(@NotNull SearchScope scope) {
