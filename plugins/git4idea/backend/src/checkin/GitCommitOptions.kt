@@ -150,7 +150,8 @@ class GitCommitOptionsUi(
     row {
       cell(commitRenamesSeparately)
     }
-  }
+    // needed in rebased because we remove all the commit check options which shrinks the panel
+  }.withMinimumWidth(300)
 
   // called before popup size calculation => changing preferred size here will be correctly reflected by popup
   private fun beforeShow() = updateRenamesCheckboxState()
