@@ -131,4 +131,8 @@ public abstract class CheckinHandler {
   public boolean acceptExecutor(CommitExecutor executor) {
     return !(executor instanceof LocalCommitExecutor);
   }
+
+  public boolean isEnabled() {
+    return true;
+  }
 }
