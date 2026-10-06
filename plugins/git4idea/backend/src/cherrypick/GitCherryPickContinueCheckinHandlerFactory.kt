@@ -17,7 +17,6 @@ internal class GitCherryPickContinueCheckinHandlerFactory : VcsCheckinHandlerFac
   override fun createVcsHandler(panel: CheckinProjectPanel, commitContext: CommitContext): CheckinHandler {
     return object : CheckinHandler() {
       override fun checkinSuccessful() {
-        if (!Registry.`is`("git.cherry.pick.use.git.sequencer")) return
         val repositoryManager = GitRepositoryManager.getInstance(panel.project)
         for (root in panel.roots) {
           val repository = repositoryManager.getRepositoryForRootQuick(root) ?: continue
@@ -27,6 +26,7 @@ internal class GitCherryPickContinueCheckinHandlerFactory : VcsCheckinHandlerFac
           }
         }
       }
+      override fun isEnabled() = Registry.`is`("git.cherry.pick.use.git.sequencer")
     }
   }
 }

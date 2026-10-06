@@ -538,11 +538,12 @@ sealed class CommitSessionInfo {
 
 internal fun CheckinHandler.asCommitCheck(commitInfo: CommitInfo): CommitCheck {
   if (this is CommitCheck) return this
-  return ProxyCommitCheck(this, commitInfo.executor)
+  return ProxyCommitCheck(this, commitInfo.executor, isEnabled)
 }
 
 private class ProxyCommitCheck(val checkinHandler: CheckinHandler,
-                               private val executor: CommitExecutor?) : CommitCheck {
+                               private val executor: CommitExecutor?,
+                               private val enabled: Boolean) : CommitCheck {
   override fun getExecutionOrder(): CommitCheck.ExecutionOrder {
     if (checkinHandler is CheckinModificationHandler) return CommitCheck.ExecutionOrder.MODIFICATION
     return CommitCheck.ExecutionOrder.LATE
@@ -552,7 +553,7 @@ private class ProxyCommitCheck(val checkinHandler: CheckinHandler,
     return DumbService.isDumbAware(checkinHandler)
   }
 
-  override fun isEnabled(): Boolean = true
+  override fun isEnabled(): Boolean = enabled
 
   override suspend fun runCheck(commitInfo: CommitInfo): CommitProblem? {
     @Suppress("DEPRECATION")
