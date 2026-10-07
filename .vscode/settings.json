@@ -1,0 +1,4 @@
+{
+    "bazel.executable": "./bazel.cmd",
+    "bazel.enableCodeLens": true
+}
