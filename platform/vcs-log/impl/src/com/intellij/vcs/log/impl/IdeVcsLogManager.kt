@@ -5,6 +5,8 @@ import com.intellij.openapi.application.EdtImmediate
 import com.intellij.openapi.application.UiImmediate
 import com.intellij.openapi.components.service
 import com.intellij.openapi.fileEditor.FileEditorManager
+import com.intellij.openapi.fileEditor.ex.FileEditorManagerEx
+import com.intellij.openapi.fileEditor.impl.FileEditorOpenOptions
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.vfs.VirtualFile
@@ -64,7 +66,9 @@ internal class IdeVcsLogManager(
         val ui = if (showLogInEditorWindow) {
           val file = VcsLogVirtualFileSystem.Holder.getInstance().
           createVcsLogFile(project, "", null)
-          val editors = FileEditorManager.getInstance(project).openFile(file, false, true)
+          val editors = FileEditorManagerEx.getInstanceEx(project)
+            .openFile(file, null, FileEditorOpenOptions(selectAsCurrent = false, requestFocus = false, reuseOpen = true))
+            .allEditors.toTypedArray()
           VcsLogEditorUtil.findVcsLogUi(editors, MainVcsLogUi::class.java)
         } else if (holder != null) {
           createLogUi(getMainLogUiFactory(MAIN_LOG_ID, null))
@@ -115,6 +119,29 @@ internal class IdeVcsLogManager(
   @RequiresEdt
   fun openNewLogTab(location: VcsLogTabLocation, filters: VcsLogFilterCollection): MainVcsLogUi {
     return tabsManager.openAnotherLogTab(filters, location)
+  }
+
+  @RequiresEdt
+  fun openRepositoryLogTab(root: VirtualFile, location: VcsLogTabLocation): MainVcsLogUi {
+    return tabsManager.openAnotherLogTab(VcsLogFilterObject.EMPTY_COLLECTION, location, root)
+  }
+
+  @RequiresEdt
+  fun closeLogTab(tabId: String) {
+    tabsManager.closeTab(tabId)
+  }
+
+  @RequiresEdt
+  fun resetLogTabs() {
+    tabsManager.resetTabs()
+    if (showLogInEditorWindow) {
+      val file = VcsLogVirtualFileSystem.Holder.getInstance().createVcsLogFile(project, "", null)
+      val editors = FileEditorManager.getInstance(project).openFile(file, true, true)
+      VcsLogEditorUtil.findVcsLogUi(editors, MainVcsLogUi::class.java)?.filterUi?.clearFilters()
+    }
+    else {
+      runInMainUi { it.filterUi.clearFilters() }
+    }
   }
 
   @RequiresEdt

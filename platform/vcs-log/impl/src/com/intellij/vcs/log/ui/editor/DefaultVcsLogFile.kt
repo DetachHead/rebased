@@ -12,6 +12,8 @@ import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.fileEditor.FileEditorManagerKeys
+import com.intellij.openapi.fileEditor.impl.EditorAutoClosingHandler
+import com.intellij.openapi.fileEditor.impl.EditorComposite
 import com.intellij.openapi.fileEditor.impl.EditorTabTitleProvider
 import com.intellij.openapi.project.DumbAware
 import com.intellij.openapi.project.Project
@@ -25,7 +27,10 @@ import com.intellij.util.xmlb.annotations.Tag
 import com.intellij.vcs.log.VcsLogBundle
 import com.intellij.vcs.log.VcsLogFilterCollection
 import com.intellij.vcs.log.impl.CannotAddVcsLogWindowException
+import com.intellij.vcs.log.impl.MainVcsLogUiProperties
+import com.intellij.vcs.log.impl.PRESERVED_LOG_WORKSPACE_FILE
 import com.intellij.vcs.log.impl.VcsLogEditorUtil
+import com.intellij.vcs.log.impl.VcsLogProjectTabsProperties
 import com.intellij.vcs.log.impl.VcsLogTabsManager.Companion.onDisplayNameChange
 import com.intellij.vcs.log.impl.VcsLogTabsUtil
 import com.intellij.vcs.log.ui.VcsLogPanel
@@ -41,6 +46,7 @@ internal class DefaultVcsLogFile(
 
   private val fileSystemInstance: VcsLogVirtualFileSystem = VcsLogVirtualFileSystem.Holder.getInstance()
   internal val tabId get() = pathId.logId
+  internal var isRepositoryScoped: Boolean = false
 
   internal var tabName: String
     get() = service<VcsLogEditorTabNameCache>().getTabName(path) ?: name
@@ -51,6 +57,9 @@ internal class DefaultVcsLogFile(
   }
 
   override fun createMainComponent(project: Project): JComponent {
+    val properties = project.service<VcsLogProjectTabsProperties>().createProperties(tabId)
+    isRepositoryScoped = properties[MainVcsLogUiProperties.ROOT_SCOPE].isNotEmpty()
+    VcsLogTabsUtil.getRepositoryDisplayName(properties)?.let { tabName = it }
     val panel = JBPanelWithEmptyText(BorderLayout()).withEmptyText(VcsLogBundle.message("vcs.log.is.loading"))
     VcsLogUtil.runWhenVcsAndLogIsReady(project) { logManager ->
       try {
@@ -109,12 +118,20 @@ internal class DefaultVcsLogFileTabTitleProvider : EditorTabTitleProvider, DumbA
 
   override fun getEditorTabTooltipHtml(project: Project, virtualFile: VirtualFile): HtmlChunk? {
     if (virtualFile !is DefaultVcsLogFile) return null
-    return getEditorTabTitle(project, virtualFile)?.let { HtmlChunk.text(it) }
+    val properties = project.service<VcsLogProjectTabsProperties>().createProperties(virtualFile.tabId)
+    return HtmlChunk.text(VcsLogTabsUtil.getRepositoryPath(properties) ?: virtualFile.tabName)
   }
 
   override fun getEditorTabTitle(project: Project, file: VirtualFile): String? {
     if (file !is DefaultVcsLogFile) return null
     return file.tabName
+  }
+}
+
+internal class RepositoryLogEditorAutoClosingHandler : EditorAutoClosingHandler {
+  override fun isClosingAllowed(composite: EditorComposite): Boolean {
+    return composite.file.getUserData(PRESERVED_LOG_WORKSPACE_FILE) != true &&
+           (composite.file as? DefaultVcsLogFile)?.isRepositoryScoped != true
   }
 }
 
