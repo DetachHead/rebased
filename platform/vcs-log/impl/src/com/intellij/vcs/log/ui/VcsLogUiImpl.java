@@ -10,6 +10,7 @@ import com.intellij.openapi.vcs.VcsNotifier;
 import com.intellij.openapi.vcs.changes.ui.ChangesBrowserBase;
 import com.intellij.vcs.log.VcsLogBundle;
 import com.intellij.vcs.log.VcsLogFilterCollection;
+import com.intellij.vcs.log.VcsLogRootFilter;
 import com.intellij.vcs.log.data.VcsLogData;
 import com.intellij.vcs.log.impl.CommonUiProperties;
 import com.intellij.vcs.log.impl.MainVcsLogUiProperties;
@@ -98,7 +99,7 @@ public class VcsLogUiImpl extends CommonVcsLogUiImpl implements MainVcsLogUi {
   protected <T> void handleCommitNotFound(@NotNull T commitId,
                                           boolean commitExists,
                                           @NotNull BiFunction<? super VisiblePack, ? super T, Integer> rowGetter) {
-    if (getFilterUi().getFilters().isEmpty() || !commitExists) {
+    if (hasNoUserFilters(getFilterUi().getFilters()) || !commitExists) {
       super.handleCommitNotFound(commitId, commitExists, rowGetter);
       return;
     }
@@ -107,7 +108,7 @@ public class VcsLogUiImpl extends CommonVcsLogUiImpl implements MainVcsLogUi {
     actions.add(NotificationAction.createSimple(VcsLogBundle.message("vcs.log.commit.does.not.match.view.and.reset.link"), () -> {
       getFilterUi().clearFilters();
       VcsLogUtil.invokeOnceOnDataChange(this, () -> jumpTo(commitId, rowGetter, SettableFuture.create(), false, true),
-                                pack -> pack.getFilters().isEmpty());
+                                pack -> hasNoUserFilters(pack.getFilters()));
     }));
     VcsProjectLog projectLog = VcsProjectLog.getInstance(myProject);
     if (projectLog.getDataManager() == myLogData) {
@@ -122,6 +123,14 @@ public class VcsLogUiImpl extends CommonVcsLogUiImpl implements MainVcsLogUi {
     VcsNotifier.getInstance(myProject).notifyWarning(VcsLogNotificationIdsHolder.COMMIT_NOT_FOUND, "",
                                                      getCommitNotFoundMessage(commitId, true),
                                                      actions.toArray(NotificationAction[]::new));
+  }
+
+  private boolean hasNoUserFilters(@NotNull VcsLogFilterCollection filters) {
+    if (filters.isEmpty()) return true;
+    MainVcsLogUiProperties properties = getProperties();
+    return properties.exists(MainVcsLogUiProperties.ROOT_SCOPE) &&
+           !properties.get(MainVcsLogUiProperties.ROOT_SCOPE).isEmpty() &&
+           filters.getFilters().stream().allMatch(filter -> filter instanceof VcsLogRootFilter);
   }
 
   @Override

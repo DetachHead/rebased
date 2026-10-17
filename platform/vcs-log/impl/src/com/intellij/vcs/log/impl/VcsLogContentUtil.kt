@@ -9,6 +9,7 @@ import com.intellij.openapi.vcs.changes.ui.ChangesViewContentManager
 import com.intellij.openapi.wm.ToolWindow
 import com.intellij.openapi.wm.ToolWindowManager
 import com.intellij.ui.content.Content
+import com.intellij.ui.content.ContentFactory
 import com.intellij.ui.content.ContentManager
 import com.intellij.ui.content.TabDescriptor
 import com.intellij.ui.content.TabGroupId
@@ -117,6 +118,18 @@ object VcsLogContentUtil {
     }
   }
 
+  @RequiresEdt
+  internal fun openRepositoryLogTab(logManager: VcsLogManager, toolWindow: ToolWindow, ui: MainVcsLogUi) {
+    val manager = toolWindow.contentManager
+    val content = ContentFactory.getInstance().createContent(VcsLogPanel(logManager, ui), VcsLogTabsUtil.generateDisplayName(ui), true)
+    content.description = VcsLogTabsUtil.getRepositoryPath(ui.properties)
+    content.tabName = "RepositoryLog:${ui.id}"
+    content.isCloseable = true
+    content.setDisposer(ui)
+    manager.addContent(content)
+    Disposer.register(ui) { manager.removeContent(content, true, false, false) }
+  }
+
   @Deprecated("Use {@link VcsProjectLog#runInMainLog} instead",
               ReplaceWith("VcsProjectLog.runInMainLog(project, consumer)", "com.intellij.vcs.log.impl.VcsProjectLog"))
   @RequiresEdt
@@ -158,6 +171,13 @@ object VcsLogContentUtil {
     val toolWindow = getToolWindow(project) ?: return
     val manager = toolWindow.contentManager
     val component = ContentUtilEx.findContentComponent(manager) { c: JComponent -> ui === getLogUi(c) } ?: return
+    if (ui is MainVcsLogUi && VcsLogTabsUtil.getRepositoryName(ui.properties) != null) {
+      manager.contents.firstOrNull { it.component === component }?.let {
+        it.displayName = VcsLogTabsUtil.generateDisplayName(ui)
+        it.description = VcsLogTabsUtil.getRepositoryPath(ui.properties)
+      }
+      return
+    }
     ContentUtilEx.updateTabbedContentDisplayName(manager, component)
   }
 

@@ -56,6 +56,29 @@ abstract class VcsProjectLog internal constructor() { // not an interface due to
   @RequiresEdt
   open fun openLogTab(filters: VcsLogFilterCollection): MainVcsLogUi? = null
 
+  @Internal
+  @RequiresEdt
+  open fun openRepositoryLogTab(root: VirtualFile, location: VcsLogTabLocation): MainVcsLogUi? = null
+
+  @Internal
+  @RequiresEdt
+  open fun closeLogTab(tabId: String) {}
+
+  /**
+   * Shows the repository tabs and hides the previous tabs.
+   * Pass null to restore the previous tabs and their selection.
+   */
+  @Internal
+  @RequiresEdt
+  open fun updateRepositoryLogTabs(tabIds: Set<String>?) {}
+
+  /**
+   * Closes the additional log tabs and selects the main log without filters.
+   */
+  @Internal
+  @RequiresEdt
+  open fun resetLogTabs() {}
+
   /**
    * Show the [hash] under [root] in any log that is capable of showing it.
    * Also select the [filePath] in the changes if possible.

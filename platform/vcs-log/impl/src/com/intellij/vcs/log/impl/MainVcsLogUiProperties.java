@@ -20,6 +20,8 @@ public interface MainVcsLogUiProperties extends VcsLogUiProperties {
   VcsLogUiProperty<Boolean> SHOW_CHANGES_FROM_PARENTS = new VcsLogUiProperty<>("Changes.ShowChangesFromParents");
   VcsLogUiProperty<Boolean> SHOW_ONLY_AFFECTED_CHANGES = new VcsLogUiProperty<>("Changes.ShowOnlyAffected");
   VcsLogUiProperty<Boolean> DIFF_PREVIEW_VERTICAL_SPLIT = new VcsLogUiProperty<>("Window.DiffPreviewVerticalSplit");
+  VcsLogUiProperty<String> ROOT_SCOPE = new VcsLogUiProperty<>("Log.RootScope");
+  VcsLogUiProperty<Boolean> SHOW_REPOSITORY_PATH = new VcsLogProjectTabsProperties.CustomBooleanTabProperty("Log.ShowRepositoryPath");
 
   void addRecentlyFilteredGroup(@NonNls @NotNull String filterName, @NotNull Collection<String> values);
 

@@ -127,9 +127,12 @@ internal class BranchesVcsLogUi(
 
     val filterUi = mainFrame.filterUi
     val roots = logData.roots.toSet()
+    val isRepositoryScoped = properties.exists(MainVcsLogUiProperties.ROOT_SCOPE) &&
+                             properties[MainVcsLogUiProperties.ROOT_SCOPE].isNotEmpty()
     val logUiFilterListener = VcsLogFilterUiEx.VcsLogFilterListener {
       model.rootsToFilter = when {
-        roots.size == 1 || !logData.project.service<BranchesDashboardFilteringLogic>().showBranchesMatchingRootFilter() -> roots
+        roots.size == 1 -> roots
+        !isRepositoryScoped && !logData.project.service<BranchesDashboardFilteringLogic>().showBranchesMatchingRootFilter() -> roots
         else -> VcsLogUtil.getAllVisibleRoots(roots, filterUi.filters)
       }
     }
@@ -205,7 +208,7 @@ internal class BranchesVcsLogUi(
         }
       }.let { panel ->
         UiDataProvider.wrapComponent(panel) { sink ->
-          sink[GitGroupBranchDataKeys.MULTIPLE_REPOSITORIES] = roots.size > 1
+          sink[GitGroupBranchDataKeys.MULTIPLE_REPOSITORIES] = roots.size > 1 && !isRepositoryScoped
           sink[VcsLogInternalDataKeys.LOG_UI_PROPERTIES] = properties
           sink[QuickActionProvider.KEY] = object : QuickActionProvider {
             override fun getName(): @NlsActions.ActionText String? = null

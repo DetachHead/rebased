@@ -16,6 +16,7 @@ import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.openapi.wm.ToolWindow
 import com.intellij.openapi.wm.ex.ToolWindowManagerListener
 import com.intellij.platform.ide.progress.withBackgroundProgress
+import com.intellij.util.asDisposable
 import com.intellij.util.asSafely
 import com.intellij.vcs.log.Hash
 import com.intellij.vcs.log.VcsLogBundle
@@ -46,6 +47,7 @@ internal class IdeVcsProjectLog(
 ) : VcsProjectLogBase<IdeVcsLogManager>(project, coroutineScope) {
 
   private val mainUiHolderState = MutableStateFlow<MainUiHolder?>(null)
+  private var repositoryTabWorkspace: RepositoryLogTabWorkspace? = null
   @Deprecated("Use VcsProjectLog.runInMainLog or get the ui from DataContext via VcsLogDataKeys.VCS_LOG_UI. As a last resort - VcsProjectLog.mainUi")
   override val mainLogUi: VcsLogUiImpl? = logManager?.mainUi as? VcsLogUiImpl
 
@@ -71,6 +73,28 @@ internal class IdeVcsProjectLog(
 
   override fun openLogTab(filters: VcsLogFilterCollection): MainVcsLogUi? {
     return logManager?.openNewLogTab(VcsLogTabLocation.TOOL_WINDOW, filters)
+  }
+
+  override fun openRepositoryLogTab(root: VirtualFile, location: VcsLogTabLocation): MainVcsLogUi? {
+    return logManager?.openRepositoryLogTab(root, location)
+  }
+
+  override fun closeLogTab(tabId: String) {
+    logManager?.closeLogTab(tabId)
+  }
+
+  override fun updateRepositoryLogTabs(tabIds: Set<String>?) {
+    val workspace = repositoryTabWorkspace ?: RepositoryLogTabWorkspace(project, coroutineScope.asDisposable()).also {
+      repositoryTabWorkspace = it
+    }
+    workspace.update(tabIds)
+  }
+
+  override fun resetLogTabs() {
+    doRunWhenLogIsReady {
+      updateRepositoryLogTabs(null)
+      it.resetLogTabs()
+    }
   }
 
   override fun showRevisionAsync(root: VirtualFile, hash: Hash, filePath: FilePath?): Deferred<Boolean> =

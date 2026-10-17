@@ -453,6 +453,13 @@ open class JBTabsImpl internal constructor(
 
   private var alphabeticalMode = false
 
+  final override var isTabOrderPreserved: Boolean = false
+    set(value) {
+      field = value
+      resetTabsCache()
+      relayout(forced = true, layoutNow = false)
+    }
+
   open fun isAlphabeticalMode(): Boolean = alphabeticalMode
 
   private var emptyText: String? = null
@@ -2048,7 +2055,7 @@ open class JBTabsImpl internal constructor(
     for (tabInfo in hiddenInfos.keys) {
       result.add(getIndexInVisibleArray(tabInfo), tabInfo)
     }
-    if (isAlphabeticalMode()) {
+    if (!isTabOrderPreserved && isAlphabeticalMode()) {
       sortTabsAlphabetically(result)
     }
     allTabs = result
@@ -2410,6 +2417,7 @@ open class JBTabsImpl internal constructor(
     get() = selectedInfo?.tabLabel
 
   open fun getVisibleInfos(): List<TabInfo> {
+    if (isTabOrderPreserved) return visibleInfos
     if (AdvancedSettings.getBoolean("editor.keep.pinned.tabs.on.left")) {
       groupPinnedFirst(visibleInfos)
     }

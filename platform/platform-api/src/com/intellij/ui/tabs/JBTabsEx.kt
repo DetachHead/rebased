@@ -3,6 +3,7 @@ package com.intellij.ui.tabs
 
 import com.intellij.openapi.actionSystem.DataKey
 import org.intellij.lang.annotations.MagicConstant
+import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.annotations.Nls
 import javax.swing.Icon
 import javax.swing.SwingConstants
@@ -22,6 +23,11 @@ interface JBTabsEx : JBTabs {
   fun getToSelectOnRemoveOf(tab: TabInfo): TabInfo?
 
   fun sortTabs(comparator: Comparator<TabInfo>)
+
+  /** Keeps the explicit tab order instead of applying alphabetical sorting or grouping pinned tabs. */
+  @get:ApiStatus.Internal
+  @set:ApiStatus.Internal
+  var isTabOrderPreserved: Boolean
 
   val dropInfoIndex: Int
 

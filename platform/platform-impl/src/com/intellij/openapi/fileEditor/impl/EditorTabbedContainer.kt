@@ -213,7 +213,7 @@ class EditorTabbedContainer internal constructor(
   }
 
   val selectedIndex: Int
-    get() = editorTabs.selectedInfo?.let { editorTabs.getIndexOf(it) } ?: -1
+    get() = editorTabs.selectedInfo?.let { editorTabs.tabs.indexOf(it) } ?: -1
 
   fun setForegroundAt(index: Int, color: Color) {
     editorTabs.getTabAt(index).setDefaultForeground(color)
@@ -745,13 +745,11 @@ private class EditorTabs(
       return null
     }
 
-    val index = getIndexOf(tab)
+    val index = tabs.indexOf(tab)
     if (index != -1) {
       val file = tab.composite.file
       val indexToSelect = window.computeIndexToSelect(file, index)
-      if (indexToSelect >= 0 && indexToSelect < tabs.size) {
-        return getTabAt(indexToSelect)
-      }
+      tabs.getOrNull(indexToSelect)?.takeUnless { it.isHidden }?.let { return it }
     }
     return super.getToSelectOnRemoveOf(tab)
   }

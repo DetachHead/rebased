@@ -75,6 +75,31 @@ class VcsLogProjectTabsProperties : PersistentStateComponent<VcsLogProjectTabsPr
 
     @get:OptionTag("RECENT_FILTERS")
     var recentFilters: MutableMap<String, MutableList<RecentGroup>> = HashMap()
+
+    var repositoryWorkspace: RepositoryWorkspaceState? = null
+  }
+
+  class RepositoryWorkspaceState {
+    var preservedLogIds: MutableSet<String> = LinkedHashSet()
+    var preservedFilePaths: MutableSet<String> = LinkedHashSet()
+    var editorWindows: MutableList<RepositoryEditorWindowState> = ArrayList()
+    var selectedWindow: Int = -1
+    var toolWindowIndices: MutableMap<String, Int> = LinkedHashMap()
+    var selectedToolWindowId: String? = null
+    var selectedRepositoryToolWindowId: String? = null
+    var toolWindowSelectionSaved: Boolean = false
+  }
+
+  class RepositoryEditorWindowState {
+    var tabs: MutableMap<String, RepositoryEditorTabState> = LinkedHashMap()
+    var selectedPath: String? = null
+    var selectedRepositoryPath: String? = null
+    var selectionSaved: Boolean = false
+  }
+
+  class RepositoryEditorTabState {
+    var hidden: Boolean = false
+    var index: Int = 0
   }
 
   class RecentGroup(values: Collection<String>) {
