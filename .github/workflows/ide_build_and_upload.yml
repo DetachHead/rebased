@@ -20,6 +20,9 @@ permissions: {}
 jobs:
   distributions:
     runs-on: ubuntu-latest
+    outputs:
+      unsigned-windows-artifact-id-x64: ${{ steps.upload-unsigned-artifact-x64.outputs.artifact-id }}
+      unsigned-windows-artifact-id-aarch64: ${{ steps.upload-unsigned-artifact-aarch64.outputs.artifact-id }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -42,6 +45,7 @@ jobs:
           artifacts_dir: ${{inputs.artifacts_dir}}
       - name: upload-windows-installer-x64
         uses: ./.github/actions/upload_ide
+        id: upload-unsigned-artifact-x64
         with:
           os: windows
           suffix: .exe
@@ -54,6 +58,7 @@ jobs:
           artifacts_dir: ${{inputs.artifacts_dir}}
       - name: upload-windows-installer-aarch64
         uses: ./.github/actions/upload_ide
+        id: upload-unsigned-artifact-aarch64
         with:
           os: windows
           suffix: -aarch64.exe
@@ -195,3 +200,34 @@ jobs:
           os: linux
           suffix: -${{ matrix.arch.appimage }}.AppImage
           artifacts_dir: .
+  sign-windows-exe:
+    runs-on: ubuntu-latest
+    needs: distributions
+    strategy:
+      matrix:
+        arch:
+          - name: x64
+            artifact-id: ${{ needs.distributions.outputs.unsigned-windows-artifact-id-x64 }}
+          - name: aarch64
+            artifact-id: ${{ needs.distributions.outputs.unsigned-windows-artifact-id-aarch64 }}
+    steps:
+      - name: submit signing request
+        uses: signpath/github-action-submit-signing-request@f6d04783b4569d051e0c80105fe66e82819d0092
+        with:
+          api-token: '${{ secrets.SIGNPATH_API_TOKEN }}'
+          organization-id: '6fa8204e-d307-43a0-bd8b-39b0883fc150'
+          project-slug: 'rebased'
+          # only use the real signing policy if doing a release, since it needs to be manually approved
+          signing-policy-slug: ${{(github.event_name == 'workflow_dispatch' && 'release-signing') || 'test-signing' }}
+          github-artifact-id: '${{ matrix.arch.artifact-id }}'
+          wait-for-completion: true
+          output-artifact-directory: 'signed-exe'
+          # 2 hours if release signing policy because it requires manual approval, otherwise 10 minutes (the default)
+          wait-for-completion-timeout-in-seconds: ${{(github.event_name == 'workflow_dispatch' && '600') || '7200' }}
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        id: upload
+        with:
+          name: windows-signed
+          if-no-files-found: 'error'
+          retention-days: 1
+          path: 'signed-exe/*'
