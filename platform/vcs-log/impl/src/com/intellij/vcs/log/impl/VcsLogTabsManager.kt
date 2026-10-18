@@ -8,6 +8,8 @@ import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.fileEditor.FileEditor
 import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.fileEditor.FileEditorManagerListener
+import com.intellij.openapi.fileEditor.ex.FileEditorManagerEx
+import com.intellij.openapi.fileEditor.impl.FileEditorOpenOptions
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.util.registry.Registry
@@ -15,8 +17,10 @@ import com.intellij.openapi.vcs.changes.ui.ChangesViewContentManager
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.openapi.wm.ToolWindow
 import com.intellij.openapi.wm.ToolWindowManager
+import com.intellij.ui.content.Content
 import com.intellij.ui.content.ContentManagerEvent
 import com.intellij.ui.content.ContentManagerListener
+import com.intellij.util.ContentUtilEx
 import com.intellij.util.concurrency.annotations.RequiresEdt
 import com.intellij.vcs.log.VcsLogFilterCollection
 import com.intellij.vcs.log.impl.VcsLogContentUtil.getToolWindow
@@ -59,7 +63,12 @@ internal class VcsLogTabsManager(
       invokeLater(ModalityState.nonModal()) {
         if (logManager.isDisposed) return@invokeLater
         LOG.debug("Reopening editor tabs with ids: $editorTabs")
-        editorTabs.forEach { openEditorLogTab(it, false, null) }
+        val editorManager = FileEditorManager.getInstance(project)
+        editorTabs.filter { it in uiProperties.tabs }.forEach { id ->
+          if (editorManager.openFiles.none { it is DefaultVcsLogFile && it.tabId == id }) {
+            openEditorLogTab(id, false, null)
+          }
+        }
       }
     }
 
@@ -68,7 +77,7 @@ internal class VcsLogTabsManager(
         futureToolWindow.thenAccept { toolWindow ->
           if (!LOG.assertTrue(!logManager.isDisposed, "Attempting to open tabs on disposed VcsLogManager")) return@thenAccept
           LOG.debug("Reopening toolwindow tabs with ids: $toolWindowTabs")
-          toolWindowTabs.forEach { openToolWindowLogTab(toolWindow, it, false, null) }
+          toolWindowTabs.filter { it in uiProperties.tabs }.forEach { openToolWindowLogTab(toolWindow, it, false, null) }
         }
       }
 
@@ -96,7 +105,9 @@ internal class VcsLogTabsManager(
     var oneTabPreserved = false
     while (iter.hasNext()) {
       val tabId = iter.next()
-      if (uiProperties.checkTabHasFilters(tabId)) {
+      if (uiProperties.checkTabHasFilters(tabId) ||
+          tabId in uiProperties.state.repositoryWorkspace?.preservedLogIds.orEmpty() ||
+          uiProperties.createProperties(tabId)[MainVcsLogUiProperties.ROOT_SCOPE].isNotEmpty()) {
         continue
       }
       else if (!oneTabPreserved) {
@@ -119,18 +130,26 @@ internal class VcsLogTabsManager(
   }
 
   @RequiresEdt
-  fun openAnotherLogTab(filters: VcsLogFilterCollection, location: VcsLogTabLocation): MainVcsLogUi {
+  fun openAnotherLogTab(
+    filters: VcsLogFilterCollection,
+    location: VcsLogTabLocation,
+    root: VirtualFile? = null,
+  ): MainVcsLogUi {
     require(!isDisposed) { "Already disposed" }
     val tabId = logManager.generateNewLogId()
     uiProperties.resetState(tabId)
+    if (root != null) {
+      uiProperties.createProperties(tabId)[MainVcsLogUiProperties.ROOT_SCOPE] = root.url
+    }
+    val focus = root == null
     if (location === VcsLogTabLocation.EDITOR) {
-      val editors = openEditorLogTab(tabId, true, filters)
+      val editors = openEditorLogTab(tabId, focus, filters)
       return findVcsLogUi(editors, MainVcsLogUi::class.java)!!
     }
     else if (location === VcsLogTabLocation.TOOL_WINDOW) {
       val toolWindow = VcsLogContentUtil.getToolWindowOrThrow(project)
       futureToolWindow.complete(toolWindow)
-      return openToolWindowLogTab(toolWindow, tabId, true, filters)
+      return openToolWindowLogTab(toolWindow, tabId, focus, filters)
     }
     throw UnsupportedOperationException("Only log in editor or tool window is supported")
   }
@@ -139,7 +158,9 @@ internal class VcsLogTabsManager(
     val file = VcsLogVirtualFileSystem.Holder.getInstance().createVcsLogFile(project, tabId, filters)
     installFilesListener()
     uiProperties.addTab(tabId, VcsLogTabLocation.EDITOR)
-    return FileEditorManager.getInstance(project).openFile(file, focus, true)
+    return FileEditorManagerEx.getInstanceEx(project)
+      .openFile(file, null, FileEditorOpenOptions(selectAsCurrent = focus, requestFocus = focus, reuseOpen = true))
+      .allEditors.toTypedArray()
   }
 
   private fun installFilesListener() {
@@ -158,7 +179,17 @@ internal class VcsLogTabsManager(
   private fun openToolWindowLogTab(toolWindow: ToolWindow, tabId: String, focus: Boolean,
                                    filters: VcsLogFilterCollection?): MainVcsLogUi {
     val ui = logManager.createLogUi(tabId, filters)
-    openLogTab(logManager, toolWindow, VcsLogContentUtil.DEFAULT_TAB_GROUP_ID, ui, { it: MainVcsLogUi -> VcsLogTabsUtil.generateShortDisplayName(it) }, focus)
+    val repositoryScoped = uiProperties.createProperties(tabId)[MainVcsLogUiProperties.ROOT_SCOPE].isNotEmpty()
+    if (repositoryScoped) {
+      Disposer.register(ui) {
+        if (!logManager.isDisposed && !project.isDisposed) uiProperties.removeTab(tabId)
+      }
+      VcsLogContentUtil.openRepositoryLogTab(logManager, toolWindow, ui)
+    }
+    else {
+      openLogTab(logManager, toolWindow, VcsLogContentUtil.DEFAULT_TAB_GROUP_ID, ui,
+                 { it: MainVcsLogUi -> VcsLogTabsUtil.generateShortDisplayName(it) }, focus)
+    }
     ui.onDisplayNameChange { updateLogUiName(project, ui) }
 
     installContentListener(toolWindow)
@@ -171,6 +202,7 @@ internal class VcsLogTabsManager(
     if (toolWindowListenerInstalled) return
     val listener = object : ContentManagerListener {
       override fun contentRemoved(event: ContentManagerEvent) {
+        if (event.content.getUserData(Content.TEMPORARY_REMOVED_KEY) == true) return
         // restore the tab after project/log is recreated
         if (this@VcsLogTabsManager.project.isDisposed) return
         val id = VcsLogContentUtil.getId(event.content)
@@ -190,6 +222,43 @@ internal class VcsLogTabsManager(
 
   fun getTabs(): Set<String> = uiProperties.tabs.keys
 
+  @RequiresEdt
+  fun resetTabs() {
+    val editorManager = FileEditorManager.getInstance(project)
+    editorManager.openFiles.filterIsInstance<DefaultVcsLogFile>().filter { it.tabId.isNotEmpty() }
+      .forEach { editorManager.closeFile(it) }
+    getToolWindow(project)?.contentManagerIfCreated?.let { manager ->
+      val components = manager.contentComponentSequence().map { it.second }.filter {
+        val ui = VcsLogContentUtil.getLogUi(it)
+        ui != null && ui.id != VcsLogManager.MAIN_LOG_ID
+      }.toList()
+      components.forEach { component -> ContentUtilEx.closeContentTab(manager) { it === component } }
+    }
+    uiProperties.tabs.keys.forEach(uiProperties::removeTab)
+  }
+
+  @RequiresEdt
+  fun closeTab(tabId: String) {
+    val editorManager = FileEditorManagerEx.getInstanceEx(project)
+    val file = editorManager.openFiles.filterIsInstance<DefaultVcsLogFile>().firstOrNull { it.tabId == tabId }
+    if (file != null) {
+      if (editorManager.windows.any { it.isFileOpen(file) && it.isFilePinned(file) }) return
+      editorManager.closeFile(file)
+    }
+    else {
+      val manager = getToolWindow(project)?.contentManagerIfCreated
+      val tab = manager?.contentComponentSequence()?.firstOrNull { (_, component) ->
+        VcsLogContentUtil.getLogUi(component)?.id == tabId
+      }
+      if (manager != null && tab != null) {
+        val (content, component) = tab
+        if (content.isPinned || !content.isCloseable) return
+        if (!ContentUtilEx.closeContentTab(manager) { it === component }) return
+      }
+    }
+    uiProperties.removeTab(tabId)
+  }
+
   fun getTabs(location: VcsLogTabLocation): Set<String> =
     uiProperties.tabs.filterValues { it === location }.keys
 
@@ -199,7 +268,7 @@ internal class VcsLogTabsManager(
     fun MainVcsLogUi.onDisplayNameChange(block: () -> Unit) {
       filterUi.addFilterListener { block() }
       properties.onPropertyChange(this) {
-        if (it == MainVcsLogUiProperties.GRAPH_OPTIONS) block()
+        if (it == MainVcsLogUiProperties.GRAPH_OPTIONS || it == MainVcsLogUiProperties.SHOW_REPOSITORY_PATH) block()
       }
     }
   }

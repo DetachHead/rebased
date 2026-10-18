@@ -167,6 +167,7 @@ jvm_library(
     ),
     module_name = "intellij.platform.vcs.log.impl.tests",
     visibility = ["//visibility:public"],
+    runtime_deps = ["//platform/vcs/plugin"],
 )
 
 jvm_library(
@@ -191,6 +192,7 @@ jvm_library(
         "//platform/platform-impl:ide-impl_test_lib",
         "//platform/ide-core-impl:ide-core-impl_test_lib",
         "//platform/ide-core:ide-core_test_lib",
+        "//platform/vcs/plugin:plugin_test_lib",
     ],
     deps = [
         # do not sort,
@@ -248,6 +250,8 @@ jvm_library(
         "//platform/vcs-tests:vcs-testFramework_test_lib",
         "//platform/util",
         "//platform/util:util_test_lib",
+        "//platform/util/jdom",
+        "//platform/util/jdom:jdom_test_lib",
         "//libraries/assertj-core",
         "//libraries/assertj-core:assertj-core_test_lib",
         "//libraries/miglayout-swing",

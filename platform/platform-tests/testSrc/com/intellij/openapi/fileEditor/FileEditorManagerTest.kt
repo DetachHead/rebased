@@ -72,8 +72,10 @@ import org.jetbrains.jps.model.serialization.PathMacroUtil
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.Timeout
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.Arguments
+import org.junit.jupiter.params.provider.CsvSource
 import org.junit.jupiter.params.provider.MethodSource
 import java.io.IOException
 import java.nio.file.Path
@@ -268,6 +270,67 @@ class FileEditorManagerTest {
     publishSelectionChangedFrom(staleEditor)
     pointerTracker.assertPointersAreDisposed()
     assertThat(history.fileList).isEmpty()
+  }
+
+  @ParameterizedTest
+  @CsvSource("false, false", "false, true", "true, false", "true, true")
+  @Timeout(30)
+  fun testClosingATabSkipsHiddenSelectionTargets(useMru: Boolean, keepVisibleTab: Boolean): Unit = timeoutRunBlocking {
+    withContext(Dispatchers.EDT) {
+      val settings = UISettings.getInstance()
+      val previousMru = settings.state.activeMruEditorOnClose
+      val previousRight = settings.activeRightEditorOnClose
+      val hiddenFile = openSourceFile("1.txt", focusEditor = false)
+      val closingFile = openSourceFile("2.txt", focusEditor = false)
+      val retainedFile = if (keepVisibleTab) openSourceFile("3.txt", focusEditor = false) else null
+      val tabs = currentWindow().tabbedPane.tabs
+      val hiddenTab = tabs.tabs.single { it.`object` == hiddenFile }
+      val closingTab = tabs.tabs.single { it.`object` == closingFile }
+      try {
+        settings.state.activeMruEditorOnClose = useMru
+        settings.activeRightEditorOnClose = false
+        tabs.select(hiddenTab, false)
+        tabs.select(closingTab, false)
+        hiddenTab.isHidden = true
+
+        manager.closeFile(closingFile)
+
+        assertThat(manager.isFileOpen(hiddenFile)).isTrue()
+        assertThat(hiddenTab.isHidden).isTrue()
+        assertThat(tabs.selectedInfo?.`object`).isEqualTo(retainedFile)
+      }
+      finally {
+        hiddenTab.isHidden = false
+        settings.state.activeMruEditorOnClose = previousMru
+        settings.activeRightEditorOnClose = previousRight
+      }
+    }
+  }
+
+  @Test
+  @Timeout(30)
+  fun testClosingAnUnselectedTabKeepsSelectionWithHiddenTabs(): Unit = timeoutRunBlocking {
+    withContext(Dispatchers.EDT) {
+      val hiddenFile = openSourceFile("1.txt", focusEditor = false)
+      val closingFile = openSourceFile("2.txt", focusEditor = false)
+      val retainedFile = openSourceFile("3.txt", focusEditor = false)
+      val tabs = currentWindow().tabbedPane.tabs
+      val hiddenTab = tabs.tabs.single { it.`object` == hiddenFile }
+      val retainedTab = tabs.tabs.single { it.`object` == retainedFile }
+      tabs.select(retainedTab, false)
+      hiddenTab.isHidden = true
+      try {
+        manager.closeFile(closingFile)
+
+        assertThat(manager.isFileOpen(closingFile)).isFalse()
+        assertThat(hiddenTab.isHidden).isTrue()
+        assertThat(tabs.selectedInfo).isSameAs(retainedTab)
+        assertThat(manager.selectedFiles).containsExactly(retainedFile)
+      }
+      finally {
+        hiddenTab.isHidden = false
+      }
+    }
   }
 
   @Test

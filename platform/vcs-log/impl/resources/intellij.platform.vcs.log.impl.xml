@@ -154,6 +154,7 @@
     <fileIconProvider implementation="com.intellij.vcs.log.ui.editor.VcsLogIconProvider"/>
     <fileEditorProvider id="VcsLogEditor" implementation="com.intellij.vcs.log.ui.editor.VcsLogEditorProvider"/>
     <editorTabTitleProvider implementation="com.intellij.vcs.log.ui.editor.DefaultVcsLogFileTabTitleProvider"/>
+    <editorAutoClosingHandler implementation="com.intellij.vcs.log.ui.editor.RepositoryLogEditorAutoClosingHandler"/>
     <openTelemetryExporterProvider implementation="com.intellij.vcs.log.statistics.VcsLogTelemetryExporter"/>
 
     <registryKey key="vcs.log.table.show.centered"
@@ -275,6 +276,7 @@
     <group id="Vcs.Log.Toolbar.Internal">
       <reference ref="Vcs.Log.OpenAnotherTabInEditor"/>
     </group>
+    <group id="Vcs.Log.RepositoryTabs"/>
     <group id="Vcs.Log.ContextMenu">
       <reference ref="Vcs.CopyRevisionNumberAction"/>
       <reference ref="ChangesView.CreatePatchFromChanges"/>

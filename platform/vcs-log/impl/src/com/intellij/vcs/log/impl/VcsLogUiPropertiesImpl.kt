@@ -48,6 +48,7 @@ abstract class VcsLogUiPropertiesImpl<S : VcsLogUiPropertiesImpl.State>(private 
       }
       MainVcsLogUiProperties.TEXT_FILTER_MATCH_CASE -> logUiState.textFilterSettings.isMatchCase
       MainVcsLogUiProperties.TEXT_FILTER_REGEX -> logUiState.textFilterSettings.isRegex
+      MainVcsLogUiProperties.ROOT_SCOPE -> logUiState.rootScope
       else -> throw UnsupportedOperationException("Property $property does not exist")
     }
     @Suppress("UNCHECKED_CAST")
@@ -68,6 +69,7 @@ abstract class VcsLogUiPropertiesImpl<S : VcsLogUiPropertiesImpl.State>(private 
       MainVcsLogUiProperties.GRAPH_OPTIONS -> logUiState.graphOptions = (value as PermanentGraph.Options).toStringList()
       MainVcsLogUiProperties.TEXT_FILTER_REGEX -> logUiState.textFilterSettings.isRegex = value as Boolean
       MainVcsLogUiProperties.TEXT_FILTER_MATCH_CASE -> logUiState.textFilterSettings.isMatchCase = value as Boolean
+      MainVcsLogUiProperties.ROOT_SCOPE -> logUiState.rootScope = value as String
       is VcsLogHighlighterProperty -> logUiState.highlighters[(property as VcsLogHighlighterProperty).id] = value as Boolean
       is TableColumnWidthProperty -> logUiState.columnIdWidth[property.name] = value as Int
       else -> throw UnsupportedOperationException("Property $property does not exist")
@@ -115,6 +117,8 @@ abstract class VcsLogUiPropertiesImpl<S : VcsLogUiPropertiesImpl.State>(private 
   }
 
   open class State {
+    var rootScope: String = ""
+
     @get:OptionTag("SHOW_DETAILS_IN_CHANGES")
     var isShowDetails = true
 
@@ -162,6 +166,7 @@ abstract class VcsLogUiPropertiesImpl<S : VcsLogUiPropertiesImpl.State>(private 
       CommonUiProperties.SHOW_ROOT_NAMES,
       MainVcsLogUiProperties.SHOW_ONLY_AFFECTED_CHANGES,
       MainVcsLogUiProperties.TEXT_FILTER_MATCH_CASE,
-      MainVcsLogUiProperties.TEXT_FILTER_REGEX)
+      MainVcsLogUiProperties.TEXT_FILTER_REGEX,
+      MainVcsLogUiProperties.ROOT_SCOPE)
   }
 }

@@ -778,7 +778,7 @@ class EditorWindow internal constructor(
 
     val indexToSelect = computeIndexToSelect(fileBeingClosed = fileBeingClosed, fileIndex = componentIndex)
     val editorTabs = tabbedPane.editorTabs
-    return if (indexToSelect >= 0 && indexToSelect < editorTabs.tabCount) editorTabs.getTabAt(indexToSelect) else null
+    return editorTabs.tabs.getOrNull(indexToSelect)?.takeUnless { it.isHidden }
   }
 
   internal fun logEmptyStateIfMainSplitter(cause: EmptyStateCause) {

@@ -417,6 +417,10 @@
       <add-to-group group-id="Vcs.Log.PresentationSettings" relative-to-action="Vcs.Log.HighlightersActionGroup" anchor="after"/>
     </group>
 
+    <action id="Git.Log.Repository.Tabs" class="git4idea.log.RepositoryLogTabsAction">
+      <add-to-group group-id="Vcs.Log.RepositoryTabs"/>
+    </action>
+
     <group id="Git.Log.Internal" internal="true">
       <reference ref="Git.Log.Show.Command"/>
       <add-to-group group-id="Vcs.Log.Internal" anchor="last"/>
@@ -981,6 +985,7 @@
     <projectService serviceInterface="git4idea.stash.ui.GitStashUIHandler"
                     serviceImplementation="git4idea.stash.ui.GitStashUIHandlerImpl"/>
     <postStartupActivity implementation="git4idea.stash.ui.GitStashStartupActivity"/>
+    <postStartupActivity implementation="git4idea.log.GitRepositoryLogTabsStartupActivity"/>
     <backgroundPostStartupActivity implementation="git4idea.commit.signing.GpgAgentConfiguratorStartupActivity"/>
 
     <changesViewContent id="git.working.trees" tabName="Working Trees" className="git4idea.workingTrees.ui.GitWorkingTreesContentProvider"
