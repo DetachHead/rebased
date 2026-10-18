@@ -223,11 +223,11 @@ jobs:
           wait-for-completion: true
           output-artifact-directory: 'signed-exe'
           # 2 hours if release signing policy because it requires manual approval, otherwise 10 minutes (the default)
-          wait-for-completion-timeout-in-seconds: ${{(github.event_name == 'workflow_dispatch' && '600') || '7200' }}
+          wait-for-completion-timeout-in-seconds: ${{(github.event_name == 'workflow_dispatch' && '7200') || '600' }}
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         id: upload
         with:
-          name: windows-signed
+          name: windows-signed-${{ matrix.arch.name }}
           if-no-files-found: 'error'
           retention-days: 1
           path: 'signed-exe/*'
