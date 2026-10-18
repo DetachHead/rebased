@@ -67,13 +67,18 @@ jobs:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
           prerelease: false
           draft: true
+          # TODO: this is a complete fucking nighgtmare to maintain... we need to very carefully fine tune this list of globs so that
+          # all the necessary assets are included, while also preventing any unsigned windows assets from being uploaded. we also need to
+          # prevent any duplicates from being uploaded (ie. the same file being matched from multiple artifacts), otherwise the action
+          # will crash... i fucking hate github actions so much
           files: |
-            linux-*/*.tar.gz
-            linux-*/*.AppImage
-            linux-*/*.zsync
-            linux-*/*.spdx.json
-            windows-signed/rebased*.exe
-            windows-signed/*.spdx.json
+            **/*.tar.gz
+            **/*.AppImage
+            **/*.zsync
+            linux*/*.spdx.json
+            windows-signed-*/rebased*.exe
+            windows-signed-*/*.spdx.json
             **/*.win.zip
-            mac-*/*.dmg
-            mac-*/*.spdx.json
+            **/*.win.zip.spdx.json
+            **/*.dmg
+            mac*/*.spdx.json
