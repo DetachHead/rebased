@@ -1394,6 +1394,13 @@ http_file(
 )
 
 http_file(
+    name = "io_ktor-ktor-client-mock-jvm-3_6_0_http",
+    downloaded_file_path = "ktor-client-mock-jvm-3.6.0.jar",
+    sha256 = "9a65b4e2f799451b380e87729132768802389d2f1c4ac11d2f3fc6de9925cb41",
+    url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/io/ktor/ktor-client-mock-jvm/3.6.0/ktor-client-mock-jvm-3.6.0.jar",
+)
+
+http_file(
     name = "io_ktor-ktor-client-mock-jvm-3_6_0-sources_http",
     downloaded_file_path = "ktor-client-mock-jvm-3.6.0-sources.jar",
     sha256 = "a3d1560a43df5d60d204baaf83472fb8857eec4c89025a381f03c8b5a892ed85",
@@ -2829,20 +2836,6 @@ http_file(
 )
 
 http_file(
-    name = "com_google_guava-guava-testlib-33_7_1-jre_http",
-    downloaded_file_path = "guava-testlib-33.7.1-jre.jar",
-    sha256 = "eaee6892e3ae43eced37ef4401fd8989dc4b0f0b47f21b01c0913159a787bb4e",
-    url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/com/google/guava/guava-testlib/33.7.1-jre/guava-testlib-33.7.1-jre.jar",
-)
-
-http_file(
-    name = "com_google_guava-guava-testlib-33_7_1-jre-sources_http",
-    downloaded_file_path = "guava-testlib-33.7.1-jre-sources.jar",
-    sha256 = "93e553a3d404743b51b52481e55aa3c9ccb1f80e9a93f0eb3de71da2369183e9",
-    url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/com/google/guava/guava-testlib/33.7.1-jre/guava-testlib-33.7.1-jre-sources.jar",
-)
-
-http_file(
     name = "org_jetbrains_intellij_plugins-structure-intellij-3_333_http",
     downloaded_file_path = "structure-intellij-3.333.jar",
     sha256 = "19eaef4d047d6e1ffdcadb6f6dadce6ae13917bd8067acd793a7473ba11fc5db",
@@ -3162,13 +3155,6 @@ http_file(
     downloaded_file_path = "scenebuilderkit-11.0.5.jar",
     sha256 = "36cd8f5bc933bcf726fadfc5276f0efcc7873d3a532e4e164674d2e8919f4781",
     url = "https://cache-redirector.jetbrains.com/packages.jetbrains.team/maven/p/ij/intellij-dependencies/org/jetbrains/intellij/deps/scenebuilderkit/11.0.5/scenebuilderkit-11.0.5.jar",
-)
-
-http_file(
-    name = "com_squareup-javapoet-1_13_0_http",
-    downloaded_file_path = "javapoet-1.13.0.jar",
-    sha256 = "4c7517e848a71b36d069d12bb3bf46a70fd4cda3105d822b0ed2e19c00b69291",
-    url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/com/squareup/javapoet/1.13.0/javapoet-1.13.0.jar",
 )
 
 http_file(
@@ -9434,20 +9420,6 @@ http_file(
     downloaded_file_path = "kryo5-5.6.0-sources.jar",
     sha256 = "904f9be6740252664dc0d0d10878d681657ff367dca9b52da3a5796a3ca2b924",
     url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/com/esotericsoftware/kryo5/5.6.0/kryo5-5.6.0-sources.jar",
-)
-
-http_file(
-    name = "io_ktor-ktor-client-cio-jvm-3_4_1_http",
-    downloaded_file_path = "ktor-client-cio-jvm-3.4.1.jar",
-    sha256 = "e6c174ff674f76c9ce1bc3d73814e4508587eee25625cf1c44b5436d691eace7",
-    url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/io/ktor/ktor-client-cio-jvm/3.4.1/ktor-client-cio-jvm-3.4.1.jar",
-)
-
-http_file(
-    name = "io_ktor-ktor-client-cio-jvm-3_4_1-sources_http",
-    downloaded_file_path = "ktor-client-cio-jvm-3.4.1-sources.jar",
-    sha256 = "128e3d37dde22986ddc6eed8f7497bc2e6121b34b538a5428e64c8db351d37d2",
-    url = "https://cache-redirector.jetbrains.com/repo1.maven.org/maven2/io/ktor/ktor-client-cio-jvm/3.4.1/ktor-client-cio-jvm-3.4.1-sources.jar",
 )
 
 http_file(
