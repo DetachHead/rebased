@@ -20,4 +20,4 @@ jobs:
         # currently we only run git tests. list mostly taken from platform/testFramework/testResources/tests/testGroups.properties
         # TODO: figure out what other tests we should run
         run: |
-          ./tests.cmd --module intellij.idea.community.main.tests --test "com.intellij.testFramework.vcs.*;com.intellij.tasks.vcs.*;com.intellij.vcs.*;com.intellij.toolWindow.*;com.intellij.configurationStore.DefaultProjectStoreTest"
+          ./bazel.cmd test //platform/vcs-impl:vcs-impl-tests_test //plugins/tasks/tests/vcs:vcs_test //platform/lang-impl:lang-tests_test //platform/platform-impl:ide-impl-tests_test //platform/configuration-store-impl:configurationStore-tests_test --test_env='JB_TEST_JUNIT5_FILTERS=include-classname=com\.intellij\.testFramework\.vcs\..*;include-classname=com\.intellij\.tasks\.vcs\..*;include-classname=com\.intellij\.vcs\..*;include-classname=com\.intellij\.toolWindow\..*;include-classname=com\.intellij\.configurationStore\.DefaultProjectStoreTest'
