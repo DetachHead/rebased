@@ -4,11 +4,10 @@
 package org.jetbrains.intellij.build.impl.plugins
 
 import com.intellij.openapi.util.io.FileUtilRt
+import com.intellij.platform.buildScripts.concurrency.taskScope
 import io.opentelemetry.api.common.AttributeKey
 import io.opentelemetry.api.common.Attributes
 import io.opentelemetry.api.trace.Span
-import kotlinx.coroutines.CoroutineName
-import kotlinx.coroutines.withContext
 import org.jetbrains.intellij.build.BuildContext
 import org.jetbrains.intellij.build.BuildOptions
 import org.jetbrains.intellij.build.JvmArchitecture
@@ -20,9 +19,6 @@ import org.jetbrains.intellij.build.SearchableOptionSetDescriptor
 import org.jetbrains.intellij.build.antToRegex
 import org.jetbrains.intellij.build.classPath.PluginBuildDescriptor
 import org.jetbrains.intellij.build.classPath.PluginBuildResult
-import org.jetbrains.intellij.build.dev.AssembledPrepackedPluginContentJar
-import org.jetbrains.intellij.build.dev.PrepackedPluginContentJar
-import org.jetbrains.intellij.build.dev.PrepackedPluginContentKey
 import org.jetbrains.intellij.build.hasModuleOutputPath
 import org.jetbrains.intellij.build.impl.BUILT_IN_HELP_MODULE_NAME
 import org.jetbrains.intellij.build.impl.DescriptorCacheContainer
@@ -36,26 +32,25 @@ import org.jetbrains.intellij.build.impl.projectStructureMapping.DistributionFil
 import org.jetbrains.intellij.build.mapConcurrent
 import org.jetbrains.intellij.build.telemetry.TraceManager.spanBuilder
 import org.jetbrains.intellij.build.telemetry.use
-import org.jetbrains.intellij.build.taskScope
 import java.nio.file.Path
 
 private class ScrambleTask(@JvmField val descriptor: PluginBuildDescriptor)
 
-internal suspend fun buildPlugins(
+internal fun buildPlugins(
   plugins: Collection<PluginLayout>,
   os: OsFamily?,
   arch: JvmArchitecture?,
   targetDir: Path,
   state: DistributionBuilderState,
-  platformEntriesProvider: (suspend () -> List<DistributionFileEntry>)?,
+  platformEntriesProvider: (() -> List<DistributionFileEntry>)?,
   searchableOptionSet: SearchableOptionSetDescriptor?,
   descriptorCacheContainer: DescriptorCacheContainer,
   context: BuildContext,
   copyFiles: Boolean = true,
   layoutOnly: Boolean = false,
-  prepackedPluginContent: Map<PrepackedPluginContentKey, PrepackedPluginContentJar> = emptyMap(),
-  additionalScrambleDescriptorsProvider: (suspend () -> Collection<PluginBuildResult>)? = null,
-  pluginBuilt: (suspend (PluginLayout, pluginDirOrFile: Path) -> List<DistributionFileEntry>)? = null,
+  additionalScrambleDescriptorsProvider: (() -> Collection<PluginBuildResult>)? = null,
+  /** The function to be called after the plugin is built that may add additional entries to its distribution; `layout` parameter is `null` for plugins built by Bazel. */
+  pluginBuilt: ((PluginBuildResult, layout: PluginLayout?, pluginDirOrFile: Path) -> List<DistributionFileEntry>)? = null,
 ): List<PluginBuildResult> {
   val scrambleTool = context.proprietaryBuildTools.scrambleTool
   val isScramblingSkipped = layoutOnly || context.options.buildStepsToSkip.contains(BuildOptions.SCRAMBLING_STEP)
@@ -63,26 +58,23 @@ internal suspend fun buildPlugins(
   val (pluginsBuildInProcess, pluginsBuildByBazel) = partitionPluginsByBuildingMethod(plugins, context)
 
   val resultsForPluginsBuiltInProcess = pluginsBuildInProcess.mapConcurrent { pluginLayout ->
-    withContext(CoroutineName("Build plugin (module=${pluginLayout.mainModule})")) {
-      buildPlugin(
-        pluginLayout = pluginLayout,
-        targetDir = targetDir,
-        state = state,
-        descriptorCacheContainer = descriptorCacheContainer,
-        searchableOptionSet = searchableOptionSet,
-        scrambleTool = scrambleTool,
-        isScramblingSkipped = isScramblingSkipped,
-        os = os,
-        arch = arch,
-        context = context,
-        copyFiles = copyFiles,
-        pluginBuilt = pluginBuilt,
-        prepackedPluginContent = prepackedPluginContent,
-      )
-    }
+    buildPlugin(
+      pluginLayout = pluginLayout,
+      targetDir = targetDir,
+      state = state,
+      descriptorCacheContainer = descriptorCacheContainer,
+      searchableOptionSet = searchableOptionSet,
+      scrambleTool = scrambleTool,
+      isScramblingSkipped = isScramblingSkipped,
+      os = os,
+      arch = arch,
+      context = context,
+      copyFiles = copyFiles,
+      pluginBuilt = pluginBuilt,
+    )
   }
 
-  val resultsForPluginsBuiltByBazel = buildPluginsByBazel(pluginsBuildByBazel, targetDir, descriptorCacheContainer, searchableOptionSet, context)
+  val resultsForPluginsBuiltByBazel = buildPluginsByBazel(pluginsBuildByBazel, targetDir, descriptorCacheContainer, searchableOptionSet, context, pluginBuilt = pluginBuilt)
   val results = (resultsForPluginsBuiltInProcess + resultsForPluginsBuiltByBazel.map { it to null }).sortedBy { it.first.mainModule }
 
   val scrambleTasks = results.mapNotNull { it.second }
@@ -111,6 +103,7 @@ internal suspend fun buildPlugins(
           )
         }
       }
+      join()
     }
   }
   return results.map { it.first }
@@ -122,7 +115,7 @@ internal suspend fun buildPlugins(
  * the platform ZKM run, since regular plugins that were laid out early still need their per-plugin
  * scramble to happen.
  */
-internal suspend fun scrambleAlreadyLaidOutPlugins(
+internal fun scrambleAlreadyLaidOutPlugins(
   descriptors: Collection<PluginBuildResult>,
   state: DistributionBuilderState,
   platformEntries: List<DistributionFileEntry>,
@@ -151,10 +144,11 @@ internal suspend fun scrambleAlreadyLaidOutPlugins(
         )
       }
     }
+    join()
   }
 }
 
-private suspend fun buildPlugin(
+private fun buildPlugin(
   pluginLayout: PluginLayout,
   targetDir: Path,
   state: DistributionBuilderState,
@@ -166,15 +160,14 @@ private suspend fun buildPlugin(
   arch: JvmArchitecture?,
   context: BuildContext,
   copyFiles: Boolean,
-  pluginBuilt: (suspend (PluginLayout, Path) -> List<DistributionFileEntry>)?,
-  prepackedPluginContent: Map<PrepackedPluginContentKey, PrepackedPluginContentJar>,
+  pluginBuilt: ((PluginBuildResult, PluginLayout?, Path) -> List<DistributionFileEntry>)?,
 ): Pair<PluginBuildResult, ScrambleTask?> = taskScope {
   val directoryName = pluginLayout.directoryName
   val pluginDir = targetDir.resolve(directoryName)
   val moduleOutputPatcher = ModuleOutputPatcher()
 
   if (pluginLayout.mainModule != BUILT_IN_HELP_MODULE_NAME) {
-    if (context.options.skipCheckOutputOfPluginModules) {
+    if (context.options.checkOutputOfPluginModules) {
       fork("check output of plugin modules for ${pluginLayout.mainModule}") {
         checkOutputOfPluginModules(
           mainPluginModule = pluginLayout.mainModule,
@@ -198,8 +191,7 @@ private suspend fun buildPlugin(
     )
   }
 
-  val prepackedContentJars = ArrayList<AssembledPrepackedPluginContentJar>()
-  val task = spanBuilder("plugin").setAttribute("path", context.paths.buildOutputDir.relativize(pluginDir).toString()).use {
+  val buildResult = spanBuilder("plugin").setAttribute("path", context.paths.buildOutputDir.relativize(pluginDir).toString()).use {
     val (entries, file) = layoutDistribution(
       layout = pluginLayout,
       platformLayout = state.platformLayout,
@@ -209,27 +201,25 @@ private suspend fun buildPlugin(
       includedModules = pluginLayout.includedModules,
       searchableOptionSet = searchableOptionSet,
       cachedDescriptorWriterProvider = descriptorCacheContainer.forPlugin(pluginDir),
-      prepackedPluginContent = prepackedPluginContent,
-      prepackedPluginContentJars = prepackedContentJars,
       context = context,
     )
 
+    val buildResult = PluginBuildResult(
+      mainModule = pluginLayout.mainModule,
+      dir = pluginDir,
+      os = os,
+      arch = arch,
+      distribution = entries,
+    )
     if (pluginBuilt == null) {
-      entries
+      buildResult
     }
     else {
-      entries + pluginBuilt(pluginLayout, file)
+      val additionalEntries = pluginBuilt(buildResult, pluginLayout, file)
+      buildResult.copy(distribution = entries + additionalEntries)
     }
   }
 
-  val buildResult = PluginBuildResult(
-    mainModule = pluginLayout.mainModule,
-    dir = pluginDir,
-    os = os,
-    arch = arch,
-    distribution = task,
-    prepackedContentJars = prepackedContentJars,
-  )
   var scrambleTask: ScrambleTask? = null
   if (!pluginLayout.pathsToScramble.isEmpty()) {
     val attributes = Attributes.of(AttributeKey.stringKey("plugin"), directoryName)
@@ -245,7 +235,7 @@ private suspend fun buildPlugin(
     }
   }
 
-  buildResult to scrambleTask
+  join { buildResult to scrambleTask }
 }
 
 private fun checkOutputOfPluginModules(

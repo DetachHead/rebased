@@ -3,15 +3,18 @@ package com.intellij.stats.completion.tracker
 
 import com.intellij.completion.ml.util.queryLength
 import org.assertj.core.api.Assertions
+import org.junit.jupiter.api.BeforeEach
+import org.junit.jupiter.api.Test
 
 class CompletionLoggingQueryLengthTest: CompletionLoggingTestBase() {
-  override fun setUp() {
-    super.setUp()
+  @BeforeEach
+  fun addClasses(): Unit = onEdt {
     myFixture.addClass("interface Rum {}")
     myFixture.addClass("interface Runn {}")
   }
 
-  fun `test completion with query length 1 after dot`() {
+  @Test
+  fun `test completion with query length 1 after dot`(): Unit = onEdt {
     myFixture.type('.')
     myFixture.completeBasic()
 
@@ -20,7 +23,8 @@ class CompletionLoggingQueryLengthTest: CompletionLoggingTestBase() {
     Assertions.assertThat(prefixLength).isEqualTo(1)
   }
 
-  fun `test completion with query length 3 after dot`() {
+  @Test
+  fun `test completion with query length 3 after dot`(): Unit = onEdt {
     myFixture.type(".r")
     myFixture.completeBasic()
     myFixture.type("u")
@@ -32,7 +36,8 @@ class CompletionLoggingQueryLengthTest: CompletionLoggingTestBase() {
   }
 
 
-  fun `test completion with query length 1`() {
+  @Test
+  fun `test completion with query length 1`(): Unit = onEdt {
     myFixture.type('\b')
     myFixture.type("Run")
     myFixture.completeBasic()
@@ -43,7 +48,8 @@ class CompletionLoggingQueryLengthTest: CompletionLoggingTestBase() {
   }
 
 
-  fun `test completion with query length 2`() {
+  @Test
+  fun `test completion with query length 2`(): Unit = onEdt {
     myFixture.type('\b')
     myFixture.type('R')
     myFixture.completeBasic()

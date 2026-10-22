@@ -143,8 +143,8 @@ public class GrClosureParamsTest extends GrHighlightingTestBase {
   }
 
   @Override
-  public final String getBasePath() {
-    return super.getBasePath() + "closureParams/";
+  public final String getTestDataPath() {
+    return super.getTestDataPath() + "closureParams/";
   }
 
   @Override

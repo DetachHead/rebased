@@ -3,10 +3,13 @@ package org.jetbrains.kotlin.idea.gradleJava.configuration.mpp
 
 import com.intellij.openapi.externalSystem.model.DataNode
 import com.intellij.openapi.externalSystem.model.ProjectKeys
+import com.intellij.openapi.externalSystem.model.project.LibraryData
 import com.intellij.openapi.externalSystem.model.project.LibraryDependencyData
 import com.intellij.openapi.externalSystem.model.project.LibraryLevel
 import com.intellij.openapi.externalSystem.model.project.LibraryPathType
 import com.intellij.openapi.externalSystem.model.project.ProjectData
+import com.intellij.openapi.externalSystem.util.ExternalSystemApiUtil
+import com.intellij.openapi.util.Key
 import com.intellij.openapi.vfs.VirtualFileManager
 import org.jetbrains.kotlin.gradle.idea.tcs.IdeaKotlinBinaryDependency
 import org.jetbrains.kotlin.gradle.idea.tcs.IdeaKotlinResolvedBinaryDependency
@@ -40,15 +43,6 @@ fun DataNode<GradleSourceSetData>.addDependency(dependency: IdeaKotlinBinaryDepe
     }
 
     /*
-    Handle dependencies that are marked as 'project level'.
-    Those dependencies are not bound to the particular SourceSet!
-     */
-    if (dependency.isIdeaProjectLevel) {
-        dependencyNode.data.level = LibraryLevel.PROJECT
-        GradleProjectResolverUtil.linkProjectLibrary(getParent(ProjectData::class.java), dependencyNode.data.target)
-    }
-
-    /*
     Handle dependencies that are coming from the native distribution.
     Those dependencies shall receive a nicer representation (name)
      */
@@ -72,7 +66,46 @@ fun DataNode<GradleSourceSetData>.addDependency(dependency: IdeaKotlinBinaryDepe
         }
     }
 
+    /*
+    Handle dependencies that are marked as 'project level'.
+    Those dependencies are not bound to the particular SourceSet, unless the binaries differ (see [tryLinkProjectLibrary]).
+    This block needs the final name and roots of the library.
+     */
+    if (dependency.isIdeaProjectLevel) {
+        val projectNode = getParent(ProjectData::class.java)
+        val library = dependencyNode.data.target
+        dependencyNode.data.level = when {
+            dependency.isNativeDistribution -> {
+                // No module-level fallback: native distribution libraries must stay project-level (see [KotlinNativeLibrariesFixer])
+                GradleProjectResolverUtil.linkProjectLibrary(projectNode, library)
+                LibraryLevel.PROJECT
+            }
+
+            projectNode != null && tryLinkProjectLibrary(projectNode, library) -> LibraryLevel.PROJECT
+            else -> LibraryLevel.MODULE
+        }
+    }
+
     return dependencyNode
+}
+
+private val PROJECT_LIBRARIES_BY_INTERNAL_NAME: Key<MutableMap<String, LibraryData>> =
+    Key.create("KotlinMpp.PROJECT_LIBRARIES_BY_INTERNAL_NAME")
+
+/**
+ * Returns `true` if the dependency on [library] can use the project library with the same internal name.
+ * - If the project has no library with this internal name, [library] becomes the project library.
+ * - If the project library has all binaries of [library], the dependency can use it.
+ * - In all other cases, the function returns `false`.
+ */
+private fun tryLinkProjectLibrary(projectNode: DataNode<ProjectData>, library: LibraryData): Boolean {
+    val projectLibraries = projectNode.putUserDataIfAbsent(PROJECT_LIBRARIES_BY_INTERNAL_NAME, HashMap())
+    val projectLibrary = projectLibraries.getOrPut(library.internalName) {
+        ExternalSystemApiUtil.findChild(projectNode, ProjectKeys.LIBRARY) { it.data.internalName == library.internalName }?.data
+            ?: library.takeIf { GradleProjectResolverUtil.linkProjectLibrary(projectNode, library) }
+            ?: return false
+    }
+    return projectLibrary.getPaths(LibraryPathType.BINARY).containsAll(library.getPaths(LibraryPathType.BINARY))
 }
 
 private fun addToDependencyNode(

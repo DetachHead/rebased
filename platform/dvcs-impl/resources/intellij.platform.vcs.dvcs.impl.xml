@@ -3,6 +3,8 @@
   <dependencies>
     <module name="fleet.rhizomedb"/>
     <module name="intellij.platform.analysis"/>
+    <module name="intellij.platform.backend.workspace"/>
+    <module name="intellij.platform.concurrency"/>
     <module name="intellij.platform.core"/>
     <module name="intellij.platform.core.impl"/>
     <module name="intellij.platform.core.ui"/>
@@ -31,6 +33,7 @@
     <module name="intellij.platform.vcs.log"/>
     <module name="intellij.platform.vcs.log.impl"/>
     <module name="intellij.platform.workspace.jps"/>
+    <module name="intellij.platform.workspace.storage"/>
   </dependencies>
   <!-- endregion -->
   <extensionPoints>
@@ -136,6 +139,7 @@
       implementation="com.intellij.dvcs.ui.CompareBranchesDiffPanel$GetVersionActionProvider"/>
     <vcs.impl.backend.treeNodeConverter implementation="com.intellij.dvcs.repo.rhizome.RepositoryNodeToEntityConverter"/>
 
-    <platform.rpc.backend.remoteApiProvider implementation="com.intellij.dvcs.DvcsRemoteApiProvider"/>
+    <platform.rpc.backend.remoteApiProvider implementation="com.intellij.dvcs.DvcsRemoteApiProvider"
+                                            apiInterfaces="com.intellij.dvcs.rpc.VcsRepositoryColorsApi"/>
   </extensions>
 </idea-plugin>

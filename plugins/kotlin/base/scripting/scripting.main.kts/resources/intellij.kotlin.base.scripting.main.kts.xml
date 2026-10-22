@@ -18,6 +18,7 @@
     <module name="intellij.platform.core.impl"/>
     <module name="intellij.platform.core.ui"/>
     <module name="intellij.platform.editor.ui"/>
+    <module name="intellij.platform.eel.provider"/>
     <module name="intellij.platform.execution"/>
     <module name="intellij.platform.externalSystem"/>
     <module name="intellij.platform.ide"/>
@@ -35,15 +36,15 @@
 
   <extensions defaultExtensionNs="com.intellij">
     <psi.implicitReferenceProvider
-        implementation="org.jetbrains.kotlin.idea.core.script.k2.mainkts.codeInsight.MainKtsReferenceProvider"/>
+        implementation="org.jetbrains.kotlin.idea.core.script.mainkts.codeInsight.MainKtsReferenceProvider"/>
 
     <completion.contributor language="kotlin"
                             id="MainKtsDependsOnCompletionContributor"
-                            implementationClass="org.jetbrains.kotlin.idea.core.script.k2.mainkts.codeInsight.MainKtsDependsOnCompletionContributor"/>
+                            implementationClass="org.jetbrains.kotlin.idea.core.script.mainkts.codeInsight.MainKtsDependsOnCompletionContributor"/>
 
     <completion.confidence language="kotlin"
                            id="MainKtsDependsOnCompletionConfidence"
                            order="before kotlinSkipAutopopupInStrings"
-                           implementationClass="org.jetbrains.kotlin.idea.core.script.k2.mainkts.codeInsight.MainKtsDependsOnCompletionConfidence"/>
+                           implementationClass="org.jetbrains.kotlin.idea.core.script.mainkts.codeInsight.MainKtsDependsOnCompletionConfidence"/>
   </extensions>
 </idea-plugin>

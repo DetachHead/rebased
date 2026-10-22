@@ -3,7 +3,7 @@ package org.jetbrains.kotlin.idea.k2.codeinsight.quickFixes.createFromUsage
 
 import com.intellij.codeInsight.daemon.QuickFixActionRegistrar
 import com.intellij.codeInsight.quickfix.UnresolvedReferenceQuickFixProvider
-import com.intellij.openapi.diagnostic.rethrowControlFlowException
+import com.intellij.diagnostic.rethrowControlFlowException
 import com.intellij.psi.PsiReference
 import org.jetbrains.kotlin.psi.KtElement
 import org.jetbrains.kotlin.utils.KotlinExceptionWithAttachments

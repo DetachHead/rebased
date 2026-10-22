@@ -1,9 +1,9 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.openapi.editor.impl
 
-import com.intellij.openapi.editor.ex.DocumentTextPatch
+import com.intellij.openapi.editor.ex.DocumentPatch
 import com.intellij.openapi.editor.RangeMarker
-import com.intellij.openapi.editor.impl.marker.PMarker
+import com.intellij.openapi.editor.impl.marker.SnapshotMarkerEngineImpl
 import com.intellij.openapi.editor.impl.marker.SnapshotRangeMarkerImpl
 import com.intellij.openapi.editor.impl.marker.UsePMarkerImplementation
 import com.intellij.testFramework.junit5.TestApplication
@@ -18,16 +18,6 @@ import java.lang.ref.WeakReference
 @UsePMarkerImplementation
 class SnapshotGuardedBlockTest {
   @Test
-  @UsePMarkerImplementation(false)
-  fun `disabled snapshot marker implementation uses legacy guard`() {
-    val document = DocumentImpl("abcdef", true)
-
-    val guard = document.createGuardedBlock(2, 4)
-
-    Assertions.assertThat(guard).isExactlyInstanceOf(GuardedBlock::class.java)
-  }
-
-  @Test
   fun `guard uses persistent snapshot policy and guard flavor`() {
     val document = DocumentImpl("one\ntarget\nlast", true)
     val initialSnapshot = document.core.snapshot()
@@ -38,20 +28,23 @@ class SnapshotGuardedBlockTest {
     Assertions.assertThat(document.guardedBlocks).containsExactly(guard)
     Assertions.assertThat(document.getRangeGuard(5, 6)).isSameAs(guard)
 
-    val snapshotGuard = guard as PMarker
-    Assertions.assertThat(snapshotGuard.resolve(initialSnapshot))
+    val snapshotGuard = guard as SnapshotRangeMarkerImpl
+    val markerStores = document.snapshotMarkerStores
+    val rootStore = document.rangeMarkers.rootStore()
+    Assertions.assertThat(SnapshotMarkerEngineImpl.resolveRangeMarker(snapshotGuard, rootStore.rootReference(initialSnapshot).get()))
       .extracting("startOffset", "endOffset").containsExactly(4, 10)
 
-    val insertedBefore = initialSnapshot.applyOp(textPatch(0, 0, "x\n"))
-    Assertions.assertThat(snapshotGuard.resolve(insertedBefore))
+    val insertedBefore = markerStores.applyPatch(initialSnapshot, textPatch(0, 0, "x\n"))
+    Assertions.assertThat(SnapshotMarkerEngineImpl.resolveRangeMarker(snapshotGuard, rootStore.rootReference(insertedBefore).get()))
       .extracting("startOffset", "endOffset").containsExactly(6, 12)
 
-    val replaced = initialSnapshot.applyOp(textPatch(0, initialSnapshot.text().length(), "prefix\none\ntarget\nlast"))
-    Assertions.assertThat(snapshotGuard.resolve(replaced))
+    val replaced = markerStores.applyPatch(initialSnapshot, textPatch(0, initialSnapshot.text().length(), "prefix\none\ntarget\nlast"))
+    Assertions.assertThat(SnapshotMarkerEngineImpl.resolveRangeMarker(snapshotGuard, rootStore.rootReference(replaced).get()))
       .extracting("startOffset", "endOffset").containsExactly(11, 17)
 
-    val deleted = initialSnapshot.applyOp(textPatch(3, 11, ""))
-    Assertions.assertThat(snapshotGuard.resolve(deleted).isValid).isFalse()
+    val deleted = markerStores.applyPatch(initialSnapshot, textPatch(3, 11, ""))
+    Assertions.assertThat(SnapshotMarkerEngineImpl.resolveRangeMarker(snapshotGuard, rootStore.rootReference(deleted).get()).isValid)
+      .isFalse()
 
     document.removeGuardedBlock(guard)
     Assertions.assertThat(guard.isValid).isFalse()
@@ -141,8 +134,8 @@ class SnapshotGuardedBlockTest {
     return WeakReference(document.createGuardedBlock(startOffset, endOffset))
   }
 
-  private fun textPatch(startOffset: Int, endOffset: Int, newFragment: String): DocumentTextPatch {
-    return DocumentTextPatch.simple(
+  private fun textPatch(startOffset: Int, endOffset: Int, newFragment: String): DocumentPatch {
+    return DocumentPatch.simple(
       startOffset = startOffset,
       endOffset = endOffset,
       newFragment = newFragment,

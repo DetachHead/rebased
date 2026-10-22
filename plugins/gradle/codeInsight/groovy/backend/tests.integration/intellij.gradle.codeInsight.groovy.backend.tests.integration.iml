@@ -13,8 +13,8 @@
     <orderEntry type="module" module-name="intellij.gradle.codeInsight.groovy" scope="TEST" />
     <orderEntry type="module" module-name="intellij.gradle.codeInsight.groovy.backend" scope="TEST" />
     <orderEntry type="module" module-name="intellij.libraries.assertj.core" scope="TEST" />
-    <orderEntry type="module" module-name="intellij.libraries.junit5" scope="TEST" />
-    <orderEntry type="module" module-name="intellij.libraries.junit5.params" scope="TEST" />
+    <orderEntry type="module" module-name="intellij.libraries.junit6" scope="TEST" />
+    <orderEntry type="module" module-name="intellij.libraries.junit6.params" scope="TEST" />
     <orderEntry type="module" module-name="intellij.gradle" scope="TEST" />
     <orderEntry type="module" module-name="intellij.gradle.java" scope="TEST" />
     <orderEntry type="module" module-name="intellij.gradle.tests" scope="TEST" />
@@ -24,7 +24,7 @@
     <orderEntry type="module" module-name="intellij.platform.testFramework" scope="TEST" />
     <orderEntry type="module" module-name="intellij.java.testFramework" scope="TEST" />
     <orderEntry type="module" module-name="intellij.groovy" scope="TEST" />
-    <orderEntry type="module" module-name="intellij.groovy.tests" scope="TEST" />
+    <orderEntry type="module" module-name="intellij.groovy.testFramework" scope="TEST" />
     <orderEntry type="module" module-name="intellij.properties" scope="TEST" />
     <orderEntry type="module" module-name="intellij.properties.backend" scope="TEST" />
     <orderEntry type="module" module-name="intellij.gradle.java.toml" scope="RUNTIME" />

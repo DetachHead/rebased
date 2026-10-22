@@ -129,17 +129,22 @@ public final class ScopeToolState {
     if (!Objects.equals(getEditorAttributesExternalName(), state2.getEditorAttributesExternalName())) return false;
     InspectionToolWrapper<?, ?> toolWrapper = getTool();
     InspectionToolWrapper<?, ?> toolWrapper2 = state2.getTool();
-    if (!toolWrapper.isInitialized() && !toolWrapper2.isInitialized()) return true;
     return areSettingsEqual(toolWrapper, toolWrapper2);
   }
 
-  public static boolean areSettingsEqual(@NotNull InspectionToolWrapper<?, ?> toolWrapper, @NotNull InspectionToolWrapper<?, ?> toolWrapper2) {
+  public static boolean areSettingsEqual(@NotNull InspectionToolWrapper<?, ?> toolWrapper1, @NotNull InspectionToolWrapper<?, ?> toolWrapper2) {
     try {
       @NonNls String tempRoot = "root";
       Element oldToolSettings = new Element(tempRoot);
-      tryWriteSettings(toolWrapper.getTool(), oldToolSettings);
       Element newToolSettings = new Element(tempRoot);
-      tryWriteSettings(toolWrapper2.getTool(), newToolSettings);
+      if (toolWrapper1.isInitialized() || toolWrapper2.isInitialized()) {
+        tryWriteSettings(toolWrapper1.getTool(), oldToolSettings);
+        tryWriteSettings(toolWrapper2.getTool(), newToolSettings);
+      }
+      else {
+        toolWrapper1.writeSettings(oldToolSettings);
+        toolWrapper2.writeSettings(newToolSettings);
+      }
       return JDOMUtil.areElementsEqual(oldToolSettings, newToolSettings);
     }
     catch (WriteExternalException e) {

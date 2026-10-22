@@ -2295,6 +2295,11 @@ public abstract class K2QuickFixTestGenerated extends AbstractK2QuickFixTest {
                 runTest("../../../idea/tests/testData/quickfix/optIn/propagateOptIn8Fir.kt");
             }
 
+            @TestMetadata("propagateRequiresOptInToPrimaryConstructor.kt")
+            public void testPropagateRequiresOptInToPrimaryConstructor() throws Exception {
+                runTest("../../../idea/tests/testData/quickfix/optIn/propagateRequiresOptInToPrimaryConstructor.kt");
+            }
+
             @TestMetadata("propagateSubclassOptInMultipleMarkers1.kt")
             public void testPropagateSubclassOptInMultipleMarkers1() throws Exception {
                 runTest("../../../idea/tests/testData/quickfix/optIn/propagateSubclassOptInMultipleMarkers1.kt");
@@ -2629,6 +2634,11 @@ public abstract class K2QuickFixTestGenerated extends AbstractK2QuickFixTest {
         @TestMetadata("NestedTypeAlias_2_2.kt")
         public void testNestedTypeAlias_2_2() throws Exception {
             runTest("../../../idea/tests/testData/quickfix/unsupportedFeature/NestedTypeAlias_2_2.kt");
+        }
+
+        @TestMetadata("UnnamedLocalVariables_2_4_Increase_Version.kt")
+        public void testUnnamedLocalVariables_2_4_Increase_Version() throws Exception {
+            runTest("../../../idea/tests/testData/quickfix/unsupportedFeature/UnnamedLocalVariables_2_4_Increase_Version.kt");
         }
 
         @TestMetadata("WhenGuards_2_0.kt")

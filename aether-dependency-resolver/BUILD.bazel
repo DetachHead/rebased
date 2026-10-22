@@ -2,6 +2,10 @@ load("@community//build:tests-options.bzl", "jps_test")
 load("@rules_jvm//:jvm.bzl", "jvm_library")
 load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
+### auto-generated section `dev intellij.java.aetherDependencyResolver` start
+content_module_jar(module = ":aether-dependency-resolver")
+### auto-generated section `dev intellij.java.aetherDependencyResolver` end
+
 ### auto-generated section `build intellij.java.aetherDependencyResolver` start
 jvm_library(
     name = "aether-dependency-resolver",
@@ -37,8 +41,6 @@ jvm_library(
     ],
 )
 
-content_module_jar(module = ":aether-dependency-resolver")
-
 jvm_library(
     name = "aether-dependency-resolver_test_lib",
     testonly = True,
@@ -55,8 +57,6 @@ jvm_library(
         "//libraries/jetbrains/annotations:annotations_test_lib",
         "//libraries/http-client:http-client_test_lib",
         "//libraries/commons/logging:logging_test_lib",
-        "//platform/testFramework",
-        "//platform/testFramework:testFramework_test_lib",
         "//libraries/maven-resolver-provider:maven-resolver-provider_test_lib",
         "//libraries/maven-resolver-transport:maven-resolver-transport_test_lib",
         "//libraries/commons/lang3:lang3_test_lib",
@@ -73,7 +73,6 @@ exports_files(
     [
         "intellij.java.aetherDependencyResolver.iml",
         "resources/intellij.java.aetherDependencyResolver.xml",
-        "module-content.yaml",
     ],
     visibility = ["//visibility:public"],
 )
@@ -135,8 +134,8 @@ jvm_library(
         "//platform/util/base:base_test_lib",
         "//libraries/junit4",
         "//libraries/junit4:junit4_test_lib",
-        "//libraries/junit5",
-        "//libraries/junit5:junit5_test_lib",
+        "//libraries/junit6",
+        "//libraries/junit6:junit6_test_lib",
     ],
 )
 ### auto-generated section `build intellij.java.aetherDependencyResolver.tests` end

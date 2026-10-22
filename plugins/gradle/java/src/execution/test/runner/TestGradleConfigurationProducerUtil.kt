@@ -2,6 +2,7 @@
 @file:ApiStatus.Experimental
 package org.jetbrains.plugins.gradle.execution.test.runner
 
+import com.intellij.execution.RunnerAndConfigurationSettings
 import com.intellij.openapi.externalSystem.model.execution.ExternalSystemTaskExecutionSettings
 import com.intellij.openapi.module.Module
 import com.intellij.openapi.vfs.VirtualFile
@@ -12,6 +13,9 @@ import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.plugins.gradle.execution.GradleRunnerUtil
 import org.jetbrains.plugins.gradle.execution.build.CachedModuleDataFinder
 import org.jetbrains.plugins.gradle.execution.test.runner.GradleTestRunConfigurationProducer.findTestsTaskToRun
+import org.jetbrains.plugins.gradle.service.execution.GradleRunConfiguration
+import org.jetbrains.plugins.gradle.util.cmd.node.GradleCommandLine
+import java.util.Collections
 
 fun <E : PsiElement> ExternalSystemTaskExecutionSettings.applyTestConfiguration(
   module: Module,
@@ -108,6 +112,10 @@ fun <T> ExternalSystemTaskExecutionSettings.applyTestConfiguration(
     }
   }
 
+  if (testRunConfigurations.isEmpty()) {
+    return false
+  }
+
   externalProjectPath = projectPath
   taskNames = testRunConfigurations.entries.flatMap { it.key + it.value }
   if (testRunConfigurations.size > 1) {
@@ -115,6 +123,68 @@ fun <T> ExternalSystemTaskExecutionSettings.applyTestConfiguration(
   }
 
   return true
+}
+
+/**
+ * Finds among [candidates] an existing run configuration equivalent to [selectedConfiguration]:
+ * it runs in the same external project, and its Gradle tasks with arguments are consisted exactly
+ * from the [selectedTaskTokens] groups (see [isConsistedFrom]), in any group order.
+ */
+@ApiStatus.Internal
+fun findExistingConfigurationSettings(
+  candidates: List<RunnerAndConfigurationSettings>,
+  selectedConfiguration: GradleRunConfiguration,
+  selectedTaskTokens: List<List<String>>,
+): RunnerAndConfigurationSettings? {
+  val externalProjectPath = selectedConfiguration.settings.externalProjectPath ?: return null
+  if (selectedTaskTokens.isEmpty() || selectedTaskTokens.any { it.isEmpty() }) return null
+  val selectedTokenCount = selectedTaskTokens.sumOf { it.size }
+  return candidates.firstOrNull { settings ->
+    val existingConfiguration = settings.configuration as? GradleRunConfiguration ?: return@firstOrNull false
+    if (existingConfiguration === selectedConfiguration) return@firstOrNull false
+    if (externalProjectPath != existingConfiguration.settings.externalProjectPath) return@firstOrNull false
+    val existingTaskTokens = getNormalizedTaskTokens(existingConfiguration)
+    existingTaskTokens.size == selectedTokenCount && isConsistedFrom(existingTaskTokens, selectedTaskTokens)
+  }
+}
+
+/**
+ * Task tokens of [configuration], re-tokenized from the joined command line: a task name entry may hold
+ * several tokens (e.g. `--tests "TestCase.test1"` produced by [applyTestConfiguration]), and parsing the
+ * task name list directly would keep such an entry as a single opaque token.
+ */
+@ApiStatus.Internal
+fun getNormalizedTaskTokens(configuration: GradleRunConfiguration): List<String> {
+  val commandLine = configuration.settings.taskNames.joinToString(" ")
+  return GradleCommandLine.parse(commandLine).tasks.tokens
+}
+
+/**
+ * Checks that [list] can be represented by sequence from all or part of [subLists].
+ *
+ * For example:
+ *
+ * `[1, 2, 3, 4] is not consisted from [1, 2]`
+ *
+ * `[1, 2, 3, 4] is consisted from [1, 2] and [3, 4]`
+ *
+ * `[1, 2, 3, 4] is consisted from [1, 2], [3, 4] and [1, 2, 3]`
+ *
+ * `[1, 2, 3, 4] is not consisted from [1, 2, 3] and [3, 4]`
+ */
+@ApiStatus.Internal
+fun isConsistedFrom(list: List<String>, subLists: List<List<String>>): Boolean {
+  val reducer = ArrayList<String?>(list)
+  val sortedTiles = subLists.sortedByDescending { it.size }
+  for (tile in sortedTiles) {
+    val index = Collections.indexOfSubList(reducer, tile)
+    if (index >= 0) {
+      val subReducer = reducer.subList(index, index + tile.size)
+      subReducer.clear()
+      subReducer.add(null)
+    }
+  }
+  return reducer.all { it == null }
 }
 
 @ApiStatus.Internal
@@ -135,7 +205,7 @@ fun ExternalSystemTaskExecutionSettings.addScriptParameterIfAbsent(option: Strin
  */
 internal const val CONTINUE_OPTION: String = "--continue"
 
-fun String.escapeIfNeeded() = when {
+fun String.escapeIfNeeded(): String = when {
   contains(' ') -> "'$this'"
   else -> this
 }

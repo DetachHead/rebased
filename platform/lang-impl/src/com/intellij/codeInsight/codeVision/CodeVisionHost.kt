@@ -17,6 +17,8 @@ import com.intellij.codeInsight.hints.settings.showInlaySettings
 import com.intellij.codeInsight.multiverse.EditorContextManager
 import com.intellij.codeInsight.multiverse.isSharedSourceSupportEnabled
 import com.intellij.codeWithMe.ClientId
+import com.intellij.concurrency.JobLauncher
+import com.intellij.concurrency.JobLauncherImpl
 import com.intellij.ide.PowerSaveMode
 import com.intellij.ide.plugins.DynamicPluginListener
 import com.intellij.ide.plugins.IdeaPluginDescriptor
@@ -29,7 +31,7 @@ import com.intellij.openapi.application.readAction
 import com.intellij.openapi.application.runReadActionBlocking
 import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.logger
-import com.intellij.openapi.diagnostic.rethrowControlFlowException
+import com.intellij.diagnostic.rethrowControlFlowException
 import com.intellij.openapi.diagnostic.trace
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.editor.EditorFactory
@@ -119,14 +121,14 @@ open class CodeVisionHost(val project: Project, protected val coroutineScope: Co
 
   private val defaultSortedProvidersList = mutableListOf<String>()
 
-  @RequiresEdt
+  @RequiresEdt(generateAssertion = false /* IJPL-115548 */)
   internal fun initializeIfNeeded() {
     if (_isInitialised) return
     initialize()
     _isInitialised = true
   }
 
-  @RequiresEdt
+  @RequiresEdt(generateAssertion = false /* IJPL-115548 */)
   protected open fun initialize() {
     lifeSettingModel.isRegistryEnabled.whenTrue(codeVisionLifetime) { enableCodeVisionLifetime ->
       runReadActionBlocking {
@@ -141,7 +143,7 @@ open class CodeVisionHost(val project: Project, protected val coroutineScope: Co
     }
   }
 
-  @get:RequiresEdt
+  @get:RequiresEdt(generateAssertion = false /* IJPL-115548 */)
   val isInitialised: Boolean get() = _isInitialised
   private var _isInitialised = false
 
@@ -408,7 +410,7 @@ open class CodeVisionHost(val project: Project, protected val coroutineScope: Co
     editor.putUserData(editorTrackingStart, editorOpenedMark)
     var calcRunning = false
 
-    @RequiresEdt
+    @RequiresEdt(generateAssertion = false /* IJPL-115548 */)
     fun recalculateLenses(lensesToUpdate: UpdateLensesRequest = UpdateLensesRequest.All) {
       val editorManager = FileEditorManager.getInstance(project)
       if (!isInlaySettingsEditor(editor) && !editorManager.selectedEditors.any {
@@ -495,7 +497,7 @@ open class CodeVisionHost(val project: Project, protected val coroutineScope: Co
   private fun isAllowedFileEditor(fileEditor: FileEditor?) = fileEditor is TextEditor && fileEditor !is BaseRemoteFileEditor
 
   /** @param consumer Continuation called on EDT with the calculated lenses */
-  @RequiresEdt
+  @RequiresEdt(generateAssertion = false /* IJPL-115548 */)
   private fun calculateFrontendLenses(
     calcLifetime: Lifetime,
     editor: Editor,
@@ -599,9 +601,9 @@ open class CodeVisionHost(val project: Project, protected val coroutineScope: Co
     val indicator = EmptyProgressIndicator()
     indicator.start()
 
-    CompletableFuture.runAsync(
+    (JobLauncher.getInstance() as JobLauncherImpl).submitToJobThread(
       { ProgressManager.getInstance().runProcess(runnable, indicator) },
-      AppExecutorUtil.getAppExecutorService()
+      {}
     )
 
     lifetime.onTerminationIfAlive {

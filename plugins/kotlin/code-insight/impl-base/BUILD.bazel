@@ -2,15 +2,24 @@ load("@rules_jvm//:jvm.bzl", "jvm_library")
 load("//build:compiler-options.bzl", "create_kotlinc_options")
 load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
+### auto-generated section `dev intellij.kotlin.codeInsight.shared` start
+content_module_jar(module = ":kotlin-codeInsight-shared")
+### auto-generated section `dev intellij.kotlin.codeInsight.shared` end
+
 ### auto-generated section `build intellij.kotlin.codeInsight.shared` start
 create_kotlinc_options(
     name = "custom_kotlin-codeInsight-shared",
     opt_in = [
-        "org.jetbrains.kotlin.utils.addToStdlib.UnsafeCastFunction",
+        "org.jetbrains.kotlin.psi.KtExperimentalApi",
+        "org.jetbrains.kotlin.psi.KtNonPublicApi",
+        "org.jetbrains.kotlin.psi.KtIdeApi",
         "org.jetbrains.kotlin.analysis.api.KaExperimentalApi",
         "org.jetbrains.kotlin.analysis.api.KaIdeApi",
-        "org.jetbrains.kotlin.analysis.api.permissions.KaAllowProhibitedAnalyzeFromWriteAction",
+        "org.jetbrains.kotlin.analysis.api.KaPlatformInterface",
+        "org.jetbrains.kotlin.analysis.api.fir.diagnostics.KaUnstableDiagnosticApi",
+        "org.jetbrains.kotlin.analysis.api.KaNonPublicApi",
         "org.jetbrains.kotlin.analysis.api.KaContextParameterApi",
+        "org.jetbrains.kotlin.analysis.api.permissions.KaAllowProhibitedAnalyzeFromWriteAction",
     ],
     x_context_parameters = True,
 )
@@ -75,7 +84,6 @@ jvm_library(
         "//plugins/kotlin/base/indices",
         "//platform/util/jdom",
         "//platform/util:util-ui",
-        "//platform/vcs-api:vcs",
         "//plugins/kotlin/base/analysis",
         "//java/openapi:java",
         "//java/java-frontback-psi-api:frontback-psi",
@@ -90,8 +98,6 @@ jvm_library(
         "//platform/lang-api:lang",
     ],
 )
-
-content_module_jar(module = ":kotlin-codeInsight-shared")
 
 jvm_library(
     name = "kotlin-codeInsight-shared_test_lib",
@@ -146,7 +152,6 @@ jvm_library(
         "//plugins/kotlin/base/indices:indices_test_lib",
         "//platform/util/jdom:jdom_test_lib",
         "//platform/util:util-ui_test_lib",
-        "//platform/vcs-api:vcs_test_lib",
         "//plugins/kotlin/base/analysis:analysis_test_lib",
         "//java/openapi:java_test_lib",
         "//java/java-frontback-psi-api:frontback-psi_test_lib",

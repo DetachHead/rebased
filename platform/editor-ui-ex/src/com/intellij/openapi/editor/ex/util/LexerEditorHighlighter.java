@@ -49,7 +49,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CancellationException;
 
-import static com.intellij.openapi.diagnostic.LoggerKt.rethrowControlFlowException;
+import static com.intellij.diagnostic.ControlFlowExceptionsKt.rethrowControlFlowException;
 
 public class LexerEditorHighlighter implements EditorHighlighter, PrioritizedDocumentListener {
   private static final Logger LOG = Logger.getInstance(LexerEditorHighlighter.class);

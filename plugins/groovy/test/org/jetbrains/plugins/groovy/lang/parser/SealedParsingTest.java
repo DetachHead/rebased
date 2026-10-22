@@ -3,8 +3,8 @@ package org.jetbrains.plugins.groovy.lang.parser;
 
 public class SealedParsingTest extends GroovyParsingTestCase {
   @Override
-  public String getBasePath() {
-    return super.getBasePath() + "types/sealed";
+  public String getTestDataPath() {
+    return super.getTestDataPath() + "types/sealed";
   }
 
   public void testBasicNonsealed() { doTest(); }

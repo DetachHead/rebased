@@ -85,7 +85,7 @@ public class SafeDeleteJavaTest extends LightGroovyTestCase {
   }
 
   @Override
-  public final String getBasePath() {
-    return TestUtils.getTestDataPath() + "refactoring/safeDeleteJavaParameter/";
+  public final String getTestDataPath() {
+    return TestUtils.getAbsoluteTestDataPath() + "refactoring/safeDeleteJavaParameter/";
   }
 }

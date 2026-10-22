@@ -1,12 +1,6 @@
 // Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.jetbrains.jsonSchema.impl.fixes;
 
-import com.fasterxml.jackson.core.JsonFactory;
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.dataformat.yaml.YAMLFactory;
-import com.fasterxml.jackson.dataformat.yaml.YAMLGenerator;
 import com.intellij.codeInsight.template.impl.ConstantNode;
 import com.intellij.codeInsight.template.impl.EmptyNode;
 import com.intellij.codeInsight.template.impl.MacroCallNode;
@@ -27,6 +21,8 @@ import com.intellij.openapi.util.TextRange;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiFile;
+import com.intellij.psi.SmartPointerManager;
+import com.intellij.psi.SmartPsiElementPointer;
 import com.intellij.psi.codeStyle.CodeStyleManager;
 import com.intellij.util.containers.ContainerUtil;
 import com.jetbrains.jsonSchema.extension.JsonLikePsiWalker;
@@ -39,6 +35,13 @@ import org.jetbrains.annotations.Contract;
 import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import tools.jackson.core.JacksonException;
+import tools.jackson.core.TokenStreamFactory;
+import tools.jackson.core.json.JsonFactory;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.dataformat.yaml.YAMLFactory;
+import tools.jackson.dataformat.yaml.YAMLWriteFeature;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -77,14 +80,14 @@ public final class AddMissingPropertyFix extends ModCommandBatchQuickFix {
         AddMissingPropertyFix fix = fixes == null ? this : getWorkingQuickFix(fixes);
         if (fix == null) return;
         PsiElement elementCopy = updater.getWritable(descriptor.getPsiElement());
-
+        SmartPsiElementPointer<PsiElement> smartPointer = SmartPointerManager.createPointer(elementCopy);
         PsiFile file = elementCopy.getContainingFile();
         // Reformatting the whole file because formatting is crucial for yaml files and
         // changes now should be inside ModCommand.
         // Reformatting inside `myQuickFixAdapter` doesn't work for non-physical elements
         CodeStyleManager.getInstance(project).reformatText(file, 0, file.getTextLength());
         Ref<PsiElement> newElementRef = Ref.create();
-        fix.performFixInner(elementCopy, newElementRef);
+        fix.performFixInner(smartPointer.getElement(), newElementRef);
         PsiElement newElement = newElementRef.get();
         if (newElement == null) return; // multiple properties: no template/caret move
 
@@ -180,12 +183,12 @@ public final class AddMissingPropertyFix extends ModCommandBatchQuickFix {
   }
 
   private static @Nullable String convertToYamlIfNeeded(@NotNull Language language, JsonNode jsonNode) {
-    JsonFactory jacksonFactory;
+    TokenStreamFactory jacksonFactory;
     if (language.is(JsonLanguage.INSTANCE))
       jacksonFactory = new JsonFactory();
     else
       jacksonFactory = YAMLFactory.builder()
-        .disable(YAMLGenerator.Feature.WRITE_DOC_START_MARKER)
+        .disable(YAMLWriteFeature.WRITE_DOC_START_MARKER)
         .build();
 
     try {
@@ -194,7 +197,7 @@ public final class AddMissingPropertyFix extends ModCommandBatchQuickFix {
         .writeValueAsString(jsonNode);
       return StringUtil.trimEnd(exampleInTargetLanguage, "\n");
     }
-    catch (JsonProcessingException e) {
+    catch (JacksonException e) {
       return null;
     }
   }

@@ -14,12 +14,12 @@ import com.intellij.openapi.ui.DialogWrapper
 import com.intellij.openapi.util.NlsContexts
 import com.intellij.platform.util.coroutines.childScope
 import com.intellij.ui.AnimatedIcon
+import com.intellij.ui.dsl.builder.AlignX
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import org.jetbrains.plugins.gitlab.api.GitLabServerPath
 import org.jetbrains.plugins.gitlab.authentication.GitLabCredentials
-import org.jetbrains.plugins.gitlab.ui.clone.GitLabOAuthLoginInputPanelFactory
 import org.jetbrains.plugins.gitlab.ui.util.GitLabPluginProjectScopeProvider
 import javax.swing.JComponent
 
@@ -116,5 +116,11 @@ private class GitLabOAuthLoginDialog(
   override fun doHelpAction() = BrowserUtil.browse(SELF_MANAGED_SERVER_OAUTH_CONFIGURATION_DOCS_LINK)
 
   override fun createCenterPanel(): DialogPanel =
-    GitLabOAuthLoginInputPanelFactory.createIn(cs, vm, serverFieldDisabled, canLogInWithGit).withPreferredWidth(350)
+    GitLabOAuthLoginInputPanelFactory.createIn(cs, vm, serverFieldDisabled, canLogInWithGit,
+                                               footer = {
+                                                 row("") {
+                                                   addWarningForHttpProtocol(cs, vm.isHttpUri).align(AlignX.RIGHT)
+                                                 }
+                                               }
+    ).withPreferredWidth(350)
 }

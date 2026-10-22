@@ -28,6 +28,7 @@ import org.jetbrains.plugins.gradle.execution.build.CachedModuleDataFinder;
 import org.jetbrains.plugins.gradle.service.execution.GradleRunConfiguration;
 import org.jetbrains.plugins.gradle.settings.GradleProjectSettings;
 import org.jetbrains.plugins.gradle.settings.TestRunner;
+import org.jetbrains.plugins.gradle.util.GradleBundle;
 import org.jetbrains.plugins.gradle.util.GradleModuleData;
 import org.jetbrains.plugins.gradle.util.TasksToRun;
 
@@ -39,6 +40,7 @@ import java.util.Set;
 import static org.jetbrains.plugins.gradle.settings.TestRunner.CHOOSE_PER_TEST;
 import static org.jetbrains.plugins.gradle.settings.TestRunner.GRADLE;
 import static org.jetbrains.plugins.gradle.settings.TestRunner.PLATFORM;
+import static org.jetbrains.plugins.gradle.util.GradleUtil.summarizeList;
 
 public abstract class GradleTestRunConfigurationProducer extends GradleRunConfigurationProducer {
 
@@ -99,6 +101,29 @@ public abstract class GradleTestRunConfigurationProducer extends GradleRunConfig
   protected TestTasksChooser getTestTasksChooser() {
     return testTasksChooser;
   }
+
+  protected static @NotNull String createTaskFirstConfigurationNameFor(
+    @NotNull List<String> taskNames,
+    @NotNull List<String> targetNames
+  ) {
+    return GradleBundle.message(
+      "gradle.tests.task.first.configuration.name.for",
+      summarizeList(taskNames),
+      summarizeList(targetNames)
+    );
+  }
+
+  protected static @NotNull String createTaskFirstConfigurationNameIn(
+    @NotNull List<String> taskNames,
+    @NotNull String targetName
+  ) {
+    return GradleBundle.message(
+      "gradle.tests.task.first.configuration.name.in",
+      summarizeList(taskNames),
+      targetName
+    );
+  }
+
 
   @TestOnly
   public void setTestTasksChooser(TestTasksChooser testTasksChooser) {

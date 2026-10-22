@@ -14,11 +14,14 @@ import com.intellij.platform.ide.progress.ModalTaskOwner
 import com.intellij.platform.ide.progress.TaskCancellation
 import com.intellij.platform.ide.progress.runWithModalProgressBlocking
 import com.intellij.platform.ide.progress.withModalProgress
+import com.intellij.platform.productMode.ProductMode
 import com.intellij.util.ObjectUtils
+import com.intellij.util.PlatformUtils
 import com.intellij.util.concurrency.annotations.RequiresBackgroundThread
 import com.intellij.util.concurrency.annotations.RequiresEdt
 import com.intellij.util.concurrency.annotations.RequiresReadLockAbsence
 import org.jetbrains.annotations.ApiStatus
+import org.jetbrains.annotations.Nls
 import org.jetbrains.annotations.NonNls
 
 private val LOG = Logger.getInstance(DynamicPlugins::class.java)
@@ -40,7 +43,7 @@ object DynamicPlugins {
    * @param pretendEnabled plugins that should be treated as not disabled
    * @param pretendDisabled plugins that should be treated as disabled
    */
-  @RequiresReadLockAbsence
+  @RequiresReadLockAbsence(generateAssertion = false /* IJPL-115548 */)
   @ApiStatus.Internal
   suspend fun checkCanReconfigureWithoutRestart(
     addNewCustomPlugins: List<PluginMainDescriptor>,
@@ -76,16 +79,29 @@ object DynamicPlugins {
    * @param addNewCustomPlugins newly installed/updated plugins that weren't in the context before
    * @param forceRemovePlugins plugins that should be excluded from the context completely (so it appears as they don't exist at all anymore)
    * @param extraStateValidator additional checks of the target state can be done there (e.g. that a certain plugin loads). See [expectPluginsState]
+   * @param targetProductMode when set, the process moves into this product mode as a part of this reconfiguration.
+   *   A mode change takes effect only through the module set that the mode implies, so the two never happen apart.
+   *   The mode moves first, because the recalculation and the descriptor parsing below both read the current mode.
+   *   Nothing happens and the result is `false` when the mode cannot move to [targetProductMode], which is also what
+   *   a second call with the same target does.
    */
-  @RequiresReadLockAbsence
+  @RequiresReadLockAbsence(generateAssertion = false /* IJPL-115548 */)
   @ApiStatus.Internal
   suspend fun reconfigure(
     project: Project?,
     addNewCustomPlugins: List<PluginMainDescriptor>,
     forceRemovePlugins: List<PluginMainDescriptor>,
     extraStateValidator: PluginStateValidator,
+    targetProductMode: ProductMode? = null,
   ): Boolean {
     LOG.trace("dynamic plugins reconfiguration attempt")
+    if (targetProductMode != null) {
+      val currentMode = PluginManagerCore.getPluginSet().initContext.productMode
+      if (!CurrentProductMode.transitionTo(targetProductMode)) {
+        LOG.info("The product mode does not move to '${targetProductMode.id}' from '${currentMode.id}', so no plugin is reconfigured")
+        return false
+      }
+    }
     val title = when {
       forceRemovePlugins.isEmpty() -> when {
         addNewCustomPlugins.isEmpty() -> IdeBundle.message("modal.progress.title.reconfiguring.plugins")
@@ -146,10 +162,10 @@ object DynamicPlugins {
    * @return true if the requested enabled state was applied without restart, false if restart is required
    */
   @RequiresEdt(generateAssertion = false)
-  fun loadPlugins(plugins: List<PluginMainDescriptor>, project: Project?): Boolean {
+  fun loadPlugins(plugins: List<PluginMainDescriptor>, project: Project?, progressTitle: @Nls String? = null): Boolean {
     return runWithModalProgressBlocking(
       project?.let { ModalTaskOwner.project(it) } ?: ModalTaskOwner.guess(),
-      IdeBundle.message("modal.progress.title.loading.plugins"),
+      progressTitle ?: defaultLoadingTitle(plugins),
       cancellation = TaskCancellation.nonCancellable()
     ) {
       val newState = computeNewPluginsState(plugins, emptyList())
@@ -161,6 +177,18 @@ object DynamicPlugins {
       }
       val result = DynamicPluginsSupport.getInstance().performDynamicReconfiguration(newState)
       result is DynamicPluginsReconfigurationResult.Success
+    }
+  }
+
+  /**
+   * Enabling the Ultimate plugin is a subscription activation from the user's point of view
+   */
+  private fun defaultLoadingTitle(plugins: List<PluginMainDescriptor>): @NlsContexts.ModalProgressTitle String {
+    return if (plugins.any { it.pluginId == PluginManagerCore.ULTIMATE_PLUGIN_ID }) {
+      IdeBundle.message("modal.progress.title.activating.ultimate.subscription", PlatformUtils.freeIdePaidVersionName())
+    }
+    else {
+      IdeBundle.message("modal.progress.title.loading.plugins")
     }
   }
 

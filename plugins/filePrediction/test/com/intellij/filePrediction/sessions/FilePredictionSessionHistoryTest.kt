@@ -11,12 +11,22 @@ import com.intellij.filePrediction.candidates.FilePredictionCandidateSource.RECE
 import com.intellij.filePrediction.candidates.FilePredictionCandidateSource.REFERENCE
 import com.intellij.filePrediction.candidates.FilePredictionCandidateSource.VCS
 import com.intellij.filePrediction.predictor.FilePredictionCompressedCandidate
-import com.intellij.testFramework.builders.ModuleFixtureBuilder
-import com.intellij.testFramework.fixtures.CodeInsightFixtureTestCase
-import com.intellij.testFramework.fixtures.ModuleFixture
-import junit.framework.TestCase
+import com.intellij.openapi.application.EDT
+import com.intellij.platform.testFramework.junit5.codeInsight.fixture.codeInsightFixture
+import com.intellij.platform.testFramework.junit5.codeInsight.fixture.codeInsightProjectFixture
+import com.intellij.testFramework.common.timeoutRunBlocking
+import com.intellij.testFramework.junit5.TestApplication
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import org.junit.jupiter.api.Assertions.assertNotNull
+import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.Test
 
-class FilePredictionSessionHistoryTest : CodeInsightFixtureTestCase<ModuleFixtureBuilder<ModuleFixture>>() {
+@TestApplication
+class FilePredictionSessionHistoryTest {
+  private val projectFixture = codeInsightProjectFixture()
+  private val myFixture by codeInsightFixture(projectFixture)
+
   private fun doTestSession(previous: List<Pair<String, FilePredictionCandidateSource>>,
                             expected: Set<String>, candidatesToSelect: Int? = null) {
     doTest(listOf(TestFilePredictionSession(previous)), expected, candidatesToSelect)
@@ -46,36 +56,39 @@ class FilePredictionSessionHistoryTest : CodeInsightFixtureTestCase<ModuleFixtur
 
 
   private fun doTest(sessions: List<TestFilePredictionSession>,
-                     expected: Set<String>, candidatesToSelect: Int? = null) {
-    val builder = FilePredictionTestProjectBuilder("com")
-    for (session in sessions) {
-      session.candidates.forEach {
-        builder.addFileIfNeeded(it.first)
+                     expected: Set<String>, candidatesToSelect: Int? = null): Unit = timeoutRunBlocking {
+    withContext(Dispatchers.EDT) {
+      val builder = FilePredictionTestProjectBuilder("com")
+      for (session in sessions) {
+        session.candidates.forEach {
+          builder.addFileIfNeeded(it.first)
+        }
       }
+
+      val root = builder.create(myFixture)
+      assertNotNull(root, "Cannot create test project")
+
+      val file = FilePredictionTestDataHelper.findMainTestFile(root)
+      assertNotNull(file, "Cannot find file with '${FilePredictionTestDataHelper.DEFAULT_MAIN_FILE}' name")
+
+      val history = FilePredictionSessionHistory.getInstance(myFixture.project)
+      history.setCandidatesPerSession(5)
+
+      for (session in sessions) {
+        val candidates = session.candidates.map { newCandidate(it.first, it.second) }.toList()
+        history.onCandidatesCalculated(candidates)
+      }
+
+      val actual = history.selectCandidates(candidatesToSelect ?: 5)
+      assertTrue(actual == expected, "Actual candidates are differ from expected")
     }
-
-    val root = builder.create(myFixture)
-    assertNotNull("Cannot create test project", root)
-
-    val file = FilePredictionTestDataHelper.findMainTestFile(root)
-    assertNotNull("Cannot find file with '${FilePredictionTestDataHelper.DEFAULT_MAIN_FILE}' name", file)
-
-    val history = FilePredictionSessionHistory.getInstance(myFixture.project)
-    history.setCandidatesPerSession(5)
-
-    for (session in sessions) {
-      val candidates = session.candidates.map { newCandidate(it.first, it.second) }.toList()
-      history.onCandidatesCalculated(candidates)
-    }
-
-    val actual = history.selectCandidates(candidatesToSelect ?: 5)
-    TestCase.assertTrue("Actual candidates are differ from expected", actual == expected)
   }
 
   private fun newCandidate(file: String, source: FilePredictionCandidateSource): FilePredictionCompressedCandidate {
     return FilePredictionCompressedCandidate(file, source, "", 10, 5, 0.5)
   }
 
+  @Test
   fun `test candidates are saved`() {
     doTestSession(listOf(
       "com/subdir/test/Foo1.java" to NEIGHBOR,
@@ -88,6 +101,7 @@ class FilePredictionSessionHistoryTest : CodeInsightFixtureTestCase<ModuleFixtur
     ))
   }
 
+  @Test
   fun `test only neighbor and reference candidates are saved`() {
     doTestSession(listOf(
       "com/subdir/test/Foo1.java" to OPEN,
@@ -101,6 +115,7 @@ class FilePredictionSessionHistoryTest : CodeInsightFixtureTestCase<ModuleFixtur
     ))
   }
 
+  @Test
   fun `test top candidates are saved`() {
     doTestSession(listOf(
       "com/subdir/test/Foo1.java" to NEIGHBOR,
@@ -119,6 +134,7 @@ class FilePredictionSessionHistoryTest : CodeInsightFixtureTestCase<ModuleFixtur
     ))
   }
 
+  @Test
   fun `test top candidates are returned`() {
     doTestSession(listOf(
       "com/subdir/test/Foo1.java" to NEIGHBOR,
@@ -134,6 +150,7 @@ class FilePredictionSessionHistoryTest : CodeInsightFixtureTestCase<ModuleFixtur
     ), 2)
   }
 
+  @Test
   fun `test candidates from two last sessions are saved`() {
     doTestTwoSessions(listOf(
       "com/subdir/test/Foo1.java" to NEIGHBOR,
@@ -153,6 +170,7 @@ class FilePredictionSessionHistoryTest : CodeInsightFixtureTestCase<ModuleFixtur
     ))
   }
 
+  @Test
   fun `test candidates from three last sessions are saved`() {
     doTestThreeSessions(listOf(
       "com/subdir/test/Foo1.java" to NEIGHBOR,
@@ -179,6 +197,7 @@ class FilePredictionSessionHistoryTest : CodeInsightFixtureTestCase<ModuleFixtur
     ))
   }
 
+  @Test
   fun `test candidates only from three last sessions are saved`() {
     doTest(listOf(TestFilePredictionSession(listOf(
       "com/subdir/test/Foo1.java" to NEIGHBOR,

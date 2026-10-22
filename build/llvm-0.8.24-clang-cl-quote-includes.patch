@@ -1,0 +1,23 @@
+Pass the quote include paths of clang-cl as `-iquote`, not `/I`.
+
+Bazel puts each repository root on the quote include path. The clang-cl toolchain renders it as `/I`, so it also
+serves `#include <...>`. The C++ standard library is libc++, whose headers include `<version>`. A repository that
+holds a `VERSION` file at its root, such as `jemalloc`, then shadows that header on a case-insensitive file system.
+On Windows, where actions run without a sandbox, the compile fails deep inside libc++, for example with
+"no template named 'numeric_limits'".
+
+`-iquote` gives the paths their Clang meaning: only `#include "..."` searches them. clang-cl has no `-iquote`, so
+pass it through `/clang:`.
+--- a/toolchain/features/clang_cl/BUILD.bazel
++++ b/toolchain/features/clang_cl/BUILD.bazel
+@@ -254,7 +254,9 @@
+ cc_args(
+     name = "quote_include_paths_args",
+     actions = _COMPILE_ACTIONS,
+-    args = ["/I{quote_include_paths}"],
++    # A quote path must not serve `#include <...>`. With `/I`, a repository root holding a `VERSION` file shadows
++    # the libc++ `<version>` header on a case-insensitive file system.
++    args = ["/clang:-iquote{quote_include_paths}"],
+     format = {"quote_include_paths": "@rules_cc//cc/toolchains/variables:quote_include_paths"},
+     iterate_over = "@rules_cc//cc/toolchains/variables:quote_include_paths",
+ )

@@ -7,10 +7,8 @@ import com.intellij.openapi.editor.elf.Elf
 import com.intellij.openapi.editor.event.DocumentEvent
 import com.intellij.openapi.editor.ex.DocumentSettings
 import com.intellij.openapi.editor.ex.DocumentSnapshot
-import com.intellij.openapi.editor.ex.DocumentSputnik
-import com.intellij.openapi.editor.ex.DocumentTextPatch
+import com.intellij.openapi.editor.ex.DocumentPatch
 import com.intellij.openapi.editor.impl.event.DocumentEventImpl
-import com.intellij.openapi.util.Key
 import com.intellij.util.DocumentEventUtil
 import com.intellij.util.concurrency.ThreadingAssertions
 import com.intellij.util.text.ImmutableCharSequence
@@ -103,11 +101,6 @@ internal abstract class DocumentElfMutator(
     throw UnsupportedOperationException("ElfDocument does not support clearLineFlags yet")
   }
 
-  final override fun <S : DocumentSputnik> setSputnik(key: Key<S>, sputnik: (DocumentSnapshot) -> S?): DocumentSnapshot {
-    assertIsInElfScope()
-    throw UnsupportedOperationException("ElfDocument does not support setSputnik yet")
-  }
-
   final override fun insertString(
     hostDocument: Document,
     insertOffset: Int,
@@ -182,7 +175,7 @@ internal abstract class DocumentElfMutator(
   final override fun changeText(
     snapshotBefore: DocumentSnapshot,
     changeEvent: DocumentEvent,
-    patch: DocumentTextPatch,
+    patch: DocumentPatch,
   ): DocumentSnapshot {
     if (changeEvent is DocumentEventImpl) {
       patch.attachLineDiff(changeEvent.lineDiff)
@@ -217,7 +210,7 @@ internal abstract class DocumentElfMutator(
 
   private fun updateText(
     snapshotBefore: DocumentSnapshot,
-    patch: DocumentTextPatch,
+    patch: DocumentPatch,
   ): DocumentSnapshot {
     return updateAndGet { latest -> mergeAndPatch(snapshotBefore, latest, patch) }
   }
@@ -271,7 +264,7 @@ internal abstract class DocumentElfMutator(
     wholeText: ImmutableCharSequence,
     newModStamp: Long,
     clearLineFlags: Boolean,
-  ): DocumentTextPatch {
+  ): DocumentPatch {
     val originStartOffset = if (changeEvent is DocumentEventImpl) {
       changeEvent.initialStartOffset
     } else {
@@ -283,7 +276,7 @@ internal abstract class DocumentElfMutator(
       changeEvent.oldLength
     })
     if (changeEvent.isWholeTextReplaced) {
-      return DocumentTextPatch.complex(
+      return DocumentPatch.complex(
         startOffset = 0,
         endOffset = snapshotBefore.text().length(),
         newFragment = wholeText,
@@ -294,7 +287,7 @@ internal abstract class DocumentElfMutator(
         moveOffset = changeEvent.moveOffset,
       )
     }
-    return DocumentTextPatch.complex(
+    return DocumentPatch.complex(
       startOffset = changeEvent.offset,
       endOffset = changeEvent.offset + changeEvent.oldLength,
       newFragment = changeEvent.newFragment,

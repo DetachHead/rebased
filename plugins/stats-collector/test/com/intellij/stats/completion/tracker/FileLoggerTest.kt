@@ -4,15 +4,20 @@ package com.intellij.stats.completion.tracker
 import com.intellij.codeInsight.lookup.LookupManagerListener
 import com.intellij.codeInsight.lookup.impl.LookupImpl
 import com.intellij.lang.Language
+import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.editor.CaretModel
 import com.intellij.openapi.editor.Document
 import com.intellij.openapi.editor.Editor
 import com.intellij.stats.completion.storage.FilePathProvider
-import com.intellij.testFramework.HeavyPlatformTestCase
+import com.intellij.testFramework.junit5.TestApplication
+import com.intellij.testFramework.junit5.TestDisposable
+import com.intellij.testFramework.junit5.fixture.projectFixture
 import com.intellij.testFramework.replaceService
 import org.assertj.core.api.Assertions.assertThat
-import org.junit.Test
+import org.junit.jupiter.api.BeforeEach
+import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.io.TempDir
 import org.mockito.ArgumentMatchers
 import org.mockito.Mockito.mock
 import org.mockito.Mockito.`when`
@@ -22,15 +27,24 @@ import java.nio.file.StandardWatchEventKinds
 import java.util.UUID
 import java.util.concurrent.TimeUnit
 
-class FileLoggerTest : HeavyPlatformTestCase() {
-  private lateinit var dir: File
+@TestApplication
+class FileLoggerTest {
+  companion object {
+    private val projectFixture = projectFixture()
+  }
+
+  @TestDisposable
+  lateinit var testRootDisposable: Disposable
+
+  @TempDir
+  lateinit var dir: File
+
   private lateinit var logFile: File
 
   private lateinit var pathProvider: FilePathProvider
 
-  override fun setUp() {
-    super.setUp()
-    dir = createTempDirectory()
+  @BeforeEach
+  fun setUp() {
     logFile = File(dir, "unique_1")
 
     pathProvider = mock(FilePathProvider::class.java).apply {
@@ -38,19 +52,7 @@ class FileLoggerTest : HeavyPlatformTestCase() {
       `when`(getUniqueFile()).thenReturn(logFile)
     }
 
-    project.messageBus.connect(testRootDisposable).subscribe(LookupManagerListener.TOPIC, CompletionLoggerInitializer())
-  }
-
-  override fun tearDown() {
-    try {
-      dir.deleteRecursively()
-    }
-    catch (e: Throwable) {
-      addSuppressedException(e)
-    }
-    finally {
-      super.tearDown()
-    }
+    projectFixture.get().messageBus.connect(testRootDisposable).subscribe(LookupManagerListener.TOPIC, CompletionLoggerInitializer())
   }
 
   @Test

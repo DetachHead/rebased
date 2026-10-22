@@ -37,8 +37,11 @@ interface DocumentModState {
   fun isLineModified(line: Int): Boolean
 
   /**
-   * Returns state with [op] applied. For a [DocumentTextPatch], [before] must be the text this instance's
-   * line-modification tracking was built against, and [after] must be [before] with the patch applied.
+   * Returns the state with [op] applied.
+   *
+   * For [DocumentOp.Insert] and [DocumentOp.Delete], [before] must be the text this instance's
+   * line-modification tracking was built against, and [after] must be [before] with [op] applied.
+   * Each of these ops increments [sequence] by one when it changes the text.
    * For [DocumentOp.UnmodifiedLines], [before] must be the current text paired with this instance.
    */
   @Contract(pure = true)

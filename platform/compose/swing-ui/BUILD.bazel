@@ -11,6 +11,10 @@ jps_test(
 )
 ### skip generation section `test intellij.platform.compose.swing.tests`
 
+### auto-generated section `dev intellij.platform.compose.swing` start
+content_module_jar(module = ":swing")
+### auto-generated section `dev intellij.platform.compose.swing` end
+
 ### auto-generated section `build intellij.platform.compose.swing` start
 create_kotlinc_options(
     name = "custom_swing",
@@ -35,6 +39,7 @@ jvm_library(
         ["resources/**/*"],
     ),
     visibility = ["//visibility:public"],
+    exports = ["//libraries/compose-swing-ui:compose-swing"],
     deps = [
         # do not sort,
         "@lib//:kotlin-stdlib",
@@ -52,8 +57,6 @@ jvm_library(
     ],
 )
 
-content_module_jar(module = ":swing")
-
 jvm_library(
     name = "swing_test_lib",
     testonly = True,
@@ -64,6 +67,11 @@ jvm_library(
     kotlinc_opts = ":custom_swing",
     module_name = "intellij.platform.compose.swing",
     visibility = ["//visibility:public"],
+    exports = [
+        # do not sort,
+        "//libraries/compose-swing-ui:compose-swing",
+        "//libraries/compose-swing-ui:compose-swing_test_lib",
+    ],
     runtime_deps = [
         # do not sort,
         ":swing",
@@ -87,7 +95,6 @@ exports_files(
     [
         "intellij.platform.compose.swing.iml",
         "resources/intellij.platform.compose.swing.xml",
-        "module-content.yaml",
     ],
     visibility = ["//visibility:public"],
 )
@@ -155,8 +162,8 @@ jvm_library(
         "//libraries/compose-runtime-desktop:compose-runtime-desktop_test_lib",
         "//libraries/compose-swing-ui:compose-swing",
         "//libraries/compose-swing-ui:compose-swing_test_lib",
-        "//libraries/junit5",
-        "//libraries/junit5:junit5_test_lib",
+        "//libraries/junit6",
+        "//libraries/junit6:junit6_test_lib",
         "//platform/testFramework",
         "//platform/testFramework:testFramework_test_lib",
         "//platform/testFramework/junit5",

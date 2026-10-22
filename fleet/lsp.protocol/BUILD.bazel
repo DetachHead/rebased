@@ -55,12 +55,12 @@ jvm_library(
     deps = [
         # do not sort,
         "@lib//:kotlin-stdlib",
-        "@lib//:kotlinx-coroutines-core",
-        "@lib//:kotlinx-serialization-core",
-        "@lib//:kotlinx-serialization-json",
+        "//libraries/kotlinx/coroutines/core",
+        "//libraries/kotlinx/serialization/core",
+        "//libraries/kotlinx/serialization/json",
         "//fleet/util/core",
         "//libraries/jetbrains/annotations",
-        "@lib//:kotlinx-io-core",
+        "//libraries/io",
     ],
 )
 
@@ -77,8 +77,12 @@ jvm_library(
     runtime_deps = [
         # do not sort,
         ":lsp.protocol",
+        "//libraries/kotlinx/coroutines/core:core_test_lib",
+        "//libraries/kotlinx/serialization/core:core_test_lib",
+        "//libraries/kotlinx/serialization/json:json_test_lib",
         "//fleet/util/core:core_test_lib",
         "//libraries/jetbrains/annotations:annotations_test_lib",
+        "//libraries/io:io_test_lib",
     ],
 )
 ### auto-generated section `build fleet.lsp.protocol` end
@@ -87,6 +91,7 @@ jvm_library(
 exports_files(
     [
         "fleet.lsp.protocol.iml",
+        "resources/fleet.lsp.protocol.xml",
     ],
     visibility = ["//visibility:public"],
 )

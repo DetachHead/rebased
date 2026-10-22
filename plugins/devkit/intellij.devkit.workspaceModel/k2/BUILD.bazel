@@ -18,6 +18,10 @@ jps_test(
 
 ### skip generation section `test intellij.devkit.workspaceModel.k2.tests`
 
+### auto-generated section `dev intellij.devkit.workspaceModel.k2` start
+content_module_jar(module = ":k2")
+### auto-generated section `dev intellij.devkit.workspaceModel.k2` end
+
 ### auto-generated section `build intellij.devkit.workspaceModel.k2` start
 create_kotlinc_options(
     name = "custom_k2",
@@ -62,8 +66,6 @@ jvm_library(
     ],
 )
 
-content_module_jar(module = ":k2")
-
 jvm_library(
     name = "k2_test_lib",
     testonly = True,
@@ -91,21 +93,7 @@ jvm_library(
         "//java/openapi:java_test_lib",
         "//java/java-psi-api:psi_test_lib",
         "//plugins/kotlin/base/psi:psi_test_lib",
-        "//plugins/devkit/intellij.devkit.workspaceModel/tests",
-        "//plugins/devkit/intellij.devkit.workspaceModel/tests:tests_test_lib",
-        "//plugins/kotlin/test-framework",
-        "//plugins/kotlin/test-framework:test-framework_test_lib",
-        "//plugins/kotlin/base/plugin",
-        "//plugins/kotlin/base/plugin:plugin_test_lib",
-        "//plugins/kotlin/tests-common:common-tests",
-        "//plugins/kotlin/tests-common:common-tests_test_lib",
-        "//platform/testFramework",
-        "//platform/testFramework:testFramework_test_lib",
-        "//plugins/kotlin/base/testFramework",
-        "//plugins/kotlin/base/testFramework:testFramework_test_lib",
         "//platform/analysis-api:analysis_test_lib",
-        "//platform/testFramework/junit5",
-        "//platform/testFramework/junit5:junit5_test_lib",
     ],
 )
 ### auto-generated section `build intellij.devkit.workspaceModel.k2` end
@@ -141,7 +129,7 @@ jvm_library(
     visibility = ["//visibility:public"],
     runtime_deps = [
         # do not sort,
-        "//libraries/junit5",
+        "//libraries/junit6",
         "//libraries/kotlinc/analysis-api:libraries-kotlinc-analysis-api",
         "//libraries/kotlinc/kotlin-compiler-common:libraries-kotlinc-kotlin-compiler-common",
         "//plugins/kotlin:kotlin-plugin-community-main",
@@ -172,8 +160,8 @@ jvm_library(
     ],
     deps = [
         # do not sort,
-        "//libraries/junit5",
-        "//libraries/junit5:junit5_test_lib",
+        "//libraries/junit6",
+        "//libraries/junit6:junit6_test_lib",
         "//plugins/devkit/intellij.devkit.workspaceModel:workspaceModel",
         "//plugins/devkit/intellij.devkit.workspaceModel:workspaceModel_test_lib",
         "//platform/core-api:core",

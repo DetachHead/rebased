@@ -95,7 +95,8 @@ enum class KotlinK2BundledCompilerPlugins(
         FirDataFrameComponentRegistrar::class
     );
 
-    internal val registrarClassName: String =
+    @get:ApiStatus.Internal
+    val registrarClassName: String =
         registrarClass.qualifiedName ?: error("${registrarClass} does not have a qualified name")
 
     /**

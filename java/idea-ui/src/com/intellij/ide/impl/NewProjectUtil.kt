@@ -1,7 +1,6 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.ide.impl
 
-import com.intellij.configurationStore.runInAutoSaveDisabledMode
 import com.intellij.configurationStore.saveSettings
 import com.intellij.featureStatistics.fusCollectors.WslUsagesCollector
 import com.intellij.ide.JavaUiBundle
@@ -30,8 +29,8 @@ import com.intellij.openapi.roots.ui.configuration.ModulesProvider
 import com.intellij.openapi.startup.StartupManager
 import com.intellij.openapi.ui.Messages
 import com.intellij.openapi.util.io.FileUtil
-import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.openapi.vfs.VfsUtilCore
+import com.intellij.openapi.vfs.VirtualFileManager
 import com.intellij.openapi.wm.ToolWindowId
 import com.intellij.openapi.wm.ToolWindowManager
 import com.intellij.platform.ide.progress.ModalTaskOwner
@@ -221,7 +220,7 @@ suspend fun createProjectFromWizardImpl(wizard: AbstractProjectWizard, projectFi
     if (projectBuilder != null) {
       // validate can require a project on disk
       if (!ApplicationManager.getApplication().isUnitTestMode) {
-        runInAutoSaveDisabledMode {
+        SaveAndSyncHandler.getInstance().withDisabledAutoSave {
           saveSettings(componentManager = newProject, forceSavingAllSettings = true)
         }
       }
@@ -265,7 +264,7 @@ suspend fun createProjectFromWizardImpl(wizard: AbstractProjectWizard, projectFi
         projectRootDir = projectDir
         callback = ProjectOpenedCallback { openedProject, _ ->
           if (openedProject != newProject) { // project attached to workspace
-            LocalFileSystem.getInstance().refreshAndFindFileByNioFile(projectDir)?.let { dir ->
+            VirtualFileManager.getInstance().refreshAndFindFileByNioPath(projectDir)?.let { dir ->
               ApplicationManager.getApplication().invokeLater {
                 projectBuilder.postCommit(openedProject, dir)
               }

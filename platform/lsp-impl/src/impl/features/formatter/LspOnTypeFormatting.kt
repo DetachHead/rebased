@@ -19,6 +19,7 @@ import com.intellij.platform.lsp.api.customization.LspOnTypeFormattingSupport
 import com.intellij.platform.lsp.impl.LspCoroutineScopeService
 import com.intellij.platform.lsp.impl.LspClientImpl
 import com.intellij.platform.lsp.impl.LspClientManagerImpl
+import com.intellij.platform.lsp.impl.getOnTypeFormattingTriggerCharacters
 import com.intellij.platform.lsp.util.applyTextEdits
 import com.intellij.psi.PsiFile
 import com.intellij.util.concurrency.annotations.RequiresReadLock
@@ -36,7 +37,7 @@ import org.eclipse.lsp4j.FormattingOptions
  */
 internal class LspTypedActionHandler(originalHandler: TypedActionHandler?) : TypedActionHandlerBase(originalHandler) {
 
-  @RequiresWriteLock
+  @RequiresWriteLock(generateAssertion = false /* IJPL-115548 */)
   override fun execute(editor: Editor, charTyped: Char, dataContext: DataContext) {
     val shouldPerformOnTypeFormatting = shouldPerformOnTypeFormatting(editor)
     // make sure that all handlers finished sync work before calling performOnTypeFormatting()
@@ -50,7 +51,7 @@ internal class LspTypedActionHandler(originalHandler: TypedActionHandler?) : Typ
 
 internal class LspOnTypeFormattingEnterHandler : EnterHandlerDelegate {
 
-  @RequiresWriteLock
+  @RequiresWriteLock(generateAssertion = false /* IJPL-115548 */)
   override fun postProcessEnter(file: PsiFile, editor: Editor, dataContext: DataContext): EnterHandlerDelegate.Result {
     val virtualFile = file.originalFile.virtualFile ?: return EnterHandlerDelegate.Result.Continue
     if (!shouldPerformOnTypeFormatting(editor)) return EnterHandlerDelegate.Result.Continue
@@ -66,10 +67,10 @@ private fun shouldPerformOnTypeFormatting(editor: Editor): Boolean {
   return isOnTypeFormattingAllowed(editor)
 }
 
-@RequiresWriteLock
+@RequiresWriteLock(generateAssertion = false /* IJPL-115548 */)
 private fun performOnTypeFormatting(editor: Editor, virtualFile: VirtualFile, charTyped: Char) {
   val project = editor.project ?: return
-  if (!virtualFile.isInLocalFileSystem || virtualFile is VirtualFileWindow) return
+  if (virtualFile is VirtualFileWindow) return
   val document = FileDocumentManager.getInstance().getCachedDocument(virtualFile) ?: return
   val modificationStamp = document.modificationStamp
 
@@ -111,7 +112,7 @@ private fun isClientApplicable(client: LspClientImpl, virtualFile: VirtualFile, 
   return char.toString() in triggerCharacters
 }
 
-@RequiresReadLock
+@RequiresReadLock(generateAssertion = false /* IJPL-115548 */)
 private fun createParams(client: LspClientImpl, virtualFile: VirtualFile, editor: Editor, char: Char): DocumentOnTypeFormattingParams? {
   val project = editor.project ?: return null
   val offset = editor.caretModel.offset

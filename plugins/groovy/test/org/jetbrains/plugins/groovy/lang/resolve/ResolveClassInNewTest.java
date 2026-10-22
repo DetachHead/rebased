@@ -23,7 +23,7 @@ public class ResolveClassInNewTest extends LightGroovyTestCase {
   private final LightProjectDescriptor projectDescriptor = GroovyProjectDescriptors.GROOVY_LATEST;
 
   @NotNull
-  private final String basePath = TestUtils.getTestDataPath() + "/resolve/classInNew";
+  private final String basePath = TestUtils.getAbsoluteTestDataPath() + "/resolve/classInNew";
 
   @Override
   public final @NotNull LightProjectDescriptor getProjectDescriptor() {
@@ -31,7 +31,7 @@ public class ResolveClassInNewTest extends LightGroovyTestCase {
   }
 
   @Override
-  public final @NotNull String getBasePath() {
+  public final @NotNull String getTestDataPath() {
     return basePath;
   }
 

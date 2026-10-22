@@ -1,6 +1,10 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
 load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
+### auto-generated section `dev intellij.platform.vcs.impl.lang.todo` start
+content_module_jar(module = ":todo")
+### auto-generated section `dev intellij.platform.vcs.impl.lang.todo` end
+
 ### auto-generated section `build intellij.platform.vcs.impl.lang.todo` start
 jvm_library(
     name = "todo",
@@ -22,7 +26,6 @@ jvm_library(
         # do not sort,
         "//libraries/fastutil",
         "//libraries/kotlinx/collections-immutable:libraries-kotlinx-collections-immutable",
-        "//libraries/stream",
         "//platform/analysis-api:analysis",
         "//platform/code-style-api:codeStyle",
         "//platform/core-api:core",
@@ -36,12 +39,14 @@ jvm_library(
         "//platform/ide-core",
         "//platform/ide-core-impl",
         "//platform/platform-impl:ide-impl",
+        "//platform/platform-impl/rpc",
         "//platform/indexing-api:indexing",
         "//platform/indexing-impl",
         "//platform/lang-api:lang",
         "//platform/lang-impl",
         "//platform/projectModel-api:projectModel",
         "//platform/projectModel-impl",
+        "//platform/remote-topics/shared:rpc-topics",
         "//platform/statistics",
         "//platform/todo",
         "//platform/util/diff",
@@ -53,8 +58,6 @@ jvm_library(
         "//platform/vcs-impl/shared",
     ],
 )
-
-content_module_jar(module = ":todo")
 
 jvm_library(
     name = "todo_test_lib",
@@ -70,7 +73,6 @@ jvm_library(
         ":todo",
         "//libraries/fastutil:fastutil_test_lib",
         "//libraries/kotlinx/collections-immutable:libraries-kotlinx-collections-immutable_test_lib",
-        "//libraries/stream:stream_test_lib",
         "//platform/analysis-api:analysis_test_lib",
         "//platform/code-style-api:codeStyle_test_lib",
         "//platform/core-api:core_test_lib",
@@ -84,12 +86,14 @@ jvm_library(
         "//platform/ide-core:ide-core_test_lib",
         "//platform/ide-core-impl:ide-core-impl_test_lib",
         "//platform/platform-impl:ide-impl_test_lib",
+        "//platform/platform-impl/rpc:rpc_test_lib",
         "//platform/indexing-api:indexing_test_lib",
         "//platform/indexing-impl:indexing-impl_test_lib",
         "//platform/lang-api:lang_test_lib",
         "//platform/lang-impl:lang-impl_test_lib",
         "//platform/projectModel-api:projectModel_test_lib",
         "//platform/projectModel-impl:projectModel-impl_test_lib",
+        "//platform/remote-topics/shared:rpc-topics_test_lib",
         "//platform/statistics:statistics_test_lib",
         "//platform/todo:todo_test_lib",
         "//platform/util/diff:diff_test_lib",
@@ -108,7 +112,6 @@ exports_files(
     [
         "intellij.platform.vcs.impl.lang.todo.iml",
         "resources/intellij.platform.vcs.impl.lang.todo.xml",
-        "module-content.yaml",
     ],
     visibility = ["//visibility:public"],
 )

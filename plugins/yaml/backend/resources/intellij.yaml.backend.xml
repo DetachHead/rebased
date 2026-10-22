@@ -21,6 +21,7 @@
     <module name="intellij.platform.ide.impl"/>
     <module name="intellij.platform.ide.progress"/>
     <module name="intellij.platform.indexing"/>
+    <module name="intellij.platform.indexing.impl"/>
     <module name="intellij.platform.lang"/>
     <module name="intellij.platform.lang.impl"/>
     <module name="intellij.platform.projectModel"/>
@@ -63,6 +64,8 @@
     <renameInputValidator implementation="org.jetbrains.yaml.resolve.YAMLAnchorRenameInputValidator" order="first"/>
     <lang.refactoringSupport language="yaml" implementationClass="org.jetbrains.yaml.resolve.YAMLRefactoringSupportProvider"/>
     <renamePsiElementProcessor implementation="org.jetbrains.yaml.resolve.YAMLRenamePsiElementProcessor"/>
+    <headlessRenamePsiElementProcessor implementation="org.jetbrains.yaml.resolve.YAMLRenamePsiElementProcessor"/>
+    <headlessRenameSupportedLanguage language="yaml"/>
     <languageInjectionContributor implementationClass="org.jetbrains.yaml.schema.YamlJsonSchemaLanguageInjector" language="yaml"
                                   id="yamlJsonSchemaLanguageInjector"/>
     <languageInjectionPerformer implementationClass="org.jetbrains.yaml.YamlLanguageInjectionPerformer" language="yaml"

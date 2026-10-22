@@ -6,6 +6,7 @@ import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.fileEditor.FileEditorManagerKeys
+import com.intellij.openapi.fileEditor.FileEditorManagerListener
 import com.intellij.openapi.fileEditor.impl.EditorHistoryManager
 import com.intellij.openapi.observable.util.whenDisposed
 import com.intellij.openapi.project.Project
@@ -20,6 +21,7 @@ import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.annotations.TestOnly
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
+import javax.swing.Icon
 
 private val LOG = logger<ToolWindowEditorTabManager>()
 
@@ -39,16 +41,49 @@ class ToolWindowEditorTabManager(
   /**
    * Sessions of tool window editor tabs currently attached to this project, keyed by their virtual files.
    *
-   * A [ToolWindowEditorTabFile] may exist without a session, for example while a persistent tab is being restored.
+   * A [ToolWindowEditorTabFile] may exist without a session, for example until the content of a restored tab is created
+   * from its [pending state][pendingStateByFile].
    * A session is added once the corresponding tool window content is attached and removed when the tab is closed
    * or invalidated.
    */
   private val sessionByFile = ConcurrentHashMap<ToolWindowEditorTabFile, ToolWindowEditorTabSession>()
 
   /**
+   * Persisted states of restored tabs whose tool window content is not created yet, keyed by their virtual files.
+   *
+   * [ToolWindowEditorTabFileEditor.setState] adds the state. The content is created from it when the editor is shown
+   * for the first time, or earlier when another operation needs the content (see [getOrRestoreSession]).
+   */
+  private val pendingStateByFile = ConcurrentHashMap<ToolWindowEditorTabFile, ToolWindowEditorTabState>()
+
+  /**
    * Returns the state of [file] while its tool window content is attached, or `null` if it is not.
    */
   fun getSession(file: ToolWindowEditorTabFile): ToolWindowEditorTabSession? = sessionByFile[file]
+
+  /**
+   * Returns the session of [file]. If the content of [file] is not restored yet, restores it from the pending state first.
+   *
+   * Returns `null` if [file] has neither a session nor a pending state, or if the content cannot be restored.
+   * The pending state is removed in both cases, so a failed restore is not repeated.
+   */
+  @RequiresEdt(generateAssertion = false /* IJPL-115548 */)
+  internal fun getOrRestoreSession(file: ToolWindowEditorTabFile): ToolWindowEditorTabSession? {
+    sessionByFile[file]?.let { return it }
+    // Remove the state first, so a nested call during the restore does not restore the content again.
+    val state = pendingStateByFile.remove(file) ?: return null
+    return if (restoreEditorTabFileContent(file, state)) sessionByFile[file] else null
+  }
+
+  internal fun getPendingState(file: ToolWindowEditorTabFile): ToolWindowEditorTabState? = pendingStateByFile[file]
+
+  /**
+   * Keeps [state] to restore the content of [file] later. Does nothing if [file] already has a session or a pending state.
+   */
+  internal fun addPendingState(file: ToolWindowEditorTabFile, state: ToolWindowEditorTabState) {
+    if (sessionByFile.containsKey(file)) return
+    pendingStateByFile.putIfAbsent(file, state)
+  }
 
   /**
    * Returns the current presentation of [file], or `null` if the file has no attached content yet.
@@ -71,6 +106,21 @@ class ToolWindowEditorTabManager(
   }
 
   /**
+   * Returns the icon of [file].
+   *
+   * If a session presentation is available, its icon is returned. Otherwise, a persistent tab
+   * falls back to the last known icon stored in its [PersistentToolWindowEditorTabPath]. This allows
+   * restored tabs to display their icon before their presentation is loaded.
+   *
+   * Returns `null` if no icon is available.
+   */
+  fun getTabIcon(file: ToolWindowEditorTabFile): Icon? {
+    getTabPresentation(file)?.let { return it.icon }
+
+    return file.lastKnownIcon
+  }
+
+  /**
    * Creates an editor-tab file for [content] when the content is moved from a tool window to the editor.
    *
    * If the corresponding tool window provides a [ToolWindowEditorTabPersistenceProvider] and [content]
@@ -83,7 +133,7 @@ class ToolWindowEditorTabManager(
    * @param content the tool window content being moved to the editor
    * @return the file representing [content] in the editor
    */
-  @RequiresEdt
+  @RequiresEdt(generateAssertion = false /* IJPL-115548 */)
   internal fun createEditorTabFileForContent(
     toolWindowId: String,
     content: Content,
@@ -128,8 +178,8 @@ class ToolWindowEditorTabManager(
    * @param state the persisted editor-tab state containing the serialized tool window content
    * @return `true` if the content was successfully restored and attached; `false` otherwise
    */
-  @RequiresEdt
-  internal fun restoreEditorTabFileContent(
+  @RequiresEdt(generateAssertion = false /* IJPL-115548 */)
+  private fun restoreEditorTabFileContent(
     file: ToolWindowEditorTabFile,
     state: ToolWindowEditorTabState,
   ): Boolean {
@@ -153,7 +203,7 @@ class ToolWindowEditorTabManager(
    *
    * The newly created session is registered in [sessionByFile].
    */
-  @RequiresEdt
+  @RequiresEdt(generateAssertion = false /* IJPL-115548 */)
   private fun attachContentToFile(
     file: ToolWindowEditorTabFile,
     content: Content,
@@ -171,7 +221,7 @@ class ToolWindowEditorTabManager(
   /**
    * Attaches [content] to [file] with its presentation driven by [presentationFlow].
    */
-  @RequiresEdt
+  @RequiresEdt(generateAssertion = false /* IJPL-115548 */)
   private fun attachContentToFile(
     file: ToolWindowEditorTabFile,
     content: Content,
@@ -211,7 +261,7 @@ class ToolWindowEditorTabManager(
    * while its tool window has no support registered.
    */
   @TestOnly
-  @RequiresEdt
+  @RequiresEdt(generateAssertion = false /* IJPL-115548 */)
   internal fun createTransientEditorTabFileForTest(
     toolWindowId: String,
     content: Content,
@@ -232,20 +282,33 @@ class ToolWindowEditorTabManager(
    * @param releaseContent whether the session's content should also be released;
    * false when ownership of the content is transferred elsewhere
    */
-  @RequiresEdt
+  @RequiresEdt(generateAssertion = false /* IJPL-115548 */)
   internal fun closeEditorTabFile(file: ToolWindowEditorTabFile, releaseContent: Boolean) {
     if (file.getUserData(FileEditorManagerKeys.CLOSING_TO_REOPEN) == true) {
       return
     }
 
     ToolWindowEditorTabFileRegistry.getInstance().removeFile(file)
+    pendingStateByFile.remove(file)
     sessionByFile.remove(file)?.close(releaseContent)
 
     // remove file from recent files
-    // TODO: fix: After restoring the file to the tool window, recent files does not update immediately
     EditorHistoryManager.getInstance(project).removeFile(file)
-
     file.invalidate()
+
+    // When the tab is moved from the editor to the tool window,
+    // ToolWindowEditorTabFileEditor.dispose() is called. It closes the file via
+    // FileEditorManager.closeFile(), which in turn publishes FileEditorManagerListener.fileClosed().
+    //
+    // RecentlySelectedEditorListener.fileClosed() calls applyFrontendChanges() only when
+    // isAllowedInRecentFilesModel() returns false. That result depends on the file's validity
+    // and on isIncludedInDocumentHistory().
+    //
+    // When we drag and drop, the file is still valid, and we don't have enough information to return
+    // the correct value from isIncludedInDocumentHistory(). Therefore, publish fileClosed() once
+    // more after the required state is available.
+    project.messageBus.syncPublisher(FileEditorManagerListener.FILE_EDITOR_MANAGER)
+      .fileClosed(FileEditorManager.getInstance(project), file)
   }
 
   companion object {

@@ -7,7 +7,9 @@ import com.intellij.ide.ui.UISettings
 import com.intellij.ide.ui.UISettingsState
 import com.intellij.mock.Mock
 import com.intellij.openapi.Disposable
+import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.EDT
+import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.application.UiWithModelAccess
 import com.intellij.openapi.application.readAction
 import com.intellij.openapi.components.ExpandMacroToPathMap
@@ -17,11 +19,17 @@ import com.intellij.openapi.editor.EditorFactory
 import com.intellij.openapi.editor.FoldRegion
 import com.intellij.openapi.editor.FoldingModel
 import com.intellij.openapi.fileEditor.ex.FileEditorManagerEx
-import com.intellij.openapi.fileEditor.ex.FileEditorOpenRequest
+import com.intellij.ide.IdeEventQueue
+import com.intellij.openapi.actionSystem.IdeActions
+import com.intellij.openapi.actionSystem.DataContext
+import com.intellij.openapi.actionSystem.KeyboardShortcut
+import com.intellij.openapi.keymap.KeymapManager
 import com.intellij.openapi.fileEditor.ex.FileEditorProviderManager
 import com.intellij.openapi.fileEditor.ex.FileEditorWithProvider
 import com.intellij.openapi.fileEditor.impl.DefaultPlatformFileEditorProvider
+import com.intellij.openapi.fileEditor.impl.EditorComposite
 import com.intellij.openapi.fileEditor.impl.EditorHistoryManager
+import com.intellij.openapi.fileEditor.impl.EditorOpenTracker
 import com.intellij.openapi.fileEditor.impl.EditorSplitterState
 import com.intellij.openapi.fileEditor.impl.EditorWindow
 import com.intellij.openapi.fileEditor.impl.EditorsSplitters
@@ -29,27 +37,38 @@ import com.intellij.openapi.fileEditor.impl.FileEditorManagerImpl
 import com.intellij.openapi.fileEditor.impl.FileEditorOpenOptions
 import com.intellij.openapi.fileEditor.impl.FileEditorProviderManagerImpl
 import com.intellij.openapi.fileEditor.impl.blockingWaitForCompositeFileOpen
+import com.intellij.openapi.fileEditor.impl.getOrLoadDocumentUnderProgress
+import com.intellij.openapi.fileEditor.impl.text.AsyncEditorLoader
+import com.intellij.openapi.fileTypes.FileType
 import com.intellij.openapi.fileTypes.PlainTextFileType
 import com.intellij.openapi.fileTypes.UnknownFileType
 import com.intellij.openapi.options.advanced.AdvancedSettings
 import com.intellij.openapi.options.advanced.AdvancedSettingsImpl
+import com.intellij.openapi.progress.ProgressManager
 import com.intellij.openapi.project.DumbAware
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Disposer
+import com.intellij.openapi.util.ActionCallback
+import com.intellij.openapi.util.ExpirableRunnable
 import com.intellij.openapi.util.JDOMUtil
 import com.intellij.openapi.util.Pair
 import com.intellij.openapi.util.io.FileUtil
 import com.intellij.openapi.util.io.IoTestUtil
-import com.intellij.openapi.vfs.LocalFileSystem
+import com.intellij.openapi.vfs.StandardFileSystems
 import com.intellij.openapi.vfs.VirtualFile
+import com.intellij.openapi.vfs.VirtualFileManager
 import com.intellij.openapi.vfs.VirtualFilePreCloseCheck
 import com.intellij.openapi.vfs.impl.VirtualFilePointerTracker
+import com.intellij.openapi.wm.IdeFocusManager
+import com.intellij.openapi.wm.IdeFrame
 import com.intellij.platform.ide.progress.runWithModalProgressBlocking
+import com.intellij.platform.util.progress.createProgressPipe
 import com.intellij.pom.Navigatable
 import com.intellij.psi.PsiDocumentManager
 import com.intellij.testFramework.DumbModeTestUtils
 import com.intellij.testFramework.EditorTestUtil
 import com.intellij.testFramework.HeavyPlatformTestCase
+import com.intellij.testFramework.LightVirtualFile
 import com.intellij.testFramework.PlatformTestUtil
 import com.intellij.testFramework.VfsTestUtil
 import com.intellij.testFramework.common.timeoutRunBlocking
@@ -59,12 +78,21 @@ import com.intellij.testFramework.junit5.TestApplication
 import com.intellij.testFramework.junit5.TestDisposable
 import com.intellij.testFramework.junit5.fixture.fileEditorManagerFixture
 import com.intellij.testFramework.junit5.fixture.projectFixture
+import com.intellij.testFramework.replaceService
 import com.intellij.util.io.write
+import com.intellij.util.ui.EDT as EdtUtil
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.future.await
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.plus
 import kotlinx.coroutines.withContext
 import org.assertj.core.api.Assertions.assertThat
 import org.intellij.lang.annotations.Language
@@ -72,16 +100,33 @@ import org.jetbrains.jps.model.serialization.PathMacroUtil
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.Timeout
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.Arguments
+import org.junit.jupiter.params.provider.CsvSource
 import org.junit.jupiter.params.provider.MethodSource
+import org.junit.jupiter.params.provider.ValueSource
+import java.awt.EventQueue
+import java.awt.AWTEvent
+import java.awt.Component
+import java.awt.Window
+import java.awt.event.KeyEvent
+import java.util.concurrent.CompletableFuture
 import java.io.IOException
 import java.nio.file.Path
+import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 import javax.swing.JComponent
 import javax.swing.JLabel
 import javax.swing.SwingConstants
+import kotlin.test.assertFalse
+import kotlin.test.assertFailsWith
+import kotlin.test.assertNull
 
 @TestApplication
+@Suppress("DEPRECATION")
 class FileEditorManagerTest {
   @TestDisposable
   private lateinit var disposable: Disposable
@@ -111,6 +156,8 @@ class FileEditorManagerTest {
   @AfterEach
   fun resetUiSettings(): Unit = timeoutRunBlocking(context = Dispatchers.UiWithModelAccess) {
     manager.closeAllFiles()
+    EditorOpenTracker.getInstance(project).pendingEditorOpen().join()
+    manager.unsplitAllWindow()
     EditorHistoryManager.getInstance(project).removeAllFiles()
     providerDisposables.forEach { Disposer.dispose(it) }
     providerDisposables.clear()
@@ -120,6 +167,104 @@ class FileEditorManagerTest {
     uiSettings.editorTabLimit = template.editorTabLimit
     uiSettings.reuseNotModifiedTabs = template.reuseNotModifiedTabs
     uiSettings.editorTabPlacement = template.editorTabPlacement
+  }
+
+  @Test
+  @Timeout(30)
+  fun testInitFromBackgroundThread(): Unit = timeoutRunBlocking(context = Dispatchers.Default) {
+    assertThat(EventQueue.isDispatchThread()).isFalse()
+    val fileEditorManager = manager
+    fileEditorManager.loadState(JDOMUtil.load(getXMLText()))
+
+    val (editorComponent, editorState) = fileEditorManager.init()
+    assertThat(editorComponent).isSameAs(fileEditorManager.mainSplitters)
+    assertThat(editorState).isNotNull()
+
+    val (repeatedEditorComponent, consumedEditorState) = fileEditorManager.init()
+    assertThat(repeatedEditorComponent).isSameAs(editorComponent)
+    assertThat(consumedEditorState).isNull()
+  }
+
+  @Test
+  fun testSuspendingOpenReportsDocumentProgressToCaller(): Unit = timeoutRunBlocking {
+    val firstRead = AtomicBoolean(true)
+    val file = object : LightVirtualFile("progress.txt", PlainTextFileType.INSTANCE, "text") {
+      override fun getLength(): Long = 4
+
+      override fun getContent(): CharSequence {
+        if (firstRead.compareAndSet(true, false)) {
+          assertThat(ApplicationManager.getApplication().isDispatchThread).isFalse()
+          val indicator = assertThatNotNull(ProgressManager.getInstance().progressIndicator)
+          indicator.text = "Reading the document"
+        }
+        return super.getContent()
+      }
+    }
+    val pipe = (this + Dispatchers.Unconfined).createProgressPipe()
+    val updates = CopyOnWriteArrayList<String?>()
+    val collector = launch(Dispatchers.Unconfined) {
+      pipe.progressUpdates().collect { updates.add(it.text) }
+    }
+    try {
+      val composite = pipe.collectProgressUpdates {
+        manager.openFile(file = file, options = FileEditorOpenOptions())
+      }
+      assertThat(composite.allEditors).isNotEmpty()
+      assertThat(updates).contains("Reading the document")
+      withContext(Dispatchers.EDT) {
+        composite.allEditors.filterIsInstance<TextEditor>().forEach { EditorTestUtil.waitForLoading(it.editor) }
+      }
+    }
+    finally {
+      collector.cancelAndJoin()
+      withContext(Dispatchers.EDT) {
+        manager.closeFile(file)
+      }
+    }
+  }
+
+  @Test
+  fun testCancellingDocumentPreparationDoesNotOpenTab(): Unit = timeoutRunBlocking {
+    val started = CompletableDeferred<Unit>()
+    val release = CountDownLatch(1)
+    val file = object : LightVirtualFile("cancelled.txt", PlainTextFileType.INSTANCE, "text") {
+      override fun getLength(): Long = 4
+
+      override fun getContent(): CharSequence {
+        started.complete(Unit)
+        check(release.await(5, TimeUnit.SECONDS))
+        ProgressManager.checkCanceled()
+        return super.getContent()
+      }
+    }
+    val opening = async {
+      manager.openFile(file = file, options = FileEditorOpenOptions())
+    }
+    try {
+      started.await()
+      opening.cancel()
+    }
+    finally {
+      release.countDown()
+      opening.cancelAndJoin()
+    }
+
+    withContext(Dispatchers.EDT) {
+      assertThat(manager.isFileOpen(file)).isFalse()
+    }
+    assertThat(FileDocumentManager.getInstance().getCachedDocument(file)).isNull()
+  }
+
+  @Test
+  fun `returns no document for a binary file without a decompiler`(): Unit = timeoutRunBlocking {
+    val file = object : LightVirtualFile("binary", UnknownFileType.INSTANCE, "binary") {
+      override fun getFileType(): FileType {
+        assertFalse(ApplicationManager.getApplication().isReadAccessAllowed)
+        return UnknownFileType.INSTANCE
+      }
+    }
+
+    assertNull(FileDocumentManager.getInstance().getOrLoadDocumentUnderProgress(file))
   }
 
   @Test
@@ -240,7 +385,7 @@ class FileEditorManagerTest {
 
   @Test
   fun testTrackSelectedEditor(): Unit = timeoutRunBlocking(context = Dispatchers.UiWithModelAccess) {
-    registerProvider(MockFileEditorProvider())
+    registerProvider(MyDumbAwareProvider("mock", MockFileEditorProvider.DEFAULT_FILE_EDITOR_NAME, FileEditorPolicy.PLACE_AFTER_DEFAULT_EDITOR))
     val file = getSourceFile("1.txt")
     val editors = manager.openFile(file, true)
     assertThat(editors).hasSize(2)
@@ -473,9 +618,12 @@ class FileEditorManagerTest {
     registerProvider(MyTextEditorProvider("one", 1))
     registerProvider(MyTextEditorProvider("two", 2))
     val file = getSourceFile("Test.java")
-    manager.openTextEditor(OpenFileDescriptor(project, file, 1), true)
+    val request = FileEditorOpenRequest.withFocus(true)
+    val composite = manager.requestOpenEditor(OpenFileDescriptor(project, file, 1), request).await()
+    assertThat(composite.allEditors).hasSize(2)
     assertThat(selectedEditorName(file)).isEqualTo("one")
-    manager.openTextEditor(OpenFileDescriptor(project, file, 2), true)
+    val secondEditor = manager.requestOpenTextEditor(OpenFileDescriptor(project, file, 2), request).await()
+    assertThat(secondEditor).isNotNull()
     assertThat(selectedEditorName(file)).isEqualTo("two")
   }
 
@@ -559,8 +707,9 @@ class FileEditorManagerTest {
     assertThat(actualFile).isEqualTo(expectedFile)
   }
 
-  @Test
-  fun testFileEditorOpenRequestOptions(): Unit = timeoutRunBlocking(context = Dispatchers.UiWithModelAccess) {
+  @ParameterizedTest
+  @ValueSource(booleans = [false, true])
+  fun testFileEditorOpenRequestOptions(suspending: Boolean): Unit = timeoutRunBlocking(context = Dispatchers.UiWithModelAccess) {
     val exManager: FileEditorManagerEx = manager
 
     val file = getSourceFile("1.txt")
@@ -569,15 +718,450 @@ class FileEditorManagerTest {
     exManager.openFile(file, false)
     val primaryWindow = currentWindow(exManager)
     val secondaryWindow = createVerticalSplitter(primaryWindow, exManager)
-    exManager.openFile(
-      file2,
-      FileEditorOpenRequest()
-        .withTargetWindow(secondaryWindow)
-        .withSelectAsCurrent(true)
-        .withPin(true)
-        .withRequestFocus(true),
-    )
+    val request = FileEditorOpenRequest.withFocus(true).withPin(true)
+    val composite = if (suspending) exManager.openFileInWindow(file2, secondaryWindow, request)
+                    else exManager.requestOpenFileInWindow(file2, secondaryWindow, request).await()
+    assertThat(composite.allEditors).isNotEmpty()
+    assertThat(secondaryWindow.isFileOpen(file2)).isTrue()
+    assertThat(secondaryWindow.getComposite(file2)!!.isPinned).isTrue()
     exManager.closeFile(file, secondaryWindow)
+  }
+
+  @Test
+  fun testFileEditorOpenRequestUsesManagedMode() {
+    assertThat(FileEditorOpenRequest.defaults().openMode).isEqualTo(FileEditorOpenMode.MANAGED)
+  }
+
+  @ParameterizedTest
+  @ValueSource(booleans = [false, true])
+  fun testExplicitRequestPreservesOptionsInRightSplit(suspending: Boolean): Unit = timeoutRunBlocking {
+    withContext(Dispatchers.EDT) {
+      val first = getSourceFile("1.txt")
+      val second = getSourceFile("2.txt")
+      manager.requestOpenFile(first, FileEditorOpenRequest.defaults()).await()
+      val request = FileEditorOpenRequest.defaults().withOpenMode(FileEditorOpenMode.RIGHT_SPLIT).withPin(true)
+      val composite = if (suspending) manager.openFile(second, request) else manager.requestOpenFile(second, request).await()
+      val rightWindow = manager.windows.single { it.isFileOpen(second) }
+      assertThat(rightWindow.getComposite(second)).isSameAs(composite)
+      assertThat((composite as EditorComposite).isPinned).isTrue()
+      assertThat(rightWindow.selectedFile).isEqualTo(second)
+
+      val third = getSourceFile("Test.java")
+      manager.currentWindow = manager.windows.single { it !== rightWindow }
+      val backgroundRequest = request.withSelectAsCurrent(false)
+      val background = if (suspending) manager.openFile(third, backgroundRequest)
+                       else manager.requestOpenFile(third, backgroundRequest).await()
+      assertThat(rightWindow.getComposite(third)).isSameAs(background)
+      assertThat((background as EditorComposite).isPinned).isTrue()
+      assertThat(rightWindow.selectedFile).isEqualTo(second)
+    }
+  }
+
+  @ParameterizedTest
+  @CsvSource("false,false,false", "false,false,true", "false,true,false", "false,true,true",
+             "true,false,false", "true,false,true", "true,true,false", "true,true,true")
+  fun testNewRightSplitSelection(suspending: Boolean, selectAsCurrent: Boolean, requestFocus: Boolean): Unit = timeoutRunBlocking {
+    withContext(Dispatchers.EDT) {
+      manager.requestOpenFile(getSourceFile("1.txt")).await()
+      val originalWindow = manager.currentWindow
+      val focusManager = RecordingFocusManager(IdeFocusManager.getGlobalInstance())
+      ApplicationManager.getApplication().replaceService(IdeFocusManager::class.java, focusManager, disposable)
+      val file = getSourceFile("2.txt")
+      val request = FileEditorOpenRequest.defaults().withOpenMode(FileEditorOpenMode.RIGHT_SPLIT)
+        .withSelectAsCurrent(selectAsCurrent).withRequestFocus(requestFocus)
+      val composite = if (suspending) manager.openFile(file, request) else manager.requestOpenFile(file, request).await()
+      val newWindow = manager.windows.single { it !== originalWindow }
+      assertThat(newWindow.selectedComposite).isSameAs(composite)
+      assertThat(newWindow.selectedFile).isEqualTo(file)
+      val expectedWindow = if (selectAsCurrent) newWindow else originalWindow
+      assertThat(manager.currentWindow).isSameAs(expectedWindow)
+      executeSomeCoroutineTasksAndDispatchAllInvocationEvents(project)
+      assertThat(manager.currentWindow).isSameAs(expectedWindow)
+      if (!requestFocus || !selectAsCurrent) {
+        assertThat(focusManager.requestedComponents).isEmpty()
+      }
+    }
+  }
+
+  @Suppress("OVERRIDE_DEPRECATION")
+  private class RecordingFocusManager(private val delegate: IdeFocusManager) : IdeFocusManager() {
+    val requestedComponents = mutableListOf<Component>()
+
+    override fun requestFocus(component: Component, forced: Boolean): ActionCallback {
+      requestedComponents.add(component)
+      return ActionCallback.DONE
+    }
+
+    override fun getFocusTargetFor(component: JComponent): JComponent? = delegate.getFocusTargetFor(component)
+
+    override fun doWhenFocusSettlesDown(runnable: Runnable) = delegate.doWhenFocusSettlesDown(runnable)
+
+    override fun doWhenFocusSettlesDown(runnable: Runnable, modality: ModalityState) =
+      delegate.doWhenFocusSettlesDown(runnable, modality)
+
+    override fun doWhenFocusSettlesDown(runnable: ExpirableRunnable) = delegate.doWhenFocusSettlesDown(runnable)
+
+    override fun getFocusedDescendantFor(component: Component): Component? = delegate.getFocusedDescendantFor(component)
+
+    override fun isFocusTransferEnabled(): Boolean = delegate.isFocusTransferEnabled
+
+    override fun getFocusOwner(): Component? = delegate.focusOwner
+
+    override fun runOnOwnContext(context: DataContext, runnable: Runnable) = delegate.runOnOwnContext(context, runnable)
+
+    override fun getLastFocusedFor(frame: Window?): Component? = delegate.getLastFocusedFor(frame)
+
+    override fun getLastFocusedFrame(): IdeFrame? = delegate.lastFocusedFrame
+
+    override fun getLastFocusedIdeWindow(): Window? = delegate.lastFocusedIdeWindow
+
+    override fun toFront(component: JComponent) = delegate.toFront(component)
+  }
+
+  @ParameterizedTest
+  @ValueSource(booleans = [false, true])
+  fun testLegacyRightSplitWithoutFocus(existingSplit: Boolean): Unit = timeoutRunBlocking {
+    withContext(Dispatchers.EDT) {
+      manager.requestOpenFile(getSourceFile("1.txt")).await()
+      val originalWindow = manager.currentWindow
+      if (existingSplit) {
+        manager.splitters.openInRightSplit(getSourceFile("2.txt"), false)
+        manager.currentWindow = originalWindow
+      }
+      val file = getSourceFile("Test.java")
+      val rightWindow = manager.splitters.openInRightSplit(file, false)!!
+      assertThat(rightWindow.selectedFile).isEqualTo(file)
+      val expectedWindow = if (existingSplit) rightWindow else originalWindow
+      assertThat(manager.currentWindow).isSameAs(expectedWindow)
+      executeSomeCoroutineTasksAndDispatchAllInvocationEvents(project)
+      assertThat(manager.currentWindow).isSameAs(expectedWindow)
+    }
+  }
+
+  @ParameterizedTest
+  @ValueSource(booleans = [false, true])
+  fun testExplicitWindowValidationAndDisposal(suspending: Boolean): Unit = timeoutRunBlocking {
+    withContext(Dispatchers.EDT) {
+      manager.requestOpenFile(getSourceFile("1.txt")).await()
+      val file = getSourceFile("2.txt")
+      val window = manager.splitters.openInRightSplit(file, false)!!
+      val request = FileEditorOpenRequest.defaults()
+      val foreignManager = Mock.MyFileEditorManager()
+      assertFailsWith<IllegalArgumentException> {
+        if (suspending) foreignManager.openFileInWindow(file, window, request)
+        else foreignManager.requestOpenFileInWindow(file, window, request)
+      }
+      assertFailsWith<IllegalArgumentException> {
+        val conflictingRequest = request.withOpenMode(FileEditorOpenMode.RIGHT_SPLIT)
+        if (suspending) manager.openFileInWindow(file, window, conflictingRequest)
+        else manager.requestOpenFileInWindow(file, window, conflictingRequest)
+      }
+      window.closeFile(file)
+      assertThat(window.isDisposed).isTrue()
+      val composite = if (suspending) manager.openFileInWindow(file, window, request)
+                      else manager.requestOpenFileInWindow(file, window, request).await()
+      assertThat(manager.currentWindow!!.getComposite(file)).isSameAs(composite)
+      assertThat(manager.currentWindow).isNotSameAs(window)
+    }
+  }
+
+  @ParameterizedTest
+  @ValueSource(booleans = [false, true])
+  fun testNavigationRequestOwnsOpeningFlags(suspending: Boolean): Unit = timeoutRunBlocking {
+    withContext(Dispatchers.EDT) {
+      val first = getSourceFile("1.txt")
+      val target = getSourceFile("Test.java")
+      manager.requestOpenFile(first, FileEditorOpenRequest.defaults()).await()
+      val descriptor = OpenFileDescriptor(project, target, 5).apply {
+        isUseCurrentWindow = true
+        isUsePreviewTab = true
+      }
+      val request = FileEditorOpenRequest.fromDescriptor(descriptor).withSelectAsCurrent(false).withPin(true)
+      descriptor.isUseCurrentWindow = false
+      descriptor.isUsePreviewTab = false
+      val editor = if (suspending) manager.openTextEditor(descriptor, request)
+                   else manager.requestOpenTextEditor(descriptor, request).await()
+      assertThat(editor).isNotNull()
+      assertThat(editor!!.caretModel.offset).isEqualTo(5)
+      assertThat(manager.currentWindow!!.selectedFile).isEqualTo(first)
+      assertThat(manager.getComposite(target)!!.isPinned).isTrue()
+      assertThat(request.reuseOpen).isFalse()
+      assertThat(request.usePreviewTab).isTrue()
+    }
+  }
+
+  @ParameterizedTest
+  @ValueSource(booleans = [false, true])
+  fun testNavigationUsesCapturedDescriptorFlags(suspending: Boolean): Unit = timeoutRunBlocking {
+    withContext(Dispatchers.EDT) {
+      val file = getSourceFile("1.txt")
+      val descriptor = OpenFileDescriptor(project, file).apply {
+        isUseCurrentWindow = true
+        isUsePreviewTab = true
+      }
+      val request = FileEditorOpenRequest.fromDescriptor(descriptor)
+      descriptor.isUseCurrentWindow = false
+      descriptor.isUsePreviewTab = false
+      val settings = UISettings.getInstance()
+      val oldPreviewSetting = settings.openInPreviewTabIfPossible
+      settings.openInPreviewTabIfPossible = true
+      try {
+        val composite = if (suspending) manager.openEditor(descriptor, request)
+                        else manager.requestOpenEditor(descriptor, request).await()
+        assertThat((composite as EditorComposite).isPreview).isTrue()
+      }
+      finally {
+        settings.openInPreviewTabIfPossible = oldPreviewSetting
+      }
+    }
+  }
+
+  @ParameterizedTest
+  @ValueSource(booleans = [false, true])
+  @Timeout(30)
+  fun testRequestOpenFileDoesNotWait(explicitRequest: Boolean): Unit = timeoutRunBlocking(context = Dispatchers.UiWithModelAccess) {
+    val file = getSourceFile("1.txt")
+    val creationStarted = CompletableDeferred<Unit>()
+    val proceedWithCreation = CompletableDeferred<Unit>()
+    val provider = object : AsyncFileEditorProvider {
+      override fun accept(project: Project, fileToAccept: VirtualFile): Boolean = fileToAccept == file
+      override fun acceptRequiresReadAction(): Boolean = false
+      override fun getEditorTypeId(): String = "request-overload"
+      override fun getPolicy(): FileEditorPolicy = FileEditorPolicy.HIDE_DEFAULT_EDITOR
+      override fun createEditor(project: Project, file: VirtualFile): FileEditor = error("Use asynchronous creation")
+
+      override suspend fun createFileEditor(
+        project: Project,
+        file: VirtualFile,
+        document: Document?,
+        editorCoroutineScope: CoroutineScope,
+      ): FileEditor {
+        creationStarted.complete(Unit)
+        proceedWithCreation.await()
+        return withContext(Dispatchers.EDT) {
+          MyTextEditor(file, checkNotNull(document), "request-overload", 0)
+        }
+      }
+    }
+    registerProvider(provider)
+
+    val baseManager: FileEditorManager = manager
+    val future = if (explicitRequest) baseManager.requestOpenFile(file, FileEditorOpenRequest.defaults().withReuseOpen(true))
+                 else baseManager.requestOpenFile(file)
+    creationStarted.await()
+    assertThat(future.isDone).isFalse()
+    proceedWithCreation.complete(Unit)
+    val composite = future.await()
+    assertThat(composite.allEditors).hasSize(1)
+    assertThat(composite.allProviders).containsExactly(provider)
+  }
+
+  @Test
+  fun testRequestOpenTextEditorCompletesOnEdt(): Unit = timeoutRunBlocking(context = Dispatchers.UiWithModelAccess) {
+    val file = getSourceFile("1.txt")
+    val creationStarted = CompletableDeferred<Unit>()
+    val proceedWithCreation = CompletableDeferred<Unit>()
+
+    registerProvider(object : AsyncFileEditorProvider {
+      override fun accept(project: Project, fileToAccept: VirtualFile): Boolean = fileToAccept == file
+
+      override fun acceptRequiresReadAction(): Boolean = false
+
+      override fun getEditorTypeId(): String = "request-edt-completion"
+
+      override fun getPolicy(): FileEditorPolicy = FileEditorPolicy.HIDE_DEFAULT_EDITOR
+
+      override fun createEditor(project: Project, file: VirtualFile): FileEditor = throw UnsupportedOperationException()
+
+      override suspend fun createFileEditor(
+        project: Project,
+        file: VirtualFile,
+        document: Document?,
+        editorCoroutineScope: CoroutineScope,
+      ): FileEditor {
+        creationStarted.complete(Unit)
+        proceedWithCreation.await()
+        return withContext(Dispatchers.EDT) {
+          MyTextEditor(file, checkNotNull(document), "request-edt-completion", 0)
+        }
+      }
+    })
+
+    // the callback is registered before the future completes, so it runs on the thread which completes it
+    val completedOnEdt = CompletableDeferred<Boolean>()
+    manager.requestOpenTextEditor(OpenFileDescriptor(project, file), FileEditorOpenRequest.defaults())
+      .thenAccept { completedOnEdt.complete(EdtUtil.isCurrentThreadEdt()) }
+    creationStarted.await()
+    proceedWithCreation.complete(Unit)
+
+    assertThat(completedOnEdt.await()).isTrue()
+  }
+
+  @Test
+  fun testRequestOpenFileHonorsRightSplitMode(): Unit = timeoutRunBlocking(context = Dispatchers.UiWithModelAccess) {
+    val exManager: FileEditorManagerEx = manager
+    val file = getSourceFile("1.txt")
+    val file2 = getSourceFile("2.txt")
+
+    exManager.requestOpenFile(file, FileEditorOpenRequest.defaults()).await()
+    assertThat(exManager.windowSplitCount).isEqualTo(1)
+
+    exManager.requestOpenFile(file2, FileEditorOpenRequest.defaults().withOpenMode(FileEditorOpenMode.RIGHT_SPLIT)).await()
+    assertThat(exManager.windowSplitCount).isEqualTo(2)
+  }
+
+  @ParameterizedTest
+  @CsvSource("file,false", "file,true", "editor,false", "editor,true", "text,false", "text,true")
+  fun testRequestCapturesOnlyManagedMode(api: String, explicitDefault: Boolean): Unit = timeoutRunBlocking(context = Dispatchers.UiWithModelAccess) {
+      manager.requestOpenFile(getSourceFile("1.txt"), FileEditorOpenRequest.defaults()).await()
+      assertThat(manager.windowSplitCount).isEqualTo(1)
+      val descriptor = OpenFileDescriptor(project, getSourceFile("2.txt"))
+      val publicManager: FileEditorManager = manager
+      val request = FileEditorOpenRequest.fromDescriptor(descriptor)
+        .withOpenMode(if (explicitDefault) FileEditorOpenMode.DEFAULT else FileEditorOpenMode.MANAGED)
+      lateinit var submitted: CompletableFuture<*>
+      dispatchOpenInRightSplitGesture(disposable) {
+        submitted = when (api) {
+          "file" -> publicManager.requestOpenFile(descriptor.file, request)
+          "editor" -> publicManager.requestOpenEditor(descriptor, request)
+          else -> publicManager.requestOpenTextEditor(descriptor, request)
+        }
+      }
+      submitted.await()
+      assertThat(manager.windowSplitCount).isEqualTo(if (explicitDefault) 1 else 2)
+      assertThat(request.openMode).isEqualTo(if (explicitDefault) FileEditorOpenMode.DEFAULT else FileEditorOpenMode.MANAGED)
+    }
+
+  @ParameterizedTest
+  @ValueSource(strings = ["file", "editor", "text"])
+  fun testSuspendingOpenIgnoresCurrentGesture(api: String): Unit = timeoutRunBlocking(context = Dispatchers.UiWithModelAccess) {
+    manager.openFile(getSourceFile("1.txt"), FileEditorOpenRequest.defaults())
+    val descriptor = OpenFileDescriptor(project, getSourceFile("2.txt"))
+    val request = FileEditorOpenRequest.defaults()
+    lateinit var opening: Deferred<*>
+    dispatchOpenInRightSplitGesture(disposable) {
+      opening = async(start = CoroutineStart.UNDISPATCHED) {
+        when (api) {
+          "file" -> manager.openFile(descriptor.file, request)
+          "editor" -> manager.openEditor(descriptor, request)
+          else -> manager.openTextEditor(descriptor, request)
+        }
+      }
+    }
+    opening.await()
+    assertThat(manager.isFileOpen(descriptor.file)).isTrue()
+    assertThat(manager.windowSplitCount).isEqualTo(1)
+    assertThat(request.openMode).isEqualTo(FileEditorOpenMode.MANAGED)
+  }
+
+  @ParameterizedTest
+  @ValueSource(booleans = [false, true])
+  fun testExplicitWindowIgnoresCurrentGesture(suspending: Boolean): Unit = timeoutRunBlocking(context = Dispatchers.UiWithModelAccess) {
+    manager.openFile(getSourceFile("1.txt"), FileEditorOpenRequest.defaults())
+    val targetWindow = currentWindow(manager)
+    val file = getSourceFile("2.txt")
+    val request = FileEditorOpenRequest.defaults()
+    lateinit var opening: Deferred<FileEditorComposite>
+    dispatchOpenInRightSplitGesture(disposable) {
+      opening = async(start = CoroutineStart.UNDISPATCHED) {
+        if (suspending) manager.openFileInWindow(file, targetWindow, request)
+        else manager.requestOpenFileInWindow(file, targetWindow, request).await()
+      }
+    }
+    opening.await()
+    assertThat(targetWindow.isFileOpen(file)).isTrue()
+    assertThat(manager.windowSplitCount).isEqualTo(1)
+    assertThat(request.openMode).isEqualTo(FileEditorOpenMode.MANAGED)
+  }
+
+  @Test
+  @Timeout(30)
+  fun testAwaitLoadedAfterOpeningTextEditor(): Unit = timeoutRunBlocking(context = Dispatchers.UiWithModelAccess) {
+    val editor = checkNotNull(manager.requestOpenTextEditor(
+      OpenFileDescriptor(project, getSourceFile("1.txt")),
+      FileEditorOpenRequest.defaults()).await()
+    )
+    manager.awaitLoaded(editor)
+    assertThat(editor.isDisposed).isFalse()
+    assertThat(AsyncEditorLoader.isEditorLoaded(editor)).isTrue()
+  }
+
+  @Test
+  fun testRequestOpenFileCompletesWhenCompositeCloses(): Unit = timeoutRunBlocking(context = Dispatchers.UiWithModelAccess) {
+    val file = getSourceFile("1.txt")
+    val creationStarted = CompletableDeferred<Unit>()
+
+    registerProvider(object : AsyncFileEditorProvider {
+      override fun accept(project: Project, fileToAccept: VirtualFile): Boolean = fileToAccept == file
+
+      override fun acceptRequiresReadAction(): Boolean = false
+
+      override fun getEditorTypeId(): String = "request-close-while-loading"
+
+      override fun getPolicy(): FileEditorPolicy = FileEditorPolicy.HIDE_DEFAULT_EDITOR
+
+      override fun createEditor(project: Project, file: VirtualFile): FileEditor = throw UnsupportedOperationException()
+
+      override suspend fun createFileEditor(
+        project: Project,
+        file: VirtualFile,
+        document: Document?,
+        editorCoroutineScope: CoroutineScope,
+      ): FileEditor {
+        creationStarted.complete(Unit)
+        awaitCancellation()
+      }
+    })
+
+    val completion = manager.requestOpenFile(file, FileEditorOpenRequest.defaults()).toCompletableFuture()
+    creationStarted.await()
+    manager.closeFile(file)
+
+    waitUntil("The request must finish when the tab closes") {
+      completion.isDone
+    }
+    assertThat(completion.isCancelled).isTrue()
+  }
+
+  @Test
+  fun testRequestOpenFileCancellationDoesNotCancelOpening(): Unit = timeoutRunBlocking(context = Dispatchers.UiWithModelAccess) {
+    val file = getSourceFile("1.txt")
+    val creationStarted = CompletableDeferred<Unit>()
+    val proceedWithCreation = CompletableDeferred<Unit>()
+
+    registerProvider(object : AsyncFileEditorProvider {
+      override fun accept(project: Project, fileToAccept: VirtualFile): Boolean = fileToAccept == file
+
+      override fun acceptRequiresReadAction(): Boolean = false
+
+      override fun getEditorTypeId(): String = "request-cancel-wait"
+
+      override fun getPolicy(): FileEditorPolicy = FileEditorPolicy.HIDE_DEFAULT_EDITOR
+
+      override fun createEditor(project: Project, file: VirtualFile): FileEditor = throw UnsupportedOperationException()
+
+      override suspend fun createFileEditor(
+        project: Project,
+        file: VirtualFile,
+        document: Document?,
+        editorCoroutineScope: CoroutineScope,
+      ): FileEditor {
+        creationStarted.complete(Unit)
+        proceedWithCreation.await()
+        return withContext(Dispatchers.EDT) {
+          MyTextEditor(file, checkNotNull(document), "request-cancel-wait", 0)
+        }
+      }
+    })
+
+    val completion = manager.requestOpenFile(file, FileEditorOpenRequest.defaults()).toCompletableFuture()
+    creationStarted.await()
+    assertThat(completion.cancel(false)).isTrue()
+    proceedWithCreation.complete(Unit)
+
+    waitUntil("The editor must open after the request future is canceled") {
+      manager.getEditors(file).isNotEmpty()
+    }
   }
 
   @Test
@@ -741,7 +1325,7 @@ class FileEditorManagerTest {
     var file: VirtualFile? = null
     try {
       FileUtil.writeToFile(ioFile, byteArrayOf(1, 2, 3, 4, 29)) // to convince IDEA it's binary when renamed to an unknown extension
-      file = assertThatNotNull(LocalFileSystem.getInstance().refreshAndFindFileByIoFile(ioFile))
+      file = assertThatNotNull(StandardFileSystems.local().refreshAndFindFileByPath(ioFile.absolutePath))
       assertThat(file.fileType).isEqualTo(PlainTextFileType.INSTANCE)
       FileEditorManager.getInstance(project).openFile(file, true)
       //noinspection SpellCheckingInspection
@@ -881,13 +1465,13 @@ class FileEditorManagerTest {
 
   private fun getFile(path: String): VirtualFile {
     val fullPath = testDataPath + path
-    return assertThatNotNull(LocalFileSystem.getInstance().refreshAndFindFileByPath(fullPath), "Can't find $fullPath")
+    return assertThatNotNull(StandardFileSystems.local().refreshAndFindFileByPath(fullPath), "Can't find $fullPath")
   }
 
   private fun createTempFooBar(): VirtualFile {
     val io = Path.of(FileUtil.getTempDirectory(), "/src/foo.bar")
     io.write(byteArrayOf(1, 0, 2, 3))
-    return assertThatNotNull(LocalFileSystem.getInstance().refreshAndFindFileByNioFile(io), "Can't find $io")
+    return assertThatNotNull(VirtualFileManager.getInstance().refreshAndFindFileByNioPath(io), "Can't find $io")
   }
 
   private fun openFiles(femSerialisedText: String) {
@@ -1076,5 +1660,31 @@ open class MockFileEditorProvider(
 
   companion object {
     const val DEFAULT_FILE_EDITOR_NAME: String = "MockEditor"
+  }
+}
+
+internal fun dispatchOpenInRightSplitGesture(disposable: Disposable, action: () -> Unit) {
+  val shortcut = KeymapManager.getInstance().activeKeymap.getShortcuts(IdeActions.ACTION_OPEN_IN_RIGHT_SPLIT)
+    .filterIsInstance<KeyboardShortcut>().firstOrNull()
+  assertThat(shortcut).describedAs("The active keymap must bind Open in Right Split").isNotNull()
+  val keyStroke = shortcut!!.firstKeyStroke
+  val gesture = KeyEvent(JLabel(), KeyEvent.KEY_PRESSED, System.currentTimeMillis(),
+                         keyStroke.modifiers, keyStroke.keyCode, KeyEvent.CHAR_UNDEFINED)
+  val dispatcherDisposable = Disposer.newDisposable(disposable, "open mode gesture")
+  var dispatched = false
+  try {
+    IdeEventQueue.getInstance().addDispatcher(object : IdeEventQueue.NonLockedEventDispatcher {
+      override fun dispatch(e: AWTEvent): Boolean {
+        if (e !== gesture) return false
+        dispatched = true
+        action()
+        return true
+      }
+    }, dispatcherDisposable)
+    IdeEventQueue.getInstance().dispatchEvent(gesture)
+    assertThat(dispatched).isTrue()
+  }
+  finally {
+    Disposer.dispose(dispatcherDisposable)
   }
 }

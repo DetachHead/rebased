@@ -1646,7 +1646,8 @@ com.intellij.openapi.fileEditor.FileEditorComposite
 - a:getAllEditors():java.util.List
 - a:getAllProviders():java.util.List
 - a:isPreview():Z
-a:com.intellij.openapi.fileEditor.FileEditorManager
+Fa:com.intellij.openapi.fileEditor.FileEditorManager
+- sf:Companion:com.intellij.openapi.fileEditor.FileEditorManager$Companion
 - addFileEditorManagerListener(com.intellij.openapi.fileEditor.FileEditorManagerListener):V
 - a:closeFile(com.intellij.openapi.vfs.VirtualFile):V
 - a:getAllEditors():com.intellij.openapi.fileEditor.FileEditor[]
@@ -1655,7 +1656,7 @@ a:com.intellij.openapi.fileEditor.FileEditorManager
 - getEditorList(com.intellij.openapi.vfs.VirtualFile):java.util.List
 - a:getEditors(com.intellij.openapi.vfs.VirtualFile):com.intellij.openapi.fileEditor.FileEditor[]
 - getFocusedEditor():com.intellij.openapi.fileEditor.FileEditor
-- s:getInstance(com.intellij.openapi.project.Project):com.intellij.openapi.fileEditor.FileEditorManager
+- sf:getInstance(com.intellij.openapi.project.Project):com.intellij.openapi.fileEditor.FileEditorManager
 - a:getOpenFiles():com.intellij.openapi.vfs.VirtualFile[]
 - a:getProject():com.intellij.openapi.project.Project
 - getSelectedEditor():com.intellij.openapi.fileEditor.FileEditor
@@ -1668,6 +1669,8 @@ a:com.intellij.openapi.fileEditor.FileEditorManager
 - a:openFile(com.intellij.openapi.vfs.VirtualFile):java.util.List
 - removeFileEditorManagerListener(com.intellij.openapi.fileEditor.FileEditorManagerListener):V
 - updateFilePresentation(com.intellij.openapi.vfs.VirtualFile):V
+f:com.intellij.openapi.fileEditor.FileEditorManager$Companion
+- f:getInstance(com.intellij.openapi.project.Project):com.intellij.openapi.fileEditor.FileEditorManager
 f:com.intellij.openapi.fileEditor.FileEditorManagerEvent
 - f:getManager():com.intellij.openapi.fileEditor.FileEditorManager
 - f:getNewEditor():com.intellij.openapi.fileEditor.FileEditor
@@ -1843,6 +1846,7 @@ a:com.intellij.openapi.vfs.newvfs.NewVirtualFileSystem
 a:com.intellij.openapi.vfs.newvfs.RefreshQueue
 - sf:Companion:com.intellij.openapi.vfs.newvfs.RefreshQueue$Companion
 - sf:getInstance():com.intellij.openapi.vfs.newvfs.RefreshQueue
+- f:refreshPaths(Z,Z,java.lang.Runnable,java.util.Collection):V
 f:com.intellij.openapi.vfs.newvfs.RefreshQueue$Companion
 - f:getInstance():com.intellij.openapi.vfs.newvfs.RefreshQueue
 a:com.intellij.openapi.vfs.newvfs.RefreshSession

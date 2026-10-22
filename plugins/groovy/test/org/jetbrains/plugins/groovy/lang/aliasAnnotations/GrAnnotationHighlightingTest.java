@@ -8,11 +8,6 @@ import org.jetbrains.plugins.groovy.lang.highlighting.GrHighlightingTestBase;
  * @author Max Medvedev
  */
 public class GrAnnotationHighlightingTest extends GrHighlightingTestBase {
-  @Override
-  public String getBasePath() {
-    return null;
-  }
-
   public void testAnnotatedAliasIsCorrect() {
     doTestHighlighting("""
                          import groovy.transform.*

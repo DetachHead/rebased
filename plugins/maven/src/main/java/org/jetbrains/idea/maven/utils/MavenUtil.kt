@@ -22,6 +22,7 @@ import com.intellij.openapi.application.PathManager.getSystemDir
 import com.intellij.openapi.application.ReadAction
 import com.intellij.openapi.application.impl.ApplicationInfoImpl
 import com.intellij.openapi.application.impl.LaterInvocator
+import com.intellij.openapi.application.runReadAction
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
 import com.intellij.openapi.externalSystem.ExternalSystemModulePropertyManager.Companion.getInstance
@@ -69,10 +70,10 @@ import com.intellij.openapi.util.registry.Registry.Companion.`is`
 import com.intellij.openapi.util.text.StringUtil
 import com.intellij.openapi.vfs.DiskQueryRelay
 import com.intellij.openapi.vfs.JarFileSystem
-import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.openapi.vfs.VfsUtil
 import com.intellij.openapi.vfs.VfsUtilCore
 import com.intellij.openapi.vfs.VirtualFile
+import com.intellij.openapi.vfs.VirtualFileManager
 import com.intellij.openapi.vfs.isFile
 import com.intellij.platform.eel.EelApi
 import com.intellij.platform.eel.EelDescriptor
@@ -792,7 +793,7 @@ object MavenUtil {
   }
 
   @JvmStatic
-  @RequiresBackgroundThread
+  @RequiresBackgroundThread(generateAssertion = false /* IJPL-115548 */)
   fun getSystemMavenHomeVariants(project: Project): MutableList<MavenHomeType> {
     val result = ArrayList<MavenHomeType>()
 
@@ -1535,7 +1536,7 @@ object MavenUtil {
   }
 
   private fun tryReadFromLib(library: Path, pathInJar: String): VirtualFile? {
-    val libraryVirtualFile = LocalFileSystem.getInstance().findFileByNioFile(library)
+    val libraryVirtualFile = VirtualFileManager.getInstance().findFileByNioPath(library)
     if (libraryVirtualFile == null) return null
     val root = JarFileSystem.getInstance().getJarRootForLocalFile(libraryVirtualFile)
     if (root == null) return null
@@ -1727,10 +1728,10 @@ object MavenUtil {
   }
 
   fun getModuleJdk(mavenProjectsManager: MavenProjectsManager, mavenProject: MavenProject): Sdk? {
-    val module = mavenProjectsManager.findModule(mavenProject)
-    if (module == null) return null
-
-    return ModuleRootManager.getInstance(module).getSdk()
+    return runReadAction {
+      val module = mavenProjectsManager.findModule(mavenProject) ?: return@runReadAction null
+      ModuleRootManager.getInstance(module).sdk
+    }
   }
 
   @JvmStatic
@@ -2105,7 +2106,7 @@ object MavenUtil {
   @JvmStatic
   fun isRunningFromSources(): Boolean = PluginManagerCore.isRunningFromSources()
 
-  @RequiresBackgroundThread
+  @RequiresBackgroundThread(generateAssertion = false /* IJPL-115548 */)
   fun isMaven410(xmlns: String?, schemaLocation: String?): Boolean {
     if (xmlns == null || schemaLocation == null) return false
     val xmlns410 = xmlns == MAVEN_4_XMLNS || xmlns == MAVEN_4_XMLNS_HTTPS

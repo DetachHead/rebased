@@ -5,15 +5,18 @@ import com.intellij.ide.ActivityTracker
 import com.intellij.ide.util.PropertiesComponent
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
+import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.util.registry.Registry
+import com.intellij.openapi.wm.impl.welcomeScreen.WelcomeFrame
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import org.jetbrains.annotations.ApiStatus
-import java.util.concurrent.TimeUnit
+import kotlin.time.Duration.Companion.days
+import kotlin.time.Duration.Companion.milliseconds
 
 private const val REMIND_LATER_TIME = "IdeUpdateWidget.RemindLaterTime"
-private val REMIND_LATER_TIMEOUT_MS = TimeUnit.DAYS.toMillis(3)
+private val REMIND_LATER_TIMEOUT = 3.days
 
 @ApiStatus.Internal
 @Service(Service.Level.APP)
@@ -42,17 +45,26 @@ class IdeUpdateWidgetState {
   }
 
   companion object {
+
+    private val LOG = logger<IdeUpdateWidgetState>()
+
     @JvmStatic
     fun getInstance(): IdeUpdateWidgetState = service()
 
     @JvmStatic
-    fun isEnabled(): Boolean = Registry.`is`("ide.update.toolbar.widget", false)
+    fun isEnabled(): Boolean = Registry.`is`("ide.update.toolbar.widget", true)
 
     /**
-     * When shown, the toolbar button replaces the update item in the [com.intellij.ide.actions.SettingsEntryPointAction] menu.
+     * When the toolbar button owns the update, it replaces the item in the [com.intellij.ide.actions.SettingsEntryPointAction] menu.
      */
     @JvmStatic
-    fun isWidgetShown(): Boolean = isEnabled() && getInstance().status.value != Status.NONE
+    fun isUpdateAvailable(): Boolean = isEnabled() && getInstance().status.value != Status.NONE
+
+    /**
+     * Whether the user sees the button.
+     */
+    @JvmStatic
+    fun isWidgetShown(): Boolean = isUpdateAvailable() && WelcomeFrame.getInstance() == null
 
     /**
      * Whether an update must not be announced, because the user has asked to be reminded later.
@@ -64,7 +76,7 @@ class IdeUpdateWidgetState {
       }
 
       val elapsed = System.currentTimeMillis() - PropertiesComponent.getInstance().getLong(REMIND_LATER_TIME, 0)
-      return elapsed < REMIND_LATER_TIMEOUT_MS
+      return elapsed.milliseconds < REMIND_LATER_TIMEOUT
     }
   }
 
@@ -76,38 +88,93 @@ class IdeUpdateWidgetState {
   var restartCommand: Array<String>? = null
     private set
 
-  /**
-   * Moves the button between the statuses.
-   */
-  fun updateStatus(value: Status) {
+  fun onUpdateFound(found: Boolean) {
     if (!isEnabled()) {
       return
     }
 
+    LOG.info("onUpdateFound: $found")
+
+    updateStatus(if (found) Status.AVAILABLE else Status.NONE)
+  }
+
+  fun onDownloadStarted() {
+    if (!isUpdateAvailable()) {
+      return
+    }
+
+    LOG.info("onDownloadStarted")
+
+    updateStatus(Status.DOWNLOADING)
+  }
+
+  /**
+   * Returns the button from [Status.DOWNLOADING] when the patch task ends without a patch.
+   *
+   * A prepared patch has already left [Status.DOWNLOADING] for [Status.RESTART], so only a failed download and a cancellation
+   * reach the transition.
+   */
+  fun onDownloadFinished() {
+    if (!isUpdateAvailable()) {
+      return
+    }
+
+    LOG.info("onDownloadFinished")
+
+    updateStatus(Status.AVAILABLE)
+  }
+
+  /**
+   * The [command] is `null` when restart is not available
+   */
+  fun onRestartReady(command: Array<String>?) {
+    if (!isUpdateAvailable()) {
+      return
+    }
+
+    LOG.info("onRestartReady, restart capable: ${command != null}")
+
+    restartCommand = command
+    updateStatus(Status.RESTART)
+  }
+
+  fun remindMeLater() {
+    if (!isEnabled()) {
+      return
+    }
+
+    LOG.info("remindMeLater")
+
+    PropertiesComponent.getInstance().setValue(REMIND_LATER_TIME, System.currentTimeMillis().toString())
+  }
+
+  fun isClickable(): Boolean = when (status.value) {
+    Status.DOWNLOADING -> false
+    Status.RESTART -> restartCommand != null
+    else -> true
+  }
+
+  /**
+   * Moves the button between the statuses. Every caller checks first that the button accepts the transition.
+   */
+  private fun updateStatus(value: Status) {
     val current = mutableStatus.value
+    if (current == value) {
+      return
+    }
+
     // [Status.RESTART] is a final status
-    if (current == value || current == Status.RESTART) {
+    if (current == Status.RESTART) {
+      LOG.info("Status $value is declined, $current is final")
+
       return
     }
 
     if (mutableStatus.compareAndSet(current, value)) {
+      LOG.info("Status changed: $current -> $value")
+
       updateWidget()
     }
-  }
-
-  fun remindMeLater() {
-    PropertiesComponent.getInstance().setValue(REMIND_LATER_TIME, System.currentTimeMillis().toString())
-  }
-
-  fun onDownloadFinished() {
-    if (isEnabled() && mutableStatus.compareAndSet(Status.DOWNLOADING, Status.AVAILABLE)) {
-      updateWidget()
-    }
-  }
-
-  fun onRestartReady(command: Array<String>) {
-    restartCommand = command
-    updateStatus(Status.RESTART)
   }
 
   private fun updateWidget() {

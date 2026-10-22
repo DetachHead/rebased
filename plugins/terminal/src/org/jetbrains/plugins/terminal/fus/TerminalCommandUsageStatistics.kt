@@ -9,7 +9,6 @@ import com.intellij.util.execution.ParametersListUtil
 import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.annotations.VisibleForTesting
 import org.jetbrains.plugins.terminal.fus.TerminalCommandUsageStatistics.absolutePathCommand
-import org.jetbrains.plugins.terminal.fus.TerminalCommandUsageStatistics.getKnownCommandValuesList
 import org.jetbrains.plugins.terminal.fus.TerminalCommandUsageStatistics.relativePathCommand
 import java.util.Locale
 import kotlin.math.min
@@ -18,6 +17,8 @@ import kotlin.math.min
 object TerminalCommandUsageStatistics {
 
   private const val THIRD_PARTY = "third.party"
+  /** Value to use when process executable can't be determined, for example because there is no shell integration */
+  const val UNKNOWN_EXECUTABLE: String = "<unknown>"
   private val thirdPartyCommand = CommandData(THIRD_PARTY, null)
 
   private val emptyCommand = CommandData("<empty>", null)
@@ -26,7 +27,7 @@ object TerminalCommandUsageStatistics {
   private val absolutePathCommand = CommandData("<absolute path>", null)
   private val knownCommandsData: KnownCommandsData = buildKnownCommandsData()
 
-  fun getKnownCommandValuesList(): List<String> {
+  fun getKnownCommandValuesWithCornerCases(): List<String> {
     val cornerCases = listOf(
       relativePathCommand.command,
       absolutePathCommand.command,
@@ -36,22 +37,15 @@ object TerminalCommandUsageStatistics {
     return cornerCases + knownCommandsData.commands.toList()
   }
 
-  /**
-   * Same as [getKnownCommandValuesList] but without [absolutePathCommand] and [relativePathCommand].
-   */
-  fun getKnownCommandValuesListWithoutPaths(): List<String> {
-    val cornerCases = listOf(
-      emptyCommand.command,
-      whitespacesCommand.command
-    )
-    return cornerCases + knownCommandsData.commands.toList()
+  fun getKnownCommandValuesList(): List<String> {
+    return knownCommandsData.commands.toList()
   }
 
   fun getKnownSubCommandValuesList(): List<String> {
     return knownCommandsData.subCommands.toList()
   }
 
-  internal val commandExecutableField = EventFields.String("command", getKnownCommandValuesList())
+  internal val commandExecutableField = EventFields.String("command", getKnownCommandValuesWithCornerCases())
   internal val subCommandField = EventFields.String("subCommand", getKnownSubCommandValuesList())
 
   /**

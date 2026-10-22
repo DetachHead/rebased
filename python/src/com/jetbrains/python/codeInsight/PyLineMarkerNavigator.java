@@ -14,6 +14,7 @@ import com.intellij.psi.PsiElement;
 import com.intellij.ui.awt.RelativePoint;
 import com.intellij.util.Query;
 import com.jetbrains.python.psi.types.TypeEvalContext;
+import com.jetbrains.python.pyi.PyiUtil;
 import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -36,8 +37,13 @@ public abstract class PyLineMarkerNavigator<T extends PsiElement> implements Gut
       return;
     }
     elementQuery.forEach(psiElement -> {
-      if (psiElement instanceof NavigatablePsiElement) {
-        navElements.add((NavigatablePsiElement)psiElement);
+      if (psiElement instanceof NavigatablePsiElement navigatable) {
+        NavigatablePsiElement target = PyiUtil.getNavigationTarget(navigatable, elt) instanceof NavigatablePsiElement original
+                                       ? original
+                                       : navigatable;
+        if (!navElements.contains(target)) {
+          navElements.add(target);
+        }
       }
       return true;
     });

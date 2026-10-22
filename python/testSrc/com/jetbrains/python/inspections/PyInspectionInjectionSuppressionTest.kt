@@ -10,12 +10,12 @@ import com.intellij.lang.injection.MultiHostRegistrar
 import com.intellij.openapi.projectRoots.Sdk
 import com.intellij.openapi.roots.ModuleRootManager
 import com.intellij.openapi.roots.ModuleRootModificationUtil
-import com.intellij.openapi.util.Disposer
 import com.intellij.psi.ElementManipulators
 import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiFile
 import com.intellij.psi.PsiLanguageInjectionHost
 import com.intellij.psi.util.PsiTreeUtil
+import com.intellij.psi.util.PsiUtilCore
 import com.jetbrains.python.PythonLanguage
 import com.jetbrains.python.fixtures.PyTestCase
 
@@ -64,15 +64,9 @@ class PyInspectionInjectionSuppressionTest : PyTestCase() {
   }
 
   private fun withInjectedPythonInto(hostElementType: Class<out PsiElement>, action: () -> Unit) {
-    val disposable = Disposer.newDisposable()
     val injectedLanguageManager = InjectedLanguageManager.getInstance(myFixture.project)
-    injectedLanguageManager.registerMultiHostInjector(createInjector(hostElementType), disposable)
-    try {
-      action()
-    }
-    finally {
-      Disposer.dispose(disposable)
-    }
+    injectedLanguageManager.registerMultiHostInjector(createInjector(hostElementType), myFixture.testRootDisposable)
+    action()
   }
 
   private fun createInjector(hostElementType: Class<out PsiElement>): MultiHostInjector {
@@ -97,7 +91,7 @@ class PyInspectionInjectionSuppressionTest : PyTestCase() {
                         ?: error("No injected PSI files found for host")
     val injectedFile = injectedFiles.first().first as? PsiFile ?: error("Injected PSI root is not a file")
     val targetOffset = injectedFile.text.indexOf("missing_name").takeIf { it >= 0 } ?: 0
-    return injectedFile.findElementAt(targetOffset) ?: injectedFile
+    return PsiUtilCore.getElementAtOffset(injectedFile, targetOffset)
   }
 
   private fun runWithoutPythonSdk(action: () -> Unit) {

@@ -76,7 +76,7 @@ open class MarkdownDefaultMarkerProcessor(
       add(CodeFenceMarkerProvider())
       add(SetextHeaderProvider())
       add(GitHubAlertMarkerProvider())
-      add(BlockQuoteProvider())
+      add(BlockQuoteProvider(lazyContinuation = false))
       add(ListMarkerProvider())
       add(HtmlBlockProvider())
       add(DefinitionListMarkerProvider())

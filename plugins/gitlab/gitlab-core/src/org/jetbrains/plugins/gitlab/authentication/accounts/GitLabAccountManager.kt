@@ -7,7 +7,7 @@ import com.intellij.collaboration.auth.AccountsRepository
 import com.intellij.collaboration.auth.PasswordSafeCredentialsRepository
 import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.logger
-import com.intellij.openapi.diagnostic.rethrowControlFlowException
+import com.intellij.diagnostic.rethrowControlFlowException
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.Json
 import org.jetbrains.annotations.ApiStatus

@@ -4,5 +4,6 @@ fun maybeFoo(): String? {
 
 fun main(args: Array<String>) {
     val bar = "bar"
-    maybeFoo() ?: bar
+    val foo = maybeFoo()
+    foo ?: bar
 }

@@ -11,7 +11,7 @@ class GroovyNestedClassWithInstanceMainMethodInspectionTest: GrHighlightingTestB
     return GroovyProjectDescriptors.GROOVY_5_0
   }
 
-  override fun getBasePath(): String = TestUtils.getTestDataPath() + "inspections/nestedInstanceMainMethod/"
+  override fun getTestDataPath(): String = TestUtils.getAbsoluteTestDataPath() + "inspections/nestedInstanceMainMethod/"
 
   override fun setUp() {
     super.setUp()

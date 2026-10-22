@@ -74,14 +74,10 @@ public class TodoView implements PersistentStateComponent<TodoView.State>, Dispo
     state.all.arePackagesShown = true;
 
     MessageBusConnection connection = project.getMessageBus().connect(this);
-    if (!shouldUseSplitTodo()) {
-      // to make sure the backend has the latest TodoConfiguration settings,
-      // in split mode, backend subscribes to TodoConfiguration.PROPERTY_CHANGE
-      connection.subscribe(TodoConfiguration.PROPERTY_CHANGE, new MyPropertyChangeListener());
-    }
+    connection.subscribe(TodoConfigurationPropertyChangeListener.TOPIC, new MyPropertyChangeListener());
     connection.subscribe(FileTypeManager.TOPIC, new MyFileTypeListener());
 
-    myChangesSupport = project.getService(TodoViewChangesSupport.class);
+    myChangesSupport = TodoViewChangesSupport.getInstance(project);
     myChangesListener = myChangesSupport.installListener(project, connection,
                                                          () -> myContentManager,
                                                          () -> myChangeListTodosContent);
@@ -249,7 +245,7 @@ public class TodoView implements PersistentStateComponent<TodoView.State>, Dispo
     return new AllTodosTreeBuilder(tree, project);
   }
 
-  private final class MyPropertyChangeListener implements PropertyChangeListener {
+  private final class MyPropertyChangeListener implements TodoConfigurationPropertyChangeListener {
     @Override
     public void propertyChange(PropertyChangeEvent e) {
       if (TodoConfiguration.PROP_TODO_PATTERNS.equals(e.getPropertyName()) ||

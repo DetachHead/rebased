@@ -13,7 +13,7 @@ import com.intellij.ide.lightEdit.LightEditCompatible
 import com.intellij.ide.lightEdit.LightEditFeatureUsagesUtil
 import com.intellij.ide.lightEdit.LightEditService
 import com.intellij.ide.lightEdit.LightEditUtil
-import com.intellij.ide.trustedProjects.TrustedFiles
+import com.intellij.ide.TrustedFiles
 import com.intellij.ide.util.PsiNavigationSupport
 import com.intellij.idea.ActionsBundle
 import com.intellij.openapi.actionSystem.ActionUpdateThread
@@ -34,7 +34,7 @@ import com.intellij.openapi.fileTypes.ex.FileTypeChooser
 import com.intellij.openapi.project.DumbAware
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.Messages
-import com.intellij.openapi.vfs.LocalFileSystem
+import com.intellij.openapi.vfs.StandardFileSystems
 import com.intellij.openapi.vfs.VfsUtil
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.openapi.wm.impl.welcomeScreen.FlatWelcomeFrame
@@ -62,7 +62,7 @@ open class OpenFileAction : AnAction(), DumbAware, LightEditCompatible, ActionRe
   companion object {
     @JvmStatic
     fun openFile(filePath: String, project: Project) {
-      val file = LocalFileSystem.getInstance().refreshAndFindFileByPath(filePath)
+      val file = StandardFileSystems.local().refreshAndFindFileByPath(filePath)
       if (file != null && file.isValid) {
         openFile(file, project)
       }
@@ -153,7 +153,6 @@ open class OpenFileAction : AnAction(), DumbAware, LightEditCompatible, ActionRe
 
       if (e.getData(WelcomeScreenActionsUtil.NON_MODAL_WELCOME_SCREEN) == true) {
         presentation.icon = AllIcons.Nodes.Folder
-        presentation.text = ActionsBundle.message("action.Tabbed.WelcomeScreen.NonModal.OpenProject.text")
       }
       else if (FlatWelcomeFrame.USE_TABBED_WELCOME_SCREEN) {
         presentation.icon = AllIcons.Welcome.Open

@@ -10,13 +10,13 @@ import com.intellij.openapi.progress.ProgressIndicator;
 import com.intellij.openapi.progress.util.ProgressIndicatorUtils;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.VirtualFile;
+import com.intellij.openapi.wm.ex.WelcomeScreenProjectProvider;
 import com.intellij.psi.PsiFile;
 import com.intellij.psi.PsiManager;
 import com.intellij.psi.codeStyle.MinusculeMatcher;
 import com.intellij.psi.codeStyle.NameUtil;
 import com.intellij.util.Processor;
 import com.intellij.util.containers.ContainerUtil;
-import one.util.streamex.StreamEx;
 import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 
@@ -24,6 +24,8 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Objects;
+import java.util.stream.Stream;
 
 /**
  * @deprecated The old Search Everywhere is being sunset in favor of the new (Split) Search Everywhere ({@code com.intellij.platform.searchEverywhere}).
@@ -65,27 +67,28 @@ public class RecentFilesSEContributor extends FileSearchEverywhereContributor {
     List<VirtualFile> opened = Arrays.asList(FileEditorManager.getInstance(myProject).getSelectedFiles());
     List<VirtualFile> history = Lists.reverse(EditorHistoryManager.getInstance(myProject).getFileList());
 
+    boolean shouldIncludeOpened = WelcomeScreenProjectProvider.isWelcomeScreenProject(myProject);
     List<FoundItemDescriptor<Object>> res = new ArrayList<>();
     ProgressIndicatorUtils.yieldToPendingWriteActions();
     ProgressIndicatorUtils.runInReadActionWithWriteActionPriority(
       () -> {
         PsiManager psiManager = PsiManager.getInstance(myProject);
-        StreamEx<VirtualFile> stream = StreamEx.of(history);
+        Stream<VirtualFile> stream = history.stream();
         if (!StringUtil.isEmptyOrSpaces(searchString)) {
           stream = stream.filter(file -> matcher.matches(file.getName()));
         }
 
         Comparator<FoundItemDescriptor<?>> comparator = Comparator.comparing(it -> it.getWeight());
-        stream.filter(vf -> !opened.contains(vf) && vf.isValid())
+        stream.filter(vf -> (shouldIncludeOpened || !opened.contains(vf)) && vf.isValid())
           .distinct()
           .map(vf -> {
             PsiFile f = psiManager.findFile(vf);
             String name = vf.getName();
             return f == null ? null : new FoundItemDescriptor<Object>(f, matcher.matchingDegree(name));
           })
-          .nonNull()
+          .filter(Objects::nonNull)
           .sorted(comparator.reversed())
-          .into(res);
+          .forEachOrdered(res::add);
 
         ContainerUtil.process(res, consumer);
       }, progressIndicator);

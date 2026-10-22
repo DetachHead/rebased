@@ -1,0 +1,13 @@
+// "Propagate 'Ann' opt-in requirement to constructor" "true"
+// PRIORITY: NORMAL
+// K2_ERROR: OPT_IN_USAGE_ERROR
+
+@RequiresOptIn(level = RequiresOptIn.Level.ERROR)
+@Target(AnnotationTarget.FUNCTION, AnnotationTarget.CONSTRUCTOR)
+annotation class Ann
+
+abstract class X @Ann constructor()
+
+class Y @Ann constructor() : X()
+
+// FUS_QUICKFIX_NAME: org.jetbrains.kotlin.idea.quickfix.OptInFixes$PropagateOptInAnnotationOnPrimaryConstructorFix

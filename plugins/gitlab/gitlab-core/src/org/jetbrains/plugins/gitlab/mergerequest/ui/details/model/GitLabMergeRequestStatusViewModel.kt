@@ -11,7 +11,7 @@ import com.intellij.collaboration.ui.codereview.details.model.CodeReviewStatusVi
 import com.intellij.openapi.diagnostic.thisLogger
 import com.intellij.openapi.project.Project
 import com.intellij.util.io.URLUtil
-import git4idea.repo.GitRepository
+import git4idea.remote.GitRemoteUrlCoordinates
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -39,7 +39,7 @@ interface GitLabMergeRequestStatusViewModel : CodeReviewStatusViewModel {
 class GitLabMergeRequestStatusViewModelImpl(
   project: Project,
   parentCs: CoroutineScope,
-  gitRepository: GitRepository,
+  gitRemote: GitRemoteUrlCoordinates,
   private val serverPath: GitLabServerPath,
   mergeRequest: GitLabMergeRequest,
 ) : GitLabMergeRequestStatusViewModel {
@@ -82,7 +82,7 @@ class GitLabMergeRequestStatusViewModelImpl(
   }
 
   override val resolveConflictsVm: GitLabResolveConflictsLocallyViewModel =
-    GitLabResolveConflictsLocallyViewModel(cs, project, serverPath, gitRepository, mergeRequest)
+    GitLabResolveConflictsLocallyViewModel(cs, project, gitRemote, mergeRequest)
 
   private fun GitLabCiJobDTO.convert(): CodeReviewCIJob? {
     val jobUrl: String? = detailedStatus?.detailsPath?.let { url ->

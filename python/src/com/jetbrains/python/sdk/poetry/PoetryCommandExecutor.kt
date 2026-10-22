@@ -32,6 +32,8 @@ import com.jetbrains.python.sdk.add.v2.toEelFileSystem
 import com.intellij.python.sdk.backend.PySdkBundle
 import com.jetbrains.python.sdk.pySdkAdditionalData
 import com.intellij.python.pytools.runTool
+import com.jetbrains.python.sdk.add.v2.EelOrJustPath
+import com.jetbrains.python.sdk.add.v2.EelOrJustPath.Companion.toEelFileSystem
 import com.jetbrains.python.target.PyTargetAwareAdditionalData
 import com.jetbrains.python.target.PythonLanguageRuntimeConfiguration
 import io.github.z4kn4fein.semver.Version
@@ -78,7 +80,7 @@ internal suspend fun <P : PathHolder> runPoetry(
   }
   return PoetryPyTool.getInstance().runTool(
     fileSystem = fileSystem,
-    pathFromSdk = poetryExecutable?.toString(),
+    pathFromSdk = poetryExecutable?.toStringForExecution(),
     dirPath = projectPath,
     args = args,
     env = env,
@@ -89,14 +91,14 @@ internal suspend fun <P : PathHolder> runPoetry(
 
 @Internal
 internal suspend fun runPoetry(
-  projectPath: Path?,
+  projectPath: EelOrJustPath,
   vararg args: String,
   inProjectEnv: Boolean? = null,
   baseEnv: Map<String, String> = emptyMap(),
 ): PyResult<String> {
   return runPoetry(
     fileSystem = projectPath.toEelFileSystem(),
-    projectPath = projectPath,
+    projectPath = projectPath.path,
     args = args,
     inProjectEnv = inProjectEnv,
     baseEnv = baseEnv,
@@ -150,7 +152,7 @@ private suspend fun <P : PathHolder> runPoetryWithSdk(
   val env = buildMap {
     put("POETRY_VIRTUALENVS_IN_PROJECT", "false")
     put("POETRY_VIRTUALENVS_PREFER_ACTIVE_PYTHON", "true")
-    put("VIRTUAL_ENV", pythonHomePath.toString())
+    put("VIRTUAL_ENV", pythonHomePath.toStringForExecution())
   }
   return runPoetry(
     fileSystem = fileSystem,
@@ -229,7 +231,7 @@ internal suspend fun <P : PathHolder> setupPoetry(
   runPoetry(
     fileSystem = fileSystem,
     projectPath = projectPath,
-    "env", "use", basePythonBinaryPath.toString(),
+    "env", "use", basePythonBinaryPath.toStringForExecution(),
     poetryExecutable = poetryExecutable,
     inProjectEnv = inProjectEnv,
   ).getOr { return it }
@@ -463,7 +465,7 @@ internal suspend fun <P : PathHolder> configurePoetryEnvironment(
   )
 }
 
-internal suspend fun configurePoetryEnvironment(modulePath: Path?, vararg args: String) {
+internal suspend fun configurePoetryEnvironment(modulePath: Path, vararg args: String) {
   configurePoetryEnvironment(modulePath, modulePath.toEelFileSystem(), args = args)
 }
 

@@ -185,7 +185,8 @@ class WelcomeFrame : JFrame(), IdeFrame, AccessibleContextAccessor, DisposableWi
         registerKeyboardShortcuts(jFrame.rootPane)
         hideSplashBeforeShow(jFrame)
         jFrame.isVisible = true
-        FUSProjectHotStartUpMeasurer.reportWelcomeScreenShown()
+        FUSProjectHotStartUpMeasurer.reportWelcomeScreenIsGoingToBeShown()
+        FUSProjectHotStartUpMeasurer.reportModalWelcomeScreenBecameVisible()
         installAppMenuIfNeeded(jFrame)
         instance = frame
         if (SystemInfoRt.isMac) {

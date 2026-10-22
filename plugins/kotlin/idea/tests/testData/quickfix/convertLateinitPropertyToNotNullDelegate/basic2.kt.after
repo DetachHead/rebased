@@ -5,4 +5,3 @@ import kotlin.properties.Delegates
 // K2_ERROR: INAPPLICABLE_LATEINIT_MODIFIER
 var x by Delegates.notNull<Int>()
 // FUS_QUICKFIX_NAME: org.jetbrains.kotlin.idea.quickfix.ConvertLateinitPropertyToNotNullDelegateFix
-// FUS_K2_QUICKFIX_NAME: org.jetbrains.kotlin.idea.quickfix.ConvertLateinitPropertyToNotNullDelegateFix

@@ -1,4 +1,9 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
+
+### auto-generated section `dev intellij.java.ide.resources` start
+content_module_jar(module = ":ide-resources")
+### auto-generated section `dev intellij.java.ide.resources` end
 
 ### auto-generated section `build intellij.java.ide.resources` start
 jvm_library(
@@ -13,6 +18,7 @@ jvm_library(
         ["resources/**/*"],
     ),
     visibility = ["//visibility:public"],
+    runtime_deps = ["//platform/platform-impl:ide-impl"],
 )
 
 jvm_library(
@@ -24,7 +30,11 @@ jvm_library(
     ),
     module_name = "intellij.java.ide.resources",
     visibility = ["//visibility:public"],
-    runtime_deps = [":ide-resources"],
+    runtime_deps = [
+        # do not sort,
+        ":ide-resources",
+        "//platform/platform-impl:ide-impl_test_lib",
+    ],
 )
 ### auto-generated section `build intellij.java.ide.resources` end
 
@@ -32,8 +42,8 @@ jvm_library(
 exports_files(
     [
         "intellij.java.ide.resources.iml",
-        "resources/META-INF/JavaIdePlugin.xml",
-        "resources/ProductivityFeaturesRegistry.xml",
+        "resources/JavaIdeProductivityFeatures.xml",
+        "resources/intellij.java.ide.resources.xml",
     ],
     visibility = ["//visibility:public"],
 )

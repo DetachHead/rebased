@@ -1461,6 +1461,7 @@ class JavaToJKTreeBuilder internal constructor(
         val nullityInferrer = J2KNullityInferrer()
         try {
             nullityInferrer.collect(file)
+            J2KDataflowNullability(file).applyTo(nullityInferrer)
         } catch (e: ProcessCanceledException) {
             throw e
         } catch (t: Throwable) {

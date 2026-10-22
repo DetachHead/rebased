@@ -1,6 +1,5 @@
 load("@community//build:tests-options.bzl", "jps_test")
 load("@rules_jvm//:jvm.bzl", "jvm_library")
-load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
 jps_test(
     name = "execution-process-mediator-client-tests_test",
@@ -46,11 +45,6 @@ jvm_library(
     ],
 )
 
-content_module_jar(
-    libraries = ["@lib//:execution-process-mediator-client-grpc-inprocess"],
-    module = ":client",
-)
-
 jvm_library(
     name = "client_test_lib",
     testonly = True,
@@ -73,12 +67,8 @@ jvm_library(
         "//platform/util-ex:util-ex_test_lib",
         "//platform/platform-impl:ide-impl_test_lib",
         "//platform/platform-util-io:ide-util-io_test_lib",
-        "//libraries/junit5",
-        "//libraries/junit5:junit5_test_lib",
         "//libraries/jetbrains/annotations",
         "//libraries/jetbrains/annotations:annotations_test_lib",
-        "//platform/testFramework/junit5",
-        "//platform/testFramework/junit5:junit5_test_lib",
         "//libraries/grpc:grpc_test_lib",
         "//libraries/grpc-netty-shaded:grpc-netty-shaded_test_lib",
     ],
@@ -90,7 +80,6 @@ exports_files(
     [
         "intellij.execution.process.mediator.client.iml",
         "resources/intellij.execution.process.mediator.client.xml",
-        "module-content.yaml",
     ],
     visibility = ["//visibility:public"],
 )
@@ -150,8 +139,8 @@ jvm_library(
         "//platform/util-ex:util-ex_test_lib",
         "//platform/platform-impl:ide-impl",
         "//platform/platform-util-io:ide-util-io",
-        "//libraries/junit5",
-        "//libraries/junit5:junit5_test_lib",
+        "//libraries/junit6",
+        "//libraries/junit6:junit6_test_lib",
         "//libraries/jetbrains/annotations",
         "//libraries/jetbrains/annotations:annotations_test_lib",
         "//platform/testFramework/junit5",

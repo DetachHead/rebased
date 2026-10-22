@@ -9,7 +9,7 @@ import com.jetbrains.python.packaging.repository.PyPackageRepository
 import com.jetbrains.python.parser.icons.PythonParserIcons
 import javax.swing.Icon
 
-class PyRunAnythingPipProvider : PyRunAnythingPackageProvider() {
+internal class PyRunAnythingPipProvider : PyRunAnythingPackageProvider() {
   override fun getHelpCommand() = "pip"
 
   override fun getHelpGroupTitle(): String = "Python"  // NON-NLS
@@ -31,8 +31,8 @@ class PyRunAnythingPipProvider : PyRunAnythingPackageProvider() {
   }
 
   override fun getPackageManager(dataContext: DataContext): PythonPackageManager? {
-    val pythonSdk = getSdk(dataContext) ?: return null
-    return PythonPackageManager.forSdk(dataContext.project, pythonSdk)
+    val interpreter = getInterpreter(dataContext) ?: return null
+    return PythonPackageManager.forPythonInterpreter(dataContext.project, interpreter)
   }
 
   override fun getPackageRepository(dataContext: DataContext): PyPackageRepository? {

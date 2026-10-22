@@ -128,7 +128,7 @@ internal class McpToolsListProvider(private val scope: CoroutineScope, initialTo
     /**
      * Sequential fallback for the synchronous API. Prefer [computeAllMcpToolsAsync].
      */
-    @RequiresBackgroundThread
+    @RequiresBackgroundThread(generateAssertion = false /* IJPL-115548 */)
     fun computeAllMcpTools(alreadyConverted: Map<McpToolsProvider, List<McpTool>> = emptyMap()): ProviderTools {
       return collectTools(alreadyConverted) { provider -> provider.getTools() }
     }
@@ -154,7 +154,9 @@ internal class McpToolsListProvider(private val scope: CoroutineScope, initialTo
           emptyList()
         }
       }
-      return ProviderTools(byProvider, byProvider.values.flatten())
+      // The MCP SDK rejects a batch with a repeated tool name; the tool of the later provider wins, as it did in SDK 0.12
+      val allTools = byProvider.values.asSequence().flatten().associateBy { it.descriptor.name }.values.toList()
+      return ProviderTools(byProvider, allTools)
     }
   }
 }

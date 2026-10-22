@@ -10,7 +10,7 @@ import com.intellij.openapi.module.impl.ModuleComponentManager
 import com.intellij.openapi.project.ModuleListener.TOPIC
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.startup.InitProjectActivity
-import com.intellij.openapi.vfs.LocalFileSystem
+import com.intellij.openapi.vfs.VirtualFileManager
 import com.intellij.openapi.vfs.pointers.VirtualFilePointer
 import com.intellij.platform.backend.workspace.WorkspaceModel
 import com.intellij.platform.diagnostic.telemetry.impl.span
@@ -163,7 +163,7 @@ open class ModuleManagerComponentBridge(private val project: Project, coroutineS
     }
 
     val moduleFileUrl = getModuleVirtualFileUrl(moduleEntity)!!
-    LocalFileSystem.getInstance().refreshAndFindFileByNioFile(moduleFileUrl.toPath())
+    VirtualFileManager.getInstance().refreshAndFindFileByNioPath(moduleFileUrl.toPath())
     return moduleEntity
   }
 

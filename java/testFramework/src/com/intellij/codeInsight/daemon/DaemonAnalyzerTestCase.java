@@ -6,6 +6,7 @@ import com.intellij.codeInsight.JavaCodeInsightTestCase;
 import com.intellij.codeInsight.daemon.impl.DaemonCodeAnalyzerEx;
 import com.intellij.codeInsight.daemon.impl.DaemonCodeAnalyzerImpl;
 import com.intellij.codeInsight.daemon.impl.HighlightInfo;
+import com.intellij.codeInsight.daemon.impl.LineMarkersPass;
 import com.intellij.codeInsight.daemon.impl.TestDaemonCodeAnalyzerImpl;
 import com.intellij.codeInsight.daemon.quickFix.LightQuickFixTestCase;
 import com.intellij.codeInsight.intention.IntentionAction;
@@ -35,7 +36,7 @@ import com.intellij.openapi.roots.ModuleRootManager;
 import com.intellij.openapi.startup.StartupManager;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.text.StringUtil;
-import com.intellij.openapi.vfs.LocalFileSystem;
+import com.intellij.openapi.vfs.StandardFileSystems;
 import com.intellij.openapi.vfs.VfsUtil;
 import com.intellij.openapi.vfs.VfsUtilCore;
 import com.intellij.openapi.vfs.VirtualFile;
@@ -270,7 +271,8 @@ public abstract class DaemonAnalyzerTestCase extends JavaCodeInsightTestCase {
     PsiFile psiFile = getFile();
     ActionUtil.underModalProgress(myProject, "", () -> {
       //line marker tooltips are called in BGT in production
-      data.checkLineMarkers(psiFile, DaemonCodeAnalyzerImpl.getLineMarkers(getDocument(psiFile), getProject()), text);
+      @NotNull Document document = getDocument(psiFile);
+      data.checkLineMarkers(psiFile, LineMarkersPass.getDisplayedLineMarkers(document, getProject()), text);
       return null;
     });
     data.checkResult(psiFile, infos, text);
@@ -421,13 +423,13 @@ public abstract class DaemonAnalyzerTestCase extends JavaCodeInsightTestCase {
       }
       else {
         dir = createTempDirectory();
-        VirtualFile vDir = LocalFileSystem.getInstance().refreshAndFindFileByPath(dir.getCanonicalPath().replace(File.separatorChar, '/'));
+        VirtualFile vDir = StandardFileSystems.local().refreshAndFindFileByPath(dir.getCanonicalPath().replace(File.separatorChar, '/'));
         addSourceContentToRoots(myModule, vDir);
       }
 
       File file = new File(dir, qname.replace('.', '/') + ".java");
       FileUtil.createIfDoesntExist(file);
-      VirtualFile vFile = LocalFileSystem.getInstance().refreshAndFindFileByPath(file.getCanonicalPath().replace(File.separatorChar, '/'));
+      VirtualFile vFile = StandardFileSystems.local().refreshAndFindFileByPath(file.getCanonicalPath().replace(File.separatorChar, '/'));
       assertNotNull(vFile);
       VfsUtil.saveText(vFile, text);
       return vFile;

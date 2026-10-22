@@ -2,4 +2,3 @@
 // K2_ERROR: FUN_INTERFACE_WRONG_COUNT_OF_ABSTRACT_MEMBERS
 <caret>fun interface WrongFunFace
 // FUS_QUICKFIX_NAME: org.jetbrains.kotlin.idea.quickfix.RemoveModifierFixBase
-// FUS_K2_QUICKFIX_NAME: org.jetbrains.kotlin.idea.quickfix.RemoveModifierFixBase

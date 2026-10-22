@@ -29,6 +29,7 @@
     <module name="intellij.platform.core.ui"/>
     <module name="intellij.platform.editor.ex"/>
     <module name="intellij.platform.editor.ui"/>
+    <module name="intellij.platform.foldings"/>
     <module name="intellij.platform.ide.core"/>
     <module name="intellij.platform.ide.core.impl"/>
     <module name="intellij.platform.ide.impl"/>
@@ -115,26 +116,52 @@
     <renamePsiElementProcessor id="KotlinClass"
                                implementation="org.jetbrains.kotlin.idea.refactoring.rename.RenameKotlinClassifierProcessor"
                                order="first"/>
+    <headlessRenamePsiElementProcessor id="KotlinClass"
+                                       implementation="org.jetbrains.kotlin.idea.refactoring.rename.RenameKotlinClassifierProcessor"
+                                       order="first"/>
     <renamePsiElementProcessor implementation="org.jetbrains.kotlin.idea.refactoring.rename.RenameKotlinFileProcessor"
                                id="KotlinFile"
                                order="first"/>
+    <headlessRenamePsiElementProcessor implementation="org.jetbrains.kotlin.idea.refactoring.rename.RenameKotlinFileProcessor"
+                                       id="KotlinFile"
+                                       order="first"/>
     <renamePsiElementProcessor implementation="org.jetbrains.kotlin.idea.refactoring.rename.RenameKotlinParameterProcessor"
                                id="KotlinParameter"
                                order="first"/>
+    <headlessRenamePsiElementProcessor implementation="org.jetbrains.kotlin.idea.refactoring.rename.RenameKotlinParameterProcessor"
+                                       id="KotlinParameter"
+                                       order="first"/>
     <renamePsiElementProcessor implementation="org.jetbrains.kotlin.idea.refactoring.rename.RenameKotlinPropertyProcessor"
                                id="KotlinProperty"
                                order="first"/>
+    <headlessRenamePsiElementProcessor implementation="org.jetbrains.kotlin.idea.refactoring.rename.RenameKotlinPropertyProcessor"
+                                       id="KotlinProperty"
+                                       order="first"/>
     <renamePsiElementProcessor implementation="org.jetbrains.kotlin.idea.refactoring.rename.RenameKotlinTypeParameterProcessor"
                                id="KotlinTypeParameter"/>
+    <headlessRenamePsiElementProcessor implementation="org.jetbrains.kotlin.idea.refactoring.rename.RenameKotlinTypeParameterProcessor"
+                                       id="KotlinTypeParameter"/>
     <renamePsiElementProcessor implementation="org.jetbrains.kotlin.idea.refactoring.rename.RenameKotlinFunctionProcessor"
                                id="KotlinFunction"
                                order="first"/>
+    <headlessRenamePsiElementProcessor implementation="org.jetbrains.kotlin.idea.refactoring.rename.RenameKotlinFunctionProcessor"
+                                       id="KotlinFunction"
+                                       order="first"/>
 
     <renamePsiElementProcessor id="KotlinAwareJavaGetter"
                                implementation="org.jetbrains.kotlin.idea.refactoring.rename.KotlinAwareJavaGetterRenameProcessor"
                                order="first"/>
+    <headlessRenamePsiElementProcessor id="KotlinAwareJavaGetter"
+                                       implementation="org.jetbrains.kotlin.idea.refactoring.rename.KotlinAwareJavaGetterRenameProcessor"
+                                       order="first"/>
     <renamePsiElementProcessor implementation="org.jetbrains.kotlin.idea.refactoring.rename.RenameJavaSyntheticPropertyHandler$Processor"
                                id="JavaSyntheticPropertyFromKotlin"/>
+    <headlessRenamePsiElementProcessor
+            implementation="org.jetbrains.kotlin.idea.refactoring.rename.RenameJavaSyntheticPropertyHandler$HeadlessProcessor"
+            id="JavaSyntheticPropertyFromKotlin"/>
+
+    <!-- Temporary. See HeadlessRenameSupportedLanguage. Remove it when every language is converted. -->
+    <headlessRenameSupportedLanguage language="kotlin"/>
 
   </extensions>
 

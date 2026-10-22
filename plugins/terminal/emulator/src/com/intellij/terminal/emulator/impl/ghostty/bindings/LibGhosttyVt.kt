@@ -100,10 +100,6 @@ internal object LibGhosttyVt {
   fun rowGet(row: Long, rowData: Int, out: MemorySegment): GhosttyResult =
     GhosttyResult.of(ROW_GET.invokeExact(row, rowData, out) as Int)
 
-  /** `ghostty_terminal_mode_get`: query a (packed) [GhosttyMode]; [out] receives a bool byte. */
-  fun terminalModeGet(terminal: MemorySegment, packedMode: Short, out: MemorySegment): GhosttyResult =
-    GhosttyResult.of(TERMINAL_MODE_GET.invokeExact(terminal, packedMode, out) as Int)
-
   /** `ghostty_terminal_set`: set a [GhosttyTerminalOption] (e.g. install the WRITE_PTY effect). */
   fun terminalSet(terminal: MemorySegment, option: Int, value: MemorySegment): GhosttyResult =
     GhosttyResult.of(TERMINAL_SET.invokeExact(terminal, option, value) as Int)
@@ -198,6 +194,11 @@ internal object LibGhosttyVt {
     KEY_ENCODER_SETOPT_FROM_TERMINAL.invokeExact(encoder, terminal)
   }
 
+  /** `ghostty_key_encoder_setopt`: set one [GhosttyKeyEncoderOption]; [value] holds the option's C value. */
+  fun keyEncoderSetopt(encoder: MemorySegment, option: Int, value: MemorySegment) {
+    KEY_ENCODER_SETOPT.invokeExact(encoder, option, value)
+  }
+
   /**
    * `ghostty_key_encoder_encode`: encode [event] into [outBuf] (capacity [outBufSize]); [outLen] receives
    * the byte count (0 when the event produces nothing, or the required size on `OUT_OF_SPACE`).
@@ -227,6 +228,11 @@ internal object LibGhosttyVt {
   /** `ghostty_key_event_set_mods`: set the [GhosttyMods] bitmask. */
   fun keyEventSetMods(event: MemorySegment, mods: Short) {
     KEY_EVENT_SET_MODS.invokeExact(event, mods)
+  }
+
+  /** `ghostty_key_event_set_consumed_mods`: set the [GhosttyMods] bitmask the layout used to produce the text. */
+  fun keyEventSetConsumedMods(event: MemorySegment, mods: Short) {
+    KEY_EVENT_SET_CONSUMED_MODS.invokeExact(event, mods)
   }
 
   /** `ghostty_key_event_set_utf8`: set the layout-produced text; the event borrows [utf8] until re-set. */
@@ -306,6 +312,16 @@ internal object LibGhosttyVt {
     MOUSE_EVENT_SET_POSITION.invokeExact(event, position)
   }
 
+  // ---- color scheme report encoding (color_scheme.h) ----
+
+  /**
+   * `ghostty_color_scheme_report_encode`: encode the color scheme report (`CSI ? 997 ; Ps n`) for [scheme]
+   * ([GhosttyColorScheme]) into [buf] (capacity [bufLen]); [outWritten] receives the byte count (or the
+   * required size on `OUT_OF_SPACE`).
+   */
+  fun colorSchemeReportEncode(scheme: Int, buf: MemorySegment, bufLen: Long, outWritten: MemorySegment): GhosttyResult =
+    GhosttyResult.of(COLOR_SCHEME_REPORT_ENCODE.invokeExact(scheme, buf, bufLen, outWritten) as Int)
+
   // ---- sys interface (sys.h): process-global, runtime-swappable hooks ----
 
   /**
@@ -352,6 +368,14 @@ internal object LibGhosttyVt {
     LINKER.upcallStub(handle, PROGRESS_REPORT_DESC, arena)
 
   /**
+   * Bind [handle] as a native upcall stub for the COLOR_SCHEME callback `bool(terminal, userdata, out)`,
+   * scoped to [arena]. The bound method's signature must be `(MemorySegment, MemorySegment, MemorySegment) -> boolean`;
+   * `out` points at the `GhosttyColorScheme` to fill when the method returns `true`.
+   */
+  fun colorSchemeUpcallStub(handle: MethodHandle, arena: Arena): MemorySegment =
+    LINKER.upcallStub(handle, COLOR_SCHEME_DESC, arena)
+
+  /**
    * Bind [handle] as a native upcall stub for the sys log callback
    * `void(userdata, level, scope, scope_len, message, message_len)`. The bound method's signature
    * must be `(MemorySegment, int, MemorySegment, long, MemorySegment, long) -> void`.
@@ -379,6 +403,9 @@ internal object LibGhosttyVt {
 
   // GhosttyTerminalProgressReportFn: void(terminal, userdata, const GhosttyTerminalProgressReport*).
   private val PROGRESS_REPORT_DESC: FunctionDescriptor = FunctionDescriptor.ofVoid(C_PTR, C_PTR, C_PTR)
+
+  // GhosttyTerminalColorSchemeFn: bool(terminal, userdata, GhosttyColorScheme* out).
+  private val COLOR_SCHEME_DESC: FunctionDescriptor = FunctionDescriptor.of(C_BOOL, C_PTR, C_PTR, C_PTR)
 
   // GhosttySysLogFn: void(userdata, level, scope, scope_len, message, message_len); size_t -> C_LONG.
   private val LOG_CB_DESC: FunctionDescriptor = FunctionDescriptor.ofVoid(C_PTR, C_INT, C_PTR, C_LONG, C_PTR, C_LONG)
@@ -410,8 +437,6 @@ internal object LibGhosttyVt {
     FunctionDescriptor.of(C_INT, C_LONG, C_LONG, C_PTR, C_PTR, C_PTR)) }
   private val ROW_GET: MethodHandle by lazy { downcall("ghostty_row_get",
     FunctionDescriptor.of(C_INT, C_LONG, C_INT, C_PTR)) }
-  private val TERMINAL_MODE_GET: MethodHandle by lazy { downcall("ghostty_terminal_mode_get",
-    FunctionDescriptor.of(C_INT, C_PTR, C_SHORT, C_PTR)) }
   private val TERMINAL_SET: MethodHandle by lazy { downcall("ghostty_terminal_set",
     FunctionDescriptor.of(C_INT, C_PTR, C_INT, C_PTR)) }
   private val RENDER_STATE_NEW: MethodHandle by lazy { downcall("ghostty_render_state_new",
@@ -442,6 +467,8 @@ internal object LibGhosttyVt {
     FunctionDescriptor.of(C_INT, C_PTR, C_INT, C_PTR)) }
   private val TRACKED_GRID_REF_SET: MethodHandle by lazy { downcall("ghostty_tracked_grid_ref_set",
     FunctionDescriptor.of(C_INT, C_PTR, C_PTR, POINT)) }
+  private val COLOR_SCHEME_REPORT_ENCODE: MethodHandle by lazy { downcall("ghostty_color_scheme_report_encode",
+    FunctionDescriptor.of(C_INT, C_INT, C_PTR, C_LONG, C_PTR)) }
   private val SYS_SET: MethodHandle by lazy { downcall("ghostty_sys_set",
     FunctionDescriptor.of(C_INT, C_INT, C_PTR)) }
   private val TYPE_JSON: MethodHandle by lazy { downcall("ghostty_type_json",
@@ -452,6 +479,8 @@ internal object LibGhosttyVt {
     FunctionDescriptor.ofVoid(C_PTR)) }
   private val KEY_ENCODER_SETOPT_FROM_TERMINAL: MethodHandle by lazy { downcall("ghostty_key_encoder_setopt_from_terminal",
     FunctionDescriptor.ofVoid(C_PTR, C_PTR)) }
+  private val KEY_ENCODER_SETOPT: MethodHandle by lazy { downcall("ghostty_key_encoder_setopt",
+    FunctionDescriptor.ofVoid(C_PTR, C_INT, C_PTR)) }
   private val KEY_ENCODER_ENCODE: MethodHandle by lazy { downcall("ghostty_key_encoder_encode",
     FunctionDescriptor.of(C_INT, C_PTR, C_PTR, C_PTR, C_LONG, C_PTR)) }
   private val KEY_EVENT_NEW: MethodHandle by lazy { downcall("ghostty_key_event_new",
@@ -463,6 +492,8 @@ internal object LibGhosttyVt {
   private val KEY_EVENT_SET_KEY: MethodHandle by lazy { downcall("ghostty_key_event_set_key",
     FunctionDescriptor.ofVoid(C_PTR, C_INT)) }
   private val KEY_EVENT_SET_MODS: MethodHandle by lazy { downcall("ghostty_key_event_set_mods",
+    FunctionDescriptor.ofVoid(C_PTR, C_SHORT)) }
+  private val KEY_EVENT_SET_CONSUMED_MODS: MethodHandle by lazy { downcall("ghostty_key_event_set_consumed_mods",
     FunctionDescriptor.ofVoid(C_PTR, C_SHORT)) }
   private val KEY_EVENT_SET_UTF8: MethodHandle by lazy { downcall("ghostty_key_event_set_utf8",
     FunctionDescriptor.ofVoid(C_PTR, C_PTR, C_LONG)) }

@@ -16,8 +16,8 @@ public class GrCreateFieldFromJavaUsageTest extends GrHighlightingTestBase {
   private static final String JAVA = "Area.java";
 
   @Override
-  public final String getBasePath() {
-    return TestUtils.getTestDataPath() + "fixes/createFieldFromJava/" + getTestName(true) + "/";
+  public final String getTestDataPath() {
+    return TestUtils.getAbsoluteTestDataPath() + "fixes/createFieldFromJava/" + getTestName(true) + "/";
   }
 
   @Override

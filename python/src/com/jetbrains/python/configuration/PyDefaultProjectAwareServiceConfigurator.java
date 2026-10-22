@@ -33,6 +33,12 @@ import java.util.List;
 final class PyDefaultProjectAwareServiceConfigurator implements DirectoryProjectConfigurator {
   private static final PyDocumentationSettingsDetector PY_DOCUMENTATION_SETTINGS_DETECTOR = new PyDocumentationSettingsDetector();
 
+  /** The module scan and the service configurators run on a background thread; see {@link PyDefaultProjectAwareModuleConfiguratorImpl}. */
+  @Override
+  public boolean isEdtRequired() {
+    return false;
+  }
+
   @Override
   public void configureProject(@NotNull Project project,
                                @NotNull VirtualFile baseDir,

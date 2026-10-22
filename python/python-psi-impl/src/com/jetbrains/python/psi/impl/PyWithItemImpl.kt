@@ -33,12 +33,9 @@ class PyWithItemImpl(astNode: ASTNode?) : PyElementImpl(astNode), PyWithItem {
   override fun isSuppressingExceptions(context: TypeEvalContext): Boolean {
     val withStmt = PsiTreeUtil.getParentOfType(this, PyWithStatement::class.java, false) ?: return false
     val abstractType = if (withStmt.isAsync) "contextlib.AbstractAsyncContextManager" else "contextlib.AbstractContextManager"
-    return context.getType(expression)
-      .let { it.convertToType(abstractType, this, context) }
-      .let { (it as? PyClassType)?.typeArguments?.getOrNull(1) }
-      .let {
-        it == PyBuiltinCache.getInstance(this).boolType ||
-        it is PyLiteralType && it.boolValue == true
-      }
+    val contextManagerType = context.getType(expression).convertToType(abstractType, this, context)
+    val exitResultType = (contextManagerType as? PyClassType)?.typeArguments?.getOrNull(1)
+    return exitResultType == PyBuiltinCache.getInstance(this).boolType ||
+           exitResultType is PyLiteralType && exitResultType.boolValue == true
   }
 }

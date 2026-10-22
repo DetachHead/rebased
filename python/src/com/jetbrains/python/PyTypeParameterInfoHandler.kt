@@ -8,6 +8,7 @@ import com.intellij.lang.parameterInfo.ParameterInfoUIContextEx
 import com.intellij.lang.parameterInfo.UpdateParameterInfoContext
 import com.intellij.psi.PsiFile
 import com.intellij.psi.util.PsiTreeUtil
+import com.intellij.psi.util.PsiUtilCore
 import com.jetbrains.python.codeInsight.parameterInfo.PyTypeParameterInfoUtil
 import com.jetbrains.python.psi.PySubscriptionExpression
 import com.jetbrains.python.psi.PyTupleExpression
@@ -69,7 +70,7 @@ class PyTypeParameterInfoHandler : ParameterInfoHandler<PySubscriptionExpression
 }
 
 private fun findTypeParameterList(file: PsiFile, offset: Int): PySubscriptionExpression? {
-  val element = file.findElementAt(if (offset > 0) offset - 1 else offset) ?: return null
+  val element = PsiUtilCore.getElementAtOffset(file, if (offset > 0) offset - 1 else offset)
   val subscription = PsiTreeUtil.getParentOfType(element, PySubscriptionExpression::class.java, false) ?: return null
   // The caret has to be inside the square brackets, not on the operand or past the closing bracket.
   val leftBracket = subscription.node.findChildByType(PyTokenTypes.LBRACKET) ?: return null

@@ -12,6 +12,10 @@ jps_test(
 )
 ### skip generation section `test intellij.python.community.execService.tests`
 
+### auto-generated section `dev intellij.python.community.execService` start
+content_module_jar(module = ":community-execService")
+### auto-generated section `dev intellij.python.community.execService` end
+
 ### auto-generated section `build intellij.python.community.execService` start
 create_kotlinc_options(
     name = "custom_community-execService",
@@ -39,6 +43,7 @@ jvm_library(
     visibility = ["//visibility:public"],
     deps = [
         # do not sort,
+        "//libraries/caffeine",
         "@lib//:kotlin-stdlib",
         "//libraries/jetbrains/annotations",
         "//python/openapi:community",
@@ -52,7 +57,6 @@ jvm_library(
         "//platform/projectModel-api:projectModel",
         "//libraries/kotlinx/serialization/json",
         "//libraries/kotlinx/serialization/core",
-        "//platform/remote-servers/impl",
         "//libraries/guava",
         "//python/python-process-output/common",
         "//python/impl.helperLocator:community-helpersLocator",
@@ -63,8 +67,6 @@ jvm_library(
         "//platform/projectModel-impl",
     ],
 )
-
-content_module_jar(module = ":community-execService")
 
 jvm_library(
     name = "community-execService_test_lib",
@@ -79,33 +81,19 @@ jvm_library(
     runtime_deps = [
         # do not sort,
         ":community-execService",
+        "//libraries/caffeine:caffeine_test_lib",
         "//libraries/jetbrains/annotations:annotations_test_lib",
         "//python/openapi:community_test_lib",
         "//platform/eel-provider:eel-provider_test_lib",
         "//platform/util:util_test_lib",
         "//libraries/kotlinx/coroutines/core:core_test_lib",
-        "//platform/testFramework/junit5",
-        "//platform/testFramework/junit5:junit5_test_lib",
-        "//libraries/junit5",
-        "//libraries/junit5:junit5_test_lib",
-        "//libraries/hamcrest",
-        "//libraries/hamcrest:hamcrest_test_lib",
-        "//libraries/junit5-params",
-        "//libraries/junit5-params:junit5-params_test_lib",
         "//platform/core-api:core_test_lib",
         "//platform/eel:eel_test_lib",
-        "//platform/testFramework/junit5/eel",
-        "//platform/testFramework/junit5/eel:eel_test_lib",
-        "//libraries/junit5-pioneer",
-        "//libraries/junit5-pioneer:junit5-pioneer_test_lib",
-        "//platform/testFramework/common",
-        "//platform/testFramework/common:common_test_lib",
         "//platform/util/progress:progress_test_lib",
         "//platform/execution:execution_test_lib",
         "//platform/projectModel-api:projectModel_test_lib",
         "//libraries/kotlinx/serialization/json:json_test_lib",
         "//libraries/kotlinx/serialization/core:core_test_lib",
-        "//platform/remote-servers/impl:impl_test_lib",
         "//libraries/guava:guava_test_lib",
         "//python/python-process-output/common:common_test_lib",
         "//python/impl.helperLocator:community-helpersLocator_test_lib",
@@ -183,12 +171,12 @@ jvm_library(
         "//libraries/kotlinx/coroutines/core:core_test_lib",
         "//platform/testFramework/junit5",
         "//platform/testFramework/junit5:junit5_test_lib",
-        "//libraries/junit5",
-        "//libraries/junit5:junit5_test_lib",
+        "//libraries/junit6",
+        "//libraries/junit6:junit6_test_lib",
         "//libraries/hamcrest",
         "//libraries/hamcrest:hamcrest_test_lib",
-        "//libraries/junit5-params",
-        "//libraries/junit5-params:junit5-params_test_lib",
+        "//libraries/junit6-params",
+        "//libraries/junit6-params:junit6-params_test_lib",
         "//platform/core-api:core",
         "//platform/core-api:core_test_lib",
         "//platform/eel",

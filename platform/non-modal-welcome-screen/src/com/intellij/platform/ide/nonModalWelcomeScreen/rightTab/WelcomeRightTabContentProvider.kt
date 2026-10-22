@@ -29,14 +29,19 @@ interface WelcomeRightTabContentProvider {
 
   val productIcon: Icon? get() = null
 
-  val isDisableOptionVisible: Boolean
-  val isStartupSwitchPanelOptionVisible: Boolean
-    get() = false
-
   val buttonsPerRow: Int
     get() = 3
 
   fun getFeatureButtonModels(project: Project): List<FeatureButtonModel>
+
+  /**
+   * The keys of the features whose section takes the place of the feature grid.
+   *
+   * While one of these features states a section, the tab shows no feature buttons. The buttons come back when the
+   * feature states no section, for example while it is not available.
+   */
+  val featureKeysReplacingFeatureGrid: Set<String>
+    get() = emptySet()
 
   fun getAdditionalInfoButtonModels(project: Project): List<InfoButtonModel> = emptyList()
 
@@ -77,31 +82,34 @@ interface WelcomeRightTabContentProvider {
   }
 
   /**
-   * Base feature button model. Use for frontend-only features.
-   * For backend-based features, use [FeatureButtonModelWithBackend] and
-   * register a `WelcomeScreenFeatureBackend` implementation.
+   * Base feature button model. Use for a button that handles its click itself.
+   * For a feature with a key, use [FeatureButtonModelWithBackend] and
+   * register a [WelcomeScreenFeatureFrontend] or a `WelcomeScreenFeatureBackend` implementation.
    */
   open class FeatureButtonModel(
     @NlsSafe val text: String,
     val icon: Icon,
     val onClick: (Project, CoroutineScope) -> Unit,
+    val background: java.awt.Color? = null,
   )
 
   /**
-   * Feature button backed by a `WelcomeScreenFeatureBackend` implementation.
+   * Feature button backed by a [WelcomeScreenFeatureFrontend] or a `WelcomeScreenFeatureBackend` implementation.
+   * The tab shows the button only when one of them registers the [featureKey], unless [isAlwaysAvailable] is set.
    */
   class FeatureButtonModelWithBackend(
     val featureKey: String,
     val isAlwaysAvailable: Boolean = false,
     text: String,
     icon: Icon,
-    val beforeOnClick: suspend (Project) -> Unit = {}
+    val beforeOnClick: suspend (Project) -> Unit = {},
+    background: java.awt.Color? = null,
   ) : FeatureButtonModel(text, icon, { project, coroutineScope ->
     coroutineScope.launch {
       beforeOnClick(project)
       WelcomeScreenFeatureApi.getInstance().onClick(project.projectId(), featureKey)
     }
-  })
+  }, background)
 
   companion object {
     private val EP_NAME: ExtensionPointName<WelcomeRightTabContentProvider> = ExtensionPointName("com.intellij.platform.ide.welcomeScreenContentProvider")

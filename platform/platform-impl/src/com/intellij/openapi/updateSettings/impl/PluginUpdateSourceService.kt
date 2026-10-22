@@ -31,46 +31,56 @@ interface PluginUpdateSourceService {
 
     @JvmStatic
     fun isPluginUpdateFilteredAgainstPluginUpdateSource(): Boolean {
-      return isFunctionalitySupported() && Registry.`is`(REGISTRY_KEY_FILTER_UPDATES_SETTING, false)
+      return isFunctionalitySupported() &&
+             !isPluginUpdateSourceUIAndFilteringDisabledForInternalUser() &&
+             Registry.`is`(REGISTRY_KEY_FILTER_UPDATES_SETTING, false)
     }
 
     fun isPluginUpdateSourceShownInUI(): Boolean {
-      return isFunctionalitySupported() && Registry.`is`("platform.make.plugin.update.source.visible.in.ui", false)
+      return isFunctionalitySupported() &&
+             !isPluginUpdateSourceUIAndFilteringDisabledForInternalUser() &&
+             Registry.`is`("platform.make.plugin.update.source.visible.in.ui", false)
+    }
+
+    fun isMissingUpdateSourceWarningEnabled(): Boolean {
+      return isFunctionalitySupported() &&
+             isPluginUpdateSourceShownInUI() &&
+             isPluginUpdateFilteredAgainstPluginUpdateSource()
     }
 
     @JvmStatic
     fun addPluginUpdateSourceFilteringRegistryListener(coroutineScope: CoroutineScope, listener: (Boolean) -> Unit) {
-      RegistryManager.getInstance().get(REGISTRY_KEY_FILTER_UPDATES_SETTING).addListener(
-        object : RegistryValueListener {
-          override fun afterValueChanged(value: RegistryValue) {
-            if (value.key == REGISTRY_KEY_FILTER_UPDATES_SETTING) {
-              listener.invoke(value.asBoolean())
-            }
+      val registryListener = object : RegistryValueListener {
+        override fun afterValueChanged(value: RegistryValue) {
+          if (value.key == REGISTRY_KEY_FILTER_UPDATES_SETTING ||
+              value.key == REGISTRY_KEY_DISABLE_UPDATE_SOURCES_FOR_INTERNAL_USERS) {
+            listener.invoke(isPluginUpdateFilteredAgainstPluginUpdateSource())
           }
-        },
-        coroutineScope
-      )
+        }
+      }
+      RegistryManager.getInstance().get(REGISTRY_KEY_FILTER_UPDATES_SETTING).addListener(registryListener, coroutineScope)
+      RegistryManager.getInstance().get(REGISTRY_KEY_DISABLE_UPDATE_SOURCES_FOR_INTERNAL_USERS).addListener(registryListener, coroutineScope)
     }
   }
 
-  fun getPluginUpdateSourceId(pluginId: PluginId): PluginUpdateSourceId?
+  fun getPluginUpdateSourceId(pluginId: PluginId): PluginUpdateSource?
 
-  fun setPluginUpdateSourceId(pluginId: PluginId, updateSourceId: PluginUpdateSourceId)
+  fun setPluginUpdateSourceId(pluginId: PluginId, updateSourceId: PluginUpdateSource)
 
   fun setPluginUpdateSourceId(plugin: PluginUiModel)
 
   fun erasePluginUpdateSourceId(pluginId: PluginId)
 
-  fun createMarketplacePluginUpdateSourceId(): PluginUpdateSourceId
+  fun createMarketplacePluginUpdateSourceId(): PluginUpdateSource
 
-  fun createCustomRepositoryPluginUpdateSourceId(host: String): PluginUpdateSourceId
+  fun createCustomRepositoryPluginUpdateSourceId(host: String): PluginUpdateSource
 
   fun isMissingPluginUpdateSource(plugin: PluginDescriptor): Boolean {
     return PluginUtils.isUpdateable(plugin) && getPluginUpdateSourceId(plugin.pluginId) == null
   }
 
-  fun getAllSources(): List<PluginUpdateSourceId>
+  fun getAllSources(): List<PluginUpdateSource>
 
   @TestOnly
-  fun getPersistedPluginUpdateSourceId(pluginId: PluginId): PluginUpdateSourceId?
+  fun getPersistedPluginUpdateSourceId(pluginId: PluginId): PluginUpdateSource?
 }

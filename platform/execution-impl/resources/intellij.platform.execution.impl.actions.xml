@@ -4,6 +4,9 @@
     reason when i remove it from `CoreModuleSets.CoreLang` the ide crashes on launch saying the code plugin is missing.-->
     <action id="RunConfiguration" class="com.intellij.openapi.actionSystem.EmptyAction"/>
     <action id="ChooseRunConfiguration" class="com.intellij.openapi.actionSystem.EmptyAction" icon="AllIcons.Actions.Execute"/>
+    <action id="Unscramble" class="com.intellij.unscramble.AnalyzeStacktraceAction">
+      <override-text place="EditorPopup"/>
+    </action>
     <action id="ChooseDebugConfiguration" class="com.intellij.openapi.actionSystem.EmptyAction" icon="AllIcons.Actions.StartDebugger"/>
     <group id="CreateRunConfiguration" class="com.intellij.execution.actions.CreateAction"/>
     <action id="SaveTemporaryRunConfiguration" class="com.intellij.execution.actions.SaveTemporaryRunConfigurationAction"/>
@@ -33,7 +36,6 @@
     <action id="Runner.CloseAllUnpinnedViews" class="com.intellij.execution.ui.layout.actions.CloseAllUnpinnedViewsAction" icon="AllIcons.Actions.Close"/>
     <action id="SendEOF" class="com.intellij.execution.actions.EOFAction"/>
     <action class="com.intellij.openapi.actionSystem.EmptyAction" id="ActivateRunToolWindow"/>
-    <action id="WslSyncAction" class="com.intellij.execution.wsl.target.WslSyncAction" internal="true"/>
     <action id="TerminalIncreaseFontSize" class="com.intellij.openapi.editor.actions.TerminalChangeFontSizeAction$IncreaseEditorFontSize"
             use-shortcut-of="EditorIncreaseFontSize">
       <override-text place="GoToAction"/>
@@ -73,6 +75,8 @@
       <keyboard-shortcut first-keystroke="control F10" keymap="$default"/>
     </action>
     <action id="PauseOutput" class="com.intellij.execution.actions.PauseOutputAction"/>
+    <action id="Runner.FocusOnStartup" class="com.intellij.execution.ui.actions.FocusOnStartAction"/>
+
     <group id="RunToolbarMoreActionGroup" class="com.intellij.execution.runToolbar.RunToolbarMoreActionGroup" overrides="true" keep-content="true"/>
     <group id="RunToolbarMainMoreActionGroup" class="com.intellij.execution.runToolbar.RunToolbarMoreActionGroup" overrides="true" keep-content="true"/>
     <group id="RunContextGroupMore" class="com.intellij.ide.actions.SmartPopupActionGroup" overrides="true" keep-content="true"/>
@@ -118,9 +122,6 @@
       <reference ref="SaveTemporaryRunConfiguration"/>
       <reference ref="DeleteRunConfiguration"/>
     </group>
-    <group id="RunContextPopupGroup" popup="false" class="com.intellij.openapi.actionSystem.EmptyActionGroup">
-      <reference ref="RunContextGroup"/>
-    </group>
     <group id="ProjectViewPopupMenuRunGroup" class="com.intellij.openapi.actionSystem.EmptyActionGroup">
       <reference ref="RunContextPopupGroup"/>
     </group>
@@ -137,5 +138,10 @@
       <reference ref="Stop"/>
     </group>
     <group id="RunTestGroup" class="com.intellij.openapi.actionSystem.EmptyActionGroup"/>
+    <action id="IdeScriptingConsole" class="com.intellij.ide.script.RunIdeConsoleAction"/>
+    <action id="RunAnything" icon="AllIcons.Actions.RunAnything" class="com.intellij.ide.actions.runAnything.RunAnythingAction"/>
+    <group id="ExternalToolsGroup" class="com.intellij.tools.ExternalToolsGroup">
+      <add-to-group group-id="ExternalToolsGroupInHierarchyPopupMenu"/>
+    </group>
   </actions>
 </idea-plugin>

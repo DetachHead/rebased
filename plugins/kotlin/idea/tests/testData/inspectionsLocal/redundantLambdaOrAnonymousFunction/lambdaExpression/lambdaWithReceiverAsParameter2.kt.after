@@ -5,6 +5,6 @@ fun complicate(chain: Chain) {
     val p2 = fun Chain.(): Chain {
         return Chain().also { println(it) }
     }
-    p2(chain)
-    val vra = p2(chain)
+    chain.p2()
+    val vra = chain.p2()
 }

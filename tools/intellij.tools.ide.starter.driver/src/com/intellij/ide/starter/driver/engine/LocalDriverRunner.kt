@@ -2,9 +2,9 @@ package com.intellij.ide.starter.driver.engine
 
 import com.intellij.driver.client.impl.DriverImpl
 import com.intellij.driver.client.impl.JmxHost
+import com.intellij.driver.sdk.ManualWaitForIndicators
 import com.intellij.driver.sdk.getOpenProjects
-import com.intellij.driver.sdk.ui.components.elements.isDialogOpened
-import com.intellij.driver.sdk.ui.ui
+import com.intellij.driver.sdk.isPauseOnIndicatorsSuppressed
 import com.intellij.driver.sdk.waitForIndicators
 import com.intellij.ide.starter.coroutine.CommonScope.scopeForProcesses
 import com.intellij.ide.starter.ide.IDETestContext
@@ -35,17 +35,16 @@ class LocalDriverRunner : DriverRunner {
     expectedKill: Boolean,
     expectedExitCode: Int,
     collectNativeThreads: Boolean,
-    pauseOnIndexing: Duration?,
+    pauseOnIndicators: Duration?,
     configure: IDERunContext.() -> Unit,
   ): BackgroundRun {
     val driverOptions = DriverOptions()
     val driver = DriverWithDetailedLogging(
       driver = DriverImpl(JmxHost(address = driverOptions.address), isRemDevMode = false) {
-        pauseOnIndexing?.let { timeout ->
-          // note failures when dialog is opened and the 'Synchronizing output directories...' indicator is active till the dialog is closed,
-          // so have to ensure that there is no dialog opened before checking the indicator
-          if (isConnected && !ui.isDialogOpened()) {
+        pauseOnIndicators?.let { timeout ->
+          if (isConnected && !isPauseOnIndicatorsSuppressed()) {
             getOpenProjects().forEach {
+              @OptIn(ManualWaitForIndicators::class)
               waitForIndicators(it, timeout, false)
             }
           }
@@ -73,6 +72,10 @@ class LocalDriverRunner : DriverRunner {
           collectNativeThreads = collectNativeThreads,
         ) {
           provideDriverProperties(driverOptions)
+          // in split mode RemDevDriverRunner already enabled it for the frontend and the backend together
+          if (!context.isRemDevContext()) {
+            addVMOptionsPatch { enableFocusRequestsLog() }
+          }
           configure()
         }
       }

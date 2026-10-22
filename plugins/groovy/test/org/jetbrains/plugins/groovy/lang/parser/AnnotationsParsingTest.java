@@ -49,7 +49,7 @@ public class AnnotationsParsingTest extends GroovyParsingTestCase {
   public void testTypeParametersInMethodRespectNewLine() { doTest(); }
 
   @Override
-  public final String getBasePath() {
-    return super.getBasePath() + "annotations";
+  public final String getTestDataPath() {
+    return super.getTestDataPath() + "annotations";
   }
 }

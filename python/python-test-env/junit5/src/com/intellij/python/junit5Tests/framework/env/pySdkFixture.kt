@@ -5,6 +5,7 @@ import com.intellij.openapi.application.edtWriteAction
 import com.intellij.openapi.application.writeAction
 import com.intellij.openapi.projectRoots.ProjectJdkTable
 import com.intellij.openapi.projectRoots.Sdk
+import com.intellij.python.sdk.backend.getSdkAPI
 import com.intellij.python.test.env.common.PredefinedPyEnvironments
 import com.intellij.python.test.env.core.PyEnvironment
 import com.intellij.python.test.env.core.PyEnvironmentFactory
@@ -51,7 +52,8 @@ private suspend fun TestFixtureInitializer.R<SdkFixture<PyEnvironment>>.initiali
 private suspend fun TestFixtureInitializer.R<SdkFixture<PyEnvironment>>.initializedTestFixture(
   env: PyEnvironment,
 ): TestFixtureInitializer.InitializedTestFixture<SdkFixture<PyEnvironment>> {
-  val sdk = env.prepareSdk()
+  val interpreter = env.prepareSdk()
+  val sdk = interpreter.getSdkAPI()
   writeAction {
     if (ProjectJdkTable.getInstance().findJdk(sdk.name) == null) {
       ProjectJdkTable.getInstance().addJdk(sdk)

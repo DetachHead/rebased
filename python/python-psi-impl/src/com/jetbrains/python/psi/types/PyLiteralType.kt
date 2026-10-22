@@ -152,7 +152,7 @@ class PyLiteralType private constructor(
         is PyTupleExpression -> {
           val elements = expression.elements
           val classes = elements.mapNotNull { createFromLiteralParameter(it, context, typeRepresentation) }
-          if (elements.size == classes.size) PyUnionType.union(classes) else null
+          if (elements.size == classes.size) PyUnionType.unionOrUnknown(classes) else null
         }
         else -> createFromLiteralParameter(expression, context, typeRepresentation)
       }
@@ -285,8 +285,17 @@ class PyLiteralType private constructor(
               return candidate
             }
           }
+          else if (candidate is PyClassType && !candidate.isDefinition && acceptsDictLiteral(candidate, dictLiteral)) {
+            return candidate
+          }
         }
         return promoteDictLiteralOrDictComprehension(expectedType, dictLiteral, dictLiteral.elements.asList())
+      }
+
+      private fun acceptsDictLiteral(expectedType: PyClassType, dictLiteral: PyDictLiteralExpression): Boolean {
+        return PyDictLiteralPromotionExtension.EP_NAME.findFirstSafe {
+          it.acceptsDictLiteral(expectedType, dictLiteral, ::promoteToType, context)
+        } != null
       }
 
       private fun promoteDictLiteralOrDictComprehension(
@@ -300,11 +309,11 @@ class PyLiteralType private constructor(
         else {
           null to null
         }
-        val keyType = PyUnionType.union(elements.map { promoteToType(expectedKeyType, it.key) })
-        val valueType = PyUnionType.union(
+        val keyType = PyUnionType.unionOrUnknown(elements.map { promoteToType(expectedKeyType, it.key) })
+        val valueType = PyUnionType.unionOrUnknown(
           elements.mapNotNull { keyValue -> keyValue.value?.let { promoteToType(expectedValueType, it) } }
         )
-        return PyCollectionTypeImpl.createTypeByQName(anchor, PyNames.DICT, false, listOf(keyType, valueType))
+        return PyCollectionTypeImpl.createTypeByQName(anchor, PyNames.DICT, false, listOf(keyType, valueType)) ?: PyAnyType.unknown
       }
 
       private fun promoteTuple(tupleExpression: PyTupleExpression): PyType? {
@@ -314,7 +323,7 @@ class PyLiteralType private constructor(
           return context.getType(tupleExpression)
         }
         val elementTypes = tupleExpression.elements.map { promoteToType(/*TODO*/null, it) }
-        return PyTupleType.create(tupleExpression, elementTypes)
+        return PyTupleType.create(tupleExpression, elementTypes) ?: PyAnyType.unknown
       }
 
       private fun promoteListOrSet(
@@ -329,8 +338,8 @@ class PyLiteralType private constructor(
         else {
           null
         }
-        val elementType = PyUnionType.union(elements.map { promoteToType(expectedElementType, it) })
-        return PyCollectionTypeImpl.createTypeByQName(expr, className, false, listOf(elementType))
+        val elementType = PyUnionType.unionOrUnknown(elements.map { promoteToType(expectedElementType, it) })
+        return PyCollectionTypeImpl.createTypeByQName(expr, className, false, listOf(elementType)) ?: PyAnyType.unknown
       }
     }
 
@@ -401,7 +410,7 @@ class PyLiteralType private constructor(
     @JvmStatic
     fun getLiteralType(expression: PyExpression, context: TypeEvalContext): PyType? {
       if (expression is PyConditionalExpression) {
-        return PyUnionType.union(
+        return PyUnionType.unionOrUnknown(
           listOf(expression.truePart, expression.falsePart).map {
             it?.let { getLiteralType(it, context) } ?: PyAnyType.unknown
           }

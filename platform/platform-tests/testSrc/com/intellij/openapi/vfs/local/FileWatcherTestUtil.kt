@@ -1,4 +1,4 @@
-// Copyright 2000-2022 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.openapi.vfs.local
 
 import com.intellij.openapi.vfs.LocalFileSystem
@@ -9,13 +9,14 @@ import com.intellij.openapi.vfs.impl.local.FileWatcher
 import com.intellij.util.TimeoutUtil
 import org.junit.Assert.assertTrue
 import java.nio.file.Path
+import java.util.concurrent.TimeUnit
 
 @Suppress("MemberVisibilityCanBePrivate")
 internal object FileWatcherTestUtil {
-  internal const val START_STOP_DELAY = 10000L      // time to wait for the watcher spin-up/down
-  internal const val INTER_RESPONSE_DELAY = 500L    // time to wait for the next event in a sequence
-  internal const val NATIVE_PROCESS_DELAY = 60000L  // time to wait for a native watcher's response
-  internal const val SHORT_PROCESS_DELAY = 5000L    // time to wait when no native watcher's response is expected
+  internal const val START_STOP_DELAY = 10_000L      // time to wait for the watcher setup
+  internal const val INTER_RESPONSE_DELAY = 500L     // time to wait for the next event in a sequence
+  internal const val NATIVE_PROCESS_DELAY = 60_000L  // time to wait for a native watcher's response
+  internal const val SHORT_PROCESS_DELAY = 5_000L    // time to wait when no native watcher's response is expected
 
   internal fun startup(watcher: FileWatcher, notifier: ((String) -> Unit)?) {
     watcher.startup(notifier)
@@ -27,21 +28,10 @@ internal object FileWatcherTestUtil {
     wait { watcher.isOperational }
   }
 
-  internal fun watch(watcher: FileWatcher, root: Path, recursive: Boolean = true): LocalFileSystem.WatchRequest {
-    val request = LocalFileSystem.getInstance().addRootToWatch(root.toString(), recursive)!!
-    wait { watcher.isSettingRoots }
-    return request
-  }
-
-  internal fun unwatch(watcher: FileWatcher, request: LocalFileSystem.WatchRequest) {
-    LocalFileSystem.getInstance().removeWatchedRoot(request)
-    wait { watcher.isSettingRoots }
-  }
-
   internal fun wait(timeout: Long = START_STOP_DELAY, condition: () -> Boolean) {
-    val stopAt = System.currentTimeMillis() + timeout
+    val stopAt = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(timeout)
     while (condition()) {
-      assertTrue("operation timed out", System.currentTimeMillis() < stopAt)
+      assertTrue("operation timed out", System.nanoTime() < stopAt)
       TimeoutUtil.sleep(10)
     }
   }

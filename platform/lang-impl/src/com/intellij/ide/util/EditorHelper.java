@@ -13,9 +13,14 @@ import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiFile;
 import com.intellij.psi.impl.source.tree.injected.InjectedLanguageUtil;
+import com.intellij.util.concurrency.annotations.RequiresReadLock;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
+import java.util.Arrays;
+import java.util.concurrent.CompletableFuture;
+
+@SuppressWarnings("deprecation")
 public final class EditorHelper {
   public static <T extends PsiElement> void openFilesInEditor(T @NotNull [] elements) {
     final int limit = EditorWindow.Companion.getTabLimit();
@@ -23,6 +28,55 @@ public final class EditorHelper {
     for (int i = 0; i < max; i++) {
       openInEditor(elements[i], true, true);
     }
+  }
+
+  /**
+   * Opens the files in order, up to the editor tab limit. The future completes when all requests finish.
+   * Captures the targets under the caller's read lock.
+   */
+  @RequiresReadLock
+  public static @NotNull CompletableFuture<Void> requestOpenFilesInEditor(PsiElement @NotNull [] elements) {
+    final int limit = EditorWindow.Companion.getTabLimit();
+    final int max = Math.min(limit, elements.length);
+    return EditorHelperKt.requestOpenFilesInEditor(Arrays.copyOf(elements, max));
+  }
+
+  /**
+   * Submits an open request without focusing on the editor.
+   *
+   * @see #requestOpenInEditor(PsiElement, boolean)
+   */
+  @RequiresReadLock
+  public static @NotNull CompletableFuture<@Nullable Editor> requestOpenInEditor(@NotNull PsiElement element) {
+    return requestOpenInEditor(element, false);
+  }
+
+  /**
+   * Submits an open request for the file containing {@code element} and returns immediately;
+   * the editor is opened asynchronously, after any concurrent write action finishes.
+   * Captures the target under the caller's read lock. Returns a completed future if no target exists.
+   *
+   * @return {@link CompletableFuture} reflecting the request processing
+   * Successful completion runs on EDT with the submitting modality.
+   * NB: the editor content may still be loading; use {@link FileEditorManager#runWhenLoaded}
+   * before scrolling or changing folding.
+   * Skips the callback if the project closes before the composite is available.
+   */
+  @RequiresReadLock
+  public static @NotNull CompletableFuture<@Nullable Editor> requestOpenInEditor(@NotNull PsiElement element, boolean requestFocus) {
+    return EditorHelperKt.requestOpenInEditor(element, requestFocus);
+  }
+
+  /**
+   * Same as {@link #requestOpenInEditor(PsiElement, boolean)}, but returns the selected {@link FileEditor}.
+   * With {@code switchToText = false}, this can return an image viewer or another non-text editor.
+   * The future contains {@code null} if no suitable editor opens.
+   */
+  @RequiresReadLock
+  public static @NotNull CompletableFuture<@Nullable FileEditor> requestOpenInEditor(@NotNull PsiElement element,
+                                                                                  boolean switchToText,
+                                                                                  boolean requestFocus) {
+    return EditorHelperKt.requestOpenInEditor(element, switchToText, requestFocus);
   }
 
   public static Editor openInEditor(@NotNull PsiElement element) {

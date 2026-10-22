@@ -1,24 +1,35 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package git4idea.workingTrees
 
+import com.intellij.diagnostic.rethrowControlFlowException
 import com.intellij.dvcs.ui.CloneDvcsValidationUtils
 import com.intellij.ide.impl.ProjectUtil
 import com.intellij.ide.trustedProjects.TrustedProjects
 import com.intellij.ide.util.PropertiesComponent
 import com.intellij.internal.statistic.StructuredIdeActivity
-import com.intellij.openapi.application.UI
+import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.UiWithModelAccess
 import com.intellij.openapi.application.readAction
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
+import com.intellij.openapi.diagnostic.logger
+import com.intellij.openapi.fileEditor.FileEditorManager
+import com.intellij.openapi.fileEditor.FileEditorManagerListener
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.guessProjectDir
 import com.intellij.openapi.roots.ProjectFileIndex
+import com.intellij.openapi.ui.DialogWrapper
+import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.vcs.FilePath
-import com.intellij.openapi.vcs.VcsNotifier
+import com.intellij.openapi.vfs.LocalFileSystem
+import com.intellij.openapi.vfs.VfsUtil
 import com.intellij.openapi.vfs.VirtualFile
+import com.intellij.platform.eel.EelApi
+import com.intellij.platform.eel.LocalEelApi
+import com.intellij.platform.eel.provider.asNioPath
 import com.intellij.platform.eel.provider.utils.EelSystemFolderUtils
 import com.intellij.platform.ide.CoreUiCoroutineScopeHolder
+import com.intellij.platform.ide.progress.withBackgroundProgress
 import com.intellij.platform.util.progress.withProgressText
 import com.intellij.util.concurrency.annotations.RequiresBackgroundThread
 import com.intellij.util.concurrency.annotations.RequiresReadLock
@@ -28,8 +39,8 @@ import com.intellij.vcsUtil.VcsUtil
 import org.jetbrains.annotations.VisibleForTesting
 import git4idea.GitBranch
 import git4idea.GitNotificationIdsHolder
-import git4idea.GitReference
 import git4idea.GitOperationsCollector
+import git4idea.GitReference
 import git4idea.GitWorkingTree
 import git4idea.actions.ref.GitSingleRefAction
 import git4idea.branch.GitBranchUiHandler
@@ -37,6 +48,7 @@ import git4idea.branch.GitCheckoutInOtherWorktreeDialogs
 import git4idea.commands.GitBranchAlreadyCheckedOutInOtherWorktreeDetector
 import git4idea.i18n.GitBundle
 import git4idea.repo.GitRepository
+import git4idea.util.EelUtils.getEel
 import git4idea.workingTrees.dialog.GitWorkingTreeDialog
 import git4idea.workingTrees.dialog.GitWorktreeCreationRequest
 import git4idea.workingTrees.dialog.GitWorktreeDialogContext
@@ -48,9 +60,11 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import java.nio.file.Files
 import java.nio.file.Path
+import kotlin.coroutines.resume
 import kotlin.io.path.Path
 import kotlin.io.path.exists
 
@@ -61,12 +75,23 @@ internal class GitCreateWorkingTreeService(private val coroutineScope: Coroutine
     @JvmStatic
     fun getInstance(): GitCreateWorkingTreeService = service()
 
+    private val LOG = logger<GitCreateWorkingTreeService>()
+
     private const val LAST_PARENT_PATH_KEY = "Git.CreateWorkingTree.LastParentPath"
     private const val MAX_WORKTREE_DIR_NAME_LENGTH = 100
 
-    //The [project]'s system temp directory, resolved in the same Eel environment (WSL/Docker/local) as the project itself
+    //The system temp directory, resolved in the [eel]'s own environment (WSL/Docker/local)
     @RequiresBackgroundThread(generateAssertion = false)
-    internal fun getSystemTempDir(project: Project): Path = EelSystemFolderUtils.getSystemFolder(project).resolve("tmp")
+    @VisibleForTesting
+    internal fun getSystemTempDir(eel: EelApi): Path = EelSystemFolderUtils.getSystemFolder(eel).resolve("tmp")
+
+    //The default new-project directory for a local [eel], or that environment's home directory otherwise. A
+    //remote environment has no notion of the IDE host's "default project" setting.
+    @VisibleForTesting
+    internal fun getDefaultParentDir(eel: EelApi): Path {
+      if (eel is LocalEelApi) return Path(ProjectUtil.getBaseDir())
+      return eel.userInfo.home.asNioPath()
+    }
   }
 
   /**
@@ -103,7 +128,8 @@ internal class GitCreateWorkingTreeService(private val coroutineScope: Coroutine
       Files.createDirectories(parentDir)
       parentDir.resolve(UniqueNameGenerator.generateUniqueName(dirName) { !parentDir.resolve(it).exists() })
     }
-    val branchSpec = if (newBranchName != null) WorktreeBranchSpec.CreateNewBranch(branch, newBranchName) else WorktreeBranchSpec.CheckoutExisting(branch)
+    val branchSpec =
+      if (newBranchName != null) WorktreeBranchSpec.CreateNewBranch(branch, newBranchName) else WorktreeBranchSpec.CheckoutExisting(branch)
     val request = GitWorktreeCreationRequest(repository, VcsUtil.getFilePath(worktreeDir, true), branchSpec)
     val ideActivity = GitOperationsCollector.logCreateWorktreeActionInvoked(repository.project, place, branch)
     doCreateWorkingTree(ideActivity, request, onProjectOpened, force, reportOwnProgress = false)
@@ -111,7 +137,7 @@ internal class GitCreateWorkingTreeService(private val coroutineScope: Coroutine
 
   @VisibleForTesting
   internal suspend fun confirmCreateNewWorktreeInsteadOfOpening(project: Project, branch: GitBranch, worktreePath: String?): Boolean {
-    val decision = withContext(Dispatchers.UI) {
+    val decision = withContext(Dispatchers.UiWithModelAccess) {
       GitCheckoutInOtherWorktreeDialogs.buildAndShow(
         project, branch.name, worktreePath,
         GitBundle.message("working.tree.dialog.branch.already.checked.out.confirm.create.anyway"),
@@ -146,21 +172,45 @@ internal class GitCreateWorkingTreeService(private val coroutineScope: Coroutine
     val project = repository.project
     val ideActivity = GitOperationsCollector.logCreateWorktreeActionInvoked(project, place, refFromContext)
     coroutineScope.launch(Dispatchers.Default) {
-      val systemTempDir = withContext(Dispatchers.IO) { getSystemTempDir(project) }
+      val (eel, systemTempDir) = withContext(Dispatchers.IO) {
+        val eel = getEel(project)
+        if (eel == null) {
+          LOG.warn("Not opening the New Worktree dialog")
+          return@withContext null
+        }
+        eel to getSystemTempDir(eel)
+      } ?: return@launch
       val dialogContext = readAction {
         val lastParentPath = loadLastParentPath(project)
-        val initialParentPath = computeInitialParentPath(project, repository, systemTempDir)
+        val initialParentPath = computeInitialParentPath(project, repository, systemTempDir) { getDefaultParentDir(eel) }
         GitWorktreeDialogContext(project, repository, ideActivity, refFromContext,
                                  lastParentPath ?: initialParentPath, candidateRepositories)
       }
 
       withContext(Dispatchers.UiWithModelAccess) {
-        val dialog = GitWorkingTreeDialog(dialogContext)
-        if (dialog.showAndGet()) {
-          val request = dialog.getWorkTreeData()
-          request.workingTreePath.parentPath?.path?.let { saveLastParentPath(project, it) }
-          withContext(Dispatchers.Default) {
-            doCreateWorkingTree(dialogContext.ideActivity, request, onProjectOpened)
+        var currentDialogContext = dialogContext
+        while (true) {
+          val dialog = GitWorkingTreeDialog(currentDialogContext)
+          dialog.show()
+          when (dialog.exitCode) {
+            DialogWrapper.OK_EXIT_CODE -> {
+              val request = dialog.getWorkTreeData()
+              request.workingTreePath.parentPath?.path?.let { saveLastParentPath(project, it) }
+              withContext(Dispatchers.Default) {
+                doCreateWorkingTree(dialogContext.ideActivity, request, onProjectOpened)
+              }
+              return@withContext
+            }
+            GitWorkingTreeDialog.CREATE_WORKTREE_INCLUDE_EXIT_CODE -> {
+              // The dialog already wrote the file and opened it for editing. Keep its field values, so the
+              // dialog can reopen with the same choices once that editor tab closes.
+              currentDialogContext = currentDialogContext.copy(initialState = dialog.captureState())
+              dialog.worktreeIncludeFile?.let { waitForEditorClosed(project, it) }
+              // waitForEditorClosed also resumes when the project disposes first (see its doc comment), so
+              // that case must not be mistaken for "the editor tab closed" and reopen the dialog.
+              if (project.isDisposed) return@withContext
+            }
+            else -> return@withContext
           }
         }
       }
@@ -168,12 +218,40 @@ internal class GitCreateWorkingTreeService(private val coroutineScope: Coroutine
   }
 
   /**
-   * Searches for a directory that doesn't lie under any of roots of the [project]. Falls back to the platform's
-   * default new-project directory ([ProjectUtil.getBaseDir]) when that search fails to leave [systemTempDir],
-   * e.g. when [project] itself is a scratch worktree opened from a temp directory (IJPL-252877).
+   * Suspends until [file]'s editor tab is closed, or returns immediately if it isn't open. Teardown
+   * runs through a [Disposer]-registered [Disposable] so it also fires if [project] disposes first,
+   * instead of leaking the coroutine and its [com.intellij.util.messages.MessageBusConnection].
    */
-  @RequiresReadLock
-  internal fun computeInitialParentPath(project: Project, repository: GitRepository, systemTempDir: Path): String {
+  @VisibleForTesting
+  @Suppress("SplitModeApiUsage")
+  internal suspend fun waitForEditorClosed(project: Project, file: VirtualFile) {
+    if (!FileEditorManager.getInstance(project).isFileOpen(file)) return
+    suspendCancellableCoroutine { continuation ->
+      val connection = project.messageBus.connect()
+      val disposable = Disposable {
+        connection.disconnect()
+        if (continuation.isActive) continuation.resume(Unit)
+      }
+      connection.subscribe(FileEditorManagerListener.FILE_EDITOR_MANAGER, object : FileEditorManagerListener {
+        override fun fileClosed(source: FileEditorManager, closedFile: VirtualFile) {
+          if (closedFile == file) {
+            Disposer.dispose(disposable)
+          }
+        }
+      })
+      @Suppress("IncorrectParentDisposable")
+      Disposer.register(project, disposable)
+      continuation.invokeOnCancellation { Disposer.dispose(disposable) }
+    }
+  }
+
+  /**
+   * Searches for a directory that doesn't lie under any of roots of the [project]. Falls back to [defaultParentDir]
+   * when that search fails to leave [systemTempDir], e.g. when [project] itself is a scratch worktree opened
+   * from a temp directory (IJPL-252877). [defaultParentDir] runs only on that fallback path.
+   */
+  @RequiresReadLock(generateAssertion = false /* IJPL-115548 */)
+  internal fun computeInitialParentPath(project: Project, repository: GitRepository, systemTempDir: Path, defaultParentDir: () -> Path): String {
     val fromProject = project.guessProjectDir()?.parent
     var root: VirtualFile? = fromProject ?: repository.root.parent
     val index = ProjectFileIndex.getInstance(project)
@@ -181,12 +259,13 @@ internal class GitCreateWorkingTreeService(private val coroutineScope: Coroutine
       root = root.parent
     }
     if (root == null || Path(root.path).startsWith(systemTempDir)) {
-      return ProjectUtil.getBaseDir()
+      return defaultParentDir().toString()
     }
     return root.path
   }
 
-  private suspend fun doCreateWorkingTree(
+  @VisibleForTesting
+  internal suspend fun doCreateWorkingTree(
     ideActivity: StructuredIdeActivity,
     request: GitWorktreeCreationRequest,
     onProjectOpened: ((Project) -> Unit)? = null,
@@ -199,45 +278,199 @@ internal class GitCreateWorkingTreeService(private val coroutineScope: Coroutine
     val path = request.workingTreePath.path
     val destinationValidation = CloneDvcsValidationUtils.createDestination(path)
     if (destinationValidation != null) {
-      VcsNotifier.getInstance(project).notifyError(GitNotificationIdsHolder.WORKTREE_COULD_NOT_CREATE_TARGET_DIR,
-                                                   GitBundle.message("notification.title.worktree.creation.failed"),
-                                                   destinationValidation.message,
-                                                   true)
+      GitWorktreeNotifications.notifyCouldNotCreateTargetDir(project, destinationValidation.message)
       return
     }
 
     val gitWTService = GitWorkingTreesService.getInstance(project)
-    var result = createWorkingTreeTracked(gitWTService, request, force, reportOwnProgress)
+    val targetWorktreeDir = Path(request.workingTreePath.path)
 
-    if (!result.success) {
-      val otherWorktreeMatch = GitBranchAlreadyCheckedOutInOtherWorktreeDetector.matchInOutput(result.errorOutput)
-      if (otherWorktreeMatch != null &&
-          confirmCreateWorktreeIgnoringOtherWorktree(project, otherWorktreeMatch.branchName, otherWorktreeMatch.worktreePath)) {
-        result = createWorkingTreeTracked(gitWTService, request, force = true, reportOwnProgress)
-      }
-      if (!result.success) {
-        VcsNotifier.getInstance(project).notifyError(GitNotificationIdsHolder.WORKTREE_ADD_FAILED,
-                                                     GitBundle.message("notification.title.worktree.creation.failed"),
-                                                     result.errorOutputAsHtmlString,
-                                                     true)
-        return
+    val workingTreeCreated = if (reportOwnProgress) {
+      withBackgroundProgress(project, GitBundle.message("progress.title.creating.worktree"), cancellable = true) {
+        createAndConfigureWorkingTree(project, request, gitWTService, targetWorktreeDir, force)
       }
     }
+    else {
+      createAndConfigureWorkingTree(project, request, gitWTService, targetWorktreeDir, force)
+    }
+    if (!workingTreeCreated) return
 
-    TrustedProjects.setProjectTrusted(Path(request.workingTreePath.path), true)
+    openWorktreeProject(project, request, gitWTService, targetWorktreeDir, ideActivity, onProjectOpened)
+  }
 
-    // Opening the worktree project in the same window closes (and disposes) the current project, so this must not run
-    // on a scope tied to it - otherwise the operation is cancelled before the new project finishes opening.
-    service<CoreUiCoroutineScopeHolder>().coroutineScope.launch(Dispatchers.Default) {
-      val worktreeProject = withProgressText(GitBundle.message("progress.text.worktree.opening.project")) {
-        gitWTService.openProjectInNewWindow(Path(request.workingTreePath.path))
+  /**
+   * Runs the git command and, on success, copies the local project configuration into it, all as one progress: the
+   * caller passes reportOwnProgress = false when it already runs its own background progress around this call.
+   * Returns `true` only when the worktree itself was created. A post-creation step failing does not stop the
+   * project from opening, since each such step already shows its own error notification.
+   */
+  private suspend fun createAndConfigureWorkingTree(
+    project: Project,
+    request: GitWorktreeCreationRequest,
+    gitWTService: GitWorkingTreesService,
+    targetWorktreeDir: Path,
+    force: Boolean,
+  ): Boolean {
+    if (!createGitWorkingTree(project, request, gitWTService, force)) return false
+
+    withProgressText(GitBundle.message("progress.text.worktree.copying.settings")) {
+      copyProjectConfigStep(project, request, targetWorktreeDir)
+
+      val configCopyContext = GitWorktreeConfigCopyContext(project, request.repository.root, targetWorktreeDir)
+      runAdditionalConfigCopiers(project, request, configCopyContext, targetWorktreeDir)
+      applyAdditionalSettingsHandles(project, request, configCopyContext, targetWorktreeDir)
+      markWorktreeTrusted(project, targetWorktreeDir)
+    }
+
+    runSetupScriptStep(project, request, targetWorktreeDir)
+    refreshCopiedConfigDirectories(targetWorktreeDir)
+    return true
+  }
+
+  /**
+   * Backstops [runAdditionalConfigCopiers] and [applyAdditionalSettingsHandles]: refreshes `.idea`/`.run` in
+   * case either wrote there through a raw NIO call, same as [GitWorktreeProjectConfigService] already does
+   * for its own copied files. Without a refresh, the native file watcher has to work through the whole
+   * freshly checked-out worktree first, and the new project can open and show stale or empty settings for
+   * minutes.
+   */
+  private fun refreshCopiedConfigDirectories(targetWorktreeDir: Path) {
+    val localFileSystem = LocalFileSystem.getInstance()
+    for (relativeDir in listOf(".idea", ".run")) {
+      val virtualFile = localFileSystem.refreshAndFindFileByNioFile(targetWorktreeDir.resolve(relativeDir)) ?: continue
+      VfsUtil.markDirtyAndRefresh(false, true, true, virtualFile)
+    }
+  }
+
+  /** Creates the worktree at the git level, retrying once if it's already checked out elsewhere and the user
+   *  confirms doing it anyway. Notifies and returns false on failure. */
+  private suspend fun createGitWorkingTree(
+    project: Project,
+    request: GitWorktreeCreationRequest,
+    gitWTService: GitWorkingTreesService,
+    force: Boolean,
+  ): Boolean {
+    var result = createWorkingTreeTracked(gitWTService, request, force, reportOwnProgress = false)
+    if (result.success) return true
+
+    val otherWorktreeMatch = GitBranchAlreadyCheckedOutInOtherWorktreeDetector.matchInOutput(result.errorOutput)
+    if (otherWorktreeMatch != null &&
+        confirmCreateWorktreeIgnoringOtherWorktree(project, otherWorktreeMatch.branchName, otherWorktreeMatch.worktreePath)) {
+      result = createWorkingTreeTracked(gitWTService, request, force = true, reportOwnProgress = false)
+    }
+    if (result.success) return true
+
+    GitWorktreeNotifications.notifyWorktreeAddFailed(project, result.errorOutputAsHtmlString)
+    return false
+  }
+
+  /** Copies every .worktreeinclude match into the new worktree. Never throws; notifies on any failure. */
+  private suspend fun copyProjectConfigStep(project: Project, request: GitWorktreeCreationRequest, targetWorktreeDir: Path) {
+    if (!request.copyWorktreeIncludeMatches) return
+
+    try {
+      val failedFiles = GitWorktreeProjectConfigService.getInstance(project)
+        .copyAndCleanUpWorktreeIncludeFiles(request.repository.root, targetWorktreeDir)
+
+      if (failedFiles.isNotEmpty()) {
+        GitWorktreeNotifications.notifyConfigCopyFailed(project, failedFiles)
       }
+    }
+    catch (e: Throwable) {
+      rethrowControlFlowException(e)
+      LOG.error("Failed to copy the local project configuration into the new worktree", e)
+      GitWorktreeNotifications.notifyConfigCopyFailedUnexpectedly(project, targetWorktreeDir)
+    }
+  }
 
-      if (worktreeProject != null) {
-        GitOperationsCollector.logWorktreeProjectOpenedAfterCreation(ideActivity)
-        onProjectOpened?.invoke(worktreeProject)
-      } else {
-        request.repository.workingTreeHolder.scheduleReload()
+  /** Runs every enabled [GitWorktreeAdditionalConfigCopier] extension; notifies once if any of them failed. */
+  private suspend fun runAdditionalConfigCopiers(
+    project: Project,
+    request: GitWorktreeCreationRequest,
+    configCopyContext: GitWorktreeConfigCopyContext,
+    targetWorktreeDir: Path,
+  ) {
+    if (!GitWorktreeAdditionalConfigCopier.copyAll(configCopyContext, request.enabledAdditionalConfigCopiers)) {
+      GitWorktreeNotifications.notifyAdditionalConfigCopyFailed(project, targetWorktreeDir)
+    }
+  }
+
+  /** Runs every additional settings panel's post-creation action. Notifies (and logs) per handle that throws,
+   *  and keeps running the rest. */
+  private suspend fun applyAdditionalSettingsHandles(
+    project: Project,
+    request: GitWorktreeCreationRequest,
+    configCopyContext: GitWorktreeConfigCopyContext,
+    targetWorktreeDir: Path,
+  ) {
+    for (handle in request.additionalSettingsHandles) {
+      try {
+        handle.apply(configCopyContext)
+      }
+      catch (e: Throwable) {
+        rethrowControlFlowException(e)
+        LOG.error("Failed to apply additional worktree settings", e)
+        GitWorktreeNotifications.notifyAdditionalSettingsFailed(project, targetWorktreeDir)
+      }
+    }
+  }
+
+  /** Marks the new worktree as trusted. Notifies (and logs) if that fails, without stopping the flow. */
+  private fun markWorktreeTrusted(project: Project, targetWorktreeDir: Path) {
+    try {
+      TrustedProjects.setProjectTrusted(targetWorktreeDir, true)
+    }
+    catch (e: Throwable) {
+      rethrowControlFlowException(e)
+      LOG.error("Failed to mark the new worktree as trusted", e)
+      GitWorktreeNotifications.notifyTrustFailed(project, targetWorktreeDir)
+    }
+  }
+
+  /** Runs the request's setup script, if any. Notifies on failure. */
+  private suspend fun runSetupScriptStep(project: Project, request: GitWorktreeCreationRequest, targetWorktreeDir: Path) {
+    val scriptPath = request.setupScriptPath ?: return
+    val succeeded = withProgressText(GitBundle.message("progress.text.worktree.running.setup.script")) {
+      GitWorktreeSetupScriptRunner.runSetupScript(project, scriptPath, targetWorktreeDir)
+    }
+    if (!succeeded) {
+      GitWorktreeNotifications.notifySetupScriptFailed(project, scriptPath)
+    }
+  }
+
+  /**
+   * Opens the new worktree's project on a scope detached from [project]: opening in the same window closes and
+   * disposes the current project, so this must survive that disposal instead of being cancelled by it. A
+   * failure only logs once [project] is already disposed, since a notification on it would not show.
+   */
+  private fun openWorktreeProject(
+    project: Project,
+    request: GitWorktreeCreationRequest,
+    gitWTService: GitWorkingTreesService,
+    targetWorktreeDir: Path,
+    ideActivity: StructuredIdeActivity,
+    onProjectOpened: ((Project) -> Unit)?,
+  ) {
+    service<CoreUiCoroutineScopeHolder>().coroutineScope.launch(Dispatchers.Default) {
+      try {
+        val worktreeProject = withProgressText(GitBundle.message("progress.text.worktree.opening.project")) {
+          gitWTService.openProjectInNewWindow(targetWorktreeDir)
+        }
+
+        if (worktreeProject != null) {
+          GitOperationsCollector.logWorktreeProjectOpenedAfterCreation(ideActivity)
+          onProjectOpened?.invoke(worktreeProject)
+        } else {
+          request.repository.workingTreeHolder.scheduleReload()
+        }
+      }
+      catch (e: Throwable) {
+        rethrowControlFlowException(e)
+        LOG.error("Failed to open the new worktree project", e)
+        if (!project.isDisposed) {
+          GitWorktreeNotifications.notifyOpenProjectFailed(project, targetWorktreeDir)
+          request.repository.workingTreeHolder.scheduleReload()
+        }
       }
     }
   }
@@ -264,7 +497,7 @@ internal class GitCreateWorkingTreeService(private val coroutineScope: Coroutine
     branchName: String,
     worktreePath: String?,
   ): Boolean {
-    val decision = withContext(Dispatchers.UI) {
+    val decision = withContext(Dispatchers.UiWithModelAccess) {
       GitCheckoutInOtherWorktreeDialogs.buildAndShow(
         project, branchName, worktreePath,
         GitBundle.message("working.tree.dialog.branch.already.checked.out.confirm.create.anyway"),

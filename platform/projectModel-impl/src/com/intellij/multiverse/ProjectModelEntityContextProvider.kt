@@ -34,8 +34,11 @@ import org.jetbrains.annotations.ApiStatus
 
 internal class ProjectModelEntityContextProvider : CodeInsightContextProvider {
 
-  override fun getContexts(file: VirtualFile, project: Project): List<CodeInsightContext> {
-    if (project.isDefault) return emptyList()
+  override fun isOwnerOf(context: CodeInsightContext): Boolean =
+    context is ModuleContext || context is LibraryContext || context is SdkContext
+
+  override fun getContexts(file: VirtualFile, project: Project): List<CodeInsightContext>? {
+    if (project.isDefault) return null
 
     val workspaceFileIndex = WorkspaceFileIndexEx.getInstance(project)
 
@@ -49,15 +52,21 @@ internal class ProjectModelEntityContextProvider : CodeInsightContextProvider {
       includeExternalNonIndexableSets = false,
       includeCustomKindSets = false
     )
-    if (fileSets.isEmpty()) return emptyList()
+    if (fileSets.isEmpty()) return null
 
     val storage = WorkspaceModel.getInstance(project).currentSnapshot
+
+    // One file set needs no duplicate check, and most files have one.
+    if (fileSets.size == 1) {
+      val context = extractContext(fileSets.single(), storage, project) ?: return null
+      return listOf(context)
+    }
 
     val contexts = fileSets
       .mapNotNull { fileSet -> extractContext(fileSet, storage, project) }
       .distinct()
 
-    return contexts
+    return contexts.ifEmpty { null }
   }
 
   private fun extractContext(

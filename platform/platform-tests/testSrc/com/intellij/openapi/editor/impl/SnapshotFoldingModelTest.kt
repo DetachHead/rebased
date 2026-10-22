@@ -6,12 +6,14 @@ import com.intellij.openapi.editor.CustomFoldRegion
 import com.intellij.openapi.editor.CustomFoldRegionRenderer
 import com.intellij.openapi.editor.EditorFactory
 import com.intellij.openapi.editor.FoldRegion
-import com.intellij.openapi.editor.ex.DocumentTextPatch
+import com.intellij.openapi.editor.ex.DocumentPatch
 import com.intellij.openapi.editor.ex.FoldingListener
-import com.intellij.openapi.editor.impl.marker.PMarker
+import com.intellij.openapi.editor.impl.marker.SnapshotMarkerEngineImpl
+import com.intellij.openapi.editor.impl.marker.SnapshotRangeMarkerImpl
 import com.intellij.openapi.editor.impl.marker.UsePMarkerImplementation
 import com.intellij.openapi.editor.markup.TextAttributes
 import com.intellij.openapi.util.Disposer
+import com.intellij.openapi.util.TextRange
 import com.intellij.testFramework.common.timeoutRunBlocking
 import com.intellij.testFramework.junit5.TestApplication
 import kotlinx.coroutines.Dispatchers
@@ -29,13 +31,14 @@ class SnapshotFoldingModelTest {
     val state = withEditor("abcdef") { editor ->
       val document = editor.elfDocument as DocumentImpl
       val initialSnapshot = document.core.snapshot()
-      val region = addFoldRegion(editor, 1, 4) as PMarker
-      val shiftedSnapshot = initialSnapshot.applyOp(textPatch(0, 0, "xy"))
+      val region = addFoldRegion(editor, 1, 4) as SnapshotRangeMarkerImpl
+      val rootStore = editor.foldingModel.rootStore()
+      val shiftedSnapshot = document.snapshotMarkerStores.applyPatch(initialSnapshot, textPatch(0, 0, "xy"))
 
       BranchState(
         usesSnapshotStorage = editor.foldingModel.isUsingSnapshotFoldingStorage,
-        initialStart = region.resolve(initialSnapshot).startOffset,
-        shiftedStart = region.resolve(shiftedSnapshot).startOffset,
+        initialStart = SnapshotMarkerEngineImpl.resolveRangeMarker(region, rootStore.rootReference(initialSnapshot).get()).startOffset,
+        shiftedStart = SnapshotMarkerEngineImpl.resolveRangeMarker(region, rootStore.rootReference(shiftedSnapshot).get()).startOffset,
       )
     }
 
@@ -126,15 +129,32 @@ class SnapshotFoldingModelTest {
   }
 
   @Test
-  @UsePMarkerImplementation(false)
-  fun `disabled snapshot marker implementation uses the legacy fold tree`(): Unit = timeoutRunBlocking {
-    val state = withEditor("abcdef") { editor ->
-      val region = addFoldRegion(editor, 1, 4)
-      editor.foldingModel.isUsingSnapshotFoldingStorage to region
+  fun `custom fold region invalidates after another region aligns to a new line break`(): Unit = timeoutRunBlocking {
+    val state = withEditor("") { editor ->
+      val document = editor.document as DocumentImpl
+      document.setAcceptSlashR(true)
+      document.insertString(0, "a\rb\nc")
+
+      lateinit var customRegion: CustomFoldRegion
+      lateinit var regularRegion: FoldRegion
+      editor.foldingModel.runBatchFoldingOperation {
+        customRegion = editor.foldingModel.addCustomLinesFolding(0, 0, customRenderer)!!
+        regularRegion = editor.foldingModel.addFoldRegion(3, 5, "...")!!
+        regularRegion.isExpanded = false
+      }
+
+      document.deleteString(2, 3)
+
+      ComplexLineBreakState(
+        customRegionIsValid = customRegion.isValid,
+        regularRegionRange = regularRegion.textRange,
+        regionCount = editor.foldingModel.allFoldRegions.size,
+      )
     }
 
-    assertThat(state.first).isFalse()
-    assertThat(state.second).isInstanceOf(FoldRegionImpl::class.java)
+    assertThat(state.customRegionIsValid).isFalse()
+    assertThat(state.regularRegionRange).isEqualTo(TextRange(1, 4))
+    assertThat(state.regionCount).isEqualTo(1)
   }
 
   private suspend fun <T> withEditor(text: String, action: suspend (EditorImpl) -> T): T {
@@ -158,8 +178,8 @@ class SnapshotFoldingModelTest {
     return region
   }
 
-  private fun textPatch(startOffset: Int, endOffset: Int, newFragment: String): DocumentTextPatch {
-    return DocumentTextPatch.simple(
+  private fun textPatch(startOffset: Int, endOffset: Int, newFragment: String): DocumentPatch {
+    return DocumentPatch.simple(
       startOffset = startOffset,
       endOffset = endOffset,
       newFragment = newFragment,
@@ -194,7 +214,13 @@ class SnapshotFoldingModelTest {
     val regionCount: Int,
   )
 
-  private val customRenderer = object : CustomFoldRegionRenderer {
+  private data class ComplexLineBreakState(
+    val customRegionIsValid: Boolean,
+    val regularRegionRange: TextRange,
+    val regionCount: Int,
+  )
+
+  private val customRenderer: CustomFoldRegionRenderer = object : CustomFoldRegionRenderer {
     override fun calcWidthInPixels(region: CustomFoldRegion): Int = 10
 
     override fun calcHeightInPixels(region: CustomFoldRegion): Int = 10

@@ -3,6 +3,7 @@ package org.jetbrains.intellij.build.bazel
 
 import org.assertj.core.api.JUnitSoftAssertions
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -52,54 +53,237 @@ class BazelGeneratorIntegrationTests {
   @Test fun resourcesNonPluginXmlIgnored() = doTest("resources-non-plugin-xml-ignored")
   @Test fun resourcesTestRoot() = doTest("resources-test-root")
   @Test fun resourcesPluginDescriptorInSecondRoot() = doTest("resources-plugin-descriptor-in-second-root")
+  @Test fun resourcesIconRobots() = doTest("resources-icon-robots")
 
   @Test fun compileExcludes() = doTest("compile-excludes")
 
   @Test fun ijPluginTarget() = doTest("ij-plugin-target")
+  @Test fun ijPluginTargetWithNonClasspathData() = doTest("ij-plugin-target-with-non-classpath-data", allowBuildBazelFilesInTestDataProject = true)
+
+  @Test
+  fun `modules in the same package do not generate BUILD metadata`() {
+    val projectDir = createMetadataProject()
+    addMetadataModule(projectDir, "module", "intellij.second")
+    generateMetadataProject(projectDir)
+
+    val buildFile = projectDir.resolve("module/BUILD.bazel")
+    val firstContent = buildFile.readText()
+    softly.assertThat(firstContent)
+      .contains("### auto-generated section `iml intellij.module` start")
+      .contains("### auto-generated section `iml intellij.second` start")
+    val targets = projectDir.resolve("build/bazel-targets.json").readText()
+
+    generateMetadataProject(projectDir)
+    assertEquals(firstContent, buildFile.readText())
+    assertEquals(targets, projectDir.resolve("build/bazel-targets.json").readText())
+    if (softly.wasSuccess()) projectDir.deleteRecursively()
+  }
+
+  @Test
+  fun `skipped compilation and source exports do not generate BUILD metadata`() {
+    val projectDir = createMetadataProject()
+    val buildFile = projectDir.resolve("module/BUILD.bazel")
+    val handwritten = """
+      ### skip generation section `build intellij.module`
+      ### skip generation section `iml intellij.module`
+      ### skip generation section `test intellij.module`
+      exports_files(["BUILD.bazel"], visibility = ["//allowed:__pkg__"])
+      filegroup(name = "module", srcs = ["module.jar"])
+    """.trimIndent()
+    buildFile.writeText(handwritten + "\n")
+
+    generateMetadataProject(projectDir)
+
+    assertEquals(handwritten + "\n", buildFile.readText())
+    projectDir.deleteRecursively()
+  }
+
+  @Test
+  fun `community ultimate and nested package labels do not need BUILD metadata`() {
+    val projectDir = Files.createTempDirectory("build-metadata-ultimate")
+    projectDir.resolve(".ultimate.root.marker").writeText("")
+    val communityDir = projectDir.resolve("community")
+    getTestDataPath("MRI-4552").resolve("project").copyToRecursively(communityDir, followLinks = true, overwrite = false)
+    communityDir.resolve(".idea").copyToRecursively(projectDir.resolve(".idea"), followLinks = true, overwrite = false)
+    communityDir.resolve("module").copyToRecursively(projectDir.resolve("module"), followLinks = true, overwrite = false)
+    val modulesFile = projectDir.resolve(".idea/modules.xml")
+    modulesFile.writeText(modulesFile.readText().replace("\$/module/", "\$/community/module/"))
+    projectDir.resolve("module/intellij.module.iml").deleteExisting()
+    addMetadataModule(projectDir, "module", "intellij.ultimate.module", communityDir)
+    val standaloneModules = listOf(
+      "community/platform/build-scripts/bazel" to "intellij.platform.buildScripts.bazel",
+      "community/build/jvm-rules/jvm-inc-builder" to "intellij.tools.build.bazel.jvmIncBuilder",
+      "community/build/jvm-rules/jvm-inc-builder" to "intellij.tools.build.bazel.jvmIncBuilderTests",
+    )
+    for ((directory, moduleName) in standaloneModules) {
+      addMetadataModule(projectDir, directory, moduleName, communityDir)
+      projectDir.resolve("$directory/BUILD.bazel").writeText("filegroup(name = \"handwritten\")\n")
+    }
+
+    generateMetadataProject(projectDir, communityOnly = false)
+
+    val index = projectDir.resolve("build/bazel-targets.json").readText()
+    softly.assertThat(index)
+      .contains("@community//module:intellij.module.iml")
+      .contains("//module:intellij.ultimate.module.iml")
+      .contains("@jps_to_bazel//:intellij.platform.buildScripts.bazel.iml")
+      .contains("@rules_jvm//jvm-inc-builder:intellij.tools.build.bazel.jvmIncBuilder.iml")
+    val generatedFileList = communityDir.resolve(BAZEL_GENERATED_FILE_LIST_RELATIVE_PATH).readText()
+    for (directory in standaloneModules.map { it.first }.distinct()) {
+      assertEquals("filegroup(name = \"handwritten\")\n", projectDir.resolve("$directory/BUILD.bazel").readText())
+      softly.assertThat(generatedFileList).doesNotContain(directory.removePrefix("community/"))
+    }
+    softly.assertThat(communityDir.resolve("module/BUILD.bazel").readText()).contains("### auto-generated section `iml intellij.module` start")
+    softly.assertThat(projectDir.resolve("module/BUILD.bazel").readText()).contains("### auto-generated section `iml intellij.ultimate.module` start")
+    if (softly.wasSuccess()) projectDir.deleteRecursively()
+  }
+
+  @Test
+  fun `missing skipped module owner is rejected before saving`() {
+    val projectDir = createMetadataProject()
+    addMetadataModule(projectDir, "platform/build-scripts/bazel", "intellij.platform.buildScripts.bazel")
+    val exception = assertThrows(IllegalStateException::class.java) {
+      generateMetadataProject(projectDir)
+    }
+    softly.assertThat(exception.message)
+      .contains("Missing original BUILD.bazel owner for skipped module intellij.platform.buildScripts.bazel")
+      .contains(projectDir.resolve("platform/build-scripts/bazel/BUILD.bazel").toString())
+    assertTrue("The generator must not save module files when a skipped owner is missing", !Files.exists(projectDir.resolve("module/BUILD.bazel")))
+    if (softly.wasSuccess()) projectDir.deleteRecursively()
+  }
+
+  @Test
+  fun `module with both production and test roots is rejected`() {
+    val projectDir = createMetadataProject()
+    // the template module has a test source root only, add a production resource root to it
+    val imlFile = projectDir.resolve("module/intellij.module.iml")
+    imlFile.writeText(
+      """
+      <?xml version="1.0" encoding="UTF-8"?>
+      <module type="JAVA_MODULE" version="4">
+        <component name="NewModuleRootManager" inherit-compiler-output="true">
+          <exclude-output />
+          <content url="file://${'$'}MODULE_DIR${'$'}">
+            <sourceFolder url="file://${'$'}MODULE_DIR${'$'}/resources" type="java-resource" />
+            <sourceFolder url="file://${'$'}MODULE_DIR${'$'}/test" isTestSource="true" />
+          </content>
+          <orderEntry type="jdk" jdkName="jbr-17" jdkType="JavaSDK" />
+          <orderEntry type="sourceFolder" forTests="false" />
+        </component>
+      </module>
+      """.trimIndent() + "\n"
+    )
+    val exception = assertThrows(IllegalArgumentException::class.java) {
+      generateMetadataProject(projectDir)
+    }
+    softly.assertThat(exception.message)
+      .contains("module must not have both production and test source roots")
+      .contains("intellij.module.iml")
+    assertTrue("The generator must not save module files when a module has both production and test source roots", !Files.exists(projectDir.resolve("module/BUILD.bazel")))
+    if (softly.wasSuccess()) projectDir.deleteRecursively()
+  }
+
+  @Test
+  fun `BUILD cleanup retains a skipped owner from a stale manifest`() {
+    val projectDir = createMetadataProject()
+    val directory = "platform/build-scripts/bazel"
+    addMetadataModule(projectDir, directory, "intellij.platform.buildScripts.bazel")
+    val owner = projectDir.resolve("$directory/BUILD.bazel")
+    owner.writeText("filegroup(name = \"handwritten\")\n")
+    repeat(3) {
+      generateMetadataProject(projectDir)
+      assertEquals("filegroup(name = \"handwritten\")\n", owner.readText())
+    }
+
+    val obsoleteOwner = projectDir.resolve("obsolete/BUILD.bazel")
+    obsoleteOwner.createParentDirectories().writeText("filegroup(name = \"obsolete\")\n")
+    val manifest = projectDir.resolve(BAZEL_GENERATED_FILE_LIST_RELATIVE_PATH)
+    manifest.writeText("module\n$directory\nobsolete\n")
+    repeat(2) {
+      generateMetadataProject(projectDir)
+      assertEquals("filegroup(name = \"handwritten\")\n", owner.readText())
+      assertEquals("module", manifest.readText())
+      assertTrue("The generator must still delete an obsolete owner", !Files.exists(obsoleteOwner))
+    }
+    projectDir.deleteRecursively()
+  }
+
+  @Test
+  fun `BUILD cleanup retains an owner that changes from generated to skipped`() {
+    val projectDir = createMetadataProject()
+    generateMetadataProject(projectDir)
+    val owner = projectDir.resolve("module/BUILD.bazel")
+    val original = owner.readText()
+    val manifest = projectDir.resolve(BAZEL_GENERATED_FILE_LIST_RELATIVE_PATH)
+    assertEquals("module", manifest.readText())
+
+    val newName = "intellij.platform.buildScripts.bazel.iml"
+    projectDir.resolve("module/intellij.module.iml").moveTo(projectDir.resolve("module/$newName"))
+    val modules = projectDir.resolve(".idea/modules.xml")
+    modules.writeText(modules.readText().replace("intellij.module.iml", newName))
+    repeat(2) {
+      generateMetadataProject(projectDir)
+      assertEquals(original, owner.readText())
+      assertEquals("", manifest.readText())
+    }
+    projectDir.deleteRecursively()
+  }
+
+  private fun createMetadataProject(): Path {
+    val projectDir = Files.createTempDirectory("build-metadata")
+    getTestDataPath("MRI-4552").resolve("project").copyToRecursively(projectDir, followLinks = true, overwrite = false)
+    return projectDir
+  }
+
+  private fun addMetadataModule(projectDir: Path, directory: String, moduleName: String, templateDir: Path = projectDir) {
+    val relativePath = "$directory/$moduleName.iml"
+    projectDir.resolve(relativePath).createParentDirectories().writeText(templateDir.resolve("module/intellij.module.iml").readText())
+    val modulesFile = projectDir.resolve(".idea/modules.xml")
+    val entry = "<module fileurl=\"file://\$PROJECT_DIR\$/$relativePath\" filepath=\"\$PROJECT_DIR\$/$relativePath\" />"
+    modulesFile.writeText(modulesFile.readText().replace("</modules>", "$entry\n    </modules>"))
+  }
+
+  private fun generateMetadataProject(projectDir: Path, communityOnly: Boolean = true) {
+    JpsModuleToBazel.main(
+      arrayOf(
+        "--workspace_directory=$projectDir",
+        "--run_without_ultimate_root=$communityOnly",
+        "--default-custom-modules=false",
+        "--m2-repo=${projectDir.resolve("m2-repo")}",
+      )
+    )
+    for (buildFile in projectDir.walk().filter { it.name == "BUILD.bazel" }) {
+      softly.assertThat(buildFile.readText())
+        .describedAs("No BUILD metadata helper or section in $buildFile")
+        .doesNotContain("jps_model_build_file", "### auto-generated section `jps model build file`")
+    }
+  }
 
   /**
-   * A plugin content module whose jar merges its module libraries, and one whose recipe the model refuses.
+   * The content modules of an `ij_plugin` plugin, with and without module libraries to pack.
    *
-   * `intellij.libraries.example` declares four module libraries and its recipe records three, so
-   * `content_module_jar` names those three in `orderEntry` order and the plugin declares the module as prepacked
-   * instead of declaring its raw jar and its libraries. The fourth library is TEST-scope: this is the
-   * `intellij.libraries.coil` case in miniature.
-   *
-   * `intellij.libraries.refused` is the other side of the same comparison. Its recipe records the TEST-scope library,
-   * which the production-runtime walk cannot reach, so it keeps no packing target, stays a raw `content_modules`
-   * member, and the plugin keeps declaring its library. That is the scope filter shown as a refusal rather than as a
-   * silently smaller jar.
+   * `intellij.libraries.example` declares three production module libraries and one TEST-scope library. The three
+   * become the `packed_deps` of its `ij_plugin_module`, in `orderEntry` order, and the TEST-scope library stays a
+   * runtime dependency of the test target alone. `intellij.libraries.refused` declares only the TEST-scope library, so
+   * it has nothing to pack and stays a plain `jvm_library`.
    */
-  @Test fun prepackedContentModuleLibraries() = doTest("prepacked-content-module-libraries")
-
-  /**
-   * The three destinations a plugin can give one content module's jar, and what each one generates.
-   *
-   * `intellij.libraries.conventional` sits at `lib/modules/<module>.jar`, so the relation is a plain
-   * `prepacked_content_modules` label and the rule derives the destination from the module name.
-   * `intellij.libraries.embedded` sits at `lib/<module>.jar`, which the rule cannot derive, so the relation carries it
-   * in `prepacked_jars`.
-   *
-   * `intellij.libraries.conflicting` is the veto: this one report puts its jar at *both* destinations. One packed jar
-   * cannot satisfy both, and a relation is keyed by *(plugin, module)*, so there is no second relation to carry the
-   * second path. It stays a raw `content_modules` member and `JarPackager` keeps packing both jars. It keeps a
-   * `content_module_jar` target that nobody names, which is correct: the repo-global fold still agrees on the jar, and
-   * only this plugin's relation is impossible.
-   */
-  @Test fun prepackedContentModulePlacement() = doTest("prepacked-content-module-placement")
+  @Test fun ijPluginModulePackedDeps() = doTest("ij-plugin-module-packed-deps")
 
   private fun doTest(
     testName: String,
     runWithoutUltimateRoot: Boolean = true,
     defaultCustomModules: Boolean = false,
+    allowBuildBazelFilesInTestDataProject: Boolean = false,
   ) {
     val testDataPath = getTestDataPath(testName)
 
     val projectDataPath = testDataPath.resolve("project")
     assertTrue("$projectDataPath is not a directory", projectDataPath.isDirectory())
-    for (path in projectDataPath.walk()) {
-      check(!path.name.startsWith(TILDE_BUILD_PREFIX)) {
-        "Initial project dir is not expected to contain $TILDE_BUILD_PREFIX files, but $path is"
+    if (!allowBuildBazelFilesInTestDataProject) {
+      for (path in projectDataPath.walk()) {
+        check(!path.name.startsWith(TILDE_BUILD_PREFIX)) {
+          "Initial project dir is not expected to contain $TILDE_BUILD_PREFIX files, but $path is"
+        }
       }
     }
 
@@ -123,7 +307,15 @@ class BazelGeneratorIntegrationTests {
     )
 
     compareDirectoriesWithoutMutation(projectDataPath, tempDir, "targets-only must not modify the project tree")
-  
+
+    if (allowBuildBazelFilesInTestDataProject) {
+      for (path in tempDir.walk()) {
+        if (path.name.startsWith(TILDE_BUILD_PREFIX)) {
+          path.moveTo(path.resolveSibling(path.name.removePrefix(TILDE_BUILD_PREFIX)))
+        }
+      }
+    }
+
     JpsModuleToBazel.main(
       arrayOf(
         "--workspace_directory=$tempDir",
@@ -150,7 +342,7 @@ class BazelGeneratorIntegrationTests {
       )
     )
 
-    assertAndRemoveSameFiles(projectDataPath, tempDir)
+    assertAndRemoveSameFiles(projectDataPath, tempDir, allowBuildBazelFilesInTestDataProject)
     compareDirectories(expectedDataPath, tempDir)
 
     val bazelTargetsFromGenerator = tempDir.resolve("build").resolve("bazel-targets.json")
@@ -169,82 +361,6 @@ class BazelGeneratorIntegrationTests {
     if (softly.wasSuccess()) {
       tempDir.deleteRecursively()
     }
-  }
-
-  @Test
-  fun `MRI-4209 generator produces debuggerTestDepsModuleBazel`() {
-    val communityRoot = Files.createTempDirectory("debugger-test-deps")
-    val m2Repo = communityRoot.resolve("m2-repo")
-    val jarPath = m2Repo.resolve("org/jetbrains/intellij/deps/debugger-agent/1.161/debugger-agent-1.161.jar")
-    val url = "https://cache-redirector.jetbrains.com/packages.jetbrains.team/maven/p/ij/intellij-dependencies/org/jetbrains/intellij/deps/debugger-agent/1.161/debugger-agent-1.161.jar"
-    val sha256 = "ab903c9065490a1b2cb8fe703a27a1331d0583130a3b7f3ff3cd001bc36ac904"
-    val libModule = communityRoot.resolve("lib/MODULE.bazel")
-    libModule.createParentDirectories().writeText(
-      """
-        http_file = use_repo_rule("@bazel_tools//tools/build_defs/repo:http.bzl", "http_file")
-        
-        http_file(
-            name = "org_jetbrains_intellij_deps-debugger-agent-1_161_http",
-            downloaded_file_path = "debugger-agent-1.161.jar",
-            sha256 = "$sha256",
-            url = "$url",
-        )
-      """.trimIndent() + "\n"
-    )
-
-    val library = MavenLibrary(
-      mavenCoordinates = "org.jetbrains.intellij.deps:debugger-agent:1.161",
-      jars = listOf(
-        MavenFileDescription(
-          mavenCoordinates = MavenCoordinates(
-            groupId = "org.jetbrains.intellij.deps",
-            artifactId = "debugger-agent",
-            version = "1.161",
-          ),
-          path = jarPath,
-          sha256checksum = sha256,
-        )
-      ),
-      sourceJars = emptyList(),
-      javadocJars = emptyList(),
-      target = LibraryTarget(
-        jpsName = "debugger-agent",
-        targetName = "java-debugger-agent-holder-debugger-agent",
-        container = LibraryContainer(
-          repoLabel = "@lib",
-          buildFile = communityRoot.resolve("lib/BUILD.bazel"),
-          moduleFile = libModule,
-          isCommunity = true,
-        ),
-        moduleLibraryModuleName = "intellij.java.debugger.agent.holder",
-      ),
-    )
-
-    generateDebuggerTestDepsModuleBazel(
-      communityRoot = communityRoot,
-      allLibraries = listOf(library),
-      urlCache = UrlCache(
-        modulesBazel = listOf(libModule),
-        repositories = listOf(JarRepository("https://cache-redirector.jetbrains.com/packages.jetbrains.team/maven/p/ij/intellij-dependencies", isPrivate = true)),
-      ),
-      m2Repo = m2Repo,
-    )
-
-    assertEquals(
-      """
-        http_file = use_repo_rule("@bazel_tools//tools/build_defs/repo:http.bzl", "http_file")
-        
-        http_file(
-            name = "debugger_test_deps_debugger_agent",
-            downloaded_file_path = "debugger-agent.jar",
-            sha256 = "$sha256",
-            url = "$url",
-        )
-      """.trimIndent() + "\n",
-      communityRoot.resolve("debugger_test_deps.MODULE.bazel").readText(),
-    )
-
-    communityRoot.deleteRecursively()
   }
 
   @Test
@@ -506,7 +622,7 @@ class BazelGeneratorIntegrationTests {
     else -> "'$this'"
   }
 
-  private fun assertAndRemoveSameFiles(initialProjectDir: Path, testOutputDir: Path) {
+  private fun assertAndRemoveSameFiles(initialProjectDir: Path, testOutputDir: Path, allowBuildBazelFilesInTestDataProject: Boolean) {
     for (initialProjectChildPath in initialProjectDir.listDirectoryEntries()) {
       val outputChildPath = testOutputDir.resolve(initialProjectChildPath.name)
       if (initialProjectChildPath.isDirectory()) {
@@ -514,12 +630,12 @@ class BazelGeneratorIntegrationTests {
            "$outputChildPath is not a directory, but $initialProjectChildPath is"
         }
 
-        assertAndRemoveSameFiles(initialProjectChildPath, outputChildPath)
+        assertAndRemoveSameFiles(initialProjectChildPath, outputChildPath, allowBuildBazelFilesInTestDataProject)
       }
       else if (outputChildPath.readText() == initialProjectChildPath.readText()) {
         outputChildPath.deleteExisting()
       }
-      else {
+      else if (!(allowBuildBazelFilesInTestDataProject && initialProjectChildPath.name.startsWith(TILDE_BUILD_PREFIX))) {
         assertFilesEqual(outputChildPath, initialProjectChildPath,
                          "Generator should not modify existing project model files")
       }

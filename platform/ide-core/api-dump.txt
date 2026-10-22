@@ -747,6 +747,7 @@ f:com.intellij.openapi.fileEditor.TextEditorLocation
 - getPosition():com.intellij.openapi.editor.LogicalPosition
 a:com.intellij.openapi.fileEditor.UniqueVFilePathBuilder
 - s:getInstance():com.intellij.openapi.fileEditor.UniqueVFilePathBuilder
+- a:getUniqueVirtualFilePathWithinFiles(com.intellij.openapi.project.Project,com.intellij.openapi.vfs.VirtualFile,java.util.Collection):java.lang.String
 com.intellij.openapi.fileTypes.FileTypeConsumer
 - sf:EXTENSION_DELIMITER:java.lang.String
 - a:consume(com.intellij.openapi.fileTypes.FileType):V
@@ -816,7 +817,9 @@ com.intellij.openapi.options.Configurable$TopComponentController
 - sf:EMPTY:com.intellij.openapi.options.Configurable$TopComponentController
 - a:setLeftComponent(java.awt.Component):V
 - a:showProgress(Z):V
+- showProgressIndicator(Z):V
 - a:showProject(Z):V
+- showResetAction(Z):V
 com.intellij.openapi.options.Configurable$TopComponentProvider
 - a:getCenterComponent(com.intellij.openapi.options.Configurable$TopComponentController):java.awt.Component
 - isAvailable():Z
@@ -826,6 +829,10 @@ com.intellij.openapi.options.Configurable$WithEpDependencies
 - a:getDependencies():java.util.Collection
 c:com.intellij.openapi.options.ConfigurableEP
 - com.intellij.openapi.extensions.PluginAware
+- beta:Z
+- newOptions:Z
+- promo:Z
+- promoIcon:java.lang.String
 - p:<init>():V
 - createConfigurable():com.intellij.openapi.options.UnnamedConfigurable
 - getDisplayName():java.lang.String
@@ -1122,11 +1129,37 @@ c:com.intellij.openapi.ui.popup.ListSeparator
 - <init>():V
 - <init>(java.lang.String):V
 - getText():java.lang.String
+e:com.intellij.openapi.ui.popup.PopupRelativePosition
+- java.lang.Enum
+- sf:BOTTOM:com.intellij.openapi.ui.popup.PopupRelativePosition
+- sf:LEFT:com.intellij.openapi.ui.popup.PopupRelativePosition
+- sf:RIGHT:com.intellij.openapi.ui.popup.PopupRelativePosition
+- sf:TOP:com.intellij.openapi.ui.popup.PopupRelativePosition
+- s:getEntries():kotlin.enums.EnumEntries
+- s:valueOf(java.lang.String):com.intellij.openapi.ui.popup.PopupRelativePosition
+- s:values():com.intellij.openapi.ui.popup.PopupRelativePosition[]
 com.intellij.openapi.ui.popup.PopupShowOptions
+- s:aboveComponentRightAligned(java.awt.Component):com.intellij.openapi.ui.popup.PopupShowOptions
+- s:atScreenLocation(java.awt.Component,I,I,Z):com.intellij.openapi.ui.popup.PopupShowOptions
+- s:belowComponent(java.awt.Component):com.intellij.openapi.ui.popup.PopupShowOptions
+- s:belowComponentRightAligned(java.awt.Component):com.intellij.openapi.ui.popup.PopupShowOptions
+- a:getPopupComponentGap():I
+- a:getScreenX():I
+- a:getScreenY():I
+- a:withComponentPoint(com.intellij.ui.awt.AnchoredPoint):com.intellij.openapi.ui.popup.PopupShowOptions
+- a:withDefaultPopupAnchor(com.intellij.ui.awt.AnchoredPoint$Anchor):com.intellij.openapi.ui.popup.PopupShowOptions
+- a:withDefaultPopupComponentUnscaledGap(I):com.intellij.openapi.ui.popup.PopupShowOptions
+- a:withForcedXY(Z):com.intellij.openapi.ui.popup.PopupShowOptions
 - a:withMinimumHeight(java.lang.Integer):com.intellij.openapi.ui.popup.PopupShowOptions
 - a:withPopupComponentUnscaledGap(java.lang.Integer):com.intellij.openapi.ui.popup.PopupShowOptions
+- a:withRelativePosition(com.intellij.openapi.ui.popup.PopupRelativePosition):com.intellij.openapi.ui.popup.PopupShowOptions
+- a:withScreenXY(I,I):com.intellij.openapi.ui.popup.PopupShowOptions
 f:com.intellij.openapi.ui.popup.PopupShowOptions$Companion
 - f:aboveComponent(java.awt.Component):com.intellij.openapi.ui.popup.PopupShowOptions
+- f:aboveComponentRightAligned(java.awt.Component):com.intellij.openapi.ui.popup.PopupShowOptions
+- f:atScreenLocation(java.awt.Component,I,I,Z):com.intellij.openapi.ui.popup.PopupShowOptions
+- f:belowComponent(java.awt.Component):com.intellij.openapi.ui.popup.PopupShowOptions
+- f:belowComponentRightAligned(java.awt.Component):com.intellij.openapi.ui.popup.PopupShowOptions
 com.intellij.openapi.util.Expirable
 - a:isExpired():Z
 com.intellij.openapi.util.ExpirableRunnable

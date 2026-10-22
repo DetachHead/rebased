@@ -7,7 +7,7 @@ import com.intellij.coverage.analysis.ModuleRequest
 import com.intellij.coverage.analysis.collectOutputRoots
 import com.intellij.coverage.analysis.getWorkingThreads
 import com.intellij.openapi.diagnostic.Logger
-import com.intellij.openapi.diagnostic.rethrowControlFlowException
+import com.intellij.diagnostic.rethrowControlFlowException
 import com.intellij.openapi.module.Module
 import com.intellij.openapi.progress.runBlockingMaybeCancellable
 import com.intellij.openapi.project.Project

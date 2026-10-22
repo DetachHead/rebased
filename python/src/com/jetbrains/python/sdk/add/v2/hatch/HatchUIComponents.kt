@@ -13,7 +13,7 @@ import com.intellij.openapi.ui.validation.WHEN_PROPERTY_CHANGED
 import com.intellij.openapi.ui.validation.and
 import com.intellij.python.hatch.HatchVirtualEnvironment
 import com.intellij.python.hatch.PythonVirtualEnvironment
-import com.intellij.python.pytools.Version
+import com.intellij.python.pytools.backend.Version
 import com.intellij.ui.ColoredListCellRenderer
 import com.intellij.ui.SimpleTextAttributes
 import com.intellij.ui.components.ActionLink
@@ -39,6 +39,7 @@ import com.jetbrains.python.sdk.add.v2.PythonSupportedEnvironmentManagers
 import com.jetbrains.python.sdk.add.v2.ValidatedPath
 import com.jetbrains.python.sdk.add.v2.ValidatedPathField
 import com.jetbrains.python.sdk.add.v2.pythonInterpreterComboBox
+import com.jetbrains.python.sdk.add.v2.successOrNull
 import com.jetbrains.python.sdk.add.v2.validatablePathField
 import com.jetbrains.python.sdk.add.v2.withAdjustedWidth
 import kotlinx.coroutines.CoroutineScope
@@ -104,7 +105,7 @@ private class HatchEnvComboBoxListCellRenderer<P : PathHolder>(val contentFlow: 
           append(value.hatchEnvironment.name, SimpleTextAttributes.REGULAR_ATTRIBUTES)
           value.pythonVirtualEnvironment?.pythonHomePath?.let { pythonHomePath ->
             append("\t", SimpleTextAttributes.REGULAR_ATTRIBUTES)
-            append(pythonHomePath.toString(), SimpleTextAttributes.GRAYED_SMALL_ATTRIBUTES)
+            append(pythonHomePath.toStringForUI(), SimpleTextAttributes.GRAYED_SMALL_ATTRIBUTES)
           }
         }
       }
@@ -274,7 +275,7 @@ internal fun <P : PathHolder> Panel.buildHatchFormFields(
         onPathSelected = model::addManuallyAddedSystemPython,
       )
     }
-  }.visibleIf(model.hatchViewModel.hatchExecutable.transform { it?.validationResult?.successOrNull != null })
+  }.visibleIf(model.hatchViewModel.hatchExecutable.transform { it?.successOrNull != null })
 
 
   return HatchFormFields(environmentComboBox, basePythonComboBox, executablePath)

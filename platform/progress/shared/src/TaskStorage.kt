@@ -28,7 +28,7 @@ class TaskStorage {
   /**
    * Adds a new task to the storage and returns the created [TaskInfoEntity].
    *
-   * @param project in which frame the progress should be shown
+   * @param owner in which frames the progress should be shown
    * @param title The title of the task.
    * @param cancellation Specifies if the task can be canceled.
    * @param visibleInStatusBar Specifies if the task should be fully visible in the status bar, or just in the number of running tasks
@@ -36,7 +36,7 @@ class TaskStorage {
    * @return The created [TaskInfoEntity].
    */
   suspend fun addTask(
-    project: Project,
+    owner: BackgroundTaskOwner,
     title: @ProgressTitle String,
     cancellation: TaskCancellation,
     suspendable: TaskSuspension,
@@ -45,10 +45,14 @@ class TaskStorage {
     var taskInfoEntity: TaskInfoEntity? = null
     try {
       withKernel {
-        val projectId = if (!project.isDefault) project.projectId() else null
-        taskInfoEntity = change {
-          TaskInfoEntity.new {
+        val project = (owner as? ProjectBackgroundTaskOwner)?.project
+        val projectId = if (project != null && !project.isDefault) project.projectId() else null
+        // Capture the entity inside the transaction: `change` can commit and then throw CancellationException
+        // while it catches up, and the entity would leak if it were only assigned from the result
+        change {
+          taskInfoEntity = TaskInfoEntity.new {
             it[TaskInfoEntity.ProjectIdType] = projectId
+            it[TaskInfoEntity.OwnerKindType] = owner.kind
             it[TaskInfoEntity.TitleType] = title
             it[TaskInfoEntity.TaskCancellationType] = cancellation
             it[TaskInfoEntity.TaskSuspensionType] = suspendable
@@ -69,6 +73,17 @@ class TaskStorage {
     }
   }
 
+  suspend fun addTask(
+    project: Project,
+    title: @ProgressTitle String,
+    cancellation: TaskCancellation,
+    suspendable: TaskSuspension,
+    visibleInStatusBar: Boolean,
+  ): TaskInfoEntity {
+    return addTask(BackgroundTaskOwner.project(project), title, cancellation, suspendable, visibleInStatusBar)
+  }
+
+
   /**
    * Removes a task from Rhizome DB.
    * NOTE: this doesn't cancel a running task, to cancel a task use [TaskManager.cancelTask]
@@ -77,7 +92,7 @@ class TaskStorage {
    */
   suspend fun removeTask(taskInfoEntity: TaskInfoEntity): Unit = withKernel {
     change {
-      taskInfoEntity.delete()
+      if (taskInfoEntity.exists()) taskInfoEntity.delete()
     }
   }
 

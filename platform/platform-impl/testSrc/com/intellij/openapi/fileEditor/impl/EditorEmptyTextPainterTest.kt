@@ -20,10 +20,16 @@ import com.intellij.openapi.fileEditor.FileEditorManagerKeys
 import com.intellij.openapi.keymap.Keymap
 import com.intellij.openapi.keymap.KeymapManager
 import com.intellij.openapi.keymap.KeymapUtil
+import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.impl.finishEmptyEditorStartupBeforeProjectView
+import com.intellij.openapi.project.impl.isReadmeLookupOnStartupEnabled
 import com.intellij.openapi.project.impl.presentProjectViewOnStartup
 import com.intellij.openapi.project.impl.shouldRestoreStartupEditorFocus
-import com.intellij.openapi.vfs.LocalFileSystem
+import com.intellij.openapi.vfs.VirtualFileManager
+import com.intellij.openapi.wm.ex.ProjectFrameCapabilitiesProvider
+import com.intellij.openapi.wm.ex.ProjectFrameCapabilitiesService
+import com.intellij.openapi.wm.ex.ProjectFrameCapability
+import com.intellij.openapi.wm.ex.ProjectFrameUiPolicy
 import com.intellij.testFramework.ExtensionTestUtil
 import com.intellij.testFramework.LightVirtualFile
 import com.intellij.testFramework.LoggedErrorProcessor
@@ -791,6 +797,27 @@ internal class EditorEmptyTextPainterTest {
   }
 
   @Test
+  @Suppress("RAW_SCOPE_CREATION")
+  fun restoringSplitStateRemovesTheHalfThatRestoresNoTab() {
+    val splitters = manager.mainSplitters
+    manager.closeAllFiles()
+
+    val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    try {
+      // the restore itself removes the empty half, so a caller sees one window and one tab once it returns
+      val restoreJob = scope.launch { splitters.createEditors(EditorSplitterState(splitStateElementWithEmptySecondHalf())) }
+      PlatformTestUtil.waitWhileBusy { !restoreJob.isCompleted }
+
+      assertThat(splitters.windows().count()).isEqualTo(1)
+      assertThat(splitters.getAllComposites()).hasSize(1)
+    }
+    finally {
+      scope.cancel()
+      PlatformTestUtil.dispatchAllEventsInIdeEventQueue()
+    }
+  }
+
+  @Test
   fun openFilesAsyncWithoutSavedStateEnablesRichEmptyStateComponents(@TestDisposable disposable: Disposable) {
     val providerCalls = AtomicInteger()
     ExtensionTestUtil.maskExtensions(EditorEmptyStateComponentProvider.EP_NAME, listOf(object : EditorEmptyStateComponentProvider {
@@ -929,6 +956,20 @@ internal class EditorEmptyTextPainterTest {
         "Project view opened",
       )
     }
+  }
+
+  @Test
+  fun startupReadmeLookupIsSkippedForWelcomeExperienceProject(@TestDisposable disposable: Disposable) {
+    maskProjectFrameCapabilities(setOf(ProjectFrameCapability.WELCOME_EXPERIENCE), disposable)
+
+    assertThat(runBlocking { isReadmeLookupOnStartupEnabled(manager.project) }).isFalse()
+  }
+
+  @Test
+  fun startupReadmeLookupRunsForRegularProject(@TestDisposable disposable: Disposable) {
+    maskProjectFrameCapabilities(setOf(ProjectFrameCapability.SUPPRESS_INDEXING_ACTIVITIES), disposable)
+
+    assertThat(runBlocking { isReadmeLookupOnStartupEnabled(manager.project) }).isTrue()
   }
 
   @Test
@@ -1133,6 +1174,14 @@ internal class EditorEmptyTextPainterTest {
     assertThat(focusRequests).isEmpty()
     assertThat(handedBack).hasValue(0)
     assertThat(splitters.isEmptyStateFocusRequestPending()).isFalse()
+  }
+
+  private fun maskProjectFrameCapabilities(capabilities: Set<ProjectFrameCapability>, disposable: Disposable) {
+    ExtensionTestUtil.maskExtensions(ProjectFrameCapabilitiesService.EP_NAME, listOf(object : ProjectFrameCapabilitiesProvider {
+      override fun getCapabilities(project: Project): Set<ProjectFrameCapability> = capabilities
+
+      override fun getUiPolicy(project: Project, capabilities: Set<ProjectFrameCapability>): ProjectFrameUiPolicy? = null
+    }), disposable)
   }
 
   private fun registerDefaultEmptyTextProvider(disposable: Disposable) {
@@ -1367,14 +1416,23 @@ internal class EditorEmptyTextPainterTest {
     return Element("state").addContent(Element("leaf"))
   }
 
-  private fun splitterStateElementWithFile(): Element {
-    val file = Files.createTempFile(tempPath, "empty-state", ".txt")
-    val virtualFile = checkNotNull(LocalFileSystem.getInstance().refreshAndFindFileByNioFile(file))
+  private fun splitterStateElementWithFile(): Element = Element("state").addContent(leafElementWithFile())
+
+  /** A split whose first half holds one file and whose second half holds no file. */
+  private fun splitStateElementWithEmptySecondHalf(): Element {
     return Element("state").addContent(
-      Element("leaf").addContent(
-        Element("file").addContent(
-          Element(HistoryEntry.TAG).setAttribute(HistoryEntry.FILE_ATTRIBUTE, virtualFile.url),
-        ),
+      Element("splitter")
+        .addContent(Element("split-first").addContent(leafElementWithFile()))
+        .addContent(Element("split-second").addContent(Element("leaf"))),
+    )
+  }
+
+  private fun leafElementWithFile(): Element {
+    val file = Files.createTempFile(tempPath, "empty-state", ".txt")
+    val virtualFile = checkNotNull(VirtualFileManager.getInstance().refreshAndFindFileByNioPath(file))
+    return Element("leaf").addContent(
+      Element("file").addContent(
+        Element(HistoryEntry.TAG).setAttribute(HistoryEntry.FILE_ATTRIBUTE, virtualFile.url),
       ),
     )
   }

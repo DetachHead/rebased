@@ -8,7 +8,6 @@ import com.intellij.codeInsight.daemon.impl.HighlightInfoType
 import com.intellij.codeInsight.daemon.impl.UpdateHighlightersUtil
 import com.intellij.codeInsight.highlighting.HyperlinkAnnotator
 import com.intellij.codeInspection.ProblemHighlightType
-import com.intellij.ide.IdeBundle
 import com.intellij.injected.editor.VirtualFileWindow
 import com.intellij.lang.annotation.Annotation
 import com.intellij.lang.annotation.HighlightSeverity
@@ -20,24 +19,28 @@ import com.intellij.openapi.editor.Document
 import com.intellij.openapi.editor.colors.CodeInsightColors
 import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.project.Project
-import com.intellij.openapi.util.NlsSafe
 import com.intellij.openapi.vfs.VirtualFile
-import com.intellij.platform.lsp.api.LspBundle
 import com.intellij.platform.lsp.api.customization.LspDiagnosticsSupport
 import com.intellij.platform.lsp.api.customization.LspDocumentLinkDisabled
 import com.intellij.platform.lsp.api.customization.LspSemanticTokensSupport
-import com.intellij.platform.lsp.impl.LspCoroutineScopeService
 import com.intellij.platform.lsp.impl.LspClientImpl
 import com.intellij.platform.lsp.impl.LspClientManagerImpl
+import com.intellij.platform.lsp.impl.LspCoroutineScopeService
 import com.intellij.platform.lsp.util.getRangeInDocument
 import com.intellij.problems.WolfTheProblemSolver
 import com.intellij.psi.PsiFile
 import com.intellij.psi.PsiManager
+import com.intellij.util.ThreeState
+import com.intellij.util.containers.ContainerUtil
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.util.concurrent.ConcurrentHashMap
+import org.jetbrains.annotations.TestOnly
+import java.util.WeakHashMap
 import java.util.concurrent.atomic.AtomicLong
+import kotlin.time.Duration
+import kotlin.time.Duration.Companion.milliseconds
 
 /**
  * Applies LSP highlighting reactively without restarting the daemon.
@@ -56,9 +59,12 @@ import java.util.concurrent.atomic.AtomicLong
 @Service(Service.Level.PROJECT)
 internal class LspHighlightingApplier(private val project: Project) {
 
-  private val fileToCurrentGeneration = ConcurrentHashMap<VirtualFile, AtomicLong>()
-  private val filesWithWolfReportedErrors = HashSet<VirtualFile>()
-  private val fileToLastWolfWrittenGen = HashMap<VirtualFile, Long>()
+  // Weak keys: the daemon pass reports for every editor, including the in-memory files of diff viewers and dialogs,
+  // which never get a file-closed event. Entries are not dropped on close either: a refresh still in flight would
+  // then report a generation above the restarted counter, and the Wolf gate would drop the newer reports.
+  private val fileToCurrentGeneration = ContainerUtil.createConcurrentWeakMap<VirtualFile, AtomicLong>()
+  private val filesWithWolfReportedErrors = ContainerUtil.createWeakSet<VirtualFile>()
+  private val fileToLastWolfWrittenGen = WeakHashMap<VirtualFile, Long>()
 
   private val serializedDispatcher = Dispatchers.Default.limitedParallelism(1)
 
@@ -71,15 +77,47 @@ internal class LspHighlightingApplier(private val project: Project) {
   fun scheduleHighlightingRefresh(file: VirtualFile) {
     val generationCounter = fileToCurrentGeneration.computeIfAbsent(file) { AtomicLong() }
     val gen = generationCounter.incrementAndGet()
+    launchRefresh(file, generationCounter, gen)
+  }
+
+  /**
+   * Like [scheduleHighlightingRefresh], but waits [EDIT_DEBOUNCE] first, so a typing burst coalesces into
+   * one refresh. The generation is claimed synchronously: this call supersedes every earlier refresh, and
+   * any refresh scheduled later supersedes this one. The window is invisible on screen: the applied
+   * highlighters are range markers and follow the edits meanwhile.
+   */
+  fun scheduleHighlightingRefreshDebounced(file: VirtualFile) {
+    val generationCounter = fileToCurrentGeneration.computeIfAbsent(file) { AtomicLong() }
+    val gen = generationCounter.incrementAndGet()
+    LspCoroutineScopeService.getInstance(project).cs.launch {
+      // The override is null in production; only tests set it.
+      @Suppress("TestOnlyProblems")
+      delay(editDebounceOverride ?: EDIT_DEBOUNCE)
+      if (generationCounter.get() > gen) return@launch
+      launchRefresh(file, generationCounter, gen)
+    }
+  }
+
+  private fun launchRefresh(file: VirtualFile, generationCounter: AtomicLong, gen: Long) {
     LspCoroutineScopeService.getInstance(project).cs.launch(serializedDispatcher) {
       if (generationCounter.get() > gen) return@launch
       val highlights = readAction { collectHighlightsForApply(file) } ?: return@launch
-      withContext(Dispatchers.EDT) {
+      afterCollectHook?.invoke(file)
+      val applied = withContext(Dispatchers.EDT) {
+        // An edit after the collect makes the ranges stale, and the edit itself scheduled a replacement refresh.
+        if (highlights.document.modificationStamp != highlights.collectedModStamp) return@withContext false
         applyHighlightsToEditor(highlights)
+        true
       }
+      if (!applied) return@launch
       reportErrorsToWolf(file, highlights.highlights, gen)
     }
   }
+
+  /** Invoked after the collect read action and before the EDT apply. Lets a test interleave an edit deterministically. */
+  @set:TestOnly
+  @Volatile
+  internal var afterCollectHook: (suspend (VirtualFile) -> Unit)? = null
 
   private fun collectHighlightsForApply(file: VirtualFile): HighlightsToApply? {
     if (file is VirtualFileWindow) return null
@@ -90,7 +128,7 @@ internal class LspHighlightingApplier(private val project: Project) {
     val groupId = GROUP_ID
     if (groupId == UNREGISTERED_PASS_ID) return null
     val highlights = collectHighlightInfos(psiFile, file, document)
-    return HighlightsToApply(document, highlights, groupId)
+    return HighlightsToApply(document, highlights, groupId, document.modificationStamp)
   }
 
   /**
@@ -109,6 +147,7 @@ internal class LspHighlightingApplier(private val project: Project) {
     val document: Document,
     val highlights: List<HighlightInfo>,
     val groupId: Int,
+    val collectedModStamp: Long,
   )
 
   fun collectHighlightInfos(psiFile: PsiFile, file: VirtualFile, document: Document): List<HighlightInfo> {
@@ -165,7 +204,7 @@ internal class LspHighlightingApplier(private val project: Project) {
   ) {
     val semanticTokensSupport = client.descriptor.lspCustomization.semanticTokensCustomizer
                                   as? LspSemanticTokensSupport ?: return
-    val tokens = client.getSemanticTokens(file)
+    val tokens = client.highlightingCacheRegistry.semanticTokensCache.getHighlightings(file)
     for (token in tokens) {
       val textAttributesKey = semanticTokensSupport.getTextAttributesKey(
         token.highlightingInfo.tokenType, token.highlightingInfo.tokenModifiers
@@ -186,19 +225,19 @@ internal class LspHighlightingApplier(private val project: Project) {
   ) {
     val customizer = client.descriptor.lspCustomization.documentLinkCustomizer
     if (customizer is LspDocumentLinkDisabled) return
-    val documentLinks = client.getDocumentLinkInfos(file)
+    val documentLinks = client.highlightingCacheRegistry.documentLinkCache.getHighlightings(file)
     for (link in documentLinks) {
-      val tooltip = getDocumentLinkTooltip(link.highlightingInfo)
-      val shortcutsText = HyperlinkAnnotator.getGoToDeclarationShortcutsText()
-      val tooltipWithShortcuts = if (shortcutsText.isNotEmpty()) "$tooltip ($shortcutsText)" else tooltip
-
       val info = HighlightInfo.newHighlightInfo(HighlightInfoType.INFORMATION)
         .range(link.textRange)
-        .descriptionAndTooltip(tooltipWithShortcuts)
         .textAttributes(CodeInsightColors.INACTIVE_HYPERLINK_ATTRIBUTES)
         .severity(HighlightSeverity.TEXT_ATTRIBUTES)
-        .createUnconditionally()
-      result.add(info)
+
+      val tooltip = link.highlightingInfo.tooltip
+      if (tooltip != null) {
+        val shortcutsText = HyperlinkAnnotator.getGoToDeclarationShortcutsText()
+        info.descriptionAndTooltip(if (shortcutsText.isNotEmpty()) "$tooltip ($shortcutsText)" else tooltip)
+      }
+      result.add(info.createUnconditionally())
     }
   }
 
@@ -216,24 +255,46 @@ internal class LspHighlightingApplier(private val project: Project) {
    */
   fun reportErrorsToWolf(file: VirtualFile, highlights: List<HighlightInfo>, observedGen: Long) {
     val hasErrors = highlights.any { it.severity == HighlightSeverity.ERROR }
-    val wolf = WolfTheProblemSolver.getInstance(project)
-    synchronized(filesWithWolfReportedErrors) {
+
+    val addClearNoAction: ThreeState = synchronized(filesWithWolfReportedErrors) {
       val last = fileToLastWolfWrittenGen[file] ?: -1L
-      if (observedGen < last) return
+      if (observedGen < last) return@synchronized ThreeState.UNSURE
+
       fileToLastWolfWrittenGen[file] = observedGen
       if (hasErrors) {
         filesWithWolfReportedErrors.add(file)
-        wolf.reportProblemsFromExternalSource(file, LSP_EXTERNAL_SOURCE)
+        ThreeState.YES
       }
       else if (filesWithWolfReportedErrors.remove(file)) {
-        wolf.clearProblemsFromExternalSource(file, LSP_EXTERNAL_SOURCE)
+        ThreeState.NO
       }
+      else {
+        ThreeState.UNSURE
+      }
+    }
+
+    // WolfTheProblemSolver may need read action to handle problems, do not call from synchronized block
+    when (addClearNoAction) {
+      ThreeState.YES -> WolfTheProblemSolver.getInstance(project).reportProblemsFromExternalSource(file, LSP_EXTERNAL_SOURCE)
+      ThreeState.NO -> WolfTheProblemSolver.getInstance(project).clearProblemsFromExternalSource(file, LSP_EXTERNAL_SOURCE)
+      ThreeState.UNSURE -> Unit /* do nothing */
     }
   }
 
   companion object {
     private const val LSP_EXTERNAL_SOURCE: String = "LSP"
     const val UNREGISTERED_PASS_ID: Int = -1
+
+    /** How long [scheduleHighlightingRefreshDebounced] waits, so one refresh serves a whole typing burst. */
+    val EDIT_DEBOUNCE: Duration = 40.milliseconds
+
+    /**
+     * Widens or disables the debounce window in tests, where the production value is too
+     * timing-sensitive to assert against.
+     */
+    @set:TestOnly
+    @Volatile
+    var editDebounceOverride: Duration? = null
 
     /**
      * Assigned by the platform via [com.intellij.codeHighlighting.TextEditorHighlightingPassRegistrar.registerTextEditorHighlightingPass].
@@ -272,18 +333,6 @@ internal class LspHighlightingApplier(private val project: Project) {
       if (problemHighlightType == ProblemHighlightType.LIKE_MARKED_FOR_REMOVAL) return HighlightInfoType.MARKED_FOR_REMOVAL
       if (problemHighlightType == ProblemHighlightType.POSSIBLE_PROBLEM) return HighlightInfoType.POSSIBLE_PROBLEM
       return HighlightInfo.convertSeverity(severity)
-    }
-
-    private fun getDocumentLinkTooltip(documentLink: LspDocumentLink): @NlsSafe String {
-      if (documentLink.tooltip != null) return documentLink.tooltip
-
-      val uri = documentLink.targetUri
-      @Suppress("HttpUrlsUsage")
-      if (uri != null && (uri.startsWith("http://") || uri.startsWith("https://"))) {
-        return IdeBundle.message("open.url.in.browser.tooltip")
-      }
-
-      return LspBundle.message("follow.link.tooltip")
     }
   }
 }

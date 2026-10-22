@@ -88,6 +88,12 @@ public class StaticImportConstantFix extends StaticImportMemberFix<PsiField, Psi
   }
 
   @Override
+  protected @Nullable String getReferenceName() {
+    PsiJavaCodeReferenceElement element = myReferencePointer.getElement();
+    return element != null ? element.getReferenceName() : null;
+  }
+
+  @Override
   boolean toAddStaticImports() {
     return true;
   }

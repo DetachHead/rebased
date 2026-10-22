@@ -17,8 +17,8 @@ import org.jetbrains.plugins.groovy.util.TestUtils;
  */
 public class GroovyRangeTypeCheckTest extends LightJavaCodeInsightFixtureTestCase {
   @Override
-  protected String getBasePath() {
-    return TestUtils.getTestDataPath() + "groovy/inspections/rangeTypeCheck";
+  protected String getTestDataPath() {
+    return TestUtils.getAbsoluteTestDataPath() + "groovy/inspections/rangeTypeCheck";
   }
 
   public void doTest() {

@@ -18,8 +18,8 @@ import java.util.stream.Collectors;
  */
 public class CastToTypeTest extends LightGroovyTestCase {
   @Override
-  protected String getBasePath() {
-    return TestUtils.getTestDataPath() + "groovy/inspections/castToType";
+  protected String getTestDataPath() {
+    return TestUtils.getAbsoluteTestDataPath() + "groovy/inspections/castToType";
   }
 
   private void doTest(String name) {

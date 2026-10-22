@@ -24,8 +24,8 @@ import java.util.Collection;
  */
 public class DelegateTest extends GroovyResolveTestCase {
   @Override
-  protected String getBasePath() {
-    return TestUtils.getTestDataPath() + "resolve/delegate/";
+  protected String getTestDataPath() {
+    return TestUtils.getAbsoluteTestDataPath() + "resolve/delegate/";
   }
 
   private <T> T doTest(String text, Class<T> clazz) {

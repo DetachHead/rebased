@@ -22,6 +22,7 @@ import com.intellij.ide.ui.UISettingsUtils
 import com.intellij.ide.ui.UIThemeProvider
 import com.intellij.ide.ui.laf.SystemDarkThemeDetector.Companion.createParametrizedDetector
 import com.intellij.ide.ui.laf.darcula.DarculaLaf
+import com.intellij.ide.ui.laf.darcula.ui.installNewUiOnOffButtonUI
 import com.intellij.ide.ui.laf.intellij.IdeaPopupMenuUI
 import com.intellij.ide.util.PropertiesComponent
 import com.intellij.openapi.actionSystem.ActionManager
@@ -825,6 +826,7 @@ class LafManagerImpl(private val coroutineScope: CoroutineScope) : LafManager(),
     if (ExperimentalUI.isNewUI()) {
       applyDensityOnUpdateUi(uiDefaults)
       applyAltColors(uiDefaults)
+      installNewUiOnOffButtonUI(uiDefaults)
     }
     
     patchLoadingImageIcons(uiDefaults)
@@ -1084,7 +1086,7 @@ class LafManagerImpl(private val coroutineScope: CoroutineScope) : LafManager(),
       if (settings == null) {
         ShowSettingsUtil.getInstance().showSettingsDialog(ProjectManager.getInstance().defaultProject,
                                                           PluginManagerConfigurable::class.java) { c: PluginManagerConfigurable ->
-          c.enableSearch(themeTag)
+          c.navigateToMarketplace(themeTag)
         }
       }
       else {

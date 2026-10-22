@@ -1,10 +1,16 @@
-// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.platform.searchEverywhere.backend.providers.files
 
-import com.intellij.ide.actions.searcheverywhere.SearchEverywhereContributor
+import com.intellij.ide.IdeBundle
+import com.intellij.ide.actions.searcheverywhere.FileSearchEverywhereContributor
 import com.intellij.ide.util.gotoByName.FileTypeRef
+import com.intellij.ide.util.gotoByName.FilteringGotoByModel
+import com.intellij.ide.util.gotoByName.GotoFileModel
+import com.intellij.openapi.actionSystem.DataContext
+import com.intellij.openapi.actionSystem.DataSink
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Disposer
+import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.platform.scopes.SearchScopesInfo
 import com.intellij.platform.searchEverywhere.SeExtendedInfoProvider
 import com.intellij.platform.searchEverywhere.SeItem
@@ -14,53 +20,81 @@ import com.intellij.platform.searchEverywhere.SeParams
 import com.intellij.platform.searchEverywhere.SePreviewInfo
 import com.intellij.platform.searchEverywhere.SeProviderIdUtils
 import com.intellij.platform.searchEverywhere.SeSearchScopesProvider
+import com.intellij.platform.searchEverywhere.SeTypeFilterKeys
 import com.intellij.platform.searchEverywhere.SeTypeVisibilityStateProvider
-import com.intellij.platform.searchEverywhere.providers.SeAsyncContributorWrapper
-import com.intellij.platform.searchEverywhere.providers.SeWrappedLegacyContributorItemsProvider
-import com.intellij.platform.searchEverywhere.providers.target.SeTargetsProviderDelegate
+import com.intellij.platform.searchEverywhere.providers.target.SeTargetItemsProvider
 import com.intellij.platform.searchEverywhere.providers.target.SeTypeVisibilityStatePresentation
+import com.intellij.pom.Navigatable
+import com.intellij.psi.PsiElement
 import org.jetbrains.annotations.Nls
 
-internal class SeFilesProvider(
-  private val contributorWrapper: SeAsyncContributorWrapper<Any>,
-) : SeWrappedLegacyContributorItemsProvider(),
+internal class SeFilesProvider private constructor(
+  private val targetProvider: SeTargetItemsProvider<FileTypeRef>,
+) : SeItemsProvider,
     SeSearchScopesProvider,
     SeTypeVisibilityStateProvider,
     SeItemsPreviewProvider,
     SeExtendedInfoProvider {
   override val id: String get() = SeProviderIdUtils.FILES_ID
-  override val displayName: @Nls String
-    get() = contributorWrapper.contributor.fullGroupName
-  override val contributor: SearchEverywhereContributor<*> get() = contributorWrapper.contributor
+  override val displayName: @Nls String get() = IdeBundle.message("search.everywhere.group.name.files")
 
-  private val targetsProviderDelegate = SeTargetsProviderDelegate(contributorWrapper, this)
+  override suspend fun collectItems(params: SeParams, collector: SeItemsProvider.Collector): Unit =
+    targetProvider.collectItems(params, collector)
 
-  override suspend fun collectItems(params: SeParams, collector: SeItemsProvider.Collector) {
-    targetsProviderDelegate.collectItems<FileTypeRef>(params, collector)
-  }
+  override suspend fun itemSelected(item: SeItem, modifiers: Int, searchText: String): Boolean =
+    targetProvider.itemSelected(item, this, modifiers, searchText)
 
-  override suspend fun itemSelected(item: SeItem, modifiers: Int, searchText: String): Boolean {
-    return targetsProviderDelegate.itemSelected(item, modifiers, searchText)
-  }
+  override suspend fun performExtendedAction(item: SeItem): Boolean =
+    targetProvider.performExtendedAction(item, this)
 
-  override suspend fun canBeShownInFindResults(): Boolean {
-    return targetsProviderDelegate.canBeShownInFindResults()
-  }
+  override fun addDataForItem(item: SeItem, sink: DataSink): Unit = targetProvider.addDataForItem(item, sink)
+  override fun getPsiElementForItem(item: SeItem): PsiElement? = targetProvider.getPsiElementForItem(item)
+  override fun getVirtualFileForItem(item: SeItem): VirtualFile? = targetProvider.getVirtualFileForItem(item)
+  override fun getNavigatableForItem(item: SeItem): Navigatable? = targetProvider.getNavigatableForItem(item)
 
-  override suspend fun getPreviewInfo(item: SeItem, project: Project): SePreviewInfo? {
-    return targetsProviderDelegate.getPreviewInfo(item, project)
-  }
+  override suspend fun getSearchScopesInfo(): SearchScopesInfo? = targetProvider.getSearchScopesInfo()
 
-  override suspend fun getSearchScopesInfo(): SearchScopesInfo? = targetsProviderDelegate.getSearchScopesInfo()
+  override suspend fun getTypeVisibilityStates(key: String): List<SeTypeVisibilityStatePresentation> =
+    targetProvider.getTypeVisibilityStates(key)
 
-  override suspend fun getTypeVisibilityStates(index: Int): List<SeTypeVisibilityStatePresentation> =
-    targetsProviderDelegate.getTypeVisibilityStates<FileTypeRef>(index)
+  override suspend fun getPreviewInfo(item: SeItem, project: Project): SePreviewInfo? =
+    targetProvider.getPreviewInfo(item)
 
-  override suspend fun performExtendedAction(item: SeItem): Boolean {
-    return targetsProviderDelegate.performExtendedAction(item)
-  }
+  override suspend fun canBeShownInFindResults(): Boolean = true
 
   override fun dispose() {
-    Disposer.dispose(contributorWrapper)
+    // The target provider holds the disposables that a preview fetch opened.
+    Disposer.dispose(targetProvider)
+  }
+
+  companion object {
+    /**
+     * `setFilterItems` is a whitelist of the types to show. An empty set rejects every file, and an
+     * unset filter accepts every file.
+     */
+    private fun createModel(project: Project, hiddenTypes: Set<FileTypeRef>): FilteringGotoByModel<FileTypeRef> {
+      val model = GotoFileModel(project)
+      model.setFilterItems(FileSearchEverywhereContributor.getAllFileTypes().filterNot { it in hiddenTypes })
+      return model
+    }
+
+    suspend fun create(project: Project, dataContext: DataContext): SeFilesProvider {
+      val targetProvider = SeTargetItemsProvider.create(
+        project = project,
+        dataContext = dataContext,
+        operationDisposable = null,
+        label = "SeFiles",
+        // This provider shows one type filter, so it reads the first index alone.
+        gotoModelProvider = { project, _, hidden ->
+          createModel(project, hidden[SeTypeFilterKeys.DEFAULT].orEmpty())
+        },
+        typeFilterProvider = {
+          mapOf(SeTypeFilterKeys.DEFAULT to FileSearchEverywhereContributor.createFileTypeFilter(it))
+        },
+        isFileProvider = true,
+      )
+
+      return SeFilesProvider(targetProvider)
+    }
   }
 }

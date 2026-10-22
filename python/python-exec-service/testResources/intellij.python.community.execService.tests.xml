@@ -6,15 +6,17 @@
     <module name="intellij.libraries.guava"/>
     <module name="intellij.libraries.hamcrest"/>
     <module name="intellij.libraries.jetbrains.annotations"/>
-    <module name="intellij.libraries.junit5"/>
-    <module name="intellij.libraries.junit5.params"/>
+    <module name="intellij.libraries.junit6"/>
+    <module name="intellij.libraries.junit6.params"/>
     <module name="intellij.libraries.kotlinx.coroutines.core"/>
     <module name="intellij.libraries.kotlinx.serialization.core"/>
     <module name="intellij.libraries.kotlinx.serialization.json"/>
     <module name="intellij.platform.core"/>
+    <module name="intellij.platform.eel.provider"/>
     <module name="intellij.platform.execution"/>
     <module name="intellij.platform.projectModel"/>
     <module name="intellij.platform.remoteServers.impl"/>
+    <module name="intellij.platform.util.progress"/>
     <module name="intellij.python.processOutput.common"/>
   </dependencies>
   <!-- endregion -->

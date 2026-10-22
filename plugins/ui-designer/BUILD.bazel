@@ -1,9 +1,7 @@
 load("@community//build:bazel_targets_json.bzl", "current_bazel_targets_json")
 load("@community//build:tests-options.bzl", "jps_test")
-load("@community//platform/build-scripts/bazel-rules:dev_dist_plugin.bzl", "dev_dist_plugin")
-load("@jps_dynamic_deps_community//:targets.bzl", "ALL_COMMUNITY_TARGETS")
+load("@jps_dynamic_deps_community//:targets.bzl", "ALL_COMMUNITY_TARGETS", "dev_dist_plugin")
 load("@rules_jvm//:jvm.bzl", "jvm_library", "resourcegroup")
-load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "dev_dist_plugin_jar")
 
 BAZEL_TARGETS_JSON = current_bazel_targets_json()
 
@@ -20,6 +18,19 @@ jps_test(
 
 ### skip generation section `test intellij.java.guiForms.designer.tests`
 
+### auto-generated section `dev intellij.java.guiForms.designer` start
+dev_dist_plugin(
+    content_modules = ["intellij.java.guiForms.jps"],
+    descriptor = "resources/META-INF/plugin.xml",
+    directory_name = "uiDesigner",
+    jars = {
+        "lib/jps/java-guiForms-jps.jar": ["intellij.java.guiForms.jps"],
+        "lib/uiDesigner.jar": ["intellij.java.guiForms.designer"],
+    },
+    main_module = "intellij.java.guiForms.designer",
+)
+### auto-generated section `dev intellij.java.guiForms.designer` end
+
 ### auto-generated section `build intellij.java.guiForms.designer` start
 jvm_library(
     name = "java-guiForms-designer",
@@ -35,6 +46,7 @@ jvm_library(
     resource_strip_prefix = "resources",
     resources = glob(
         ["resources/**/*"],
+        exclude = ["resources/**/icon-robots.txt"],
     ),
     visibility = ["//visibility:public"],
     exports = [
@@ -137,10 +149,6 @@ jvm_library(
         "//platform/lang-core:lang-core_test_lib",
         "//platform/projectModel-api:projectModel_test_lib",
         "//platform/refactoring:refactoring_test_lib",
-        "//platform/structure-view-impl:structureView",
-        "//platform/structure-view-impl:structureView_test_lib",
-        "//platform/testFramework",
-        "//platform/testFramework:testFramework_test_lib",
         "//platform/platform-impl:ide-impl_test_lib",
         "//platform/platform-impl/concurrency:concurrency_test_lib",
         "//platform/usageView-impl:usageView-impl_test_lib",
@@ -150,8 +158,6 @@ jvm_library(
         "//java/compiler/openapi:java-compiler_test_lib",
         "//java/execution/impl:impl_test_lib",
         "//java/execution/openapi:java-execution_test_lib",
-        "//java/java-runtime:rt",
-        "//java/java-runtime:rt_test_lib",
         "//platform/usageView:usageView_test_lib",
         "//platform/editor-ui-ex:editor-ex_test_lib",
         "//java/compiler/impl:impl_test_lib",
@@ -160,8 +166,6 @@ jvm_library(
         "//libraries/asm:asm_test_lib",
         "//plugins/java-i18n:java-i18n_test_lib",
         "//java/idea-ui:ui_test_lib",
-        "//java/testFramework",
-        "//java/testFramework:testFramework_test_lib",
         "//java/java-impl:impl_test_lib",
         "//platform/platform-impl/designer:designer_test_lib",
         "//platform/platform-api:ide_test_lib",
@@ -169,10 +173,6 @@ jvm_library(
         "//jps/jps-builders:build_test_lib",
         "//xml/impl:impl_test_lib",
         "//plugins/properties/properties-psi-api:psi_test_lib",
-        "//libraries/assertj-core",
-        "//libraries/assertj-core:assertj-core_test_lib",
-        "//java/compiler:compiler-tests",
-        "//java/compiler:compiler-tests_test_lib",
         "//libraries/java-compatibility:java-compatibility_test_lib",
         "//libraries/fastutil:fastutil_test_lib",
         "//platform/util-class-loader:util-classLoader_test_lib",
@@ -180,17 +180,11 @@ jvm_library(
         "//platform/core-impl:core-impl_test_lib",
         "//plugins/properties/properties-psi-impl:backend-psi_test_lib",
         "//platform/platform-util-io:ide-util-io_test_lib",
-        "//platform/util/xmlDom",
-        "//platform/util/xmlDom:xmlDom_test_lib",
         "//java/java-impl-refactorings:impl-refactorings_test_lib",
         "//java/java-frontback-psi-api:frontback-psi_test_lib",
         "//platform/util/jdom:jdom_test_lib",
         "//platform/util:util-ui_test_lib",
-        "//jps/jps-builders:build-tests",
-        "//jps/jps-builders:build-tests_test_lib",
         "//xml/xml-psi-api:psi_test_lib",
-        "//libraries/caffeine",
-        "//libraries/caffeine:caffeine_test_lib",
         "//platform/execution:execution_test_lib",
         "//libraries/kotlinx/collections-immutable:libraries-kotlinx-collections-immutable_test_lib",
         "//platform/lang-api:lang_test_lib",
@@ -212,19 +206,6 @@ exports_files(
     visibility = ["//visibility:public"],
 )
 ### auto-generated section `iml intellij.java.guiForms.designer` end
-
-### auto-generated section `dev intellij.java.guiForms.designer` start
-dev_dist_plugin(
-    descriptor_module = ":java-guiForms-designer",
-    prepacked_layout_jars = [":jps_java-guiForms-jps_dev_dist_plugin_jar"],
-)
-
-dev_dist_plugin_jar(
-    modules = ["//plugins/ui-designer/jps-plugin:java-guiForms-jps"],
-    plugin_main_module = "intellij.java.guiForms.designer",
-    relative_output_file = "jps/java-guiForms-jps.jar",
-)
-### auto-generated section `dev intellij.java.guiForms.designer` end
 
 ### auto-generated section `build intellij.java.guiForms.designer.tests` start
 resourcegroup(
@@ -416,6 +397,16 @@ jvm_library(
         "//java/java-frontback-psi-api:frontback-psi_test_lib",
         "//libraries/junit4",
         "//libraries/junit4:junit4_test_lib",
+        "//platform/testRunner/plugin",
+        "//platform/testRunner/plugin:plugin_test_lib",
+        "//platform/structuralsearch/plugin",
+        "//platform/structuralsearch/plugin:plugin_test_lib",
+        "//xml/plugin",
+        "//xml/plugin:plugin_test_lib",
+        "//aether-dependency-resolver/plugin",
+        "//aether-dependency-resolver/plugin:plugin_test_lib",
+        "//platform/vcs/plugin",
+        "//platform/vcs/plugin:plugin_test_lib",
     ],
 )
 ### auto-generated section `build intellij.java.guiForms.designer.tests` end

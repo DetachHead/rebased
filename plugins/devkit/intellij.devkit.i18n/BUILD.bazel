@@ -10,6 +10,10 @@ jps_test(
 )
 ### skip generation section `test intellij.devkit.i18n.tests`
 
+### auto-generated section `dev intellij.devkit.i18n` start
+content_module_jar(module = ":i18n")
+### auto-generated section `dev intellij.devkit.i18n` end
+
 ### auto-generated section `build intellij.devkit.i18n` start
 jvm_library(
     name = "i18n",
@@ -55,8 +59,6 @@ jvm_library(
     ],
 )
 
-content_module_jar(module = ":i18n")
-
 jvm_library(
     name = "i18n_test_lib",
     testonly = True,
@@ -89,14 +91,6 @@ jvm_library(
         "//xml/xml-analysis-api:analysis_test_lib",
         "//xml/xml-psi-impl:psi-impl_test_lib",
         "//plugins/devkit/devkit-core:core_test_lib",
-        "//platform/testFramework",
-        "//platform/testFramework:testFramework_test_lib",
-        "//java/testFramework",
-        "//java/testFramework:testFramework_test_lib",
-        "//spellchecker",
-        "//spellchecker:spellchecker_test_lib",
-        "//plugins/grazie/src:core",
-        "//plugins/grazie/src:core_test_lib",
         "//platform/core-ui:core-ui_test_lib",
         "//platform/core-impl:core-impl_test_lib",
     ],

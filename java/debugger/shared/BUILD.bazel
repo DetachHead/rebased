@@ -1,6 +1,10 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
 load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
+### auto-generated section `dev intellij.java.debugger.impl.shared` start
+content_module_jar(module = ":shared")
+### auto-generated section `dev intellij.java.debugger.impl.shared` end
+
 ### auto-generated section `build intellij.java.debugger.impl.shared` start
 jvm_library(
     name = "shared",
@@ -39,6 +43,7 @@ jvm_library(
         "//platform/ide-core",
         "//platform/execution",
         "//platform/execution-impl",
+        "//platform/consoleView",
         "//java/java-frontback-impl:frontback-impl",
         "//platform/util/coroutines",
         "//platform/util:util-ui",
@@ -49,8 +54,6 @@ jvm_library(
         "//fleet/rhizomedb",
     ],
 )
-
-content_module_jar(module = ":shared")
 
 jvm_library(
     name = "shared_test_lib",
@@ -82,6 +85,7 @@ jvm_library(
         "//platform/ide-core:ide-core_test_lib",
         "//platform/execution:execution_test_lib",
         "//platform/execution-impl:execution-impl_test_lib",
+        "//platform/consoleView:consoleView_test_lib",
         "//java/java-frontback-impl:frontback-impl_test_lib",
         "//platform/util/coroutines:coroutines_test_lib",
         "//platform/util:util-ui_test_lib",

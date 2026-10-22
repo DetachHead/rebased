@@ -3,7 +3,7 @@ package com.intellij.vcs.log.data
 
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.diagnostic.getOrHandleException
-import com.intellij.openapi.diagnostic.rethrowControlFlowException
+import com.intellij.diagnostic.rethrowControlFlowException
 import com.intellij.openapi.diagnostic.trace
 import com.intellij.openapi.progress.checkCanceled
 import com.intellij.openapi.progress.coroutineToIndicator

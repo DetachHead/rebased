@@ -2,7 +2,7 @@
 // FIX: Convert to 'also'
 
 val x = "".also {
-    "".also { s ->
-        s.length + it.length
+    "".also { string ->
+        string.length + it.length
     }
 }

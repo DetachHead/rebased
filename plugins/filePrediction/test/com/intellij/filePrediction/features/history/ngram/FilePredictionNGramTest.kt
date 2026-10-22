@@ -8,7 +8,11 @@ import com.intellij.filePrediction.features.history.FilePredictionHistoryBaseTes
 import com.intellij.filePrediction.features.history.NextFileProbability
 import com.intellij.internal.ml.ngram.NGramIncrementalModelRunner
 import com.intellij.internal.ml.ngram.VocabularyWithLimit
+import com.intellij.testFramework.junit5.TestApplication
+import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Test
 
+@TestApplication
 class FilePredictionNGramTest : FilePredictionHistoryBaseTest() {
 
   private fun doTestNGramBase(openedFiles: List<String>, nGramLength: Int,
@@ -104,6 +108,7 @@ class FilePredictionNGramTest : FilePredictionHistoryBaseTest() {
     doTestNGram(openedFiles, 2, vocabularyLimit, maxSequenceLength, maxIdx, expectedInternalState, expected)
   }
 
+  @Test
   fun `test unigram with all unique files`() {
     val state = FilePredictionRunnerAssertion()
       .withVocabulary(4)
@@ -123,6 +128,7 @@ class FilePredictionNGramTest : FilePredictionHistoryBaseTest() {
     )
   }
 
+  @Test
   fun `test unigram with the single file`() {
     val state = FilePredictionRunnerAssertion()
       .withVocabulary(1)
@@ -136,6 +142,7 @@ class FilePredictionNGramTest : FilePredictionHistoryBaseTest() {
     )
   }
 
+  @Test
   fun `test unigram with a new file`() {
     val state = FilePredictionRunnerAssertion()
       .withVocabulary(1)
@@ -152,6 +159,7 @@ class FilePredictionNGramTest : FilePredictionHistoryBaseTest() {
     )
   }
 
+  @Test
   fun `test unigram with repeated file`() {
     val state = FilePredictionRunnerAssertion()
       .withVocabulary(3)
@@ -170,6 +178,7 @@ class FilePredictionNGramTest : FilePredictionHistoryBaseTest() {
     )
   }
 
+  @Test
   fun `test bigram with the single file`() {
     val state = FilePredictionRunnerAssertion()
       .withVocabulary(1)
@@ -184,6 +193,7 @@ class FilePredictionNGramTest : FilePredictionHistoryBaseTest() {
     )
   }
 
+  @Test
   fun `test bigram with all unique files`() {
     val state = FilePredictionRunnerAssertion()
       .withVocabulary(4)
@@ -203,6 +213,7 @@ class FilePredictionNGramTest : FilePredictionHistoryBaseTest() {
     )
   }
 
+  @Test
   fun `test bigram with a new file`() {
     val state = FilePredictionRunnerAssertion()
       .withVocabulary(1)
@@ -220,6 +231,7 @@ class FilePredictionNGramTest : FilePredictionHistoryBaseTest() {
     )
   }
 
+  @Test
   fun `test bigram with one successor`() {
     val state = FilePredictionRunnerAssertion()
       .withVocabulary(3)
@@ -239,6 +251,7 @@ class FilePredictionNGramTest : FilePredictionHistoryBaseTest() {
     )
   }
 
+  @Test
   fun `test bigram with two successors`() {
     val state = FilePredictionRunnerAssertion()
       .withVocabulary(3)
@@ -258,6 +271,7 @@ class FilePredictionNGramTest : FilePredictionHistoryBaseTest() {
     )
   }
 
+  @Test
   fun `test bigram with all possible successors`() {
     val state = FilePredictionRunnerAssertion()
       .withVocabulary(3)
@@ -277,6 +291,7 @@ class FilePredictionNGramTest : FilePredictionHistoryBaseTest() {
     )
   }
 
+  @Test
   fun `test bigram with forgotten tokens short sequence`() {
     val state = FilePredictionRunnerAssertion()
       .withVocabulary(3)
@@ -296,6 +311,7 @@ class FilePredictionNGramTest : FilePredictionHistoryBaseTest() {
     )
   }
 
+  @Test
   fun `test bigram short sequence`() {
     val state = FilePredictionRunnerAssertion()
       .withVocabulary(3)
@@ -314,6 +330,7 @@ class FilePredictionNGramTest : FilePredictionHistoryBaseTest() {
     )
   }
 
+  @Test
   fun `test bigram forget popular token`() {
     val state = FilePredictionRunnerAssertion()
       .withVocabulary(3)
@@ -332,6 +349,7 @@ class FilePredictionNGramTest : FilePredictionHistoryBaseTest() {
     )
   }
 
+  @Test
   fun `test bigram with forgotten tokens`() {
     val state = FilePredictionRunnerAssertion()
       .withVocabulary(3)
@@ -351,6 +369,7 @@ class FilePredictionNGramTest : FilePredictionHistoryBaseTest() {
     )
   }
 
+  @Test
   fun `test bigram with multiple forgotten prefix tokens`() {
     val state = FilePredictionRunnerAssertion()
       .withVocabulary(3)
@@ -373,6 +392,7 @@ class FilePredictionNGramTest : FilePredictionHistoryBaseTest() {
     )
   }
 
+  @Test
   fun `test bigram with multiple forgotten tokens`() {
     val state = FilePredictionRunnerAssertion()
       .withVocabulary(3)
@@ -397,6 +417,7 @@ class FilePredictionNGramTest : FilePredictionHistoryBaseTest() {
     )
   }
 
+  @Test
   fun `test bigram with multiple forgotten tokens 2`() {
     val state = FilePredictionRunnerAssertion()
       .withVocabulary(3)
@@ -420,6 +441,7 @@ class FilePredictionNGramTest : FilePredictionHistoryBaseTest() {
     )
   }
 
+  @Test
   fun `test bigram mle short sequence`() {
     val state = FilePredictionRunnerAssertion()
       .withVocabulary(3)
@@ -439,6 +461,7 @@ class FilePredictionNGramTest : FilePredictionHistoryBaseTest() {
     )
   }
 
+  @Test
   fun `test bigram mle with forgotten tokens`() {
     val state = FilePredictionRunnerAssertion()
       .withVocabulary(4)
@@ -460,6 +483,7 @@ class FilePredictionNGramTest : FilePredictionHistoryBaseTest() {
     )
   }
 
+  @Test
   fun `test bigram mle with forgotten all unique tokens`() {
     val state = FilePredictionRunnerAssertion()
       .withVocabulary(8)
@@ -484,6 +508,7 @@ class FilePredictionNGramTest : FilePredictionHistoryBaseTest() {
     )
   }
 
+  @Test
   fun `test bigram mle with forgotten all unique tokens and index reset`() {
     val state = FilePredictionRunnerAssertion()
       .withVocabulary(8)
@@ -510,6 +535,7 @@ class FilePredictionNGramTest : FilePredictionHistoryBaseTest() {
     )
   }
 
+  @Test
   fun `test bigram mle short sequence with all unique tokens`() {
     val state = FilePredictionRunnerAssertion()
       .withVocabulary(3)
@@ -530,6 +556,7 @@ class FilePredictionNGramTest : FilePredictionHistoryBaseTest() {
     )
   }
 
+  @Test
   fun `test bigram mle with multiple forgotten tokens`() {
     val state = FilePredictionRunnerAssertion()
       .withVocabulary(4)
@@ -550,6 +577,7 @@ class FilePredictionNGramTest : FilePredictionHistoryBaseTest() {
     )
   }
 
+  @Test
   fun `test bigram mle with the first file opened several times`() {
     val state = FilePredictionRunnerAssertion()
       .withVocabulary(2)
@@ -567,6 +595,7 @@ class FilePredictionNGramTest : FilePredictionHistoryBaseTest() {
     )
   }
 
+  @Test
   fun `test bigram mle with the second file opened several times`() {
     val state = FilePredictionRunnerAssertion()
       .withVocabulary(2)
@@ -584,6 +613,7 @@ class FilePredictionNGramTest : FilePredictionHistoryBaseTest() {
     )
   }
 
+  @Test
   fun `test bigram mle with only sequence limit`() {
     val state = FilePredictionRunnerAssertion()
       .withVocabulary(5)
@@ -605,6 +635,7 @@ class FilePredictionNGramTest : FilePredictionHistoryBaseTest() {
     )
   }
 
+  @Test
   fun `test bigram mle with only vocabulary limit`() {
     val state = FilePredictionRunnerAssertion()
       .withVocabulary(4)
@@ -626,6 +657,7 @@ class FilePredictionNGramTest : FilePredictionHistoryBaseTest() {
     )
   }
 
+  @Test
   fun `test bigram mle with sequence and then vocabulary limit`() {
     val state = FilePredictionRunnerAssertion()
       .withVocabulary(4)
@@ -647,6 +679,7 @@ class FilePredictionNGramTest : FilePredictionHistoryBaseTest() {
     )
   }
 
+  @Test
   fun `test bigram mle with vocabulary and then sequence limit`() {
     val state = FilePredictionRunnerAssertion()
       .withVocabulary(3)
@@ -668,6 +701,7 @@ class FilePredictionNGramTest : FilePredictionHistoryBaseTest() {
     )
   }
 
+  @Test
   fun `test bigram mle all unique with only sequence limit`() {
     val state = FilePredictionRunnerAssertion()
       .withVocabulary(7)
@@ -691,6 +725,7 @@ class FilePredictionNGramTest : FilePredictionHistoryBaseTest() {
     )
   }
 
+  @Test
   fun `test bigram mle all unique with only vocabulary limit`() {
     val state = FilePredictionRunnerAssertion()
       .withVocabulary(2)
@@ -714,6 +749,7 @@ class FilePredictionNGramTest : FilePredictionHistoryBaseTest() {
     )
   }
 
+  @Test
   fun `test bigram mle all unique with sequence and vocabulary limit`() {
     val state = FilePredictionRunnerAssertion()
       .withVocabulary(5)
@@ -737,6 +773,7 @@ class FilePredictionNGramTest : FilePredictionHistoryBaseTest() {
     )
   }
 
+  @Test
   fun `test bigram mle all unique with short sequence and vocabulary limit`() {
     val state = FilePredictionRunnerAssertion()
       .withVocabulary(5)
@@ -760,6 +797,7 @@ class FilePredictionNGramTest : FilePredictionHistoryBaseTest() {
     )
   }
 
+  @Test
   fun `test bigram mle all unique with sequence and small vocabulary limit`() {
     val state = FilePredictionRunnerAssertion()
       .withVocabulary(3)
@@ -783,6 +821,7 @@ class FilePredictionNGramTest : FilePredictionHistoryBaseTest() {
     )
   }
 
+  @Test
   fun `test trigram mle short sequence`() {
     val state = FilePredictionRunnerAssertion()
       .withVocabulary(3)
@@ -802,6 +841,7 @@ class FilePredictionNGramTest : FilePredictionHistoryBaseTest() {
     )
   }
 
+  @Test
   fun `test trigram mle without forget`() {
     val state = FilePredictionRunnerAssertion()
       .withVocabulary(3)
@@ -821,6 +861,7 @@ class FilePredictionNGramTest : FilePredictionHistoryBaseTest() {
     )
   }
 
+  @Test
   fun `test trigram mle with vocabulary limit`() {
     val state = FilePredictionRunnerAssertion()
       .withVocabulary(3)
@@ -841,6 +882,7 @@ class FilePredictionNGramTest : FilePredictionHistoryBaseTest() {
     )
   }
 
+  @Test
   fun `test trigram mle with small vocabulary limit`() {
     val state = FilePredictionRunnerAssertion()
       .withVocabulary(3)
@@ -862,6 +904,7 @@ class FilePredictionNGramTest : FilePredictionHistoryBaseTest() {
     )
   }
 
+  @Test
   fun `test trigram mle with sequence limit`() {
     val state = FilePredictionRunnerAssertion()
       .withVocabulary(4)
@@ -882,6 +925,7 @@ class FilePredictionNGramTest : FilePredictionHistoryBaseTest() {
     )
   }
 
+  @Test
   fun `test trigram mle with sequence and then vocabulary limit`() {
     val state = FilePredictionRunnerAssertion()
       .withVocabulary(4)
@@ -903,6 +947,7 @@ class FilePredictionNGramTest : FilePredictionHistoryBaseTest() {
     )
   }
 
+  @Test
   fun `test trigram mle with vocabulary and then sequence limit`() {
     val state = FilePredictionRunnerAssertion()
       .withVocabulary(3)
@@ -924,6 +969,7 @@ class FilePredictionNGramTest : FilePredictionHistoryBaseTest() {
     )
   }
 
+  @Test
   fun `test trigram mle for repeated symbol`() {
     val state = FilePredictionRunnerAssertion()
       .withVocabulary(4)
@@ -953,6 +999,7 @@ class FilePredictionNGramTest : FilePredictionHistoryBaseTest() {
     )
   }
 
+  @Test
   fun `test trigram mle for repeated symbol with vocabulary`() {
     val state = FilePredictionRunnerAssertion()
       .withVocabulary(3)
@@ -982,6 +1029,7 @@ class FilePredictionNGramTest : FilePredictionHistoryBaseTest() {
     )
   }
 
+  @Test
   fun `test trigram mle for repeated symbol with sequence limit`() {
     val state = FilePredictionRunnerAssertion()
       .withVocabulary(4)
@@ -1011,6 +1059,7 @@ class FilePredictionNGramTest : FilePredictionHistoryBaseTest() {
     )
   }
 
+  @Test
   fun `test trigram mle for repeated symbol with sequence limit and index reset`() {
     val state = FilePredictionRunnerAssertion()
       .withVocabulary(4)
@@ -1040,6 +1089,7 @@ class FilePredictionNGramTest : FilePredictionHistoryBaseTest() {
     )
   }
 
+  @Test
   fun `test trigram mle for repeated symbol with sequence and vocabulary limit`() {
     val state = FilePredictionRunnerAssertion()
       .withVocabulary(4)
@@ -1070,6 +1120,7 @@ class FilePredictionNGramTest : FilePredictionHistoryBaseTest() {
     )
   }
 
+  @Test
   fun `test ngram mle without forget`() {
     val state = FilePredictionRunnerAssertion()
       .withVocabulary(8)
@@ -1104,6 +1155,7 @@ class FilePredictionNGramTest : FilePredictionHistoryBaseTest() {
     )
   }
 
+  @Test
   fun `test ngram mle with vocabulary limit`() {
     val state = FilePredictionRunnerAssertion()
       .withVocabulary(8)
@@ -1135,6 +1187,7 @@ class FilePredictionNGramTest : FilePredictionHistoryBaseTest() {
     )
   }
 
+  @Test
   fun `test ngram mle with sequence limit`() {
     val state = FilePredictionRunnerAssertion()
       .withVocabulary(10)
@@ -1167,6 +1220,7 @@ class FilePredictionNGramTest : FilePredictionHistoryBaseTest() {
     )
   }
 
+  @Test
   fun `test ngram mle with vocabulary and then sequence limit`() {
     val state = FilePredictionRunnerAssertion()
       .withVocabulary(8)
@@ -1198,6 +1252,7 @@ class FilePredictionNGramTest : FilePredictionHistoryBaseTest() {
     )
   }
 
+  @Test
   fun `test ngram mle with sequence and then vocabulary limit`() {
     val state = FilePredictionRunnerAssertion()
       .withVocabulary(9)

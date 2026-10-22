@@ -14,6 +14,7 @@ import com.intellij.openapi.application.ReadWriteActionSupport
 import com.intellij.openapi.application.impl.InternalThreading
 import com.intellij.openapi.application.rw.PlatformReadWriteActionSupport
 import com.intellij.openapi.components.serviceIfCreated
+import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.progress.util.ui.NiceOverlayUi
 import com.intellij.openapi.util.Disposer
@@ -24,7 +25,6 @@ import com.intellij.util.application
 import com.intellij.util.ui.EDT
 import com.intellij.util.ui.GraphicsUtil
 import kotlinx.coroutines.Deferred
-import kotlinx.coroutines.InternalCoroutinesApi
 import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.annotations.Nls
 import java.awt.AWTEvent
@@ -35,6 +35,7 @@ import java.awt.event.MouseEvent
 import java.nio.file.Files
 import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
 import javax.swing.JRootPane
@@ -84,6 +85,10 @@ object SuvorovProgress {
   // a counter that is incremented each time SuvorovProgress _technically_ appears and disappears, even without the freeze popup UI.
   // even values correspond to the dormant state (EDT is free from blocking on the lock), odd values correspond to the active state (UI is currently shown)
   private val counter: AtomicLong = AtomicLong()
+
+  // the nesting depth of dispatchEventsUntilComputationCompletes.
+  // only the EDT enters it, and a positive value means the EDT waits for a lock permit
+  private val nestingDepth: AtomicInteger = AtomicInteger()
 
   fun <T> withProgressTitle(title: String, action: () -> T): T {
     val oldTitle = this.title.getAndSet(title)
@@ -140,6 +145,7 @@ object SuvorovProgress {
   @JvmStatic
   fun dispatchEventsUntilComputationCompletes(awaitedValue: Deferred<*>) {
     counter.incrementAndGet()
+    nestingDepth.incrementAndGet()
     try {
       val showingDelay = Registry.get("ide.suvorov.progress.showing.delay.ms").asInteger()
 
@@ -187,6 +193,7 @@ object SuvorovProgress {
         else -> throw IllegalArgumentException("Unknown value for registry key `ide.freeze.fake.progress.kind`: $value")
       }
     } finally {
+      nestingDepth.decrementAndGet()
       enableSuspendedWriteActionsBack()
       counter.incrementAndGet()
     }
@@ -312,6 +319,16 @@ object SuvorovProgress {
   }
 
   /**
+   * Tells if the current thread already runs [dispatchEventsUntilComputationCompletes].
+   *
+   * The EDT waits for a lock permit in this state, and [EventStealer] dispatches an urgent AWT event.
+   * A lock acquisition in such an event starts a nested SuvorovProgress.
+   * The EDT then stays in the nested wait until the outer permit arrives, and the IDE freezes.
+   * A client that the stealer can dispatch must cancel its work and not acquire a lock.
+   */
+  fun isOnStack(): Boolean = EDT.isCurrentThreadEdt() && nestingDepth.get() > 0
+
+  /**
    * Returns an object that encapsulates the number of times the Freeze Popup was shown (or was going to be shown) since the last call to this method.
    */
   fun currentFreezePopupStamp(): CounterStamp {
@@ -407,7 +424,9 @@ private class EternalEventStealer(disposable: Disposable) {
 
 private fun logErrorReliably(e: Throwable) {
   try {
-    logger<SuvorovProgress>().error(e)
+    if (!Logger.shouldRethrow(e)) {
+      logger<SuvorovProgress>().error(e)
+    }
   } catch (_ : Throwable) {
     // protection against rethrowing by logger
   }

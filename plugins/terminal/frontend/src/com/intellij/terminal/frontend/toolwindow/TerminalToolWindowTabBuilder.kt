@@ -1,11 +1,13 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.terminal.frontend.toolwindow
 
+import com.intellij.ui.content.Content
 import com.intellij.ui.content.ContentManager
 import com.intellij.util.concurrency.annotations.RequiresEdt
 import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.plugins.terminal.TerminalEmulatorType
 import org.jetbrains.plugins.terminal.fus.TerminalStartupFusInfo
+import org.jetbrains.plugins.terminal.hyperlinks.TerminalSourceNavigationProjectResolver
 import org.jetbrains.plugins.terminal.startup.TerminalProcessType
 
 /**
@@ -66,6 +68,13 @@ interface TerminalToolWindowTabBuilder {
   fun tabName(name: String?): TerminalToolWindowTabBuilder
 
   /**
+   * Whether the user gave the [tabName] to the tab.
+   * False by default: the [tabName] is the default title, and the application title can replace it.
+   */
+  @ApiStatus.Internal
+  fun userDefinedName(isUserDefinedName: Boolean): TerminalToolWindowTabBuilder
+
+  /**
    * Whether to move focus to the terminal tab after it opens.
    * True by default.
    */
@@ -113,11 +122,24 @@ interface TerminalToolWindowTabBuilder {
   fun shouldAddToToolWindow(addToToolWindow: Boolean): TerminalToolWindowTabBuilder
 
   /**
-   * Specifies an alternate project path to use when opening file hyperlinks from this terminal tab.
-   * If not specified, hyperlinks navigate in the current terminal project as usual.
+   * Builds the tab into the [content] of a pending tab, which is in the Terminal tool window or is being moved to the editor.
+   * The tab is not added to the tool window again and not selected, so [contentManager], [requestFocus] and
+   * [shouldAddToToolWindow] have no effect.
+   *
+   * See [com.intellij.terminal.frontend.toolwindow.impl.getPendingTerminalTab].
    */
   @ApiStatus.Internal
-  fun sourceNavigationProjectPath(projectPath: String?): TerminalToolWindowTabBuilder
+  fun pendingContent(content: Content): TerminalToolWindowTabBuilder
+
+  /**
+   * Specifies who answers the project a file hyperlink of this terminal tab navigates in.
+   *
+   * The terminal asks [resolver] at click time. It keeps its own project when no resolver is specified, and when
+   * the resolver answers `null` or the terminal's own project. The resolver owns the project itself, so the
+   * terminal opens no project.
+   */
+  @ApiStatus.Internal
+  fun sourceNavigationProjectResolver(resolver: TerminalSourceNavigationProjectResolver?): TerminalToolWindowTabBuilder
 
   @ApiStatus.Internal
   fun startupFusInfo(startupFusInfo: TerminalStartupFusInfo?): TerminalToolWindowTabBuilder
@@ -126,6 +148,6 @@ interface TerminalToolWindowTabBuilder {
    * Creates the new Reworked Terminal tab and adds it to the Terminal tool window.
    * Starts the shell process according to the [deferSessionStartUntilUiShown] option.
    */
-  @RequiresEdt
+  @RequiresEdt(generateAssertion = false /* IJPL-115548 */)
   fun createTab(): TerminalToolWindowTab
 }

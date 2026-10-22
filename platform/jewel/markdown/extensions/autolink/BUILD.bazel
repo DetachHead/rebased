@@ -12,6 +12,13 @@ jps_test(
 
 ### skip generation section `test intellij.platform.jewel.markdown.extensions.autolink.tests`
 
+### auto-generated section `dev intellij.platform.jewel.markdown.extensions.autolink` start
+content_module_jar(
+    libraries = ["@lib//:platform-jewel-markdown-extensions-autolink-commonmark-ext-autolink"],
+    module = ":autolink",
+)
+### auto-generated section `dev intellij.platform.jewel.markdown.extensions.autolink` end
+
 ### auto-generated section `build intellij.platform.jewel.markdown.extensions.autolink` start
 create_kotlinc_options(
     name = "custom_autolink",
@@ -55,11 +62,6 @@ jvm_library(
     ],
 )
 
-content_module_jar(
-    libraries = ["@lib//:platform-jewel-markdown-extensions-autolink-commonmark-ext-autolink"],
-    module = ":autolink",
-)
-
 jvm_library(
     name = "autolink_test_lib",
     testonly = True,
@@ -79,10 +81,6 @@ jvm_library(
         "//platform/jewel/ui:ui_test_lib",
         "//platform/jewel/foundation:foundation_test_lib",
         "//libraries/compose-foundation-desktop:compose-foundation-desktop_test_lib",
-        "//libraries/junit4",
-        "//libraries/junit4:junit4_test_lib",
-        "//libraries/compose-foundation-desktop-junit",
-        "//libraries/compose-foundation-desktop-junit:compose-foundation-desktop-junit_test_lib",
     ],
 )
 ### auto-generated section `build intellij.platform.jewel.markdown.extensions.autolink` end
@@ -92,7 +90,6 @@ exports_files(
     [
         "intellij.platform.jewel.markdown.extensions.autolink.iml",
         "src/main/resources/intellij.platform.jewel.markdown.extensions.autolink.xml",
-        "module-content.yaml",
     ],
     visibility = ["//visibility:public"],
 )

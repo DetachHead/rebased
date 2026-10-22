@@ -7,9 +7,13 @@ import com.intellij.openapi.actionSystem.DataContext;
 import com.intellij.openapi.actionSystem.IdeActions;
 import com.intellij.openapi.actionSystem.KeyboardShortcut;
 import com.intellij.openapi.application.AccessToken;
+import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.application.ModalityState;
 import com.intellij.openapi.keymap.KeymapManager;
 import com.intellij.openapi.options.advanced.AdvancedSettings;
 import com.intellij.openapi.util.registry.Registry;
+import com.intellij.platform.ide.navigation.NavigateUtil;
+import com.intellij.platform.ide.navigation.NavigationOptions;
 import com.intellij.pom.Navigatable;
 import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NotNull;
@@ -43,13 +47,25 @@ public final class EditSourceOnEnterKeyHandler {
         return false;
       }
 
-      List<Navigatable> navigatables = getNavigatables(DataManager.getInstance().getDataContext(component));
+      var dataContext = DataManager.getInstance().getDataContext(component);
+      List<Navigatable> navigatables = getNavigatables(dataContext);
       // nowhere to navigate
       if (navigatables.isEmpty()) {
         return false;
       }
 
       boolean requestFocus = AdvancedSettings.getBoolean("edit.source.on.enter.key.request.focus.in.editor");
+      var project = CommonDataKeys.PROJECT.getData(dataContext);
+      if (project != null && Registry.is("ide.navigation.requests")) {
+        var modalityState = ModalityState.current();
+        var options = NavigationOptions.defaultOptions().requestFocus(requestFocus);
+        var result = NavigateUtil.requestNavigate(project, navigatables, options, dataContext);
+        if (whenPerformed != null) {
+          result.whenComplete((_, _) ->
+            ApplicationManager.getApplication().invokeLater(whenPerformed, modalityState, project.getDisposed()));
+        }
+        return true;
+      }
       for (Navigatable navigatable : navigatables) {
         navigatable.navigate(requestFocus);
       }

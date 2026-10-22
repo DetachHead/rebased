@@ -1,4 +1,4 @@
-// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.pycharm.community.ide.impl.newProjectWizard.welcome
 
 import com.intellij.execution.RunManager
@@ -25,7 +25,7 @@ import com.intellij.openapi.startup.StartupManager
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.util.Ref
 import com.intellij.openapi.util.io.FileUtil
-import com.intellij.openapi.vfs.LocalFileSystem
+import com.intellij.openapi.vfs.StandardFileSystems
 import com.intellij.openapi.vfs.VfsUtil
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.openapi.wm.ToolWindowId
@@ -71,7 +71,7 @@ internal class PyWelcomeConfigurator : DirectoryProjectConfigurator {
   }
 
   private fun isInsideTempDirectory(baseDir: VirtualFile): Boolean {
-    val tempDir = LocalFileSystem.getInstance().findFileByPath(FileUtil.getTempDirectory()) ?: return false
+    val tempDir = StandardFileSystems.local().findFileByPath(FileUtil.getTempDirectory()) ?: return false
     return VfsUtil.isAncestor(tempDir, baseDir, true)
   }
 }
@@ -116,7 +116,7 @@ internal object PyWelcome {
 
     return baseDir.children.filterNot {
       ProjectCoreUtil.isProjectOrWorkspaceFile(it) ||
-      innerSdk && it.isDirectory && VfsUtil.isAncestor(it, sdkBinary!!, true) ||
+      innerSdk && it.isDirectory && VfsUtil.isAncestor(it, sdkBinary, true) ||
       FileElement.isFileHidden(it)
     }.firstOrNull()
   }
@@ -128,7 +128,7 @@ internal object PyWelcome {
       .submit(
         Callable {
           WriteAction.compute<PsiFile?, Exception> {
-            prepareFile(project, baseDir)?.also {
+            prepareFile(project, baseDir).also {
               AppUIExecutor.onUiThread().expireWith(PythonPluginDisposable.getInstance(project)).execute { it.navigate(true) }
             }
           }
@@ -193,7 +193,7 @@ internal object PyWelcome {
     }
   }
 
-  @RequiresWriteLock
+  @RequiresWriteLock(generateAssertion = false /* IJPL-115548 */)
   fun prepareFile(project: Project, baseDir: VirtualFile): PsiFile {
     val file = kotlin.runCatching { baseDir.createChildData(this, "main.py") }
       .onFailure { PyWelcomeCollector.logWelcomeScript(project, ScriptResult.NO_VFILE) }
@@ -211,7 +211,7 @@ internal object PyWelcome {
   }
 
 
-  @RequiresWriteLock
+  @RequiresWriteLock(generateAssertion = false /* IJPL-115548 */)
   internal fun writeText(psiFile: PsiFile): Int? {
     val project = psiFile.project
     val document = PsiDocumentManager.getInstance(project).getDocument(psiFile)

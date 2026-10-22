@@ -184,6 +184,13 @@ data class TextDocumentClientCapabilities(
      * @since 3.17.0
      */
     val diagnostic: DiagnosticClientCapabilities? = null,
+
+    /**
+     * Capabilities specific to the `textDocument/inlineCompletion` request.
+     *
+     * @since 3.18.0
+     */
+    val inlineCompletion: InlineCompletionClientCapabilities? = null,
 )
 
 @Serializable
@@ -291,6 +298,7 @@ data class DocumentSymbolClientCapabilities(
      * Specific capabilities for the `SymbolKind` in the
      * `textDocument/documentSymbol` request.
      */
+    @Serializable(with = SymbolKindValueSetSerializer::class)
     val symbolKind: ValueSet<SymbolKind>? = null,
 
     /**
@@ -305,6 +313,7 @@ data class DocumentSymbolClientCapabilities(
      *
      * @since 3.16.0
      */
+    @Serializable(with = SymbolTagValueSetSerializer::class)
     val tagSupport: ValueSet<SymbolTag>? = null,
 
     /**
@@ -413,6 +422,13 @@ data class DocumentFormattingClientCapabilities(
 @Serializable
 data class DocumentRangeFormattingClientCapabilities(
     val dynamicRegistration: Boolean?,
+
+    /**
+     * Whether the client supports formatting multiple ranges at once.
+     *
+     * @since 3.18.0
+     */
+    val rangesSupport: Boolean? = null,
 )
 
 @Serializable
@@ -428,7 +444,8 @@ enum class PrepareSupportDefaultBehavior(val value: Int) {
 class PrepareSupportDefaultBehaviorSerializer : EnumAsIntSerializer<PrepareSupportDefaultBehavior>(
     serialName = "PrepareSupportDefaultBehavior",
     serialize = PrepareSupportDefaultBehavior::value,
-    deserialize = { PrepareSupportDefaultBehavior.entries[it - 1] },
+    deserialize = { PrepareSupportDefaultBehavior.entries.getOrNull(it - 1) },
+    fallback = PrepareSupportDefaultBehavior.Identifier,
 )
 
 @Serializable

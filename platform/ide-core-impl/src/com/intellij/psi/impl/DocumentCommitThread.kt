@@ -3,6 +3,7 @@ package com.intellij.psi.impl
 
 import com.intellij.codeInsight.multiverse.isEventSystemEnabled
 import com.intellij.codeInsight.multiverse.isSharedSourceSupportEnabled
+import com.intellij.concurrency.ConcurrentCollectionFactory
 import com.intellij.diagnostic.PluginException
 import com.intellij.lang.FileASTNode
 import com.intellij.openapi.Disposable
@@ -23,6 +24,7 @@ import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.diagnostic.trace
 import com.intellij.openapi.editor.Document
 import com.intellij.openapi.editor.ex.DocumentEx
+import com.intellij.openapi.editor.impl.DocumentImpl
 import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.progress.EmptyProgressIndicator
 import com.intellij.openapi.progress.ProcessCanceledException
@@ -39,12 +41,11 @@ import com.intellij.psi.FileViewProvider
 import com.intellij.psi.PsiDocumentManager
 import com.intellij.psi.PsiFile
 import com.intellij.psi.SingleRootFileViewProvider
+import com.intellij.psi.impl.source.tree.mvcc.InternalPsiVersioning
 import com.intellij.psi.text.BlockSupport
 import com.intellij.util.SmartList
 import com.intellij.util.TimeoutUtil
 import com.intellij.util.concurrency.SequentialTaskExecutor
-import com.intellij.util.concurrency.annotations.RequiresReadLock
-import com.intellij.util.containers.CollectionFactory
 import com.intellij.util.ui.EDT
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
@@ -125,7 +126,7 @@ class DocumentCommitThread : DocumentCommitProcessor, Disposable {
     }
     else {
       ReadAction
-        .nonBlocking(Callable { commitUnderProgress(task, synchronously = false, documentManager) })
+        .nonBlocking(Callable { commitUnderProgress(task, commitTaskKind = DocumentCommitKind.Asynchronous, documentManager) })
         .expireWhen { isExpired(task, documentManager) }
         .coalesceBy(task)
         .finishOnUiThread(modality) { it() }
@@ -140,7 +141,7 @@ class DocumentCommitThread : DocumentCommitProcessor, Disposable {
    */
   @Service(Service.Level.PROJECT)
   class PerProjectDocumentCommitRegistry(val scope: CoroutineScope) {
-    val publishedDocumentCommitRequests: ConcurrentMap<Document, Job> = CollectionFactory.createConcurrentWeakMap()
+    val publishedDocumentCommitRequests: ConcurrentMap<Document, Job> = ConcurrentCollectionFactory.createConcurrentWeakMap()
   }
 
   private fun commitDocumentWithCoroutines(document: Document, task: CommitTask, documentManager: PsiDocumentManagerEx) {
@@ -181,7 +182,7 @@ class DocumentCommitThread : DocumentCommitProcessor, Disposable {
     if (isExpired(task, documentManager)) {
       return value(Unit)
     }
-    val writeThreadCallback = commitUnderProgress(task, synchronously = false, documentManager)
+    val writeThreadCallback = commitUnderProgress(task, commitTaskKind = DocumentCommitKind.Asynchronous, documentManager)
     if (isExpired(task, documentManager)) {
       return value(Unit)
     }
@@ -204,27 +205,65 @@ class DocumentCommitThread : DocumentCommitProcessor, Disposable {
     val documentManager = PsiDocumentManager.getInstance(project) as PsiDocumentManagerEx
     val task = CommitTask(project, document, "Sync commit", ModalityState.defaultModalityState())
 
-    commitUnderProgress(task, synchronously = true, documentManager)()
+    commitUnderProgress(task, commitTaskKind = DocumentCommitKind.Synchronous, documentManager)()
   }
 
-  @RequiresReadLock
+  override fun commitSynchronouslyLightweight(document: Document, project: Project) {
+    val documentManager = PsiDocumentManager.getInstance(project) as PsiDocumentManagerEx
+    val lightweight = lightweightCommitKind(document, documentManager)
+    val reason = if (lightweight == null) {
+      error("Synchronous commit in place of a lightweight one")
+    } else {
+      "Lightweight commit"
+    }
+    val task = CommitTask(project, document, reason, ModalityState.nonModal())
+    val writeCallback = commitUnderProgress(task, lightweight, documentManager)
+    writeCallback()
+  }
+
+  /**
+   * Returns the lightweight kind for [document], or `null` when this document cannot take a lightweight commit.
+   *
+   * A lightweight commit does not publish, so it carries the baseline of its own forked timeline. Only a [DocumentImpl]
+   * of the write thread can give that baseline. Capture the baseline here, at the point where the commit starts to read
+   * the document: a forked timeline holds no lock, so a value that comes later can describe a text that the forked PSI
+   * never matched.
+   */
+  private fun lightweightCommitKind(document: Document, documentManager: PsiDocumentManagerEx): DocumentCommitKind.Lightweight? {
+    if (document !is DocumentImpl || !document.isWriteThreadOnly) {
+      return null
+    }
+    val watermark = documentManager.getUncommittedEventCount(document)
+    return DocumentCommitKind.Lightweight(document.freeze(), watermark)
+  }
+
+  // requires read lock or forked version
   // returns finish commit Runnable (to be invoked later in EDT) or null on failure
-  private fun commitUnderProgress(task: CommitTask, synchronously: Boolean, documentManager: PsiDocumentManagerEx): () -> Unit {
-    if (!synchronously) {
+  private fun commitUnderProgress(task: CommitTask, commitTaskKind: DocumentCommitKind, documentManager: PsiDocumentManagerEx): () -> Unit {
+    if (commitTaskKind is DocumentCommitKind.Asynchronous) {
       ApplicationManager.getApplication().assertIsNonDispatchThread()
     }
     val document = task.myDocumentRef.get()
-    ApplicationManager.getApplication().assertReadAccessAllowed()
+    when (commitTaskKind) {
+      is DocumentCommitKind.Lightweight -> if (!InternalPsiVersioning.isInForkedTimeline()) {
+        LOG.error("Lightweight commit is permitted only in forked timeline")
+      }
+      else -> ApplicationManager.getApplication().assertReadAccessAllowed()
+    }
     if (document == null) return {}
     val project = task.myProject
     val finishProcessors = SmartList<BooleanRunnable>()
     val reparseInjectedProcessors = SmartList<BooleanRunnable>()
 
-    LOG.trace { "commitUnderProgress: ${task.myReason}, $document, synchronously: $synchronously " }
+    LOG.trace { "commitUnderProgress: ${task.myReason}, $document, commitKind: $commitTaskKind " }
 
     val viewProviders = findViewProvidersForCommit(document, project)
     if (viewProviders.isEmpty()) {
-      finishProcessors.add(handleCommitWithoutPsi(task, documentManager))
+      if (commitTaskKind !is DocumentCommitKind.Lightweight) {
+        // handleCommitWithoutPsi fires events and performs reload of viewproviders
+        // we don't need these things for just updating the PSI tree
+        finishProcessors.add(handleCommitWithoutPsi(task, documentManager))
+      }
       task.cachedViewProviders = emptyList()
     }
     else {
@@ -246,7 +285,7 @@ class DocumentCommitThread : DocumentCommitProcessor, Disposable {
           document.getImmutableCharSequence(),
         )
         if (changedPsiRange != null) {
-          val finishProcessor = doCommit(task, synchronously, document, psiFile, oldFileNode, changedPsiRange, reparseInjectedProcessors, documentManager)
+          val finishProcessor = doCommit(task, commitTaskKind, document, psiFile, oldFileNode, changedPsiRange, reparseInjectedProcessors, documentManager)
           finishProcessors.add(finishProcessor)
         }
       }
@@ -261,17 +300,18 @@ class DocumentCommitThread : DocumentCommitProcessor, Disposable {
       val document = task.myDocumentRef.get() ?: return@task
 
 
-      if (!synchronously && newViewProvidersWereConcurrentlyAdded(document, task.cachedViewProviders, project)) {
+      if (commitTaskKind is DocumentCommitKind.Asynchronous && newViewProvidersWereConcurrentlyAdded(document, task.cachedViewProviders, project)) {
         // add a document back to the queue
         commitAsynchronously(project, documentManager, document, "Re-added back because of new view providers", task.myCreationModality)
         return@task
       }
 
-      val success = documentManager.finishCommit(document, finishProcessors, reparseInjectedProcessors, synchronously, task.myReason)
-      if (synchronously) {
+      val success = documentManager.finishCommit(document, finishProcessors, reparseInjectedProcessors, commitTaskKind,
+                                                task.myReason)
+      if (commitTaskKind is DocumentCommitKind.Synchronous) {
         assert(success)
       }
-      if (synchronously || success) {
+      if (commitTaskKind is DocumentCommitKind.Synchronous || (success && commitTaskKind !is DocumentCommitKind.Lightweight)) {
         assert(!documentManager.isInUncommittedSet(document))
       }
       if (!success && task.cachedViewProviders.isEventSystemEnabled()) {
@@ -420,10 +460,10 @@ class DocumentCommitThread : DocumentCommitProcessor, Disposable {
   }
 
   // returns runnable to execute under the write action in AWT to finish the commit
-  @RequiresReadLock
+  // requires read lock or forked version
   private fun doCommit(
     task: CommitTask,
-    synchronously: Boolean,
+    commitTaskKind: DocumentCommitKind,
     document: Document,
     psiFile: PsiFile,
     oldFileNode: FileASTNode,
@@ -431,10 +471,12 @@ class DocumentCommitThread : DocumentCommitProcessor, Disposable {
     outReparseInjectedProcessors: MutableList<BooleanRunnable>,
     documentManager: PsiDocumentManagerEx,
   ): BooleanRunnable {
-    if (!synchronously) {
+    if (commitTaskKind is DocumentCommitKind.Asynchronous) {
       ApplicationManager.getApplication().assertIsNonDispatchThread()
     }
-    ApplicationManager.getApplication().assertReadAccessAllowed()
+    if (commitTaskKind !is DocumentCommitKind.Lightweight && !InternalPsiVersioning.isInsideVersioningButNotLocks()) {
+      ApplicationManager.getApplication().assertReadAccessAllowed()
+    }
     val newDocumentText = document.getImmutableCharSequence()
 
     val data = document.getUserData(BlockSupport.DO_NOT_REPARSE_INCREMENTALLY)
@@ -465,7 +507,9 @@ class DocumentCommitThread : DocumentCommitProcessor, Disposable {
     catch (e: Throwable) {
       LOG.error(e)
       return BooleanRunnable {
-        documentManager.forceReload(psiFile.getViewProvider().getVirtualFile(), listOf(psiFile.getViewProvider()))
+        if (commitTaskKind !is DocumentCommitKind.Lightweight) {
+          documentManager.forceReload(psiFile.getViewProvider().getVirtualFile(), listOf(psiFile.getViewProvider()))
+        }
         true
       }
     }
@@ -477,7 +521,7 @@ class DocumentCommitThread : DocumentCommitProcessor, Disposable {
         return@BooleanRunnable false
       }
 
-      if (!ApplicationManager.getApplication().isWriteAccessAllowed() && documentManager.isEventSystemEnabled(document)) {
+      if (commitTaskKind !is DocumentCommitKind.Lightweight && !ApplicationManager.getApplication().isWriteAccessAllowed() && documentManager.isEventSystemEnabled(document)) {
         val vFile = viewProvider.getVirtualFile()
         LOG.error("Write action expected" + "; document=" + document + "; file=" + psiFile + " of " + psiFile.javaClass + "; file.valid=" + psiFile.isValid() + "; file.eventSystemEnabled=" + viewProvider.supportsSendingPsiEvents() + "; viewProvider=" + viewProvider + " of " + viewProvider.javaClass + "; language=" + psiFile.getLanguage() + "; vFile=" + vFile + " of " + vFile.javaClass + "; free-threaded=" + AbstractFileViewProvider.isFreeThreaded(viewProvider))
       }

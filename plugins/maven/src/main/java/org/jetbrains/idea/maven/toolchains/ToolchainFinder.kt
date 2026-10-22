@@ -65,6 +65,7 @@ class ToolchainFinder {
 
   private fun fromToolchainPluginConfiguration(mavenProject: MavenProject): ToolchainRequirement? {
     val toolchainPlugin = mavenProject.findToolchainPlugin() ?: return null
+    if (toolchainPlugin.executions.none { it.goals.contains(TOOLCHAIN_GOAL) }) return null
     val toolchains = toolchainPlugin.configurationElement?.getChild("toolchains") ?: return null
     val jdkToolchain = toolchains.getChild("jdk") ?: return null
     return fromToolchainConfig(jdkToolchain)
@@ -73,10 +74,33 @@ class ToolchainFinder {
   private fun fromToolchainSelectGoal(mavenProject: MavenProject): ToolchainRequirement? {
     val toolchainPlugin = mavenProject.findToolchainPlugin() ?: return null
     val execution = toolchainPlugin.executions.firstOrNull {
-      it.goals.contains("select-jdk-toolchain")
+      it.goals.contains(SELECT_JDK_TOOLCHAIN_GOAL)
     } ?: return null
-    val config = execution.configurationElement ?: return null
-    return fromToolchainConfig(config)
+    val builder = ToolchainRequirement.Builder(ToolchainRequirement.JDK_TYPE)
+      .useImporterJdkIfMatches(canUseImporterJdkIfMatches(mavenProject, execution))
+      .discoverJdks(canDiscoverJdks(mavenProject, execution))
+    var hasRequirements = false
+    for (parameter in SELECT_JDK_TOOLCHAIN_PARAMETERS) {
+      val value = readParameter(mavenProject, execution, parameter.xmlName, parameter.propertyName)
+      if (value != null) {
+        builder.set(parameter.requirementName, value)
+        hasRequirements = true
+      }
+    }
+    if (!hasRequirements) return null
+    return builder.build()
+  }
+
+  /** A blank configuration value counts as absent, so the documented user property still applies. */
+  private fun readParameter(
+    mavenProject: MavenProject,
+    execution: MavenPlugin.Execution,
+    xmlName: String,
+    propertyName: String,
+  ): String? {
+    val configured = execution.configurationElement?.getChildTextTrim(xmlName)
+    if (!configured.isNullOrBlank()) return configured
+    return mavenProject.properties.getProperty(propertyName)?.trim()?.takeIf { it.isNotBlank() }
   }
 
 
@@ -88,5 +112,38 @@ class ToolchainFinder {
 
     return builder.build()
   }
-}
 
+  private fun canUseImporterJdkIfMatches(mavenProject: MavenProject, execution: MavenPlugin.Execution): Boolean {
+    val mode = readParameter(mavenProject, execution, USE_JDK_PARAMETER, TOOLCHAIN_JDK_MODE_PROPERTY)
+    return mode == null || mode.equals(USE_JDK_IF_MATCH, ignoreCase = true)
+  }
+
+  private fun canDiscoverJdks(mavenProject: MavenProject, execution: MavenPlugin.Execution): Boolean {
+    val discoverToolchains = readParameter(mavenProject, execution, DISCOVER_TOOLCHAINS_PARAMETER, TOOLCHAIN_JDK_DISCOVER_PROPERTY)
+    return !discoverToolchains.equals("false", ignoreCase = true)
+  }
+
+  private data class SelectJdkToolchainParameter(
+    val xmlName: String,
+    val propertyName: String,
+    val requirementName: String,
+  )
+
+  private companion object {
+    const val TOOLCHAIN_GOAL = "toolchain"
+    const val SELECT_JDK_TOOLCHAIN_GOAL = "select-jdk-toolchain"
+    const val USE_JDK_PARAMETER = "useJdk"
+    const val USE_JDK_IF_MATCH = "IfMatch"
+    const val DISCOVER_TOOLCHAINS_PARAMETER = "discoverToolchains"
+    const val TOOLCHAIN_JDK_MODE_PROPERTY = "toolchain.jdk.mode"
+    const val TOOLCHAIN_JDK_DISCOVER_PROPERTY = "toolchain.jdk.discover"
+
+    val SELECT_JDK_TOOLCHAIN_PARAMETERS = listOf(
+      SelectJdkToolchainParameter("version", "toolchain.jdk.version", "version"),
+      SelectJdkToolchainParameter("vendor", "toolchain.jdk.vendor", "vendor"),
+      SelectJdkToolchainParameter("runtimeName", "toolchain.jdk.runtime.name", "runtime.name"),
+      SelectJdkToolchainParameter("runtimeVersion", "toolchain.jdk.runtime.version", "runtime.version"),
+      SelectJdkToolchainParameter("env", "toolchain.jdk.env", "env"),
+    )
+  }
+}

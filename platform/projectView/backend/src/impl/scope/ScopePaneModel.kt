@@ -14,6 +14,8 @@ import com.intellij.openapi.module.isQualifiedModuleNamesEnabled
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.util.NlsSafe
+import com.intellij.openapi.vcs.FileStatusListener
+import com.intellij.openapi.vcs.FileStatusManager
 import com.intellij.platform.projectView.impl.ProjectViewPaneViewSettings
 import com.intellij.platform.projectView.impl.ProjectViewPsiExtractor
 import com.intellij.platform.projectView.impl.ProjectViewSelectNodeVisitorProvider
@@ -85,6 +87,12 @@ class ScopePaneModel(
       setFilter(currentFilter.load())
     }
     treeModel.store(model)
+    // Updates for VCS-based scopes like "All Changed Files".
+    FileStatusManager.getInstance(project).addFileStatusListener(object : FileStatusListener {
+      override fun fileStatusesChanged() {
+        model.setFilter(currentFilter.load())
+      }
+    }, model)
     LOG.debug { "Created the scope tree model for $paneId" }
     try {
       super.manageState(builder)
@@ -110,8 +118,8 @@ class ScopePaneModel(
     "The scope tree model of $paneId is only available while the pane is being managed"
   }
 
-  override suspend fun navigate(nodeId: Long, options: ProjectViewPaneNavigateOptions) {
-    navigateToTreeStructureNode(project, suspendingState?.getNodeById(nodeId), options)
+  override suspend fun navigate(nodeId: Long, options: ProjectViewPaneNavigateOptions): Boolean {
+    return navigateToTreeStructureNode(project, suspendingState?.getNodeById(nodeId), options)
   }
 
   override fun supportsOption(option: ProjectViewPaneOption): Boolean {

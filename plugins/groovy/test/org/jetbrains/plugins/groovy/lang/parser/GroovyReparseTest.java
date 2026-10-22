@@ -8,8 +8,8 @@ import org.jetbrains.plugins.groovy.util.TestUtils;
 
 public class GroovyReparseTest extends LightJavaCodeInsightFixtureTestCase {
   @Override
-  protected String getBasePath() {
-    return TestUtils.getTestDataPath() + "reparse/";
+  protected String getTestDataPath() {
+    return TestUtils.getAbsoluteTestDataPath() + "reparse/";
   }
 
   public void checkReparse(String text, String type) {

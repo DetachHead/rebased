@@ -79,8 +79,12 @@
                     interface="com.intellij.debugger.engine.SteppingListener" dynamic="true"/>
     <extensionPoint qualifiedName="com.intellij.debugger.dumpItemsProvider"
                     interface="com.intellij.debugger.impl.ThreadDumpItemsProviderFactory" dynamic="true"/>
+    <extensionPoint qualifiedName="com.intellij.debugger.breakpointThreadDumpCapture"
+                    interface="com.intellij.debugger.ui.breakpoints.BreakpointThreadDumpCapture" dynamic="true"/>
     <extensionPoint qualifiedName="com.intellij.debugger.agentParametersModifier"
                     interface="com.intellij.debugger.engine.DebuggerAgentParametersModifier" dynamic="true"/>
+    <extensionPoint qualifiedName="com.intellij.debugger.agentProvider"
+                    interface="com.intellij.debugger.engine.DebuggerAgentProvider" dynamic="true"/>
     <extensionPoint qualifiedName="com.intellij.debugger.hotSwapSourceFileFilterProvider"
                     interface="com.intellij.debugger.impl.hotswap.HotSwapSourceFileFilterProvider" dynamic="true"/>
     <extensionPoint qualifiedName="com.intellij.debugger.hotSwapSourceChangeCompatibilityCheckerProvider"
@@ -120,9 +124,6 @@
 
     <xdebugger.breakpointGroupingRule implementation="com.intellij.debugger.ui.XBreakpointGroupingByPackageRule"/>
     <xdebugger.breakpointGroupingRule implementation="com.intellij.debugger.ui.XBreakpointGroupingByClassRule"/>
-
-    <projectConfigurable parentId="project.propDebugger" instance="com.intellij.debugger.settings.CaptureConfigurable"
-                         key="async.stacktraces.configurable.display.name" bundle="messages.JavaDebuggerBundle"/>
 
     <xdebugger.attachDebuggerProvider implementation="com.intellij.debugger.impl.attach.JavaAttachDebuggerProvider"/>
     <xdebugger.attachDebuggerProvider implementation="com.intellij.debugger.impl.attach.JavaSAAttachDebuggerProvider"/>
@@ -363,7 +364,7 @@
                  description="Enable async stack traces for coroutines"/>
     <registryKey key="debugger.async.stacks.max.depth" defaultValue="500"
                  description="Maximum depth of captured async stacks"/>
-    <registryKey key="debugger.log.async.stacks" defaultValue="false"
+    <registryKey key="debugger.log.async.stacks" defaultValue="true"
                  description="Log async stack trace when log stack trace is checked in breakpoint properties"/>
     <registryKey key="debugger.batch.evaluation" defaultValue="true"
                  description="Evaluate multiple values in a single batch request to the debuggee"/>

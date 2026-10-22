@@ -45,7 +45,7 @@ public class ConvertConcatenationToGstringTest extends GrIntentionTestCase {
   }
 
   @Override
-  public final String getBasePath() {
-    return TestUtils.getTestDataPath() + "intentions/convertConcatenationToGstring/";
+  public final String getTestDataPath() {
+    return TestUtils.getAbsoluteTestDataPath() + "intentions/convertConcatenationToGstring/";
   }
 }

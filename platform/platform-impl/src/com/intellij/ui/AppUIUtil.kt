@@ -4,8 +4,6 @@
 
 package com.intellij.ui
 
-import com.intellij.diagnostic.ExceptionAutoReportUtil
-import com.intellij.diagnostic.ExceptionEAPAutoReportManager
 import com.intellij.diagnostic.StartUpMeasurer
 import com.intellij.ide.IdeBundle
 import com.intellij.ide.gdpr.Consent
@@ -36,6 +34,7 @@ import com.intellij.ui.AppIcon.MacAppIcon
 import com.intellij.ui.Color16.Companion.toColor16
 import com.intellij.ui.icons.IconLoadMeasurer
 import com.intellij.ui.icons.createImageDescriptorList
+import com.intellij.ui.paint.use
 import com.intellij.ui.scale.DerivedScaleType
 import com.intellij.ui.scale.JBUIScale
 import com.intellij.ui.scale.JBUIScale.scale
@@ -47,7 +46,6 @@ import com.intellij.util.JBHiDPIScaledImage
 import com.intellij.util.ResourceUtil
 import com.intellij.util.concurrency.annotations.RequiresBackgroundThread
 import com.intellij.util.concurrency.annotations.RequiresEdt
-import com.intellij.util.containers.addIfNotNull
 import com.intellij.util.io.URLUtil
 import com.intellij.util.system.LowLevelLocalMachineAccess
 import com.intellij.util.system.OS
@@ -245,7 +243,7 @@ object AppUIUtil {
    * [com.intellij.ide.gdpr.showConsentsAgreementIfNeeded] instead of a direct call.
    */
   @Internal
-  @RequiresEdt
+  @RequiresEdt(generateAssertion = false /* IJPL-115548 */)
   fun showConsentsDialog(consents: ConsentsState): List<Consent>? {
     if (consents.allConsents.isEmpty()) {
       return null
@@ -310,22 +308,17 @@ object AppUIUtil {
    * A read of the consents is an IO operation, so a background thread is required.
    */
   @JvmStatic
-  @RequiresBackgroundThread
+  @RequiresBackgroundThread(generateAssertion = false /* IJPL-115548 */)
   fun loadConsentsForEditing(): List<Consent> {
     val options = ConsentOptions.getInstance()
     var result = options.consents.first
     if (options.isEAP) {
       val statConsent = options.defaultUsageStatsConsent
-      val errorAutoReportConsent = when {
-        ExceptionAutoReportUtil.isConsentAllowedToBeVisible -> options.defaultErrorAutoReportConsent
-        else -> null
-      }
-      if (statConsent != null || errorAutoReportConsent != null) {
-        // init stats consent and automatic error report consent for EAP from the dedicated location
+      if (statConsent != null) {
+        // init stats consent for EAP from the dedicated location
         val consents = result
         result = ArrayList()
-        result.addIfNotNull(statConsent?.derive(UsageStatisticsPersistenceComponent.getInstance().isAllowed))
-        result.addIfNotNull(errorAutoReportConsent?.derive(ExceptionEAPAutoReportManager.getInstance().enabledInEAP))
+        result.add(statConsent.derive(UsageStatisticsPersistenceComponent.getInstance().isAllowed))
         result.addAll(consents)
       }
     }
@@ -353,7 +346,7 @@ object AppUIUtil {
    */
   @JvmStatic
   @Internal
-  @RequiresBackgroundThread
+  @RequiresBackgroundThread(generateAssertion = false /* IJPL-115548 */)
   fun loadLocalConsentsAsConsentsForEditing(): List<Consent> {
     val localConsents = LocalConsentOptions.getLocalConsents().first.toMutableList()
     if (TraceConsentManager.getInstance()?.canDisplayTraceConsent() != true) {
@@ -383,7 +376,7 @@ object AppUIUtil {
    * A write of the consents is an IO operation, so a background thread is required.
    */
   @JvmStatic
-  @RequiresBackgroundThread
+  @RequiresBackgroundThread(generateAssertion = false /* IJPL-115548 */)
   fun saveConsents(consents: List<Consent>) {
     if (consents.isEmpty()) {
       return
@@ -392,22 +385,15 @@ object AppUIUtil {
     val options = ConsentOptions.getInstance()
     if (ApplicationManager.getApplication() != null && options.isEAP) {
       val isUsageStats = ConsentOptions.condUsageStatsConsent()
-      val isAutoReportErrors = ConsentOptions.condEAAutoReportConsent()
       var saved = 0
       for (consent in consents) {
-        when {
-          isUsageStats.test(consent) -> {
-            UsageStatisticsPersistenceComponent.getInstance().isAllowed = consent.isAccepted
-            saved++
-          }
-          isAutoReportErrors.test(consent) -> {
-            ExceptionEAPAutoReportManager.getInstance().enabledInEAP = consent.isAccepted
-            saved++
-          }
+        if (isUsageStats.test(consent)) {
+          UsageStatisticsPersistenceComponent.getInstance().isAllowed = consent.isAccepted
+          saved++
         }
       }
       if (consents.size - saved > 0) {
-        options.setConsents(consents.filter { !isUsageStats.test(it) && !isAutoReportErrors.test(it) })
+        options.setConsents(consents.filter { !isUsageStats.test(it) })
       }
     }
     else {
@@ -421,7 +407,7 @@ object AppUIUtil {
    * A write of the local consents is an IO operation, so a background thread is required.
    */
   @Internal
-  @RequiresBackgroundThread
+  @RequiresBackgroundThread(generateAssertion = false /* IJPL-115548 */)
   fun saveConsentsAsLocalConsents(consents: List<Consent>) {
     LocalConsentOptions.setLocalConsents(consents)
   }
@@ -596,15 +582,11 @@ private fun addTransparentBorder(img: Image): BufferedImage {
   val width = img.getWidth(null)
   val height = img.getHeight(null)
   val result = @Suppress("UndesirableClassUsage") BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB)
-  val g = result.createGraphics()
-  try {
+  result.createGraphics().use { g ->
     g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR)
     g.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY)
     g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
     g.drawImage(img, border, border, width - 2 * border, height - 2 * border, null)
-  }
-  finally {
-    g.dispose()
   }
   return result
 }

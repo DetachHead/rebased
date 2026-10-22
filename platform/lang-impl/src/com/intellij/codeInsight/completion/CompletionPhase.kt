@@ -7,6 +7,7 @@ import com.intellij.codeInsight.completion.CompletionPhase.CommittingDocuments.C
 import com.intellij.codeInsight.completion.CompletionPhase.CommittingDocuments.CommittingState.Success
 import com.intellij.codeInsight.completion.impl.CompletionServiceImpl
 import com.intellij.codeInsight.completion.impl.CompletionServiceImpl.Companion.assertPhase
+import com.intellij.codeInsight.multiverse.EditorContextManager
 import com.intellij.codeWithMe.ClientId
 import com.intellij.codeWithMe.ClientId.Companion.withExplicitClientId
 import com.intellij.openapi.Disposable
@@ -35,7 +36,6 @@ import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.util.Key
 import com.intellij.openapi.util.Pair
 import com.intellij.patterns.ElementPattern
-import com.intellij.psi.PsiDocumentManager
 import com.intellij.psi.PsiFile
 import com.intellij.psi.impl.source.tree.injected.InjectedLanguageEditorUtil
 import com.intellij.psi.impl.source.tree.injected.InjectedLanguageUtil
@@ -131,7 +131,7 @@ sealed class CompletionPhase @ApiStatus.Internal constructor(
      * Several typedHandlers can request auto-popup completion during processing of a single event.
      * We need to trigger read-action for them independently because they can have different conditions for starting completion.
      */
-    @RequiresEdt
+    @RequiresEdt(generateAssertion = false /* IJPL-115548 */)
     private fun addRequest() {
       when (val cur = myState) {
         Cancelled, Disposed, Success -> {
@@ -148,7 +148,7 @@ sealed class CompletionPhase @ApiStatus.Internal constructor(
     /**
      * the current request was not successful (most likely because of the failed condition), but other requests still have a chance to succeed.
      */
-    @RequiresEdt
+    @RequiresEdt(generateAssertion = false /* IJPL-115548 */)
     private fun cancelThisRequest() {
       when (val cur = myState) {
         Disposed, Cancelled, Success -> {
@@ -175,7 +175,7 @@ sealed class CompletionPhase @ApiStatus.Internal constructor(
     /**
      * At least one of the requests succeeded, the completion process has been started, no more requests are necessary.
      */
-    @RequiresEdt
+    @RequiresEdt(generateAssertion = false /* IJPL-115548 */)
     private fun requestCompleted() {
       LOG.trace { "Request completed" }
       LOG.assertTrue(myState is InProgress, "myState=$myState")
@@ -231,7 +231,7 @@ sealed class CompletionPhase @ApiStatus.Internal constructor(
        * @param prevIndicator   the completion indicator, if any. The indicator exists if completion was already started and we restart it with new parameters.
        */
       @ApiStatus.Internal
-      @RequiresEdt
+      @RequiresEdt(generateAssertion = false /* IJPL-115548 */)
       @JvmStatic
       fun scheduleAsyncCompletion(
         editor: Editor,
@@ -263,7 +263,7 @@ sealed class CompletionPhase @ApiStatus.Internal constructor(
           .submit(ourExecutor)
       }
 
-      @RequiresReadLock
+      @RequiresReadLock(generateAssertion = false /* IJPL-115548 */)
       private fun prepareEditorAndDocumentsForAsyncCompletion(
         phase: CommittingDocuments,
         topLevelEditor: Editor,
@@ -280,9 +280,9 @@ sealed class CompletionPhase @ApiStatus.Internal constructor(
         LOG.trace { "Start non-blocking read action :: phase=${phase.replaced}" }
 
         // retrieve the injected file from scratch since our typing might have destroyed the old one completely
-        val topLevelFile = PsiDocumentManager.getInstance(project).getPsiFile(topLevelEditor.getDocument())
+        val topLevelFile = EditorContextManager.getPsiFileForEditor(topLevelEditor, project)
         val completionEditor = InjectedLanguageUtil.getEditorForInjectedLanguageNoCommit(topLevelEditor, topLevelFile, offset)
-        val completionFile = PsiDocumentManager.getInstance(project).getPsiFile(completionEditor.getDocument())
+        val completionFile = EditorContextManager.getPsiFileForEditor(completionEditor, project)
 
         if (completionFile == null || autopopup && shouldSkipAutoPopup(completionEditor, completionFile) || condition != null && !condition.value(completionFile)) {
           LOG.trace { "File is null or should skip auto popup or condition is not met :: file=$completionFile, condition=$condition" }
@@ -293,7 +293,7 @@ sealed class CompletionPhase @ApiStatus.Internal constructor(
         return completionEditor
       }
 
-      @RequiresEdt
+      @RequiresEdt(generateAssertion = false /* IJPL-115548 */)
       private fun startAsyncCompletionIfNotExpired(
         phase: CommittingDocuments,
         completionEditor: Editor?,
@@ -341,7 +341,7 @@ sealed class CompletionPhase @ApiStatus.Internal constructor(
         doInvokeCompletionOnCommittedDocument(completionType, autopopup, project, completionEditor, phase.indicator?.invocationCount ?: 0)
       }
 
-      @RequiresEdt
+      @RequiresEdt(generateAssertion = false /* IJPL-115548 */)
       private fun doInvokeCompletionOnCommittedDocument(
         completionType: CompletionType,
         isAutopopup: Boolean,
@@ -360,7 +360,7 @@ sealed class CompletionPhase @ApiStatus.Internal constructor(
         handler.invokeCompletion(project, editor, invocationCount, false)
       }
 
-      @RequiresEdt
+      @RequiresEdt(generateAssertion = false /* IJPL-115548 */)
       private fun getCompletionPhase(
         prevIndicator: CompletionProgressIndicator?,
         topLevelEditor: Editor,
@@ -382,7 +382,7 @@ sealed class CompletionPhase @ApiStatus.Internal constructor(
       }
 
       @ApiStatus.Internal
-      @RequiresBackgroundThread
+      @RequiresBackgroundThread(generateAssertion = false /* IJPL-115548 */)
       @JvmStatic
       fun loadContributorsOutsideEdt(editor: Editor, file: PsiFile) {
         ThreadingAssertions.assertBackgroundThread()
@@ -416,7 +416,7 @@ sealed class CompletionPhase @ApiStatus.Internal constructor(
       }
     }
 
-    @RequiresEdt
+    @RequiresEdt(generateAssertion = false /* IJPL-115548 */)
     private fun cancelPhase() {
       when (myState) {
         Cancelled, Disposed, Success -> {}
@@ -447,7 +447,7 @@ sealed class CompletionPhase @ApiStatus.Internal constructor(
       cancelOnEditorLoseFocus(indicator)
     }
 
-    @RequiresEdt
+    @RequiresEdt(generateAssertion = false /* IJPL-115548 */)
     private fun restartOnWriteAction() {
       if (ApplicationManagerEx.getApplicationEx().isWriteActionPending) {
         doRestartBecauseOfWriteAction()

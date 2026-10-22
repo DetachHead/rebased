@@ -6,11 +6,13 @@
     <module name="intellij.java.frontback.psi"/>
     <module name="intellij.java.psi"/>
     <module name="intellij.java.syntax"/>
+    <module name="intellij.java.typeMigration"/>
     <module name="intellij.java.ui"/>
     <module name="intellij.libraries.kotlinx.collections.immutable"/>
     <module name="intellij.platform.analysis"/>
     <module name="intellij.platform.codeStyle"/>
     <module name="intellij.platform.codeStyle.impl"/>
+    <module name="intellij.platform.concurrency"/>
     <module name="intellij.platform.core"/>
     <module name="intellij.platform.core.impl"/>
     <module name="intellij.platform.core.ui"/>
@@ -54,6 +56,7 @@
     <colorProvider implementation="org.jetbrains.plugins.javaFX.fxml.codeInsight.JavaFxColorProvider"/>
     <useScopeEnlarger implementation="org.jetbrains.plugins.javaFX.fxml.refs.JavaFxScopeEnlarger"/>
     <renamePsiElementProcessor implementation="org.jetbrains.plugins.javaFX.refactoring.JavaFxRenameFxIdFieldProcessor" order="first"/>
+    <headlessRenamePsiElementProcessor implementation="org.jetbrains.plugins.javaFX.refactoring.JavaFxRenameFxIdFieldProcessor" order="first"/>
 
     <localInspection language="XML" shortName="JavaFxDefaultTag" groupKey="group.name.javafx"
                      enabledByDefault="true" level="WARNING" implementationClass="org.jetbrains.plugins.javaFX.fxml.codeInsight.inspections.JavaFxDefaultTagInspection"
@@ -115,6 +118,7 @@
     <referencesSearch implementation="org.jetbrains.plugins.javaFX.fxml.refs.JavaFxControllerFieldSearcher"/>
     <referencesSearch implementation="org.jetbrains.plugins.javaFX.fxml.refs.JavaFxMethodSearcher"/>
     <renamePsiElementProcessor implementation="org.jetbrains.plugins.javaFX.refactoring.JavaFxRenameAttributeProcessor" order="before xmlAttribute"/>
+    <headlessRenamePsiElementProcessor implementation="org.jetbrains.plugins.javaFX.refactoring.JavaFxRenameAttributeProcessor" order="before xmlAttribute"/>
     <renameHandler implementation="org.jetbrains.plugins.javaFX.refactoring.JavaFxPropertyRenameHandler"/>
     <completion.contributor implementationClass="org.jetbrains.plugins.javaFX.fxml.refs.JavaFxCompletionContributor" language="XML" order="before xmlNonFirst"/>
     <typedHandler implementationClass="org.jetbrains.plugins.javaFX.fxml.refs.JavaFxExpressionBindingTypedHandler"/>

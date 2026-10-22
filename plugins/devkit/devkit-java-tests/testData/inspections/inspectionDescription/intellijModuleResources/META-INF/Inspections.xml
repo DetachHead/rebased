@@ -1,0 +1,7 @@
+<idea-plugin>
+  <extensions defaultExtensionNs="com.intellij">
+    <localInspection groupPath="Java" language="JAVA" shortName="MyIntelliJModuleInspection" displayName="Example inspection"
+                     groupKey="group.names.probable.bugs" groupBundle="messages.InspectionsBundle" enabledByDefault="true" level="WARNING"
+                     implementationClass="MyIntelliJModuleInspection" />
+  </extensions>
+</idea-plugin>

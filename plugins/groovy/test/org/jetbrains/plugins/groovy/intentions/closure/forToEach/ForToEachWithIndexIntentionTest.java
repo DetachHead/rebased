@@ -10,8 +10,8 @@ public class ForToEachWithIndexIntentionTest extends GrIntentionTestCase {
   }
 
   @Override
-  protected String getBasePath() {
-    return TestUtils.getTestDataPath() + "intentions/ForToEachWithIndex/";
+  protected String getTestDataPath() {
+    return TestUtils.getAbsoluteTestDataPath() + "intentions/ForToEachWithIndex/";
   }
 
   public void testForToEachWithIndex() {

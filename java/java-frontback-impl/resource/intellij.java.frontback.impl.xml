@@ -14,11 +14,14 @@
     <module name="intellij.platform.analysis.impl"/>
     <module name="intellij.platform.codeStyle"/>
     <module name="intellij.platform.codeStyle.impl"/>
+    <module name="intellij.platform.concurrency"/>
+    <module name="intellij.platform.consoleView"/>
     <module name="intellij.platform.core"/>
     <module name="intellij.platform.core.impl"/>
     <module name="intellij.platform.core.ui"/>
     <module name="intellij.platform.editor.ui"/>
     <module name="intellij.platform.execution"/>
+    <module name="intellij.platform.execution.impl"/>
     <module name="intellij.platform.ide.core"/>
     <module name="intellij.platform.ide.core.impl"/>
     <module name="intellij.platform.lang"/>
@@ -27,6 +30,7 @@
     <module name="intellij.platform.refactoring"/>
     <module name="intellij.platform.statistics"/>
     <module name="intellij.platform.syntax.psi"/>
+    <module name="intellij.platform.syntax.util"/>
     <module name="intellij.platform.threadDumpParser"/>
     <module name="intellij.platform.util.ui"/>
     <module name="intellij.xml.parser"/>
@@ -83,7 +87,6 @@
 
     <notificationGroup id="Analyze thread dump" displayType="TOOL_WINDOW" toolWindowId="Run" isLogByDefault="false"
                        hideFromSettings="true"/>
-
     <syntaxHighlighter id="java.class" key="CLASS" factoryClass="com.intellij.lang.java.JavaSyntaxHighlighterFactory"/>
     <lang.syntaxHighlighterFactory language="JAVA" implementationClass="com.intellij.lang.java.JavaSyntaxHighlighterFactory"/>
 

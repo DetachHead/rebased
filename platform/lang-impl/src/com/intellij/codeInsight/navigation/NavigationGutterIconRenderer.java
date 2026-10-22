@@ -5,11 +5,13 @@ import com.intellij.codeInsight.daemon.GutterIconNavigationHandler;
 import com.intellij.codeInsight.hint.HintUtil;
 import com.intellij.codeInsight.navigation.impl.PsiTargetPresentationRenderer;
 import com.intellij.codeWithMe.ClientId;
+import com.intellij.ide.DataManager;
 import com.intellij.ide.util.DefaultPsiElementCellRenderer;
-import com.intellij.ide.util.EditSourceUtil;
 import com.intellij.ide.util.PsiElementListCellRenderer;
+import com.intellij.navigation.GotoRelatedItem;
 import com.intellij.openapi.actionSystem.AnAction;
 import com.intellij.openapi.actionSystem.AnActionEvent;
+import com.intellij.openapi.actionSystem.DataContext;
 import com.intellij.openapi.application.AccessToken;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.diagnostic.Logger;
@@ -32,6 +34,10 @@ import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.util.Ref;
 import com.intellij.openapi.util.Segment;
 import com.intellij.openapi.vfs.VirtualFile;
+import com.intellij.platform.backend.navigation.NavigationRequest;
+import com.intellij.platform.backend.navigation.NavigationRequests;
+import com.intellij.platform.ide.navigation.NavigateUtil;
+import com.intellij.platform.ide.navigation.NavigationOptions;
 import com.intellij.pom.Navigatable;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.SmartPsiElementPointer;
@@ -42,6 +48,7 @@ import com.intellij.util.SlowOperations;
 import com.intellij.util.concurrency.AppExecutorUtil;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.ui.JBUI;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -215,8 +222,10 @@ public abstract class NavigationGutterIconRenderer extends GutterIconRenderer
     if (navigatables.size() == 1) {
       if (myNavigationHandler != null) {
         myNavigationHandler.navigate(event, navigatables.get(0).first);
-      } else {
-        navigatables.get(0).second.navigate(true);
+      }
+      else {
+        Pair<PsiElement, Navigatable> single = navigatables.getFirst();
+        requestNavigate(event, single.first, single.second);
       }
     }
     else if (event != null) {
@@ -245,12 +254,54 @@ public abstract class NavigationGutterIconRenderer extends GutterIconRenderer
         myNavigationHandler.navigate(event, element);
       }
       else {
-        Navigatable descriptor = EditSourceUtil.getDescriptor(element);
-        if (descriptor != null && descriptor.canNavigate()) {
-          descriptor.navigate(true);
-        }
+        navigateChosenElement(event, element);
       }
       return true;
+    };
+  }
+
+  private void requestNavigate(@Nullable MouseEvent event, @Nullable PsiElement element, @NotNull Navigatable navigatable) {
+    Project project = element != null ? element.getProject() : myProject;
+    if (project == null && navigatable instanceof OpenFileDescriptor descriptor) {
+      project = descriptor.getProject();
+    }
+    if (project == null || project.isDisposed()) {
+      return;
+    }
+    DataContext dataContext = dataContextFrom(event);
+    NavigationOptions options = dataContext == null ? NavigationOptions.requestFocus() : NavigationOptions.fromContext(dataContext);
+    NavigateUtil.requestNavigate(project, navigatable, options, dataContext);
+  }
+
+  private static @Nullable DataContext dataContextFrom(@Nullable MouseEvent event) {
+    Component component = event == null ? null : event.getComponent();
+    if (component == null) {
+      return null;
+    }
+    return DataManager.getInstance().getDataContext(component, event.getX(), event.getY());
+  }
+
+  /**
+   * Submits the same target as a single gutter click.
+   * The platform request carries the preview tab, the current window, and a deferred decompiler offset.
+   */
+  private void navigateChosenElement(@NotNull MouseEvent event, @NotNull PsiElement element) {
+    requestNavigate(event, element, createPopupNavigatable(element));
+  }
+
+  @ApiStatus.Internal
+  public static @NotNull Navigatable createPopupNavigatable(@NotNull PsiElement element) {
+    return new GotoRelatedItem(element) {
+      @SuppressWarnings("deprecation")
+      @Override
+      public @Nullable NavigationRequest navigationRequest() {
+        var target = getElement();
+        if (target == null) return null;
+        var navigationElement = target.getNavigationElement();
+        return navigationElement instanceof Navigatable navigatable
+               ? navigatable.navigationRequest()
+               : NavigationRequests.getInstance().psiNavigationRequest(target);
+      }
     };
   }
 

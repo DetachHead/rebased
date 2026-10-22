@@ -6,6 +6,20 @@
   "editorScheme": "Dark",
   "parentTheme": "Darcula",
   "colors": {
+    "toggle-on-bg": "#3871E1",
+    "toggle-off-bg": "#FFFFFF3B",
+    "toggle-off-border": "#191A1C00",
+    "toggle-on-border": "#3871E1",
+    "toggle-on-disabled-bg": "#191A1C00",
+    "toggle-off-disabled-bg": "#191A1C00",
+    "toggle-on-disabled-border": "#33353B",
+    "toggle-off-disabled-border": "#33353B",
+    "toggle-focus-border": "#3871E1",
+    "toggle-on-notch": "#FFFFFF",
+    "toggle-off-notch": "#D1D3D9",
+    "toggle-on-disabled-notch": "#5F6269",
+    "toggle-off-disabled-notch": "#5F6269",
+
     "Gray1": "#1E1F22",
     "Gray2": "#2B2D30",
     "Gray3": "#393B40",
@@ -738,7 +752,8 @@
         }
       },
       "DragAndDrop": {
-        "areaBackground": "#366ACF4D"
+        "areaBackground": "#366ACF4D",
+        "hintBackground": "#366ACF1A"
       }
     },
 

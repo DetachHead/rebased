@@ -66,6 +66,7 @@ interface TerminalSession {
    *
    * [x] and [y] are terminal grid coordinates of the event, zero-based relative to the terminal screen start.
    * Returns encoded bytes, or `null` when the event should not be forwarded to the terminal.
+   * Called on the EDT, so it must not wait for the output flow collector.
    */
   fun processMouseEvent(
     e: MouseEvent,
@@ -73,5 +74,13 @@ interface TerminalSession {
     y: Int,
   ): ByteArray?
 
+  /** Called on the EDT, so it must not wait for the output flow collector. */
   fun processKeyEvent(e: KeyEvent): KeyEventProcessingResultDto
+
+  /**
+   * Tells the session that the terminal view lost the keyboard focus. The releases of the keys
+   * held at that moment go to another component, so a session that pairs presses with releases
+   * forgets them. Called on the EDT.
+   */
+  fun focusLost() {}
 }

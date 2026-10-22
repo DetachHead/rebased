@@ -12,9 +12,12 @@ import com.intellij.l10n.LocalizationUtil;
 import com.intellij.lang.Language;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.util.InvalidDataException;
+import com.intellij.openapi.util.WriteExternalException;
 import com.intellij.openapi.util.text.HtmlBuilder;
 import com.intellij.openapi.util.text.HtmlChunk;
 import com.intellij.util.ResourceUtil;
+import org.jdom.Element;
 import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
@@ -36,10 +39,11 @@ public abstract class InspectionToolWrapper<T extends InspectionProfileEntry, E 
   private static final Logger LOG = Logger.getInstance(InspectionToolWrapper.class);
   private static final Pattern ADDENDUM_PLACE = Pattern.compile("<p><small>New in [\\d.]+</small></p>|(</body>)?\\s*</html>", Pattern.CASE_INSENSITIVE);
 
-  protected T myTool;
+  protected volatile T myTool;
   @ApiStatus.Internal
   public final E myEP;
   private @Nullable HighlightDisplayKey myDisplayKey;
+  private volatile @Nullable Element myToolSettings;
 
   private volatile Set<String> applicableToLanguages; // lazy initialized
 
@@ -60,13 +64,17 @@ public abstract class InspectionToolWrapper<T extends InspectionProfileEntry, E 
   /** Copy ctor */
   protected InspectionToolWrapper(@NotNull InspectionToolWrapper<T, ? extends E> other) {
     myEP = other.myEP;
-    // we need to create a copy for buffering
-    if (other.myTool == null) {
-      myTool = null;
-    }
-    else {
-      //noinspection unchecked
-      myTool = (T)(myEP == null ? InspectionToolsRegistrarCore.instantiateTool(other.myTool.getClass()) : myEP.instantiateTool());
+    synchronized (other) {
+      Element settings = other.myToolSettings;
+      myToolSettings = settings == null ? null : settings.clone();
+      // we need to create a copy for buffering
+      if (other.myTool == null) {
+        myTool = null;
+      }
+      else {
+        //noinspection unchecked
+        myTool = (T)(myEP == null ? InspectionToolsRegistrarCore.instantiateTool(other.myTool.getClass()) : myEP.instantiateTool());
+      }
     }
   }
 
@@ -79,13 +87,59 @@ public abstract class InspectionToolWrapper<T extends InspectionProfileEntry, E 
   public @NotNull T getTool() {
     T tool = myTool;
     if (tool == null) {
-      //noinspection unchecked
-      myTool = tool = (T)myEP.instantiateTool();
-      if (!tool.getShortName().equals(myEP.getShortName())) {
-        LOG.error(new PluginException("Short name not matched for " + tool.getClass() + ": getShortName() = #" + tool.getShortName() + "; ep.shortName = #" + myEP.getShortName(), myEP.getPluginDescriptor().getPluginId()));
+      synchronized (this) {
+        tool = myTool;
+        if (tool == null) {
+          //noinspection unchecked
+          tool = (T)myEP.instantiateTool();
+          Element settings = myToolSettings;
+          if (settings != null) {
+            try {
+              ScopeToolState.tryReadSettings(tool, settings);
+              myToolSettings = null;
+            }
+            catch (InvalidDataException e) {
+              myToolSettings = null;
+              LOG.error("Can't read settings for " + getShortName(), e);
+            }
+          }
+          if (!tool.getShortName().equals(myEP.getShortName())) {
+            LOG.error(new PluginException("Short name not matched for " + tool.getClass() + ": getShortName() = #" + tool.getShortName() + "; ep.shortName = #" + myEP.getShortName(), myEP.getPluginDescriptor().getPluginId()));
+          }
+          myTool = tool;
+        }
       }
     }
     return tool;
+  }
+
+  final void readSettings(@NotNull Element settings) throws InvalidDataException {
+    synchronized (this) {
+      if (myTool == null) {
+        myToolSettings = settings;
+      }
+      else {
+        ScopeToolState.tryReadSettings(myTool, settings);
+      }
+    }
+  }
+
+  final void writeSettings(@NotNull Element target) throws WriteExternalException {
+    synchronized (this) {
+      T tool = myTool;
+      if (tool != null) {
+        ScopeToolState.tryWriteSettings(tool, target);
+        return;
+      }
+
+      Element settings = myToolSettings;
+      if (settings != null) {
+        for (var attribute : settings.getAttributes()) {
+          target.setAttribute(attribute.clone());
+        }
+        target.addContent(settings.cloneContent());
+      }
+    }
   }
 
   public boolean isInitialized() {
@@ -133,13 +187,8 @@ public abstract class InspectionToolWrapper<T extends InspectionProfileEntry, E 
   }
 
   public @NotNull @Nls(capitalization = Nls.Capitalization.Sentence) String getDisplayName() {
-    if (myEP == null) {
-      return getTool().getDisplayName();
-    }
-    else {
-      String name = myEP.getDisplayName();
-      return name == null ? getTool().getDisplayName() : name;
-    }
+    String name = myEP == null ? null : myEP.getDisplayName();
+    return name == null ? getTool().getDisplayName() : name;
   }
 
   public @NotNull @Nls String getGroupDisplayName() {

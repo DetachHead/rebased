@@ -1,4 +1,4 @@
-// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 
 package com.intellij.codeInsight.daemon.impl;
 
@@ -12,6 +12,7 @@ import com.intellij.codeWithMe.ClientId;
 import com.intellij.concurrency.IdeaForkJoinWorkerThreadFactory;
 import com.intellij.concurrency.Job;
 import com.intellij.concurrency.JobLauncher;
+import com.intellij.concurrency.JobLauncherImpl;
 import com.intellij.diagnostic.Activity;
 import com.intellij.diagnostic.StartUpMeasurer;
 import com.intellij.openapi.Disposable;
@@ -146,7 +147,7 @@ public final class PassExecutorService implements Disposable {
     }
   }
 
-  // must not acquire ReadLock here, to avoid deadlocks, because this method is invoked inside TextEditorHighlightingPassRegistrar lock
+  // Do not acquire the read lock while the pass graph uses the registrar monitor.
   @RequiresBackgroundThread
   @RequiresReadLockAbsence
   void submitPasses(@NotNull Document document,
@@ -170,28 +171,30 @@ public final class PassExecutorService implements Disposable {
     List<ScheduledPass> freePasses = new ArrayList<>(); // passes free to start, with no "after" dependencies
     AtomicInteger threadsToStartCountdown = new AtomicInteger(0);
 
-    for (HighlightingPass pass : passes) {
-      if (pass instanceof EditorBoundHighlightingPass editorPass) {
-        // have to make ids unique for this document
-        assignUniqueId(editorPass, id2Pass);
-        editorBoundPasses.add(editorPass);
-      }
-      else if (pass instanceof TextEditorHighlightingPass tePass) {
-        assignUniqueId(tePass, id2Pass);
-        documentBoundPasses.add(tePass);
-      }
-      else {
-        // generic HighlightingPass, run all of them concurrently
-        freePasses.add(new ScheduledPass(fileEditor, pass, updateProgress, threadsToStartCountdown));
-      }
-    }
-
     List<ScheduledPass> dependentPasses = new ArrayList<>();
     // passId -> created pass
     Int2ObjectMap<ScheduledPass> toBeSubmitted = new Int2ObjectOpenHashMap<>();
-    sortById(documentBoundPasses);
-    for (TextEditorHighlightingPass pass : ContainerUtil.concat(documentBoundPasses, editorBoundPasses)) {
-      createScheduledPass(fileEditor, document, context, virtualFile, psiFile, pass, toBeSubmitted, id2Pass, freePasses, dependentPasses, updateProgress, threadsToStartCountdown);
+    synchronized (TextEditorHighlightingPassRegistrar.getInstance(myProject)) {
+      for (HighlightingPass pass : passes) {
+        if (pass instanceof EditorBoundHighlightingPass editorPass) {
+          // have to make ids unique for this document
+          assignUniqueId(editorPass, id2Pass);
+          editorBoundPasses.add(editorPass);
+        }
+        else if (pass instanceof TextEditorHighlightingPass tePass) {
+          assignUniqueId(tePass, id2Pass);
+          documentBoundPasses.add(tePass);
+        }
+        else {
+          // generic HighlightingPass, run all of them concurrently
+          freePasses.add(new ScheduledPass(fileEditor, pass, updateProgress, threadsToStartCountdown));
+        }
+      }
+
+      sortById(documentBoundPasses);
+      for (TextEditorHighlightingPass pass : ContainerUtil.concat(documentBoundPasses, editorBoundPasses)) {
+        createScheduledPass(fileEditor, document, context, virtualFile, psiFile, pass, toBeSubmitted, id2Pass, freePasses, dependentPasses, updateProgress, threadsToStartCountdown);
+      }
     }
 
     if (CHECK_CONSISTENCY && !ApplicationManagerEx.isInStressTest()) {
@@ -364,7 +367,8 @@ public final class PassExecutorService implements Disposable {
 
   private void submit(@NotNull ScheduledPass pass) {
     if (!pass.myUpdateProgress.isCanceled()) {
-      Job job = JobLauncher.getInstance().submitToJobThread(pass, future -> {
+      assert !Thread.holdsLock(TextEditorHighlightingPassRegistrar.getInstance(myProject));
+      Job job = ((JobLauncherImpl)JobLauncher.getInstance()).submitToJobThread(pass, future -> {
         try {
           if (!future.isCancelled()) { // for canceled task .get() generates CancellationException which is expensive
             future.get();
@@ -545,6 +549,10 @@ public final class PassExecutorService implements Disposable {
     ThreadingAssertions.assertBackgroundThread();
     try {
       ApplicationManager.getApplication().invokeLater(() -> {
+        if (pass.getExpiredCondition().test(null)) {
+          log(updateProgress, pass, " is canceled because it is expired");
+          return;
+        }
         if (isDisposed() || !fileEditor.isValid()) {
           updateProgress.cancel("isDisposed()="+isDisposed()+"; fileEditor.isValid()="+fileEditor.isValid());
         }
@@ -591,7 +599,7 @@ public final class PassExecutorService implements Disposable {
           log(updateProgress, pass, "Finished but there are passes in the queue: " + threadsToStartCountdown.get());
         }
         callbackOnApplied.run();
-      }, updateProgress.getModalityState(), pass.getExpiredCondition());
+      }, updateProgress.getModalityState());
     }
     catch (ProcessCanceledException ignored) {
       // pass.getExpiredCondition() computation could throw PCE

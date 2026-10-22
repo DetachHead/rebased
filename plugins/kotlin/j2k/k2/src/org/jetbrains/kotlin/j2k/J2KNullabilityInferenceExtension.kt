@@ -21,6 +21,10 @@ interface J2KNullabilityInferenceExtension {
 
         @JvmStatic
         fun getNullability(element: PsiField): Nullability? = EP_NAME.computeSafeIfAny { it.calculateNullability(element) }
+
+        @JvmStatic
+        fun getTypeArgumentNullability(element: PsiMethod): Nullability? =
+            EP_NAME.computeSafeIfAny { it.calculateTypeArgumentNullability(element) }
     }
 
     fun calculateNullability(element: PsiParameter): Nullability?
@@ -28,4 +32,15 @@ interface J2KNullabilityInferenceExtension {
     fun calculateNullability(element: PsiMethod): Nullability?
 
     fun calculateNullability(element: PsiField): Nullability?
+
+    /**
+     * The nullability of every type argument of the return type of [element].
+     *
+     * The nullability of a container and the nullability of its elements are independent.
+     * Answer only for an annotation whose contract covers the elements.
+     * Return `null` otherwise.
+     *
+     * Add a `PsiParameter` or a `PsiField` variant when a rule needs one.
+     */
+    fun calculateTypeArgumentNullability(element: PsiMethod): Nullability?
 }

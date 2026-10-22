@@ -555,11 +555,25 @@ object EelFileSystemApiHelpers {
     private val owner: EelFileSystemApi,
     private var path: EelPath,
   ) : com.intellij.platform.eel.EelOwnedBuilder<EelResult<EelOpenedFile.Reader, EelFileSystemApi.FileReaderError>> {
+    private var autoCloseAfterEof: Boolean? = null
+
     private var autoCloseAfterLastChunk: Boolean = false
 
     private var closeImmediatelyIfFileBiggerThan: Long? = null
 
     private var readFirstChunkInto: ByteBuffer? = null
+
+    /**
+     * When enabled, the implementation closes its internal file descriptor as soon as a read reaches the end of the file.
+     * It reopens the file and restores the cursor position if the caller uses the file again.
+     * This differs from [autoCloseAfterLastChunk], which closes the descriptor and never reopens the file.
+     *
+     * `null` means that the caller did not specify the behavior, so the implementation uses its own default.
+     */
+    @EelDelicateApi
+    fun autoCloseAfterEof(arg: Boolean?): OpenForReading = apply {
+      this.autoCloseAfterEof = arg
+    }
 
     /**
      * When specified, the implementation closes its internal file descriptor
@@ -612,6 +626,7 @@ object EelFileSystemApiHelpers {
     override suspend fun eelIt(): EelResult<EelOpenedFile.Reader, EelFileSystemApi.FileReaderError> =
       owner.openForReading(
         OpenForReadingArgsImpl(
+          autoCloseAfterEof = autoCloseAfterEof,
           autoCloseAfterLastChunk = autoCloseAfterLastChunk,
           closeImmediatelyIfFileBiggerThan = closeImmediatelyIfFileBiggerThan,
           path = path,
@@ -1025,12 +1040,21 @@ object EelFileSystemApiHelpers {
   ) : com.intellij.platform.eel.EelOwnedBuilder<EelResult<EelOpenedFile.ReaderWriter, EelFileSystemApi.FileWriterError>> {
     private var append: Boolean = false
 
+    private var createParents: Boolean = false
+
     private var creationMode: EelFileSystemApi.FileWriterCreationMode = EelFileSystemApi.FileWriterCreationMode.ALLOW_CREATE
 
     private var truncateExisting: Boolean = true
 
     fun append(arg: Boolean): OpenForReadingAndWriting = apply {
       this.append = arg
+    }
+
+    /**
+     * Creates missing parent directories before opening the file.
+     */
+    fun createParents(arg: Boolean): OpenForReadingAndWriting = apply {
+      this.createParents = arg
     }
 
     fun creationMode(arg: EelFileSystemApi.FileWriterCreationMode): OpenForReadingAndWriting = apply {
@@ -1063,6 +1087,7 @@ object EelFileSystemApiHelpers {
       owner.openForReadingAndWriting(
         WriteOptionsImpl(
           append = append,
+          createParents = createParents,
           creationMode = creationMode,
           path = path,
           truncateExisting = truncateExisting,
@@ -1083,12 +1108,21 @@ object EelFileSystemApiHelpers {
   ) : com.intellij.platform.eel.EelOwnedBuilder<EelResult<EelOpenedFile.Writer, EelFileSystemApi.FileWriterError>> {
     private var append: Boolean = false
 
+    private var createParents: Boolean = false
+
     private var creationMode: EelFileSystemApi.FileWriterCreationMode = EelFileSystemApi.FileWriterCreationMode.ALLOW_CREATE
 
     private var truncateExisting: Boolean = true
 
     fun append(arg: Boolean): OpenForWriting = apply {
       this.append = arg
+    }
+
+    /**
+     * Creates missing parent directories before opening the file.
+     */
+    fun createParents(arg: Boolean): OpenForWriting = apply {
+      this.createParents = arg
     }
 
     fun creationMode(arg: EelFileSystemApi.FileWriterCreationMode): OpenForWriting = apply {
@@ -1121,6 +1155,7 @@ object EelFileSystemApiHelpers {
       owner.openForWriting(
         WriteOptionsImpl(
           append = append,
+          createParents = createParents,
           creationMode = creationMode,
           path = path,
           truncateExisting = truncateExisting,

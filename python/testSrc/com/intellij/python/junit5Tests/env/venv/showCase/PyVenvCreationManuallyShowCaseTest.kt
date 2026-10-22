@@ -3,6 +3,7 @@ package com.intellij.python.junit5Tests.env.venv.showCase
 
 import com.intellij.python.junit5Tests.framework.env.PyEnvTestCase
 import com.intellij.python.junit5Tests.framework.env.PythonBinaryPath
+import com.intellij.python.sdk.backend.getSdkAPI
 import com.intellij.python.venv.createVenv
 import com.intellij.python.venv.createVenvAdditionalData
 import com.intellij.testFramework.common.timeoutRunBlocking
@@ -19,14 +20,18 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 import kotlin.io.path.deleteExisting
 import kotlin.time.Duration.Companion.minutes
+import com.intellij.testFramework.junit5.fixture.projectFixture
 
 @PyEnvTestCase
 class PyVenvCreationManuallyShowCaseTest {
+  private val projectFixture = projectFixture()
+
   @Test
   fun createVenvTest(@PythonBinaryPath python: PythonBinary, @TempDir venvDir: Directory): Unit = timeoutRunBlocking(5.minutes) {
     val venvPython = createVenv(python, venvDir).getOrThrow()
     val additionalData = createVenvAdditionalData(venvDir.parent)
-    val sdk = createSdk(PathHolder.Eel(venvPython), additionalData).getOrThrow()
+    val interpreter = createSdk(projectFixture.get(), PathHolder.Eel(venvPython), additionalData).getOrThrow()
+    val sdk = interpreter.getSdkAPI()
     val flavorAndData = sdk.pySdkAdditionalData.flavorAndData
     assertTrue(flavorAndData.sdkSeemsValid(sdk, null),
                "Sdk not valid after creation")

@@ -1,3 +1,0 @@
-fun foo(string: String, s: String): String {
-    return string + s
-}

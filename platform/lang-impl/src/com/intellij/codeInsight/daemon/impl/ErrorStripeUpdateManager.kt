@@ -1,9 +1,10 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.codeInsight.daemon.impl
 
 import com.intellij.codeInsight.daemon.DaemonCodeAnalyzer
 import com.intellij.codeInsight.daemon.DaemonCodeAnalyzerSettings
 import com.intellij.codeInsight.daemon.impl.analysis.HighlightingSettingsPerFile
+import com.intellij.codeInsight.multiverse.EditorContextManager
 import com.intellij.ide.EssentialHighlightingMode
 import com.intellij.openapi.application.EDT
 import com.intellij.openapi.application.ModalityState
@@ -32,6 +33,7 @@ import com.intellij.psi.PsiFile
 import com.intellij.util.concurrency.annotations.RequiresEdt
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.jetbrains.annotations.ApiStatus
@@ -44,7 +46,7 @@ class ErrorStripeUpdateManager(private val project: Project, private val corouti
   init {
     EP_NAME.addChangeListener(coroutineScope) {
       launchRepaintErrorStripePanel(
-        editors = FileEditorManager.getInstance(project).getAllEditors().mapNotNull { (it as? TextEditor)?.editor },
+        editors = FileEditorManager.getInstance(project).allEditors.mapNotNull { (it as? TextEditor)?.editor },
         getFileAsCached = true,
       )
     }
@@ -72,8 +74,11 @@ class ErrorStripeUpdateManager(private val project: Project, private val corouti
   }
 
   @JvmName("launchRepaintErrorStripePanel")
-  internal fun launchRepaintErrorStripePanel(model: EditorMarkupModel, file: PsiFile?) {
-    coroutineScope.launch {
+  internal fun launchRepaintErrorStripePanel(model: EditorMarkupModel, editorProject: Project?): Job {
+    return coroutineScope.launch {
+      val file = if (editorProject == null) null else readAction {
+        EditorContextManager.getPsiFileForEditor(model.editor, project)
+      }
       asyncRepaintErrorStripePanel(model, file)
     }
   }
@@ -87,7 +92,7 @@ class ErrorStripeUpdateManager(private val project: Project, private val corouti
       val editor = model.editor.takeIf { !it.isDisposed } ?: continue
       val file = readAction {
         val document = editor.getDocument()
-        if (getFileAsCached) psiDocumentManager.getCachedPsiFile(document) else psiDocumentManager.getPsiFile(document)
+        if (getFileAsCached) psiDocumentManager.getCachedPsiFile(document) else EditorContextManager.getPsiFileForEditor(editor, project)
       }
       asyncRepaintErrorStripePanel(model, file)
     }
@@ -102,7 +107,7 @@ class ErrorStripeUpdateManager(private val project: Project, private val corouti
   }
 
   @Deprecated("Use launchRepaintErrorStripePanel(List<Editor>) or launchRepaintErrorStripePanel(Editor, PsiFile) instead")
-  @RequiresEdt
+  @RequiresEdt(generateAssertion = false /* IJPL-115548 */)
   fun repaintErrorStripePanel(editor: Editor, psiFile: PsiFile?) {
     if (!project.isInitialized()) {
       return
@@ -144,7 +149,7 @@ class ErrorStripeUpdateManager(private val project: Project, private val corouti
     }
   }
 
-  @RequiresEdt
+  @RequiresEdt(generateAssertion = false /* IJPL-115548 */)
   @JvmName("setOrRefreshErrorStripeRenderer")
   internal fun setOrRefreshErrorStripeRenderer(model: EditorMarkupModel, file: PsiFile) {
     if (refreshErrorStripeRenderer(model)) {
@@ -235,7 +240,7 @@ private class EssentialHighlightingModeListener : RegistryValueListener {
     for (project in ProjectManagerEx.getOpenProjects()) {
       HighlightingSettingsPerFile.getInstance(project).incModificationCount()
 
-      val allEditors = FileEditorManager.getInstance(project).getAllEditors()
+      val allEditors = FileEditorManager.getInstance(project).allEditors
       if (allEditors.isEmpty()) {
         return
       }

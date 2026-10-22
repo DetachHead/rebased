@@ -5,7 +5,7 @@ import com.intellij.diagnostic.PlatformMemoryUtil
 import com.intellij.diagnostic.PlatformMemoryUtil.Companion.getInstance
 import com.intellij.openapi.application.UI
 import com.intellij.openapi.diagnostic.logger
-import com.intellij.openapi.diagnostic.rethrowControlFlowException
+import com.intellij.diagnostic.rethrowControlFlowException
 import com.intellij.openapi.wm.impl.status.MemoryUsagePanel.calculateMemoryUsage
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers

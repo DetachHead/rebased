@@ -5,7 +5,7 @@ import com.intellij.ide.RegionSettings.RegionSettingsListener
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
 import com.intellij.openapi.components.serviceAsync
-import com.intellij.openapi.diagnostic.rethrowControlFlowException
+import com.intellij.diagnostic.rethrowControlFlowException
 import com.intellij.openapi.diagnostic.thisLogger
 import com.intellij.openapi.progress.assertRunBlockingBackgroundThreadAndNoWriteAction
 import com.intellij.openapi.progress.util.runWithCheckCanceled

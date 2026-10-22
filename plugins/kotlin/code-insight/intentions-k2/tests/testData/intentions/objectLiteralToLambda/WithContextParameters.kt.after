@@ -26,8 +26,8 @@ abstract class BaseTest {
 
     fun runTest() {
         notebookTest<caret> {
-            e.execute("1 + 1")
-            c.invokeCompletion()
+            contextOf<Executor>().execute("1 + 1")
+            contextOf<Completion>().invokeCompletion()
         }
     }
 }

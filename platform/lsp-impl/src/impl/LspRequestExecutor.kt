@@ -9,11 +9,13 @@ import com.intellij.platform.lsp.impl.cache.LspSingleSlotCache
 import com.intellij.platform.lsp.impl.cache.getOrCompute
 import com.intellij.platform.lsp.impl.features.completion.createCompletionContext
 import com.intellij.platform.lsp.impl.features.completion.toCompletionList
-import com.intellij.platform.lsp.impl.features.documentSymbol.toDocumentSymbolTree
+import com.intellij.platform.lsp.impl.features.documentSymbol.toDocumentSymbols
 import com.intellij.platform.lsp.impl.features.documentation.HoverResultCache
 import com.intellij.platform.lsp.impl.features.documentation.TextRangeAndMarkupContent
 import com.intellij.platform.lsp.impl.features.highlighting.LspDocumentHighlightCache
 import com.intellij.platform.lsp.impl.features.highlighting.TextRangeAndHighlightKind
+import com.intellij.platform.lsp.impl.features.navigation.LspDefinitionCache
+import com.intellij.platform.lsp.impl.features.navigation.TextRangeAndLocationLinks
 import com.intellij.platform.lsp.impl.features.workspaceSymbol.toWorkspaceSymbol
 import com.intellij.platform.lsp.impl.util.toLocationLink
 import com.intellij.util.concurrency.annotations.RequiresBackgroundThread
@@ -48,6 +50,8 @@ class LspRequestExecutor(
   private val allCaches = mutableListOf<LspCache>()
 
   private val hoverResultCache = register(HoverResultCache(lspClient.project))
+  private val definitionCache = register(LspDefinitionCache(lspClient.project))
+  private val typeDefinitionCache = register(LspDefinitionCache(lspClient.project))
   private val workspaceSymbolCache = register(LspSingleSlotCache<String, List<WorkspaceSymbol>>(lspClient.project))
   // documentSymbol and selectionRange results depend only on the requested document,
   // so a change in another file must not evict them.
@@ -61,17 +65,22 @@ class LspRequestExecutor(
   }
 
   override fun afterShutdown() {
+    clearCaches()
+  }
+
+  /** Drops every cached response, so the next reader asks the server again. */
+  internal fun clearCaches() {
     allCaches.forEach { it.clearCache() }
   }
 
-  @RequiresReadLock
-  @RequiresBackgroundThread
+  @RequiresReadLock(generateAssertion = false /* IJPL-115548 */)
+  @RequiresBackgroundThread(generateAssertion = false /* IJPL-115548 */)
   fun getCompletionList(file: VirtualFile, offset: Int, isAutoPopup: Boolean): CompletionList? =
     getCompletionListAsync(file, offset, isAutoPopup)
       .awaitSync()
 
-  @RequiresReadLock
-  @RequiresBackgroundThread
+  @RequiresReadLock(generateAssertion = false /* IJPL-115548 */)
+  @RequiresBackgroundThread(generateAssertion = false /* IJPL-115548 */)
   fun getCompletionListAsync(file: VirtualFile, offset: Int, isAutoPopup: Boolean): CompletableFuture<CompletionList?> {
     val host = documentMapping.unwrapInjection(file, offset) ?: return CompletableFuture.completedFuture(null)
     val completionContext = createCompletionContext(lspClient, host.hostDocument, host.hostOffset, isAutoPopup)
@@ -102,20 +111,22 @@ class LspRequestExecutor(
     } ?: CompletableFuture.completedFuture(null)
   }
 
-  @RequiresReadLock
-  @RequiresBackgroundThread
+  @RequiresReadLock(generateAssertion = false /* IJPL-115548 */)
+  @RequiresBackgroundThread(generateAssertion = false /* IJPL-115548 */)
   fun getElementDefinitions(file: VirtualFile, offset: Int): List<LocationLink> {
-    return documentMapping.withDocumentAtFileOffset(file, offset) { lspDocument, position ->
-      val params = DefinitionParams(lspDocument.id, position)
-      val lsp4jResponse = sendRequestSync { it.textDocumentService.definition(params) }
-                          ?: return@withDocumentAtFileOffset emptyList()
-      val locationLinks = lsp4jResponse.map({ items -> items.map { it.toLocationLink() } }, { it })
-      locationLinks.map { documentMapping.findDocumentByUrl(it.targetUri)?.mapLocationLink(it) ?: it }.distinct()
-    } ?: emptyList()
+    return definitionCache.getOrCompute(file, offset) {
+      documentMapping.withDocumentAtFileOffset(file, offset) { lspDocument, position ->
+        val params = DefinitionParams(lspDocument.id, position)
+        val lsp4jResponse = sendRequestSync { it.textDocumentService.definition(params) }
+                            ?: return@withDocumentAtFileOffset null
+        val locationLinks = lsp4jResponse.map({ items -> items.map { it.toLocationLink() } }, { it })
+        toHostLocationLinks(locationLinks, file, offset)
+      }
+    }?.locationLinks ?: emptyList()
   }
 
-  @RequiresReadLock
-  @RequiresBackgroundThread
+  @RequiresReadLock(generateAssertion = false /* IJPL-115548 */)
+  @RequiresBackgroundThread(generateAssertion = false /* IJPL-115548 */)
   fun getSignatureHelp(file: VirtualFile, offset: Int): SignatureHelp? {
     return documentMapping.withDocumentAtFileOffset(file, offset) { lspDocument, position ->
       val params = SignatureHelpParams(lspDocument.id, position)
@@ -123,20 +134,34 @@ class LspRequestExecutor(
     }
   }
 
-  @RequiresReadLock
-  @RequiresBackgroundThread
+  @RequiresReadLock(generateAssertion = false /* IJPL-115548 */)
+  @RequiresBackgroundThread(generateAssertion = false /* IJPL-115548 */)
   internal fun getTypeDefinitions(file: VirtualFile, offset: Int): List<LocationLink> {
-    return documentMapping.withDocumentAtFileOffset(file, offset) { lspDocument, position ->
-      val params = TypeDefinitionParams(lspDocument.id, position)
-      val lsp4jResponse = sendRequestSync { it.textDocumentService.typeDefinition(params) }
-                          ?: return@withDocumentAtFileOffset emptyList()
-      val locationLinks = lsp4jResponse.map({ items -> items.map { it.toLocationLink() } }, { it })
-      locationLinks.map { documentMapping.findDocumentByUrl(it.targetUri)?.mapLocationLink(it) ?: it }.distinct()
-    } ?: emptyList()
+    return typeDefinitionCache.getOrCompute(file, offset) {
+      documentMapping.withDocumentAtFileOffset(file, offset) { lspDocument, position ->
+        val params = TypeDefinitionParams(lspDocument.id, position)
+        val lsp4jResponse = sendRequestSync { it.textDocumentService.typeDefinition(params) }
+                            ?: return@withDocumentAtFileOffset null
+        val locationLinks = lsp4jResponse.map({ items -> items.map { it.toLocationLink() } }, { it })
+        toHostLocationLinks(locationLinks, file, offset)
+      }
+    }?.locationLinks ?: emptyList()
   }
 
-  @RequiresReadLock
-  @RequiresBackgroundThread
+  /**
+   * Maps the targets of [locationLinks] to host-file coordinates and pairs them with the origin range reported by the server,
+   * which is what [LspDefinitionCache] matches subsequent lookups against.
+   */
+  private fun toHostLocationLinks(locationLinks: List<LocationLink>, file: VirtualFile, offset: Int): TextRangeAndLocationLinks {
+    val hostLocationLinks = locationLinks
+      .map { documentMapping.findDocumentByUrl(it.targetUri)?.mapLocationLink(it) ?: it }
+      .distinct()
+    val document = FileDocumentManager.getInstance().getDocument(file)
+    return TextRangeAndLocationLinks.fromLocationLinks(hostLocationLinks, document, offset)
+  }
+
+  @RequiresReadLock(generateAssertion = false /* IJPL-115548 */)
+  @RequiresBackgroundThread(generateAssertion = false /* IJPL-115548 */)
   internal fun getImplementations(file: VirtualFile, offset: Int): List<LocationLink> {
     return documentMapping.withDocumentAtFileOffset(file, offset) { lspDocument, position ->
       val params = ImplementationParams(lspDocument.id, position)
@@ -147,7 +172,7 @@ class LspRequestExecutor(
     } ?: emptyList()
   }
 
-  @RequiresBackgroundThread
+  @RequiresBackgroundThread(generateAssertion = false /* IJPL-115548 */)
   internal fun getWorkspaceSymbolsCaching(query: String, timeoutMs: Int = DEFAULT_REQUEST_TIMEOUT_MS): List<WorkspaceSymbol>? {
     return workspaceSymbolCache.getOrCompute(query) {
       val params = WorkspaceSymbolParams(query)
@@ -157,27 +182,21 @@ class LspRequestExecutor(
     }
   }
 
-  @RequiresBackgroundThread
+  @RequiresBackgroundThread(generateAssertion = false /* IJPL-115548 */)
   internal fun getDocumentSymbolsCaching(file: VirtualFile): List<DocumentSymbol>? {
     return documentSymbolCache.getOrCompute(file) {
       val lspDocuments = documentMapping.getDocumentsInFileSync(file)
       val perDocument = lspDocuments.map { lspDocument ->
         val params = DocumentSymbolParams(lspDocument.id)
         val results = sendRequestSync { it.textDocumentService.documentSymbol(params) } ?: return@map null
-        // lsp4j bug?
-        // VSCode type is DocumentSymbol[] | SymbolInformation[],
-        // but in lsp4j is (DocumentSymbol | SymbolInformation)[]
-        val documentSymbols: List<DocumentSymbol> =
-          if (results.firstOrNull()?.isLeft == true) toDocumentSymbolTree(results.mapNotNull { it.left })
-          else results.mapNotNull { it.right }
-        documentSymbols.map(lspDocument::mapDocumentSymbol)
+        results.toDocumentSymbols().map(lspDocument::mapDocumentSymbol)
       }
       perDocument.aggregatePerDocumentResults()
     }
   }
 
-  @RequiresReadLock
-  @RequiresBackgroundThread
+  @RequiresReadLock(generateAssertion = false /* IJPL-115548 */)
+  @RequiresBackgroundThread(generateAssertion = false /* IJPL-115548 */)
   internal fun getDocumentHighlightsCaching(file: VirtualFile, offset: Int): List<TextRangeAndHighlightKind>? {
     return documentHighlightCache.getOrCompute(file, offset) {
       documentMapping.withDocumentAtFileOffset(file, offset) { lspDocument, position ->
@@ -192,8 +211,8 @@ class LspRequestExecutor(
     }
   }
 
-  @RequiresReadLock
-  @RequiresBackgroundThread
+  @RequiresReadLock(generateAssertion = false /* IJPL-115548 */)
+  @RequiresBackgroundThread(generateAssertion = false /* IJPL-115548 */)
   internal fun getSelectionRangeCaching(file: VirtualFile, offset: Int): SelectionRange? {
     return selectionRangeCache.getOrCompute(file, offset) {
       documentMapping.withDocumentAtFileOffset(file, offset) { lspDocument, position ->
@@ -208,8 +227,8 @@ class LspRequestExecutor(
     }
   }
 
-  @RequiresReadLock
-  @RequiresBackgroundThread
+  @RequiresReadLock(generateAssertion = false /* IJPL-115548 */)
+  @RequiresBackgroundThread(generateAssertion = false /* IJPL-115548 */)
   fun getHoverCaching(file: VirtualFile, offset: Int, timeoutMs: Int = DEFAULT_REQUEST_TIMEOUT_MS): TextRangeAndMarkupContent? {
     return hoverResultCache.getOrCompute(file, offset) {
       val hover = documentMapping.withDocumentAtFileOffset(file, offset) { lspDocument, position ->

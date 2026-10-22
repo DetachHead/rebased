@@ -14,8 +14,8 @@ import java.util.Iterator;
 
 public class IntroduceVariableTest extends LightJavaCodeInsightFixtureTestCase {
   @Override
-  protected String getBasePath() {
-    return TestUtils.getTestDataPath() + "groovy/refactoring/introduceVariable/";
+  protected String getTestDataPath() {
+    return TestUtils.getAbsoluteTestDataPath() + "groovy/refactoring/introduceVariable/";
   }
 
   public void testAbs() { doTest(); }

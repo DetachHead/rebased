@@ -3,8 +3,10 @@
   <dependencies>
     <module name="intellij.libraries.jetbrains.annotations"/>
     <module name="intellij.libraries.kotlinx.collections.immutable"/>
+    <module name="intellij.platform.concurrency"/>
     <module name="intellij.platform.core"/>
     <module name="intellij.platform.core.ui"/>
+    <module name="intellij.platform.icons.api"/>
     <module name="intellij.platform.indexing"/>
     <module name="intellij.platform.projectModel"/>
     <module name="intellij.platform.util.ui"/>
@@ -79,6 +81,8 @@
     <applicationService serviceImplementation="com.intellij.ide.ui.NotRoamableUiSettings" />
     <applicationService serviceImplementation="com.intellij.openapi.actionSystem.remoting.ActionRemoteBehaviorCustomizer" open="true"/>
     <applicationSettings service="com.intellij.ide.ui.NotRoamableUiSettings"/>
+    <applicationService serviceImplementation="com.intellij.openapi.editor.EditorCoroutineScopeService"/>
+    <projectService serviceImplementation="com.intellij.openapi.editor.EditorCoroutineScopeService"/>
   </extensions>
   <applicationListeners>
     <listener class="com.intellij.openapi.vcs.FileStatusCleaner"

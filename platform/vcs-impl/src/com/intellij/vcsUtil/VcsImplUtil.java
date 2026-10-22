@@ -18,13 +18,13 @@ import com.intellij.openapi.vcs.FileStatus;
 import com.intellij.openapi.vcs.VcsKey;
 import com.intellij.openapi.vcs.changes.Change;
 import com.intellij.openapi.vcs.changes.ChangeListManager;
-import com.intellij.openapi.vcs.changes.ChangeListManagerEx;
 import com.intellij.openapi.vcs.changes.ChangesUtil;
 import com.intellij.openapi.vcs.changes.IgnoredFileContentProvider;
 import com.intellij.openapi.vcs.changes.IgnoredFileGenerator;
 import com.intellij.openapi.vcs.util.paths.RecursiveFilePathSet;
 import com.intellij.openapi.vfs.CharsetToolkit;
 import com.intellij.openapi.vfs.LocalFileSystem;
+import com.intellij.openapi.vfs.StandardFileSystems;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.openapi.vfs.newvfs.NewVirtualFile;
 import com.intellij.openapi.vfs.newvfs.NewVirtualFileSystem;
@@ -112,7 +112,7 @@ public final class VcsImplUtil {
   private static boolean isFileSharedInVcs(@NotNull Project project,
                                            @NotNull ChangeListManager changeListManager,
                                            @NotNull String filePath) {
-    VirtualFile file = LocalFileSystem.getInstance().findFileByPath(filePath);
+    VirtualFile file = StandardFileSystems.local().findFileByPath(filePath);
     if (file == null) return false;
     FileStatus fileStatus = changeListManager.getStatus(file);
     return isFileUnderVcs(project, filePath) &&
@@ -123,7 +123,7 @@ public final class VcsImplUtil {
     return ReadAction.computeBlocking(() -> {
       if (project.isDisposed()) return false;
       @SystemIndependent String projectFilePath = project.getProjectFilePath();
-      ChangeListManagerEx changeListManager = ChangeListManagerEx.getInstanceEx(project);
+      ChangeListManager changeListManager = ChangeListManager.getInstance(project);
       return !changeListManager.isInUpdate()
              && (projectFilePath != null && isFileSharedInVcs(project, changeListManager, projectFilePath));
     });
@@ -140,7 +140,7 @@ public final class VcsImplUtil {
 
     String path = filePath.getPath();
     if (!ApplicationManager.getApplication().isReadAccessAllowed()) {
-      result = LocalFileSystem.getInstance().refreshAndFindFileByPath(path);
+      result = StandardFileSystems.local().refreshAndFindFileByPath(path);
       if (result != null) return result;
     }
 

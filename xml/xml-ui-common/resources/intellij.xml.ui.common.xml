@@ -23,10 +23,14 @@
   </dependencies>
   <!-- endregion -->
   <extensionPoints>
-    <extensionPoint name="html.codestyle.panel" interface="com.intellij.application.options.HtmlCodeStylePanelExtension" dynamic="true"/>
+    <extensionPoint qualifiedName="com.intellij.html.codestyle.panel" interface="com.intellij.application.options.HtmlCodeStylePanelExtension" dynamic="true"/>
   </extensionPoints>
 
   <extensions defaultExtensionNs="com.intellij">
+    <applicationService serviceInterface="com.intellij.ide.browsers.WebBrowserXmlService"
+                        serviceImplementation="com.intellij.xml.impl.WebBrowserXmlServiceImpl"
+                        overrides="true"/>
+
     <lang.rearranger language="XML" implementationClass="com.intellij.xml.arrangement.XmlRearranger"/>
     <lang.rearranger language="HTML" implementationClass="com.intellij.xml.arrangement.HtmlRearranger"/>
 

@@ -150,7 +150,7 @@ inline fun <T> Result<T>.getOrLogException(log: (Throwable) -> Unit): T? = getOr
  */
 inline fun <T> Result<T>.getOrHandleException(handler: (Throwable) -> Unit): T? {
   return onFailure { e ->
-    rethrowControlFlowException(e)
+    com.intellij.diagnostic.rethrowControlFlowException(e)
     handler(e)
   }.getOrNull()
 }

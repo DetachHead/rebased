@@ -29,8 +29,8 @@ import java.util.List;
  */
 public class ChangeSignatureForJavaTest extends LightJavaCodeInsightFixtureTestCase {
   @Override
-  public final String getBasePath() {
-    return TestUtils.getTestDataPath() + "/refactoring/changeSignatureForJava/";
+  public final String getTestDataPath() {
+    return TestUtils.getAbsoluteTestDataPath() + "/refactoring/changeSignatureForJava/";
   }
 
   public void testSimple() throws Exception {

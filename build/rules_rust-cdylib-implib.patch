@@ -1,0 +1,32 @@
+Stop the `Rustc` action from declaring an import library that it never writes.
+
+On Windows a `cdylib` gets a `<name>.dll.lib` import library, which `rustc` writes only when it drives the
+link. Under `experimental_use_cc_common_link`, `rustc` emits an object file and `cc_common.link` links, so the
+declared output stays absent and the action fails. Declare the file only when `rustc` links. Otherwise take
+the import library from the `cc_common.link` outputs, so a `cc_*` consumer of the DLL still gets one.
+--- a/rust/private/rustc.bzl
++++ b/rust/private/rustc.bzl
+@@ -2253,7 +2253,7 @@
+     # For a cdylib that might be added as a dependency to a cc_* target on Windows, it is important to include the
+     # interface library that rustc generates in the output files.
+     interface_library = None
+-    if rust_toolchain.target_os == "windows" and crate_info.type == "cdylib":
++    if rust_toolchain.target_os == "windows" and crate_info.type == "cdylib" and not use_cc_common_link:
+         # Rustc generates the import library with a `.dll.lib` extension rather than the usual `.lib` one that msvc
+         # expects (see https://github.com/rust-lang/rust/pull/29520 for more context).
+         interface_library = ctx.actions.declare_file(crate_info.output.basename + ".lib", sibling = crate_info.output)
+@@ -2496,7 +2496,14 @@
+                 lto_artifacts = linking_outputs.all_lto_artifacts(),
+             )
+ 
++        # cc_common.link writes the import library of a Windows cdylib. Keep it, so a cc_* consumer still gets one.
++        library_to_link = getattr(linking_outputs, "library_to_link", None)
++        if library_to_link:
++            interface_library = getattr(library_to_link, "interface_library", None)
++
+         outputs = [crate_info.output]
++        if interface_library:
++            outputs.append(interface_library)
+ 
+     coverage_runfiles = []
+     if rust_toolchain.coverage_supported and ctx.configuration.coverage_enabled and crate_info.is_test:

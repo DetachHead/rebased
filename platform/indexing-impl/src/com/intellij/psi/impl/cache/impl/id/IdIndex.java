@@ -29,7 +29,7 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.util.Map;
 
-import static com.intellij.openapi.diagnostic.LoggerKt.rethrowControlFlowException;
+import static com.intellij.diagnostic.ControlFlowExceptionsKt.rethrowControlFlowException;
 import static java.util.concurrent.TimeUnit.MINUTES;
 
 /**

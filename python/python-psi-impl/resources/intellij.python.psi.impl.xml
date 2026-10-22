@@ -13,6 +13,7 @@
     <module name="intellij.libraries.stream"/>
     <module name="intellij.platform.analysis"/>
     <module name="intellij.platform.analysis.impl"/>
+    <module name="intellij.platform.backend.workspace"/>
     <module name="intellij.platform.codeStyle"/>
     <module name="intellij.platform.codeStyle.impl"/>
     <module name="intellij.platform.core"/>
@@ -22,6 +23,7 @@
     <module name="intellij.platform.ide.core"/>
     <module name="intellij.platform.ide.core.impl"/>
     <module name="intellij.platform.indexing"/>
+    <module name="intellij.platform.indexing.impl"/>
     <module name="intellij.platform.lvcs"/>
     <module name="intellij.platform.projectModel"/>
     <module name="intellij.platform.projectModel.impl"/>
@@ -32,9 +34,11 @@
     <module name="intellij.platform.util.ex"/>
     <module name="intellij.platform.util.ui"/>
     <module name="intellij.platform.workspace.jps"/>
+    <module name="intellij.platform.workspace.storage"/>
     <module name="intellij.python.community"/>
     <module name="intellij.python.community.helpersLocator"/>
     <module name="intellij.python.psi"/>
+    <module name="intellij.python.pyproject"/>
     <module name="intellij.python.requirements.backend"/>
     <module name="intellij.python.sdk.backend"/>
     <module name="intellij.toml.core"/>
@@ -151,6 +155,7 @@
     <!-- PyDocstring -->
     <languageInjector implementation="com.jetbrains.python.documentation.doctest.PyDocstringLanguageInjector"/>
     <lang.parserDefinition language="Doctest" implementationClass="com.jetbrains.python.documentation.doctest.PyDoctestParserDefinition"/>
+    <lang.parserDefinition language="PythonDocstringCodeBlock" implementationClass="com.jetbrains.python.documentation.doctest.PyDocstringCodeBlockParserDefinition"/>
     <highlightErrorFilter implementation="com.jetbrains.python.documentation.doctest.PyDocstringErrorFilter"/>
     <lang.formatter language="Doctest" implementationClass="com.jetbrains.python.documentation.doctest.PyDocstringFormattingModelBuilder"/>
 
@@ -200,6 +205,8 @@
                             implementationClass="com.jetbrains.python.codeInsight.completion.PyUnresolvedModuleAttributeCompletionContributor"/>
     <completion.contributor language="Python"
                             implementationClass="com.jetbrains.python.codeInsight.completion.PyFStringLikeCompletionContributor"/>
+    <completion.contributor language="Python"
+                            implementationClass="com.jetbrains.python.codeInsight.completion.PyFStringFormatSpecCompletionContributor"/>
     <completion.contributor language="Python"
                             implementationClass="com.jetbrains.python.codeInsight.completion.PyMultipleArgumentsCompletionContributor"/>
     <completion.contributor language="Python"
@@ -255,6 +262,10 @@
                      groupPathKey="INSP.GROUP.python" groupKey="INSP.GROUP.python.control.flow.issues"
                      key="INSP.NAME.check.can.be.simplified" enabledByDefault="true" level="WEAK WARNING"
                      implementationClass="com.jetbrains.python.inspections.PySimplifyBooleanCheckInspection"/>
+    <localInspection language="Python" shortName="PyDivisionByZeroInspection" suppressId="PyDivisionByZero" bundle="messages.PyPsiBundle"
+                     groupPathKey="INSP.GROUP.python" groupKey="INSP.GROUP.python.general"
+                     key="INSP.NAME.division.by.zero" enabledByDefault="true" level="WARNING"
+                     implementationClass="com.jetbrains.python.inspections.PyDivisionByZeroInspection"/>
     <localInspection language="Python" shortName="PyDefaultArgumentInspection" suppressId="PyDefaultArgument" bundle="messages.PyPsiBundle"
                      groupPathKey="INSP.GROUP.python" groupKey="INSP.GROUP.python.general"
                      key="INSP.NAME.default.argument" enabledByDefault="true" level="WARNING"
@@ -974,15 +985,15 @@
                  description="Enable weak-key caching for TypeEvalContext"/>
     <registryKey key="python.numeric.tower.type" defaultValue="true"
                  description="Enable specialized class type representing Python's numeric tower (int -> float -> complex)"/>
-    <registryKey key="python.type.any" defaultValue="false"
+    <registryKey key="python.type.any" defaultValue="true"
                  description="Enable Any and Unknown support"/>
     <registryKey key="python.use.csp.type.inference" defaultValue="true"
                  description="Enable CSP engine for type inference"/>
-    <registryKey key="python.subtypechecks.respect.variance" defaultValue="false"
+    <registryKey key="python.subtypechecks.respect.variance" defaultValue="true"
                  description="Enable variance in subtype checks"/>
     <registryKey key="python.skeleton.generator.use.process.pool" defaultValue="true"
                  description="Use a process worker pool for skeleton generation to avoid process creation overhead"/>
-    <registryKey key="python.type.checker.diff.tooltip" defaultValue="false"
+    <registryKey key="python.type.checker.diff.tooltip" defaultValue="true"
                  description="Show a structural side-by-side type diff in type-mismatch inspection tooltips (otherwise the plain message tooltip is shown)"/>
 
     <virtualFileCustomDataProvider implementation="com.jetbrains.python.formatter.PyCodeStyleSettingsProvider"/>
@@ -1014,6 +1025,9 @@
                     dynamic="true"/>
     <extensionPoint qualifiedName="Pythonid.typeCheckerExtension"
                     interface="com.jetbrains.python.psi.types.PyTypeCheckerExtension"
+                    dynamic="true"/>
+    <extensionPoint qualifiedName="Pythonid.dictLiteralPromotionExtension"
+                    interface="com.jetbrains.python.psi.types.PyDictLiteralPromotionExtension"
                     dynamic="true"/>
     <extensionPoint qualifiedName="Pythonid.pyEnumMemberDeclarationProvider"
                     interface="com.jetbrains.python.psi.types.PyEnumMemberDeclarationProvider"
@@ -1117,12 +1131,23 @@
     <notificationGroup id="Python.Internal" displayType="BALLOON" isLogByDefault="true" hideFromSettings="true"/>
   </extensions>
 
+  <applicationListeners>
+    <listener class="com.jetbrains.python.psi.types.PyAnyTypeRegistryListener"
+              topic="com.intellij.openapi.util.registry.RegistryValueListener"/>
+  </applicationListeners>
+
   <actions resource-bundle="messages.PyPsiBundle">
     <group id="PythonPsiInternalGroup" internal="true" popup="true">
       <add-to-group group-id="Internal" anchor="last"/>
       <action id="PyTypeBenchmarkAction"
               class="com.jetbrains.python.actions.internal.PyTypeBenchmarkAction"
               internal="true"/>
+    </group>
+
+    <!-- Activates when AI plugins present, they contribute lang.floatingToolbar for Python -->
+    <group id="Floating.CodeToolbar.Python" popup="false" searchable="false">
+      <reference ref="Floating.CodeToolbar.Extensions"/>
+      <reference ref="Floating.CodeToolbar.Additional"/>
     </group>
   </actions>
 </idea-plugin>

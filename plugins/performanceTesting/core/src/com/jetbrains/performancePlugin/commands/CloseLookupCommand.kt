@@ -24,7 +24,7 @@ class CloseLookupCommand(text: String, line: Int) : PlaybackCommandCoroutineAdap
      */
     @JvmStatic
     suspend fun closeLookup(project: Project): Boolean =
-      FileEditorManager.getInstance(project).getSelectedTextEditor().let { editor ->
+      FileEditorManager.getInstance(project).selectedTextEditor.let { editor ->
         return withContext(Dispatchers.EDT) {
           val activeLookup = LookupManager.getActiveLookup(editor)
           if (activeLookup != null) {

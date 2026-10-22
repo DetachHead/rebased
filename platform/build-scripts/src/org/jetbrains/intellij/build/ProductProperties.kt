@@ -1,13 +1,12 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.intellij.build
 
-import com.intellij.platform.buildData.productInfo.CustomCommandLaunchData
+import com.intellij.openapi.util.io.NioFiles
 import com.intellij.platform.buildData.productInfo.CustomProperty
-import com.intellij.platform.buildScripts.licenses.CommunityLibraryLicenses
+import com.intellij.platform.buildScripts.licenses.COMMUNITY_LICENSES_LIST
 import com.intellij.platform.buildScripts.licenses.LibraryLicense
 import com.intellij.platform.buildScripts.licenses.SoftwareBillOfMaterials
-import com.intellij.platform.runtime.product.ProductMode
-import com.intellij.util.text.SemVer
+import com.intellij.platform.productMode.ProductMode
 import com.jetbrains.plugin.structure.base.plugin.PluginCreationFail
 import com.jetbrains.plugin.structure.base.plugin.PluginCreationResult
 import com.jetbrains.plugin.structure.base.plugin.PluginCreationSuccess
@@ -25,7 +24,9 @@ import org.jetbrains.intellij.build.productLayout.ProductModulesContentSpec
 import org.jetbrains.intellij.build.productLayout.ProductModulesLayout
 import org.jetbrains.jps.model.JpsProject
 import org.jetbrains.jps.model.module.JpsModule
+import java.nio.file.Files
 import java.nio.file.Path
+import java.nio.file.StandardCopyOption
 import java.util.Locale
 import java.util.function.BiPredicate
 
@@ -174,12 +175,6 @@ abstract class ProductProperties {
     "${appInfo.fullProductName}${appInfo.majorVersion}.${appInfo.minorVersionMainPart}"
 
   /**
-   * If `true`, Alt+Button1 shortcut will be removed from 'Quick Evaluate Expression' action and assigned to 'Add/Remove Caret' action
-   * (instead of Alt+Shift+Button1) in the default keymap.
-   */
-  var reassignAltClickToMultipleCarets: Boolean = false
-
-  /**
    * Now a file containing information about third-party libraries is bundled and shown inside the IDE.
    * If `true`, HTML & JSON files of third-party libraries will be placed alongside built artifacts.
    */
@@ -188,7 +183,7 @@ abstract class ProductProperties {
   /**
    * List of licenses information about all libraries that can be used in the product modules.
    */
-  var allLibraryLicenses: List<LibraryLicense> = CommunityLibraryLicenses.LICENSES_LIST
+  var allLibraryLicenses: List<LibraryLicense> = COMMUNITY_LICENSES_LIST
 
   /**
    * If `true`, the product's main JAR file will be scrambled using [ProprietaryBuildTools.scrambleTool].
@@ -280,8 +275,9 @@ abstract class ProductProperties {
   /**
    * Specifies name of cross-platform ZIP archive if `[buildCrossPlatformDistribution]` is set to `true`.
    */
-  open fun getCrossPlatformZipFileName(applicationInfo: ApplicationInfoProperties, buildNumber: String): String =
-    getBaseArtifactName(applicationInfo, buildNumber) + ".portable.zip"
+  open fun getCrossPlatformZipFileName(applicationInfo: ApplicationInfoProperties, buildNumber: String): String {
+    return getBaseArtifactName(applicationInfo, buildNumber) + ".portable.zip"
+  }
 
   /**
    * A config map for [org.jetbrains.intellij.build.impl.ClassFileChecker], when .class file version verification is necessary.
@@ -311,9 +307,10 @@ abstract class ProductProperties {
   var additionalDirectoriesWithLicenses: List<Path> = emptyList()
 
   /**
-   * Launcher commands customizer
+   * Whether the launch entry of `product-info.json` lists the custom commands: the embedded frontend, IJ Light, Qodana
+   * and the stdio MCP runner. A product that starts none of them sets it to `false`.
    */
-  var launcherCommandsCustomizer: ((List<CustomCommandLaunchData>, BuildContext) -> List<CustomCommandLaunchData>)? = null
+  var launcherCustomCommands: Boolean = true
 
   /**
    * Custom frontend module filter
@@ -322,7 +319,9 @@ abstract class ProductProperties {
 
   /**
    * Maps each native library name (as extracted by `getLibNameBySourceFile`) to its output folder name under `lib/`.
-   * Libraries listed here have their native files extracted to `lib/<folderName>/` rather than embedded in JARs.
+   * The build extracts the native files of a library listed here to a folder instead of the jar.
+   * For a plugin jar, the folder is `plugins/<plugin directory>/lib/<folderName>/`, next to the jar.
+   * For a platform jar, the folder is `lib/<folderName>/` of the distribution root.
    * Use the same string for key and value when no renaming is needed.
    */
   var presignedNativeLibs: Map<String, String> = emptyMap()
@@ -382,6 +381,13 @@ abstract class ProductProperties {
   var runtimeDistribution: JetBrainsRuntimeDistribution = JetBrainsRuntimeDistribution.VANILLA
 
   /**
+   * Paths in the bundled runtime, relative to the runtime home, to exclude from the distributions of all operating systems.
+   * An entry that is absent in one OS runtime has no effect there.
+   * The exclusion applies at pack time. The shared runtime extract stays intact.
+   */
+  var excludedRuntimePaths: List<String> = emptyList()
+
+  /**
    * A prefix for names of environment variables used by product distributions
    * to allow users to customize location of the product runtime (`<PRODUCT>_JDK` variable),
    * *.vmoptions file (`<PRODUCT>_VM_OPTIONS`), `idea.properties` file (`<PRODUCT>_PROPERTIES`).
@@ -391,12 +397,40 @@ abstract class ProductProperties {
   /**
    * Override this method to copy additional files to distributions of all operating systems.
    */
-  open suspend fun copyAdditionalFiles(targetDir: Path, context: BuildContext) { }
+  open fun copyAdditionalFiles(targetDir: Path, context: BuildContext) { }
 
   /**
-   * Override this method to copy additional OS- and arch-specific files.
+   * Registers product-specific runtime files for complete dev builds and production packaging.
+   *
+   * The files a downloaded dependency contributes are not registered here. They are declared on the platform layout with
+   * [PlatformLayout.withDistFiles], so that the dev distribution packs them from the same declaration.
+   * Source-only derivation and split fragments do not call this hook.
    */
-  open suspend fun copyAdditionalOsSpecificFiles(runDir: Path, os: OsFamily, arch: JvmArchitecture, context: BuildContext) { }
+  open fun registerDistFiles(context: BuildContext) { }
+
+  /**
+   * The additional OS- and arch-specific files of the product, as data.
+   *
+   * [copyAdditionalOsSpecificFiles] copies them. A split dev distribution places the same files without build code,
+   * so a product declares its files here instead of copying them.
+   */
+  open fun additionalOsSpecificFiles(os: OsFamily, arch: JvmArchitecture): List<OsSpecificDistFile> = emptyList()
+
+  /**
+   * Copies the [additionalOsSpecificFiles] into [runDir].
+   *
+   * A split dev distribution does not call this method, so the dev distribution plan generator refuses a product that
+   * overrides it.
+   */
+  open fun copyAdditionalOsSpecificFiles(runDir: Path, os: OsFamily, arch: JvmArchitecture, context: BuildContext) {
+    for (file in additionalOsSpecificFiles(os, arch)) {
+      val target = runDir.resolve(file.relativePath)
+      Files.createDirectories(target.parent)
+      Files.copy(file.resolve(), target, StandardCopyOption.REPLACE_EXISTING)
+      // a plain copy carries over the read-only mode of a Bazel output, which breaks a later cleanup or overwrite
+      NioFiles.setReadOnly(target, false)
+    }
+  }
 
   /**
    * Override this method if the product has several editions to ensure that their artifacts won't be mixed up.
@@ -409,13 +443,14 @@ abstract class ProductProperties {
    * Paths to externally built plugins to be included in the IDE.
    * They will be copied into the build, as well as included in the IDE classpath when launching it to build search index, .jar order, etc.
    */
-  open suspend fun getAdditionalPluginPaths(context: BuildContext): List<Path> = emptyList()
+  open fun getAdditionalPluginPaths(context: BuildContext): List<Path> = emptyList()
 
   /**
    * Override this function to provide additional JVM command line arguments which will be added to launchers along with
-   * [additionalIdeJvmArguments].
+   * [additionalIdeJvmArguments]. [applicationInfoOf] loads the application info of another product, for arguments
+   * that name it.
    */
-  open fun getAdditionalContextDependentIdeJvmArguments(context: BuildContext): List<String> = emptyList()
+  open fun getAdditionalContextDependentIdeJvmArguments(applicationInfoOf: (ProductProperties) -> ApplicationInfoProperties): List<String> = emptyList()
 
   /**
    * Override this method to programmatically specify content modules for the product plugin.xml.
@@ -461,17 +496,15 @@ abstract class ProductProperties {
   @ApiStatus.Internal
   open fun addRemoteDevelopmentLibraries(context: BuildContext): Boolean = context.getBundledPluginModules().contains("intellij.remoteDevServer")
 
-  /**
-   * Checks whether some necessary conditions specific for the product are met and report errors via [BuildContext.messages] if they aren't.
-   */
-  @ApiStatus.Experimental
-  open fun validateLayout(platformLayout: PlatformLayout, context: BuildContext) {}
+  /** Checks the complete platform layout before source derivation or packaging uses it. */
+  @ApiStatus.Internal
+  open fun validateLayout(platformLayout: PlatformLayout) {}
 
   /**
    * Copies additional localization resources to the plugin-generated localization resources directory.
    */
   @ApiStatus.Internal
-  open suspend fun copyAdditionalLocalizationResourcesToPlugin(lang: String, targetDir: Path, context: BuildContext) {}
+  open fun copyAdditionalLocalizationResourcesToPlugin(lang: String, targetDir: Path, context: BuildContext) {}
 
   /**
    * Build steps which are always skipped for this product.
@@ -530,13 +563,15 @@ abstract class ProductProperties {
     val patchVersion: String?,
     val fullVersionFormat: String?,
     val versionSuffix: String?,
-    val majorReleaseDate: String?
+    val majorReleaseDate: String?,
+    /** The `reassignAltClickToMultipleCarets` attribute of the `keymap` element. `null` removes the element. */
+    val reassignAltClickToMultipleCarets: String? = null,
   )
 
   /**
    * Returns IDs of flavors which the current product has. They will be added to the product-info.json file.
    */
-  open fun getProductFlavors(buildContext: BuildContext): List<String> = emptyList()
+  open fun getProductFlavors(): List<String> = emptyList()
 
   /**
    * Properties required for running Qodana application with this product.
@@ -570,8 +605,8 @@ abstract class ProductProperties {
       }
 
       if (result.plugin.pluginVersion != null) {
-        val (os, arch) = SemVer.parseFromText(result.plugin.pluginVersion)!!.preRelease
-                           ?.let(OS_ARCH_SUFFIX::matchEntire)
+        val (os, arch) = result.plugin.pluginVersion
+                           ?.let(OS_ARCH_SUFFIX::find)
                            ?.groupValues?.let { it[1] to it[2] }
                          ?: (null to null)
 
@@ -612,7 +647,7 @@ abstract class ProductProperties {
   }
 }
 
-private val OS_ARCH_SUFFIX = Regex("^(windows|linux|macos|mac)-(x86_64|arm64)$")
+private val OS_ARCH_SUFFIX = Regex("(windows|linux|macos|mac)-(x86_64|arm64)")
 
 private class MissingDependencyError(override val message: String) : PluginProblem() {
   override val level = Level.ERROR

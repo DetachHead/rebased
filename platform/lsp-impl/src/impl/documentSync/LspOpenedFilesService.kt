@@ -1,6 +1,6 @@
 package com.intellij.platform.lsp.impl.documentSync
 
-import com.intellij.ide.trustedProjects.TrustedFiles
+import com.intellij.ide.TrustedFiles
 import com.intellij.ide.trustedProjects.TrustedProjects
 import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.application.ReadAction
@@ -53,7 +53,7 @@ internal class LspOpenedFilesService(private val project: Project) {
     var changed = false
     // LSP servers are external processes: never send the content of files opened in the safe mode to them
     files.asSequence()
-      .filter { it.isInLocalFileSystem && TrustedFiles.isTrusted(it, project) }
+      .filter { TrustedFiles.isTrusted(it, project) }
       .forEach { if (openedFilesToHandle.put(it, requestStamp) != requestStamp) changed = true }
     if (changed) scheduleOpenedFilesProcessing()
   }
@@ -98,7 +98,7 @@ internal class LspOpenedFilesService(private val project: Project) {
             }
           }
 
-          if (!fileWithinServerRootsAndSupported && ProjectFileIndex.getInstance(project).isInContent(openedFile)) {
+          if (!fileWithinServerRootsAndSupported /*&& ProjectFileIndex.getInstance(project).isInContent(openedFile)*/) {
             val starter = LspClientManagerImpl.LspStarterImpl()
             provider.fileOpened(project, openedFile, starter)
             starter.descriptor?.let { descriptor -> data.newClientsToStart.add(ClientToStart(providerClass, descriptor, requestStamp)) }
@@ -130,7 +130,8 @@ internal class LspOpenedFilesService(private val project: Project) {
   }
 
   /**
-   * For every running LSP server, sends `didClose` for files that are no longer open in the editor and are saved.
+   * For every running LSP server, sends `didClose` for files that are no longer open in the editor and are saved,
+   * and for files that became excluded from the project.
    * The work is coalesced across calls, so it's cheap to invoke after any event that might have made some files irrelevant.
    */
   fun scheduleClosingFilesThatAreNotOfInterest() {

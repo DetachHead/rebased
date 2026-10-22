@@ -7,70 +7,80 @@ import com.intellij.filePrediction.predictor.FilePredictionCandidate
 import com.intellij.filePrediction.predictor.FilePredictionCompressedCandidatesHolder
 import com.intellij.filePrediction.references.FilePredictionReferencesHelper
 import com.intellij.openapi.application.ApplicationManager
-import com.intellij.testFramework.builders.ModuleFixtureBuilder
-import com.intellij.testFramework.fixtures.CodeInsightFixtureTestCase
-import com.intellij.testFramework.fixtures.ModuleFixture
-import junit.framework.TestCase
+import com.intellij.platform.testFramework.junit5.codeInsight.fixture.codeInsightFixture
+import com.intellij.platform.testFramework.junit5.codeInsight.fixture.codeInsightProjectFixture
+import com.intellij.testFramework.junit5.TestApplication
+import com.intellij.testFramework.runInEdtAndWait
+import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.Test
 import java.util.concurrent.Callable
 import java.util.concurrent.TimeUnit
 
 /**
  * Smoke tests for a composite features provider, for provider specific checks use dedicated test class
  */
-class FilePredictionFeaturesTest : CodeInsightFixtureTestCase<ModuleFixtureBuilder<ModuleFixture>>() {
+@TestApplication
+class FilePredictionFeaturesTest {
+  private val projectFixture = codeInsightProjectFixture()
+  private val myFixture by codeInsightFixture(projectFixture)
 
   private fun doTestFeatures(vararg expectedFeatures: String) {
-    val prevFile = myFixture.addFileToProject("prevFile.txt", "PREVIOUS FILE").virtualFile
-    val candidate = myFixture.addFileToProject("candidate.txt", "CANDIDATE").virtualFile
+    runInEdtAndWait {
+      val prevFile = myFixture.addFileToProject("prevFile.txt", "PREVIOUS FILE").virtualFile
+      val candidate = myFixture.addFileToProject("candidate.txt", "CANDIDATE").virtualFile
 
-    val references: FileReferencesComputationResult = ApplicationManager.getApplication().executeOnPooledThread(Callable {
-      FilePredictionReferencesHelper.calculateExternalReferences(myFixture.project, prevFile)
-    }).get(1, TimeUnit.SECONDS)
-    val result = FilePredictionFeaturesCache(references.value, FilePredictionNGramFeatures(emptyMap()))
-    val actual = FilePredictionFeaturesHelper.calculateFileFeatures(myFixture.project, candidate, result, prevFile)
-    assertNotEmpty(actual.value.keys)
+      val references: FileReferencesComputationResult = ApplicationManager.getApplication().executeOnPooledThread(Callable {
+        FilePredictionReferencesHelper.calculateExternalReferences(myFixture.project, prevFile)
+      }).get(1, TimeUnit.SECONDS)
+      val result = FilePredictionFeaturesCache(references.value, FilePredictionNGramFeatures(emptyMap()))
+      val actual = FilePredictionFeaturesHelper.calculateFileFeatures(myFixture.project, candidate, result, prevFile)
+      assertTrue(actual.value.keys.isNotEmpty())
 
-    val features = actual.value.keys
-    for (expected in expectedFeatures) {
-      assertTrue("Cannot find $expected feature", features.contains(expected))
+      val features = actual.value.keys
+      for (expected in expectedFeatures) {
+        assertTrue(features.contains(expected), "Cannot find $expected feature")
+      }
     }
   }
 
   private fun doTestCandidatesEncoding() {
-    val prevFile = myFixture.addFileToProject("prevFile.txt", "PREVIOUS FILE").virtualFile
-    val candidateFile = myFixture.addFileToProject("candidate.txt", "CANDIDATE").virtualFile
+    runInEdtAndWait {
+      val prevFile = myFixture.addFileToProject("prevFile.txt", "PREVIOUS FILE").virtualFile
+      val candidateFile = myFixture.addFileToProject("candidate.txt", "CANDIDATE").virtualFile
 
-    val references: FileReferencesComputationResult = ApplicationManager.getApplication().executeOnPooledThread(Callable {
-      FilePredictionReferencesHelper.calculateExternalReferences(myFixture.project, prevFile)
-    }).get(1, TimeUnit.SECONDS)
+      val references: FileReferencesComputationResult = ApplicationManager.getApplication().executeOnPooledThread(Callable {
+        FilePredictionReferencesHelper.calculateExternalReferences(myFixture.project, prevFile)
+      }).get(1, TimeUnit.SECONDS)
 
-    val result = FilePredictionFeaturesCache(references.value, FilePredictionNGramFeatures(emptyMap()))
-    val features = FilePredictionFeaturesHelper.calculateFileFeatures(myFixture.project, candidateFile, result, prevFile)
-    assertNotEmpty(features.value.keys)
+      val result = FilePredictionFeaturesCache(references.value, FilePredictionNGramFeatures(emptyMap()))
+      val features = FilePredictionFeaturesHelper.calculateFileFeatures(myFixture.project, candidateFile, result, prevFile)
+      assertTrue(features.value.keys.isNotEmpty())
 
-    val before = FilePredictionCandidate(candidateFile.path, OPEN, features.value, 5, 10, 0.1)
-    val beforeFeaturesSize = groupFeaturesByProviders(before).values
+      val before = FilePredictionCandidate(candidateFile.path, OPEN, features.value, 5, 10, 0.1)
+      val beforeFeaturesSize = groupFeaturesByProviders(before).values
 
-    val holder = FilePredictionCompressedCandidatesHolder.create(listOf(before))
-    val afterCandidates = holder.getCandidates()
-    assertTrue(afterCandidates.size == 1)
+      val holder = FilePredictionCompressedCandidatesHolder.create(listOf(before))
+      val afterCandidates = holder.getCandidates()
+      assertTrue(afterCandidates.size == 1)
 
-    val after = afterCandidates[0]
-    val parsedFeatures = after.features.split(';')
-      .map { byProvider ->
-        byProvider.split(',').map { feature -> if (feature.isNotEmpty()) feature else null }
+      val after = afterCandidates[0]
+      val parsedFeatures = after.features.split(';')
+        .map { byProvider ->
+          byProvider.split(',').map { feature -> if (feature.isNotEmpty()) feature else null }
+        }
+      assertEquals(before.features.size, parsedFeatures.flatten().filterNotNull().size)
+
+      val afterFeaturesSize = parsedFeatures.mapNotNull {
+        val filtered = it.filterNotNull()
+        if (filtered.isNotEmpty()) filtered.size else null
       }
-    TestCase.assertEquals(before.features.size, parsedFeatures.flatten().filterNotNull().size)
+      assertEquals(beforeFeaturesSize.size, afterFeaturesSize.size, "Number of providers is different after encoding")
 
-    val afterFeaturesSize = parsedFeatures.mapNotNull {
-      val filtered = it.filterNotNull()
-      if (filtered.isNotEmpty()) filtered.size else null
+      val diff: MutableList<Int> = arrayListOf(*beforeFeaturesSize.toTypedArray())
+      diff.removeAll(afterFeaturesSize)
+      assertTrue(diff.isEmpty(), "Number of features in providers is different after encoding")
     }
-    TestCase.assertEquals("Number of providers is different after encoding", beforeFeaturesSize.size, afterFeaturesSize.size)
-
-    val diff: MutableList<Int> = arrayListOf(*beforeFeaturesSize.toTypedArray())
-    diff.removeAll(afterFeaturesSize)
-    TestCase.assertTrue("Number of features in providers is different after encoding", diff.isEmpty())
   }
 
   private fun groupFeaturesByProviders(before: FilePredictionCandidate): Map<String, Int> {
@@ -84,9 +94,10 @@ class FilePredictionFeaturesTest : CodeInsightFixtureTestCase<ModuleFixtureBuild
 
   private fun doTestFeaturesEncoding(features: Map<String, FilePredictionFeature>, codes: List<List<String>>, expected: String) {
     val actual = FilePredictionCompressedCandidatesHolder.encodeFeatures(features, codes)
-    TestCase.assertEquals("Features are not encoded correctly", expected, actual)
+    assertEquals(expected, actual, "Features are not encoded correctly")
   }
 
+  @Test
   fun `test composite feature provider is not empty`() {
     doTestFeatures(
       "core_file_type",
@@ -104,30 +115,34 @@ class FilePredictionFeaturesTest : CodeInsightFixtureTestCase<ModuleFixtureBuild
     )
   }
 
+  @Test
   fun `test number of features do not change after encoding and decoding`() {
     doTestCandidatesEncoding()
   }
 
+  @Test
   fun `test features are ordered alphabetically`() {
     val providers = FilePredictionFeaturesHelper.EP_NAME.extensionList
     for (provider in providers) {
       val features = provider.getFeatures()
       val sortedFeatures = features.sorted()
       for ((index, feature) in features.withIndex()) {
-        TestCase.assertEquals("Features should be sorted alphabetically", sortedFeatures[index], feature)
+        assertEquals(sortedFeatures[index], feature, "Features should be sorted alphabetically")
       }
     }
   }
 
+  @Test
   fun `test providers are ordered alphabetically`() {
     val featuresByProviders = FilePredictionFeaturesHelper.getFeaturesByProviders()
     val features = featuresByProviders.flatten()
     val sortedFeatures = features.sorted()
     for ((index, feature) in features.withIndex()) {
-      TestCase.assertEquals("Features should be sorted alphabetically", sortedFeatures[index], feature)
+      assertEquals(sortedFeatures[index], feature, "Features should be sorted alphabetically")
     }
   }
 
+  @Test
   fun `test boolean features are encoded correctly`() {
     val features = hashMapOf(
       "true_bool" to FilePredictionFeature.binary(true),
@@ -139,6 +154,7 @@ class FilePredictionFeaturesTest : CodeInsightFixtureTestCase<ModuleFixtureBuild
     doTestFeaturesEncoding(features, codes, "1,0")
   }
 
+  @Test
   fun `test numerical features are encoded correctly`() {
     val features = hashMapOf(
       "positive_int" to FilePredictionFeature.numerical(125),
@@ -160,6 +176,7 @@ class FilePredictionFeaturesTest : CodeInsightFixtureTestCase<ModuleFixtureBuild
     doTestFeaturesEncoding(features, codes, "125,-977,0,123.521,-12.123,0.0,-1.0,-1.0,-1.0,0.0")
   }
 
+  @Test
   fun `test file type features are encoded correctly`() {
     val features = hashMapOf(
       "file_type" to FilePredictionFeature.fileType("JAVA"),
@@ -172,6 +189,7 @@ class FilePredictionFeaturesTest : CodeInsightFixtureTestCase<ModuleFixtureBuild
     doTestFeaturesEncoding(features, codes, "JAVA,UNKNOWN,UNKNOWN")
   }
 
+  @Test
   fun `test missing features are encoded correctly`() {
     val features = hashMapOf(
       "bool" to FilePredictionFeature.binary(true),
@@ -186,6 +204,7 @@ class FilePredictionFeaturesTest : CodeInsightFixtureTestCase<ModuleFixtureBuild
     doTestFeaturesEncoding(features, codes, ",0.001,1,,-1.0,123")
   }
 
+  @Test
   fun `test features from different providers are encoded correctly`() {
     val features = hashMapOf(
       "bool" to FilePredictionFeature.binary(true),
@@ -202,6 +221,7 @@ class FilePredictionFeaturesTest : CodeInsightFixtureTestCase<ModuleFixtureBuild
     doTestFeaturesEncoding(features, codes, "0.001,-1.0;1;123,-2")
   }
 
+  @Test
   fun `test missing features from different providers are encoded correctly`() {
     val features = hashMapOf(
       "bool" to FilePredictionFeature.binary(true),
@@ -218,6 +238,7 @@ class FilePredictionFeaturesTest : CodeInsightFixtureTestCase<ModuleFixtureBuild
     doTestFeaturesEncoding(features, codes, ",0.001,,-1.0;1;123,")
   }
 
+  @Test
   fun `test missing all features from provider are encoded correctly`() {
     val features = hashMapOf(
       "bool" to FilePredictionFeature.binary(true),

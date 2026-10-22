@@ -1,12 +1,13 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.workspaceModel.core.fileIndex
 
+import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.roots.ContentIteratorEx
-import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.openapi.vfs.VfsUtil
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.openapi.vfs.VirtualFileFilter
+import com.intellij.openapi.vfs.VirtualFileManager
 import com.intellij.openapi.vfs.ex.temp.TempFileSystem
 import com.intellij.openapi.vfs.newvfs.NewVirtualFile
 import com.intellij.platform.backend.workspace.toVirtualFileUrl
@@ -37,6 +38,45 @@ internal class IterateContentUnderExcludedDirectoryTest {
   private val project: Project get() = projectExtension.project
 
   @Test
+  fun `file set filter is called without read lock when custom filter is null`(): Unit = runBlocking {
+    val contentRoot = createContentRoot("content")
+    val readStates = mutableListOf<Boolean>()
+    val processor = ContentIteratorEx { _ -> TreeNodeProcessingResult.CONTINUE }
+
+    WorkspaceFileIndexEx.getInstance(project)
+      .processContentUnderDirectory(contentRoot, processor, null) {
+        readStates.add(ApplicationManager.getApplication().isReadAccessAllowed)
+        true
+      }
+
+    assertThat(readStates).isNotEmpty()
+    assertThat(readStates).containsOnly(false)
+  }
+
+  @Test
+  fun `custom filter is called with read lock`(): Unit = runBlocking {
+    val contentRoot = createContentRoot("content")
+    val fileSetFilterReadStates = mutableListOf<Boolean>()
+    val customFilterReadStates = mutableListOf<Boolean>()
+    val processor = ContentIteratorEx { _ -> TreeNodeProcessingResult.CONTINUE }
+    val customFilter = VirtualFileFilter {
+      customFilterReadStates.add(ApplicationManager.getApplication().isReadAccessAllowed)
+      true
+    }
+
+    WorkspaceFileIndexEx.getInstance(project)
+      .processContentUnderDirectory(contentRoot, processor, customFilter) {
+        fileSetFilterReadStates.add(ApplicationManager.getApplication().isReadAccessAllowed)
+        true
+      }
+
+    assertThat(fileSetFilterReadStates).isNotEmpty()
+    assertThat(fileSetFilterReadStates).containsOnly(false)
+    assertThat(customFilterReadStates).isNotEmpty()
+    assertThat(customFilterReadStates).containsOnly(true)
+  }
+
+  @Test
   fun `content fileset under exclude by-pattern`(): Unit = runBlocking {
     // Use TempFileSystem directly to avoid VFS refresh/events: local history listens to them and may call
     // processContentUnderDirectory before this test checks that excludedByPattern has no cached VirtualFileUrl.
@@ -57,7 +97,7 @@ internal class IterateContentUnderExcludedDirectoryTest {
       }
       val m = storage.addEntity(moduleEntity)
     }
-    assertThat(project.workspaceModel.getVirtualFileUrlManager().findByUrl(excludedByPattern.url)).isNull()
+    assertThat(project.workspaceModel.getVirtualFileUrlManager().get(excludedByPattern.url)).isNull()
 
     val files = mutableSetOf<VirtualFile>()
     val processor = ContentIteratorEx { file ->
@@ -75,7 +115,7 @@ internal class IterateContentUnderExcludedDirectoryTest {
   fun `does not resolve uncached virtual files under excluded directory`(): Unit = runBlocking {
     val contentRootPath = rootDir.newDirectoryPath("content")
     val uncachedPath = rootDir.newDirectoryPath("content/excluded/uncached")
-    val contentRoot = LocalFileSystem.getInstance().refreshAndFindFileByNioFile(contentRootPath)!!
+    val contentRoot = VirtualFileManager.getInstance().refreshAndFindFileByNioPath(contentRootPath)!!
 
     val urlManager = project.workspaceModel.getVirtualFileUrlManager()
     val contentRootUrl = contentRootPath.toVirtualFileUrl(urlManager)
@@ -133,6 +173,19 @@ internal class IterateContentUnderExcludedDirectoryTest {
 
   private fun VirtualFile.toVirtualFileUrl(): VirtualFileUrl =
     this.toVirtualFileUrl(project.workspaceModel.getVirtualFileUrlManager())
+
+  private suspend fun createContentRoot(relativePath: String): VirtualFile {
+    val contentRootPath = rootDir.newDirectoryPath(relativePath)
+    val contentRoot = VirtualFileManager.getInstance().refreshAndFindFileByNioPath(contentRootPath)!!
+    val urlManager = project.workspaceModel.getVirtualFileUrlManager()
+    val contentRootUrl = contentRootPath.toVirtualFileUrl(urlManager)
+    project.workspaceModel.update("create content root") { storage ->
+      storage.addEntity(ModuleEntity("module", emptyList(), NonPersistentEntitySource) {
+        contentRoots = listOf(ContentRootEntity(contentRootUrl, emptyList(), NonPersistentEntitySource))
+      })
+    }
+    return contentRoot
+  }
 
   private fun createTempDirectory(parent: VirtualFile, relativePath: String): VirtualFile {
     val fileSystem = TempFileSystem.getInstance()

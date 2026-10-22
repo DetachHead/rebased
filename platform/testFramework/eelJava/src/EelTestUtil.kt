@@ -1,8 +1,7 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.platform.testFramework.eelJava
 
-import com.intellij.platform.eel.annotations.MultiRoutingFileSystemPath
-import com.intellij.platform.eel.annotations.NativePath
+import com.intellij.platform.util.annotations.paths.OsPath
 import org.jetbrains.annotations.ApiStatus
 import java.nio.file.Path
 
@@ -14,7 +13,7 @@ object EelTestUtil {
   fun isLocalRun(): Boolean = getFixtureEngine() == EelFixtureEngine.NONE
 
   @Deprecated("The variable EEL_FIXTURE_MOUNT is not needed anymore, use a different path in EEL_FIXTURE_ENGINE_JAVA_HOME")
-  fun getFileSystemMount(): @NativePath String {
+  fun getFileSystemMount(): @OsPath String {
     val mount = System.getenv("EEL_FIXTURE_MOUNT")
     return mount.orEmpty()
   }
@@ -24,13 +23,13 @@ object EelTestUtil {
     return EelFixtureEngine.valueOf(engine.uppercase())
   }
 
-  fun getEelFixtureEngineJavaHome(): @NativePath String {
+  fun getEelFixtureEngineJavaHome(): @OsPath String {
     val path = System.getenv("EEL_FIXTURE_ENGINE_JAVA_HOME")
                ?: throw IllegalArgumentException("The system environment variable EEL_FIXTURE_ENGINE_JAVA_HOME should be explicitly specified")
     return path
   }
 
-  fun getTeamcityWslJdkDefinition(): @MultiRoutingFileSystemPath Path? {
+  fun getTeamcityWslJdkDefinition(): Path? {
     return System.getenv("TEAMCITY_WSL_JDK_DEFINITION")?.let { Path.of(it) }
   }
 

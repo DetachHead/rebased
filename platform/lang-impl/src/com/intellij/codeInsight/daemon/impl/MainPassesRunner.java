@@ -144,16 +144,18 @@ public final class MainPassesRunner {
         });
         progress.checkCanceled(); // for data race if progress.cancel() happened before adding app listener
         AtomicInteger filesCompleted = new AtomicInteger();
-        JobLauncher.getInstance().invokeConcurrentlyUnderProgress(daemonIndicators, wrapper, pair -> {
-          progress.checkCanceled();
-          VirtualFile file = pair.getFirst();
-          wrapper.setText(ReadAction.computeBlocking(() -> ProjectUtil.calcRelativeToProjectPath(file, myProject)));
-          DaemonProgressIndicator daemonIndicator = pair.getSecond();
-          runMainPasses(file, result, daemonIndicator, minimumSeverity);
-          int completed = filesCompleted.incrementAndGet();
-          wrapper.setFraction((double)completed / files.size());
-          return true;
-        });
+        ProgressManager.getInstance().runProcess(()-> {
+          JobLauncher.getInstance().invokeConcurrentlyUnderContextProgress(daemonIndicators, pair -> {
+            progress.checkCanceled();
+            VirtualFile file = pair.getFirst();
+            wrapper.setText(ReadAction.computeBlocking(() -> ProjectUtil.calcRelativeToProjectPath(file, myProject)));
+            DaemonProgressIndicator daemonIndicator = pair.getSecond();
+            runMainPasses(file, result, daemonIndicator, minimumSeverity);
+            int completed = filesCompleted.incrementAndGet();
+            wrapper.setFraction((double)completed / files.size());
+            return true;
+          });
+        }, wrapper);
         break;
       }
       catch (ProcessCanceledException e) {
@@ -163,6 +165,7 @@ public final class MainPassesRunner {
         //retry if one of the daemonIndicators was canceled by started write action
       }
       finally {
+        daemonIndicators.forEach(daemonIndicator -> daemonIndicator.getSecond().cancel("main passes attempt finished"));
         Disposer.dispose(disposable);
       }
       WriteAction.runAndWait(() -> {}); // wait until the current write action is finished

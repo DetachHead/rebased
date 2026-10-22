@@ -7,7 +7,7 @@ import com.intellij.openapi.editor.elf.Elf
 import com.intellij.openapi.editor.event.DocumentEvent
 import com.intellij.openapi.editor.ex.DocumentSettings
 import com.intellij.openapi.editor.ex.DocumentSnapshot
-import com.intellij.openapi.editor.ex.DocumentTextPatch
+import com.intellij.openapi.editor.ex.DocumentPatch
 import com.intellij.util.concurrency.ThreadingAssertions
 import java.util.function.UnaryOperator
 import kotlin.concurrent.Volatile
@@ -75,9 +75,9 @@ internal abstract class DocumentRealMutator(
   }
 
   final override fun changeText(
-    snapshotBefore: DocumentSnapshot,
-    changeEvent: DocumentEvent,
-    patch: DocumentTextPatch,
+      snapshotBefore: DocumentSnapshot,
+      changeEvent: DocumentEvent,
+      patch: DocumentPatch,
   ): DocumentSnapshot {
     assertNotNestedModification()
     textChangeInProgress = true
@@ -89,9 +89,9 @@ internal abstract class DocumentRealMutator(
   }
 
   private fun changeAndFireText(
-    snapshotBefore: DocumentSnapshot,
-    changeEvent: DocumentEvent,
-    patch: DocumentTextPatch,
+      snapshotBefore: DocumentSnapshot,
+      changeEvent: DocumentEvent,
+      patch: DocumentPatch,
   ): DocumentSnapshot {
     if (elfBarrier()) {
       val snapshotAfterChange = dispatcher.withFiringTextUpdate(changeEvent) {
@@ -113,8 +113,8 @@ internal abstract class DocumentRealMutator(
   }
 
   private fun updateText(
-    snapshotBefore: DocumentSnapshot,
-    patch: DocumentTextPatch,
+      snapshotBefore: DocumentSnapshot,
+      patch: DocumentPatch,
   ): DocumentSnapshot {
     return updateAndGet { latest -> mergeAndPatch(snapshotBefore, latest, patch) }
   }

@@ -1,3 +1,6 @@
+*f:com.intellij.ide.TrustedFiles
+- sf:INSTANCE:com.intellij.ide.TrustedFiles
+- sf:isTrusted(com.intellij.openapi.vfs.VirtualFile,com.intellij.openapi.project.Project):Z
 com.intellij.ide.dnd.DnDEvent$DropTargetHighlightingType
 - *sf:BOTTOM:I
 *f:com.intellij.ide.settings.SettingsComponentDescriptor
@@ -43,8 +46,6 @@ a:com.intellij.openapi.fileEditor.UniqueVFilePathBuilder
 - a:getUniqueVirtualFilePathWithinOpenedFileEditors(com.intellij.openapi.vfs.VirtualFile):java.lang.String
 *:com.intellij.openapi.options.Configurable$InnerWithModifiableParent
 - a:getModifiableParents():java.util.List
-*:com.intellij.openapi.options.Configurable$NewOptions
-- com.intellij.openapi.options.Configurable
 c:com.intellij.openapi.options.ConfigurableEP
 - com.intellij.openapi.extensions.PluginAware
 - *:searchableInActions:Z

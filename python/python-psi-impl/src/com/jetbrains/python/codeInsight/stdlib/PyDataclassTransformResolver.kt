@@ -9,12 +9,15 @@ import com.jetbrains.python.codeInsight.PyDataclassFieldParameters
 import com.jetbrains.python.codeInsight.PyDataclassParameters
 import com.jetbrains.python.codeInsight.controlflow.ScopeOwner
 import com.jetbrains.python.codeInsight.dataflow.scope.ScopeUtil
+import com.jetbrains.python.codeInsight.parseDataclassParameters
 import com.jetbrains.python.psi.PyCallExpression
 import com.jetbrains.python.psi.PyClass
 import com.jetbrains.python.psi.PyDecoratable
 import com.jetbrains.python.psi.PyDecorator
+import com.jetbrains.python.psi.PyExpression
 import com.jetbrains.python.psi.PyFunction
 import com.jetbrains.python.psi.PyKeywordArgument
+import com.jetbrains.python.psi.PyNamedParameter
 import com.jetbrains.python.psi.PyQualifiedNameOwner
 import com.jetbrains.python.psi.PyTargetExpression
 import com.jetbrains.python.psi.impl.IntentionalUnstubbing
@@ -25,7 +28,12 @@ import com.jetbrains.python.psi.resolve.PyResolveUtil
 import com.jetbrains.python.psi.stubs.PyDataclassFieldStub
 import com.jetbrains.python.psi.stubs.PyDataclassTransformDecoratorStub
 import com.jetbrains.python.psi.stubs.PyDataclassStub
+import com.jetbrains.python.psi.types.PyCallableType
 import com.jetbrains.python.psi.types.PyClassType
+import com.jetbrains.python.psi.types.PyOverloadType
+import com.jetbrains.python.psi.types.PyType
+import com.jetbrains.python.psi.types.PyTypeUtil.asUnionSequence
+import com.jetbrains.python.psi.types.PyUnionType
 import com.jetbrains.python.psi.types.TypeEvalContext
 import com.jetbrains.python.pyi.PyiUtil
 import org.jetbrains.annotations.ApiStatus
@@ -51,23 +59,9 @@ object PyDataclassTransformResolver : PyDataclassResolver {
   ): PyDataclassParameters? {
     val dataclassTransformTargets = (pyClass.decoratorList?.decorators.orEmpty().asSequence()
                                        .flatMap { resolveDecoratorStubSafe(it, context) }
-                                       .flatMap {
-                                         // ResolveResult prioritisation in PyResolveUtil.resolveQualifiedNameInScope
-                                         // returns only the implementation if it's present.
-                                         if (it is PyFunction && !PyiUtil.isOverload(it, context)) {
-                                           PyiUtil.getOverloads(it, context).asSequence() + it
-                                         }
-                                         else {
-                                           sequenceOf(it)
-                                         }
-                                       }
                                      + sequence { yieldAll(pyClass.getAncestorClasses(context)) }
                                      + sequence { (pyClass.getMetaClassType(true, context) as? PyClassType)?.let { yield(it.pyClass) } })
-    val dataclassTransformDecorator: PyDecorator = dataclassTransformTargets
-      .filterIsInstance<PyDecoratable>()
-      .flatMap { it.decoratorList?.decorators.orEmpty().asSequence() }
-      .firstOrNull { it.qualifiedName?.lastComponent == PyDataclassNames.DataclassTransform.DATACLASS_TRANSFORM_NAME }
-                                                  ?: return null
+    val dataclassTransformDecorator = findDataclassTransformDecorator(dataclassTransformTargets, context) ?: return null
 
     val dataclassTransformStub: PyDataclassTransformDecoratorStub = StubAwareComputation.on(dataclassTransformDecorator)
       .withCustomStub { dtStub -> dtStub.getCustomStub(PyDataclassTransformDecoratorStub::class.java) }
@@ -119,6 +113,36 @@ object PyDataclassTransformResolver : PyDataclassResolver {
 
   override fun getInitParameterName(fieldName: String, fieldParams: PyDataclassFieldParameters?): String =
     fieldParams?.parameterAlias ?: fieldName
+
+  /** A converter field accepts the converter input type in `__init__`. */
+  override fun getInitParameterType(cls: PyClass, field: PyTargetExpression, context: TypeEvalContext): PyType? =
+    getConverterInputType(field, context) ?: super.getInitParameterType(cls, field, context)
+
+  /**
+   * The type that the `converter` of the `dataclass_transform` field [field] accepts, or `null` when [field] has no converter.
+   * The generated `__init__` and an assignment to the field use this type.
+   */
+  fun getConverterInputType(field: PyTargetExpression, context: TypeEvalContext): PyType? =
+    findConverterArgument(field, context)?.let { getInputTypeOfConverter(it, context) }
+
+  /** The type that the `converter` of the `dataclass_transform` field [field] returns, or `null` when [field] has no converter. */
+  fun getConverterReturnType(field: PyTargetExpression, context: TypeEvalContext): PyType? =
+    findConverterArgument(field, context)?.let { getReturnTypeOfConverter(it, context) }
+
+  /**
+   * The `converter` argument of the field-specifier call assigned to [field], or `null` when there is none.
+   * The AST of the file of [field] is loaded only when the field specifier declares a `converter` parameter.
+   */
+  private fun findConverterArgument(field: PyTargetExpression, context: TypeEvalContext): PyExpression? {
+    val fieldCalleeName = field.calleeName ?: return null
+    val dataclass = ScopeUtil.getScopeOwner(field) as? PyClass ?: return null
+    val parameters = parseDataclassParameters(dataclass, context)?.takeIf { it.type == PyDataclassTransformType } ?: return null
+    val fieldSpecifier = resolveFieldSpecifierCallable(dataclass, parameters, field, fieldCalleeName, context) ?: return null
+    if (fieldSpecifier.parameterList.findParameterByName(CONVERTER) == null) return null
+    return IntentionalUnstubbing.onFileOf(field) {
+      (field.findAssignedValue() as? PyCallExpression)?.getKeywordArgument(CONVERTER)
+    }
+  }
 
   /**
    * Generic `dataclass_transform` field resolution: the field's assigned value must resolve to one of the declared
@@ -201,6 +225,60 @@ object PyDataclassTransformResolver : PyDataclassResolver {
   }
 }
 
+private const val CONVERTER = "converter"
+
+/**
+ * The type that the converter [converterExpr] accepts. It is the union of the types of the first positional parameter of each signature.
+ * A class converter uses the signatures of its constructor.
+ */
+private fun getInputTypeOfConverter(converterExpr: PyExpression, context: TypeEvalContext): PyType? {
+  val converterType = context.getType(converterExpr) ?: return null
+
+  val callableTypes = buildList {
+    converterType.asUnionSequence().forEach { type ->
+      when (type) {
+        is PyClassType if type.isDefinition -> {
+          when (val constructorType = PyCallExpressionHelper.createCallableFromClass(type, PyResolveContext.defaultContext(context))) {
+            is PyCallableType -> add(constructorType)
+            is PyOverloadType -> addAll(constructorType.items.filterNotNull())
+          }
+        }
+        is PyCallableType -> add(type)
+        is PyOverloadType -> addAll(type.items.filterNotNull())
+      }
+    }
+  }
+
+  val firstArgumentTypes = callableTypes.mapNotNull { callableType ->
+    callableType.getParameters(context)
+      ?.firstOrNull { param ->
+        !param.isPositionOnlySeparator &&
+        !param.isKeywordOnlySeparator &&
+        !param.isKeywordContainer &&
+        (param.parameter as? PyNamedParameter)?.isKeywordOnly != true
+      }
+      ?.getArgumentType(context)
+  }
+
+  return firstArgumentTypes.takeIf { it.isNotEmpty() }?.let(PyUnionType::unionOrUnknown)
+}
+
+/** The type that the converter [converterExpr] returns: the union of the return types of its signatures. */
+private fun getReturnTypeOfConverter(converterExpr: PyExpression, context: TypeEvalContext): PyType? {
+  val converterType = context.getType(converterExpr) ?: return null
+
+  val returnTypes = buildList {
+    converterType.asUnionSequence().forEach { type ->
+      when (type) {
+        is PyCallableType -> type.getReturnType(context)?.let(::add)
+        is PyOverloadType -> type.items.forEach { it.getReturnType(context)?.let(::add) }
+      }
+    }
+  }
+
+  return returnTypes.takeIf { it.isNotEmpty() }?.let(PyUnionType::unionOrUnknown)
+}
+
 private fun getArgumentDefault(paramName: String, function: PyFunction): Boolean? {
   return when (function.parameterList.findParameterByName(paramName)?.defaultValueText) {
     PyNames.TRUE -> true
@@ -221,10 +299,11 @@ fun buildDataclassTransformStubAndMapping(
 ): Pair<PyDataclassStub, DataclassParameterArgumentMapping>? {
   // Process decorators that have dataclass_transform-compatible keyword arguments.
   cls.decoratorList?.decorators?.forEach { decorator ->
-    if (decorator.qualifiedName != null) {
+    val qualifiedName = decorator.qualifiedName
+    if (qualifiedName != null) {
       val decoratorKeywordArguments = decorator.arguments.filterIsInstance<PyKeywordArgument>()
       if (decoratorKeywordArguments.map { it.name }.any { it in PyDataclassNames.DataclassTransform.DECORATOR_OR_CLASS_PARAMETERS }) {
-        val builder = PyDataclassParametersBuilder(PyDataclassTransformType, decorator.qualifiedName!!)
+        val builder = PyDataclassParametersBuilder(PyDataclassTransformType, qualifiedName)
         decoratorKeywordArguments
           .filter { it.name in PyDataclassNames.DataclassTransform.DECORATOR_OR_CLASS_PARAMETERS }
           .forEach { builder.update(it.keyword, it) }
@@ -257,6 +336,21 @@ internal fun isDataclassTransformOnMetaclass(
   val metaclass = (pyClass.getMetaClassType(true, context) as? PyClassType)?.pyClass ?: return false
   return metaclass.decoratorList?.decorators?.any { it == decorator } == true
 }
+
+internal fun isDataclassTransform(decorator: PyDecorator, context: TypeEvalContext): Boolean =
+  findDataclassTransformDecorator(resolveDecoratorStubSafe(decorator, context).asSequence(), context) != null
+
+private fun findDataclassTransformDecorator(targets: Sequence<PsiElement>, context: TypeEvalContext): PyDecorator? =
+  targets
+    .flatMap {
+      // ResolveResult prioritisation in PyResolveUtil.resolveQualifiedNameInScope
+      // returns only the implementation if it's present.
+      if (it is PyFunction && !PyiUtil.isOverload(it, context)) PyiUtil.getOverloads(it, context).asSequence() + it
+      else sequenceOf(it)
+    }
+    .filterIsInstance<PyDecoratable>()
+    .flatMap { it.decoratorList?.decorators.orEmpty().asSequence() }
+    .firstOrNull { it.qualifiedName?.lastComponent == PyDataclassNames.DataclassTransform.DATACLASS_TRANSFORM_NAME }
 
 @ApiStatus.Internal
 fun resolveDecoratorStubSafe(decorator: PyDecorator, context: TypeEvalContext): List<PsiElement> {

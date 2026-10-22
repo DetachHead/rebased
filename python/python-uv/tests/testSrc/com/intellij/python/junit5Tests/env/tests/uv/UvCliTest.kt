@@ -4,11 +4,14 @@ package com.intellij.python.junit5Tests.env.tests.uv
 import com.intellij.python.junit5Tests.framework.env.PyEnvTestCase
 import com.intellij.python.junit5Tests.framework.env.PythonBinaryPath
 import com.intellij.python.pyproject.PY_PROJECT_TOML
-import com.intellij.python.pytools.runtime.PyToolRuntime
+import com.intellij.python.pytools.backend.runtime.PyToolRuntime
 import com.intellij.python.uv.backend.cli.uv.UvInitKind
+import com.intellij.python.uv.backend.cli.uv.UvInitVcs
+import com.intellij.python.uv.backend.cli.uv.UvSelfUpdateResult
 import com.intellij.python.uv.backend.runtime.uvCli
 import com.intellij.testFramework.common.timeoutRunBlocking
 import com.jetbrains.python.PythonBinary
+import com.jetbrains.python.getOrNull
 import com.jetbrains.python.getOrThrow
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
@@ -25,6 +28,7 @@ import java.nio.file.Path
 import kotlin.io.path.exists
 import kotlin.io.path.isDirectory
 import kotlin.io.path.name
+import kotlin.io.path.readText
 import kotlin.time.Duration.Companion.seconds
 
 @PyEnvTestCase
@@ -55,6 +59,21 @@ class UvCliTest {
      * yanks 5.0.
      */
     private val CYCLE_TEST_PACKAGE: PinnedPackage = PinnedPackage(name = "cowsay", version = "5.0")
+
+    /**
+     * A language level far enough below anything uv would default to that `init` naming it is unambiguous evidence the
+     * request was honoured. Never resolved to an interpreter — `uv init --python` records the constraint only.
+     */
+    private const val REQUESTED_LANGUAGE_LEVEL: String = "3.9"
+
+    /** The file `uv init` pins the project's interpreter in, alongside `requires-python`. */
+    private const val PYTHON_VERSION_FILE: String = ".python-version"
+
+    /** The repository directory whose presence the new-project wizard's checkbox is about. */
+    private const val GIT_DIR: String = ".git"
+
+    /** uv writes its own Python ignore file, but only for a repository it initialized itself. */
+    private const val GIT_IGNORE_FILE: String = ".gitignore"
   }
 
   @BeforeEach
@@ -102,6 +121,73 @@ class UvCliTest {
     assertSrcPackageLayout(packagedProjectPath)
   }
 
+  /**
+   * Covers PY-92387: `init(python = …)` must record the named version in both files uv derives a project's Python from.
+   * The new-project wizard's `uv init` is the one that writes them — the later one in `setupNewUvSdkAndEnv` is skipped
+   * because `pyproject.toml` already exists — so a version dropped here is a project pinned to something the user did
+   * not pick.
+   *
+   * [REQUESTED_LANGUAGE_LEVEL] is asserted to differ from what uv defaults to, because a request that happens to equal
+   * the default would be recorded by the broken code too, and the test would prove nothing.
+   */
+  @Test
+  fun testInitRecordsRequestedPythonVersion(@TempDir requestedVersionTempDir: Path): Unit = timeoutRunBlocking(60.seconds) {
+    // GIVEN a fresh, empty project directory
+    val projectPath = requestedVersionTempDir.toRealPath().resolve("requested_version_project")
+    Files.createDirectories(projectPath)
+    val uvCli = uvContext.globalRuntime.withWorkingDirectory(projectPath).uvCli()
+
+    val defaultVersion = uvCli.python().find(showVersion = true, system = true).getOrThrow()
+    assertFalse(defaultVersion.startsWith("$REQUESTED_LANGUAGE_LEVEL.")) {
+      "uv defaults to $defaultVersion, so requesting $REQUESTED_LANGUAGE_LEVEL no longer discriminates; pick another level"
+    }
+
+    // WHEN initializing with an explicit version. uv only records the request here — it resolves no interpreter and
+    // downloads nothing — so this holds whether or not the machine has that version.
+    uvCli.init(python = REQUESTED_LANGUAGE_LEVEL).getOrThrow()
+
+    // THEN both files uv writes name the requested version rather than uv's default
+    val pyProjectToml = projectPath.resolve(PY_PROJECT_TOML).readText()
+    val requiresPython = pyProjectToml.lineSequence().firstOrNull { it.startsWith("requires-python") }
+    assertEquals("""requires-python = ">=$REQUESTED_LANGUAGE_LEVEL"""", requiresPython) {
+      "requires-python should name the requested version, got:\n$pyProjectToml"
+    }
+    assertEquals(REQUESTED_LANGUAGE_LEVEL, projectPath.resolve(PYTHON_VERSION_FILE).readText().trim())
+  }
+
+  /**
+   * Covers PY-92436: `init(vcs = …)` must decide whether the new project gets a repository, in both directions.
+   *
+   * Both cases are asserted together because the defect was not that uv refused an instruction — it was never given
+   * one. uv's own default is `--vcs git`, so a run that omits the flag produces the same repository as [UvInitVcs.GIT]
+   * would, and a one-sided test would pass against exactly the code that created a repository the user unchecked.
+   */
+  @Test
+  fun testInitHonoursTheRequestedVcs(@TempDir vcsTempDir: Path): Unit = timeoutRunBlocking(60.seconds) {
+    val realVcsTempDir = vcsTempDir.toRealPath()
+
+    // GIVEN two fresh, empty project directories
+    val withGit = realVcsTempDir.resolve("with_git").also { Files.createDirectories(it) }
+    val withoutGit = realVcsTempDir.resolve("without_git").also { Files.createDirectories(it) }
+
+    // WHEN initializing each with the opposite request
+    uvContext.globalRuntime.withWorkingDirectory(withGit).uvCli().init(vcs = UvInitVcs.GIT).getOrThrow()
+    uvContext.globalRuntime.withWorkingDirectory(withoutGit).uvCli().init(vcs = UvInitVcs.NONE).getOrThrow()
+
+    // THEN only the one that asked for a repository has one. `.git` is what the new-project wizard's checkbox is
+    // about, and what the reporter saw appear against an unchecked box.
+    assertTrue(withGit.resolve(GIT_DIR).isDirectory()) { "init(vcs = GIT) should have created a repository" }
+    assertFalse(withoutGit.resolve(GIT_DIR).exists()) { "init(vcs = NONE) must not create a repository" }
+
+    // AND uv writes its Python `.gitignore` only alongside a repository it created, so the flag decides that too.
+    assertTrue(withGit.resolve(GIT_IGNORE_FILE).exists()) { "init(vcs = GIT) should have written uv's .gitignore" }
+    assertFalse(withoutGit.resolve(GIT_IGNORE_FILE).exists()) { "init(vcs = NONE) must not write a .gitignore" }
+
+    // AND the request changes nothing else: both are real uv projects.
+    assertTrue(withGit.resolve(PY_PROJECT_TOML).exists())
+    assertTrue(withoutGit.resolve(PY_PROJECT_TOML).exists())
+  }
+
   private fun assertSrcPackageLayout(projectPath: Path) {
     val srcDir = projectPath.resolve("src")
     assertTrue(srcDir.isDirectory()) { "expected a src/ directory after init(kind = PACKAGE)" }
@@ -140,6 +226,30 @@ class UvCliTest {
   fun testSelf() = timeoutRunBlocking {
     val version = myRuntime.uvCli().self().version(short = true).getOrThrow()
     assertTrue(version.isNotBlank())
+  }
+
+  /**
+   * `uv self update --dry-run`, which is what tells the Package Managers page whether uv has a release to move to.
+   * Asserts the flag really is a preview: uv must still report the version it started on.
+   *
+   * The outcome is not asserted: uv in this environment may be current, and a uv installed by a package manager
+   * cannot self-update at all, which uv answers with a failure. What must hold either way is that a version uv does
+   * offer is a real upgrade — never the version already installed, which would put a no-op upgrade on the page.
+   */
+  @Test
+  fun testSelfUpdateDryRun(): Unit = timeoutRunBlocking(60.seconds) {
+    val self = myRuntime.uvCli().self()
+    val before = self.version(short = true).getOrThrow().trim()
+    val update = self.update(dryRun = true).getOrNull()
+    assertEquals(before, self.version(short = true).getOrThrow().trim())
+    when (update) {
+      is UvSelfUpdateResult.VersionChange -> {
+        assertEquals(before, update.fromVersion)
+        assertNotEquals(before, update.targetVersion)
+      }
+      // uv here may be current, and one installed by a package manager cannot self-update at all (a failure).
+      UvSelfUpdateResult.NoVersionChange, null -> Unit
+    }
   }
 
   @Test

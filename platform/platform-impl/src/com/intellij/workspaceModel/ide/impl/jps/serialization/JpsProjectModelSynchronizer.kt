@@ -45,6 +45,7 @@ import com.intellij.platform.backend.workspace.impl.WorkspaceModelInternal
 import com.intellij.platform.diagnostic.telemetry.helpers.Milliseconds
 import com.intellij.platform.diagnostic.telemetry.helpers.MillisecondsMeasurer
 import com.intellij.platform.eel.provider.getEelMachine
+import com.intellij.platform.isProjectOpenWithoutModule
 import com.intellij.platform.workspace.jps.CustomModuleEntitySource
 import com.intellij.platform.workspace.jps.JpsFileDependentEntitySource
 import com.intellij.platform.workspace.jps.JpsFileEntitySource
@@ -172,6 +173,7 @@ class JpsProjectModelSynchronizer(private val project: Project) : Disposable {
     }
 
     fileContentReader.clearCache()
+    removeModuleEntitiesIfOpenWithoutModule(reloadingResult.builder, reloadingResult.unloadedEntityBuilder, reloadingResult.orphanageBuilder)
     LOG.debugValues("Changed entity sources", reloadingResult.affectedSources)
 
     if (reloadingResult.affectedSources.isEmpty() &&
@@ -435,14 +437,23 @@ class JpsProjectModelSynchronizer(private val project: Project) : Disposable {
       // If there is no .idea nor .ipr in the selected directory, then we should not get here.
       val basePath = project.basePath
       if (basePath != null) {
-        createProjectFromFolder(builder, "untrusted", workspaceModel.virtualFileManager.getOrCreateFromUrl("file://$basePath"))
+        createProjectFromFolder(builder, "untrusted", workspaceModel.virtualFileManager.storeAndGet("file://$basePath"))
       }
       LoadedProjectEntities(builder, orphanage, unloadedEntitiesBuilder, emptyList())
     }
 
+    removeModuleEntitiesIfOpenWithoutModule(builder, orphanage, unloadedEntitiesBuilder)
     jpsLoadProjectToEmptyStorageTimeMs.addElapsedTime(start)
     WorkspaceModelFusLogger.logLoadingJpsFromIml(Milliseconds.now().minus(start).value)
     return loadedProjectEntities
+  }
+
+  /** With [isProjectOpenWithoutModule], JPS files never contribute module entities to the model. */
+  private fun removeModuleEntitiesIfOpenWithoutModule(vararg builders: MutableEntityStorage) {
+    if (!isProjectOpenWithoutModule()) return
+    builders.forEach { builder ->
+      builder.entities(ModuleEntity::class.java).toList().forEach(builder::removeEntity)
+    }
   }
 
   @Suppress("SameParameterValue")

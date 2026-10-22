@@ -247,6 +247,10 @@ value class GraphScope @PublishedApi internal constructor(
   val ProductNode.allowsMissing: EdgeInvoker<ContentModuleNode>
     get() = EdgeInvoker.Companion.create(EDGE_ALLOWS_MISSING, id)
 
+  /** Product → Target (a product implementation module, loaded by the core classloader) */
+  val ProductNode.implementationTargets: EdgeInvoker<TargetNode>
+    get() = EdgeInvoker.Companion.create(EDGE_PRODUCT_IMPLEMENTATION_TARGET, id)
+
   // endregion
 
   // region Forward Edge Properties (PluginNode)
@@ -551,9 +555,6 @@ value class GraphScope @PublishedApi internal constructor(
 
   /** Plugin: does this node have a main target backing it? */
   val PluginNode.hasMainTarget: Boolean get() = store.successorCount(EDGE_MAIN_TARGET, id) > 0
-
-  /** Whether this module is a test descriptor (._test suffix) */
-  val ContentModuleNode.isTestDescriptor: Boolean get() = store.isTestDescriptor(id)
 
   /** Whether this module has a descriptor on disk */
   val ContentModuleNode.hasDescriptor: Boolean get() = store.hasDescriptor(id)

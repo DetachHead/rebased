@@ -1,6 +1,10 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
 load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
+### auto-generated section `dev intellij.platform.execution.impl.frontend` start
+content_module_jar(module = ":frontend")
+### auto-generated section `dev intellij.platform.execution.impl.frontend` end
+
 ### auto-generated section `build intellij.platform.execution.impl.frontend` start
 jvm_library(
     name = "frontend",
@@ -34,6 +38,8 @@ jvm_library(
         "//platform/ide-core",
         "//platform/editor-ui-api:editor-ui",
         "//platform/execution",
+        "//platform/consoleView",
+        "//platform/consoleView/impl",
         "//platform/core-ui",
         "//platform/lang-impl",
         "//platform/util/coroutines",
@@ -41,8 +47,6 @@ jvm_library(
         "//platform/lang-api:lang",
     ],
 )
-
-content_module_jar(module = ":frontend")
 
 jvm_library(
     name = "frontend_test_lib",
@@ -69,6 +73,8 @@ jvm_library(
         "//platform/ide-core:ide-core_test_lib",
         "//platform/editor-ui-api:editor-ui_test_lib",
         "//platform/execution:execution_test_lib",
+        "//platform/consoleView:consoleView_test_lib",
+        "//platform/consoleView/impl:impl_test_lib",
         "//platform/core-ui:core-ui_test_lib",
         "//platform/lang-impl:lang-impl_test_lib",
         "//platform/util/coroutines:coroutines_test_lib",
@@ -83,7 +89,6 @@ exports_files(
     [
         "intellij.platform.execution.impl.frontend.iml",
         "resources/intellij.platform.execution.impl.frontend.xml",
-        "module-content.yaml",
     ],
     visibility = ["//visibility:public"],
 )

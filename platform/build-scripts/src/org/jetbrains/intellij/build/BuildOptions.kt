@@ -34,8 +34,12 @@ data class BuildOptions(
   @JvmField val buildDateInSeconds: Long = computeBuildDateInSeconds(),
   @Internal @JvmField val printFreeSpace: Boolean = true,
   @Internal @JvmField val validateImplicitPlatformModule: Boolean = true,
-  @JvmField var skipDependencySetup: Boolean = false,
-  @JvmField var skipCheckOutputOfPluginModules: Boolean = false,
+  /**
+   * If `true`, the plugin builder checks that the `intellij.java.guiForms.rt` output holds no GUI designer runtime class.
+   * The IDE compile setting "Automatically copy form runtime classes" puts them there, so a dev build runs the check, and
+   * a production build does not.
+   */
+  @JvmField var checkOutputOfPluginModules: Boolean = false,
 
   /**
    * If `true`, the build is running in the 'Development mode', i.e., its artifacts aren't supposed to be used in production.
@@ -114,8 +118,6 @@ data class BuildOptions(
 
   @JvmField internal val validateModuleStructure: Boolean = getBooleanProperty(VALIDATE_MODULES_STRUCTURE_PROPERTY),
 
-  @JvmField internal val isUnpackedDist: Boolean = false,
-
   /**
    * If `true`, the assembled distribution is a disposable dev build that is only ever launched - from a run
    * configuration, from a test lane, from a Bazel output - and never shipped.
@@ -125,8 +127,9 @@ data class BuildOptions(
    * the single owner of the dev overrides, so both dev paths - the in-process assembly and the one nested in a real
    * build - agree on it.
    *
-   * The one thing it currently decides is the build date stamped into `ApplicationInfo.xml`: a dev distribution stamps
-   * none, so that the IDE resolves its build time at startup and no EAP expiration period can run out on it.
+   * It decides two things. The build date stamped into `ApplicationInfo.xml`: a dev distribution stamps none, so that
+   * the IDE resolves its build time at startup and no EAP expiration period can run out on it. And the layout callbacks
+   * of a plugin: a dev distribution skips a callback whose `DevPluginLayoutAssetSpec.runsInClassicDev` is false.
    */
   @JvmField internal val isDevDistribution: Boolean = false,
 
@@ -169,7 +172,7 @@ data class BuildOptions(
      */
     const val OS_NONE: String = "none"
 
-    /** Build actual searchableOptions.xml file. If skipped, the (possibly outdated) source version of the file will be used. */
+    /** Build the searchable options index of the `Settings` dialog. If the step is skipped, the distribution has no index. */
     const val SEARCHABLE_OPTIONS_INDEX_STEP: String = "search_index"
     const val BROKEN_PLUGINS_LIST_STEP: String = "broken_plugins_list"
     const val PROVIDED_MODULES_LIST_STEP: String = "provided_modules_list"
@@ -572,7 +575,9 @@ data class BuildOptions(
   var storeGitRevision: Boolean = getBooleanProperty("intellij.build.store.git.revision", true)
 
   /**
-   * Specifies an additional list of compatible plugin names which should not be built, see [org.jetbrains.intellij.build.productLayout.ProductModulesLayout.compatiblePluginsToIgnore]
+   * The additional main modules of the compatible plugins that the build must not build.
+   *
+   * @see org.jetbrains.intellij.build.productLayout.ProductModulesLayout.compatiblePluginsToIgnore
    */
   var compatiblePluginsToIgnore: Set<String> = getSetProperty("intellij.build.compatible.plugins.to.ignore")
 

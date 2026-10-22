@@ -80,6 +80,17 @@ internal class GitEelExecutableDetectionHelper private constructor(private val s
       return tryGetEelDescriptor(project, gitDirectory)?.toEelApiBlocking()
     }
 
+    /**
+     * @return `true` if git commands for [project] (or [gitDirectory]) run through Eel on a machine other than
+     * the one the IDE runs on, for example a Docker dev container. An application-wide setting, such as the
+     * saved "Path to Git executable", names a path on the IDE's own machine, so it must not apply here.
+     */
+    @JvmStatic
+    fun isNonLocalEelEnvironment(project: Project?, gitDirectory: Path?): Boolean {
+      val descriptor = tryGetEelDescriptor(project, gitDirectory)
+      return descriptor != null && descriptor !== LocalEelDescriptor
+    }
+
     @JvmStatic
     fun tryGetEelDescriptor(project: Project?, gitDirectory: Path?): EelDescriptor? {
       val canUseEelForLocal = useEelForLocalProjects()
@@ -88,7 +99,8 @@ internal class GitEelExecutableDetectionHelper private constructor(private val s
       return if (!canUseEelForLocal && !canUseEelForOther && !canUseEelForWsl) {
         null
       } else {
-        val descriptor: EelDescriptor? = project?.getEelDescriptor() ?: gitDirectory?.getEelDescriptor()
+        val descriptor: EelDescriptor? =
+          project?.takeIf { !it.isDefault }?.getEelDescriptor() ?: gitDirectory?.getEelDescriptor()
         val shouldUse = when {
           descriptor === LocalEelDescriptor -> canUseEelForLocal
           descriptor is WslEelDescriptor -> canUseEelForWsl

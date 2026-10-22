@@ -25,19 +25,21 @@
     <module name="intellij.libraries.opentelemetry"/>
     <module name="intellij.libraries.opentelemetry.semconv"/>
     <module name="intellij.libraries.oro.matcher"/>
-    <module name="intellij.libraries.pty4j"/>
     <module name="intellij.libraries.rd.core"/>
     <module name="intellij.libraries.rd.swing"/>
-    <module name="intellij.libraries.stream"/>
-    <module name="intellij.libraries.swingx"/>
     <module name="intellij.libraries.velocity"/>
     <module name="intellij.libraries.xz"/>
     <module name="intellij.platform.analysis"/>
     <module name="intellij.platform.analysis.impl"/>
+    <module name="intellij.platform.backend.observation"/>
+    <module name="intellij.platform.backend.workspace"/>
     <module name="intellij.platform.builtInServer"/>
     <module name="intellij.platform.codeStyle"/>
     <module name="intellij.platform.codeStyle.impl"/>
+    <module name="intellij.platform.concurrency"/>
     <module name="intellij.platform.configurationStore.impl"/>
+    <module name="intellij.platform.consoleView"/>
+    <module name="intellij.platform.consoleView.impl"/>
     <module name="intellij.platform.core"/>
     <module name="intellij.platform.core.impl"/>
     <module name="intellij.platform.core.ui"/>
@@ -47,17 +49,22 @@
     <module name="intellij.platform.diff.impl"/>
     <module name="intellij.platform.editor.ex"/>
     <module name="intellij.platform.editor.ui"/>
-    <module name="intellij.platform.execution"/>
-    <module name="intellij.platform.execution.impl"/>
+    <module name="intellij.platform.eel.provider"/>
     <module name="intellij.platform.experiment"/>
-    <module name="intellij.platform.feedback"/>
+    <module name="intellij.platform.foldings"/>
+    <module name="intellij.platform.ide.codeinsight.inline"/>
     <module name="intellij.platform.ide.concurrency"/>
     <module name="intellij.platform.ide.core"/>
     <module name="intellij.platform.ide.core.impl"/>
     <module name="intellij.platform.ide.core.plugins"/>
     <module name="intellij.platform.ide.impl"/>
+    <module name="intellij.platform.ide.observable"/>
     <module name="intellij.platform.ide.progress"/>
+    <module name="intellij.platform.ide.rpc"/>
+    <module name="intellij.platform.ide.ui"/>
+    <module name="intellij.platform.ide.util.io.impl"/>
     <module name="intellij.platform.indexing"/>
+    <module name="intellij.platform.indexing.impl"/>
     <module name="intellij.platform.kernel"/>
     <module name="intellij.platform.lang"/>
     <module name="intellij.platform.lang.core"/>
@@ -74,7 +81,9 @@
     <module name="intellij.platform.runtime.product"/>
     <module name="intellij.platform.serviceContainer"/>
     <module name="intellij.platform.statistics"/>
+    <module name="intellij.platform.syntax"/>
     <module name="intellij.platform.syntax.psi"/>
+    <module name="intellij.platform.syntax.util"/>
     <module name="intellij.platform.testIntegration"/>
     <module name="intellij.platform.testIntegration.ui"/>
     <module name="intellij.platform.usageView"/>
@@ -82,10 +91,14 @@
     <module name="intellij.platform.util.coroutines"/>
     <module name="intellij.platform.util.diff"/>
     <module name="intellij.platform.util.ex"/>
+    <module name="intellij.platform.util.io.storages"/>
+    <module name="intellij.platform.util.progress"/>
+    <module name="intellij.platform.util.text.matching"/>
     <module name="intellij.platform.util.ui"/>
     <module name="intellij.platform.welcomeScreen"/>
     <module name="intellij.platform.welcomeScreen.impl"/>
     <module name="intellij.platform.workspace.jps"/>
+    <module name="intellij.platform.workspace.storage"/>
   </dependencies>
   <!-- endregion -->
 
@@ -192,7 +205,6 @@
     <extensionPoint qualifiedName="com.intellij.documentationCssProvider" interface="com.intellij.codeInsight.documentation.DocumentationCssProvider" dynamic="true"/>
     <extensionPoint qualifiedName="com.intellij.jbProtocolRevisionResolver" interface="com.intellij.navigation.JBProtocolRevisionResolver" dynamic="true"/>
     <extensionPoint qualifiedName="com.intellij.findInDirectoryScopeProvider" interface="com.intellij.find.impl.FindInDirectoryScopeProvider" dynamic="true"/>
-    <extensionPoint qualifiedName="com.intellij.projectTaskManagerListener" interface="com.intellij.task.impl.ProjectTaskManagerListenerExtensionPoint" dynamic="true" />
     <extensionPoint qualifiedName="com.intellij.usagePresentationProvider"
                     interface="com.intellij.find.impl.UsagePresentationProvider"
                     dynamic="true"/>
@@ -225,11 +237,6 @@
     <extensionPoint qualifiedName="com.intellij.searchEverywhereMlContributorReplacement" interface="com.intellij.ide.actions.searcheverywhere.SearchEverywhereMlContributorReplacement" dynamic="true"/>
     <extensionPoint qualifiedName="com.intellij.searchEverywhereReorderingService" interface="com.intellij.ide.actions.searcheverywhere.SearchEverywhereReorderingService" dynamic="true"/>
     <extensionPoint qualifiedName="com.intellij.searchEverywherePreviewPrimaryUsageFinder" interface="com.intellij.ide.actions.searcheverywhere.SearchEverywherePreviewPrimaryUsageFinder" dynamic="true" />
-    <extensionPoint qualifiedName="com.intellij.searchEverywhere.manager" interface="com.intellij.ide.actions.SearchEverywhereManagerFactory" dynamic="true" />
-    <extensionPoint qualifiedName="com.intellij.runAnything.executionProvider" interface="com.intellij.ide.actions.runAnything.activity.RunAnythingProvider" dynamic="true"/>
-    <extensionPoint qualifiedName="com.intellij.runAnything.commandHandler" interface="com.intellij.ide.actions.runAnything.handlers.RunAnythingCommandHandler" dynamic="true"/>
-    <extensionPoint qualifiedName="com.intellij.runAnything.helpGroup" interface="com.intellij.ide.actions.runAnything.groups.RunAnythingHelpGroup" dynamic="true"/>
-    <extensionPoint qualifiedName="com.intellij.runAnything.commandCustomizer" interface="com.intellij.ide.actions.runAnything.commands.RunAnythingCommandCustomizer" dynamic="true"/>
     <extensionPoint qualifiedName="com.intellij.elementSignatureProvider" interface="com.intellij.codeInsight.folding.impl.ElementSignatureProvider" dynamic="true"/>
     <extensionPoint qualifiedName="com.intellij.highlightUsagesHandlerFactory" interface="com.intellij.codeInsight.highlighting.HighlightUsagesHandlerFactory" dynamic="true"/>
     <extensionPoint qualifiedName="com.intellij.heavyBracesHighlighter" interface="com.intellij.codeInsight.highlighting.HeavyBraceHighlighter"/>
@@ -293,6 +300,7 @@
     <extensionPoint qualifiedName="com.intellij.templateGroupHintProvider" interface="com.intellij.codeInsight.template.TemplateGroupHintProvider" dynamic="true"/>
     <extensionPoint qualifiedName="com.intellij.createFromTemplateActionReplacer" interface="com.intellij.ide.fileTemplates.CreateFromTemplateActionReplacer" dynamic="true"/>
     <extensionPoint qualifiedName="com.intellij.projectTemplateFileProcessor" interface="com.intellij.ide.util.projectWizard.ProjectTemplateFileProcessor" dynamic="true"/>
+    <extensionPoint qualifiedName="com.intellij.templateModuleBuilderPostprocessing" interface="com.intellij.platform.templates.TemplateModuleBuilderPostprocessing" dynamic="true"/>
     <extensionPoint qualifiedName="com.intellij.optionsApplicabilityFilter" interface="com.intellij.application.options.OptionsApplicabilityFilter" dynamic="true"/>
     <extensionPoint qualifiedName="com.intellij.targetElementUtilExtender" interface="com.intellij.codeInsight.TargetElementUtilExtender" dynamic="true"/>
     <extensionPoint qualifiedName="com.intellij.uiDebuggerExtension" interface="com.intellij.ui.debugger.UiDebuggerExtension"/>
@@ -308,14 +316,11 @@
                     dynamic="true"/>
     <extensionPoint qualifiedName="com.intellij.workspaceModel.optionalExclusionContributor" dynamic="true"
                     interface="com.intellij.workspaceModel.ide.OptionalExclusionContributor"/>
-    <extensionPoint qualifiedName="com.intellij.analyzeStacktraceRunContentProvider" interface="com.intellij.unscramble.StacktraceTabContentProvider" dynamic="true"/>
     <extensionPoint qualifiedName="com.intellij.stacktrace.fold" beanClass="com.intellij.execution.console.CustomizableConsoleFoldingBean" dynamic="true"/>
     <extensionPoint qualifiedName="com.intellij.stacktrace.fold.line.modifier" interface="com.intellij.execution.console.ConsoleLineModifier" dynamic="true"/>
     <extensionPoint qualifiedName="com.intellij.project.converterProvider" interface="com.intellij.conversion.ConverterProvider" dynamic="true"/>
     <extensionPoint qualifiedName="com.intellij.moduleRendererFactory" interface="com.intellij.ide.util.ModuleRendererFactory" dynamic="true"/>
     <extensionPoint qualifiedName="com.intellij.projectStructure.sourceRootEditHandler" interface="com.intellij.openapi.roots.ui.configuration.ModuleSourceRootEditHandler" dynamic="true"/>
-    <extensionPoint qualifiedName="com.intellij.toolsProvider" interface="com.intellij.tools.ToolsProvider" dynamic="true"/>
-    <extensionPoint qualifiedName="com.intellij.toolsCustomizer" interface="com.intellij.tools.ToolsCustomizer" dynamic="true"/>
     <extensionPoint qualifiedName="com.intellij.goto.nonProjectScopeDisabler" beanClass="com.intellij.ide.actions.NonProjectScopeDisablerEP" dynamic="true"/>
     <extensionPoint qualifiedName="com.intellij.searchEverywhereClassifier" interface="com.intellij.ide.actions.SearchEverywhereClassifier" dynamic="true"/>
     <extensionPoint qualifiedName="com.intellij.gotoFileCustomizer" interface="com.intellij.ide.util.gotoByName.GotoFileCustomizer" dynamic="true"/>
@@ -490,8 +495,17 @@
   </extensionPoints>
 
   <extensions defaultExtensionNs="com.intellij">
+    <statistics.gotItTooltipAllowlist prefix="rerun.tests"/>
+    <directorySearchEngine implementation="com.intellij.find.impl.DefaultDirectorySearchEngine"/>
+
+    <directorySearchEngine implementation="com.intellij.find.impl.EelDirectorySearchEngine"/>
+    <registryKey defaultValue="false" key="find.in.files.eel.remote.search" restartRequired="false"
+                 description="Search remote directories through EEL in Find in Files"/>
+
     <applicationService serviceInterface="com.intellij.ide.RecentProjectsManager" open="true"
                         serviceImplementation="com.intellij.ide.AttachedModuleAwareRecentProjectsManager" preload="notHeadless"/>
+    <applicationService serviceInterface="com.intellij.ide.actions.NewProjectEntryPoint"
+                        serviceImplementation="com.intellij.ide.actions.NewProjectEntryPointImpl"/>
     <applicationService serviceInterface="com.intellij.openapi.module.ModuleTypeManager" open="true"
                         serviceImplementation="com.intellij.openapi.module.impl.ModuleTypeManagerImpl"/>
     <canBeSelectedInProjectPaneProvider
@@ -524,9 +538,7 @@
     <projectSettings service="com.intellij.codeInsight.actions.onSave.CodeCleanupOnSaveOptions"/>
     <projectSettings service="com.intellij.codeInsight.actions.onSave.OptimizeImportsOnSaveOptions"/>
     <projectSettings service="com.intellij.codeInsight.actions.onSave.FormatOnSaveOptions"/>
-    <projectSettings service="com.intellij.tools.ToolsProjectConfig"/>
     <projectSettings service="com.intellij.codeInspection.ex.ProjectInspectionProfilesVisibleTreeState"/>
-    <projectSettings service="com.intellij.ide.actions.runAnything.RunAnythingCache"/>
     <projectSettings service="com.intellij.slicer.SliceManager"/>
     <projectSettings service="com.intellij.slicer.SliceToolwindowSettings"/>
     <projectSettings service="com.intellij.psi.templateLanguages.TemplateDataLanguageMappings"/>
@@ -539,7 +551,6 @@
     <projectSettings service="com.intellij.ide.util.gotoByName.GotoFileConfiguration"/>
     <projectSettings service="com.intellij.codeInsight.hints.codeVision.CodeVisionProjectSettings"/>
     <applicationSettings service="com.intellij.find.actions.SearchOptionsService"/>
-    <projectSettings service="com.intellij.ide.actions.runAnything.RunAnythingContextRecentDirectoryCache"/>
     <projectSettings service="com.intellij.find.findInProject.FindInProjectScopeService"/>
     <projectSettings service="com.intellij.refactoring.rename.RenameScopeService"/>
     <applicationSettings service="com.intellij.refactoring.rename.impl.TextOptionsService"/>
@@ -549,6 +560,8 @@
     <projectSettings service="com.intellij.ui.tabs.PerTeamFileColorModelStorageManager"/>
     <applicationSettings service="com.intellij.codeInsight.hints.chain.DeclarativeCallChainInlaySettings"/>
     <registryKey key="hyperlink.ide.decompiler.open.file" defaultValue="true" description="Load binary files in hyperlink on background thread"/>
+    <registryKey key="build.console.max.inlays" defaultValue="100"
+                 description="Maximum number of Swing component inlays in the single build console. Extra messages are printed as plain text."/>
     <registryKey key="ide.project.view.skip.loading.children.for.remote.directories" defaultValue="true"
                  description="Prevents Project View from loading directory children eagerly for directories in remote file systems."/>
     <registryKey key="project.structure.source.roots.editable.limit" defaultValue="20"
@@ -595,12 +608,10 @@
     <statistics.counterUsagesCollector
       implementationClass="com.intellij.ide.actions.searcheverywhere.SearchEverywhereFiltersStatisticsCollector"/>
     <statistics.counterUsagesCollector implementationClass="com.intellij.codeInsight.template.impl.LiveTemplateRunLogger"/>
-    <statistics.counterUsagesCollector implementationClass="com.intellij.task.impl.ProjectTaskManagerStatisticsCollector"/>
     <statistics.counterUsagesCollector implementationClass="com.intellij.ide.util.projectWizard.LightweightNewProjectWizardCollector" />
     <postStartupActivity implementation="com.intellij.ide.actions.PowerSaveModeNotifier"/>
     <postStartupActivity implementation="com.intellij.ide.actions.EssentialHighlightingNotifier"/>
     <applicationActivity implementation="com.intellij.codeInsight.editorActions.TypedHandlerPreloader"/>
-    <postStartupActivity implementation="com.intellij.openapi.roots.impl.ScanningCancellationMonitorStarter"/>
     <search.projectOptionsTopHitProvider implementation="com.intellij.ui.tabs.FileColorsOptionsTopHitProvider"/>
     <jbProtocolCommand implementation="com.intellij.navigation.JBProtocolNavigateCommand"/>
     <intentionAction>
@@ -629,7 +640,6 @@
     <projectService serviceImplementation="com.intellij.openapi.projectRoots.impl.jdkDownloader.JdkAutoHintService"
                     configurationSchemaKey="java"
     />
-    <backgroundPostStartupActivity implementation="com.intellij.openapi.projectRoots.impl.jdkDownloader.JdkUpdaterStartup"/>
     <settingsEntryPointActionProvider
       implementation="com.intellij.openapi.projectRoots.impl.jdkDownloader.JdkSettingsActionRegistryActionProvider"/>
     <applicationService serviceImplementation="com.intellij.codeInsight.actions.onSave.FormatOnSavePresentationService" open="true"/>
@@ -662,7 +672,6 @@
     <appStarter id="traverseUI" implementation="com.intellij.ide.ui.search.TraverseUIStarter" internal="true"/>
     <!-- disabled in rebased -->
     <!--<appStarter id="format" implementation="com.intellij.formatting.commandLine.FormatterStarter" bundle="messages.CodeStyleBundle" key="formatter.help"/>-->
-    <appStarter id="ideScript" implementation="com.intellij.ide.script.IdeScriptStarter" internal="true"/>
     <applicationService serviceInterface="com.intellij.model.psi.PsiSymbolService"
                         serviceImplementation="com.intellij.model.psi.impl.PsiSymbolServiceImpl"/>
     <applicationService serviceInterface="com.intellij.navigation.SymbolNavigationService"
@@ -676,7 +685,6 @@
     <applicationService serviceInterface="com.intellij.util.indexing.FileBasedIndex"
                         serviceImplementation="com.intellij.util.indexing.FileBasedIndexImpl" preload="notLightEdit"/>
     <vfs.asyncListener implementation="com.intellij.util.indexing.events.ChangedFilesCollector"/>
-    <applicationInitializedListener implementation="com.intellij.util.indexing.FileBasedIndexLoader" order="first"/>
     <applicationService serviceImplementation="com.intellij.util.indexing.diagnostic.IndexDiagnosticDumper" preload="notLightEdit"/>
     <applicationService serviceInterface="com.intellij.psi.stubs.StubIndex"
                         serviceImplementation="com.intellij.psi.stubs.StubIndexImpl" preload="notLightEdit"/>
@@ -704,9 +712,6 @@
     <applicationService serviceInterface="com.intellij.injected.editor.InjectionEditService"
                         serviceImplementation="com.intellij.codeInsight.intention.impl.InjectionEditServiceImpl"/>
     <applicationService serviceImplementation="com.intellij.codeInsight.actions.AbstractLayoutCodeProcessorWriteInterceptor" open="true"/>
-    <requiredForSmartModeStartupActivity implementation="com.intellij.util.indexing.ProjectFileBasedIndexStartupActivity" order="first"
-                                         id="projectIndexStartup"/>
-    <requiredForSmartModeStartupActivity implementation="com.intellij.util.indexing.DumbModeWhileScanningSubscriber"/>
     <initProjectActivity id="vfsStartup" implementation="com.intellij.psi.impl.file.impl.PsiVfsInitProjectActivity" order="first"/>
     <projectService serviceInterface="com.intellij.codeInsight.multiverse.ProjectModelContextBridge"
                     serviceImplementation="com.intellij.codeInsight.multiverse.ProjectModelContextBridgeImpl"/>
@@ -714,25 +719,23 @@
                         serviceImplementation="com.intellij.util.indexing.EntityIndexingServiceImpl"/>
     <projectService serviceInterface="com.intellij.util.indexing.IndexingIteratorsProvider"
                     serviceImplementation="com.intellij.util.indexing.roots.IndexingIteratorsProviderImpl"/>
-    <postStartupActivity implementation="com.intellij.util.indexing.projectFilter.ProjectIndexableFilesFilterHealthCheckStarter"/>
     <projectService serviceImplementation="com.intellij.util.indexing.projectFilter.ProjectIndexableFilesFilterHealthCheck"/>
     <applicationService serviceImplementation="com.intellij.packageDependencies.DependencyUISettings"/>
     <applicationService serviceImplementation="com.intellij.refactoring.rename.RenameHandlerRegistry" open="true"/>
-    <actionConfigurationCustomizer implementation="com.intellij.tools.ToolManagerActionTuner"/>
     <projectService serviceInterface="com.intellij.ide.fileTemplates.FileTemplateManager"
                     serviceImplementation="com.intellij.ide.fileTemplates.impl.FileTemplateManagerImpl"/>
     <projectService serviceImplementation="com.intellij.ide.fileTemplates.impl.FileTemplateSettings"/>
     <applicationService serviceImplementation="com.intellij.ide.fileTemplates.impl.ExportableFileTemplateSettings"/>
     <applicationService serviceInterface="com.intellij.refactoring.RefactoringActionHandlerFactory"
                         serviceImplementation="com.intellij.refactoring.openapi.impl.RefactoringActionHandlerFactoryImpl"/>
-    <applicationService serviceInterface="com.intellij.execution.filters.TextConsoleBuilderFactory"
-                        serviceImplementation="com.intellij.execution.filters.TextConsoleBuilderFactoryImpl"/>
     <applicationService serviceInterface="com.intellij.execution.filters.HyperlinkInfoFactory"
                         serviceImplementation="com.intellij.execution.filters.impl.HyperlinkInfoFactoryImpl"/>
     <applicationService serviceImplementation="com.intellij.codeInsight.template.impl.TemplateSettings"/>
     <applicationService serviceImplementation="com.intellij.codeEditor.printing.PrintSettings"/>
     <applicationService serviceInterface="com.intellij.codeInsight.daemon.LineMarkerSettings"
                         serviceImplementation="com.intellij.codeInsight.daemon.impl.LineMarkerSettingsImpl"/>
+    <applicationService serviceInterface="com.intellij.codeInsight.daemon.LineMarkersAccessor"
+                        serviceImplementation="com.intellij.codeInsight.daemon.impl.LineMarkersAccessorImpl"/>
     <applicationService serviceImplementation="com.intellij.codeInsight.actions.VcsFacade" open="true"/>
     <applicationService serviceImplementation="com.intellij.codeInsight.actions.FormatChangedTextUtil"/>
     <projectService serviceInterface="com.intellij.psi.PsiDocumentManager"
@@ -856,9 +859,28 @@
                         serviceImplementation="com.intellij.ide.scratch.ScratchFileServiceImpl"/>
     <treeStructureProvider implementation="com.intellij.ide.scratch.ScratchTreeStructureProvider" order="last"/>
     <uiDataRule implementation="com.intellij.ide.scratch.ScratchTreeStructureProvider$DataRule"/>
-    <postStartupActivity implementation="com.intellij.ide.scratch.workspace.ScratchWorkspaceStartupActivity"/>
     <workspaceModel.fileIndexContributor implementation="com.intellij.ide.scratch.workspace.ScratchRootsEntityWorkspaceFileIndexContributor"/>
     <workspaceModel.entityLifecycleSupporter implementation="com.intellij.ide.scratch.workspace.ScratchEntityLifecycleSupporter"/>
+
+    <registryKey key="ide.analysisignore.file.enabled" defaultValue="false" restartRequired="true"
+                 description="Enable the '.analysisignore' file: a list of files and directories excluded from the IDE analysis."/>
+    <workspaceModel.fileIndexContributor implementation="com.intellij.ide.analysisignore.AnalysisIgnoreWorkspaceFileIndexContributor"/>
+    <projectFileScanner implementation="com.intellij.ide.analysisignore.AnalysisIgnoreIndexableFileScanner"/>
+    <vfs.asyncListenerBackgroundable implementation="com.intellij.ide.analysisignore.AnalysisIgnoreVfsListener"/>
+    <editorFactoryDocumentListener implementation="com.intellij.ide.analysisignore.AnalysisIgnoreDocumentListener"/>
+    <fileType name="AnalysisIgnore" language="AnalysisIgnore" fileNames=".analysisignore" fieldName="INSTANCE"
+              implementationClass="com.intellij.ide.analysisignore.lang.AnalysisIgnoreFileType"/>
+    <lang.parserDefinition language="AnalysisIgnore"
+                           implementationClass="com.intellij.ide.analysisignore.lang.AnalysisIgnoreParserDefinition"/>
+    <lang.syntaxHighlighterFactory language="AnalysisIgnore"
+                                   implementationClass="com.intellij.ide.analysisignore.lang.AnalysisIgnoreSyntaxHighlighterFactory"/>
+    <lang.commenter language="AnalysisIgnore" implementationClass="com.intellij.ide.analysisignore.lang.AnalysisIgnoreCommenter"/>
+    <editorNotificationProvider implementation="com.intellij.ide.analysisignore.AnalysisIgnoreEditorNotificationProvider"/>
+    <statistics.projectUsagesCollector implementation="com.intellij.ide.analysisignore.AnalysisIgnoreUsagesCollector"/>
+    <workspaceModel.optionalExclusionContributor implementation="com.intellij.ide.analysisignore.AnalysisIgnoreExclusionContributor"
+                                                 order="last"/>
+    <notificationGroup id="Analysis ignore" displayType="BALLOON" bundle="messages.LangBundle" key="notification.group.analysis.ignore"/>
+
     <projectService serviceImplementation="com.intellij.openapi.file.exclude.ProjectPlainTextFileTypeManager" preload="true"/>
     <fileTypeOverrider implementation="com.intellij.openapi.file.exclude.UserFileTypeOverrider"/>
     <fileTypeDetector implementation="com.intellij.ide.scratch.ScratchFileServiceImpl$Detector"/>
@@ -876,7 +898,6 @@
     <todoExtraPlaces implementation="com.intellij.ide.scratch.ScratchTodoExtraPlaces"/>
     <scratch.rootType implementation="com.intellij.ide.scratch.ScratchRootType"/>
     <scratch.rootType implementation="com.intellij.execution.console.HistoryRootType"/>
-    <scratch.rootType implementation="com.intellij.ide.script.IdeConsoleRootType"/>
     <scratch.rootType implementation="com.intellij.ide.actions.WelcomeFilesRootType"/>
     <nonProjectFileWritingAccessExtension implementation="com.intellij.ide.actions.WelcomeNonProjectFileWritingAccessExtension"/>
     <virtualFilePreCloseCheck implementation="com.intellij.ide.actions.WelcomeFilePreCloseCheck"/>
@@ -920,9 +941,10 @@
     <!-- Extension resources -->
     <applicationService serviceImplementation="com.intellij.ide.extensionResources.ResourceVersions"/>
     <scratch.rootType implementation="com.intellij.ide.extensionResources.ExtensionsRootType"/>
-    <colorSettingsPage implementation="com.intellij.openapi.options.colors.pages.DefaultLanguageColorsPage" id="defaultLanguage"/>
-    <colorSettingsPage implementation="com.intellij.openapi.options.colors.pages.ANSIColoredConsoleColorsPage" id="ansi"/>
-    <colorSettingsPage implementation="com.intellij.openapi.options.colors.pages.CustomColorsPage" id="custom"/>
+    <colorSettings implementation="com.intellij.openapi.options.colors.pages.DefaultLanguageColorsPage"
+                   bundle="messages.OptionsBundle" key="options.language.defaults.display.name" priority="GENERAL_SETTINGS" id="defaultLanguage"/>
+    <colorSettings implementation="com.intellij.openapi.options.colors.pages.CustomColorsPage"
+                   bundle="messages.OptionsBundle" key="options.custom.display.name" priority="COMMON_SETTINGS" id="custom"/>
     <colorAndFontPanelFactory implementation="com.intellij.application.options.colors.ScopeColorsPageFactory"/>
     <elementDescriptionProvider implementation="com.intellij.psi.impl.DefaultPomTargetDescriptionProvider" order="last" id="pomDefault"/>
     <applicationService serviceImplementation="com.intellij.codeInspection.ex.AppInspectionProfilesVisibleTreeState"/>
@@ -967,11 +989,6 @@
     <projectConfigurable groupId="editor" groupWeight="150"
                          provider="com.intellij.ide.fileTemplates.impl.AllFileTemplatesConfigurable$Provider" id="fileTemplates"
                          key="title.file.templates" bundle="messages.IdeBundle"/>
-    <!-- External Tools -->
-    <applicationConfigurable groupId="tools" instance="com.intellij.tools.ToolConfigurable" id="preferences.externalTools"
-                             key="tools.settings.title"
-                             bundle="messages.ToolsBundle"/>
-    <stepsBeforeRunProvider implementation="com.intellij.tools.ToolBeforeRunTaskProvider"/>
     <bidiRegionsSeparator language="" implementationClass="com.intellij.openapi.editor.bidi.PlainTextBidiRegionsSeparator"/>
     <lang.syntaxHighlighterFactory language="TEXT" implementationClass="com.intellij.openapi.fileTypes.PlainTextSyntaxHighlighterFactory"/>
     <lang.braceMatcher language="TEXT" implementationClass="com.intellij.ide.highlighter.custom.impl.CustomFileTypeBraceMatcher"/>
@@ -1019,7 +1036,6 @@
     <liveTemplateMacro implementation="com.intellij.codeInsight.template.macro.CommentMacro$AnyCommentStart"/>
     <liveTemplateMacro implementation="com.intellij.codeInsight.template.macro.CommentMacro$AnyCommentEnd"/>
     <liveTemplateMacro implementation="com.intellij.codeInsight.template.macro.EnumMacro"/>
-    <internalFileTemplate name="HTML File" id="html"/>
     <fileBasedIndex implementation="com.intellij.psi.impl.cache.impl.id.IdIndexImpl"/>
     <fileBasedIndex implementation="com.intellij.psi.search.FileTypeIndexImpl"/>
     <fileBasedIndex implementation="com.intellij.psi.impl.include.FileIncludeIndex"/>
@@ -1123,6 +1139,10 @@
                           id="afterUnmatchedBrace"/>
     <enterHandlerDelegate implementation="com.intellij.codeInsight.editorActions.enter.EnterBetweenBracesFinalHandler"
                           id="EnterBetweenBracesHandler"/>
+    <enterHandlerDelegate
+      implementation="com.intellij.codeInsight.editorActions.enter.EnterBetweenBracesFinalHandler$InjectedIndentPostProcessor"
+      id="EnterBetweenBracesInjectedIndentPostProcessor"
+      order="last"/>
     <enterHandlerDelegate implementation="com.intellij.codeInsight.editorActions.enter.EnterAfterJavadocTagHandler"/>
     <backspaceHandlerDelegate implementation="com.intellij.codeInsight.editorActions.SimpleIndentingBackspaceHandler"/>
     <backspaceHandlerDelegate implementation="com.intellij.codeInsight.editorActions.SmartIndentingBackspaceHandler"
@@ -1136,10 +1156,12 @@
     <editorOptionsProvider instance="com.intellij.application.options.editor.EditorSmartKeysConfigurable" id="editor.preferences.smartKeys"
                            dynamic="true"/>
     <editorOptionsProvider instance="com.intellij.application.options.editor.EditorAppearanceConfigurable"
-                           id="editor.preferences.appearance"/>
+                           id="editor.preferences.appearance" bundle="messages.ApplicationBundle"
+                           key="tab.editor.settings.appearance" newOptions="true"/>
     <editorAppearanceInlineDocHandler instance="com.intellij.application.options.editor.EditorAppearanceConfigurable$DefaultInlineDocAdditionalConfigurable"
                                       id="default"/>
-    <editorOptionsProvider instance="com.intellij.application.options.editor.GutterIconsConfigurable" id="editor.preferences.gutterIcons"/>
+    <editorOptionsProvider instance="com.intellij.application.options.editor.GutterIconsConfigurable" id="editor.preferences.gutterIcons"
+                           key="configurable.GutterIconsConfigurable.display.name" bundle="messages.IdeBundle"/>
     <search.optionContributor implementation="com.intellij.application.options.editor.GutterIconsSearchableOptionContributor"/>
     <!-- Code Lens -->
     <codeVisionPainterProvider forClass="com.intellij.codeInsight.codeVision.ui.model.CounterCodeVisionEntry"
@@ -1162,7 +1184,8 @@
                         serviceImplementation="com.intellij.codeInsight.codeVision.ui.renderers.DefaultCodeVisionListPainterFactory"/>
     <optionsApplicabilityFilter implementation="com.intellij.application.options.GlobalOptionsApplicabilityFilter" order="last"
                                 id="global"/>
-    <editorOptionsProvider instance="com.intellij.application.options.editor.EditorTabsConfigurable" id="editor.preferences.tabs"/>
+    <editorOptionsProvider instance="com.intellij.application.options.editor.EditorTabsConfigurable" id="editor.preferences.tabs"
+                           key="configurable.editor.tabs.display.name" bundle="messages.ApplicationBundle"/>
     <search.topHitProvider implementation="com.intellij.application.options.editor.CodeFoldingOptionsTopHitProvider"/>
     <editorOptionsProvider instance="com.intellij.application.options.editor.CodeFoldingConfigurable" id="editor.preferences.folding"
                            key="group.code.folding" bundle="messages.ApplicationBundle"/>
@@ -1172,10 +1195,12 @@
     <editorCompletionConfigurable
       instance="com.intellij.application.options.CodeCompletionConfigurable"
       id="editor.preferences.completion.popup"
+      key="title.code.completion.popup" bundle="messages.ApplicationBundle"
     />
     <editorCompletionConfigurable
       instance="com.intellij.codeInsight.inline.completion.options.InlineCompletionConfigurable"
-      id="editor.preferences.completion.inline"/>
+      id="editor.preferences.completion.inline"
+      key="title.code.completion.inline" bundle="messages.ApplicationBundle"/>
     <projectConfigurable instance="com.intellij.application.options.editor.AutoImportOptionsConfigurable"
                          id="editor.preferences.import"
                          parentId="preferences.editor"
@@ -1249,17 +1274,6 @@
                   order="first"/>
     <typedHandler implementation="com.intellij.codeInsight.editorActions.SelectionQuotingTypedHandler" id="selectionQuoting"/>
     <templateCompletionProcessor implementation="com.intellij.codeInsight.template.macro.DirectoryTemplateCompletionProcessor"/>
-    <!-- ConsoleViewImplActions -->
-    <editorActionHandler action="EditorEnter" implementationClass="com.intellij.execution.impl.ConsoleViewImpl$EnterHandler"
-                         order="first" id="console.view.impl.enter"/>
-    <editorActionHandler action="EditorTab" implementationClass="com.intellij.execution.impl.ConsoleViewImpl$TabHandler"
-                         order="first" id="console.view.impl.tab"/>
-    <editorActionHandler action="EditorBackSpace" implementationClass="com.intellij.execution.impl.ConsoleViewImpl$BackspaceHandler"
-                         order="first" id="console.view.impl.backspace"/>
-    <editorActionHandler action="EditorDelete" implementationClass="com.intellij.execution.impl.ConsoleViewImpl$DeleteHandler"
-                         order="first" id="console.view.impl.delete"/>
-    <editorActionHandler action="EditorPaste" implementationClass="com.intellij.execution.impl.ConsoleViewImpl$PasteHandler"
-                         order="first" id="console.view.impl.paste"/>
     <dynamicContextProvider implementation="com.intellij.openapi.paths.GenericDynamicContextProvider"/>
     <codeStyleSettingsProvider implementation="com.intellij.application.options.GeneralCodeStyleSettingsProvider"/>
     <codeStyleSettingsProvider implementation="com.intellij.application.options.codeStyle.OtherFileTypesCodeStyleOptionsProvider"/>
@@ -1378,6 +1392,7 @@
     <statistics.projectUsagesCollector
       implementation="com.intellij.internal.statistic.editor.EditorSettingsStatisticsCollector$ProjectUsages"/>
     <statistics.projectUsagesCollector implementation="com.intellij.internal.statistic.projectView.ProjectViewCollector"/>
+    <statistics.projectUsagesCollector implementation="com.intellij.internal.statistic.project.ProjectSizeUsagesCollector"/>
     <statistics.counterUsagesCollector implementationClass="com.intellij.ide.projectView.impl.ProjectViewPerformanceCollector"/>
     <statistics.projectUsagesCollector implementation="com.intellij.internal.statistic.InspectionUsageFUSCollector"/>
     <statistics.projectUsagesCollector implementation="com.intellij.codeInsight.hints.InlayProviderUsageCollector"/>
@@ -1389,7 +1404,6 @@
       implementationClass="com.intellij.ide.actions.searcheverywhere.statistics.SearchEverywhereUsageTriggerCollector"/>
     <statistics.counterUsagesCollector
       implementationClass="com.intellij.ide.actions.searcheverywhere.statistics.SearchingProcessStatisticsCollector"/>
-    <statistics.counterUsagesCollector implementationClass="com.intellij.ide.actions.runAnything.RunAnythingUsageCollector"/>
     <statistics.counterUsagesCollector implementationClass="com.intellij.codeInsight.template.impl.SurroundWithLogger"/>
     <statistics.counterUsagesCollector implementationClass="com.intellij.find.FindUsagesCollector"/>
     <statistics.counterUsagesCollector implementationClass="com.intellij.ide.actions.CreateDirectoryUsageCollector"/>
@@ -1403,9 +1417,9 @@
     <statistics.counterUsagesCollector implementationClass="com.intellij.codeInsight.hints.declarative.impl.InlayActionHandlerUsagesCollector"/>
     <statistics.counterUsagesCollector implementationClass="com.intellij.ide.actions.AttachDirectoryUsagesCollector"/>
     <renamePsiElementProcessor implementation="com.intellij.refactoring.rename.RenamePsiFileProcessor" order="last" id="renamePsiFile"/>
+    <headlessRenamePsiElementProcessor implementation="com.intellij.refactoring.rename.RenamePsiFileProcessor$HeadlessRenamePsiFileProcessor" order="last" id="renamePsiFile"/>
     <renamePsiElementProcessor implementation="com.intellij.refactoring.rename.RenamePsiFileDumbProcessor"/>
     <renameInputValidator implementation="com.intellij.refactoring.rename.RenameToIgnoredDirectoryFileInputValidator" order="last"/>
-    <keymapExtension implementation="com.intellij.tools.ToolKeymapExtension"/>
     <documentationProvider implementation="com.intellij.openapi.paths.WebReferenceDocumentationProvider"/>
     <refactoring.moveDirectoryWithClassesHelper
       implementation="com.intellij.refactoring.move.moveClassesOrPackages.MoveDirectoryWithClassesHelper$Default" order="last"/>
@@ -1431,7 +1445,6 @@
                     serviceImplementation="com.intellij.codeInsight.daemon.impl.IdentifierHighlightingManagerImpl"/>
     <usageContextPanelProvider implementation="com.intellij.usageView.impl.UsageContextCallHierarchyPanel$Provider"/>
     <fileDocumentSynchronizationVetoer implementation="com.intellij.codeInsight.lookup.impl.LookupDocumentSavingVetoer"/>
-    <toolsProvider implementation="com.intellij.tools.LocalToolsProvider"/>
     <applicationService serviceInterface="com.intellij.codeInsight.FileModificationService"
                         serviceImplementation="com.intellij.codeInsight.CodeInsightUtilBase"/>
     <applicationService serviceInterface="com.intellij.ide.util.treeView.TreeAnchorizer"
@@ -1470,8 +1483,6 @@
                             order="after PowerSaveMode"/>
     <statusBarWidgetFactory id="CodeStyleStatusBarWidget" implementation="com.intellij.psi.codeStyle.statusbar.CodeStyleStatusBarWidgetFactory"
                             order="after InsertOverwrite"/>
-    <statusBarWidgetFactory id="inspectionProfileWidget" implementation="com.intellij.openapi.wm.impl.status.InspectionProfileWidgetFactory"
-                            order="after ReadOnlyAttribute"/>
     <fileIndentOptionsProvider implementation="com.intellij.psi.codeStyle.DetectableIndentOptionsProvider" order="last"/>
     <codeStyleSettingsModifier id="com.intellij.psi.codeStyle.DetectableIndentSettingsModifier" implementation="com.intellij.psi.codeStyle.DetectableIndentSettingsModifier" order="last"/>
     <lang.formatter.restriction implementation="com.intellij.formatting.ExcludedFileFormattingRestriction"/>
@@ -1523,28 +1534,6 @@
     <searchEverywherePreviewPrimaryUsageFinder id="base" implementation="com.intellij.ide.actions.searcheverywhere.PreviewPrimaryUsageFinderImpl"/>
     <applicationService serviceInterface="com.intellij.ide.actions.searcheverywhere.remote.SearchEverywhereRemoteSupportService"
                         serviceImplementation="com.intellij.ide.actions.searcheverywhere.SearchEverywhereRemoteSupportServiceImpl"/>
-    <runAnything.executionProvider implementation="com.intellij.ide.actions.runAnything.activity.RunAnythingRecentProjectProvider"/>
-    <runAnything.executionProvider id="recentCommandProvider"
-                                   implementation="com.intellij.ide.actions.runAnything.activity.RunAnythingRecentCommandProvider"
-                                   order="last"/>
-    <runAnything.executionProvider implementation="com.intellij.ide.actions.runAnything.activity.RunAnythingCommandExecutionProvider"
-                                   order="last"/>
-    <!-- Project tasks execution (delegation of the build/run actions) -->
-    <projectService serviceInterface="com.intellij.task.ProjectTaskManager"
-                    serviceImplementation="com.intellij.task.impl.ProjectTaskManagerImpl"/>
-    <!-- Build view -->
-    <projectService serviceInterface="com.intellij.build.BuildContentManager"
-                    serviceImplementation="com.intellij.build.BuildContentManagerImpl"/>
-    <projectService serviceInterface="com.intellij.build.BuildViewManager"
-                    serviceImplementation="com.intellij.build.BuildViewManager"
-                    testServiceImplementation="com.intellij.build.internal.DummyBuildViewManager"/>
-    <projectService serviceInterface="com.intellij.build.SyncViewManager"
-                    serviceImplementation="com.intellij.build.SyncViewManager"
-                    testServiceImplementation="com.intellij.build.internal.DummySyncViewManager"/>
-    <projectService serviceInterface="com.intellij.build.BuildWorkspaceConfiguration" open="true"
-                    serviceImplementation="com.intellij.build.BuildWorkspaceConfigurationImpl"/>
-    <applicationService serviceInterface="com.intellij.build.events.BuildEvents"
-                        serviceImplementation="com.intellij.build.events.impl.BuildEventsImpl"/>
     <moveLeftRightHandler language=""
                           implementationClass="com.intellij.codeInsight.editorActions.moveLeftRight.DefaultMoveElementLeftRightHandler"
                           order="last"/>
@@ -1637,7 +1626,6 @@
     <platform.backend.documentation.inlineDocumentationProvider order="last"
       implementation="com.intellij.codeInsight.documentation.render.CompatibilityInlineDocumentationProvider"/>
     <psi.treeChangeListener implementation="com.intellij.openapi.fileEditor.impl.FileEditorPsiTreeChangeListener"/>
-    <postStartupActivity implementation="com.intellij.ide.script.IdeStartupScripts" order="last"/>
     <psi.treeChangePreprocessor implementation="com.intellij.util.indexing.events.FileBasedIndexTreeChangePreprocessor"/>
     <fileSetDescriptorFactory implementation="com.intellij.application.options.codeStyle.excludedFiles.NamedScopeDescriptor$Factory"/>
     <fileSetDescriptorFactory implementation="com.intellij.application.options.codeStyle.excludedFiles.GlobPatternDescriptor$Factory"/>
@@ -1706,6 +1694,7 @@
                             order="before legacy"/>
     <renameInputValidator implementation="com.intellij.microservices.url.parameters.PathVariableRenameInputValidator"/>
     <renamePsiElementProcessor implementation="com.intellij.microservices.url.parameters.SemElementRenamePsiElementProcessor"/>
+    <headlessRenamePsiElementProcessor implementation="com.intellij.microservices.url.parameters.SemElementRenamePsiElementProcessor"/>
     <findUsagesHandlerFactory implementation="com.intellij.microservices.url.parameters.RenameableSemElementFindUsagesHandlerFactory"/>
     <findUsagesHandlerFactory implementation="com.intellij.microservices.url.UrlPathUsagesHandlerFactory"/>
     <referencesSearch implementation="com.intellij.microservices.url.parameters.SemElementRenamePsiReferenceSearcher"/>
@@ -1759,10 +1748,6 @@
     <applicationSettings service="com.intellij.codeInsight.intention.impl.config.IntentionManagerSettings"/>
     <applicationSettings service="com.intellij.codeInsight.template.postfix.settings.PostfixTemplatesSettings"/>
     <applicationSettings service="com.intellij.codeInsight.template.postfix.settings.PostfixTemplateStorage"/>
-    <projectService serviceInterface="com.intellij.execution.runners.ExecutionEnvironmentProvider"
-                    serviceImplementation="com.intellij.task.impl.ExecutionEnvironmentProviderImpl"/>
-    <runAnything.executionProvider id="RunAnythingRunConfigurationProvider"
-                                   implementation="com.intellij.ide.actions.runAnything.RunAnythingRunConfigurationProvider"/>
     <applicationService serviceInterface="com.intellij.profile.codeInspection.InspectionProfileManager"
                         serviceImplementation="com.intellij.codeInspection.ex.ApplicationInspectionProfileManager"/>
     <projectService serviceImplementation="com.intellij.ide.projectView.impl.nodes.ProjectViewDirectoryHelper" open="true"/>
@@ -1823,7 +1808,6 @@
     <!--                serviceImplementation="com.intellij.facet.impl.FacetManagerFactoryImpl"/>-->
     <!--<projectService serviceInterface="com.intellij.facet.impl.invalid.InvalidFacetManager"-->
     <!--                serviceImplementation="com.intellij.facet.impl.invalid.InvalidFacetManagerImpl"/>-->
-    <!--<backgroundPostStartupActivity implementation="com.intellij.facet.FacetTypeFeatureCollector"/>-->
     <!--<registerToolWindowTaskProvider implementation="com.intellij.facet.impl.ui.FacetDependentToolWindowManager"/>-->
     <applicationService
       serviceImplementation="com.intellij.openapi.roots.ui.configuration.actions.ModuleDeleteProvider" open="true"/>
@@ -1848,10 +1832,7 @@
     <applicationService serviceInterface="com.intellij.workspaceModel.ide.legacyBridge.GlobalSdkTableBridgeRegistry"
                         serviceImplementation="com.intellij.workspaceModel.ide.impl.legacyBridge.sdk.GlobalSdkTableBridgeRegistryImpl"/>
     <workspace.bridgeInitializer implementation="com.intellij.workspaceModel.ide.impl.legacyBridge.sdk.GlobalSdkBridgeInitializer"/>
-    <postStartupActivity implementation="com.intellij.openapi.projectRoots.impl.UnknownSdkStartupChecker"/>
-    <postStartupActivity implementation="com.intellij.openapi.projectRoots.impl.UnknownSdkHeadlessActivity"/>
     <commandLineInspectionProjectConfigurator implementation="com.intellij.openapi.projectRoots.impl.UnknownSdkInspectionCommandLineConfigurator"/>
-    <editorNotificationProvider implementation="com.intellij.openapi.projectRoots.impl.UnknownSdkEditorNotificationsProvider"/>
     <projectSettings service="com.intellij.framework.detection.impl.exclude.DetectionExcludesConfigurationImpl"/>
     <projectSettings service="com.intellij.facet.impl.invalid.InvalidFacetManagerImpl"/>
     <projectSettings service="com.intellij.openapi.module.impl.AutomaticModuleUnloaderImpl"/>
@@ -1859,7 +1840,6 @@
     <searchEverywhereContributor implementation="com.intellij.find.impl.TextSearchContributor$Companion$Factory"/>
     <searchEverywhereContributor implementation="com.intellij.ide.actions.searcheverywhere.ClassSearchEverywhereContributor$Factory"/>
     <searchEverywhereContributor implementation="com.intellij.ide.actions.searcheverywhere.SymbolSearchEverywhereContributor$Factory"/>
-    <searchEverywhereContributor implementation="com.intellij.ide.actions.searcheverywhere.RunConfigurationsSEContributor$Factory"/>
     <projectService
       serviceInterface="com.intellij.openapi.fileEditor.FileEditorManager"
       serviceImplementation="com.intellij.openapi.fileEditor.impl.PsiAwareFileEditorManagerImpl"
@@ -1898,13 +1878,15 @@
     <postStartupActivity implementation="com.intellij.codeInsight.navigation.InitCtrlMouseHandlerActivity"/>
     <projectService serviceImplementation="com.intellij.facet.impl.pointers.FacetPointersManagerImpl"
                     serviceInterface="com.intellij.facet.pointers.FacetPointersManager"/>
-    <postStartupActivity implementation="com.intellij.facet.impl.pointers.FacetPointersPostStartupActivity"/>
     <applicationService
       serviceInterface="com.intellij.formatting.visualLayer.VisualFormattingLayerService"
       serviceImplementation="com.intellij.formatting.visualLayer.VisualFormattingLayerServiceImpl" />
     <applicationService serviceInterface="com.intellij.refactoring.RefactoringUiService" serviceImplementation="com.intellij.refactoring.RefactoringUiServiceImpl"/>
     <projectService serviceInterface="com.intellij.openapi.roots.impl.PushedFilePropertiesUpdater"
                     serviceImplementation="com.intellij.openapi.roots.impl.PushedFilePropertiesUpdaterImpl" preload="await"/>
+    <projectService serviceInterface="com.intellij.util.indexing.DumbModeReindexingScheduler"
+                    serviceImplementation="com.intellij.util.indexing.NoopDumbModeReindexingScheduler"
+                    open="true"/>
     <projectService serviceImplementation="com.intellij.ide.navigationToolbar.rider.RiderMainToolbarRootPaneManager" open="true"/>
     <applicationService serviceImplementation="com.intellij.codeInsight.inline.completion.tooltip.onboarding.InlineCompletionOnboardingComponent"/>
     <applicationService serviceInterface="com.intellij.util.gist.GistManager"
@@ -1922,7 +1904,6 @@
               topic="com.intellij.ide.plugins.DynamicPluginListener"/>
     <listener class="com.intellij.codeInsight.daemon.impl.EssentialHighlightingModeListener"
               topic="com.intellij.openapi.util.registry.RegistryValueListener"/>
-    <listener class="com.intellij.util.indexing.FileBasedIndexPluginListener" topic="com.intellij.ide.plugins.DynamicPluginListener"/>
     <listener topic="com.intellij.openapi.fileEditor.FileEditorManagerListener"
               class="com.intellij.codeInsight.daemon.impl.EditorTrackerImpl$MyAppLevelFileEditorManagerListener"/>
     <listener class="com.intellij.codeInsight.hints.codeVision.CodeVisionPluginListener" topic="com.intellij.ide.plugins.DynamicPluginListener"/>
@@ -1963,22 +1944,14 @@
               topic="com.intellij.codeInsight.lookup.LookupManagerListener"/>
     <listener class="com.intellij.codeInsight.completion.command.CustomLookupIntentionPreviewListener"
               topic="com.intellij.codeInsight.lookup.LookupManagerListener"/>
-    <listener class="com.intellij.util.indexing.ProjectEntityIndexingService"
-              topic="com.intellij.workspaceModel.core.fileIndex.WorkspaceFileIndexListener"/>
-    <listener class="com.intellij.execution.lineMarker.RunnableStatusListener"
-              topic="com.intellij.codeInsight.daemon.DaemonCodeAnalyzer$DaemonListener"/>
     <listener class="com.intellij.psi.impl.file.impl.PsiVFSModuleRootListener"
               topic="com.intellij.openapi.roots.ModuleRootListener"/>
     <listener class="com.intellij.psi.impl.file.impl.PsiWsmListener"
               topic="com.intellij.platform.backend.workspace.WorkspaceModelChangeListener"/>
-    <!--<listener class="com.intellij.workspaceModel.ide.impl.legacyBridge.facet.FacetEntityChangeListener$WorkspaceModelListener"-->
-    <!--          topic="com.intellij.platform.backend.workspace.WorkspaceModelChangeListener"/>-->
     <listener class="com.intellij.workspaceModel.ide.impl.legacyBridge.module.ModuleBridgeCleaner"
               topic="com.intellij.platform.backend.workspace.WorkspaceModelChangeListener"/>
     <listener class="com.intellij.codeInsight.actions.ReaderModeSettingsListener"
               topic="com.intellij.codeInsight.actions.ReaderModeListener" activeInHeadlessMode="false"/>
-    <listener class="com.intellij.facet.impl.pointers.FacetPointerModuleListener" topic="com.intellij.openapi.project.ModuleListener"/>
-    <listener class="com.intellij.facet.impl.pointers.FacetPointersFacetManagerListener" topic="com.intellij.facet.FacetManagerListener"/>
   </projectListeners>
   <extensions defaultExtensionNs="com.intellij.platform.backend">
     <documentation.targetProvider

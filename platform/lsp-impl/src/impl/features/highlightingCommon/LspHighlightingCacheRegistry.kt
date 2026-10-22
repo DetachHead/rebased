@@ -14,6 +14,7 @@ import com.intellij.platform.lsp.impl.features.highlighting.LspPullDiagnosticsCa
 import com.intellij.platform.lsp.impl.features.highlighting.LspSemanticTokensCache
 import com.intellij.platform.lsp.impl.features.highlighting.copyDiagnosticWithRange
 import com.intellij.platform.lsp.impl.features.inlayHint.LspInlayHintsCache
+import com.intellij.platform.lsp.impl.features.lineMarkers.LspInheritanceMarkersCache
 import com.intellij.platform.lsp.impl.features.inlayHintColor.LspDocumentColorCache
 import com.intellij.platform.lsp.util.getLsp4jRange
 import com.intellij.util.concurrency.annotations.RequiresBackgroundThread
@@ -31,6 +32,7 @@ internal class LspHighlightingCacheRegistry(private val lspClient: LspClientImpl
   internal val documentColorCache = register(LspDocumentColorCache(lspClient))
   internal val foldingRangeCache = register(LspFoldingRangeCache(lspClient))
   internal val codeLensCache = register(LspCodeLensCache(lspClient))
+  internal val inheritanceMarkersCache = register(LspInheritanceMarkersCache(lspClient))
 
   private fun <T : LspHighlightingCache<*>> register(cache: T): T {
     allCaches.add(cache)
@@ -46,11 +48,27 @@ internal class LspHighlightingCacheRegistry(private val lspClient: LspClientImpl
   }
 
   /**
+   * Forgets every result the IDE pulled for [file] once the client has closed it, so a reopened file is pulled again.
+   * Pushed diagnostics are left alone: the server owns those and clears them itself.
+   */
+  internal fun fileClosed(file: VirtualFile) {
+    allCaches.forEach { if (it.supportsPull) it.fileClosed(file) }
+  }
+
+  /**
+   * Marks every result the IDE pulled for [file] stale, so the next read re-requests it while the current results
+   * stay on screen. Pushed diagnostics are left alone: the server resends those itself.
+   */
+  internal fun invalidatePulledResults(file: VirtualFile) {
+    allCaches.forEach { if (it.supportsPull) it.forceFullRepull(file) }
+  }
+
+  /**
    * The quick fixes in the returned list are special wrappers that may or may not possess a real
    * [LspIntentionAction][com.intellij.platform.lsp.api.customization.LspIntentionAction] object at this moment,
    * but clients shouldn't care about that. For curious: see [LspQuickFixSet][com.intellij.platform.lsp.impl.features.quickFix.LspQuickFixSet].
    */
-  @RequiresBackgroundThread
+  @RequiresBackgroundThread(generateAssertion = false /* IJPL-115548 */)
   internal fun getDiagnosticsAndQuickFixes(file: VirtualFile): List<DiagnosticAndQuickFixes> {
     val pushedCachedHighlightings = publishDiagnosticsCache.getHighlightings(file)
     val pushedDiagnostics = pushedCachedHighlightings.map { it.highlightingInfo.diagnostic }

@@ -131,9 +131,11 @@ fun createMarkdownTestThemeDefinition(): ThemeDefinition =
         colorPalette = ThemeColorPalette.Empty,
         iconData = ThemeIconData.Empty,
         disabledAppearanceValues = DisabledAppearanceValues(brightness = 33, contrast = -35, alpha = 100),
+        isIslands = false,
     )
 
 /** Creates a minimal [MarkdownStyling] with stub span styles for use in Markdown rendering tests. */
+@Suppress("DEPRECATION") // HTML block styling is kept for compatibility
 fun createMarkdownTestStyling(
     codeEditorTextStyle: TextStyle = TextStyle.Default,
     blockVerticalSpacing: Dp = 8.dp,

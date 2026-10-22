@@ -15,6 +15,7 @@ import com.intellij.openapi.help.HelpManager
 import com.intellij.openapi.project.Project
 import com.intellij.ui.AnimatedIcon
 import com.intellij.ui.CollectionListModel
+import com.intellij.ui.ListSpeedSearch
 import com.intellij.ui.PopupHandler
 import com.intellij.ui.ScrollPaneFactory
 import com.intellij.ui.SimpleTextAttributes
@@ -24,10 +25,11 @@ import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.components.BorderLayoutPanel
 import com.intellij.util.ui.launchOnShow
 import git4idea.i18n.GitBundle
+import git4idea.ui.branch.GitBranchReviewPresenter
 import git4idea.workingTrees.GitCreateWorkingTreeService
-import git4idea.workingTrees.ui.actions.GitWorkingTreeTabActionsDataKeys
 import git4idea.workingTrees.ui.GitWorkingTreesContentProvider.Companion.GIT_WORKING_TREE_TOOLWINDOW_TAB_EMPTY_LIST
 import git4idea.workingTrees.ui.GitWorkingTreesContentProvider.Companion.TOOLWINDOW_CONTENT_HELP_ID
+import git4idea.workingTrees.ui.actions.GitWorkingTreeTabActionsDataKeys
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -44,14 +46,15 @@ import javax.swing.SwingConstants
 internal class GitWorktreesTabPanel(private val project: Project, cs: CoroutineScope) {
   private val viewModel = GitWorktreesViewModel(project, cs)
   private val listModel = CollectionListModel<GitWorkingTreesListEntry>()
-  private val list = JBList<GitWorkingTreesListEntry>(listModel).apply {
-    selectionMode = ListSelectionModel.SINGLE_SELECTION
-    cellRenderer = GitWorkingTreesListRenderer(project)
+  private val list = JBList(listModel).apply {
+    selectionMode = ListSelectionModel.MULTIPLE_INTERVAL_SELECTION
+    cellRenderer = GitWorkingTreesListRenderer(project) { viewModel.reviews.value }
     accessibleContext.accessibleName = GitBundle.message("toolwindow.working.trees.tab.name")
     putClientProperty(AnimatedIcon.ANIMATION_IN_RENDERER_ALLOWED, true)
     addMouseListener(createPopupHandler())
     ActionUtil.wrap("Git.WorkingTrees.Open").registerCustomShortcutSet(CommonShortcuts.ENTER, this)
     ListHoverListener.DEFAULT.addTo(this)
+    ListSpeedSearch.installOn(this) { entry -> "${entry.presentableName} ${entry.presentableBranchName}" }
   }
 
   val component: JComponent
@@ -79,11 +82,20 @@ internal class GitWorktreesTabPanel(private val project: Project, cs: CoroutineS
       }
     }
 
+    list.launchOnShow("worktree list reviews") {
+      viewModel.reviews.collect {
+        withContext(Dispatchers.UI) {
+          list.repaint()
+        }
+      }
+    }
+
     val wrappedComponent = UiDataProvider.wrapComponent(scrollPane) { sink ->
       val selected = list.selectedValuesList
       sink[GitWorkingTreeTabActionsDataKeys.SELECTED_WORKING_TREES] =
         selected.filterIsInstance<GitWorktreeRow>().map { it.gitWorkingTree }
       sink[GitWorkingTreeTabActionsDataKeys.CURRENT_REPOSITORY] = GitWorktreesUiUtil.resolveSelectedBackendRepository(project, selected)
+      sink[GitWorkingTreeTabActionsDataKeys.SELECTED_REVIEW] = resolveSelectedReview(selected)
       sink[PlatformCoreDataKeys.HELP_ID] = TOOLWINDOW_CONTENT_HELP_ID
     }
 
@@ -99,7 +111,12 @@ internal class GitWorktreesTabPanel(private val project: Project, cs: CoroutineS
     override fun invokePopup(comp: Component, x: Int, y: Int) {
       val index = list.locationToIndex(Point(x, y))
       if (index == -1 || !list.getCellBounds(index, index).contains(x, y)) return
-      list.selectedIndex = index
+      /* An unconditional assignment collapses the selection to one row on every right-click — including a right-click inside
+      the multi-selection. So "select 3 worktrees → right-click → Delete Worktrees" would delete exactly one,
+      and the multi-select delete would only ever be reachable from the toolbar. */
+      if (!list.isSelectedIndex(index)) {
+        list.selectedIndex = index
+      }
 
       val actionGroup = ActionManager.getInstance().getAction("Git.WorkingTrees.ToolwindowGroup.Popup") as ActionGroup
       val popupMenu = ActionManager.getInstance().createActionPopupMenu(ActionPlaces.POPUP, actionGroup)
@@ -108,16 +125,24 @@ internal class GitWorktreesTabPanel(private val project: Project, cs: CoroutineS
     }
   }
 
+  private fun resolveSelectedReview(selected: List<GitWorkingTreesListEntry>): GitBranchReviewPresenter.Review? {
+    val key = (selected.singleOrNull() as? GitWorktreeRow)?.resolveReviewBranchKey() ?: return null
+    return viewModel.reviews.value[key]
+  }
+
   private fun applyEntries(entries: List<GitWorkingTreesListEntry>) {
-    val previouslySelectedPath = (list.selectedValue as? GitWorktreeRow)?.gitWorkingTree?.path
+    val previouslySelectedPaths = list.selectedValuesList
+      .filterIsInstance<GitWorktreeRow>()
+      .map { it.gitWorkingTree.path }
+      .toSet()
 
     listModel.replaceAll(entries)
 
-    val indexToSelect = (0 until listModel.size).firstOrNull { i ->
-      (listModel.getElementAt(i) as? GitWorktreeRow)?.gitWorkingTree?.path == previouslySelectedPath
+    val indicesToSelect = (0 until listModel.size).filter { i ->
+      (listModel.getElementAt(i) as? GitWorktreeRow)?.gitWorkingTree?.path in previouslySelectedPaths
     }
-    if (indexToSelect != null) {
-      list.selectedIndex = indexToSelect
+    if (indicesToSelect.isNotEmpty()) {
+      list.selectedIndices = indicesToSelect.toIntArray()
     }
     else {
       selectDefaultEntry()

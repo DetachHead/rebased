@@ -2,6 +2,7 @@
 package org.jetbrains.idea.maven.importing
 
 import com.intellij.maven.testFramework.fixtures.MavenVersionArguments
+import com.intellij.maven.testFramework.fixtures.assertContain
 import com.intellij.maven.testFramework.fixtures.assertModules
 import com.intellij.maven.testFramework.fixtures.assertUnorderedElementsAreEqual
 import com.intellij.maven.testFramework.fixtures.createModulePom
@@ -22,9 +23,7 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.projectRoots.Sdk
 import com.intellij.openapi.util.Ref
 import com.intellij.openapi.util.registry.Registry
-import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.openapi.vfs.VirtualFile
-import com.intellij.testFramework.UsefulTestCase.assertContainsElements
 import com.intellij.testFramework.junit5.TestApplication
 import com.intellij.testFramework.replaceService
 import kotlinx.coroutines.runBlocking
@@ -47,6 +46,7 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.params.ParameterizedClass
 import org.junit.jupiter.params.provider.ArgumentsSource
 import com.intellij.openapi.application.EDT
+import com.intellij.openapi.vfs.VirtualFileManager
 import com.intellij.testFramework.PlatformTestUtil
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -74,7 +74,7 @@ class MavenImportingConnectorsTest(mavenVersion: String, modelVersion: String) {
   @BeforeEach
   fun setUp() {
     val projectDir = createDirectories(of(maven.dir.toString(), "anotherProject"))
-    myAnotherProjectRoot = LocalFileSystem.getInstance().refreshAndFindFileByNioFile(projectDir)!!
+    myAnotherProjectRoot = VirtualFileManager.getInstance().refreshAndFindFileByNioPath(projectDir)!!
   }
 
   @Test
@@ -203,7 +203,7 @@ class MavenImportingConnectorsTest(mavenVersion: String, modelVersion: String) {
 
       assertEquals(1, MavenServerManager.getInstance().getAllConnectors().size)
 
-      assertContainsElements(
+      assertContain(
         MavenServerManager.getInstance().getAllConnectors().first().multimoduleDirectories.map {
           maven.getRelativePath(maven.dir, it)
         },

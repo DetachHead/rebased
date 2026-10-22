@@ -39,7 +39,7 @@ import java.awt.Font
 import java.util.concurrent.ConcurrentHashMap
 import javax.swing.JComponent
 
-@RequiresEdt
+@RequiresEdt(generateAssertion = false /* IJPL-115548 */)
 internal fun emptyStateProjectPanel(disposable: Disposable): JComponent = panel {
   row {
     label(WelcomeScreenComponentFactory.getApplicationTitle()).applyToComponent {
@@ -192,7 +192,7 @@ private fun createActionsToolbar(actionGroup: ActionGroup): ActionToolbarImpl {
       }
     }
   }
-  actionToolbar.setLayoutStrategy(ToolbarLayoutStrategy.EQUAL_SIZE_WRAP_STRATEGY)
+  actionToolbar.setLayoutStrategy(ToolbarLayoutStrategy.EQUAL_SIZE_NOWRAP_STRATEGY)
   actionToolbar.setTargetComponent(actionToolbar.component)
   actionToolbar.setOpaque(false)
   return actionToolbar

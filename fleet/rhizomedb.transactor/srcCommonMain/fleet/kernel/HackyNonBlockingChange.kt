@@ -2,11 +2,21 @@
 package fleet.kernel
 
 import com.jetbrains.rhizomedb.ChangeScope
+import com.jetbrains.rhizomedb.ChangeScopeKey
 import com.jetbrains.rhizomedb.DbContext
 import com.jetbrains.rhizomedb.change
 import com.jetbrains.rhizomedb.collectingInstructions
 import fleet.reporting.shared.tracing.span
 import fleet.reporting.shared.tracing.spannedScope
+
+/**
+ * Marks the speculative pass of [hackyNonBlockingChange].
+ *
+ * The pass runs against a snapshot, and the replay applies its instructions verbatim later. A middleware
+ * must not record a value that it derived from the snapshot in this pass, because the replay would write
+ * that value over every change that committed in between.
+ */
+object SpeculativeChangeKey : ChangeScopeKey<Boolean>
 
 suspend fun <T> hackyNonBlockingChange(body: ChangeScope.() -> T): T =
   spannedScope("hackyNonBlockingChange") {
@@ -17,6 +27,7 @@ suspend fun <T> hackyNonBlockingChange(body: ChangeScope.() -> T): T =
     val insn = span("run change in background") {
       buildList {
         db.change(defaultPart = 1) {
+          meta[SpeculativeChangeKey] = true
           middleware.run {
             performChange {
               DbContext.threadBound.ensureMutable {

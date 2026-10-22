@@ -9,7 +9,7 @@ import com.intellij.openapi.util.Key
 import com.intellij.platform.eel.EelApi
 import com.intellij.platform.eel.EelDescriptor
 import com.intellij.platform.eel.EelMachine
-import com.intellij.platform.eel.annotations.MultiRoutingFileSystemPath
+import com.intellij.platform.util.annotations.paths.NioPath
 import com.intellij.platform.eel.channels.EelDelicateApi
 import org.jetbrains.annotations.ApiStatus
 import java.nio.file.Path
@@ -69,7 +69,7 @@ fun Project.setEelMachine(machine: EelMachine) {
 fun Project.getEelDescriptor(): EelDescriptor {
   getUserData(EEL_DESCRIPTOR_KEY)?.let { return it }
 
-  @MultiRoutingFileSystemPath
+  @NioPath
   val filePath = projectFilePath
   if (filePath == null) {
     // The path to project file can be null if the project is default or used in tests.

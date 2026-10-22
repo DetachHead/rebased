@@ -1,31 +1,42 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.python.sdk.backend
 
+import com.jetbrains.python.sdk.isTargetBased
+import com.jetbrains.python.sdk.targetAdditionalData
+import com.jetbrains.python.target.PyTargetAwareAdditionalData
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.runReadActionBlocking
+import com.intellij.openapi.progress.runBlockingMaybeCancellable
+import com.intellij.openapi.project.Project
 import com.intellij.openapi.projectRoots.Sdk
 import com.intellij.openapi.roots.OrderRootType
 import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.openapi.vfs.VirtualFile
+import com.intellij.openapi.vfs.VirtualFileManager
 import com.intellij.platform.eel.EelOsFamily
 import com.intellij.platform.eel.provider.getEelDescriptor
-import com.intellij.python.pytools.PyTool
+import com.intellij.python.pytools.backend.PyTool
 import com.intellij.python.sdk.backend.impl.VERSION_NUMBER_RE
 import com.intellij.python.sdk.backend.impl.associationProblem
 import com.intellij.python.sdk.backend.impl.buildItem
 import com.intellij.python.sdk.backend.impl.recordedPythonInfo
 import com.intellij.python.sdk.common.PyInterpreterItem
 import com.intellij.python.sdk.common.PyInterpreterRef
-import com.intellij.openapi.progress.runBlockingMaybeCancellable
 import com.intellij.util.concurrency.annotations.RequiresBackgroundThread
 import com.intellij.util.concurrency.annotations.RequiresBlockingContext
 import com.jetbrains.python.PyNames
 import com.jetbrains.python.PythonInfo
 import com.jetbrains.python.Result
 import com.jetbrains.python.errorProcessing.PyResult
+import com.jetbrains.python.run.PythonInterpreterTargetEnvironmentFactory
+import com.jetbrains.python.run.target.HelpersAwareTargetEnvironmentRequest
+import com.jetbrains.python.sdk.associatedModuleDir
+import com.jetbrains.python.sdk.flavors.PythonSdkFlavor
 import com.jetbrains.python.sdk.legacy.PythonSdkUtil
+import com.jetbrains.python.sdk.pySdkAdditionalData
 import java.nio.file.Path
 import kotlin.io.path.isExecutable
+import org.jetbrains.annotations.ApiStatus.Internal
 
 /** The tool's own executable name on [this] OS — Windows wants the `.exe`. */
 private fun EelOsFamily.executableName(binaryName: String): String = when (this) {
@@ -111,7 +122,7 @@ suspend fun Iterable<Sdk>.pyInterpreterItems(): List<PyInterpreterItem> =
  *
  * From Kotlin call [getPythonInfo] instead, which also says why it cannot be used.
  */
-@RequiresBackgroundThread
+@RequiresBackgroundThread(generateAssertion = false /* IJPL-115548 */)
 @RequiresBlockingContext
 fun Sdk.isInterpreterUsable(): Boolean =
   runBlockingMaybeCancellable { pythonInterpreterAsync().getPythonInfo() } is Result.Success
@@ -126,6 +137,41 @@ fun PyInterpreterItem.findSdk(): Sdk? {
   val ref = ref as? PyInterpreterRef.ExistingSdk ?: return null
   return PythonSdkUtil.findSdkByKey(ref.sdkName)
 }
+
+/** The flavor this interpreter was set up with. */
+val PythonInterpreter.flavor: PythonSdkFlavor<*>
+  get() = sdk.pySdkAdditionalData.flavor
+
+/** The ref an interpreter list row carries for this interpreter. See [Sdk.asInterpreterRef]. */
+fun PythonInterpreter.asInterpreterRef(): PyInterpreterRef = sdk.asInterpreterRef()
+
+/** The target data of this interpreter, or `null` for an interpreter that runs on no target. */
+val PythonInterpreter.targetAdditionalData: PyTargetAwareAdditionalData?
+  get() = sdk.targetAdditionalData
+
+/** Whether this interpreter runs on a target, such as WSL, SSH or Docker. */
+val PythonInterpreter.isTargetBased: Boolean
+  get() = sdk.isTargetBased()
+
+/** The requirements file path stored for this interpreter, or `null` when none is stored. */
+val PythonInterpreter.requirementsPath: Path?
+  get() = sdk.pySdkAdditionalData.requirementsPath
+
+/** The paths the user added to the `sys.path` of this interpreter in the interpreter settings. */
+val PythonInterpreter.addedPathFiles: Set<VirtualFile>
+  get() = sdk.pySdkAdditionalData.addedPathFiles.orEmpty()
+
+/** The directory of the module this interpreter was created for, or `null` when it records none. */
+val PythonInterpreter.associatedModuleDir: VirtualFile?
+  get() = sdk.associatedModuleDir
+
+/**
+ * Whether this interpreter wraps [sdk].
+ *
+ * For code that holds an [Sdk] from an API not migrated yet, such as a listener, and must find the interpreter it
+ * names.
+ */
+fun PythonInterpreter.isFor(sdk: Sdk): Boolean = this.sdk == sdk
 
 /**
  * The ref an interpreter list row carries for this SDK.
@@ -142,7 +188,7 @@ fun Sdk.asInterpreterRef(): PyInterpreterRef = PyInterpreterRef.ExistingSdk(name
  * [venvLibDirectory]. Every other environment, and an unknown one, answers with the interpreter's
  * standard library directory, through [stdlibLibDirectory].
  */
-@RequiresBackgroundThread
+@RequiresBackgroundThread(generateAssertion = false /* IJPL-115548 */)
 private fun PythonInterpreter.libDirectory(): VirtualFile? =
   if (pythonEnvironment?.libRoot != null) venvLibDirectory() else stdlibLibDirectory()
 
@@ -155,7 +201,7 @@ private fun PythonInterpreter.libDirectory(): VirtualFile? =
  * Some system Python distributions (notably on Linux) ship without a `site-packages` directory at
  * all, in which case this returns `null`.
  */
-@RequiresBackgroundThread
+@RequiresBackgroundThread(generateAssertion = false /* IJPL-115548 */)
 fun PythonInterpreter.sitePackagesDirectory(): VirtualFile? = libDirectory()?.findChild(PyNames.SITE_PACKAGES)
 
 /**
@@ -167,7 +213,7 @@ fun PythonInterpreter.sitePackagesDirectory(): VirtualFile? = libDirectory()?.fi
  * environment kind: for a virtual environment this still returns the *base* interpreter's
  * stdlib (which is included in the venv's class roots), not the venv's own (mostly empty) lib.
  */
-@RequiresBackgroundThread
+@RequiresBackgroundThread(generateAssertion = false /* IJPL-115548 */)
 fun PythonInterpreter.stdlibLibDirectory(): VirtualFile? {
   for (file in sdkClassRoots) {
     if (!file.isValid) continue
@@ -192,13 +238,13 @@ fun PythonInterpreter.stdlibLibDirectory(): VirtualFile? {
  * `lib/pythonX.Y` itself to `sys.path`), with a [LocalFileSystem] fallback when the SDK has no
  * class roots yet (e.g. a fresh empty SDK created for package management).
  */
-@RequiresBackgroundThread
+@RequiresBackgroundThread(generateAssertion = false /* IJPL-115548 */)
 fun PythonInterpreter.venvLibDirectory(): VirtualFile? {
   val libRoot = pythonEnvironment?.libRoot ?: return null
   val classRoots = sdkClassRoots
   // Empty in case of a temporary empty SDK created to install package management.
   if (classRoots.isEmpty()) {
-    return LocalFileSystem.getInstance().findFileByNioFile(libRoot)
+    return VirtualFileManager.getInstance().findFileByNioPath(libRoot)
   }
   for (file in classRoots) {
     if (file.toNioPath() == libRoot) return file
@@ -212,3 +258,12 @@ fun PythonInterpreter.venvLibDirectory(): VirtualFile? {
 
 private val PythonInterpreter.sdkClassRoots: Array<VirtualFile>
   get() = runReadActionBlocking { sdk.rootProvider.getFiles(OrderRootType.CLASSES) }
+
+/**
+ * The request that uploads the PyCharm helpers to the machine this interpreter runs on.
+ *
+ * A local interpreter answers too: the request then describes the local machine.
+ */
+@Internal
+fun PythonInterpreter.targetEnvironmentRequest(project: Project): HelpersAwareTargetEnvironmentRequest =
+  PythonInterpreterTargetEnvironmentFactory.findPythonTargetInterpreter(sdk, project)

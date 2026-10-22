@@ -1,6 +1,7 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.python.junit5Tests.env.packaging
 
+import com.intellij.python.junit5Tests.framework.rootSourceRootFixture
 import com.intellij.openapi.actionSystem.ActionManager
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.actionSystem.PlatformCoreDataKeys
@@ -9,9 +10,9 @@ import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.ReadAction
 import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.project.guessModuleDir
-import com.intellij.openapi.vfs.LocalFileSystem
+import com.intellij.openapi.vfs.StandardFileSystems
 import com.intellij.python.junit5Tests.framework.env.PyEnvTestCase
-import com.intellij.python.junit5Tests.framework.env.pySdkFixture
+import com.intellij.python.junit5Tests.framework.env.pyInterpreterFixture
 import com.intellij.python.junit5Tests.framework.metaInfo.Repository
 import com.intellij.python.junit5Tests.framework.metaInfo.TestClassInfo
 import com.intellij.python.junit5Tests.framework.metaInfo.TestClassInfoData
@@ -19,10 +20,8 @@ import com.intellij.python.junit5Tests.framework.metaInfo.TestMethodInfoData
 import com.intellij.python.test.env.junit5.pyVenvFixture
 import com.intellij.testFramework.IndexingTestUtil
 import com.intellij.testFramework.TestDataPath
-import com.intellij.python.junit5Tests.framework.pyModuleFixture
-import com.intellij.testFramework.junit5.fixture.pathInProjectFixture
+import com.intellij.python.junit5Tests.framework.pyProjectFixture
 import com.intellij.testFramework.junit5.fixture.projectFixture
-import com.intellij.testFramework.junit5.fixture.sourceRootFixture
 import com.intellij.testFramework.junit5.fixture.tempPathFixture
 import com.jetbrains.python.packaging.PyPackageRequirementsSettings
 import com.jetbrains.python.packaging.PyRequirementsVersionSpecifierType
@@ -34,7 +33,6 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.Timeout
 import java.nio.file.Path as NioPath
 import kotlin.io.path.ExperimentalPathApi
-import kotlin.io.path.Path
 import kotlin.io.path.CopyActionResult
 import kotlin.io.path.copyToRecursively
 import kotlin.io.path.readText
@@ -53,20 +51,17 @@ import kotlin.io.path.readText
 internal class PyRequirementsTxtGenerationTest {
   private val tempPathFixture = tempPathFixture()
   private val projectFixture = projectFixture()
-  private val moduleFixture = projectFixture.pyModuleFixture(tempPathFixture)
-  private val sourceRoot = moduleFixture.sourceRootFixture(
-    pathFixture = projectFixture.pathInProjectFixture(Path("")),
-  )
+  private val pyProjectFixture = projectFixture.pyProjectFixture()
+  private val sourceRoot = pyProjectFixture.rootSourceRootFixture()
 
   @Suppress("unused")
-  private val venvFixture = pySdkFixture().pyVenvFixture(
+  private val venvFixture = projectFixture.pyInterpreterFixture().pyVenvFixture(
     where = tempPathFixture,
-    addToSdkTable = true,
-    moduleFixture = moduleFixture,
+    pyProjectFixture = pyProjectFixture,
   )
 
   private val project get() = projectFixture.get()
-  private val module get() = moduleFixture.get()
+  private val module get() = pyProjectFixture.get().residesOnModule
 
   private lateinit var testDataDir: NioPath
 
@@ -79,7 +74,7 @@ internal class PyRequirementsTxtGenerationTest {
       if (source.fileName.startsWith("new_")) CopyActionResult.SKIP_SUBTREE
       else source.copyToIgnoringExistingDirectory(target, followLinks = false)
     }
-    LocalFileSystem.getInstance().refresh(false)
+    StandardFileSystems.local().refresh(false)
     IndexingTestUtil.waitUntilIndexesAreReady(project)
   }
 

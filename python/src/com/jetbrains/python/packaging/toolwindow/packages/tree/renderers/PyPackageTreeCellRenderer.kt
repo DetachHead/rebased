@@ -14,12 +14,15 @@ import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
 import com.jetbrains.python.PyBundle
 import com.jetbrains.python.icons.PythonIcons
+import com.jetbrains.python.packaging.common.PythonPackage
 import com.jetbrains.python.packaging.toolwindow.model.DependencyGroupNode
 import com.jetbrains.python.packaging.toolwindow.model.DisplayablePackage
 import com.jetbrains.python.packaging.toolwindow.PyPackageIcons
+import com.jetbrains.python.packaging.toolwindow.PyPackagingToolWindowService
 import com.jetbrains.python.packaging.toolwindow.model.InstallablePackage
 import com.jetbrains.python.packaging.toolwindow.model.InstalledPackage
 import com.jetbrains.python.packaging.toolwindow.model.LoadingNode
+import com.jetbrains.python.packaging.toolwindow.model.ModuleDependencyDisplayablePackage
 import com.jetbrains.python.packaging.toolwindow.model.RequirementPackage
 import com.jetbrains.python.packaging.toolwindow.model.UndeclaredPackagesGroup
 import com.jetbrains.python.packaging.toolwindow.model.WorkspaceMember
@@ -32,6 +35,25 @@ import javax.swing.JTree
 import javax.swing.tree.DefaultMutableTreeNode
 
 private fun URI.toDisplayString(): String = if (scheme == "file") Path.of(this).toString() else toString()
+
+/**
+ * Where a package was installed from, or `null` for one from an index.
+ *
+ * The tree serves this, not the renderer. Setting it on the renderer registers that component with
+ * `ToolTipManager`, and the renderer is one reused instance that [javax.swing.CellRendererPane]
+ * parks outside the rows, so the tooltip was placed against those bounds instead of the row the
+ * mouse is on (PY-90174).
+ */
+internal fun PythonPackage.installedFromTooltip(): String? {
+  val location = editableLocation
+  return when {
+    location != null && isEditableMode ->
+      "<html>" + PyBundle.message("python.toolwindow.packages.editable.installed.from.tooltip", location.toDisplayString()) + "</html>"
+    location != null -> PyBundle.message("python.toolwindow.packages.installed.from", location.toDisplayString())
+    isEditableMode -> PyBundle.message("python.toolwindow.packages.editable.package")
+    else -> null
+  }
+}
 
 internal class PyPackageTreeCellRenderer(
   private val packagesTree: PyPackagesTree,
@@ -95,8 +117,14 @@ internal class PyPackageTreeCellRenderer(
       is InstalledPackage -> renderInstalledPackage(pkg, node, isRowHovered)
       is RequirementPackage -> renderRequirementPackage(pkg, node)
       is InstallablePackage -> renderInstallablePackage(pkg, node.level, isRowHovered)
+      is ModuleDependencyDisplayablePackage -> renderModuleDependency(pkg)
       is LoadingNode -> renderLoadingNode()
     }
+  }
+
+  private fun renderModuleDependency(pkg: ModuleDependencyDisplayablePackage) {
+    icon = AllIcons.Nodes.Module
+    append(pkg.name)
   }
 
   override fun paintComponent(g: Graphics) {
@@ -181,6 +209,8 @@ internal class PyPackageTreeCellRenderer(
     val providerIcon = PyPackageInstalledIconProvider.EP_NAME.extensionList.firstNotNullOfOrNull { it.iconFor(instance) }
 
     icon = when {
+      // A workspace member keeps the member icon wherever it appears, so it stays apart from a PyPI package.
+      pkg.isProjectPackage -> PythonIcons.Python.PythonClosed
       providerIcon != null -> providerIcon
       !pkg.isDeclared || isUndeclaredChild -> PyPackageIcons.PackagePipInstalled
       else -> PyPackageIcons.Package
@@ -200,24 +230,11 @@ internal class PyPackageTreeCellRenderer(
       SimpleTextAttributes.REGULAR_ATTRIBUTES
     }
     val nameAttributes = if (isAncestorOnlyMatch(pkg)) greyAttributes(baseAttributes) else baseAttributes
-    append(pkg.name, nameAttributes)
+    append(pkg.nameWithExtras(), nameAttributes)
 
     @NlsSafe val version = pkg.instance.version
     if (version.isNotEmpty()) {
       append(" $version", VERSION_ATTRIBUTES)
-    }
-
-    if (isLocalInstall) {
-      val displayLocation = location.toDisplayString()
-      toolTipText = if (pkg.isEditMode) {
-        "<html>" + PyBundle.message("python.toolwindow.packages.editable.installed.from.tooltip", displayLocation) + "</html>"
-      }
-      else {
-        PyBundle.message("python.toolwindow.packages.installed.from", displayLocation)
-      }
-    }
-    else if (pkg.isEditMode) {
-      toolTipText = PyBundle.message("python.toolwindow.packages.editable.package")
     }
 
     if (packagesTree.isReadOnly) return
@@ -249,6 +266,8 @@ internal class PyPackageTreeCellRenderer(
     val providerIcon = PyPackageInstalledIconProvider.EP_NAME.extensionList.firstNotNullOfOrNull { it.iconFor(pkg.instance) }
 
     icon = when {
+      // A workspace member keeps the member icon wherever it appears, so it stays apart from a PyPI package.
+      pkg.isProjectPackage -> PythonIcons.Python.PythonClosed
       providerIcon != null -> providerIcon
       !pkg.isDeclared || isUndeclaredChild -> PyPackageIcons.PackagePipInstalled
       else -> PyPackageIcons.Package
@@ -261,13 +280,20 @@ internal class PyPackageTreeCellRenderer(
       SimpleTextAttributes.REGULAR_ATTRIBUTES
     }
     val nameAttributes = if (isAncestorOnlyMatch(pkg)) greyAttributes(baseAttributes) else baseAttributes
-    append(pkg.name, nameAttributes)
+    append(pkg.nameWithExtras(), nameAttributes)
 
     @NlsSafe val version = pkg.instance.version
     if (version.isNotEmpty()) {
       append(" $version", VERSION_ATTRIBUTES)
     }
   }
+
+  /** `pkg[extra]`, the way the tool prints it, so it does not read as a second row for `pkg`. */
+  @NlsSafe
+  private fun InstalledPackage.nameWithExtras(): String = extras?.let { "$name[$it]" } ?: name
+
+  @NlsSafe
+  private fun RequirementPackage.nameWithExtras(): String = extras?.let { "$name[$it]" } ?: name
 
   private fun renderInstallablePackage(pkg: InstallablePackage, depth: Int, showActions: Boolean) {
     icon = PyPackageIcons.PackageGray

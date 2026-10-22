@@ -1,6 +1,30 @@
 load("@community//build:tests-options.bzl", "jps_test")
-load("@community//platform/build-scripts/bazel-rules:dev_dist_plugin.bzl", "dev_dist_plugin")
+load("@jps_dynamic_deps_community//:targets.bzl", "dev_dist_plugin")
 load("@rules_jvm//:jvm.bzl", "jvm_library")
+
+### auto-generated section `dev intellij.settingsRepository` start
+dev_dist_plugin(
+    content_modules = [
+        # do not sort,
+        "intellij.libraries.sshd.osgi",
+        "intellij.libraries.jgit.ssh",
+    ],
+    descriptor = "resources/META-INF/plugin.xml",
+    jars = {
+        "lib/intellij.libraries.sshd.osgi.jar": [
+            "intellij.libraries.sshd.osgi",
+            "@lib//:libraries-sshd-osgi-apache-sshd-osgi",
+        ],
+        "lib/intellij.libraries.jgit.ssh.jar": [
+            "intellij.libraries.jgit.ssh",
+            "@lib//:libraries-jgit-ssh-eclipse-jgit-ssh-apache",
+            "@lib//:libraries-jgit-ssh-eclipse-jgit-ssh-apache-agent",
+        ],
+        "lib/settingsRepository.jar": ["intellij.settingsRepository"],
+    },
+    main_module = "intellij.settingsRepository",
+)
+### auto-generated section `dev intellij.settingsRepository` end
 
 ### auto-generated section `build intellij.settingsRepository` start
 jvm_library(
@@ -44,8 +68,8 @@ jvm_library(
         "//platform/util/progress",
         "//platform/credential-store-ui:credentialStore-ui",
         "//platform/core-impl",
-        "//libraries/jackson/jackson",
-        "//libraries/jackson/databind",
+        "//libraries/jackson3/jackson:libraries-jackson3",
+        "//libraries/jackson3/databind",
         "//libraries/kotlinx/coroutines/core",
         "//platform/vcs-api:vcs",
         "//platform/statistics",
@@ -96,8 +120,8 @@ jvm_library(
         "//platform/util/progress:progress_test_lib",
         "//platform/credential-store-ui:credentialStore-ui_test_lib",
         "//platform/core-impl:core-impl_test_lib",
-        "//libraries/jackson/jackson:jackson_test_lib",
-        "//libraries/jackson/databind:databind_test_lib",
+        "//libraries/jackson3/jackson:libraries-jackson3_test_lib",
+        "//libraries/jackson3/databind:databind_test_lib",
         "//libraries/kotlinx/coroutines/core:core_test_lib",
         "//platform/vcs-api:vcs_test_lib",
         "//platform/statistics:statistics_test_lib",
@@ -124,23 +148,6 @@ exports_files(
     visibility = ["//visibility:public"],
 )
 ### auto-generated section `iml intellij.settingsRepository` end
-
-### auto-generated section `dev intellij.settingsRepository` start
-dev_dist_plugin(
-    content_modules = [
-        "//libraries/jgit-ssh",
-        "//libraries/sshd-osgi",
-    ],
-    descriptor_module = ":settings-repository",
-    libraries = [
-        "@lib//:libraries-jgit-ssh-eclipse-jgit-ssh-apache",
-        "@lib//:libraries-jgit-ssh-eclipse-jgit-ssh-apache-agent",
-        "@lib//:libraries-sshd-osgi-apache-sshd-osgi",
-        "@lib//:slf4j-api",
-        "@lib//:slf4j-jdk14",
-    ],
-)
-### auto-generated section `dev intellij.settingsRepository` end
 
 ### auto-generated section `build intellij.settingsRepository.tests` start
 jvm_library(

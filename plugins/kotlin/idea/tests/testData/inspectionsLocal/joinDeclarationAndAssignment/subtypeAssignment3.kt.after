@@ -1,6 +1,6 @@
 // AFTER-WARNING: Parameter 'a' is never used
 class Test {
-    private val foo: Any = ""
+    private val foo = ""
 
     init {
         bar(foo)

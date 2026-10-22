@@ -3,6 +3,7 @@ fun maybeFoo(): String? {
 }
 
 fun main(args: Array<String>) {
+    val foo = maybeFoo()
     val bar = "bar"
-    val x = "baz" + (maybeFoo() ?: bar)
+    val x = "baz" + (foo ?: bar)
 }

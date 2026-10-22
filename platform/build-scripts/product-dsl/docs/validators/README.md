@@ -15,7 +15,7 @@ This directory is the normative spec for product-dsl validation behavior. Each f
 
 - Validation uses the plugin graph after generation, filtering, and suppression. If a dependency is not represented as a graph edge, it is not validated.
 - Suppressions are explicit contracts: suppressed JPS-derived deps must not produce validation errors.
-- `LibraryModuleValidator`, `TestLibraryScopeValidator` and `LibraryLicenseValidator` read `.iml` dependencies directly. The graph still gives the scope.
+- `TestLibraryScopeValidator` and `LibraryLicenseValidator` read `.iml` dependencies directly. The graph still gives the scope.
 
 ## Index
 
@@ -27,6 +27,7 @@ This directory is the normative spec for product-dsl validation behavior. Each f
 | Plugin dependency declaration duplicates | `PluginDependencyDeclarationValidator` | `pluginDependencyDeclarationValidation` | [plugin-dependency-declaration.md](plugin-dependency-declaration.md) |
 | Test plugin plugin dependencies | `TestPluginPluginDependencyValidator` | `testPluginPluginDependencyValidation` | [test-plugin-plugin-dependency.md](test-plugin-plugin-dependency.md) |
 | Content module dependencies (bundled plugins) | `ContentModuleDependencyValidator` | `pluginContentModuleValidation` | [content-module-dependency.md](content-module-dependency.md) |
+| Restricted module activation | `RestrictedModuleActivationValidator` | `restrictedModuleActivationValidation` | [restricted-module-activation.md](restricted-module-activation.md) |
 | Content module dependency declarations | `ContentModuleDependencyDeclarationValidator` | `contentModuleDependencyDeclarationValidation` | [content-module-dependency-declaration.md](content-module-dependency-declaration.md) |
 | Duplicate plugin content modules | `PluginContentDuplicatesValidator` | `pluginContentDuplicateValidation` | [plugin-content-duplicates.md](plugin-content-duplicates.md) |
 | Content module copy conflicts | `ContentModuleCopyConflictValidator` | `contentModuleCopyConflictValidation` | [content-module-copy-conflict.md](content-module-copy-conflict.md) |
@@ -36,7 +37,6 @@ This directory is the normative spec for product-dsl validation behavior. Each f
 | Unused embedded library modules | `UnusedEmbeddedLibraryModuleValidator` | `unusedEmbeddedLibraryModuleValidation` | [unused-embedded-library-module.md](unused-embedded-library-module.md) |
 | Unused shared library modules | `UnusedSharedLibraryModuleValidator` | `unusedSharedLibraryModuleValidation` | [unused-shared-library-module.md](unused-shared-library-module.md) |
 | Self-contained module set validation | `SelfContainedModuleSetValidator` | `selfContainedValidation` | [self-contained-module-set.md](self-contained-module-set.md) |
-| Library module replacement | `LibraryModuleValidator` | `libraryModuleValidation` | [library-module.md](library-module.md) |
 | Test library scope | `TestLibraryScopeValidator` | `testLibraryScopeValidation` | [test-library-scope.md](test-library-scope.md) |
 | Library license coverage | `LibraryLicenseValidator` | `libraryLicenseValidation` | [library-license.md](library-license.md) |
 | Community library license coverage | `CommunityLibraryLicenseValidator` | `communityLibraryLicenseValidation` | [community-library-license.md](community-library-license.md) |

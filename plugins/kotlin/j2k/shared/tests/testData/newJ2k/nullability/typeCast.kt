@@ -6,7 +6,7 @@ class J {
         }
     }
 
-    fun notNullVariable(o: Any?) {
+    fun notNullVariable(o: Any) {
         val s = o as String
         println(s.length)
     }
@@ -16,7 +16,7 @@ class J {
         val length = (o as String).length
     }
 
-    private fun takesString(s: String?) {
+    private fun takesString(s: String) {
         println(s)
     }
 }

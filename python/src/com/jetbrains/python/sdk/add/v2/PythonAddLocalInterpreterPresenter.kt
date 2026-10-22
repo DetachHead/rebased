@@ -1,16 +1,19 @@
 // Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.jetbrains.python.sdk.add.v2
 
+import com.jetbrains.python.sdk.asPyProjectAddingFacet
 import com.intellij.openapi.projectRoots.Sdk
-import com.intellij.openapi.roots.ModuleRootManager
-import com.intellij.openapi.util.io.toNioPathOrNull
+import com.intellij.python.sdk.backend.getSdkAPI
 import com.jetbrains.python.Result
 import com.jetbrains.python.errorProcessing.ErrorSink
 import com.jetbrains.python.errorProcessing.emit
 import com.jetbrains.python.sdk.ModuleOrProject
+import com.intellij.python.pyproject.model.evolution.setPythonInterpreter
+import com.jetbrains.python.sdk.moduleIfExists
 import com.jetbrains.python.sdk.add.collector.PythonNewInterpreterAddedCollector
 import com.jetbrains.python.sdk.configuration.CreateSdkInfoWithTool
 import com.jetbrains.python.sdk.withSdkConfigurationLock
+import com.jetbrains.python.sdk.workingDirectory
 import com.jetbrains.python.venvReader.VirtualEnvReader
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.flow.Flow
@@ -31,15 +34,9 @@ class PythonAddLocalInterpreterPresenter(
   val bestGuessCreateSdkInfo: Deferred<CreateSdkInfoWithTool?>,
 ) {
 
-  /**
-   * Default path to create virtualenv it
-   */
+  /** The directory for a new environment: the working directory of [moduleOrProject], else the venv root of the user. */
   val pathForVEnv: Path
-    get() = when (moduleOrProject) {
-              is ModuleOrProject.ModuleAndProject -> ModuleRootManager.getInstance(moduleOrProject.module).contentRoots.firstOrNull()?.toNioPath()
-                                                     ?: moduleOrProject.project.basePath?.toNioPathOrNull()
-              is ModuleOrProject.ProjectOnly -> moduleOrProject.project.basePath?.toNioPathOrNull()
-            } ?: envReader.getVEnvRootDir()
+    get() = moduleOrProject.workingDirectory ?: envReader.getVEnvRootDir()
 
   private val _sdkShared = MutableSharedFlow<Sdk>(1)
   val sdkCreatedFlow: Flow<Sdk> = _sdkShared.asSharedFlow()
@@ -51,9 +48,10 @@ class PythonAddLocalInterpreterPresenter(
         return@withSdkConfigurationLock
       }
       is Result.Success -> {
+        moduleOrProject.moduleIfExists?.asPyProjectAddingFacet()?.setPythonInterpreter(r.result)
         val isPreviouslyConfigured = addEnvironment.createStatisticsInfo(PythonInterpreterCreationTargets.LOCAL_MACHINE).previouslyConfigured
         PythonNewInterpreterAddedCollector.logPythonNewInterpreterAdded(r.result, isPreviouslyConfigured)
-        _sdkShared.emit(r.result)
+        _sdkShared.emit(r.result.getSdkAPI())
       }
     }
   }

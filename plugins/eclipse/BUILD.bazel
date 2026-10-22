@@ -1,7 +1,6 @@
 load("@community//build:tests-options.bzl", "jps_test")
-load("@community//platform/build-scripts/bazel-rules:dev_dist_plugin.bzl", "dev_dist_plugin")
+load("@jps_dynamic_deps_community//:targets.bzl", "dev_dist_plugin")
 load("@rules_jvm//:jvm.bzl", "jvm_library")
-load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "dev_dist_plugin_jar")
 
 jps_test(
     name = "eclipse-tests_test",
@@ -10,6 +9,23 @@ jps_test(
     runtime_deps = [":eclipse-tests_test_lib"],
 )
 ### skip generation section `test intellij.eclipse.tests`
+
+### auto-generated section `dev intellij.eclipse` start
+dev_dist_plugin(
+    content_modules = [
+        # do not sort,
+        "intellij.eclipse.common",
+        "intellij.eclipse.jps",
+    ],
+    descriptor = "resources/META-INF/plugin.xml",
+    jars = {
+        "lib/eclipse.jar": ["intellij.eclipse"],
+        "lib/eclipse-jps.jar": ["intellij.eclipse.jps"],
+        "lib/eclipse-common.jar": ["intellij.eclipse.common"],
+    },
+    main_module = "intellij.eclipse",
+)
+### auto-generated section `dev intellij.eclipse` end
 
 ### auto-generated section `build intellij.eclipse` start
 jvm_library(
@@ -101,12 +117,8 @@ jvm_library(
         "//platform/platform-impl:ide-impl_test_lib",
         "//java/java-syntax:syntax_test_lib",
         "//java/java-psi-api:psi_test_lib",
-        "//platform/testFramework",
-        "//platform/testFramework:testFramework_test_lib",
         "//libraries/junit4",
         "//libraries/junit4:junit4_test_lib",
-        "//java/testFramework",
-        "//java/testFramework:testFramework_test_lib",
         "//platform/diff-api:diff_test_lib",
         "//java/compiler/openapi:java-compiler_test_lib",
         "//platform/ide-core-impl:ide-core-impl_test_lib",
@@ -115,21 +127,13 @@ jvm_library(
         "//java/java-impl:impl_test_lib",
         "//plugins/eclipse/jps-plugin:jps_test_lib",
         "//plugins/eclipse/common-eclipse-util:common_test_lib",
-        "//platform/testFramework/extensions:testExtensions",
-        "//platform/testFramework/extensions:testExtensions_test_lib",
         "//platform/editor-ui-ex:editor-ex_test_lib",
         "//platform/core-ui:core-ui_test_lib",
         "//platform/core-impl:core-impl_test_lib",
         "//platform/workspace/jps:jps_test_lib",
         "//platform/workspace/storage:storage_test_lib",
-        "//libraries/kotlinx/coroutines/core",
-        "//libraries/kotlinx/coroutines/core:core_test_lib",
         "//platform/statistics:statistics_test_lib",
-        "//libraries/junit5",
-        "//libraries/junit5:junit5_test_lib",
         "//libraries/kotlin/reflect:reflect_test_lib",
-        "//platform/testFramework/junit5",
-        "//platform/testFramework/junit5:junit5_test_lib",
         "//platform/backend/workspace:workspace_test_lib",
         "//xml/xml-psi-impl:psi-impl_test_lib",
         "//platform/execution:execution_test_lib",
@@ -153,30 +157,6 @@ exports_files(
 )
 ### auto-generated section `iml intellij.eclipse` end
 
-### auto-generated section `dev intellij.eclipse` start
-dev_dist_plugin(
-    descriptor = "resources/META-INF/plugin.xml",
-    descriptor_module = ":eclipse",
-    main_module = "intellij.eclipse",
-    prepacked_layout_jars = [
-        ":eclipse-common_dev_dist_plugin_jar",
-        ":eclipse-jps_dev_dist_plugin_jar",
-    ],
-)
-
-dev_dist_plugin_jar(
-    modules = ["//plugins/eclipse/common-eclipse-util:common"],
-    plugin_main_module = "intellij.eclipse",
-    relative_output_file = "eclipse-common.jar",
-)
-
-dev_dist_plugin_jar(
-    modules = ["//plugins/eclipse/jps-plugin:jps"],
-    plugin_main_module = "intellij.eclipse",
-    relative_output_file = "eclipse-jps.jar",
-)
-### auto-generated section `dev intellij.eclipse` end
-
 ### auto-generated section `build intellij.eclipse.tests` start
 jvm_library(
     name = "eclipse-tests",
@@ -186,6 +166,7 @@ jvm_library(
     ),
     module_name = "intellij.eclipse.tests",
     visibility = ["//visibility:public"],
+    runtime_deps = ["//xml/plugin"],
 )
 
 jvm_library(
@@ -210,6 +191,7 @@ jvm_library(
         "//platform/platform-impl:ide-impl_test_lib",
         "//platform/ide-core-impl:ide-core-impl_test_lib",
         "//platform/ide-core:ide-core_test_lib",
+        "//xml/plugin:plugin_test_lib",
     ],
     deps = [
         # do not sort,
@@ -276,8 +258,8 @@ jvm_library(
         "//libraries/kotlinx/coroutines/core:core_test_lib",
         "//platform/statistics",
         "//platform/statistics:statistics_test_lib",
-        "//libraries/junit5",
-        "//libraries/junit5:junit5_test_lib",
+        "//libraries/junit6",
+        "//libraries/junit6:junit6_test_lib",
         "//libraries/kotlin/reflect",
         "//libraries/kotlin/reflect:reflect_test_lib",
         "//platform/testFramework/junit5",
@@ -298,8 +280,6 @@ jvm_library(
         "//platform/structure-view-impl/plugin:plugin_test_lib",
         "//platform/todo/plugin",
         "//platform/todo/plugin:plugin_test_lib",
-        "//libraries/misc/plugin",
-        "//libraries/misc/plugin:plugin_test_lib",
         "//aether-dependency-resolver/plugin",
         "//aether-dependency-resolver/plugin:plugin_test_lib",
         "//libraries/kotlinx/collections-immutable:libraries-kotlinx-collections-immutable",

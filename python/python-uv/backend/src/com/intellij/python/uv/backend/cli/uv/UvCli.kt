@@ -4,9 +4,12 @@ package com.intellij.python.uv.backend.cli.uv
 import com.intellij.openapi.util.NlsSafe
 import com.intellij.python.community.execService.ProcessOutputTransformer
 import com.intellij.python.community.execService.ZeroCodeStdoutTransformer
-import com.intellij.python.pytools.runtime.PyToolRuntime
-import com.intellij.python.pytools.runtime.executeAndHandleErrors
-import com.intellij.python.pytools.runtime.executeAndMatch
+import com.intellij.python.pytools.backend.runtime.PyToolRuntime
+import com.intellij.python.pytools.backend.runtime.cliArg
+import com.intellij.python.pytools.backend.runtime.cliArgs
+import com.intellij.python.pytools.backend.runtime.cliOption
+import com.intellij.python.pytools.backend.runtime.executeAndHandleErrors
+import com.intellij.python.pytools.backend.runtime.executeAndMatch
 import com.jetbrains.python.Result
 import com.jetbrains.python.errorProcessing.PyResult
 
@@ -47,6 +50,22 @@ enum class UvInitKind(@NlsSafe val flag: String) {
   SCRIPT("--script"),
 }
 
+/**
+ * The value of `uv init --vcs`: the version control system uv initializes in the new project.
+ *
+ * uv defaults to [GIT] when the flag is absent, so a caller that must not create a repository has to pass [NONE]
+ * rather than omit the flag.
+ *
+ * @see <a href="https://docs.astral.sh/uv/reference/cli/#uv-init">uv init</a>
+ */
+enum class UvInitVcs(@NlsSafe val value: String) {
+  /** `--vcs git`: initialize a git repository, and write uv's Python `.gitignore` next to it. */
+  GIT("git"),
+
+  /** `--vcs none`: initialize no repository. */
+  NONE("none"),
+}
+
 @Suppress("unused")
 class UvCli(private val runtime: PyToolRuntime) {
   /**
@@ -68,13 +87,28 @@ class UvCli(private val runtime: PyToolRuntime) {
    *   `.python-version`, VCS init, etc.
    * @param kind The project layout/kind. These uv flags are mutually exclusive, so at most one is
    *   passed. See [UvInitKind].
+   * @param python Passes `--python`: the version `requires-python` and `.python-version` are written from. Left null,
+   *   uv derives both from whichever interpreter it defaults to — the newest one in an empty directory, but any version
+   *   its own preference order lands on once a `.python-version` or a `requires-python` above applies. So a caller that
+   *   knows the version the user asked for must name it here, or the project is pinned to something else. uv only
+   *   records the request, so a version it has yet to download is accepted.
+   * @param vcs Passes `--vcs`: the version control system to initialize. Left null, uv initializes a git repository,
+   *   which is why a caller that offers the user the choice must pass [UvInitVcs.NONE] and not merely omit the flag.
    */
-  suspend fun init(name: String? = null, bare: Boolean = false, kind: UvInitKind? = null): PyResult<String> {
-    val arguments = buildList {
-      if (bare) add("--bare")
-      kind?.let { add(it.flag) }
-      if (name != null) add(name)
-    }.toTypedArray()
+  suspend fun init(
+    name: String? = null,
+    bare: Boolean = false,
+    kind: UvInitKind? = null,
+    python: String? = null,
+    vcs: UvInitVcs? = null,
+  ): PyResult<String> {
+    val arguments = cliArgs(
+      cliArg("--bare".takeIf { bare }),
+      cliArg(kind?.flag),
+      cliOption("--python", python),
+      cliOption("--vcs", vcs?.value),
+      cliArg(name), // uv takes the project name by position, so it goes after every named argument.
+    )
     return runtime.executeAndHandleErrors("init", *arguments, transformer = ZeroCodeStdoutTransformer)
   }
 
@@ -104,8 +138,11 @@ class UvCli(private val runtime: PyToolRuntime) {
    * Update the project's environment
    */
   suspend fun sync(frozen: Boolean? = null, locked: Boolean? = null): PyResult<String> {
-    val options = listOf(frozen to "--frozen", locked to "--locked").makeOptions()
-    return runtime.executeAndHandleErrors("sync", *options, transformer = ZeroCodeStdoutTransformer)
+    val arguments = cliArgs(
+      cliArg("--frozen".takeIf { frozen == true }),
+      cliArg("--locked".takeIf { locked == true }),
+    )
+    return runtime.executeAndHandleErrors("sync", *arguments, transformer = ZeroCodeStdoutTransformer)
   }
 
   /**
@@ -177,11 +214,3 @@ class UvCli(private val runtime: PyToolRuntime) {
 }
 
 
-internal fun List<Pair<Boolean?, *>>.makeOptions(): Array<String> {
-  return this.mapNotNull { (flag, option) ->
-    when (flag) {
-      true -> option.toString()
-      else -> null
-    }
-  }.toTypedArray()
-}

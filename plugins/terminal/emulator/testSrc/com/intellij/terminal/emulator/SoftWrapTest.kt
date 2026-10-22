@@ -45,6 +45,18 @@ class SoftWrapTest {
     assertThat(session.screenLine(3).wrapped).describedAs("row 3 is empty").isFalse()
   }
 
+  /** [TerminalEmulator.isScreenLineWrapped] and [TerminalEmulator.isScrollbackLineWrapped] read the same flag without the cells. */
+  @Test
+  fun theFlagAloneMatchesTheRow() = session(5, 2) { session ->
+    // 12 chars over three rows: "abcde" goes to the scrollback, "fghij" / "kl" stay on the screen.
+    session.write("abcdefghijkl")
+
+    assertThat(session.emulator.isScrollbackLineWrapped(0)).describedAs("scrollback row 0").isTrue()
+    assertThat((0 until 2).map { session.emulator.isScreenLineWrapped(it) }).containsExactly(true, false)
+    assertThat(session.emulator.isScreenLineWrapped(99)).describedAs("out of range").isFalse()
+    assertThat(session.emulator.isScrollbackLineWrapped(99)).describedAs("out of range").isFalse()
+  }
+
   @Test
   fun hardLineBreakDoesNotMarkTheRowWrapped() = session(5, 4) { session ->
     session.write("ab\r\ncd\r\nef")

@@ -27,6 +27,7 @@ import com.jetbrains.python.psi.PySliceItem;
 import com.jetbrains.python.psi.PySubscriptionExpression;
 import com.jetbrains.python.psi.impl.references.PyOperatorReference;
 import com.jetbrains.python.psi.resolve.PyResolveContext;
+import com.jetbrains.python.psi.types.PyAnyType;
 import com.jetbrains.python.psi.types.PyClassType;
 import com.jetbrains.python.psi.types.PyLiteralType;
 import com.jetbrains.python.psi.types.PyTupleType;
@@ -63,7 +64,11 @@ public class PySubscriptionExpressionImpl extends PyElementImpl implements PySub
       final PyType operandType = context.getType(getOperand());
       if (indexExpression instanceof PySliceItem) {
         if (operandType instanceof PyTupleType) {
-          return ((PyTupleType)operandType).isHomogeneous() ? operandType : PyBuiltinCache.getInstance(this).getTupleType();
+          if (((PyTupleType)operandType).isHomogeneous()) {
+            return operandType;
+          }
+          final PyClassType tupleType = PyBuiltinCache.getInstance(this).getTupleType();
+          return tupleType != null ? tupleType : PyAnyType.getUnknown();
         }
       }
       else {
@@ -75,29 +80,12 @@ public class PySubscriptionExpressionImpl extends PyElementImpl implements PySub
             }
             return tupleType.getElementType(index);
           });
-          return PyUnionType.union(possibleTypes);
+          return PyUnionType.unionOrUnknown(possibleTypes);
         }
         if (operandType instanceof PyTypedDictType typedDictType) {
-          List<String> indexPossibleValues = getIndexExpressionPossibleValues(indexExpression, context, String.class);
-          if (typedDictType.getExtraItemsType() != null && !typedDictType.isClosed()) {
-            if (indexPossibleValues.isEmpty() && !isUnknown(typedDictType.getExtraItemsType()) && isStringIndex(indexExpression, context)) {
-              // Non-literal `str` key: the value can be any declared item or an explicitly typed extra item.
-              List<PyType> types = new ArrayList<>(ContainerUtil.map(typedDictType.getFields().values(), field -> field.getType()));
-              types.add(typedDictType.getExtraItemsType());
-              return PyUnionType.union(types);
-            }
-            List<PyType> types = new ArrayList<>();
-            for (String indexValue : indexPossibleValues) {
-              if (typedDictType.getFields().containsKey(indexValue)) {
-                types.add(typedDictType.getElementType(indexValue));
-              }
-              else {
-                types.add(typedDictType.getExtraItemsType());
-              }
-            }
-            return PyUnionType.union(types);
-          }
-          return PyUnionType.union(ContainerUtil.map(indexPossibleValues, typedDictType::getElementType));
+          return typedDictType.isDefinition()
+                 ? parameterizeTypedDictDeclaration(typedDictType, context)
+                 : getTypedDictSubscriptionType(typedDictType, indexExpression, context);
         }
         if (operandType instanceof PyClassType) {
           PyType parameterizedType = Ref.deref(PyTypingTypeProvider.getType(this, context));
@@ -108,6 +96,48 @@ public class PySubscriptionExpressionImpl extends PyElementImpl implements PySub
       }
     }
     return PyCallExpressionHelper.getCallType(this, context, key);
+  }
+
+  /**
+   * A TypedDict without type parameters cannot be parameterized, and the expression still denotes the class, so the declaration
+   * type is returned rather than the `dict` class the generic fallback would answer with.
+   */
+  private @NotNull PyType parameterizeTypedDictDeclaration(@NotNull PyTypedDictType declarationType,
+                                                           @NotNull TypeEvalContext context) {
+    final PyType parameterizedType = Ref.deref(PyTypingTypeProvider.getType(this, context));
+    if (parameterizedType instanceof PyTypedDictType typedDictType && typedDictType.isParameterized()) {
+      return typedDictType.toClass();
+    }
+    return declarationType;
+  }
+
+  /** The extra items type is asked for only when a key is really missing: evaluating it costs as much as an item type. */
+  private static @Nullable PyType getTypedDictSubscriptionType(@NotNull PyTypedDictType typedDictType,
+                                                               @NotNull PyExpression indexExpression,
+                                                               @NotNull TypeEvalContext context) {
+    List<String> keys = getIndexExpressionPossibleValues(indexExpression, context, String.class);
+    if (keys.isEmpty()) {
+      if (typedDictType.isClosed() || !isStringIndex(indexExpression, context)) return PyAnyType.getUnknown();
+      PyType extraItemsType = typedDictType.extraItemsType(context);
+      if (extraItemsType == null || isUnknown(extraItemsType)) return PyAnyType.getUnknown();
+      // Non-literal `str` key: the value can be any declared item or an explicitly typed extra item.
+      List<PyType> types =
+        new ArrayList<>(ContainerUtil.map(typedDictType.fields(context).values(), PyTypedDictType.FieldTypeAndTotality::getType));
+      types.add(extraItemsType);
+      return PyUnionType.union(types);
+    }
+
+    List<PyType> types = new ArrayList<>();
+    for (String key : keys) {
+      PyTypedDictType.FieldTypeAndTotality field = typedDictType.fields(context).get(key);
+      if (field != null) {
+        types.add(field.getType());
+        continue;
+      }
+      PyType extraItemsType = typedDictType.isClosed() ? null : typedDictType.extraItemsType(context);
+      types.add(extraItemsType != null ? extraItemsType : PyAnyType.getUnknown());
+    }
+    return PyUnionType.union(types);
   }
 
   @ApiStatus.Internal

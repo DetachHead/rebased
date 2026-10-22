@@ -26,7 +26,6 @@ import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.ThreadLocalRandom;
 
-import static com.intellij.openapi.vfs.newvfs.persistent.PersistentFSHeaders.HEADER_CONNECTION_STATUS_OFFSET;
 import static java.nio.file.StandardOpenOption.READ;
 import static java.nio.file.StandardOpenOption.WRITE;
 import static org.junit.Assert.assertEquals;
@@ -415,8 +414,7 @@ public class VFSCorruptionRecoveryTest {
 
 
   private static void setupVFSFillSomeDataAndClose(Path cachesDir) throws Exception {
-    FSRecordsImpl fsRecords = FSRecordsImpl.connect(cachesDir);
-    try {
+    try (FSRecordsImpl fsRecords = FSRecordsImpl.connect(cachesDir)){
       //add something to VFS so it is not empty
       int testFileId = fsRecords.createRecord();
       fsRecords.setName(testFileId, "test");
@@ -427,9 +425,6 @@ public class VFSCorruptionRecoveryTest {
         stream.writeInt(42);
       }
     }
-    finally {
-      StorageTestingUtils.bestEffortToCloseAndUnmap(fsRecords);
-    }
   }
 
   private static void emulateImproperClose(Path cachesDir) throws IOException {
@@ -437,6 +432,9 @@ public class VFSCorruptionRecoveryTest {
     //    likely: VFSFlusher still does its flushing even after memory buffers are unmapped, and
     //    .emulateImproperClose() doesn't stop the flusher, or not guaranteed to stop it early
     //    enough
+
+    long ownerProcessIdOffset = PersistentFSRecordsOverMMappedFile.FileHeader.LAYOUT.byteOffset(
+      PersistentFSRecordsOverMMappedFile.FileHeader.OWNER_PROCESS_ID_FIELD);
 
     int crashedProcessId = Integer.MAX_VALUE;//should be != current processId
     PersistentFSPaths paths = new PersistentFSPaths(cachesDir);
@@ -447,7 +445,7 @@ public class VFSCorruptionRecoveryTest {
         .putInt(crashedProcessId)
         .clear();
 
-      channel.position(HEADER_CONNECTION_STATUS_OFFSET);
+      channel.position(ownerProcessIdOffset);
       channel.write(oneFieldBuffer);
     }
   }

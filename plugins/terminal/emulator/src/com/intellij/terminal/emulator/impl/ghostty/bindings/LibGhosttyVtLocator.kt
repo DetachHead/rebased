@@ -5,7 +5,7 @@ import com.intellij.ide.plugins.PluginManagerCore
 import com.intellij.idea.AppMode
 import com.intellij.openapi.application.PathManager
 import com.intellij.openapi.application.PluginPathManager
-import com.intellij.openapi.diagnostic.rethrowControlFlowException
+import com.intellij.diagnostic.rethrowControlFlowException
 import com.intellij.openapi.util.SystemInfoRt
 import com.intellij.util.system.CpuArch
 import com.intellij.util.system.LowLevelLocalMachineAccess

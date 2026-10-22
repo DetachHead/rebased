@@ -12,8 +12,8 @@ public class EachWithIndexToForIntentionTest extends GrIntentionTestCase {
   }
 
   @Override
-  protected String getBasePath() {
-    return TestUtils.getTestDataPath() + "intentions/EachWithIndexToFor/";
+  protected String getTestDataPath() {
+    return TestUtils.getAbsoluteTestDataPath() + "intentions/EachWithIndexToFor/";
   }
 
   public void testEachToFor() { doTest(true); }

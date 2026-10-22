@@ -1,0 +1,13 @@
+*:com.intellij.platform.ide.progress.BackgroundTaskOwner
+- *sf:Companion:com.intellij.platform.ide.progress.BackgroundTaskOwner$Companion
+- *s:allFrames():com.intellij.platform.ide.progress.BackgroundTaskOwner
+- *s:guess():com.intellij.platform.ide.progress.BackgroundTaskOwner
+- *s:project(com.intellij.openapi.project.Project):com.intellij.platform.ide.progress.BackgroundTaskOwner
+*f:com.intellij.platform.ide.progress.BackgroundTaskOwner$Companion
+- f:allFrames():com.intellij.platform.ide.progress.BackgroundTaskOwner
+- f:guess():com.intellij.platform.ide.progress.BackgroundTaskOwner
+- f:project(com.intellij.openapi.project.Project):com.intellij.platform.ide.progress.BackgroundTaskOwner
+f:com.intellij.platform.ide.progress.TasksKt
+- *sf:withBackgroundProgress(com.intellij.platform.ide.progress.BackgroundTaskOwner,java.lang.String,com.intellij.platform.ide.progress.TaskCancellation,com.intellij.platform.ide.progress.suspender.TaskSuspender,Z,kotlin.jvm.functions.Function2,kotlin.coroutines.Continuation):java.lang.Object
+- *sf:withBackgroundProgress(com.intellij.platform.ide.progress.BackgroundTaskOwner,java.lang.String,kotlin.jvm.functions.Function2,kotlin.coroutines.Continuation):java.lang.Object
+- *bs:withBackgroundProgress$default(com.intellij.platform.ide.progress.BackgroundTaskOwner,java.lang.String,com.intellij.platform.ide.progress.TaskCancellation,com.intellij.platform.ide.progress.suspender.TaskSuspender,Z,kotlin.jvm.functions.Function2,kotlin.coroutines.Continuation,I,java.lang.Object):java.lang.Object

@@ -2,7 +2,8 @@
 package com.intellij.execution.target
 
 import com.intellij.openapi.projectRoots.SdkAdditionalData
+import com.intellij.openapi.projectRoots.TargetBasedSdkAdditionalDataMarker
 
-interface TargetBasedSdkAdditionalData : SdkAdditionalData {
+interface TargetBasedSdkAdditionalData : SdkAdditionalData, TargetBasedSdkAdditionalDataMarker {
   val targetEnvironmentConfiguration: TargetEnvironmentConfiguration?
 }

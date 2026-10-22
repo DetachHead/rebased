@@ -11,7 +11,7 @@ class GroovyMultipleMainMethodsInspectionTest : GrHighlightingTestBase() {
     return GroovyProjectDescriptors.GROOVY_5_0
   }
 
-  override fun getBasePath(): String = TestUtils.getTestDataPath() + "inspections/multipleMainMethods/"
+  override fun getTestDataPath(): String = TestUtils.getAbsoluteTestDataPath() + "inspections/multipleMainMethods/"
 
   override fun setUp() {
     super.setUp()

@@ -11,6 +11,7 @@ import com.intellij.openapi.externalSystem.util.ExternalSystemApiUtil;
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.io.FileUtil;
+import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.VfsUtil;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.PsiElement;
@@ -18,7 +19,6 @@ import com.intellij.psi.PsiFileSystemItem;
 import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
-import org.jetbrains.plugins.gradle.util.GradleUtil;
 
 import java.nio.file.Paths;
 import java.util.ArrayList;
@@ -29,6 +29,8 @@ import java.util.function.Consumer;
 import java.util.stream.Collectors;
 
 import static org.jetbrains.plugins.gradle.util.GradleExecutionSettingsUtil.createTestWildcardFilter;
+import static org.jetbrains.plugins.gradle.util.GradleUtil.findGradleModuleData;
+import static org.jetbrains.plugins.gradle.util.GradleUtil.resolveGradleIdentityPath;
 
 public class AllInDirectoryGradleConfigurationProducer extends AbstractGradleTestRunConfigurationProducer<PsiElement, PsiElement> {
   @Override
@@ -68,6 +70,16 @@ public class AllInDirectoryGradleConfigurationProducer extends AbstractGradleTes
   }
 
   @Override
+  protected @NotNull String suggestTaskFirstConfigurationName(@NotNull ConfigurationContext context,
+                                                               @NotNull PsiElement element,
+                                                               @NotNull List<? extends PsiElement> chosenElements,
+                                                               @NotNull List<String> selectedTestTaskNames) {
+    Module module = Objects.requireNonNull(context.getModule());
+    String gradleProjectPath = StringUtil.notNullize(resolveGradleIdentityPath(module), module.getName());
+    return createTaskFirstConfigurationNameIn(selectedTestTaskNames, "[" + gradleProjectPath + "]");
+  }
+
+  @Override
   protected void chooseSourceElements(
     @NotNull ConfigurationContext context,
     @NotNull PsiElement element,
@@ -95,7 +107,7 @@ public class AllInDirectoryGradleConfigurationProducer extends AbstractGradleTes
   }
 
   private static List<VirtualFile> findTestSourcesUnderDirectory(@NotNull Module module, @NotNull VirtualFile directory) {
-    DataNode<ModuleData> moduleDataNode = GradleUtil.findGradleModuleData(module);
+    DataNode<ModuleData> moduleDataNode = findGradleModuleData(module);
     if (moduleDataNode == null) return Collections.emptyList();
     String rootPath = directory.getPath();
     return ExternalSystemApiUtil.findAll(moduleDataNode, ProjectKeys.TEST).stream()

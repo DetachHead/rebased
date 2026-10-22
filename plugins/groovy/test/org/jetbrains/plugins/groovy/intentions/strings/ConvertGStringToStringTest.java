@@ -45,7 +45,7 @@ public class ConvertGStringToStringTest extends GrIntentionTestCase {
   }
 
   @Override
-  public final String getBasePath() {
-    return TestUtils.getTestDataPath() + "intentions/convertGStringToString/";
+  public final String getTestDataPath() {
+    return TestUtils.getAbsoluteTestDataPath() + "intentions/convertGStringToString/";
   }
 }

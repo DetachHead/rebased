@@ -1,13 +1,13 @@
 // Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.openapi.projectRoots.impl
 
-import com.intellij.execution.target.TargetBasedSdkAdditionalData
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.projectRoots.ProjectJdkTable
 import com.intellij.openapi.projectRoots.Sdk
 import com.intellij.openapi.projectRoots.SdkTableProjectViewProvider
 import com.intellij.openapi.projectRoots.SdkTypeId
+import com.intellij.openapi.projectRoots.TargetBasedSdkAdditionalDataMarker
 import com.intellij.openapi.util.registry.Registry
 import com.intellij.openapi.util.registry.RegistryValue
 import com.intellij.openapi.util.registry.RegistryValueListener
@@ -75,7 +75,7 @@ private class ProjectJdkTableProjectView(val eelMachine: EelMachine, val delegat
   }
 
   private fun validateDescriptor(sdk: Sdk): Boolean {
-    if (sdk.sdkAdditionalData is TargetBasedSdkAdditionalData) return true
+    if (sdk.sdkAdditionalData is TargetBasedSdkAdditionalDataMarker) return true
     return eelMachine.ownsSdk(sdk)
   }
 
@@ -120,7 +120,7 @@ private class ProjectJdkTableProjectView(val eelMachine: EelMachine, val delegat
   ): Sdk? {
     val sdk = delegate.lookup(eelMachine)
     if (sdk != null || eelMachine == LocalEelMachine) return sdk
-    return delegate.lookup(LocalEelMachine)?.takeIf { it.sdkAdditionalData is TargetBasedSdkAdditionalData }
+    return delegate.lookup(LocalEelMachine)?.takeIf { it.sdkAdditionalData is TargetBasedSdkAdditionalDataMarker }
   }
 
 }

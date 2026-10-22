@@ -1,0 +1,26 @@
+<idea-plugin visibility="internal">
+  <!-- region Generated dependencies - run `Generate Product Layouts` to regenerate -->
+  <dependencies>
+    <module name="intellij.libraries.eclipse.lsp4j"/>
+    <module name="intellij.libraries.kotlinx.coroutines.core"/>
+    <module name="intellij.platform.analysis"/>
+    <module name="intellij.platform.core"/>
+    <module name="intellij.platform.core.ui"/>
+    <module name="intellij.platform.lsp"/>
+    <module name="intellij.platform.projectModel"/>
+    <module name="intellij.python.community"/>
+    <module name="intellij.python.community.impl"/>
+    <module name="intellij.python.lsp.core"/>
+    <module name="intellij.python.lsp.core.common"/>
+    <module name="intellij.python.pytools.backend"/>
+    <module name="intellij.python.sdk.backend"/>
+    <module name="intellij.python.zuban.common"/>
+  </dependencies>
+  <!-- endregion -->
+
+  <extensions defaultExtensionNs="com.intellij">
+    <platform.lsp.integrationProvider implementation="com.intellij.python.zuban.ZubanLspIntegrationProvider"/>
+    <projectSettings service="com.intellij.python.zuban.ZubanConfiguration"/>
+    <python.pytools.pyTool implementation="com.intellij.python.zuban.ZubanPyTool"/>
+  </extensions>
+</idea-plugin>

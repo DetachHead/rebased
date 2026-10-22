@@ -44,8 +44,9 @@ The product-dsl module provides a **Kotlin DSL for defining product module compo
 ### 1. Input: Kotlin Definitions
 
 ```
-CommunityModuleSets.kt   ──┐
-CoreModuleSets.kt        ──┼──▶  Module Set Definitions
+LibraryModuleSets.kt     ──┐
+CoreModuleSets.kt        ──┤
+CommunityModuleSets.kt   ──┼──▶  Module Set Definitions
 UltimateModuleSets.kt    ──┘
 
 *Properties.kt files     ──────▶  Product Content Specs
@@ -79,7 +80,6 @@ The generation uses a **5-stage pipeline architecture** with pluggable generator
 │     ├─ ModuleSetXmlNode             - Module set XML files      │
 │     ├─ ProductModuleDependencyNode  - Module descriptors        │
 │     ├─ ContentModuleDependencyNode  - moduleName.xml deps       │
-│     ├─ TestDescriptorNode           - moduleName._test.xml      │
 │     ├─ PluginXmlDependencyNode      - plugin.xml deps           │
 │     ├─ PluginValidationNode         - validates plugin deps     │
 │     ├─ SuppressionConfigNode        - suppressions.json         │
@@ -120,8 +120,10 @@ The generation uses a **5-stage pipeline architecture** with pluggable generator
 ┌─────────────────────────────────────────────────┐
 │              Module Sets                         │
 ├─────────────────────────────────────────────────┤
+│  LibraryModuleSets                               │
+│  └─ libraries*() - Library wrapper modules      │
+│                                                  │
 │  CoreModuleSets                                  │
-│  ├─ libraries() - Library wrapper modules       │
 │  ├─ corePlatform() - Core platform modules      │
 │  ├─ coreLang() - Language support               │
 │  └─ rpc*() - RPC infrastructure                 │
@@ -194,6 +196,23 @@ For running the generator and common commands, see [quick-start.md](quick-start.
 - **Bazel (preferred):** `bazel run //platform/buildScripts:plugin-model-tool`
 - **IDE:** Run configuration `Generate Product Layouts`
 - **JSON Analysis:** See [programmatic-content.md#json-analysis-endpoint](programmatic-content.md#json-analysis-endpoint)
+- **Trace:** `--trace=<file>` writes an OpenTelemetry trace of the run in the Jaeger JSON format
+
+## Trace
+
+The generator traces itself. Each stage, each model building step and each pipeline node opens a span, and a worker
+span nests under the task that forked it.
+
+```bash
+bazel run //platform/buildScripts:plugin-model-tool -- --check --trace=/tmp/plugin-model-tool.json
+```
+
+Open the file in the Jaeger UI. A run without `--trace` installs a tracer that records nothing, so it opens no span
+and writes no file.
+
+The pipeline reaches the tracer through `BuildTracer` in `intellij.platform.buildScripts.api`. The entry point
+installs the real tracer, because the pipeline must not depend on the telemetry module. Call `buildSpan("name")` to
+add a span.
 
 ## File Organization
 

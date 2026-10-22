@@ -4,6 +4,7 @@ package com.intellij.ide.minimap.hover
 import com.intellij.ide.minimap.geometry.MinimapLineGeometryUtil
 import com.intellij.ide.minimap.layout.MinimapLayoutMetrics
 import com.intellij.ide.minimap.layout.MinimapLayoutUtil.lineTop
+import com.intellij.ide.minimap.model.isInDocument
 import com.intellij.ide.minimap.render.MinimapRenderEntry
 import com.intellij.ide.minimap.interaction.MinimapInteractionPolicy
 import com.intellij.ide.minimap.render.MinimapRenderContext
@@ -23,8 +24,8 @@ import kotlin.math.ceil
 class MinimapHoverHitCheck(private val editor: Editor) {
   private val structureMarkerPolicy = MinimapInteractionPolicy.forEditor(editor)
 
-  @RequiresBackgroundThread
-  @RequiresReadLock
+  @RequiresBackgroundThread(generateAssertion = false /* IJPL-115548 */)
+  @RequiresReadLock(generateAssertion = false /* IJPL-115548 */)
   fun resolveHit(snapshot: MinimapSnapshot, point: Point?): MinimapHoverHitCheckResult? {
     if (point == null) return null
     val entries = snapshot.structureEntries
@@ -69,17 +70,18 @@ class MinimapHoverHitCheck(private val editor: Editor) {
     return computeHoverRect(range, context)
   }
 
-  @RequiresReadLock
+  @RequiresReadLock(generateAssertion = false /* IJPL-115548 */)
   private fun resolveRange(entry: MinimapRenderEntry): TextRange? {
     val element = entry.element ?: return null
     val value = element.value ?: return null
     if (!structureMarkerPolicy.isRelevantStructureElement(element, value)) return null
 
-    return when (value) {
-      is PsiElement -> value.textRange
+    val range = when (value) {
+      is PsiElement -> if (isInDocument(value, editor.document)) value.textRange else null
       is TextRange -> value
       else -> null
     }
+    return range?.takeIf { it.endOffset <= editor.document.textLength }
   }
 
   private fun computeHoverRect(range: TextRange, context: MinimapRenderContext): Rectangle? {

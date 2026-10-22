@@ -3,6 +3,7 @@
 
 package org.jetbrains.intellij.build.productLayout.discovery
 
+import com.intellij.platform.pluginGraph.ContentModuleName
 import com.intellij.platform.pluginGraph.TargetName
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
@@ -33,6 +34,13 @@ data class ProductConfiguration(
   @JvmField val modules: List<String>,
   @JvmField @SerialName("class") val className: String,
   @JvmField val pluginXmlPath: String? = null,
+  /**
+   * The root module of the modular loader, when the product replaces the default of its class.
+   *
+   * A frontend debug wrapper names the `product-modules.xml` that bundles a plugin the base product does not ship.
+   * The dev build applies it once, when it constructs the `ProductProperties`. The product must have a modular loader.
+   */
+  @JvmField val rootModule: String? = null,
 )
 
 /**
@@ -51,6 +59,23 @@ data class DiscoveredProduct(
   @JvmField val spec: org.jetbrains.intellij.build.productLayout.ProductModulesContentSpec?,
   @JvmField val pluginXmlPath: String?,
   @JvmField val bundledModuleSetPluginModules: List<TargetName> = emptyList(),
+  /**
+   * JPS modules packed into the product main jar, from `productLayout.productImplementationModules`.
+   *
+   * They are loaded by the core classloader, but they are not content modules, so no content edge of the
+   * plugin graph can express them. An analysis that reasons about the core classloader has to take them as
+   * extra roots; see `UnusedEmbeddedLibraryAnalysis`.
+   */
+  @JvmField val coreClassloaderModules: List<TargetName> = emptyList(),
+  /** Bundled plugins from the product declaration or the modular loader. */
+  @JvmField val bundledPluginModules: List<TargetName> = emptyList(),
+  /** The ID of the product mode, from `ProductProperties.productMode`. */
+  @JvmField val productModeId: String = "monolith",
+  /**
+   * Content modules that the product mode excludes, from `ProductModeLoadingRules.getIncompatibleRootModules`.
+   * A module that depends on one of them does not load in this product.
+   */
+  @JvmField val productModeExcludedModules: Set<ContentModuleName> = emptySet(),
 )
 
 /**

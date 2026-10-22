@@ -1,5 +1,6 @@
 load("@community//build:tests-options.bzl", "jps_test")
-load("@community//platform/build-scripts/bazel-rules:dev_dist_plugin.bzl", "dev_dist_plugin")
+load("@community//platform/build-scripts/bazel-rules:ij_plugin.bzl", "ij_plugin")
+load("@jps_dynamic_deps_community//:targets.bzl", "dev_dist_plugin")
 load("@rules_jvm//:jvm.bzl", "jvm_library")
 
 jps_test(
@@ -10,6 +11,22 @@ jps_test(
 )
 
 ### skip generation section `test intellij.platform.images.tests`
+
+### auto-generated section `dev intellij.platform.images` start
+dev_dist_plugin(
+    content_modules = [
+        # do not sort,
+        "intellij.platform.images.jcef",
+        "intellij.platform.images.copyright",
+        "intellij.platform.images.xdebugger",
+    ],
+    descriptor = "resources/META-INF/plugin.xml",
+    jars = {
+        "lib/platform-images.jar": ["intellij.platform.images"],
+    },
+    main_module = "intellij.platform.images",
+)
+### auto-generated section `dev intellij.platform.images` end
 
 ### auto-generated section `build intellij.platform.images` start
 jvm_library(
@@ -26,6 +43,7 @@ jvm_library(
     resource_strip_prefix = "resources",
     resources = glob(
         ["resources/**/*"],
+        exclude = ["resources/**/icon-robots.txt"],
     ),
     visibility = ["//visibility:public"],
     deps = [
@@ -102,6 +120,18 @@ jvm_library(
         "//jps/model-api:model_test_lib",
     ],
 )
+
+ij_plugin(
+    name = "images_plugin",
+    descriptor_module = ":images",
+    content_modules = [
+        # do not sort,
+        "//images/jcef",
+        "//images/intellij.platform.images.copyright:copyright",
+        "//images/intellij.platform.images.xdebugger:xdebugger",
+    ],
+    visibility = ["//visibility:public"],
+)
 ### auto-generated section `build intellij.platform.images` end
 
 ### auto-generated section `iml intellij.platform.images` start
@@ -114,24 +144,6 @@ exports_files(
 )
 ### auto-generated section `iml intellij.platform.images` end
 
-### auto-generated section `dev intellij.platform.images` start
-dev_dist_plugin(
-    descriptor = "resources/META-INF/plugin.xml",
-    descriptor_module = ":images",
-    descriptors = {
-        "@community//images/intellij.platform.images.copyright:resources/intellij.platform.images.copyright.xml": "intellij.platform.images.copyright.xml",
-        "@community//images/intellij.platform.images.xdebugger:resources/intellij.platform.images.xdebugger.xml": "intellij.platform.images.xdebugger.xml",
-        "@community//images/jcef:resources/intellij.platform.images.jcef.xml": "intellij.platform.images.jcef.xml",
-    },
-    main_module = "intellij.platform.images",
-    prepacked_content_modules = [
-        "//images/intellij.platform.images.copyright:copyright_content_module_jar",
-        "//images/intellij.platform.images.xdebugger:xdebugger_content_module_jar",
-        "//images/jcef:jcef_content_module_jar",
-    ],
-)
-### auto-generated section `dev intellij.platform.images` end
-
 ### auto-generated section `build intellij.platform.images.tests` start
 jvm_library(
     name = "images-tests",
@@ -141,6 +153,7 @@ jvm_library(
     ),
     module_name = "intellij.platform.images.tests",
     visibility = ["//visibility:public"],
+    runtime_deps = ["//xml/plugin"],
 )
 
 jvm_library(
@@ -164,6 +177,7 @@ jvm_library(
         ":images-tests",
         "//platform/platform-impl:ide-impl_test_lib",
         "//platform/platform-util-io:ide-util-io_test_lib",
+        "//xml/plugin:plugin_test_lib",
     ],
     deps = [
         # do not sort,
@@ -220,8 +234,8 @@ jvm_library(
         "//xml/xml-psi-api:psi_test_lib",
         "//platform/util-ex",
         "//platform/util-ex:util-ex_test_lib",
-        "//libraries/junit5",
-        "//libraries/junit5:junit5_test_lib",
+        "//libraries/junit6",
+        "//libraries/junit6:junit6_test_lib",
     ],
 )
 ### auto-generated section `build intellij.platform.images.tests` end

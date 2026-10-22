@@ -8,8 +8,8 @@ import com.intellij.psi.search.searches.DirectClassInheritorsSearch
 import com.intellij.util.Query
 import com.intellij.util.QueryFactory
 import com.intellij.util.concurrency.annotations.RequiresReadLock
-import org.jetbrains.kotlin.asJava.toFakeLightClass
 import org.jetbrains.kotlin.asJava.toLightClass
+import org.jetbrains.kotlin.util.asFakePsiClass
 
 private val EVERYTHING_BUT_KOTLIN by lazy(LazyThreadSafetyMode.PUBLICATION) {
     object : QueryFactory<PsiClass, DirectClassInheritorsSearch.SearchParameters>() {
@@ -22,7 +22,7 @@ private val EVERYTHING_BUT_KOTLIN by lazy(LazyThreadSafetyMode.PUBLICATION) {
 }
 
 internal class DirectKotlinClassDelegatedSearcher : Searcher<DirectKotlinClassInheritorsSearch.SearchParameters, PsiElement> {
-    @RequiresReadLock
+    @RequiresReadLock(generateAssertion = false /* IJPL-115548 */)
     override fun collectSearchRequest(parameters: DirectKotlinClassInheritorsSearch.SearchParameters): Query<out PsiElement>? {
         val baseClass = parameters.ktClass
         if (baseClass.isEnum()) {
@@ -33,7 +33,7 @@ internal class DirectKotlinClassDelegatedSearcher : Searcher<DirectKotlinClassIn
             // Implementations of Kotlin sealed class can only be defined in Kotlin
             return null
         }
-        val lightClass = baseClass.toLightClass() ?: baseClass.toFakeLightClass()
+        val lightClass = baseClass.toLightClass() ?: baseClass.asFakePsiClass()
         val params =
             DirectClassInheritorsSearch.SearchParameters(lightClass, parameters.searchScope, parameters.includeAnonymous, true)
         return EVERYTHING_BUT_KOTLIN.createQuery(params)

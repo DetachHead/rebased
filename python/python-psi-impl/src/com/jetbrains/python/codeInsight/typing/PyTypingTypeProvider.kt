@@ -6,7 +6,6 @@ import com.dynatrace.hash4j.hashing.Hashing
 import com.google.common.collect.ImmutableMap
 import com.google.common.collect.ImmutableSet
 import com.intellij.openapi.application.PathManager
-import com.intellij.openapi.util.Computable
 import com.intellij.openapi.util.Key
 import com.intellij.openapi.util.NlsSafe
 import com.intellij.openapi.util.RecursionManager
@@ -33,10 +32,14 @@ import com.jetbrains.python.codeInsight.controlflow.ScopeOwner
 import com.jetbrains.python.codeInsight.dataflow.scope.ScopeUtil
 import com.jetbrains.python.codeInsight.functionTypeComments.psi.PyFunctionTypeAnnotation
 import com.jetbrains.python.codeInsight.functionTypeComments.psi.PyFunctionTypeAnnotationFile
+import com.jetbrains.python.codeInsight.stdlib.PyStdlibTypeProvider
 import com.jetbrains.python.codeInsight.stdlib.getNamedTupleTypeForClass
+import com.jetbrains.python.codeInsight.stdlib.parameterizeNamedTupleType
 import com.jetbrains.python.codeInsight.typeHints.PyTypeHintFile
 import com.jetbrains.python.codeInsight.typeRepresentation.PyModuleTypeName
 import com.jetbrains.python.codeInsight.typeRepresentation.psi.PyFunctionTypeRepresentation
+import com.jetbrains.python.codeInsight.typeRepresentation.resolveByTypeEngineModuleName
+import com.jetbrains.python.codeInsight.typeRepresentation.resolveTypeRepresentationName
 import com.jetbrains.python.codeInsight.typing.PyTypeHintProvider.Companion.parseTypeHint
 import com.jetbrains.python.codeInsight.typing.PyTypingTypeProvider.Context
 import com.jetbrains.python.psi.AccessDirection
@@ -55,6 +58,7 @@ import com.jetbrains.python.psi.PyDecoratable
 import com.jetbrains.python.psi.PyDoubleStarExpression
 import com.jetbrains.python.psi.PyEllipsisLiteralExpression
 import com.jetbrains.python.psi.PyExpression
+import com.jetbrains.python.psi.PyExpressionCodeFragment
 import com.jetbrains.python.psi.PyFile
 import com.jetbrains.python.psi.PyForPart
 import com.jetbrains.python.psi.PyFunction
@@ -92,7 +96,6 @@ import com.jetbrains.python.psi.impl.PyPsiUtils
 import com.jetbrains.python.psi.impl.stubs.PyTypingAliasStubType
 import com.jetbrains.python.psi.resolve.PyResolveContext
 import com.jetbrains.python.psi.resolve.PyResolveUtil
-import com.jetbrains.python.psi.resolve.RatedResolveResult
 import com.jetbrains.python.psi.stubs.PyModuleNameIndex
 import com.jetbrains.python.psi.types.PyAnyType
 import com.jetbrains.python.psi.types.PyCallableParameterImpl
@@ -107,7 +110,7 @@ import com.jetbrains.python.psi.types.PyClassTypeImpl
 import com.jetbrains.python.psi.types.PyCollectionTypeImpl
 import com.jetbrains.python.psi.types.PyConcatenateType
 import com.jetbrains.python.psi.types.PyInstantiableType
-import com.jetbrains.python.psi.types.PyIntersectionType.Companion.intersection
+import com.jetbrains.python.psi.types.PyIntersectionType.Companion.intersectionOrTop
 import com.jetbrains.python.psi.types.PyLiteralStringType.Companion.create
 import com.jetbrains.python.psi.types.PyLiteralType
 import com.jetbrains.python.psi.types.PyModuleType
@@ -128,7 +131,7 @@ import com.jetbrains.python.psi.types.PyTypeChecker.collectGenerics
 import com.jetbrains.python.psi.types.PyTypeFormType
 import com.jetbrains.python.psi.types.PyTypeParameterMapping
 import com.jetbrains.python.psi.types.PyTypeParameterType
-import com.jetbrains.python.psi.types.PyTypeParser
+import com.jetbrains.python.psi.types.PyLegacyDocstringTypeParser
 import com.jetbrains.python.psi.types.PyTypeUtil
 import com.jetbrains.python.psi.types.PyTypeUtil.convertToType
 import com.jetbrains.python.psi.types.PyTypeUtil.derefOrUnknown
@@ -144,6 +147,7 @@ import com.jetbrains.python.psi.types.PyUnpackedTupleTypeImpl
 import com.jetbrains.python.psi.types.PyVariadicType
 import com.jetbrains.python.psi.types.PyVariance
 import com.jetbrains.python.psi.types.TypeEvalContext
+import com.jetbrains.python.psi.types.isAnyOrUnknown
 import com.jetbrains.python.psi.types.isObject
 import com.jetbrains.python.sdk.legacy.PythonSdkUtil
 import one.util.streamex.StreamEx
@@ -212,20 +216,20 @@ class PyTypingTypeProvider : PyTypeProviderWithCustomContext<Context?>() {
     }
     val type = getType(typeHint, context).derefOrUnknown()
     if (param.isPositionalContainer && type !is PyParamSpecType) {
-      return Ref(param.toPositionalContainerType(type))
+      return Ref(param.toPositionalContainerType(type) ?: PyAnyType.unknown)
     }
     if (param.isKeywordContainer && type !is PyParamSpecType) {
-      return Ref(param.toKeywordContainerType(type))
+      return Ref(param.toKeywordContainerType(type) ?: PyAnyType.unknown)
     }
     if (PyNames.NONE == param.defaultValueText) {
-      return Ref(PyUnionType.union(type, PyBuiltinCache.getInstance(param).noneType))
+      return Ref(PyUnionType.unionOrUnknown(type, PyBuiltinCache.getInstance(param).noneType ?: PyAnyType.unknown))
     }
     if (context.typeContext.maySwitchToAST(param)) {
       val defaultValue = param.defaultValue
       if (defaultValue != null) {
         val defaultType = context.typeContext.getType(defaultValue)
         if (defaultType is PySentinelType) {
-          return Ref(PyUnionType.union(type, defaultType))
+          return Ref(PyUnionType.unionOrUnknown(type, defaultType))
         }
       }
     }
@@ -272,7 +276,7 @@ class PyTypingTypeProvider : PyTypeProviderWithCustomContext<Context?>() {
 
   // PEP 747: the explicit `TypeForm(...)` constructor. `_SpecialForm` has no `__call__`, so intercept the call here and
   // return a callable whose result is the `TypeForm` value denoting the argument's type expression.
-  override fun prepareCalleeTypeForCall(type: PyType?, callee: PyExpression, context: Context): Ref<PyCallableType?>? {
+  override fun prepareCalleeTypeForCall(type: PyType?, callee: PyExpression, context: Context): Ref<PyType?>? {
     if (type is PyClassType && (SPECIAL_FORM == type.classQName || SPECIAL_FORM_EXT == type.classQName)) {
       val call = PyCallExpressionNavigator.getPyCallExpressionByCallee(callee)
       if (call != null && isTypeForm(resolveToQualifiedNames(callee, context.typeContext), callee)) {
@@ -281,7 +285,7 @@ class PyTypingTypeProvider : PyTypeProviderWithCustomContext<Context?>() {
         val typeForm = createTypeFormType(callee, call.arguments.firstOrNull(), context) ?: return null
         // A single parameter, so that the regular argument-list checks report a wrong number of arguments.
         val parameter = PyCallableParameterImpl.nonPsi(PyAnyType.any)
-        return Ref.create<PyCallableType?>(PyCallableTypeImpl(listOf(parameter), typeForm))
+        return Ref(PyCallableTypeImpl(listOf(parameter), typeForm))
       }
     }
     return null
@@ -395,12 +399,12 @@ class PyTypingTypeProvider : PyTypeProviderWithCustomContext<Context?>() {
           val isInstanceAttribute: Boolean
           if (context.typeContext.maySwitchToAST(referenceTarget)) {
             isInstanceAttribute =
-              StreamEx.of<PsiElement?>(PyUtil.multiResolveTopPriority(referenceTarget.qualifier!!, resolveContext))
+              StreamEx.of(PyUtil.multiResolveTopPriority(referenceTarget.qualifier!!, resolveContext))
                 .select(PyParameter::class.java)
-                .filter { obj: PyParameter? -> obj!!.isSelf }
-                .anyMatch { p: PyParameter? ->
+                .filter { it.isSelf }
+                .anyMatch {
                   PsiTreeUtil.getParentOfType(
-                    p,
+                    it,
                     PyFunction::class.java
                   ) === scopeOwner
                 }
@@ -419,8 +423,7 @@ class PyTypingTypeProvider : PyTypeProviderWithCustomContext<Context?>() {
           }
 
           for (ancestor in pyClass.getAncestorClasses(resolveContext.typeEvalContext)) {
-            val ancestorMemberType: Ref<PyType?>? =
-              getMemberTypeForClassType(
+            val ancestorMemberType = getMemberTypeForClassType(
                 context,
                 referenceTarget,
                 name,
@@ -460,16 +463,16 @@ class PyTypingTypeProvider : PyTypeProviderWithCustomContext<Context?>() {
             //  val type = getTypeFromTypeHint(current, context)
             //  if (type != null) {
             //    if (current.isPositionalContainer) {
-            //      return Ref.create(current.toPositionalContainerType(type.get()))
+            //      return Ref(current.toPositionalContainerType(type.get()))
             //    }
             //    else if (current.isKeywordContainer) {
-            //      return Ref.create(current.toKeywordContainerType(type.get()))
+            //      return Ref(current.toKeywordContainerType(type.get()))
             //    }
             //    val defaultValue = current.defaultValue
             //    if (defaultValue != null) {
             //      val defaultType = context.typeContext.getType(defaultValue)
             //      if (defaultType is PySentinelType) {
-            //        return Ref.create(PyUnionType.union(type.get(), defaultType))
+            //        return Ref(PyUnionType.unionOrUnknown(type.get(), defaultType))
             //      }
             //    }
             //    return type
@@ -506,10 +509,9 @@ class PyTypingTypeProvider : PyTypeProviderWithCustomContext<Context?>() {
   }
 
   override fun getGenericSubstitutions(cls: PyClass, context: Context): Map<PyType?, PyType?> {
-    return PyUtil.getParameterizedCachedValue(
-      cls,
-      context
-    ) { calculateGenericSubstitutions(cls, it) }
+    return PyUtil.getParameterizedCachedValue(cls, context) {
+      calculateGenericSubstitutions(cls, it)
+    }
   }
 
   private fun calculateGenericSubstitutions(cls: PyClass, context: Context): Map<PyType?, PyType?> {
@@ -527,8 +529,12 @@ class PyTypingTypeProvider : PyTypeProviderWithCustomContext<Context?>() {
         results.putAll(superSubstitutions)
       }
       // TODO Share this logic with PyTypeChecker.collectTypeSubstitutions
-      val superTypeParameters = collectTypeParameters(superClassType.pyClass, context)
-      val superTypeArguments = if (superClassType is PyClassType && superClassType.isParameterized) superClassType.typeArguments else mutableListOf<PyType?>()
+      // A TypedDict declares its own parameters; collectTypeParameters would describe those of `dict` here.
+      // Only a specialized base is read that way: an unspecialized one leaves its parameters open rather than binding them to Any.
+      val specializedTypedDictBase = (superClassType as? PyTypedDictType)?.takeIf { it.isParameterized }
+      val superTypeParameters = specializedTypedDictBase?.declaredTypeParameters
+                                ?: collectTypeParameters(superClassType.pyClass, context)
+      val superTypeArguments = superClassType.typeArguments
       val mapping =
         PyTypeParameterMapping.mapByShape(
           superTypeParameters, superTypeArguments, PyTypeParameterMapping.Option.MAP_UNMATCHED_EXPECTED_TYPES_TO_ANY,
@@ -567,12 +573,12 @@ class PyTypingTypeProvider : PyTypeProviderWithCustomContext<Context?>() {
         val isAsync = ASYNC_GENERATOR == qName
         if (!isAsync && GENERATOR != qName) return null
 
-        val noneType: PyType? = PyBuiltinCache.getInstance(type.pyClass).noneType
+        val noneType: PyType? = PyBuiltinCache.getInstance(type.pyClass).noneType ?: PyAnyType.unknown
 
         var yieldType: PyType? = PyAnyType.unknown
         var sendType = noneType
         var returnType = if (isAsync) PyAnyType.unknown else noneType
-        if (type is PyClassType && type.isParameterized) {
+        if (type.isParameterized) {
           yieldType = type.typeArguments.getOrElse(0) { PyAnyType.unknown }
           sendType = type.typeArguments.getOrElse(1) { sendType }
           returnType = type.typeArguments.getOrElse(2) { returnType }
@@ -619,7 +625,7 @@ class PyTypingTypeProvider : PyTypeProviderWithCustomContext<Context?>() {
 
           val anext = type.pyClass.findMethodByName(PyNames.ANEXT, true, context)
           if (anext != null) {
-            yieldType = Ref.deref<PyType?>(unwrapCoroutineReturnType(context.getReturnType(anext)))
+            yieldType = Ref.deref(unwrapCoroutineReturnType(context.getReturnType(anext)))
             yieldType = PyTypeChecker.substitute(yieldType, PyTypeChecker.unifyReceiver(type, context), context)
             return GeneratorTypeDescriptor(yieldType, PyAnyType.unknown, PyAnyType.unknown, true)
           }
@@ -635,8 +641,7 @@ class PyTypingTypeProvider : PyTypeProviderWithCustomContext<Context?>() {
 
   @ApiStatus.Internal
   class Context(val typeContext: TypeEvalContext, val typeRepresentationMode: Boolean = false) {
-    val typeAliasStack: Stack<PyQualifiedNameOwner?> = Stack()
-    private val myClassSet: MutableSet<PyClass?> = HashSet()
+    val typeAliasStack: Stack<PyQualifiedNameOwner> = Stack()
     var isComputeTypeParameterScopeEnabled: Boolean = true
       private set
 
@@ -677,14 +682,6 @@ class PyTypingTypeProvider : PyTypeProviderWithCustomContext<Context?>() {
       return res
     }
 
-    fun addClassDeclaration(pyClass: PyClass): Boolean {
-      return myClassSet.add(pyClass)
-    }
-
-    fun removeClassDeclaration(pyClass: PyClass) {
-      myClassSet.remove(pyClass)
-    }
-
     fun setComputeTypeParameterScopeEnabled(value: Boolean): Boolean {
       val prev = isComputeTypeParameterScopeEnabled
       isComputeTypeParameterScopeEnabled = value
@@ -714,8 +711,7 @@ class PyTypingTypeProvider : PyTypeProviderWithCustomContext<Context?>() {
       myContextStrongHashValue = Hashing.xxh3_128().hashCharsTo128Bits(
         buildList {
           add(if (isComputeTypeParameterScopeEnabled) "1" else "0")
-          add(typeAliasStack.map { it!!.qualifiedName })
-          add(myClassSet.map { it!!.qualifiedName })
+          add(typeAliasStack.map { it.qualifiedName })
         }.joinToString("#")
       )
     }
@@ -780,6 +776,7 @@ class PyTypingTypeProvider : PyTypeProviderWithCustomContext<Context?>() {
     const val PARAM_SPEC_EXT: String = "typing_extensions.ParamSpec"
     private const val CHAIN_MAP = "typing.ChainMap"
     const val UNION: String = "typing.Union"
+    const val INTERSECTION_TY_EXT: String = "ty_extensions.Intersection"
     const val CONCATENATE: String = "typing.Concatenate"
     const val CONCATENATE_EXT: String = "typing_extensions.Concatenate"
     const val OPTIONAL: String = "typing.Optional"
@@ -827,6 +824,9 @@ class PyTypingTypeProvider : PyTypeProviderWithCustomContext<Context?>() {
     const val SELF_EXT: String = "typing_extensions.Self"
 
     val TYPE_IGNORE_PATTERN: Pattern = Pattern.compile("#\\s*type:\\s*ignore\\s*(\\[[^]#]*])?($|(\\s.*))", Pattern.CASE_INSENSITIVE)
+
+    /** A `# type: ignore` comment whose code list is still open, as in `# type: ignore[attr-defined, un`. */
+    val TYPE_IGNORE_UNCLOSED_PATTERN: Pattern = Pattern.compile("#\\s*type:\\s*ignore\\s*\\[[^]#]*", Pattern.CASE_INSENSITIVE)
 
     const val ASSERT_TYPE: String = "typing.assert_type"
     const val REVEAL_TYPE: String = "typing.reveal_type"
@@ -902,6 +902,7 @@ class PyTypingTypeProvider : PyTypeProviderWithCustomContext<Context?>() {
       .add(PARAM_SPEC_EXT)
       .add(CONCATENATE)
       .add(CONCATENATE_EXT)
+      .add(INTERSECTION_TY_EXT)
       .add(TUPLE)
       .add(CALLABLE)
       .add(CALLABLE_EXT)
@@ -1060,18 +1061,18 @@ class PyTypingTypeProvider : PyTypeProviderWithCustomContext<Context?>() {
         return null
       }
       return StreamEx.of(classAttrs)
-        .map<PsiElement?> { obj: RatedResolveResult? -> obj!!.element }
+        .map { it.element }
         .select(PyTargetExpression::class.java)
-        .filter { x: PyTargetExpression? ->
-          val owner = ScopeUtil.getScopeOwner(x)
+        .filter {
+          val owner = ScopeUtil.getScopeOwner(it)
           owner is PyClass || owner is PyFunction
         }
-        .map<Ref<PyType?>?> { x: PyTargetExpression? -> getTypeFromTypeHint(x, context) }
+        .map { getTypeFromTypeHint(it, context) }
         .collect(PyTypeUtil.toUnionFromRef())
     }
 
-    private fun <T> getTypeFromTypeHint(element: T, context: Context): Ref<PyType?>? where T : PyAnnotationOwner?, T : PyTypeCommentOwner? {
-      val annotation: PyExpression? = getAnnotationValue(element!!, context.typeContext)
+    private fun <T> getTypeFromTypeHint(element: T, context: Context): Ref<PyType?>? where T : PyAnnotationOwner, T : PyTypeCommentOwner {
+      val annotation: PyExpression? = getAnnotationValue(element, context.typeContext)
       if (annotation != null) {
         return getType(annotation, context)
       }
@@ -1113,25 +1114,29 @@ class PyTypingTypeProvider : PyTypeProviderWithCustomContext<Context?>() {
       val results: MutableList<PyClassType> = ArrayList()
       for (superClassExpression in getSuperClassExpressions(pyClass)) {
         val type = getType(superClassExpression, context).derefOrUnknown()
-        if (type is PyClassType) {
+        if (type is PyNamedTupleType && superClassExpression is PySubscriptionExpression) {
+          // A named tuple type reports its field types as its type arguments.
+          // The type arguments of the class must come from the superclass expression, as in `class Sub(Base[str])`.
+          val typeArguments = staticWithCustomContext(context) { getIndexTypes(superClassExpression, it) }
+          results.add(PyCollectionTypeImpl(type.pyClass, false, typeArguments))
+        }
+        else if (type is PyClassType) {
           results.add(type)
         }
       }
       return results
     }
 
-    private fun collectTypeParameters(cls: PyClass, context: Context): List<PyTypeParameterType?> {
+    private fun collectTypeParameters(cls: PyClass, context: Context): List<PyTypeParameterType> {
       if (!isGeneric(cls, context.typeContext)) {
         return emptyList()
       }
-      if (cls.typeParameterList != null) {
-        val typeParameters = cls.typeParameterList!!.typeParameters
-        return StreamEx.of(typeParameters)
-          .map {
+      val typeParameterList = cls.typeParameterList
+      if (typeParameterList != null) {
+        val typeParameters = typeParameterList.typeParameters
+        return typeParameters.mapNotNull {
             getTypeParameterTypeFromTypeParameter(it, context)
           }
-          .nonNull()
-          .toList()
       }
       // See https://mypy.readthedocs.io/en/stable/generics.html#defining-sub-classes-of-generic-classes
       val parameterizedSuperClassExpressions = getSuperClassExpressions(cls).filterIsInstance<PySubscriptionExpression>()
@@ -1214,12 +1219,13 @@ class PyTypingTypeProvider : PyTypeProviderWithCustomContext<Context?>() {
       if (knownType != null) {
         return Ref(knownType)
       }
-      for (pair in tryResolvingWithAliases(expression, context.typeContext, context.typeRepresentationMode)) {
-        val typeRef = getTypeForResolvedElement(expression, pair.first, pair.second!!, context, parameterizeTopLevel)
+      for ((alias, resolved) in tryResolvingWithAliases(expression, context.typeContext, context.typeRepresentationMode)) {
+        val typeRef = getTypeForResolvedElement(expression, alias, resolved, context, parameterizeTopLevel)
         if (typeRef != null) {
-          if (typeRef.get() != null) {
-            context.assumeType(expression, typeRef.get()!!)
-          }
+          val type = typeRef.get()
+          PyAnyType.validate(type, expression)
+          if (type != null)
+            context.assumeType(expression, type)
           return typeRef
         }
       }
@@ -1243,9 +1249,9 @@ class PyTypingTypeProvider : PyTypeProviderWithCustomContext<Context?>() {
       if (resolved.isNullOrEmpty()) return false
 
       return StreamEx.of(resolved)
-        .map<PsiElement?> { it: RatedResolveResult? -> it!!.element }
+        .map { it.element }
         .nonNull()
-        .noneMatch { it: PsiElement? -> PyBuiltinCache.getInstance(it).isBuiltin(it) }
+        .noneMatch { PyBuiltinCache.getInstance(it).isBuiltin(it) }
     }
 
     /**
@@ -1274,16 +1280,12 @@ class PyTypingTypeProvider : PyTypeProviderWithCustomContext<Context?>() {
       if (LanguageLevel.forElement(element).isAtLeast(LanguageLevel.PYTHON310)) return true
 
       val file = element.containingFile
-      if (file is PyFile && file.hasImportFromFuture(FutureFeature.ANNOTATIONS)) {
-        return file === element || PsiTreeUtil.getParentOfType(
-          element,
-          PyAnnotation::class.java,
-          false,
-          PyStatement::class.java
-        ) != null
-      }
-
-      return false
+      return file is PyFile && file.hasImportFromFuture(FutureFeature.ANNOTATIONS) && (file === element || PsiTreeUtil.getParentOfType(
+        element,
+        PyAnnotation::class.java,
+        false,
+        PyStatement::class.java
+      ) != null)
     }
 
     private fun getTypeForResolvedElement(
@@ -1299,11 +1301,6 @@ class PyTypingTypeProvider : PyTypeProviderWithCustomContext<Context?>() {
           return null
         }
         context.addTypeAlias(alias)
-      }
-      if (resolved is PyClass && !context.addClassDeclaration(resolved)) {
-        // Resolving to normal classes shouldn't cause recursive evaluation of type hints,
-        // but constructing recursive PyTypedDictTypes will trigger that.
-        return null
       }
       try {
         val typeHintFromProvider = parseTypeHint(
@@ -1454,9 +1451,6 @@ class PyTypingTypeProvider : PyTypeProviderWithCustomContext<Context?>() {
         return null
       }
       finally {
-        if (resolved is PyClass) {
-          context.removeClassDeclaration(resolved)
-        }
         if (alias != null) {
           context.removeTypeAlias(alias)
         }
@@ -1504,11 +1498,10 @@ class PyTypingTypeProvider : PyTypeProviderWithCustomContext<Context?>() {
         }
         val scopeOwner = if (scopeExpression is PyReferenceExpression && scopeExpression.asQualifiedName() != null) {
           val qualifiedName = scopeExpression.asQualifiedName()!!
-          val scopeElement = PyResolveUtil.resolveFullyQualifiedName(qualifiedName, scopeExpression, context.typeContext)
-          scopeElement as? PyQualifiedNameOwner
+          resolveTypeRepresentationName<PyQualifiedNameOwner>(qualifiedName, scopeExpression, context.typeContext)
         }
         else null
-        val result = PyTypeVarTypeImpl(name, null).withScopeOwner(scopeOwner)
+        val result = PyTypeVarTypeImpl(name, PyAnyType.unknown).withScopeOwner(scopeOwner)
         return Ref(result)
       }
       return null
@@ -1545,6 +1538,13 @@ class PyTypingTypeProvider : PyTypeProviderWithCustomContext<Context?>() {
     }
 
     private fun getIntersectionType(resolved: PsiElement, context: Context): Ref<PyType?>? {
+      if (resolved is PySubscriptionExpression) {
+        if (!resolved.operand.resolvesToQualifiedNames(context.typeContext, INTERSECTION_TY_EXT)) return null
+        val memberTypes = getIndexTypes(resolved, context)
+        // An empty intersection (`Intersection[()]`) is the greatest lower bound of no types, i.e. the top type `object`.
+        if (memberTypes.isEmpty()) return Ref(PyBuiltinCache.getInstance(resolved).objectType)
+        return intersectionOrTop(memberTypes)?.let { Ref(it) }
+      }
       if (resolved !is PyBinaryExpression || resolved.operator !== PyTokenTypes.AND) return null
       val left = resolved.leftExpression ?: return null
       val right = resolved.rightExpression ?: return null
@@ -1553,7 +1553,7 @@ class PyTypingTypeProvider : PyTypeProviderWithCustomContext<Context?>() {
       val rightTypeRef = getType(right, context)
       if (leftTypeRef == null && rightTypeRef == null) return null
 
-      val intersection = intersection(leftTypeRef?.get(), rightTypeRef?.get())
+      val intersection = intersectionOrTop(leftTypeRef?.get(), rightTypeRef?.get())
       return intersection?.let { Ref(it) }
     }
 
@@ -1561,7 +1561,7 @@ class PyTypingTypeProvider : PyTypeProviderWithCustomContext<Context?>() {
       if (typeHint is PyNoneLiteralExpression ||
           typeHint is PyReferenceExpression && PyNames.NONE == typeHint.text
       ) {
-        return Ref(PyBuiltinCache.getInstance(resolved).noneType)
+        return Ref(PyBuiltinCache.getInstance(resolved).noneType ?: PyAnyType.unknown)
       }
       return null
     }
@@ -1570,7 +1570,7 @@ class PyTypingTypeProvider : PyTypeProviderWithCustomContext<Context?>() {
       if (resolved is PyListLiteralExpression) {
         val argumentTypes =
           resolved.elements.map {
-            getType(it!!, context).derefOrUnknown()
+            getType(it, context).derefOrUnknown()
           }
         return PyCallableParameterListTypeImpl(
           argumentTypes.map { PyCallableParameterImpl.nonPsi(it) }
@@ -1588,7 +1588,7 @@ class PyTypingTypeProvider : PyTypeProviderWithCustomContext<Context?>() {
         val isTypeIs = TYPE_IS in names || TYPE_IS_EXT in names
         val isTypeGuard = TYPE_GUARD in names || TYPE_GUARD_EXT in names
         if (isTypeIs || isTypeGuard) {
-          val indexTypes: MutableList<PyType?> = getIndexTypes(resolved, context)
+          val indexTypes = getIndexTypes(resolved, context)
           if (indexTypes.size == 1) {
             val narrowedType = create(resolved, isTypeIs, indexTypes[0])
             if (narrowedType != null) {
@@ -1795,7 +1795,7 @@ class PyTypingTypeProvider : PyTypeProviderWithCustomContext<Context?>() {
           if (argExpr != null) {
             argType = getType(argExpr, context).derefOrUnknown()
           }
-          return Ref(PyUnionType.union(argType, PyBuiltinCache.getInstance(element).noneType))
+          return Ref(PyUnionType.unionOrUnknown(argType, PyBuiltinCache.getInstance(element).noneType ?: PyAnyType.unknown))
         }
       }
       return null
@@ -1816,7 +1816,7 @@ class PyTypingTypeProvider : PyTypeProviderWithCustomContext<Context?>() {
         if (resolved.operand.resolvesToQualifiedNames(context, LITERAL, LITERAL_EXT)) {
           return resolved.indexExpression
             ?.let { PyLiteralType.fromLiteralParameter(it, context.typeContext, context.typeRepresentationMode) }
-            ?.let { Ref.create(it) }
+            ?.let { Ref(it) }
         }
       }
 
@@ -1881,15 +1881,15 @@ class PyTypingTypeProvider : PyTypeProviderWithCustomContext<Context?>() {
       owner: T,
       context: TypeEvalContext,
       vararg names: String?,
-    ): Boolean where T : PyTypeCommentOwner?, T : PyAnnotationOwner? {
+    ): Boolean where T : PyTypeCommentOwner, T : PyAnnotationOwner {
       return names.any { it in resolveTypeHintsToQualifiedNames(owner, context) }
     }
 
     private fun <T> resolveTypeHintsToQualifiedNames(
       owner: T,
       context: TypeEvalContext,
-    ): Collection<String> where T : PyTypeCommentOwner?, T : PyAnnotationOwner? {
-      var annotation: PyExpression? = getAnnotationValue(owner!!, context)
+    ): Collection<String> where T : PyTypeCommentOwner, T : PyAnnotationOwner {
+      var annotation: PyExpression? = getAnnotationValue(owner, context)
       if (annotation is PyStringLiteralExpression) {
         val annotationText = annotation.stringValue
         annotation = PyUtil.createExpressionFromFragment(annotationText, owner)
@@ -1921,23 +1921,34 @@ class PyTypingTypeProvider : PyTypeProviderWithCustomContext<Context?>() {
         .any { it === PyKnownDecorator.TYPING_FINAL || it === PyKnownDecorator.TYPING_FINAL_EXT }
     }
 
+    /**
+     * Returns true if and only if [cls] accepts no subclass. A class with the `@final` decorator
+     * accepts none. An enum class with one member or more also accepts none.
+     */
     @JvmStatic
-    fun <T> isFinal(owner: T, context: TypeEvalContext): Boolean where T : PyTypeCommentOwner?, T : PyAnnotationOwner? {
-      return PyUtil.getParameterizedCachedValue(owner!!, context) {
+    fun isFinalClass(cls: PyClass, context: TypeEvalContext): Boolean {
+      return PyUtil.getParameterizedCachedValue(cls, context) {
+        isFinal(cls, context) || PyStdlibTypeProvider.isFinalEnum(cls, context)
+      }
+    }
+
+    @JvmStatic
+    fun <T> isFinal(owner: T, context: TypeEvalContext): Boolean where T : PyTypeCommentOwner, T : PyAnnotationOwner {
+      return PyUtil.getParameterizedCachedValue(owner, context) {
         typeHintedWithName(owner, context, FINAL, FINAL_EXT)
       }
     }
 
     @JvmStatic
-    fun <T> isReadOnly(owner: T, context: TypeEvalContext): Boolean where T : PyTypeCommentOwner?, T : PyAnnotationOwner? {
-      return PyUtil.getParameterizedCachedValue(owner!!, context) {
+    fun <T> isReadOnly(owner: T, context: TypeEvalContext): Boolean where T : PyTypeCommentOwner, T : PyAnnotationOwner {
+      return PyUtil.getParameterizedCachedValue(owner, context) {
         typeHintedWithName(owner, context, READONLY, READONLY_EXT)
       }
     }
 
     @JvmStatic
-    fun <T> isClassVar(owner: T, context: TypeEvalContext): Boolean where T : PyAnnotationOwner?, T : PyTypeCommentOwner? {
-      return PyUtil.getParameterizedCachedValue(owner!!, context) {
+    fun <T> isClassVar(owner: T, context: TypeEvalContext): Boolean where T : PyAnnotationOwner, T : PyTypeCommentOwner {
+      return PyUtil.getParameterizedCachedValue(owner, context) {
         typeHintedWithName(owner, context, CLASS_VAR)
       }
     }
@@ -1979,26 +1990,23 @@ class PyTypingTypeProvider : PyTypeProviderWithCustomContext<Context?>() {
       anchor: PsiElement,
       context: TypeEvalContext,
     ): Ref<PyType?>? {
-      return staticWithCustomContext(
-        context
-      ) { getStringBasedType(contents, anchor, it) }
+      return staticWithCustomContext(context) {
+        getStringBasedType(contents, anchor, it)
+      }
     }
 
     private fun getStringBasedType(contents: String, anchor: PsiElement, context: Context): Ref<PyType?>? {
-      return RecursionManager.doPreventingRecursion(
-        anchor to contents,
-        true,
-        Computable {
-          val expr = PyUtil.createExpressionFromFragment(contents, anchor)
-          if (expr != null) getType(expr, context) else null
-        })
+      return RecursionManager.doPreventingRecursion(anchor to contents, true) {
+        val expr = PyUtil.createExpressionFromFragment(contents, anchor)
+        if (expr != null) getType(expr, context) else null
+      }
     }
 
     private fun getStringLiteralType(element: PsiElement, context: Context): PyType? {
       if (element is PyStringLiteralExpression) {
         val contents = element.stringValue
         // A multiline string literal can contain a type expression unparsable without parentheses
-        return Ref.deref<PyType?>(
+        return Ref.deref(
           getStringBasedType(
             if ("\n" in contents) "($contents)" else contents,
             element,
@@ -2146,7 +2154,7 @@ class PyTypingTypeProvider : PyTypeProviderWithCustomContext<Context?>() {
               if (parametersExpr is PyEllipsisLiteralExpression) {
                 return PyCallableTypeImpl.withUnknownParameters(returnType)
               }
-              val parametersType = Ref.deref<PyType?>(getType(parametersExpr, context))
+              val parametersType = Ref.deref(getType(parametersExpr, context))
               if (parametersType is PyCallableParameterListType) {
                 return PyCallableTypeImpl(parametersType.parameters, returnType)
               }
@@ -2201,7 +2209,7 @@ class PyTypingTypeProvider : PyTypeProviderWithCustomContext<Context?>() {
         val rightTypeRef = getType(right, context)
         if (leftTypeRef == null && rightTypeRef == null) return null
 
-        val union = PyUnionType.union(leftTypeRef.derefOrUnknown(), rightTypeRef.derefOrUnknown())
+        val union = PyUnionType.unionOrUnknown(leftTypeRef.derefOrUnknown(), rightTypeRef.derefOrUnknown())
         return if (union != null) Ref(union) else null
       }
       return null
@@ -2242,7 +2250,7 @@ class PyTypingTypeProvider : PyTypeProviderWithCustomContext<Context?>() {
       val name: String = nameArgument.stringValue
       val defaultExpression = element.getKeywordArgument("default")
       val boundExpression = element.getKeywordArgument("bound")
-      val bound = if (boundExpression == null) PyAnyType.unknown else Ref.deref(getType(boundExpression, context))
+      val bound = boundExpression?.let { Ref.deref(getType(it, context)) } ?: PyAnyType.unknown
       val defaultType = if (defaultExpression != null) getType(defaultExpression, context) else null
       val variance: PyVariance = getTypeVarVarianceFromDeclaration(element)
       when (typeParameterKind) {
@@ -2355,7 +2363,9 @@ class PyTypingTypeProvider : PyTypeProviderWithCustomContext<Context?>() {
       val (boundType, constraints) = when (boundExpression) {
         null -> PyAnyType.unknown to emptyList()
 
-        is PyTupleExpression -> PyAnyType.unknown to boundExpression.elements.map { getTypePreventingRecursion(it, context).derefOrUnknown() }
+        is PyTupleExpression -> PyAnyType.unknown to boundExpression.elements.map {
+          getTypePreventingRecursion(it, context).derefOrUnknown()
+        }
 
         else -> getTypePreventingRecursion(boundExpression, context).derefOrUnknown() to emptyList()
       }
@@ -2470,10 +2480,9 @@ class PyTypingTypeProvider : PyTypeProviderWithCustomContext<Context?>() {
       if (context.isTypeAliasStackEmpty) {
         return null
       }
-      val typeVarDeclaration = context.popTypeAlias()
-      assert(typeVarDeclaration is PyTargetExpression)
+      val typeVarDeclaration = context.popTypeAlias() as PyTargetExpression
       try {
-        val typeParameters: Iterable<PyTypeParameterType?>
+        val typeParameters: Iterable<PyTypeParameterType>
         when (owner) {
           is PyClass -> {
             typeParameters = collectTypeParameters(owner, context)
@@ -2485,10 +2494,10 @@ class PyTypingTypeProvider : PyTypeProviderWithCustomContext<Context?>() {
             typeParameters = mutableListOf()
           }
         }
-        return typeParameters.find { name == it!!.name }
+        return typeParameters.find { name == it.name }
       }
       finally {
-        context.pushTypeAlias(typeVarDeclaration!!)
+        context.pushTypeAlias(typeVarDeclaration)
       }
     }
 
@@ -2501,7 +2510,7 @@ class PyTypingTypeProvider : PyTypeProviderWithCustomContext<Context?>() {
         .select(PyNamedParameter::class.java)
         .map {
           PyTypingTypeProvider().getParameterType(
-            it!!,
+            it,
             function,
             context
           )
@@ -2567,18 +2576,10 @@ class PyTypingTypeProvider : PyTypeProviderWithCustomContext<Context?>() {
       return Ref(getType(starredExpression, context).derefOrUnknown())
     }
 
-    private fun getIndexTypes(expression: PySubscriptionExpression, context: Context): MutableList<PyType?> {
-      val types: MutableList<PyType?> = ArrayList()
+    private fun getIndexTypes(expression: PySubscriptionExpression, context: Context): List<PyType?> {
       val indexExpr = PyPsiUtils.flattenParens(expression.indexExpression)
-      if (indexExpr is PyTupleExpression) {
-        for (expr in indexExpr.elements) {
-          types.add(getType(expr, context).derefOrUnknown())
-        }
-      }
-      else if (indexExpr != null) {
-        types.add(getType(indexExpr, context).derefOrUnknown())
-      }
-      return types
+      val elements = if (indexExpr is PyTupleExpression) indexExpr.elements.asList() else listOfNotNull(indexExpr)
+      return elements.map { getType(it, context).derefOrUnknown() }
     }
 
     private fun parameterizeClassDefaultAware(
@@ -2636,12 +2637,12 @@ class PyTypingTypeProvider : PyTypeProviderWithCustomContext<Context?>() {
         val assignedTypeRef: Ref<PyType?>? = getType(element, context, parameterizeTopLevel = false)
         if (assignedTypeRef != null) {
           val assignedType = assignedTypeRef.get()
-          if (assignedType == null) {
+          if (assignedType.isAnyOrUnknown) {
             return assignedTypeRef
           }
           if (typeHint is PySubscriptionExpression) {
-            val indexTypes: MutableList<PyType?> = getIndexTypes(typeHint, context)
-            return Ref(PyTypeChecker.parameterizeType(assignedType, indexTypes, context.typeContext))
+            val indexTypes = getIndexTypes(typeHint, context)
+            return Ref(PyTypeChecker.parameterizeType(assignedType, indexTypes, context.typeContext) ?: PyAnyType.unknown)
           }
           if (typeHint is PyReferenceExpression) {
             if (assignedType !is PyTypeParameterType) {
@@ -2704,9 +2705,14 @@ class PyTypingTypeProvider : PyTypeProviderWithCustomContext<Context?>() {
         val operand = element.operand
         val indexExpr = element.indexExpression
         if (indexExpr != null) {
-          val operandType = Ref.deref<PyType?>(getType(operand, context))
-          val indexTypes: MutableList<PyType?> = getIndexTypes(element, context)
+          val operandType = Ref.deref(getType(operand, context))
+          val indexTypes = getIndexTypes(element, context)
           if (operandType != null) {
+            if (operandType is PyNamedTupleType) {
+              parameterizeNamedTupleType(operandType, indexTypes, context.typeContext)?.let {
+                return it
+              }
+            }
             if (operandType is PyClassType) {
               if (operandType !is PyTupleType && PyNames.FQN.TUPLE == operandType.pyClass.qualifiedName) {
                 if (indexExpr is PyTupleExpression) {
@@ -2760,28 +2766,28 @@ class PyTypingTypeProvider : PyTypeProviderWithCustomContext<Context?>() {
       val typingName: String? = element.getQualifiedName()
 
       val builtinName: String? = BUILTIN_COLLECTION_CLASSES[typingName]
-      if (builtinName != null) return PyTypeParser.getTypeByName(element, builtinName, context)
+      if (builtinName != null) return PyLegacyDocstringTypeParser.getTypeByName(element, builtinName, context)
 
       val collectionName: String? = COLLECTIONS_CLASSES[typingName]
-      if (collectionName != null) return PyTypeParser.getTypeByName(element, collectionName, context)
+      if (collectionName != null) return PyLegacyDocstringTypeParser.getTypeByName(element, collectionName, context)
 
       return null
     }
 
     private fun tryResolving(expression: PyExpression, context: TypeEvalContext): List<PsiElement> {
-      return tryResolvingWithAliases(expression, context, false).map { it.second!! }
+      return tryResolvingWithAliases(expression, context, false).map { it.second }
     }
 
     private fun tryResolvingWithAliases(
       expression: PyExpression,
       context: TypeEvalContext,
       typeRepresentation: Boolean,
-    ): List<Pair<PyQualifiedNameOwner?, PsiElement?>> {
-      val elements: MutableList<Pair<PyQualifiedNameOwner?, PsiElement?>> = ArrayList()
+    ): List<Pair<PyQualifiedNameOwner?, PsiElement>> {
+      val elements: MutableList<Pair<PyQualifiedNameOwner?, PsiElement>> = ArrayList()
       if (expression is PyReferenceExpression) {
         val results: List<PsiElement?>
         if (typeRepresentation) {
-          results = expression.resolveTypeRepresentationReference()
+          results = expression.resolveTypeRepresentationReference(context)
         }
         else {
           if (context.maySwitchToAST(expression)) {
@@ -2798,7 +2804,7 @@ class PyTypingTypeProvider : PyTypeProviderWithCustomContext<Context?>() {
             elements.add(null to cls)
             continue
           }
-          val name: String? = if (element != null) element.getQualifiedName() else null
+          val name: String? = element?.getQualifiedName()
           if (name != null && name in OPAQUE_NAMES) {
             elements.add(null to element)
             continue
@@ -2837,18 +2843,19 @@ class PyTypingTypeProvider : PyTypeProviderWithCustomContext<Context?>() {
         val results = tryResolvingWithAliases(operandExpression, context, typeRepresentation)
         for (pair in results) {
           // If the parameterized type is a type alias
-          if (pair.first != null && pair.second != null) {
-            elements.add(pair.first to pair.second)
+          if (pair.first != null) {
+            elements.add(pair)
           }
         }
       }
       return elements.ifEmpty { listOf(null to expression) }
     }
 
-    private fun PyReferenceExpression.resolveTypeRepresentationReference(): List<PsiElement?> {
+    private fun PyReferenceExpression.resolveTypeRepresentationReference(context: TypeEvalContext): List<PsiElement?> {
       val qualifiedName = asQualifiedName() ?: return emptyList()
       val contextFile = FileContextUtil.getContextFile(this) ?: return emptyList()
       return PyPsiFacadeImpl.resolveQName(qualifiedName, contextFile)
+        .ifEmpty { listOfNotNull(resolveByTypeEngineModuleName(qualifiedName, contextFile, context)) }
     }
 
     private fun tryResolvingOnStubs(
@@ -2858,19 +2865,14 @@ class PyTypingTypeProvider : PyTypeProviderWithCustomContext<Context?>() {
       val qualifiedName = expression.asQualifiedName()
       val pyFile = FileContextUtil.getContextFile(expression) as? PyFile
 
-      val anchor = expression.containingFile.context
-      val scopeOwner: ScopeOwner?
-
-      when (anchor) {
-        null -> {
-          scopeOwner = pyFile
-        }
-        is ScopeOwner -> {
-          scopeOwner = anchor
-        }
-        else -> {
-          scopeOwner = ScopeUtil.getScopeOwner(anchor)
-        }
+      val containingFile = expression.containingFile
+      val anchor = containingFile.context
+      val scopeOwner: ScopeOwner? = when {
+        anchor == null -> pyFile
+        // The scope owner of a fragment knows that a parameter or return annotation is resolved outside of the function
+        containingFile is PyExpressionCodeFragment -> ScopeUtil.getScopeOwner(containingFile)
+        anchor is ScopeOwner -> anchor
+        else -> ScopeUtil.getScopeOwner(anchor)
       }
 
       if (scopeOwner != null && qualifiedName != null) {
@@ -2929,7 +2931,7 @@ class PyTypingTypeProvider : PyTypeProviderWithCustomContext<Context?>() {
     @JvmStatic
     fun removeNarrowedTypeIfNeeded(type: PyType?): PyType? {
       if (type is PyNarrowedType && type.isBound()) {
-        return PyBuiltinCache.getInstance(type.original).boolType
+        return PyBuiltinCache.getInstance(type.original).boolType ?: PyAnyType.unknown
       }
       else {
         return type
@@ -2939,7 +2941,7 @@ class PyTypingTypeProvider : PyTypeProviderWithCustomContext<Context?>() {
     private fun PyType?.wrapInCoroutineType(anchor: PsiElement): PyType? {
       val facade = PyPsiFacade.getInstance(anchor.project)
       val targetClass =
-        facade.createClassByQName(PyNames.TYPES_COROUTINE_TYPE, anchor)
+        facade.createClassByQName(PyNames.FQN.COROUTINE_TYPE, anchor)
         ?: facade.createClassByQName(COROUTINE, anchor)
         ?: return PyAnyType.unknown
       return PyCollectionTypeImpl(
@@ -2962,7 +2964,7 @@ class PyTypingTypeProvider : PyTypeProviderWithCustomContext<Context?>() {
         false,
         listOf(elementType, sendType, returnType)
       )
-      else null
+      else PyAnyType.unknown
     }
 
     @JvmStatic
@@ -2974,7 +2976,7 @@ class PyTypingTypeProvider : PyTypeProviderWithCustomContext<Context?>() {
         return Ref(coroutineType.typeArguments.getOrNull(0))
       }
 
-      if (qName in arrayOf(COROUTINE, PyNames.TYPES_COROUTINE_TYPE)) {
+      if (qName in arrayOf(COROUTINE, PyNames.FQN.COROUTINE_TYPE)) {
         return Ref(coroutineType.typeArguments.getOrNull(2))
       }
 
@@ -2990,7 +2992,7 @@ class PyTypingTypeProvider : PyTypeProviderWithCustomContext<Context?>() {
         return Ref(coroutineOrGeneratorType.typeArguments.getOrNull(0))
       }
 
-      if (qName in arrayOf(COROUTINE, PyNames.TYPES_COROUTINE_TYPE, GENERATOR)) {
+      if (qName in arrayOf(COROUTINE, PyNames.FQN.COROUTINE_TYPE, GENERATOR)) {
         return Ref(coroutineOrGeneratorType.typeArguments.getOrNull(2))
       }
 
@@ -3088,7 +3090,7 @@ class PyTypingTypeProvider : PyTypeProviderWithCustomContext<Context?>() {
       }
       finally {
         if (firstEntrance) {
-          context.processingContext.put<Context?>(TYPE_HINT_EVAL_CONTEXT, null)
+          context.processingContext.put(TYPE_HINT_EVAL_CONTEXT, null)
         }
       }
     }

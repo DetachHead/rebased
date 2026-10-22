@@ -9,8 +9,8 @@ import com.intellij.openapi.roots.ModuleRootManager;
 import com.intellij.openapi.roots.libraries.Library;
 import com.intellij.openapi.roots.libraries.LibraryTable;
 import com.intellij.openapi.util.io.NioFiles;
-import com.intellij.openapi.vfs.LocalFileSystem;
 import com.intellij.openapi.vfs.VirtualFile;
+import com.intellij.openapi.vfs.VirtualFileManager;
 import com.intellij.util.ThrowableConsumer;
 import com.intellij.psi.impl.java.stubs.index.ExternalAnnotationsIndex;
 import com.intellij.psi.search.GlobalSearchScope;
@@ -30,7 +30,7 @@ public class ExternalAnnotationsIndexTest extends JavaCodeInsightFixtureTestCase
       Path xmlPath = externalAnnotationsDir.resolve(xmlRelativePath);
       Files.createDirectories(xmlPath.getParent());
       Files.writeString(xmlPath, xmlContent);
-      VirtualFile root = LocalFileSystem.getInstance().refreshAndFindFileByNioFile(externalAnnotationsDir);
+      VirtualFile root = VirtualFileManager.getInstance().refreshAndFindFileByNioPath(externalAnnotationsDir);
       assertNotNull(root);
       test.consume(root);
     }
@@ -183,6 +183,39 @@ public class ExternalAnnotationsIndexTest extends JavaCodeInsightFixtureTestCase
 
     List<String> items = ExternalAnnotationsIndex.getItemsByAnnotation("test.Ann", GlobalSearchScope.allScope(getProject()));
     assertSameElements(items, "com.example.Box <T>", "com.example.Foo java.util.Map<java.lang.String, java.lang.Integer> getMap()");
+  }
+
+  public void testExternalDoctypeIsNotResolved() {
+    // Indexing must never open a stream for an external DTD: it would make indexing depend on the network
+    // (see StdXMLParser.processDocType). The system id below is unreachable on purpose: if it is resolved,
+    // parsing fails and nothing gets indexed.
+    myFixture.addFileToProject("annotations.xml", """
+      <?xml version="1.0" encoding="UTF-8"?>
+      <!DOCTYPE root SYSTEM "https://127.0.0.1:1/annotations.dtd">
+      <root>
+        <item name="com.example.Foo">
+          <annotation name="test.Ann"/>
+        </item>
+      </root>
+      """);
+
+    List<String> items = ExternalAnnotationsIndex.getItemsByAnnotation("test.Ann", GlobalSearchScope.allScope(getProject()));
+    assertSameElements(items, "com.example.Foo");
+  }
+
+  public void testExternalPublicDoctypeIsNotResolved() {
+    myFixture.addFileToProject("annotations.xml", """
+      <?xml version="1.0" encoding="UTF-8"?>
+      <!DOCTYPE root PUBLIC "-//Test//DTD Annotations//EN" "https://127.0.0.1:1/annotations.dtd">
+      <root>
+        <item name="com.example.Bar &lt;T&gt;">
+          <annotation name="test.Ann"/>
+        </item>
+      </root>
+      """);
+
+    List<String> items = ExternalAnnotationsIndex.getItemsByAnnotation("test.Ann", GlobalSearchScope.allScope(getProject()));
+    assertSameElements(items, "com.example.Bar <T>");
   }
 
   public void testMultipleFilesAggregation() {

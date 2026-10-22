@@ -27,20 +27,19 @@ abstract class AbstractHighLevelQuickFixTest : AbstractQuickFixTest() {
         )
     }
 
-    override fun doTest(beforeFileName: String) {
-        val effectiveBeforeFileName = getK2BeforeFileName(beforeFileName)
-        super.doTest(effectiveBeforeFileName)
-    }
-
-    private fun getK2BeforeFileName(beforeFileName: String): String {
-        val beforeFilename = beforeFileName.replace(".kt", ".k2.kt")
-        val beforeFile = File(beforeFilename)
-        return if (beforeFile.exists()) {
-            beforeFile.canonicalPath
-        } else {
-            beforeFileName
-        }
-    }
+//    override fun doTest(beforeFileName: String) {
+//        val effectiveBeforeFileName = getBeforeFileName(beforeFileName)
+//        super.doTest(beforeFileName)
+//    }
+//
+//    private fun getBeforeFileName(beforeFileName: String): String {
+//        val beforeFile = File(beforeFileName)
+//        return if (beforeFile.exists()) {
+//            beforeFile.canonicalPath
+//        } else {
+//            beforeFileName
+//        }
+//    }
 
     override fun getAfterFileName(beforeFileName: String): String {
         val afterFile = File(dataFilePath(beforeFileName.replace(".kt", ".k2.kt.after")))
@@ -58,9 +57,6 @@ abstract class AbstractHighLevelQuickFixTest : AbstractQuickFixTest() {
     override fun checkForErrorsAfter(mainFile: File, ktFile: KtFile, fileText: String) {
         K2DirectiveBasedActionUtils.checkForErrorsAfter(mainFile, ktFile, fileText)
     }
-
-    override val inspectionFileName: String
-        get() = ".k2Inspection"
 
     override val actionPrefix: String? = "K2_ACTION:"
 

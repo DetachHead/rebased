@@ -1,6 +1,7 @@
 // Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.execution.actions;
 
+import com.intellij.codeInsight.multiverse.EditorContextManager;
 import com.intellij.execution.ExecutionBundle;
 import com.intellij.execution.Executor;
 import com.intellij.execution.ExecutorActionStatus;
@@ -42,7 +43,6 @@ import com.intellij.openapi.ui.popup.JBPopupFactory;
 import com.intellij.openapi.util.Key;
 import com.intellij.openapi.util.Ref;
 import com.intellij.openapi.vfs.VirtualFile;
-import com.intellij.psi.PsiDocumentManager;
 import com.intellij.psi.PsiFile;
 import com.intellij.psi.PsiManager;
 import com.intellij.psi.util.PsiModificationTracker;
@@ -245,7 +245,7 @@ public class ExecutorAction extends AnAction implements DumbAware, ActionIdProvi
       return RunCurrentFileActionStatus.createDisabled(tooltip, myExecutor.getIcon());
     }
 
-    PsiFile psiFile = PsiDocumentManager.getInstance(project).getPsiFile(editor.getDocument());
+    PsiFile psiFile = EditorContextManager.getPsiFileForEditor(editor, project);
     VirtualFile vFile = psiFile != null ? psiFile.getVirtualFile() : null;
     if (psiFile == null || vFile == null || !ArrayUtil.contains(vFile, files)) {
       // This is probably a special editor, like Python Console, which we don't want to use for the 'Run Current File' feature.
@@ -300,6 +300,9 @@ public class ExecutorAction extends AnAction implements DumbAware, ActionIdProvi
   public static List<RunnerAndConfigurationSettings> getRunConfigsForCurrentFile(@NotNull PsiFile psiFile, boolean resetCache) {
     if (resetCache) {
       psiFile.putUserData(CURRENT_FILE_RUN_CONFIGS_KEY, null);
+    }
+    if (!ExecutionSafeMode.isRunAllowed(psiFile.getProject(), psiFile.getVirtualFile())) {
+      return List.of();
     }
 
     // Without this cache, an expensive method `ConfigurationContext.getConfigurationsFromContext()` is called too often for 2 reasons:

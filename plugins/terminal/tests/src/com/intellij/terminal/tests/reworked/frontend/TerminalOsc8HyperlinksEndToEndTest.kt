@@ -6,6 +6,7 @@ import com.intellij.openapi.editor.markup.RangeHighlighter
 import com.intellij.terminal.tests.reworked.util.TerminalViewFixture
 import com.intellij.terminal.tests.reworked.util.TerminalViewTestCase
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 import org.assertj.core.api.Assertions.assertThat
 import org.jetbrains.plugins.terminal.TerminalEmulatorType
 import org.junit.jupiter.api.Test
@@ -16,7 +17,7 @@ import kotlin.time.Duration.Companion.milliseconds
  * End-to-end coverage of OSC8 hyperlinks: a real [com.intellij.terminal.frontend.view.impl.TerminalViewImpl] is
  * connected to the production `TerminalSession`, backed by a loopback connector instead of a real shell process.
  * Raw `OSC 8` escape sequences are fed through the connector, and the final state is asserted where the UI
- * actually renders it: a hyperlink [RangeHighlighter] in the output editor's markup model.
+ * actually renders it: a hyperlink [RangeHighlighter] in the markup model of the active buffer's editor.
  *
  * Every case runs on both JediTerm and Ghostty emulators.
  */
@@ -117,7 +118,130 @@ internal class TerminalOsc8HyperlinksEndToEndTest(emulatorType: TerminalEmulator
     assertThat(fixture.uriOf(highlighter)).isEqualTo(uri)
   }
 
+  @Test
+  fun `a URL split over two lines is merged into one hyperlink`() = doTest { fixture ->
+    val uri = "https://example.com/two-lines"
+    fixture.connector.feed(osc8(uri, "https://example.com/") + "\r\n" + osc8(uri, "two-lines"))
+
+    val highlighter = fixture.awaitHyperlinkTexts("https://example.com/\ntwo-lines").single()
+    assertThat(fixture.uriOf(highlighter)).isEqualTo(uri)
+  }
+
+  @Test
+  fun `a URL split over three lines with an indent is merged into one hyperlink`() = doTest { fixture ->
+    val uri = "https://example.com/three/lines"
+    fixture.connector.feed(osc8(uri, "https://") + "\r\n  " + osc8(uri, "example.com/") + "  \r\n  " + osc8(uri, "three/lines"))
+
+    val highlighter = fixture.awaitHyperlinkTexts("https://\n  example.com/  \n  three/lines").single()
+    assertThat(fixture.uriOf(highlighter)).isEqualTo(uri)
+  }
+
+  @Test
+  fun `parts of a URL separated by an empty line are not merged`() = doTest { fixture ->
+    val uri = "https://example.com/empty-line"
+    fixture.connector.feed(osc8(uri, "https://example.com/") + "\r\n\r\n" + osc8(uri, "empty-line"))
+
+    fixture.awaitHyperlinkTexts("https://example.com/", "empty-line")
+  }
+
+  @Test
+  fun `parts of a URL on the same line separated by a space are not merged`() = doTest { fixture ->
+    val uri = "https://example.com/same-line"
+    fixture.connector.feed(osc8(uri, "https://example.com/") + " " + osc8(uri, "same-line"))
+
+    fixture.awaitHyperlinkTexts("https://example.com/", "same-line")
+  }
+
+  @Test
+  fun `parts with the same URI are not merged if their text is not the URI`() = doTest { fixture ->
+    val uri = "https://example.com/docs"
+    fixture.connector.feed(osc8(uri, "see the") + "\r\n" + osc8(uri, "docs"))
+
+    fixture.awaitHyperlinkTexts("see the", "docs")
+  }
+
+  @Test
+  fun `parts are not merged if their joined text has the URI length but differs from the URI`() = doTest { fixture ->
+    val uri = "https://example.com/ab"
+    fixture.connector.feed(osc8(uri, "https://example.com/") + "\r\n" + osc8(uri, "xy"))
+
+    fixture.awaitHyperlinkTexts("https://example.com/", "xy")
+  }
+
+  @Test
+  fun `a URL printed twice on neighboring lines stays two hyperlinks`() = doTest { fixture ->
+    val uri = "https://example.com/twice"
+    fixture.connector.feed(osc8(uri, uri) + "\r\n" + osc8(uri, uri))
+
+    fixture.awaitHyperlinkTexts(uri, uri)
+  }
+
+  @Test
+  fun `parts of URLs with different targets are not merged`() = doTest { fixture ->
+    fixture.connector.feed(osc8("https://example.com/", "https://example.com/") + "\r\n" + osc8("https://example.com/other", "other"))
+
+    fixture.awaitHyperlinkTexts("https://example.com/", "other")
+  }
+
+  @Test
+  fun `parts of a URL separated by other text are not merged`() = doTest { fixture ->
+    val uri = "https://example.com/other-text"
+    fixture.connector.feed(osc8(uri, "https://example.com/") + " x\r\n" + osc8(uri, "other-text"))
+
+    fixture.awaitHyperlinkTexts("https://example.com/", "other-text")
+  }
+
+  @Test
+  fun `hovering the second line of a merged URL shows its target URI as a tooltip`() = doTest { fixture ->
+    fixture.resize(columns = 80, rows = 24)
+    val uri = "https://example.com/hover"
+    fixture.connector.feed(osc8(uri, "https://example.com/") + "\r\n" + osc8(uri, "hover"))
+
+    val highlighter = fixture.awaitHyperlinkTexts("https://example.com/\nhover").single()
+    fixture.hover(highlighter.endOffset - 2)
+
+    assertThat(fixture.view.outputEditor.contentComponent.toolTipText).contains(uri)
+  }
+
+  @Test
+  fun `OSC8 hyperlink in the alternate screen is rendered in the alternate buffer editor`() = doTest { fixture ->
+    fixture.enterAlternateScreen()
+    fixture.connector.feed("before ${osc8("https://example.com", "link text")} after")
+
+    val highlighter = fixture.awaitHyperlink()
+    assertThat(fixture.textOf(highlighter)).isEqualTo("link text")
+    assertThat(fixture.uriOf(highlighter)).isEqualTo("https://example.com")
+  }
+
+  @Test
+  fun `OSC8 hyperlink in the same chunk as the switch to the alternate screen is rendered`() = doTest { fixture ->
+    // The alternate model gets the link before the view switches the editors.
+    fixture.enterAlternateScreen(sameChunkText = "before ${osc8("https://example.com", "link text")} after")
+
+    val highlighter = fixture.awaitHyperlink()
+    assertThat(fixture.textOf(highlighter)).isEqualTo("link text")
+    assertThat(fixture.uriOf(highlighter)).isEqualTo("https://example.com")
+  }
+
+  @Test
+  fun `hovering an OSC8 hyperlink in the alternate screen shows its target URI as a tooltip`() = doTest { fixture ->
+    fixture.enterAlternateScreen()
+    fixture.resize(columns = 80, rows = 24)
+    fixture.connector.feed("x ${osc8("https://jetbrains.com", "JB")} y")
+
+    val highlighter = fixture.awaitHyperlink()
+    fixture.hover(highlighter)
+
+    assertThat(fixture.activeEditor.contentComponent.toolTipText).contains("https://jetbrains.com")
+  }
+
   private fun osc8(uri: String, text: String): String = "$OSC8_PREFIX$uri$ST$text$OSC8_PREFIX$ST"
+
+  /** Enters the alternate screen with [sameChunkText] in the same chunk, and waits until the view shows the alternate buffer. */
+  private suspend fun TerminalViewFixture.enterAlternateScreen(sameChunkText: String = "") {
+    connector.feed("$ESC[?1049h$sameChunkText")
+    view.outputModels.active.first { it === view.outputModels.alternative }
+  }
 
   companion object {
     private val ESC: String = Char(0x1B).toString()
@@ -135,25 +259,30 @@ internal class TerminalOsc8HyperlinksEndToEndTest(emulatorType: TerminalEmulator
 // ---------------------------------------------------------------------------
 
 private fun TerminalViewFixture.textOf(highlighter: RangeHighlighter): String {
-  return view.outputEditor.document.getText(highlighter.textRange)
+  return activeEditor.document.getText(highlighter.textRange)
 }
 
 /**
- * The target URI of the OSC8 link rendered as [highlighter], read from the output model - the markup model's
+ * The target URI of the OSC8 link rendered as [highlighter], read from the active output model - the markup model's
  * own decoration doesn't expose it (it's only used internally to build the click action).
+ *
+ * A highlighter of merged links starts where its first link starts, so the start offset is enough to find it.
  */
 private fun TerminalViewFixture.uriOf(highlighter: RangeHighlighter): String {
-  val model = view.outputModels.regular
+  val model = view.outputModels.active.value
   return model.getOsc8Hyperlinks().single {
-    (it.startOffset - model.startOffset).toInt() == highlighter.startOffset &&
-    (it.endOffset - model.startOffset).toInt() == highlighter.endOffset
+    (it.startOffset - model.startOffset).toInt() == highlighter.startOffset
   }.uri
 }
 
 /** Moves the mouse over the middle of [highlighter]'s range, as a real mouse move would. */
 private fun TerminalViewFixture.hover(highlighter: RangeHighlighter) {
-  val editor = view.outputEditor
-  val offset = (highlighter.startOffset + highlighter.endOffset) / 2
+  hover((highlighter.startOffset + highlighter.endOffset) / 2)
+}
+
+/** Moves the mouse over [offset] of the active editor, as a real mouse move would. */
+private fun TerminalViewFixture.hover(offset: Int) {
+  val editor = activeEditor
   val point = editor.offsetToXY(offset)
   val event = MouseEvent(
     editor.contentComponent, MouseEvent.MOUSE_MOVED, System.currentTimeMillis(), 0, point.x, point.y, 1, false, MouseEvent.BUTTON1
@@ -164,11 +293,23 @@ private fun TerminalViewFixture.hover(highlighter: RangeHighlighter) {
 private suspend fun TerminalViewFixture.awaitHyperlink(): RangeHighlighter = awaitHyperlinks(1).single()
 
 /**
- * Polls the output editor's markup model until exactly [count] hyperlink highlighters are present, then returns
+ * Polls the active editor's markup model until the hyperlink highlighters cover exactly [texts], then returns
+ * them sorted by position.
+ */
+private suspend fun TerminalViewFixture.awaitHyperlinkTexts(vararg texts: String): List<RangeHighlighter> {
+  while (true) {
+    val highlighters = awaitHyperlinks(texts.size)
+    if (highlighters.map { textOf(it) } == texts.toList()) return highlighters
+    delay(50.milliseconds)
+  }
+}
+
+/**
+ * Polls the active editor's markup model until exactly [count] hyperlink highlighters are present, then returns
  * them sorted by position.
  */
 private suspend fun TerminalViewFixture.awaitHyperlinks(count: Int): List<RangeHighlighter> {
-  val editor = view.outputEditor
+  val editor = activeEditor
   while (true) {
     val highlighters = editor.markupModel.allHighlighters.filter { it.isValid && it.layer == HighlighterLayer.HYPERLINK }
     if (highlighters.size == count) return highlighters.sortedBy { it.startOffset }

@@ -23,7 +23,8 @@ class InstallAndImportPackageQuickFix(
 
   override suspend fun onSuccess(project: Project, descriptor: ProblemDescriptor) {
     writeCommandAction(project, PyPsiBundle.message("INSP.package.requirements.add.import")) {
-      addImportToFile(descriptor.psiElement ?: return@writeCommandAction )
+      val element = descriptor.psiElement ?: return@writeCommandAction
+      addImportToFile(element)
     }
   }
 

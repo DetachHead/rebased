@@ -13,7 +13,7 @@ import com.intellij.util.Consumer
 open class InspectionProfileModifiableModel(val source: InspectionProfileImpl)
   : InspectionProfileImpl(source.name, source.myToolSupplier, source.profileManager, source.myBaseProfile, null) {
 
-  private var modified = false
+  private var modified: Boolean = false
 
   init {
     myUninitializedSettings.putAll(source.myUninitializedSettings)

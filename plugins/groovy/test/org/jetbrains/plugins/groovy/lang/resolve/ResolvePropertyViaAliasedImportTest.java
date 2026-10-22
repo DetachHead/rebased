@@ -15,7 +15,7 @@ public class ResolvePropertyViaAliasedImportTest extends GrHighlightingTestBase 
   private final LightProjectDescriptor projectDescriptor = GroovyProjectDescriptors.GROOVY_LATEST;
 
   @NotNull
-  private final String basePath = TestUtils.getTestDataPath() + "resolve/imports";
+  private final String basePath = TestUtils.getAbsoluteTestDataPath() + "resolve/imports";
 
   @Override
   public final @NotNull LightProjectDescriptor getProjectDescriptor() {
@@ -23,7 +23,7 @@ public class ResolvePropertyViaAliasedImportTest extends GrHighlightingTestBase 
   }
 
   @Override
-  public final @NotNull String getBasePath() {
+  public final @NotNull String getTestDataPath() {
     return basePath;
   }
 

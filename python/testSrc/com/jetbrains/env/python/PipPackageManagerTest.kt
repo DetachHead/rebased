@@ -6,7 +6,7 @@ import org.junit.Rule
 
 // Tests local pip
 class PipPackageManagerTest : PipPackageManagerTestBase() {
-  override val sdkRule: PySDKRule = PySDKRule(null)
+  override val sdkRule: PySDKRule = PySDKRule({ projectRule.project }, null)
 
   @Rule
   @JvmField

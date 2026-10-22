@@ -99,7 +99,7 @@ public class ReachingDefsTest extends LightJavaCodeInsightFixtureTestCase {
   }
 
   @Override
-  public String getBasePath() {
+  public String getTestDataPath() {
     return basePath;
   }
 
@@ -107,5 +107,5 @@ public class ReachingDefsTest extends LightJavaCodeInsightFixtureTestCase {
     this.basePath = basePath;
   }
 
-  private String basePath = TestUtils.getTestDataPath() + "groovy/reachingDefs/";
+  private String basePath = TestUtils.getAbsoluteTestDataPath() + "groovy/reachingDefs/";
 }

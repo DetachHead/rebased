@@ -99,6 +99,7 @@ class TestSuiteInfo:
 
 class NewTeamcityServiceMessages(_old_service_messages):
     _latest_subtest_result = None
+    _latest_subtest_name = None
     # [full_test_name] = (test_name, node_id, parent_node_id)
     _test_suites = OrderedDict()
     INSTANCE = None
@@ -200,7 +201,7 @@ class NewTeamcityServiceMessages(_old_service_messages):
             return
 
         # closing subtest
-        test_name = ".".join(_TREE_MANAGER_HOLDER.manager.current_branch)
+        test_name = self._latest_subtest_name
         if self._latest_subtest_result in {"Failure", "Error"}:
             self.testFailed(test_name)
         if self._latest_subtest_result == "Skip":
@@ -210,8 +211,16 @@ class NewTeamcityServiceMessages(_old_service_messages):
         self._latest_subtest_result = None
 
     def subTestBlockOpened(self, name, subTestResult, flowId=None):
-        self.testStarted(".".join(_TREE_MANAGER_HOLDER.manager.current_branch + [name]))
+        self._latest_subtest_name = ".".join(self._get_current_test(flowId) + [name])
+        self.testStarted(self._latest_subtest_name)
         self._latest_subtest_result = subTestResult
+
+    def _get_current_test(self, flowId):
+        if is_parallel_mode():
+            # The parallel tree manager has no current branch, because tests can interleave.
+            # The flow id of a test is the test name.
+            return _jb_utils.test_to_list(flowId)
+        return _TREE_MANAGER_HOLDER.manager.current_branch
 
     def testStarted(self, testName, captureStandardOutput=None, flowId=None, is_suite=False, metainfo=None, path=None, lineno=None):
         test_name_as_list = _jb_utils.test_to_list(testName)

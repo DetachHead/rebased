@@ -7,8 +7,17 @@ import com.intellij.ide.scratch.ScratchFileService
 import com.intellij.ide.scratch.ScratchRootType
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.io.FileUtilRt
-import com.intellij.openapi.vfs.LocalFileSystem
+import com.intellij.openapi.vfs.StandardFileSystems
+import com.intellij.platform.workspace.jps.entities.ModuleId
 import com.intellij.util.PathUtil
+import org.jetbrains.kotlin.idea.base.plugin.artifacts.KotlinArtifacts
+import org.jetbrains.kotlin.idea.core.script.ScratchFileOptionsByFile
+import org.jetbrains.kotlin.idea.core.script.configurations.defaultJavaHome
+import org.jetbrains.kotlin.idea.core.script.definition.jdkSupplier
+import org.jetbrains.kotlin.idea.core.script.definition.moduleSupplier
+import org.jetbrains.kotlin.idea.core.script.definition.scriptClassPath
+import org.jetbrains.kotlin.idea.core.script.definitions.KotlinScriptDefinitionsProviderId
+import org.jetbrains.kotlin.idea.core.script.scratch.definition.KotlinScratchCompilationConfiguration
 import java.io.File
 import kotlin.script.experimental.api.ScriptCompilationConfiguration
 import kotlin.script.experimental.api.ScriptEvaluationConfiguration
@@ -23,12 +32,6 @@ import kotlin.script.experimental.host.ScriptingHostConfiguration
 import kotlin.script.experimental.intellij.ScriptDefinitionsProvider
 import kotlin.script.experimental.jvm.JvmDependency
 import kotlin.script.experimental.jvm.defaultJvmScriptingHostConfiguration
-import org.jetbrains.kotlin.idea.base.plugin.artifacts.KotlinArtifacts
-import org.jetbrains.kotlin.idea.core.script.k2.definitions.KotlinScriptDefinitionsProviderId
-import org.jetbrains.kotlin.idea.core.script.scratch.definition.KotlinScratchCompilationConfiguration
-import org.jetbrains.kotlin.idea.core.script.shared.definition.jdkSupplier
-import org.jetbrains.kotlin.idea.core.script.shared.definition.scriptClassPath
-import org.jetbrains.kotlin.idea.core.script.v1.ScratchFileOptionsByFile
 
 class KotlinScratchDefinitionProvider(val project: Project) : ScriptDefinitionsProvider {
     override val id: String = KotlinScriptDefinitionsProviderId.KOTLIN_SCRATCH.id
@@ -51,14 +54,15 @@ class KotlinScratchDefinitionProvider(val project: Project) : ScriptDefinitionsP
         ide.jdkSupplier { virtualFile ->
             val jdkHome = scratchModuleSdkHome(project, virtualFile)
                 ?: ScratchFileOptionsByFile[project, virtualFile].selectedJdkHome
-                ?: defaultScratchJavaHome
+                ?: defaultJavaHome
             jdkHome?.takeIf { it.isNotBlank() }?.let(::File)
         }
+        ide.moduleSupplier { _, virtualFile -> ScratchFileOptionsByFile[project, virtualFile].selectedModule?.let(::ModuleId) }
     }
 
     private fun scratchPathPattern(): String {
         val root = ScratchFileService.getInstance().getRootPath(ScratchRootType.getInstance())
-        val vfsRoot = LocalFileSystem.getInstance().findFileByPath(FileUtilRt.toSystemIndependentName(root))
+        val vfsRoot = StandardFileSystems.local().findFileByPath(FileUtilRt.toSystemIndependentName(root))
             ?: return ".*/${Regex.escape(PathUtil.getFileName(root))}/.*"
 
         return "${Regex.escape(vfsRoot.path)}/.*"

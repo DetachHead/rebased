@@ -258,11 +258,9 @@ f:com.intellij.ide.ui.NotRoamableUiOptions
 - f:overrideLafFonts:Z
 - f:overrideLafFontsWasMigrated:Z
 - f:presentationModeIdeScale:F
-- f:xNextStripe:Z
 - <init>():V
 - f:component1():com.intellij.ide.ui.AntialiasingType
 - f:component10():Z
-- f:component11():Z
 - f:component2():com.intellij.ide.ui.AntialiasingType
 - f:component3():java.lang.String
 - f:component4():F
@@ -582,6 +580,7 @@ a:com.intellij.ide.util.treeView.AbstractTreeNode
 - p:recordValueSetTrace(Z):V
 - f:setParent(com.intellij.ide.util.treeView.AbstractTreeNode):V
 - f:setValue(java.lang.Object):V
+- shouldBeInitiallyExpanded():Z
 - p:shouldUpdateData():Z
 - toTestString(com.intellij.openapi.ui.Queryable$PrintInfo):java.lang.String
 - p:valueIsCut():Z
@@ -1217,6 +1216,7 @@ com.intellij.openapi.actionSystem.remoting.ActionWithMergeId
 com.intellij.openapi.actionSystem.toolbarLayout.ToolbarLayoutStrategy
 - sf:AUTOLAYOUT_STRATEGY:com.intellij.openapi.actionSystem.toolbarLayout.ToolbarLayoutStrategy
 - sf:COMPRESSING_STRATEGY:com.intellij.openapi.actionSystem.toolbarLayout.ToolbarLayoutStrategy
+- sf:EQUAL_SIZE_NOWRAP_STRATEGY:com.intellij.openapi.actionSystem.toolbarLayout.ToolbarLayoutStrategy
 - sf:EQUAL_SIZE_WRAP_STRATEGY:com.intellij.openapi.actionSystem.toolbarLayout.ToolbarLayoutStrategy
 - sf:NOWRAP_STRATEGY:com.intellij.openapi.actionSystem.toolbarLayout.ToolbarLayoutStrategy
 - sf:WRAP_STRATEGY:com.intellij.openapi.actionSystem.toolbarLayout.ToolbarLayoutStrategy

@@ -6,7 +6,6 @@ jps_test(
     name = "compose_test",
     data = [
         "@community//plugins/kotlin/jvm-debugger/test:testData",
-        "@debugger_test_deps_debugger_agent//file:debugger-agent.jar",
     ] + all_test_dep_targets,
     sandbox = True,
     runtime_deps = [
@@ -30,6 +29,7 @@ jvm_library(
         # do not sort,
         "//plugins/kotlin:kotlin-plugin-community-main",
         "//platform/execution.serviceView/plugin",
+        "//java/java-impl/testFramework",
     ],
 )
 
@@ -55,6 +55,7 @@ jvm_library(
         ":compose",
         "//plugins/kotlin:kotlin-plugin-community-main_test_lib",
         "//platform/execution.serviceView/plugin:plugin_test_lib",
+        "//java/java-impl/testFramework:testFramework_test_lib",
     ],
     deps = [
         # do not sort,
@@ -92,6 +93,8 @@ jvm_library(
         "//plugins/kotlin/jvm-debugger/test/compose/testFramework:testFramework_test_lib",
         "//libraries/junit4",
         "//libraries/junit4:junit4_test_lib",
+        "//plugins/groovy-scripting",
+        "//plugins/groovy-scripting:groovy-scripting_test_lib",
     ],
 )
 ### auto-generated section `build intellij.kotlin.jvm.debugger.test.compose` end

@@ -3,7 +3,6 @@ package org.jetbrains.plugins.github.pullrequest.data.service
 
 import com.intellij.collaboration.api.page.ApiPageUtil
 import com.intellij.collaboration.async.BatchesLoader
-import com.intellij.collaboration.async.nestedDisposable
 import com.intellij.platform.util.coroutines.childScope
 import git4idea.GitRemoteBranch
 import git4idea.remote.GitRemoteUrlCoordinates
@@ -28,7 +27,6 @@ import org.jetbrains.plugins.github.api.data.GHUser
 import org.jetbrains.plugins.github.api.data.GithubUser
 import org.jetbrains.plugins.github.api.data.GithubUserWithPermissions
 import org.jetbrains.plugins.github.api.data.pullrequest.GHTeam
-import org.jetbrains.plugins.github.api.executeSuspend
 import org.jetbrains.plugins.github.api.util.GithubApiPagesLoader.batchesFlow
 
 class GHPRRepositoryDataServiceImpl internal constructor(
@@ -48,12 +46,6 @@ class GHPRRepositoryDataServiceImpl internal constructor(
 
   private val _dataReloadSignal = MutableSharedFlow<Unit>(replay = 1)
   override val dataReloadSignal: SharedFlow<Unit> = _dataReloadSignal.asSharedFlow()
-
-  init {
-    requestExecutor.addListener(cs.nestedDisposable()) {
-      resetData()
-    }
-  }
 
   private val collaboratorsLoader by lazy {
     BatchesLoader(cs, batchesFlow(requestExecutor, GithubApiRequests.Repos.Collaborators.pages(serverPath,
@@ -96,15 +88,15 @@ class GHPRRepositoryDataServiceImpl internal constructor(
 
   private val teamsLoader by lazy {
     val pagesFlow = ApiPageUtil.createGQLPagesFlow {
-      requestExecutor.executeSuspend(GHGQLRequests.Organization.Team.findAll(serverPath,
-                                                                             repoOwner.login,
-                                                                             it))
+      requestExecutor.execute(GHGQLRequests.Organization.Team.findAll(serverPath,
+                                                                      repoOwner.login,
+                                                                      it))
     }
     BatchesLoader(cs, pagesFlow.map { page -> page.nodes })
   }
 
   override fun mentionableUsersBatchesFlow(): Flow<List<GHUser>> = ApiPageUtil.createGQLPagesFlow {
-    requestExecutor.executeSuspend(GHGQLRequests.Repo.findMentionableUsers(repositoryCoordinates, serverPath, it))
+    requestExecutor.execute(GHGQLRequests.Repo.findMentionableUsers(repositoryCoordinates, serverPath, it))
   }.map { it.nodes }
 
   override fun loadBatchedTeams(): Flow<List<GHTeam>> {
@@ -113,7 +105,7 @@ class GHPRRepositoryDataServiceImpl internal constructor(
   }
 
   private val templatesRequest: Deferred<List<GHRepositoryPullRequestTemplate>> = cs.async(start = CoroutineStart.LAZY) {
-    requestExecutor.executeSuspend(GHGQLRequests.Repo.loadPullRequestTemplates(repositoryCoordinates)).orEmpty()
+    requestExecutor.execute(GHGQLRequests.Repo.loadPullRequestTemplates(repositoryCoordinates)).orEmpty()
   }
 
   override suspend fun loadTemplate(): String? {

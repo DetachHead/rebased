@@ -42,7 +42,7 @@ import com.intellij.openapi.roots.libraries.LibraryTablesRegistrar
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.util.SystemInfo
 import com.intellij.openapi.util.io.FileUtil
-import com.intellij.openapi.vfs.LocalFileSystem
+import com.intellij.openapi.vfs.StandardFileSystems
 import com.intellij.openapi.vfs.VfsUtil
 import com.intellij.openapi.vfs.VfsUtilCore
 import com.intellij.openapi.vfs.VirtualFile
@@ -503,6 +503,33 @@ class ExternalSystemStorageTest {
   }
 
   @Test
+  fun `mark module as mavenized without external storage`() {
+    loadProjectAndCheckResults("regularModuleInInternalStorage") { project ->
+      val module = ModuleManager.getInstance(project).modules.single()
+      ExternalSystemModulePropertyManager.getInstance(module).setMavenized(true)
+      saveAndCompareKeepingImlFile(project, module, "singleModuleInInternalStorage")
+    }
+  }
+
+  @Test
+  fun `unmark mavenized module without external storage`() {
+    loadProjectAndCheckResults("singleModuleInInternalStorage") { project ->
+      val module = ModuleManager.getInstance(project).modules.single()
+      ExternalSystemModulePropertyManager.getInstance(module).setMavenized(false)
+      saveAndCompareKeepingImlFile(project, module, "regularModuleInInternalStorage")
+    }
+  }
+
+  @Test
+  @Suppress("DEPRECATION")
+  fun `stale isMavenModule option is not saved`() {
+    loadModifySaveAndCheck("regularModuleInInternalStorage", "regularModuleInInternalStorage") { project ->
+      val module = ModuleManager.getInstance(project).modules.single()
+      module.setOption(SerializationConstants.IS_MAVEN_MODULE_IML_ATTRIBUTE, true.toString())
+    }
+  }
+
+  @Test
   fun `mark module with regular facet as mavenized`() {
     loadModifySaveAndCheck("singleRegularModule", "regularFacetInImportedModule") { project ->
       val module = ModuleManager.getInstance(project).modules.single()
@@ -596,7 +623,7 @@ class ExternalSystemStorageTest {
 
   fun writeTextToProjectFile(project: Project, newText: String) {
     val miscXmlPath = project.projectFilePath!!
-    val miscFile = LocalFileSystem.getInstance().refreshAndFindFileByPath(miscXmlPath) ?: error("Cannot find $miscXmlPath")
+    val miscFile = StandardFileSystems.local().refreshAndFindFileByPath(miscXmlPath) ?: error("Cannot find $miscXmlPath")
     VfsUtil.saveText(miscFile, newText)
   }
 
@@ -914,6 +941,12 @@ class ExternalSystemStorageTest {
       modifyProject(project)
       saveAndCompare(project, dataDirNameToCompareWith)
     }
+  }
+
+  private fun saveAndCompareKeepingImlFile(project: Project, module: Module, dataDirNameToCompareWith: String) {
+    val imlFile = module.moduleFile!!
+    saveAndCompare(project, dataDirNameToCompareWith)
+    assertThat(imlFile.isValid).describedAs("the save deleted the .iml file and created it again").isTrue()
   }
 
   private val testDataRoot

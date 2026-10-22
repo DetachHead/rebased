@@ -137,7 +137,7 @@ public class FileGenerationTest extends LightGroovyTestCase {
   public void testNonJavaIdentifiers() { doTest(); }
 
   @Override
-  public final String getBasePath() {
-    return TestUtils.getTestDataPath() + "refactoring/convertGroovyToJava/file";
+  public final String getTestDataPath() {
+    return TestUtils.getAbsoluteTestDataPath() + "refactoring/convertGroovyToJava/file";
   }
 }

@@ -78,7 +78,7 @@ fun reinitBreadcrumbsInAllEditors(project: Project, allClients: Boolean) {
 
   val fileEditorManager = FileEditorManager.getInstance(project)
   val above = isAbove()
-  val openFiles = if (allClients) fileEditorManager.getOpenFilesWithRemotes() else fileEditorManager.openFiles.toList()
+  val openFiles = if (allClients) fileEditorManager.openFilesWithRemotes else fileEditorManager.openFiles.toList()
   for (virtualFile in openFiles) {
     reinitBreadcrumbsComponent(fileEditorManager, virtualFile, above, allClients)
   }
@@ -157,7 +157,7 @@ fun reinitBreadcrumbComponent(fileEditor: TextEditor, fileEditorManager: FileEdi
   }
 }
 
-@RequiresBackgroundThread
+@RequiresBackgroundThread(generateAssertion = false /* IJPL-115548 */)
 private fun isSuitable(project: Project, file: VirtualFile, forcedShown: Boolean?, editorIsValid: Boolean): Boolean {
   if (file is HttpVirtualFile || !editorIsValid) {
     return false

@@ -26,6 +26,8 @@ import com.intellij.platform.lsp.api.LspBundle
 import com.intellij.platform.lsp.api.customization.LspRenameSupport
 import com.intellij.platform.lsp.impl.LspClientImpl
 import com.intellij.platform.lsp.impl.LspClientManagerImpl
+import com.intellij.platform.lsp.impl.supportsPrepareRename
+import com.intellij.platform.lsp.impl.supportsRename
 import com.intellij.platform.lsp.impl.util.LspWorkspaceEditApplier
 import com.intellij.platform.lsp.util.getRangeInDocument
 import com.intellij.psi.PsiElement

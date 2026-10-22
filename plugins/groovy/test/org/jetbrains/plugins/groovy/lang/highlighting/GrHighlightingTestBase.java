@@ -15,8 +15,8 @@ public abstract class GrHighlightingTestBase extends LightGroovyTestCase {
   public static final InspectionProfileEntry[] EMPTY_INSPECTION_PROFILE_ENTRY_ARRAY = new InspectionProfileEntry[0];
 
   @Override
-  public String getBasePath() {
-    return TestUtils.getTestDataPath() + "highlighting/";
+  public String getTestDataPath() {
+    return TestUtils.getAbsoluteTestDataPath() + "highlighting/";
   }
 
   public InspectionProfileEntry[] getCustomInspections() {

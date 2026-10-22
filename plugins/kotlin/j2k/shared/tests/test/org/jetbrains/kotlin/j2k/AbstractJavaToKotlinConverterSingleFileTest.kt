@@ -2,11 +2,12 @@
 
 package org.jetbrains.kotlin.j2k
 
+import com.intellij.openapi.components.service
 import com.intellij.platform.ide.progress.runWithModalProgressBlocking
 import com.intellij.psi.PsiJavaFile
 import com.intellij.psi.codeStyle.JavaCodeStyleSettings
+import com.intellij.testFramework.LightProjectDescriptor
 import com.intellij.util.ThrowableRunnable
-import org.jetbrains.kotlin.j2k.actions.JavaToKotlinActionHandler
 import org.jetbrains.kotlin.idea.base.test.IgnoreTests
 import org.jetbrains.kotlin.idea.test.Directives
 import org.jetbrains.kotlin.idea.test.KotlinTestUtils
@@ -22,6 +23,7 @@ private const val JPA_ANNOTATIONS_DIRECTIVE = "ADD_JPA_ANNOTATIONS"
 private const val KOTLIN_API_DIRECTIVE = "ADD_KOTLIN_API"
 private const val JAVA_API_DIRECTIVE = "ADD_JAVA_API"
 private const val JUNIT_ANNOTATIONS_DIRECTIVE = "ADD_JUNIT_TEST_ANNOTATIONS"
+private const val LOMBOK_ANNOTATIONS_DIRECTIVE = "ADD_LOMBOK_ANNOTATIONS"
 private const val PREPROCESSOR_EXTENSIONS_DIRECTIVE = "INCLUDE_J2K_PREPROCESSOR_EXTENSIONS"
 private const val POSTPROCESSOR_EXTENSIONS_DIRECTIVE = "INCLUDE_J2K_POSTPROCESSOR_EXTENSIONS"
 
@@ -31,6 +33,12 @@ abstract class AbstractJavaToKotlinConverterSingleFileTest : AbstractJavaToKotli
         val kotlinText: String,
         val externalCodeProcessing: ExternalCodeProcessing?,
     )
+
+    override fun getProjectDescriptor(): LightProjectDescriptor {
+        val file = dataFile()
+        val usesLombok = file.exists() && KotlinTestUtils.parseDirectives(file.readText()).contains(LOMBOK_ANNOTATIONS_DIRECTIVE)
+        return if (usesLombok) J2K_LOMBOK_PROJECT_DESCRIPTOR else super.getProjectDescriptor()
+    }
 
     override fun setUp() {
         super.setUp()
@@ -93,7 +101,7 @@ abstract class AbstractJavaToKotlinConverterSingleFileTest : AbstractJavaToKotli
     abstract fun dumpTextWithErrors(createKotlinFile: KtFile): String
 
     private fun addDependencies(directives: Directives) {
-        if (directives.contains(JPA_ANNOTATIONS_DIRECTIVE)) addJpaColumnAnnotations()
+        if (directives.contains(JPA_ANNOTATIONS_DIRECTIVE)) addJpaAnnotations()
         if (directives.contains(KOTLIN_API_DIRECTIVE)) addFile("KotlinApi.kt", "kotlinApi")
         if (directives.contains(JAVA_API_DIRECTIVE)) addFile("JavaApi.java", "javaApi")
         if (directives.contains(JUNIT_ANNOTATIONS_DIRECTIVE)) addJunitTestAnnotations()
@@ -162,13 +170,7 @@ abstract class AbstractJavaToKotlinConverterSingleFileTest : AbstractJavaToKotli
         val file = createJavaFile(text)
 
         runWithModalProgressBlocking(project, "") {
-            JavaToKotlinActionHandler.convertFiles(
-                listOf(file),
-                project,
-                module,
-                askExternalCodeProcessing = false,
-                settings = settings,
-            )
+            project.service<JavaToKotlinService>().convert(listOf(file), module, settings)
         }
         return (file.containingDirectory.findFile(file.name.replace(".java", ".kt")) as KtFile).text
     }

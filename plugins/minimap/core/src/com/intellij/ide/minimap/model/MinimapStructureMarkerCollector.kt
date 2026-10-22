@@ -56,6 +56,7 @@ internal class MinimapStructureMarkerCollector(
     if (!structureMarkerPolicy.isRelevantStructureElement(element, value)) return@computeBlocking null
 
     val source = resolveStructureMarkerSource(element)
+    if (source.psiElement != null && !isInDocument(source.psiElement, document)) return@computeBlocking null
     val range = source.range ?: return@computeBlocking null
     val pointer = resolvePointer(existing, source.psiElement)
     if (pointerManager != null && source.psiElement != null && pointer == null) return@computeBlocking null
@@ -101,14 +102,14 @@ internal class MinimapStructureMarkerCollector(
     }
   }
 
-  @RequiresReadLock
+  @RequiresReadLock(generateAssertion = false /* IJPL-115548 */)
   private fun resolvePointer(existing: MinimapStructureMarker?, psiElement: PsiElement?): SmartPsiElementPointer<out PsiElement>? = when {
     existing?.pointer?.range != null -> existing.pointer
     pointerManager != null && psiElement != null -> createPointer(pointerManager, psiElement)
     else -> null
   }
 
-  @RequiresReadLock
+  @RequiresReadLock(generateAssertion = false /* IJPL-115548 */)
   private fun createPointer(pointerManager: SmartPointerManager,
                             element: PsiElement): SmartPsiElementPointer<out PsiElement>? {
     if (!element.isValid) return null

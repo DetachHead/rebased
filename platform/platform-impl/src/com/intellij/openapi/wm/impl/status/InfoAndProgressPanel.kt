@@ -19,6 +19,7 @@ import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.application.UI
 import com.intellij.openapi.application.asContextElement
+import com.intellij.openapi.diagnostic.thisLogger
 import com.intellij.openapi.fileEditor.impl.MergingUpdateChannel
 import com.intellij.openapi.observable.util.addMouseHoverListener
 import com.intellij.openapi.progress.ProgressModel
@@ -57,6 +58,7 @@ import com.intellij.util.concurrency.ThreadingAssertions
 import com.intellij.util.concurrency.annotations.RequiresEdt
 import com.intellij.util.containers.JBIterable
 import com.intellij.util.containers.UnmodifiableHashMap
+import com.intellij.util.progress.withLockCancellable
 import com.intellij.util.ui.AbstractLayoutManager
 import com.intellij.util.ui.AsyncProcessIcon
 import com.intellij.util.ui.EdtInvocationManager
@@ -74,6 +76,9 @@ import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.Runnable
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.job
@@ -91,6 +96,7 @@ import java.awt.event.ActionListener
 import java.awt.event.MouseAdapter
 import java.awt.event.MouseEvent
 import java.lang.ref.WeakReference
+import java.util.concurrent.locks.ReentrantLock
 import javax.accessibility.AccessibleContext
 import javax.accessibility.AccessibleRole
 import javax.accessibility.AccessibleState
@@ -103,6 +109,7 @@ import javax.swing.JPanel
 import javax.swing.JRootPane
 import javax.swing.SwingUtilities
 import javax.swing.event.HyperlinkListener
+import kotlin.concurrent.withLock
 import kotlin.math.max
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
@@ -150,7 +157,15 @@ class InfoAndProgressPanel internal constructor(
   internal val focusableComponents: List<JComponent>
     get() = mainPanel.inlinePanel.getFocusableComponents()
 
-  private val originals = ArrayList<ProgressModel>()
+  private val originalsLock = ReentrantLock()
+  private val _originals = ArrayList<ProgressModel>()
+  private val originals: ArrayList<ProgressModel>
+    get() {
+      if (!originalsLock.isHeldByCurrentThread) {
+        thisLogger().error("Access to 'originals' must be under 'lock'")
+      }
+      return _originals
+    }
   private val infos = ArrayList<TaskInfo>()
   private var inlineToOriginal = UnmodifiableHashMap.empty<MyProgressComponent, ProgressModel>()
   private val originalToInlines = HashMap<ProgressModel, MutableSet<MyProgressComponent>>()
@@ -248,7 +263,9 @@ class InfoAndProgressPanel internal constructor(
   }
 
   private fun dispose() {
-    synchronized(originals) {
+    // dispose() runs under the already-canceled scope job, where a cancellable lock throws CE,
+    // and dispose() must not throw CE
+    originalsLock.withLock {
       for (indicator in inlineToOriginal.keys) {
         Disposer.dispose(indicator)
       }
@@ -262,16 +279,16 @@ class InfoAndProgressPanel internal constructor(
 
   val backgroundProcesses: List<Pair<TaskInfo, ProgressModel>>
     get() {
-      synchronized(originals) {
+      return originalsLock.withLockCancellable {
         if (disposed || originals.isEmpty()) {
-          return emptyList()
+          return@withLockCancellable emptyList()
         }
 
         val result = ArrayList<Pair<TaskInfo, ProgressModel>>(originals.size)
         for (i in originals.indices) {
           result.add(Pair(infos[i], originals[i]))
         }
-        return result
+        return@withLockCancellable result
       }
     }
 
@@ -284,11 +301,11 @@ class InfoAndProgressPanel internal constructor(
     return result
   }
 
-  @RequiresEdt
+  @RequiresEdt(generateAssertion = false /* IJPL-115548 */)
   fun addProgress(original: ProgressModel, info: TaskInfo) {
     // `openProcessPopup` may require the dispatch thread
     ThreadingAssertions.assertEventDispatchThread()
-    synchronized(originals) {
+    originalsLock.withLockCancellable {
       if (originals.isEmpty()) {
         mainPanel.updateNavBarAutoscrollToSelectedLimit(AutoscrollLimit.ALLOW_ONCE)
         getPopup().setHideOnFocusLost(false)
@@ -309,7 +326,7 @@ class InfoAndProgressPanel internal constructor(
         // already finished, progress might not send another finished message
         removeProgress(expanded)
         removeProgress(compact)
-        return
+        return@withLockCancellable
       }
       coroutineScope.launch {
         runQuery()
@@ -317,15 +334,15 @@ class InfoAndProgressPanel internal constructor(
     }
   }
 
-  private fun hasProgressIndicators(): Boolean = synchronized(originals) { !originals.isEmpty() }
+  private fun hasProgressIndicators(): Boolean = originalsLock.withLockCancellable { !originals.isEmpty() }
 
-  @RequiresEdt
+  @RequiresEdt(generateAssertion = false /* IJPL-115548 */)
   private fun removeProgress(progress: MyProgressComponent) {
     ThreadingAssertions.assertEventDispatchThread()
-    synchronized(originals) {
+    originalsLock.withLockCancellable {
       // already disposed
       if (!inlineToOriginal.containsKey(progress)) {
-        return
+        return@withLockCancellable
       }
       val last = originals.size == 1
       if (!progress.isCompact && popup != null) {
@@ -337,7 +354,7 @@ class InfoAndProgressPanel internal constructor(
         if (progress.isCompact) {
           balloon.removeIndicator(rootPane, progress)
         }
-        return
+        return@withLockCancellable
       }
       mainPanel.removeProgress(progress, last)
       coroutineScope.launch {
@@ -372,7 +389,7 @@ class InfoAndProgressPanel internal constructor(
   }
 
   internal fun setInlineProgressByWeight() {
-    synchronized(originals) {
+    originalsLock.withLockCancellable {
       val size = infos.size
       val indexes = IntArray(size) { it }
       IntArrays.stableSort(indexes, 0, size, IntComparator { index1, index2 ->
@@ -400,25 +417,27 @@ class InfoAndProgressPanel internal constructor(
 
   private fun openProcessPopup(requestFocus: Boolean) {
     var shouldClosePopupAndOnProcessFinish: Boolean
-    synchronized(originals) {
+    originalsLock.withLockCancellable {
       if (popup != null && popup!!.isShowing) {
-        return
+        return@withLockCancellable
       }
 
       getPopup().show(requestFocus)
       shouldClosePopupAndOnProcessFinish = hasProgressIndicators()
       mainPanel.updateProgressState(true)
+      showInPresentationModeFlow.value = false
+      this.shouldClosePopupAndOnProcessFinish = shouldClosePopupAndOnProcessFinish
     }
-    this.shouldClosePopupAndOnProcessFinish = shouldClosePopupAndOnProcessFinish
   }
 
   fun hideProcessPopup() {
-    synchronized(originals) {
+    originalsLock.withLockCancellable {
       if (popup == null || !popup!!.isShowing) {
-        return
+        return@withLockCancellable
       }
       popup!!.hide()
       mainPanel.updateProgressState(false)
+      showInPresentationModeFlow.value = true
     }
   }
 
@@ -546,12 +565,14 @@ class InfoAndProgressPanel internal constructor(
   }
 
   private fun updateProgressIcon() {
-    val progressIcon = mainPanel.inlinePanel.progressIcon
-    if (originals.isEmpty() || PowerSaveMode.isEnabled()) {
-      progressIcon.suspend()
-    }
-    else {
-      progressIcon.resume()
+    originalsLock.withLockCancellable {
+      val progressIcon = mainPanel.inlinePanel.progressIcon
+      if (originals.isEmpty() || PowerSaveMode.isEnabled()) {
+        progressIcon.suspend()
+      }
+      else {
+        progressIcon.resume()
+      }
     }
   }
 
@@ -565,6 +586,8 @@ class InfoAndProgressPanel internal constructor(
         hideProcessPopup()
       }
     }
+
+  private val showInPresentationModeFlow = MutableStateFlow(!isProcessWindowOpen)
 
   override fun uiSettingsChanged(uiSettings: UISettings) {
     mainPanel.uiSettingsChanged(uiSettings)
@@ -960,9 +983,8 @@ class InfoAndProgressPanel internal constructor(
       if (isCompact) mainPanel.inlinePanel.fireAccessibleValueChanged()
     }
 
-    fun showInPresentationMode(): Boolean {
-      return !isProcessWindowOpen
-    }
+    val showInPresentationMode: StateFlow<Boolean>
+      get() = showInPresentationModeFlow.asStateFlow()
 
     override fun setTitle(title: @NlsContexts.ProgressTitle String) {
       processNameValue = title

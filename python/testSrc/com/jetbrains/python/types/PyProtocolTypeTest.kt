@@ -177,20 +177,24 @@ class PyProtocolTypeTest : PyCodeInsightTestCase() {
 
     @Test
     fun `generic protocol unification with generic implementation with generic superclass`() = test("""
-      from typing import Generic, Protocol
+      from typing import Generic, Protocol, TypeVar
 
-      class Fooable[T1](Protocol):
+      T1 = TypeVar('T1')
+      T2 = TypeVar('T2')
+
+      class Fooable(Protocol[T1]):
+      #                      ^^ WARNING This type variable is effectively covariant in this protocol, so it cannot be invariant here
           def foo(self) -> T1:
               ...
 
-      class Super[T2]:
+      class Super(Generic[T2]):
           def foo(self) -> T2:
               ...
 
-      class MyClass[T2](Super[T2]):
+      class MyClass(Super[T2]):
           pass
 
-      def f[T1](x: Fooable[T1]) -> T1:
+      def f(x: Fooable[T1]) -> T1:
           ...
 
       obj: MyClass[int]
@@ -586,29 +590,41 @@ class PyProtocolTypeTest : PyCodeInsightTestCase() {
       """.trimIndent())
 
     @Test
-    @TestFor(issues = ["PY-32313"])
-    @TestCaseOptions(languageLevel = LanguageLevel.PYTHON35)
-    fun `matching against multiple bound type var`() = test("""
-      from typing import Type, TypeVar
+    @TestFor(issues = ["PY-90570"])
+    fun `Self return of instance member binds protocol type parameter`() = test("""
+      from typing import Protocol, Self
 
-      class A:
-          pass
+      class Clones[T](Protocol):
+          def clone(self) -> T: ...
 
-      class B(A):
-          pass
+      class Box[V]:
+          def clone(self) -> Self: ...
 
-      class C:
-          pass
+      def first_clone[T](x: Clones[T]) -> T: ...
 
-      T = TypeVar('T', A, B)
+      def f(b: Box[int]):
+          expr = first_clone(b)
+      #   └ TYPE Box[int]
+      """.trimIndent())
 
-      def f(cls: Type[T], arg: int) -> T:
-          pass
+    @Test
+    @TestFor(issues = ["PY-90570"])
+    fun `Self return of enum member binds protocol type parameter to enum class`() = test("""
+      from enum import Enum
+      from typing import Protocol, Self
 
-      f(A, 1)
-      f(B, 2)
-      f(C, 3)
-      # └ WARNING Expected type 'Type[T ≤: Union[A, B]]', got 'Type[C]' instead
+      class Shifts[T](Protocol):
+          def shifted(self) -> T: ...
+
+      def shift[T](x: Shifts[T]) -> T: ...
+
+      class Colour(Enum):
+          RED = 1
+
+          def shifted(self) -> Self: ...
+
+      expr = shift(Colour.RED)
+      # └ TYPE Colour
       """.trimIndent())
   }
 
@@ -1067,6 +1083,27 @@ class PyProtocolTypeTest : PyCodeInsightTestCase() {
           ...
       f(Bar())
       """.trimIndent())
+
+    @Test
+    @TestFor(issues = ["PY-90570"])
+    fun `Self parameter of instance member against protocol`() = test("""
+      from typing import Protocol, Self
+
+      class Mergeable(Protocol):
+          def merge(self, other: Self) -> Self: ...
+
+      class Box:
+          def merge(self, other: Self) -> Self: ...
+
+      class Bad:
+          def merge(self, other: int) -> Bad: ...
+
+      def use(m: Mergeable): ...
+
+      use(Box())
+      use(Bad())
+      #   ^^^^^ WARNING Expected type 'Mergeable', got 'Bad' instead
+      """.trimIndent())
   }
 
   @Nested
@@ -1308,7 +1345,7 @@ class PyProtocolTypeTest : PyCodeInsightTestCase() {
       """.trimIndent())
 
     @Test
-    @TestFor(issues = ["PY-87801"])
+    @TestFor(issues = ["PY-87801", "PY-87802"])
     fun `callable protocol with additional attribute rejects plain function`() = test("""
       from typing import Protocol
 
@@ -1367,6 +1404,23 @@ class PyProtocolTypeTest : PyCodeInsightTestCase() {
       foo(C())
       foo(C)
       #   └ WARNING Expected type 'P', got 'type[C]' instead
+      """.trimIndent())
+
+    @Test
+    @TestFor(issues = ["PY-90570"])
+    fun `class object with Self classmethod against protocol`() = test("""
+      from typing import Protocol, Self
+
+      class Factory(Protocol):
+          def create(self) -> Widget: ...
+
+      class Widget:
+          @classmethod
+          def create(cls) -> Self: ...
+
+      def build(f: Factory): ...
+
+      build(Widget)
       """.trimIndent())
   }
 
@@ -1691,32 +1745,6 @@ class PyProtocolTypeTest : PyCodeInsightTestCase() {
             pass
 
     f(A)
-    """.trimIndent())
-
-  @Test
-  fun `structural types for nested calls`() = test("""
-    def f(x):
-        return x.foo + g(x)
-
-
-    def g(x):
-        return x.bar
-
-
-    def test():
-        f("string") # WARNING Type 'Literal["string"]' doesn't have expected attributes 'foo', 'bar'
-    """.trimIndent())
-
-  @Test
-  fun `comparison operators for numeric types`() = test("""
-    def f(x):
-        print(x < 0, x <= 0, x > 0, x >= 0, x != 0)
-        print(x.foo)
-
-
-    print(f(True)) # WARNING Type 'Literal[True]' doesn't have expected attribute 'foo'
-    print(f(0)) # WARNING Type 'Literal[0]' doesn't have expected attribute 'foo'
-    print(f(3.14)) # WARNING Type 'float' doesn't have expected attribute 'foo'
     """.trimIndent())
 
   @Test
