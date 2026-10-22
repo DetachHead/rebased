@@ -58,7 +58,8 @@ fun findStubPackage(
   checkForPackage: Boolean,
   withoutStubs: Boolean,
 ): Set<PsiDirectory>? {
-  if (!withoutStubs && dir.virtualFile.let { it == getClassOrContentOrSourceRoot(dir.project, it) }) {
+  val dirFile = dir.virtualFile
+  if (!withoutStubs && dirFile == getClassOrContentOrSourceRoot(dir.project, dirFile)) {
     val stubPackageName = "$referencedName$STUBS_SUFFIX"
     val stubPackage = dir.findSubdirectory(stubPackageName)
     val result = mutableSetOf<PsiDirectory>()

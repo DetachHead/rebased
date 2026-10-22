@@ -242,7 +242,7 @@ public class GrCompletionWithLibraryTest extends GroovyCompletionTestBase {
   }
 
   @Override
-  public final @NotNull String getBasePath() {
-    return TestUtils.getTestDataPath() + "groovy/completion/";
+  public final @NotNull String getTestDataPath() {
+    return TestUtils.getAbsoluteTestDataPath() + "groovy/completion/";
   }
 }

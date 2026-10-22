@@ -4,18 +4,25 @@
     <module name="intellij.libraries.jetbrains.annotations"/>
     <module name="intellij.libraries.opentelemetry"/>
     <module name="intellij.platform.backend"/>
+    <module name="intellij.platform.backend.observation"/>
+    <module name="intellij.platform.backend.workspace"/>
     <module name="intellij.platform.core"/>
     <module name="intellij.platform.diagnostic.telemetry"/>
     <module name="intellij.platform.diagnostic.telemetry.impl"/>
+    <module name="intellij.platform.eel.provider"/>
     <module name="intellij.platform.ide.impl"/>
     <module name="intellij.platform.projectModel"/>
     <module name="intellij.platform.projectModel.impl"/>
     <module name="intellij.platform.workspace.jps"/>
+    <module name="intellij.platform.workspace.storage"/>
   </dependencies>
   <!-- endregion -->
 
 
   <extensions defaultExtensionNs="com.intellij">
+    <backgroundPostStartupActivity implementation="com.intellij.workspaceModel.ide.impl.VirtualFileUrlsLazyInitializer"/>
+    <postStartupActivity implementation="com.intellij.workspaceModel.ide.impl.WorkspaceEntitiesLifecycleActivity"/>
+    <postStartupActivity implementation="com.intellij.workspaceModel.ide.impl.OrphanageActivity"/>
 
     <projectPreInit
       id="initialProjectSynchronizer"

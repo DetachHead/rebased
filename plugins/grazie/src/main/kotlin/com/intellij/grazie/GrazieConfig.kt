@@ -4,11 +4,7 @@ package com.intellij.grazie
 import ai.grazie.nlp.langs.Language
 import ai.grazie.nlp.langs.LanguageISO
 import ai.grazie.rules.settings.TextStyle
-import ai.grazie.rules.tree.Parameter
 import com.intellij.codeInsight.daemon.DaemonCodeAnalyzer
-import com.intellij.grazie.GrazieConfig.State.Processing.Cloud
-import com.intellij.grazie.GrazieConfig.State.Processing.Local
-import com.intellij.grazie.cloud.GrazieCloudConnector
 import com.intellij.grazie.config.CheckingContext
 import com.intellij.grazie.config.DetectionContext
 import com.intellij.grazie.config.SuppressingContext
@@ -20,7 +16,6 @@ import com.intellij.grazie.ide.msg.GrazieStateLifecycle
 import com.intellij.grazie.jlanguage.Lang
 import com.intellij.grazie.jlanguage.LangTool
 import com.intellij.grazie.remote.GrazieRemote.isAvailableLocally
-import com.intellij.grazie.rule.RuleIdeClient
 import com.intellij.grazie.spellcheck.hunspell.HunspellDictionary
 import com.intellij.grazie.text.Rule
 import com.intellij.grazie.utils.TextStyleDomain
@@ -41,7 +36,6 @@ import org.jetbrains.annotations.VisibleForTesting
 import java.util.Collections
 import java.util.TreeMap
 import java.util.concurrent.atomic.AtomicLong
-import kotlin.collections.orEmpty
 
 @State(
   name = "GraziConfig",
@@ -98,15 +92,15 @@ class GrazieConfig : PersistentStateComponent<GrazieConfig.State>, ModificationT
     @Property val checkingContext: CheckingContext = CheckingContext(),
     @Property override val version: Version = Version.CURRENT,
     //Ex. Grazie pro properties
-    @Property val styleProfile: String? = TextStyle.Unspecified.id,
-    @Property val parameters: Map<Language, Map<String, String>> = TreeMap(),
-    @Property val parametersPerDomain: Map<TextStyleDomain, Map<Language, Map<String, String>>> = TreeMap(),
     @Property val useOxfordSpelling: Boolean = false,
     @Property val autoFix: Boolean = false,
     @Property val autoUpdateLanguages: Boolean = false,
     @Property val specificationAnalysisEnabled: Boolean = false,
     // Ex. Grazie Cloud
-    @Property val explicitlyChosenProcessing: Processing? = null,
+    @Deprecated("Cloud processing is deprecated") @Property val explicitlyChosenProcessing: Processing? = null,
+    @Deprecated("Cloud processing is deprecated") @Property val styleProfile: String? = TextStyle.Unspecified.id,
+    @Deprecated("Cloud processing is deprecated") @Property val parameters: Map<Language, Map<String, String>> = TreeMap(),
+    @Deprecated("Cloud processing is deprecated") @Property val parametersPerDomain: Map<TextStyleDomain, Map<Language, Map<String, String>>> = TreeMap(),
   ) : VersionedState<Version, State> {
     /**
      * The available language set depends on currently loaded LanguageTool modules.
@@ -124,9 +118,6 @@ class GrazieConfig : PersistentStateComponent<GrazieConfig.State>, ModificationT
 
     val missedLanguages: Set<Lang>
       get() = enabledLanguages.asSequence().filter { isMissingLanguage(it) }.toCollection(CollectionFactory.createSmallMemoryFootprintLinkedSet())
-
-    val processing: Processing
-      get() = explicitlyChosenProcessing ?: if (GrazieCloudConnector.isCloudEnabledByDefault()) Cloud else Local
 
     val dictionaries: List<HunspellDictionary>
       get() = enabledLanguages
@@ -169,36 +160,6 @@ class GrazieConfig : PersistentStateComponent<GrazieConfig.State>, ModificationT
       }
       return newState.copy(useOxfordSpelling = useOxfordSpelling)
     }
-    fun withParameter(domain: TextStyleDomain, language: Language, parameter: Parameter, value: String?): State {
-      if (domain == TextStyleDomain.Other) {
-        val newLangParams = TreeMap(parameters[language] ?: emptyMap())
-        if (value != null) newLangParams[parameter.id()] = value else newLangParams.remove(parameter.id())
-
-        val newParams = TreeMap(parameters)
-        if (newLangParams.isEmpty()) newParams.remove(language) else newParams[language] = newLangParams
-        return copy(parameters = newParams)
-      }
-
-      val newParamsPerDomain = TreeMap(parametersPerDomain)
-      val langsInDomain = TreeMap(newParamsPerDomain[domain] ?: emptyMap())
-      val newLangParams = TreeMap(langsInDomain[language] ?: emptyMap())
-
-      if (value != null) newLangParams[parameter.id()] = value else newLangParams.remove(parameter.id())
-
-      if (newLangParams.isEmpty()) {
-        langsInDomain.remove(language)
-      } else {
-        langsInDomain[language] = newLangParams
-      }
-
-      if (langsInDomain.isEmpty()) {
-        newParamsPerDomain.remove(domain)
-      } else {
-        newParamsPerDomain[domain] = langsInDomain
-      }
-
-      return copy(parametersPerDomain = newParamsPerDomain)
-    }
 
     fun getUserChangedRules(domain: TextStyleDomain): UserChangedRules {
       val userEnabledRules = HashSet<String>()
@@ -238,23 +199,6 @@ class GrazieConfig : PersistentStateComponent<GrazieConfig.State>, ModificationT
       val newRules = TreeMap(domainDisabledRules)
       newRules[domain] = rules
       return copy(domainDisabledRules = newRules)
-    }
-
-    fun paramValue(domain: TextStyleDomain, language: Language, parameter: Parameter): String? {
-      if (domain == TextStyleDomain.Other) {
-        return parameters[language]?.get(parameter.id())
-      }
-      return parametersPerDomain[domain]?.get(language)?.get(parameter.id())
-    }
-
-    @JvmOverloads
-    fun getTextStyle(domain: TextStyleDomain? = null): TextStyle {
-      val styleProfileId = getTextStyleId(domain) ?: return TextStyle.Unspecified
-      return TextStyle.styles(RuleIdeClient.INSTANCE).find { it.id == styleProfileId } ?: TextStyle.Unspecified
-    }
-
-    private fun getTextStyleId(domain: TextStyleDomain? = null): String? {
-      return if (domain == null || domain == TextStyleDomain.Other) styleProfile else domain.name
     }
 
     enum class Processing {

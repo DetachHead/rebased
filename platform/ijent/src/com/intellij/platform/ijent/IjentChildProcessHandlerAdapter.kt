@@ -8,6 +8,7 @@ import com.intellij.platform.eel.EelProcessManagementApi
 import com.intellij.platform.eel.EelProcessManagementPosixApi
 import com.intellij.platform.eel.EelProcessManagementWindowsApi
 import com.intellij.platform.eel.SafeDeferred
+import com.intellij.platform.eel.terminate
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
@@ -168,7 +169,7 @@ class IjentChildProcessHandlerAdapter internal constructor(
     if (ownProcess != null) {
       return when (ownProcess.exitCode.state) {
         SafeDeferred.State.Active -> true
-        is SafeDeferred.State.Canceled, is SafeDeferred.State.Completed<*>, is SafeDeferred.State.Failed -> false
+        is SafeDeferred.State.Finished -> false
       }
     }
     return processInfoFor(pidValue) != null

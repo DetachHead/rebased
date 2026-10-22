@@ -14,9 +14,9 @@ import com.intellij.psi.search.LocalSearchScope
 import com.intellij.psi.search.searches.ReferencesSearch
 import com.intellij.testFramework.IdeaTestUtil
 import com.intellij.testFramework.fixtures.DefaultLightProjectDescriptor
-import org.jetbrains.kotlin.analysis.api.components.KaDiagnosticCheckerFilter.ONLY_COMMON_CHECKERS
-import org.jetbrains.kotlin.analysis.api.components.collectDiagnostics
+import de.plushnikov.intellij.plugin.LombokTestUtil
 import org.jetbrains.kotlin.analysis.api.diagnostics.KaSeverity
+import org.jetbrains.kotlin.analysis.api.diagnostics.diagnostics
 import org.jetbrains.kotlin.analysis.api.permissions.KaAllowAnalysisOnEdt
 import org.jetbrains.kotlin.analysis.api.permissions.allowAnalysisOnEdt
 import org.jetbrains.kotlin.analysis.api.session.analyze
@@ -34,6 +34,16 @@ val J2K_PROJECT_DESCRIPTOR: KotlinWithJdkAndRuntimeLightProjectDescriptor =
 
         override fun addDefaultLibraries(model: ModifiableRootModel) {
             DefaultLightProjectDescriptor.addJetBrainsAnnotationsWithTypeUse(model)
+        }
+    }
+
+val J2K_LOMBOK_PROJECT_DESCRIPTOR: KotlinWithJdkAndRuntimeLightProjectDescriptor =
+    object : KotlinWithJdkAndRuntimeLightProjectDescriptor() {
+        override fun getSdk(): Sdk = IdeaTestUtil.getMockJdk21()
+
+        override fun addDefaultLibraries(model: ModifiableRootModel) {
+            DefaultLightProjectDescriptor.addJetBrainsAnnotationsWithTypeUse(model)
+            LombokTestUtil.addLombokDependency(model)
         }
     }
 
@@ -90,12 +100,13 @@ internal fun getExpectedFile(testFile: File, isCopyPaste: Boolean): File {
 fun getK2FileTextWithErrors(file: KtFile): String {
     val errors: List<String> = allowAnalysisOnEdt {
         analyze(file) {
-            val diagnostics = file.collectDiagnostics(filter = ONLY_COMMON_CHECKERS).asSequence()
+            val diagnostics = file.diagnostics()
             diagnostics
                 // TODO KTIJ-29640: For some reason, there is a "redeclaration" error on every declaration for K2 tests
                 .filter { it.factoryName != "CLASSIFIER_REDECLARATION" && it.factoryName != "PACKAGE_CONFLICTS_WITH_CLASSIFIER" }
                 .filter { it.severity == KaSeverity.ERROR }
                 .map { it.defaultMessage.replace(oldChar = '\n', newChar = ' ') }
+                .sorted()
                 .toList()
         }
     }
@@ -134,7 +145,7 @@ internal object J2kTestPostprocessorExtension : J2kPostprocessorExtension {
                 file.findDescendantOfType<KtParameter> { it.nameIdentifier != null }
             } ?: continue
 
-            val references = ReferencesSearch.search(firstNamedParameter, LocalSearchScope(file)).findAll()
+            val references = readAction { ReferencesSearch.search(firstNamedParameter, LocalSearchScope(file)).findAll() }
             edtWriteAction {
                 PsiImplUtil.setName(checkNotNull(firstNamedParameter.nameIdentifier), "postbar")
             }

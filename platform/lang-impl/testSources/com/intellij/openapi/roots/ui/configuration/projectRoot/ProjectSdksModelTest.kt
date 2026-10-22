@@ -1,4 +1,4 @@
-// Copyright 2000-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.openapi.roots.ui.configuration.projectRoot
 
 import com.intellij.idea.TestFor
@@ -11,22 +11,22 @@ import com.intellij.openapi.progress.ProgressIndicator
 import com.intellij.openapi.projectRoots.ProjectJdkTable
 import com.intellij.openapi.projectRoots.Sdk
 import com.intellij.openapi.projectRoots.SimpleJavaSdkType
+import com.intellij.openapi.roots.ui.configuration.projectRoot.ProjectSdksModel.downloadSdk
 import com.intellij.testFramework.LightPlatformTestCase
+import com.intellij.testFramework.PlatformTestUtil
 import com.intellij.testFramework.assertions.Assertions.assertThat
-import com.intellij.util.Consumer
+import com.intellij.util.concurrency.ThreadingAssertions
 import com.intellij.util.ui.UIUtil
 import org.junit.Assert
-import org.junit.Test
 import java.io.IOException
+import java.util.concurrent.CountDownLatch
 import kotlin.io.path.absolute
 import kotlin.io.path.createTempDirectory
-import kotlin.io.path.pathString
 
 class ProjectSdksModelTest : LightPlatformTestCase() {
   private val model = ProjectSdksModel()
   private val sdkType = SimpleJavaSdkType()
 
-  @Test
   fun testAddedSdkIsClonedModifiable() {
     val sdk = model.createSdk(sdkType, "testJdskd123", "mock")
     model.addSdk(sdk)
@@ -39,7 +39,6 @@ class ProjectSdksModelTest : LightPlatformTestCase() {
     Assert.assertTrue(model.projectSdks.keys.contains(sdk))
   }
 
-  @Test
   fun testEditableSdkIsAddedToJdkTable() {
     val sdk = model.createSdk(sdkType, "testJdskd123", "mock")
     model.addSdk(sdk)
@@ -93,26 +92,26 @@ class ProjectSdksModelTest : LightPlatformTestCase() {
 
     fun doDownload(onSdk: (Sdk) -> Unit = {},
                    actualDownload: (ProgressIndicator) -> Unit) {
-      var isSameCallStack = true
+      val isDownloadCompleted = CountDownLatch(1)
 
-      try {
-        model.setupInstallableSdk(type, MyDownloadTask(
-          homeDir = plannedDir,
-          sdkName = sdkName,
-          onDownload = {indicator ->
-                ApplicationManager.getApplication().assertIsNonDispatchThread()
+      val incompleteSdk = model.createIncompleteSdk(type, MyDownloadTask(
+        homeDir = plannedDir,
+        sdkName = sdkName,
+        onDownload = { indicator ->
+          ThreadingAssertions.assertBackgroundThread()
+          actualDownload(indicator)
+        }
+      ))
+      onSdk(incompleteSdk)
+      downloadSdk(project, incompleteSdk)
 
-                //ProgressManager works in the same thread in tests
-                assertThat(isSameCallStack).withFailMessage("Is should be in the same call stack!").isTrue()
+      // wait for background download completion
+      Assert.assertTrue("The download is expected to be running for $incompleteSdk",
+                        SdkDownloadTracker.getInstance().tryRegisterDownloadingListener(
+                          incompleteSdk, testRootDisposable, null) { isDownloadCompleted.countDown() })
 
-                actualDownload(indicator)
-          }
-        ),  Consumer(onSdk))
-      }
-      finally {
-        isSameCallStack = false
-        UIUtil.dispatchAllInvocationEvents()
-      }
+      PlatformTestUtil.waitWithEventsDispatching("The SDK download is not completed", { isDownloadCompleted.count == 0L }, 60)
+      UIUtil.dispatchAllInvocationEvents()
     }
   }
 

@@ -128,8 +128,8 @@ public class GroovyLambdaHighlightingTest extends GrHighlightingTestBase impleme
   }
 
   @Override
-  public final String getBasePath() {
-    return TestUtils.getTestDataPath() + "highlighting/lambda/";
+  public final String getTestDataPath() {
+    return TestUtils.getAbsoluteTestDataPath() + "highlighting/lambda/";
   }
 
   @Override

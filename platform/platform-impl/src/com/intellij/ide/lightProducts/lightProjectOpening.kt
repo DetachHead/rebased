@@ -5,10 +5,11 @@ import com.intellij.ide.RecentProjectsManager
 import com.intellij.ide.RecentProjectsManagerBase
 import com.intellij.ide.impl.OpenProjectTask
 import com.intellij.ide.impl.ProjectUtil
-import com.intellij.ide.trustedProjects.TrustedProjects
 import com.intellij.openapi.application.PathManager
 import com.intellij.openapi.components.serviceAsync
 import com.intellij.openapi.diagnostic.Logger
+import com.intellij.openapi.extensions.impl.unregisterExtensionsById
+import com.intellij.openapi.options.Configurable
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.ex.ProjectManagerEx
 import com.intellij.openapi.util.io.FileUtil
@@ -25,7 +26,6 @@ import com.intellij.platform.eel.provider.setEelDescriptor
 import com.intellij.platform.eel.provider.setEelMachine
 import com.intellij.platform.eel.provider.setRemoteProjectBaseNioPath
 import com.intellij.platform.eel.provider.setRemoteProjectIdentityNioPath
-import com.intellij.util.ThreeState
 import com.intellij.util.io.DigestUtil
 import com.intellij.util.io.createDirectories
 import kotlinx.coroutines.withTimeoutOrNull
@@ -47,8 +47,8 @@ private const val PROJECTS_DIR_NAME = "projects"
  * (see [createLightProjectStoreDir]), the project is hidden from the recent projects list,
  * and closing its window does not show the welcome frame.
  *
- * The platform checks project trust on the store directory. A trust state already recorded for [path]
- * is copied to the store directory, so the platform does not ask the user a second time.
+ * The platform checks project trust on the store directory.
+ * The store directory is registered in [LightProjectTrustTargets], so a trust provider of the product can check [path] instead.
  *
  * [beforeInit] is invoked before the project is initialized, prior to associating the project with its Eel descriptor.
  * [eelMachineInitializer] initializes the Eel machine for the project's Eel descriptor after the project is opened;
@@ -58,6 +58,9 @@ private const val PROJECTS_DIR_NAME = "projects"
  * [projectRootDir] is the directory the platform treats as the project root.
  * When it is `null`, it is derived from a stat of [path], which costs a network round trip on a remote host;
  * pass the known value when the caller has already touched [path].
+ * [forceOpenInNewFrame] and [projectToClose] are passed through to the [OpenProjectTask]. Leaving them at their defaults
+ * always opens a new frame; passing `forceOpenInNewFrame = false` together with an open [projectToClose] lets the platform
+ * ask the user whether to reuse that frame or to attach, see `ProjectManagerImpl.attachToExistingOrOpenInTheSameFrame`.
  */
 @ApiStatus.Internal
 suspend fun openProjectForLightProduct(
@@ -66,6 +69,8 @@ suspend fun openProjectForLightProduct(
   materializeProject: Boolean,
   showWelcomeScreen: Boolean = true,
   projectRootDir: Path? = null,
+  forceOpenInNewFrame: Boolean = true,
+  projectToClose: Project? = null,
   beforeInit: (Project) -> Unit = {},
   eelMachineInitializer: suspend (EelDescriptor) -> EelMachine? = ::defaultLightEelMachineInitializer,
 ): Project? {
@@ -74,14 +79,16 @@ suspend fun openProjectForLightProduct(
   val projectFile = if (materializeProject) path else createLightProjectStoreDir(projectStoreSeed)
 
   // The platform checks trust on the store directory, not on [path] (see `ProjectManagerImpl.checkTrustedState`).
-  // A trust answer recorded for [path] cannot cover the store directory. Copy the known state,
-  // so the user does not see a second trust prompt after a product already asked about [path].
-  val pathTrustedState = TrustedProjects.getProjectTrustedState(path, project = null)
-  if (pathTrustedState != ThreeState.UNSURE) {
-    TrustedProjects.setProjectTrusted(projectFile, project = null, isTrusted = pathTrustedState.toBoolean())
+  // Register the pair before the check, so the trust provider of the product can check [path] instead.
+  if (!materializeProject) {
+    LightProjectTrustTargets.getInstance().register(storeDir = projectFile, projectPath = path)
   }
 
   val rootDir = projectRootDir ?: if (path.isDirectory()) path else path.parent
+  // Every startup activity may ask for the host path, so it is set before the project is initialized rather than
+  // after the open call returns - post-startup activities are not joined before then. `ThinClientRdProjectViewSession`
+  // sets the descriptor and both paths together for the same reason.
+  val hostPath = path.asEelPath().toString()
   val options = OpenProjectTask {
     isNewProject = !ProjectUtil.isValidProjectPath(projectFile)
     this.showWelcomeScreen = showWelcomeScreen
@@ -90,11 +97,15 @@ suspend fun openProjectForLightProduct(
     runConfigurators = false
     useDefaultProjectAsTemplate = false
     preventIprLookup = true
-    forceOpenInNewFrame = true
+    this.forceOpenInNewFrame = forceOpenInNewFrame
+    this.projectToClose = projectToClose
     beforeInitTasks += { project ->
       beforeInit(project)
       @OptIn(EelDelicateApi::class)
       project.setEelDescriptor(eelDescriptor)
+      // `getRemoteProjectBaseNioPath` reads the descriptor, so it has to be set first.
+      project.setRemoteProjectBaseNioPath(hostPath)
+      project.setRemoteProjectIdentityNioPath(hostPath)
     }
     projectName = path.name
   }
@@ -110,9 +121,7 @@ suspend fun openProjectForLightProduct(
     (serviceAsync<RecentProjectsManager>() as RecentProjectsManagerBase).setProjectHidden(project, true)
   }
   CloseProjectWindowHelper.SHOW_WELCOME_FRAME_FOR_PROJECT.set(project, false)
-
-  project.setRemoteProjectBaseNioPath(path.asEelPath().toString())
-  project.setRemoteProjectIdentityNioPath(path.asEelPath().toString())
+  unregisterProjectExtensionsForLightProduct(project)
 
   val machine = eelMachineInitializer(eelDescriptor)
   if (machine != null) {
@@ -121,6 +130,19 @@ suspend fun openProjectForLightProduct(
   }
 
   return project
+}
+
+/**
+ * Unregisters the project-level extensions that a light project does not need.
+ * The application-level counterpart is `unregisterExtensionsForLightProduct` in `intellij.platform.lang.impl`.
+ */
+private fun unregisterProjectExtensionsForLightProduct(project: Project) {
+  Configurable.PROJECT_CONFIGURABLE.getPoint(project)
+    .unregisterExtensionsById(
+      "editor.reader.mode",
+      "fileTemplates",
+      "Errors",
+    )
 }
 
 /**

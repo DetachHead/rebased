@@ -5,9 +5,11 @@
   <dependencies>
     <module name="intellij.libraries.fastutil"/>
     <module name="intellij.libraries.kotlinx.collections.immutable"/>
+    <module name="intellij.libraries.stream"/>
     <module name="intellij.platform.analysis"/>
     <module name="intellij.platform.analysis.impl"/>
     <module name="intellij.platform.codeStyle"/>
+    <module name="intellij.platform.concurrency"/>
     <module name="intellij.platform.core"/>
     <module name="intellij.platform.core.impl"/>
     <module name="intellij.platform.core.ui"/>
@@ -20,8 +22,6 @@
     <module name="intellij.platform.lang.impl"/>
     <module name="intellij.platform.projectModel"/>
     <module name="intellij.platform.util.ui"/>
-    <module name="intellij.regexp"/>
-    <module name="intellij.xml.parser"/>
   </dependencies>
   <!-- endregion -->
 
@@ -48,6 +48,8 @@
 
     <highlightErrorFilter implementation="org.intellij.plugins.intelliLang.inject.FrankensteinErrorFilter"/>
     <daemon.highlightInfoFilter implementation="org.intellij.plugins.intelliLang.inject.FrankensteinErrorFilter"/>
+    <!--suppress SplitModeXmlApiUsage Lightweight check of the Value-Pattern field in injection settings; works on either side. -->
+    <annotator language="RegExp" implementationClass="org.intellij.plugins.intelliLang.inject.config.ui.ValuePatternAnnotator"/>
 
     <applicationService serviceInterface="com.intellij.psi.impl.source.tree.injected.FallbackInjectionPerformer"
                         serviceImplementation="org.intellij.plugins.intelliLang.inject.DefaultLanguageInjectionPerformer"/>

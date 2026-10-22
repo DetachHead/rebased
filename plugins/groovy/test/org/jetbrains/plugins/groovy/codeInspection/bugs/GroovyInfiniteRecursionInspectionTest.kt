@@ -7,8 +7,8 @@ import org.jetbrains.plugins.groovy.LightGroovyTestCase
 import org.jetbrains.plugins.groovy.util.TestUtils
 
 class GroovyInfiniteRecursionInspectionTest: LightGroovyTestCase() {
-  override fun getBasePath(): String {
-    return TestUtils.getTestDataPath() + "inspections/infiniteRecursion"
+  override fun getTestDataPath(): String {
+    return TestUtils.getAbsoluteTestDataPath() + "inspections/infiniteRecursion"
   }
 
   override fun getProjectDescriptor(): LightProjectDescriptor {

@@ -2,6 +2,9 @@
 package com.jetbrains.python.refactoring
 
 import com.intellij.codeInsight.TargetElementUtil
+import com.intellij.idea.TestFor
+import com.intellij.openapi.application.WriteAction
+import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.refactoring.util.CommonRefactoringUtil
 import com.jetbrains.python.fixtures.PyTestCase
 import com.jetbrains.python.psi.LanguageLevel
@@ -13,6 +16,7 @@ import com.jetbrains.python.refactoring.inline.PyInlineFunctionHandler
 import com.jetbrains.python.refactoring.inline.PyInlineFunctionProcessor
 import com.jetbrains.python.allure.Layers
 import com.jetbrains.python.allure.Subsystems
+import java.io.IOException
 
 /**
  * @author Aleksei.Kniazev
@@ -23,16 +27,31 @@ class PyInlineFunctionTest : PyTestCase() {
 
   override fun getTestDataPath(): String = super.getTestDataPath() + "/refactoring/inlineFunction"
 
-  private fun doTest(inlineThis: Boolean = true, remove: Boolean = false) {
+  private fun doTest(inlineThis: Boolean = true, remove: Boolean = false, readOnlyFile: String? = null) {
     val testName = getTestName(true)
+    runInlineProcessor(testName, inlineThis, remove, readOnlyFile)
+    myFixture.checkResultByFile("$testName/main.after.py")
+  }
+
+  private fun runInlineProcessor(testName: String, inlineThis: Boolean, remove: Boolean, readOnlyFile: String?) {
     myFixture.copyDirectoryToProject(testName, "")
     myFixture.configureByFile("main.py")
-    var element = TargetElementUtil.findTargetElement(myFixture.editor, TargetElementUtil.getInstance().referenceSearchFlags)
-    if (element!!.containingFile is PyiFile) element = PyiUtil.getOriginalElement(element as PyElement)
-    val reference = TargetElementUtil.findReference(myFixture.editor)
-    assertTrue(element is PyFunction)
-    PyInlineFunctionProcessor(myFixture.project, myFixture. editor, element as PyFunction, reference, inlineThis, remove).run()
-    myFixture.checkResultByFile("$testName/main.after.py")
+    val readOnlyVFile = readOnlyFile?.let { myFixture.findFileInTempDir(it) ?: error("File $it is not found") }
+    readOnlyVFile?.let { setWritable(it, false) }
+    try {
+      var element = TargetElementUtil.findTargetElement(myFixture.editor, TargetElementUtil.getInstance().referenceSearchFlags)
+      if (element!!.containingFile is PyiFile) element = PyiUtil.getOriginalElement(element as PyElement)
+      val reference = TargetElementUtil.findReference(myFixture.editor)
+      assertTrue(element is PyFunction)
+      PyInlineFunctionProcessor(myFixture.project, myFixture.editor, element as PyFunction, reference, inlineThis, remove).run()
+    }
+    finally {
+      readOnlyVFile?.let { setWritable(it, true) }
+    }
+  }
+
+  private fun setWritable(file: VirtualFile, writable: Boolean) {
+    WriteAction.runAndWait<IOException> { file.isWritable = writable }
   }
 
   private fun doTestError(expectedError: String, isReferenceError: Boolean = false) {
@@ -138,4 +157,34 @@ class PyInlineFunctionTest : PyTestCase() {
   fun testUsedAsReference() = doTestError("The function foo is used as a reference and cannot be inlined. The function definition will not be removed", isReferenceError = true)
   fun testUsesArgumentUnpacking() = doTestError("The function foo uses argument unpacking and cannot be inlined. The function definition will not be removed", isReferenceError = true)
   fun testNestedIfElseIndentation() = doTest()
+
+  @TestFor(issues = ["PY-81983"])
+  fun testParameterReassigned() = doTest()
+
+  @TestFor(issues = ["PY-81983"])
+  fun testParameterReassignedInNestedScope() = doTest()
+
+  @TestFor(issues = ["PY-81983"])
+  fun testParameterReassignedNameClash() = doTest()
+
+  @TestFor(issues = ["PY-81983"])
+  fun testParameterAugmentedAssignment() = doTest()
+
+  @TestFor(issues = ["PY-81983"])
+  fun testParameterDeleted() = doTest()
+
+  @TestFor(issues = ["PY-89262"])
+  fun testReadOnlyLibraryFunctionInlineThis() = doTest(readOnlyFile = "lib.py")
+
+  @TestFor(issues = ["PY-89262"])
+  fun testReadOnlyLibraryFunctionKeepDeclaration() = doTest(inlineThis = false, readOnlyFile = "lib.py")
+
+  @TestFor(issues = ["PY-89262"])
+  fun testReadOnlyLibraryFunctionRemoveDeclaration() {
+    val testName = getTestName(true)
+    assertThrows(RuntimeException::class.java, "lib.py is read-only") {
+      runInlineProcessor(testName, inlineThis = false, remove = true, readOnlyFile = "lib.py")
+    }
+    myFixture.checkResultByFile("$testName/main.py")
+  }
 }

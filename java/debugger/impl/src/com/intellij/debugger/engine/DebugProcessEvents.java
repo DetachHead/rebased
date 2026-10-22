@@ -126,7 +126,20 @@ public class DebugProcessEvents extends DebugProcessImpl {
   protected @NotNull VirtualMachineProxyImpl commitVM(final VirtualMachine vm) {
     VirtualMachineProxyImpl proxy = super.commitVM(vm);
     if (vm != null) {
-      vmAttached(proxy);
+      if (!vmAttached(proxy)) {
+        // A stop that overlapped this attach has detached already, maybe before the proxy was set, so nobody else
+        // disposes this VM, and an event thread would wait on its event queue forever.
+        LOG.debug("VM attached after the process was stopped, disposing it");
+        try {
+          proxy.dispose();
+        }
+        catch (VMDisconnectedException ignored) {
+        }
+        finally {
+          DebuggerManagerThreadImpl.getCurrentThread().setVmProxy(null);
+        }
+        return proxy;
+      }
       if (vm.canBeModified()) {
         DebuggerManagerThreadImpl managerThread = DebuggerManagerThreadImpl.getCurrentThread();
         DebuggerEventThread eventThread = myEventThreads.computeIfAbsent(vm, _ -> new DebuggerEventThread(managerThread));
@@ -413,7 +426,8 @@ public class DebugProcessEvents extends DebugProcessImpl {
     getSuspendManager().voteResume(suspendContext);
   }
 
-  private void vmAttached(VirtualMachineProxyImpl machineProxy) {
+  /** Returns false if the process left its initial state before the attach, which happens when a stop overlaps it. */
+  private boolean vmAttached(VirtualMachineProxyImpl machineProxy) {
     DebuggerManagerThreadImpl.assertIsManagerThread();
     LOG.assertTrue(!isAttached());
     if (myState.compareAndSet(State.INITIAL, State.ATTACHED)) {
@@ -509,7 +523,9 @@ public class DebugProcessEvents extends DebugProcessImpl {
           ShowSessionTabUtils.showFrames(getProject(), session.getId());
         }
       }
+      return true;
     }
+    return false;
   }
 
   private void trackClassRedefinitions() {
@@ -771,7 +787,7 @@ public class DebugProcessEvents extends DebugProcessImpl {
         long endTimeNs = 0;
         try {
           if (event.request().isEnabled()) {
-            requestHit = (requestor != null) && requestor.processLocatableEvent(this, event);
+            requestHit = requestor != null && requestor.processLocatableEvent(this, event);
           }
         }
         catch (final LocatableEventRequestor.EventProcessingException ex) {
@@ -785,7 +801,7 @@ public class DebugProcessEvents extends DebugProcessImpl {
           XBreakpoint<?> xBreakpoint = requestor instanceof Breakpoint<?> breakpoint ? breakpoint.getXBreakpoint() : null;
           XDebugSession xDebugSession = getSession().getXDebugSession();
           BreakpointErrorData errorData = new BreakpointErrorData(title, exceptionMessage, ex.getCause());
-          BreakpointErrorAction policyAction = (xDebugSession == null || xBreakpoint == null)
+          BreakpointErrorAction policyAction = xDebugSession == null || xBreakpoint == null
                                                ? BreakpointErrorAction.UNHANDLED
                                                : XBreakpointBehaviorPolicy.doChooseBreakpointErrorAction(xDebugSession, xBreakpoint, errorData);
 
@@ -868,6 +884,9 @@ public class DebugProcessEvents extends DebugProcessImpl {
         markForInstrumentationThatBreakpointCheksAreDone(suspendContext, checkIsDoneFn);
 
         if (!requestHit || resumePreferred) {
+          if (!requestHit) {
+            suspendContext.markEventNotHit(event);
+          }
           boolean finalRequestHit = requestHit;
           boolean finalResumePreferred = resumePreferred;
           logSuspendContext(suspendContext, () -> "Resume: requestHit = " + finalRequestHit + ", resumePreferred = " + finalResumePreferred);
@@ -965,7 +984,7 @@ public class DebugProcessEvents extends DebugProcessImpl {
 
       noStandardSuspendNeeded = true;
       ThreadReferenceProxyImpl threadProxy = suspendContext.getVirtualMachineProxy().getThreadReferenceProxy(thread);
-      SuspendContextImpl firstSuspendAllContext = suspendAllContexts.get(0);
+      SuspendContextImpl firstSuspendAllContext = suspendAllContexts.getFirst();
       if (suspendAllContexts.size() == 1 && firstSuspendAllContext.mySteppingThreadForResumeOneSteppingCurrentMode == threadProxy) {
         // Stepping in "Resume only one thread in suspend-all" mode met a breakpoint
 
@@ -975,7 +994,7 @@ public class DebugProcessEvents extends DebugProcessImpl {
         suspendContext.getVirtualMachineProxy().suspend();
         // Inside switchToSuspendAll the engine will replace the placeholder context with the new one.
         // It is necessary to cancel all current activities with the placeholder context (and the stepping monitor also).
-        SuspendOtherThreadsRequestor.switchToSuspendAll(suspendContext, (s) -> true);
+        SuspendOtherThreadsRequestor.switchToSuspendAll(suspendContext, _ -> true);
       }
       else if (suspendManager.myExplicitlyResumedThreads.contains(threadProxy)) {
         for (SuspendContextImpl context : suspendAllContexts) {
@@ -1005,7 +1024,7 @@ public class DebugProcessEvents extends DebugProcessImpl {
     }
     else {
       logSuspendContext(suspendContext, () -> "initiate transfer to suspend-all");
-      noStandardSuspendNeeded = SuspendOtherThreadsRequestor.initiateTransferToSuspendAll(suspendContext, c -> true);
+      noStandardSuspendNeeded = SuspendOtherThreadsRequestor.initiateTransferToSuspendAll(suspendContext, _ -> true);
     }
 
     return noStandardSuspendNeeded;
@@ -1082,7 +1101,7 @@ public class DebugProcessEvents extends DebugProcessImpl {
   }
 
   private static @Nullable LocatableEvent getLocatableEvent(EventSet eventSet) {
-    return StreamEx.of(eventSet).select(LocatableEvent.class).findFirst().orElse(null);
+    return ContainerUtil.findInstance(eventSet, LocatableEvent.class);
   }
 
   private void processDefaultEvent(SuspendContextImpl suspendContext) {

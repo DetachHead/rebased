@@ -3,7 +3,7 @@ package com.intellij.terminal.frontend.view
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.actionSystem.DataKey
 import com.intellij.openapi.util.Key
-import com.intellij.platform.eel.annotations.NativePath
+import com.intellij.platform.util.annotations.paths.OsPath
 import com.intellij.terminal.TerminalTitle
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
@@ -150,7 +150,7 @@ interface TerminalView {
    * or if the initial value is not yet received from the backend.
    */
   @Deprecated("Use workingDirectoryFlow instead.", ReplaceWith("workingDirectoryFlow.value"))
-  fun getCurrentDirectory(): @NativePath String?
+  fun getCurrentDirectory(): @OsPath String?
 
   /**
    * A shortcut to schedule sending the specified text to the shell process

@@ -24,8 +24,8 @@ import org.jetbrains.plugins.groovy.util.TestUtils;
  */
 public class GrEncapsulateFieldsTest extends LightGroovyTestCase {
   @Override
-  protected String getBasePath() {
-    return TestUtils.getTestDataPath() + "groovy/refactoring/encapsulateFields/";
+  protected String getTestDataPath() {
+    return TestUtils.getAbsoluteTestDataPath() + "groovy/refactoring/encapsulateFields/";
   }
 
   public void testSimple() {

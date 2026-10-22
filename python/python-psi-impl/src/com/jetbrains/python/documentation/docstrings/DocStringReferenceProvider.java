@@ -28,6 +28,7 @@ import com.jetbrains.python.psi.PyStringLiteralExpression;
 import com.jetbrains.python.psi.PyUtil;
 import com.jetbrains.python.psi.StructuredDocString;
 import com.jetbrains.python.psi.types.PyType;
+import com.jetbrains.python.psi.types.PyLegacyDocstringTypeParser;
 import com.jetbrains.python.psi.types.PyTypeParser;
 import com.jetbrains.python.toolbox.Substring;
 import org.jetbrains.annotations.NotNull;
@@ -97,6 +98,7 @@ public class DocStringReferenceProvider extends PsiReferenceProvider {
                                              PyUtil.isTopLevel(element) ? ReferenceType.GLOBAL_VARIABLE : ReferenceType.VARIABLE));
           result.addAll(referencesFromFields(expr, offset, sectioned.getReturnFields(), null));
         }
+        result.addAll(SphinxReferences.INSTANCE.findReferences(expr));
         return result.toArray(PsiReference.EMPTY_ARRAY);
       }
     }
@@ -160,7 +162,7 @@ public class DocStringReferenceProvider extends PsiReferenceProvider {
 
   private static @NotNull List<PsiReference> parseTypeReferences(@NotNull PsiElement anchor, @NotNull Substring s, int offset) {
     final List<PsiReference> result = new ArrayList<>();
-    final PyTypeParser.ParseResult parseResult = PyTypeParser.parse(anchor, s.toString());
+    final PyTypeParser.ParseResult parseResult = PyLegacyDocstringTypeParser.parse(anchor, s.toString());
     final Map<TextRange, ? extends PyType> types = parseResult.getTypes();
     if (types.isEmpty()) {
       result.add(new DocStringTypeReference(anchor, s.getTextRange().shiftRight(offset), s.getTextRange().shiftRight(offset), null, null));

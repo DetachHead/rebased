@@ -9,6 +9,7 @@
     <module name="intellij.platform.core.ui"/>
     <module name="intellij.platform.editor.ui"/>
     <module name="intellij.platform.indexing"/>
+    <module name="intellij.platform.indexing.impl"/>
     <module name="intellij.platform.projectModel"/>
     <module name="intellij.platform.projectModel.impl"/>
     <module name="intellij.platform.statistics"/>
@@ -23,7 +24,7 @@
                         serviceImplementation="com.intellij.codeInsight.folding.CodeFoldingSettingsImpl"/>
     <applicationService serviceInterface="com.intellij.psi.search.searches.IndexPatternSearch"
                         serviceImplementation="com.intellij.psi.impl.search.IndexPatternSearchImpl"/>
-    <applicationService serviceImplementation="com.intellij.ide.todo.TodoConfiguration" open="true"/>
+    <applicationService serviceImplementation="com.intellij.ide.todo.TodoConfiguration"/>
     <indexPatternSearch implementation="com.intellij.psi.impl.search.IndexPatternSearcher"/>
     <indexPatternProvider implementation="com.intellij.ide.todo.TodoIndexPatternProvider"/>
     <applicationService serviceImplementation="com.intellij.openapi.editor.colors.impl.AppEditorFontOptions"/>
@@ -34,5 +35,9 @@
                         serviceImplementation="com.intellij.openapi.editor.highlighter.EditorHighlighterFactoryImpl"/>
     <applicationSettings service="com.intellij.openapi.editor.colors.impl.AppConsoleFontOptions"/>
     <applicationSettings service="com.intellij.openapi.editor.colors.impl.AppEditorFontOptions"/>
+    <applicationService
+      serviceInterface="com.intellij.ide.todo.TodoDefaultPatternProvider"
+      serviceImplementation="com.intellij.ide.todo.DefaultTodoDefaultPatternProvider"
+      open="true"/>
   </extensions>
 </idea-plugin>

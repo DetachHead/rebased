@@ -1,6 +1,9 @@
 // Copyright 2000-2022 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.kotlin.gradle.idea.importing.multiplatformTests.k2
 
+import com.intellij.openapi.externalSystem.model.ProjectKeys
+import com.intellij.openapi.externalSystem.service.project.ProjectDataManager
+import com.intellij.openapi.externalSystem.util.ExternalSystemApiUtil
 import org.jetbrains.kotlin.gradle.multiplatformTests.AbstractKotlinMppGradleImportingTest
 import org.jetbrains.kotlin.gradle.multiplatformTests.TestConfigurationDslScope
 import org.jetbrains.kotlin.gradle.multiplatformTests.testFeatures.GradleProjectsPublishingTestsFeature
@@ -9,6 +12,7 @@ import org.jetbrains.kotlin.gradle.multiplatformTests.testFeatures.checkers.high
 import org.jetbrains.kotlin.gradle.multiplatformTests.testFeatures.checkers.orderEntries.OrderEntriesChecker
 import org.jetbrains.kotlin.test.TestMetadata
 import org.jetbrains.plugins.gradle.tooling.annotation.PluginTargetVersions
+import org.jetbrains.plugins.gradle.util.GradleConstants
 import org.junit.Test
 
 @TestMetadata("multiplatform/core/regress")
@@ -127,6 +131,20 @@ class KotlinMppRegressionTests : AbstractKotlinMppGradleImportingTest() {
                 // Also, see: KTIJ-30915
                 importProject()
             }) {
+            onlyCheckers(HighlightingChecker)
+            hideLineMarkers = true
+        }
+    }
+
+    @Test
+    @PluginTargetVersions(pluginVersion = "2.4.10+", gradleVersion = "9.5.x")
+    fun testKTIJ39627KmpProjectDependencyKeepsProducerExternalLibraries() {
+        doTest(afterImport = { context ->
+            val projectStructure = ProjectDataManager.getInstance()
+                .getExternalProjectsData(context.testProject, GradleConstants.SYSTEM_ID).single().externalProjectStructure!!
+            val libraryNames = ExternalSystemApiUtil.findAll(projectStructure, ProjectKeys.LIBRARY).map { it.data.internalName }
+            assertEquals(libraryNames.distinct(), libraryNames)
+        }) {
             onlyCheckers(HighlightingChecker)
             hideLineMarkers = true
         }

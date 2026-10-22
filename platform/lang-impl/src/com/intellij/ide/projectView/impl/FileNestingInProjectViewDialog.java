@@ -9,29 +9,22 @@ import com.intellij.openapi.ui.DialogWrapper;
 import com.intellij.openapi.ui.ValidationInfo;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.ui.ToolbarDecorator;
-import com.intellij.ui.components.JBCheckBox;
 import com.intellij.ui.scale.JBUIScale;
 import com.intellij.ui.table.TableView;
 import com.intellij.util.Consumer;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.ui.ColumnInfo;
 import com.intellij.util.ui.ElementProducer;
-import com.intellij.util.ui.JBUI;
 import com.intellij.util.ui.ListTableModel;
-import com.intellij.util.ui.UI;
-import com.intellij.util.ui.UIUtil;
 import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.Action;
 import javax.swing.JComponent;
-import javax.swing.JPanel;
 import javax.swing.JTable;
 import javax.swing.JTextField;
-import java.awt.BorderLayout;
 import java.awt.event.ActionEvent;
-import java.awt.event.ActionListener;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -47,8 +40,7 @@ public final class FileNestingInProjectViewDialog extends DialogWrapper {
 
   private final @NotNull ProjectViewFileNestingModel myModel;
 
-  private final JBCheckBox myUseNestingRulesCheckBox;
-  private final JPanel myRulesPanel;
+  private final FileNestingInProjectViewUi ui;
   private final TableView<CombinedNestingRule> myTable;
 
   private final Action myOkAction = new OkAction() {
@@ -69,16 +61,8 @@ public final class FileNestingInProjectViewDialog extends DialogWrapper {
 
     setTitle(IdeBundle.message("file.nesting.dialog.title"));
 
-    myUseNestingRulesCheckBox = new JBCheckBox(IdeBundle.message("file.nesting.feature.enabled.checkbox"));
-    myUseNestingRulesCheckBox.addActionListener(new ActionListener() {
-      @Override
-      public void actionPerformed(ActionEvent e) {
-        UIUtil.setEnabled(myRulesPanel, myUseNestingRulesCheckBox.isSelected(), true);
-      }
-    });
-
     myTable = createTable();
-    myRulesPanel = createRulesPanel(myTable);
+    ui = new FileNestingInProjectViewUi(createRulesToolbarDecorator(myTable));
 
     init();
   }
@@ -90,15 +74,11 @@ public final class FileNestingInProjectViewDialog extends DialogWrapper {
 
   @Override
   protected JComponent createCenterPanel() {
-    final JPanel mainPanel = new JPanel(new BorderLayout(0, JBUIScale.scale(16)));
-    mainPanel.setBorder(JBUI.Borders.emptyTop(8)); // Resulting indent will be 16 = 8 (default) + 8 (set here)
-    mainPanel.add(myUseNestingRulesCheckBox, BorderLayout.NORTH);
-    mainPanel.add(myRulesPanel, BorderLayout.CENTER);
-    return mainPanel;
+    return ui.panel;
   }
 
-  private static JPanel createRulesPanel(final @NotNull TableView<CombinedNestingRule> table) {
-    final ToolbarDecorator toolbarDecorator =
+  private static @NotNull ToolbarDecorator createRulesToolbarDecorator(@NotNull TableView<CombinedNestingRule> table) {
+    return
       ToolbarDecorator.createDecorator(table,
                                        new ElementProducer<>() {
                                          @Override
@@ -111,11 +91,7 @@ public final class FileNestingInProjectViewDialog extends DialogWrapper {
                                            return new CombinedNestingRule("", "");
                                          }
                                        })
-                      .disableUpDownActions();
-    return UI.PanelFactory.panel(toolbarDecorator.createPanel())
-                          .withLabel(IdeBundle.message("file.nesting.table.title")).moveLabelOnTop()
-                          .resizeY(true)
-                          .createPanel();
+        .disableUpDownActions();
   }
 
   private static TableView<CombinedNestingRule> createTable() {
@@ -183,7 +159,7 @@ public final class FileNestingInProjectViewDialog extends DialogWrapper {
 
   @Override
   protected @Nullable ValidationInfo doValidate() {
-    if (!myUseNestingRulesCheckBox.isSelected()) return null;
+    if (!ui.useNestingRulesCheckBox.isSelected()) return null;
 
     List<CombinedNestingRule> items = myTable.getListTableModel().getItems();
     for (int i = 0; i < items.size(); i++) {
@@ -208,8 +184,7 @@ public final class FileNestingInProjectViewDialog extends DialogWrapper {
   }
 
   public void reset(boolean useFileNestingRules) {
-    myUseNestingRulesCheckBox.setSelected(useFileNestingRules);
-    UIUtil.setEnabled(myRulesPanel, myUseNestingRulesCheckBox.isSelected(), true);
+    ui.useNestingRulesCheckBox.setSelected(useFileNestingRules);
 
     resetTable(myModel.getRules());
   }
@@ -222,7 +197,6 @@ public final class FileNestingInProjectViewDialog extends DialogWrapper {
         result.put(rule.getParentFileSuffix(), new CombinedNestingRule(rule.getParentFileSuffix(), rule.getChildFileSuffix()));
       }
       else {
-        //noinspection StringConcatenationInLoop
         r.childSuffixes += "; " + rule.getChildFileSuffix();
       }
     }
@@ -230,9 +204,9 @@ public final class FileNestingInProjectViewDialog extends DialogWrapper {
   }
 
   public void apply(final @NotNull Consumer<? super Boolean> useNestingRulesOptionConsumer) {
-    useNestingRulesOptionConsumer.consume(myUseNestingRulesCheckBox.isSelected());
+    useNestingRulesOptionConsumer.consume(ui.useNestingRulesCheckBox.isSelected());
 
-    if (myUseNestingRulesCheckBox.isSelected()) {
+    if (ui.useNestingRulesCheckBox.isSelected()) {
       final SortedSet<NestingRule> result = new TreeSet<>(RULE_COMPARATOR);
       for (CombinedNestingRule rule : myTable.getListTableModel().getItems()) {
         for (String childSuffix : StringUtil.split(rule.childSuffixes, ";")) {

@@ -2,7 +2,7 @@
 package com.intellij.configurationStore.schemeManager
 
 import com.intellij.configurationStore.LOG
-import com.intellij.openapi.diagnostic.rethrowControlFlowException
+import com.intellij.diagnostic.rethrowControlFlowException
 import java.util.concurrent.CancellationException
 
 internal inline fun <T> catchAndLog(file: () -> String, runnable: () -> T): T? {

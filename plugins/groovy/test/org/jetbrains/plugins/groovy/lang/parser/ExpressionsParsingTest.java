@@ -3,8 +3,8 @@ package org.jetbrains.plugins.groovy.lang.parser;
 
 public class ExpressionsParsingTest extends GroovyParsingTestCase {
   @Override
-  public String getBasePath() {
-    return super.getBasePath() + "expressions";
+  public String getTestDataPath() {
+    return super.getTestDataPath() + "expressions";
   }
 
   public void testarguments$carg1() { doTest(); }

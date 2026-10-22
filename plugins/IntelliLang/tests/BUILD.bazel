@@ -4,6 +4,9 @@ load("@rules_jvm//:jvm.bzl", "jvm_library")
 jps_test(
     name = "tests_test",
     timeout = "moderate",
+    data = [
+        "@community//java/java-tests:testData",
+    ],
     tags = ["community-aggregator"],
     runtime_deps = [":tests_test_lib"],
 )
@@ -18,6 +21,11 @@ jvm_library(
     ),
     module_name = "intellij.platform.langInjection.tests",
     visibility = ["//visibility:public"],
+    runtime_deps = [
+        # do not sort,
+        "//platform/vcs/plugin",
+        "//xml/plugin",
+    ],
 )
 
 jvm_library(
@@ -40,7 +48,9 @@ jvm_library(
     runtime_deps = [
         # do not sort,
         ":tests",
+        "//platform/vcs/plugin:plugin_test_lib",
         "//platform/ide-core:ide-core_test_lib",
+        "//xml/plugin:plugin_test_lib",
     ],
     deps = [
         # do not sort,
@@ -111,8 +121,6 @@ jvm_library(
         "//platform/todo/plugin:plugin_test_lib",
         "//libraries/lucene.common",
         "//libraries/lucene.common:lucene.common_test_lib",
-        "//libraries/misc/plugin",
-        "//libraries/misc/plugin:plugin_test_lib",
         "//java/plugin",
         "//java/plugin:plugin_test_lib",
         "//aether-dependency-resolver/plugin",

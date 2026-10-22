@@ -17,8 +17,8 @@ import org.jetbrains.plugins.groovy.util.TestUtils;
  */
 public class StringExtractingTest extends LightGroovyTestCase {
   @Override
-  protected String getBasePath() {
-    return TestUtils.getTestDataPath() + "refactoring/stringExtracting/";
+  protected String getTestDataPath() {
+    return TestUtils.getAbsoluteTestDataPath() + "refactoring/stringExtracting/";
   }
 
   public void testStringExtractingFromQuote() { doTest(); }

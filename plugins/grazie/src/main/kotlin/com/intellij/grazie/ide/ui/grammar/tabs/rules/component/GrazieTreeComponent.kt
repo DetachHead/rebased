@@ -2,6 +2,7 @@
 package com.intellij.grazie.ide.ui.grammar.tabs.rules.component
 
 import ai.grazie.nlp.langs.Language
+import com.intellij.grazie.GrazieBundle
 import com.intellij.grazie.GrazieConfig
 import com.intellij.grazie.ide.ui.components.GrazieUIComponent
 import com.intellij.grazie.ide.ui.components.dsl.panel
@@ -12,12 +13,13 @@ import com.intellij.grazie.jlanguage.Lang
 import com.intellij.grazie.text.Rule
 import com.intellij.grazie.text.TextChecker
 import com.intellij.grazie.utils.TextStyleDomain
-import com.intellij.grazie.utils.getAffectedGlobalRules
 import com.intellij.ide.CommonActionsManager
 import com.intellij.ide.DefaultTreeExpander
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.actionSystem.ActionManager
 import com.intellij.openapi.actionSystem.DefaultActionGroup
+import com.intellij.platform.ide.progress.ModalTaskOwner
+import com.intellij.platform.ide.progress.runWithModalProgressBlocking
 import com.intellij.ui.CheckboxTree
 import com.intellij.ui.CheckboxTreeListener
 import com.intellij.ui.CheckedTreeNode
@@ -140,13 +142,7 @@ class GrazieTreeComponent(
         }
     }
 
-    val affectedGlobalRules = getAffectedGlobalRules(language)
-    splitIntoCategories(
-      0,
-      rules.filter { it.globalId !in affectedGlobalRules },
-      root
-    )
-
+    splitIntoCategories(0, rules, root)
     val state = GrazieConfig.get()
     model.setRoot(root)
     root.resetMark(apply(state))
@@ -155,22 +151,30 @@ class GrazieTreeComponent(
 }
 
 @ApiStatus.Internal
+@JvmOverloads
 fun allRules(state: GrazieConfig.State = GrazieConfig.get()): Map<Lang, List<Rule>> {
   val result = hashMapOf<Lang, List<Rule>>()
   state.enabledLanguages.forEach { lang ->
-    val jLanguage = lang.jLanguage
-    if (jLanguage != null) {
-      val rules = TextChecker.allCheckers().flatMap { it.getRules(jLanguage.localeWithCountryAndVariant) }
-      if (rules.isNotEmpty()) {
-        result[lang] = rules
-      }
+    val rules = collectRules(lang, state)
+    if (rules.isNotEmpty()) {
+      result[lang] = rules
     }
   }
   return result
 }
 
 @ApiStatus.Internal
+@JvmOverloads
 fun allRules(lang: Lang, state: GrazieConfig.State = GrazieConfig.get()): List<Rule> {
+  return runWithModalProgressBlocking(
+    ModalTaskOwner.guess(),
+    GrazieBundle.message("grazie.settings.grammar.tabs.rules.loading.message"),
+  ) {
+    collectRules(lang, state)
+  }
+}
+
+private fun collectRules(lang: Lang, state: GrazieConfig.State): List<Rule> {
   if (lang !in state.enabledLanguages) return emptyList()
   val jLanguage = lang.jLanguage
   if (jLanguage != null) {

@@ -15,8 +15,8 @@ import static org.jetbrains.plugins.groovy.GroovyProjectDescriptors.GROOVY_LATES
 
 public class GrCreateConstantFromJavaUsageTest extends GrHighlightingTestBase {
   @Override
-  public final String getBasePath() {
-    return TestUtils.getTestDataPath() + "fixes/createConstantFromJava/" + getTestName(true) + "/";
+  public final String getTestDataPath() {
+    return TestUtils.getAbsoluteTestDataPath() + "fixes/createConstantFromJava/" + getTestName(true) + "/";
   }
 
   @NotNull

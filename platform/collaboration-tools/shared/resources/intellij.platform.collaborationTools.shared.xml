@@ -1,0 +1,76 @@
+<idea-plugin visibility="public">
+  <!-- region Generated dependencies - run `Generate Product Layouts` to regenerate -->
+  <dependencies>
+    <module name="intellij.libraries.caffeine"/>
+    <module name="intellij.libraries.fastutil"/>
+    <module name="intellij.libraries.kotlinx.coroutines.core"/>
+    <module name="intellij.libraries.miglayout.swing"/>
+    <module name="intellij.platform.analysis"/>
+    <module name="intellij.platform.concurrency"/>
+    <module name="intellij.platform.core"/>
+    <module name="intellij.platform.core.impl"/>
+    <module name="intellij.platform.core.ui"/>
+    <module name="intellij.platform.diff"/>
+    <module name="intellij.platform.diff.impl"/>
+    <module name="intellij.platform.editor.ex"/>
+    <module name="intellij.platform.editor.ui"/>
+    <module name="intellij.platform.ide"/>
+    <module name="intellij.platform.ide.core"/>
+    <module name="intellij.platform.ide.core.impl"/>
+    <module name="intellij.platform.ide.impl"/>
+    <module name="intellij.platform.ide.observable"/>
+    <module name="intellij.platform.lang"/>
+    <module name="intellij.platform.lang.impl"/>
+    <module name="intellij.platform.util.coroutines"/>
+    <module name="intellij.platform.util.diff"/>
+    <module name="intellij.platform.util.ex"/>
+    <module name="intellij.platform.util.ui"/>
+    <module name="intellij.platform.vcs.core"/>
+    <module name="intellij.platform.vcs.impl.shared"/>
+    <module name="intellij.platform.vcs.shared"/>
+  </dependencies>
+  <!-- endregion -->
+
+  <extensions defaultExtensionNs="com.intellij">
+    <additionalTextAttributes scheme="Default" file="colorSchemes/CollaborationToolsDefault.xml"/>
+    <additionalTextAttributes scheme="Light" file="colorSchemes/CollaborationToolsDefault.xml"/>
+    <additionalTextAttributes scheme="Classic Light" file="colorSchemes/CollaborationToolsDefault.xml"/>
+    <additionalTextAttributes scheme="Dark" file="colorSchemes/CollaborationToolsDark.xml"/>
+    <additionalTextAttributes scheme="Islands Dark" file="colorSchemes/CollaborationToolsDark.xml"/>
+    <additionalTextAttributes scheme="Darcula" file="colorSchemes/CollaborationToolsDark.xml"/>
+    <additionalTextAttributes scheme="Darcula Contrast" file="colorSchemes/CollaborationToolsDark.xml"/>
+  </extensions>
+
+  <actions>
+    <action id="CodeReview.PreviousComment"
+            class="com.intellij.collaboration.ui.codereview.editor.action.CodeReviewPreviousCommentAction"
+            icon="com.intellij.icons.AllIcons.Actions.PreviousOccurence"
+            use-shortcut-of="PreviousOccurence"/>
+    <action id="CodeReview.NextComment"
+            class="com.intellij.collaboration.ui.codereview.editor.action.CodeReviewNextCommentAction"
+            icon="com.intellij.icons.AllIcons.Actions.NextOccurence"
+            use-shortcut-of="NextOccurence"/>
+
+    <action id="Code.Review.Editor.Show.Diff"
+            class="com.intellij.collaboration.ui.codereview.editor.action.CodeReviewEditorShowFileDiffAction"
+            icon="AllIcons.Actions.Diff">
+      <add-to-group group-id="EditorPopupMenu" anchor="last"/>
+    </action>
+
+    <group id="Code.Review.Diff.Editor.Popup">
+      <separator/>
+      <add-to-group group-id="Diff.EditorPopupMenu" anchor="first"/>
+    </group>
+
+    <action id="Code.Review.Editor.New.Comment"
+            class="com.intellij.collaboration.ui.codereview.editor.action.CodeReviewEditorNewCommentAction">
+      <keyboard-shortcut first-keystroke="control shift X" keymap="$default"/>
+      <keyboard-shortcut first-keystroke="control shift X" keymap="Eclipse" remove="true"/>
+      <keyboard-shortcut first-keystroke="control shift X" keymap="Eclipse (Mac OS X)" remove="true"/>
+      <keyboard-shortcut first-keystroke="meta shift X" keymap="Eclipse (Mac OS X)" remove="true"/>
+      <keyboard-shortcut first-keystroke="control shift X" keymap="Emacs" remove="true"/>
+      <add-to-group group-id="EditorPopupMenu" anchor="last"/>
+      <add-to-group group-id="Code.Review.Diff.Editor.Popup" anchor="first"/>
+    </action>
+  </actions>
+</idea-plugin>

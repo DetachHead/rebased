@@ -17,6 +17,7 @@ import com.jetbrains.python.psi.PyClass;
 import com.jetbrains.python.psi.PyFunction;
 import com.jetbrains.python.psi.PyTargetExpression;
 import com.jetbrains.python.psi.types.TypeEvalContext;
+import com.jetbrains.python.pyi.PyiUtil;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.ArrayList;
@@ -42,7 +43,7 @@ public final class PyGotoSuperHandler implements CodeInsightActionHandler {
         }
         else {
           final TypeEvalContext context = TypeEvalContext.codeAnalysis(project, psiFile);
-          navigateOrChoose(editor, pyClass.getAncestorClasses(context), PyBundle.message("goto.superclass.choose"));
+          navigateOrChoose(editor, psiFile, pyClass.getAncestorClasses(context), PyBundle.message("goto.superclass.choose"));
         }
       }
     }
@@ -50,23 +51,27 @@ public final class PyGotoSuperHandler implements CodeInsightActionHandler {
 
   private static void gotoSuperFunctions(Editor editor, PyFunction function, PyClass pyClass) {
     final Collection<PyFunction> superFunctions = getAllSuperMethodsByName(function, pyClass);
-    navigateOrChoose(editor, superFunctions, CodeInsightBundle.message("goto.super.method.chooser.title"));
+    navigateOrChoose(editor, function, superFunctions, CodeInsightBundle.message("goto.super.method.chooser.title"));
   }
 
   private static void gotoSuperClassAttributes(Editor editor, PyTargetExpression attr, PyClass pyClass) {
     final Collection<PyTargetExpression> attrs = getAllSuperAttributesByName(attr, pyClass);
-    navigateOrChoose(editor, attrs, PyBundle.message("code.insight.goto.superclass.attribute.chooser.title"));
+    navigateOrChoose(editor, attr, attrs, PyBundle.message("code.insight.goto.superclass.attribute.chooser.title"));
   }
 
-  private static void navigateOrChoose(Editor editor, Collection<? extends NavigatablePsiElement> superElements, @PopupTitle String title) {
-    if (!superElements.isEmpty()) {
-      NavigatablePsiElement[] superElementArray = superElements.toArray(NavigatablePsiElement.EMPTY_NAVIGATABLE_ELEMENT_ARRAY);
-      if (superElementArray.length == 1) {
-        superElementArray[0].navigate(true);
-      }
-      else {
-        NavigationUtil.getPsiElementPopup(superElementArray, title).showInBestPositionFor(editor);
-      }
+  private static void navigateOrChoose(Editor editor,
+                                       PsiElement source,
+                                       Collection<? extends NavigatablePsiElement> superElements,
+                                       @PopupTitle String title) {
+    NavigatablePsiElement[] superElementArray = superElements.stream()
+      .map(element -> PyiUtil.getNavigationTarget(element, source) instanceof NavigatablePsiElement target ? target : element)
+      .distinct()
+      .toArray(NavigatablePsiElement[]::new);
+    if (superElementArray.length == 1) {
+      superElementArray[0].navigate(true);
+    }
+    else if (superElementArray.length > 1) {
+      NavigationUtil.getPsiElementPopup(superElementArray, title).showInBestPositionFor(editor);
     }
   }
 

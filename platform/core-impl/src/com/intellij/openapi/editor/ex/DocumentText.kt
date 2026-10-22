@@ -1,6 +1,7 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.openapi.editor.ex
 
+import com.intellij.openapi.editor.impl.DocumentTextImpl
 import com.intellij.openapi.util.TextRange
 import com.intellij.util.text.ImmutableCharSequence
 import org.jetbrains.annotations.ApiStatus
@@ -83,10 +84,18 @@ interface DocumentText {
   fun lineIterator(): LineIterator
 
   /**
-   * Returns text with [op] applied. Only [DocumentTextPatch] changes the text.
+   * Returns the text with [op] applied.
+   * Only [DocumentOp.Insert] and [DocumentOp.Delete] change the text. Any other op returns this text.
    *
    * @see DocumentSnapshot.applyOp
    */
   @Contract(pure = true)
   fun applyOp(op: DocumentOp): DocumentText
+
+  companion object {
+    @JvmStatic
+    fun createText(chars: CharSequence): DocumentText {
+      return DocumentTextImpl(chars)
+    }
+  }
 }

@@ -4,6 +4,7 @@ package com.intellij.platform.projectView.pane
 import com.intellij.ide.FileSelectInContext
 import com.intellij.ide.SelectInContext
 import com.intellij.ide.vfs.VirtualFileId
+import com.intellij.ide.vfs.rpcId
 import com.intellij.ide.vfs.virtualFile
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.NlsSafe
@@ -61,3 +62,21 @@ data class SelectInRequestDTO(
 data class SelectInContextDTO(
   val fileId: VirtualFileId,
 )
+
+@ApiStatus.Internal
+fun SelectInContext.serialize(): SelectInContextDTO {
+  val fileId = virtualFile.rpcId()
+  return SelectInContextDTO(fileId)
+}
+
+internal class SelectInProjectViewRequestBuilderImpl(nodePath: ProjectViewNodePath) : SelectInProjectViewRequestBuilder {
+  private val nodePath = nodePath as ProjectViewNodePathImpl
+  override var requestFocus: Boolean = false
+  
+  fun buildSelectNodeEvent(): ProjectViewSelectNodeEvent {
+    return ProjectViewSelectNodeEvent(
+      nodePath = nodePath,
+      requestFocus = requestFocus,
+    )
+  }
+}

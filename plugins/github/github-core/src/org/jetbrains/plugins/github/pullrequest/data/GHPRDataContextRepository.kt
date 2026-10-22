@@ -9,7 +9,6 @@ import com.intellij.collaboration.util.ResultUtil.runCatchingUser
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.logger
-import com.intellij.openapi.progress.ProgressManager
 import com.intellij.openapi.project.Project
 import com.intellij.platform.util.coroutines.childScope
 import com.intellij.util.IconUtil
@@ -36,8 +35,6 @@ import org.jetbrains.plugins.github.api.GithubApiRequestExecutor
 import org.jetbrains.plugins.github.api.GithubApiRequestOperation
 import org.jetbrains.plugins.github.api.GithubApiRequests
 import org.jetbrains.plugins.github.api.data.GHUser
-import org.jetbrains.plugins.github.api.executeSuspend
-import org.jetbrains.plugins.github.api.util.SimpleGHGQLPagesLoader
 import org.jetbrains.plugins.github.authentication.accounts.GHCachingAccountInformationProvider
 import org.jetbrains.plugins.github.authentication.accounts.GithubAccount
 import org.jetbrains.plugins.github.pullrequest.data.provider.GHPRMentionableUsersProviderImpl
@@ -50,6 +47,7 @@ import org.jetbrains.plugins.github.pullrequest.data.service.GHPRPersistentInter
 import org.jetbrains.plugins.github.pullrequest.data.service.GHPRRepositoryDataServiceImpl
 import org.jetbrains.plugins.github.pullrequest.data.service.GHPRReviewServiceImpl
 import org.jetbrains.plugins.github.pullrequest.data.service.GHPRSecurityServiceImpl
+import org.jetbrains.plugins.github.pullrequest.data.service.GHPRTimelineServiceImpl
 import org.jetbrains.plugins.github.util.CachingGHUserAvatarLoader
 import org.jetbrains.plugins.github.util.GithubSharedProjectSettings
 import java.awt.Image
@@ -106,7 +104,7 @@ internal class GHPRDataContextRepository(private val project: Project, parentCs:
     return async {
       val accountDetails = GHCachingAccountInformationProvider.getInstance().loadInformation(requestExecutor, account)
       val ghostUserDetails = runCatchingUser {
-        requestExecutor.executeSuspend(GHGQLRequests.User.find(account.server, "ghost"))!!
+        requestExecutor.execute(GHGQLRequests.User.find(account.server, "ghost"))!!
       }.fold(onSuccess = { it }) {
         if (it is HttpStatusErrorException)
 
@@ -117,8 +115,9 @@ internal class GHPRDataContextRepository(private val project: Project, parentCs:
       }
 
       val repositoryInfo =
-        requestExecutor.executeSuspend(
-          GHGQLRequests.Repo.find(GHRepositoryCoordinates(account.server, parsedRepositoryCoordinates.repositoryPath))
+        requestExecutor.execute(
+          GHGQLRequests.Repo.find(GHRepositoryCoordinates(account.server,
+                                                          parsedRepositoryCoordinates.repositoryPath))
         )
         ?: throw IllegalArgumentException(
           "Repository ${parsedRepositoryCoordinates.repositoryPath} does not exist at ${account.server} or you don't have access.")
@@ -133,7 +132,7 @@ internal class GHPRDataContextRepository(private val project: Project, parentCs:
           val request = GithubApiRequests.getBytes(src)
             .withOperation(GithubApiRequestOperation.RestGetImage)
             .withOperationName("get image")
-          val bytes = requestExecutor.executeSuspend(request)
+          val bytes = requestExecutor.execute(request)
           JBImageToolkit.createImage(bytes)
         }
       }
@@ -156,6 +155,7 @@ internal class GHPRDataContextRepository(private val project: Project, parentCs:
                                                     repositoryInfo)
       val detailsService = GHPRDetailsServiceImpl(project, securityService,
                                                   requestExecutor, apiRepositoryCoordinates)
+      val timelineService = GHPRTimelineServiceImpl(requestExecutor, apiRepositoryCoordinates)
       val commentService = GHPRCommentServiceImpl(requestExecutor, apiRepositoryCoordinates)
       val changesService = GHPRChangesServiceImpl(cs, project, requestExecutor,
                                                   remoteCoordinates, apiRepositoryCoordinates)
@@ -163,24 +163,14 @@ internal class GHPRDataContextRepository(private val project: Project, parentCs:
       val filesService = GHPRFilesServiceImpl(requestExecutor, apiRepositoryCoordinates)
       val reactionsService = GHReactionsServiceImpl(requestExecutor, apiRepositoryCoordinates)
 
-      val listLoader = GHPRListLoader(cs, requestExecutor, apiRepositoryCoordinates)
-
       val dataProviderRepository = GHPRDataProviderRepositoryImpl(cs,
                                                                   repoDataService,
                                                                   detailsService,
+                                                                  timelineService,
                                                                   reviewService,
                                                                   filesService,
                                                                   commentService,
-                                                                  changesService) { id ->
-        GHGQLPagedListLoader(
-          this,
-          ProgressManager.getInstance(),
-          SimpleGHGQLPagesLoader(requestExecutor, { p ->
-            GHGQLRequests.PullRequest.Timeline.items(account.server, apiRepositoryPath.owner,
-                                                     apiRepositoryPath.repository,
-                                                     id.number, p)
-          }, true))
-      }
+                                                                  changesService)
 
       val mentionableUsersProvider = GHPRMentionableUsersProviderImpl(cs, repoDataService)
 
@@ -188,7 +178,7 @@ internal class GHPRDataContextRepository(private val project: Project, parentCs:
 
       val creationService = GHPRCreationServiceImpl(requestExecutor, repoDataService)
       ensureActive()
-      GHPRDataContext(cs, listLoader, dataProviderRepository,
+      GHPRDataContext(cs, requestExecutor, dataProviderRepository,
                       securityService, repoDataService, creationService, detailsService, reactionsService,
                       imageLoader, avatarIconsProvider, mentionableUsersProvider, reactionIconsProvider,
                       interactionState)

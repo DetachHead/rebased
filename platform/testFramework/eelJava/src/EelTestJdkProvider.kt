@@ -10,7 +10,6 @@ import com.intellij.openapi.projectRoots.impl.jdkDownloader.JdkInstaller
 import com.intellij.openapi.projectRoots.impl.jdkDownloader.JdkItem
 import com.intellij.openapi.projectRoots.impl.jdkDownloader.ReadJdkItemsForWSL
 import com.intellij.platform.eel.EelDescriptor
-import com.intellij.platform.eel.annotations.MultiRoutingFileSystemPath
 import com.intellij.platform.eel.fs.getPath
 import com.intellij.platform.eel.provider.LocalEelDescriptor
 import com.intellij.platform.eel.provider.asNioPath
@@ -27,7 +26,7 @@ object EelTestJdkProvider {
   private val LOG = logger<EelTestJdkProvider>()
 
   @JvmStatic
-  fun getJdkPath(eelDescriptor: EelDescriptor): @MultiRoutingFileSystemPath Path? {
+  fun getJdkPath(eelDescriptor: EelDescriptor): Path? {
     val installJdkOnWsl = when (EelTestUtil.getFixtureEngine()) {
       EelTestUtil.EelFixtureEngine.NONE -> {
         require(eelDescriptor is LocalEelDescriptor)

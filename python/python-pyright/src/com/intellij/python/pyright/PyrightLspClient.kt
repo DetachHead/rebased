@@ -1,6 +1,9 @@
 package com.intellij.python.pyright
 
 import com.google.gson.JsonObject
+import com.intellij.openapi.Disposable
+import com.intellij.openapi.components.Service
+import com.intellij.openapi.components.service
 import com.intellij.openapi.module.Module
 import com.intellij.openapi.project.Project
 import com.intellij.platform.lsp.api.LspClient
@@ -11,10 +14,9 @@ import com.intellij.platform.lsp.api.stopAndRestartClientsIfNeeded
 import com.intellij.platform.lsp.api.stopClients
 import com.intellij.python.lsp.core.PyLspToolDescriptor
 import com.intellij.python.lsp.core.PyLspToolIntegrationProvider
-import com.intellij.python.pytools.isEnabledOn
-import com.intellij.python.pytools.lsp.PyLspTool
-import com.intellij.python.pytools.lsp.PyLspToolSettings
-import com.jetbrains.python.PythonPluginDisposable
+import com.intellij.python.lsp.core.PyLspTool
+import com.intellij.python.lsp.core.PyLspToolSettings
+import com.intellij.python.pytools.backend.isEnabledOn
 import org.eclipse.lsp4j.DidChangeConfigurationParams
 
 /** The pyright-family tools sharing one LSP server, in priority order (basedpyright wins over pyright). */
@@ -43,6 +45,8 @@ internal fun restartOrStopPyrightProvider(project: Project) {
 class PyrightLspIntegrationProvider : PyLspToolIntegrationProvider() {
   override fun getDescriptor(module: Module): PyLspToolDescriptor =
     PyrightLspClientDescriptor(module)
+
+  override fun pyTool(project: Project): PyLspTool<*> = activePyrightTool(project)
 }
 
 class PyrightLspClientDescriptor(module: Module) : PyLspToolDescriptor(
@@ -51,18 +55,7 @@ class PyrightLspClientDescriptor(module: Module) : PyLspToolDescriptor(
 ) {
 
   init {
-    // Send empty settings to make pyright LSP work properly
-    LspClientManager.getInstance(project).addListener(object : LspClientManagerListener {
-      override fun serverStateChanged(lspClient: LspClient) {
-        if (lspClient.descriptor !is PyrightLspClientDescriptor) return
-
-        if (lspClient.state == LspServerState.Running) {
-          lspClient.sendNotification { server ->
-            server.workspaceService.didChangeConfiguration(DidChangeConfigurationParams(JsonObject()))
-          }
-        }
-      }
-    }, PythonPluginDisposable.getInstance(project))
+    project.service<PyrightEmptyConfigurationSender>()
   }
 
   override fun createInitializationOptions(): Any {
@@ -86,4 +79,27 @@ class PyrightLspClientDescriptor(module: Module) : PyLspToolDescriptor(
     "basedpyright.restartserver" to "Restart server",
     "basedpyright.writeBaseline" to "Write new errors to baseline",
   )
+}
+
+/**
+ * Sends empty settings to each pyright-family server once it runs, which the server needs to work properly.
+ * The project has one instance, so a new [PyrightLspClientDescriptor] adds no listener.
+ */
+@Service(Service.Level.PROJECT)
+internal class PyrightEmptyConfigurationSender(project: Project) : Disposable {
+  init {
+    LspClientManager.getInstance(project).addListener(object : LspClientManagerListener {
+      override fun serverStateChanged(lspClient: LspClient) {
+        if (lspClient.descriptor !is PyrightLspClientDescriptor) return
+
+        if (lspClient.state == LspServerState.Running) {
+          lspClient.sendNotification { server ->
+            server.workspaceService.didChangeConfiguration(DidChangeConfigurationParams(JsonObject()))
+          }
+        }
+      }
+    }, this)
+  }
+
+  override fun dispose() {}
 }

@@ -12,35 +12,40 @@ import com.intellij.codeInsight.lookup.LookupElement
 import com.intellij.lang.java.JavaLanguage
 import com.intellij.openapi.util.Key
 import com.intellij.stats.completion.events.CompletionStartedEvent
-import junit.framework.TestCase
+import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.Test
 
 class MLFeaturesLoggingTest : CompletionLoggingTestBase() {
-  fun `test context features logged`() = doTest { startedEvent ->
+  @Test
+  fun `test context features logged`(): Unit = doTest { startedEvent ->
     val contextFactors = startedEvent.contextFactors
-    TestCase.assertTrue(contextFactors.isNotEmpty())
-    TestCase.assertEquals("1", contextFactors[contextFactorName("binary")])
-    TestCase.assertEquals("1.0", contextFactors[contextFactorName("float")])
-    TestCase.assertEquals("VALUE1", contextFactors[contextFactorName("categorical")])
-    TestCase.assertEquals(TestContextFeatureProvider::class.java.simpleName, contextFactors[contextFactorName("classSimpleName")])
-    TestCase.assertEquals(TestContextFeatureProvider::class.java.name, contextFactors[contextFactorName("classFullName")])
+    assertTrue(contextFactors.isNotEmpty())
+    assertEquals("1", contextFactors[contextFactorName("binary")])
+    assertEquals("1.0", contextFactors[contextFactorName("float")])
+    assertEquals("VALUE1", contextFactors[contextFactorName("categorical")])
+    assertEquals(TestContextFeatureProvider::class.java.simpleName, contextFactors[contextFactorName("classSimpleName")])
+    assertEquals(TestContextFeatureProvider::class.java.name, contextFactors[contextFactorName("classFullName")])
   }
 
-  fun `test element features logged`() = doTest { startedEvent ->
+  @Test
+  fun `test element features logged`(): Unit = doTest { startedEvent ->
     val firstItem = startedEvent.newCompletionListItems[0]
     val relevance = firstItem.relevance!!
-    TestCase.assertEquals("0", relevance[elementFactorName("binary")])
-    TestCase.assertEquals("2.0", relevance[elementFactorName("float")])
-    TestCase.assertEquals("VALUE2", relevance[elementFactorName("categorical")])
+    assertEquals("0", relevance[elementFactorName("binary")])
+    assertEquals("2.0", relevance[elementFactorName("float")])
+    assertEquals("VALUE2", relevance[elementFactorName("categorical")])
   }
 
-  fun `test element features provider can use context features`() = doTest { startedEvent ->
+  @Test
+  fun `test element features provider can use context features`(): Unit = doTest { startedEvent ->
     val firstItem = startedEvent.newCompletionListItems[0]
     val relevance = firstItem.relevance!!
-    TestCase.assertEquals("1", relevance[elementFactorName("from_user_data")])
-    TestCase.assertEquals("1", relevance[elementFactorName("can_use_context_feature")])
+    assertEquals("1", relevance[elementFactorName("from_user_data")])
+    assertEquals("1", relevance[elementFactorName("can_use_context_feature")])
   }
 
-  private fun doTest(checkResults: (CompletionStartedEvent) -> Unit) {
+  private fun doTest(checkResults: (CompletionStartedEvent) -> Unit): Unit = onEdt {
     ContextFeatureProvider.EP_NAME.addExplicitExtension(JavaLanguage.INSTANCE, TestContextFeatureProvider(), testRootDisposable)
     ElementFeatureProvider.EP_NAME.addExplicitExtension(JavaLanguage.INSTANCE, TestElementFeatureProvider(), testRootDisposable)
     myFixture.completeBasic()

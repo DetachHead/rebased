@@ -4,8 +4,8 @@ package org.jetbrains.plugins.groovy.intentions
 import org.jetbrains.plugins.groovy.util.TestUtils
 
 class FlipImplicationTest : GrIntentionTestCase("Flip '==>'") {
-  override fun getBasePath(): String {
-    return TestUtils.getTestDataPath() + "intentions/flipImplication/"
+  override fun getTestDataPath(): String {
+    return TestUtils.getAbsoluteTestDataPath() + "intentions/flipImplication/"
   }
 
   fun testSimple() = doTest(true)

@@ -21,7 +21,7 @@ public class GroovyGotoDeclarationTest extends LightGroovyTestCase {
   }
 
   @Override
-  public final String getBasePath() {
+  public final String getTestDataPath() {
     return basePath;
   }
 
@@ -30,6 +30,6 @@ public class GroovyGotoDeclarationTest extends LightGroovyTestCase {
     return projectDescriptor;
   }
 
-  private final String basePath = TestUtils.getTestDataPath() + "gotoDeclaration/";
+  private final String basePath = TestUtils.getAbsoluteTestDataPath() + "gotoDeclaration/";
   private final LightProjectDescriptor projectDescriptor = GroovyProjectDescriptors.GROOVY_LATEST;
 }

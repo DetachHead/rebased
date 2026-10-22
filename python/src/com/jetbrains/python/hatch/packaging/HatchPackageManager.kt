@@ -1,15 +1,16 @@
-// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.jetbrains.python.hatch.packaging
 
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.projectRoots.Sdk
-import com.intellij.platform.eel.provider.localEel
+import com.intellij.platform.eel.EelApi
 import com.intellij.python.hatch.HatchPyTool
 import com.intellij.python.hatch.HatchService
 import com.intellij.python.pyproject.PY_PROJECT_TOML
 import com.intellij.python.pyproject.PyProjectToml
 import com.intellij.python.pytools.resolveExecutable
 import com.intellij.python.requirements.parser.PyRequirementParser
+import com.intellij.python.sdk.backend.PythonInterpreter
 import com.jetbrains.python.Result
 import com.jetbrains.python.errorProcessing.PyResult
 import com.jetbrains.python.hatch.sdk.createHatchServiceAsync
@@ -22,18 +23,17 @@ import com.jetbrains.python.packaging.management.PythonPackageManagerProvider
 import com.jetbrains.python.packaging.pip.PipPythonPackageManager
 import com.jetbrains.python.packaging.utils.PyPackageCoroutine
 import com.jetbrains.python.sdk.add.v2.toFileSystem
-import kotlinx.coroutines.Deferred
 import java.nio.file.Path
+import kotlinx.coroutines.Deferred
 
 internal class HatchPackageManager(
   project: Project,
-  sdk: Sdk,
+  interpreter: PythonInterpreter,
   hatchServiceDeferred: Deferred<PyResult<HatchService<*>>>,
-) : PipPythonPackageManager(project, sdk) {
-  override val cliSpecs: List<PythonManagerCliSpec> = listOf(
-    PythonManagerCliSpec("hatch", { HatchPyTool.getInstance().resolveExecutable(localEel.toFileSystem())?.path }),
-    PythonManagerCliSpec("pip", { sdk.homePath?.let { Path.of(it) } }, runAsModule = true),
-  )
+) : PipPythonPackageManager(project, interpreter) {
+  override fun getCliSpecs(eelApi: EelApi): List<PythonManagerCliSpec> = listOf(
+    PythonManagerCliSpec("hatch", { HatchPyTool.getInstance().resolveExecutable(eelApi.toFileSystem())?.path }),
+  ) + super.getCliSpecs(eelApi)
 
   private lateinit var hatchService: PyResult<HatchService<*>>
   private val hatchServiceDeferred = hatchServiceDeferred.cancelWithManager()
@@ -71,12 +71,12 @@ internal class HatchPackageManager(
 }
 
 internal class HatchPackageManagerProvider : PythonPackageManagerProvider {
-  override fun createPackageManagerForSdk(project: Project, sdk: Sdk): PythonPackageManager? {
-    if (!sdk.isHatch) {
+  override fun createPackageManager(project: Project, interpreter: PythonInterpreter): PythonPackageManager? {
+    if (!interpreter.isHatch) {
       return null
     }
 
-    val hatchService = sdk.createHatchServiceAsync(PyPackageCoroutine.getScope(project)) ?: return null
-    return HatchPackageManager(project, sdk, hatchService)
+    val hatchService = interpreter.createHatchServiceAsync(PyPackageCoroutine.getScope(project)) ?: return null
+    return HatchPackageManager(project, interpreter, hatchService)
   }
 }

@@ -12,8 +12,8 @@ import org.jetbrains.annotations.ApiStatus
  * separately in [TerminalKeyEvent.text].
  *
  * The declaration order mirrors `GhosttyKey` (`ghostty/vt/key/event.h`), and the Ghostty backend
- * uses the ordinal as the C ABI value: do not reorder or insert entries. The encoding tests fail
- * loudly if the orders drift apart.
+ * uses the ordinal as the C ABI value: do not reorder or insert entries. `GhosttyEnumsTest` checks
+ * the order against the ABI manifest compiled into the library.
  */
 @Suppress("unused") // the complete physical-key set is the API, referenced or not
 @ApiStatus.Internal
@@ -233,13 +233,17 @@ enum class TerminalKeyAction {
  *   (`'a'.code` for the A key); 0 when not applicable. Used to derive control characters and Kitty
  *   key codes for keys whose [text] is suppressed by modifiers.
  * @param composing whether an IME composition is in progress; composing events produce no bytes.
+ * @param consumedModifiers the subset of [modifiers] the keyboard layout used to produce
+ *   [text], e.g. [TerminalInputModifier.SHIFT] for "@" typed as Shift+2. The Kitty keyboard
+ *   protocol sends [text] as is only when no unconsumed modifier is left.
  */
 @ApiStatus.Internal
-class TerminalKeyEvent(
+data class TerminalKeyEvent(
   val key: TerminalKey,
   val action: TerminalKeyAction = TerminalKeyAction.PRESS,
   val modifiers: Set<TerminalInputModifier> = emptySet(),
   val text: String = "",
   val unshiftedCodepoint: Int = 0,
   val composing: Boolean = false,
+  val consumedModifiers: Set<TerminalInputModifier> = emptySet(),
 )

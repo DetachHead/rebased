@@ -10,7 +10,7 @@ import com.intellij.concurrency.ConcurrentCollectionFactory
 import com.intellij.concurrency.JobLauncher
 import com.intellij.diff.tools.util.base.DiffViewerBase
 import com.intellij.openapi.diagnostic.Logger
-import com.intellij.openapi.diagnostic.rethrowControlFlowException
+import com.intellij.diagnostic.rethrowControlFlowException
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.editor.Inlay
 import com.intellij.openapi.editor.InlayModel
@@ -54,11 +54,8 @@ class InlayHintsPass(
     val elementsOutside = allDivided.flatMap(Divider.DividedElements::outside)
     val skippedCollectors = ConcurrentCollectionFactory.createConcurrentSet<Int>()
 
-    if (!JobLauncher.getInstance().invokeConcurrentlyUnderProgress(
+    if (!JobLauncher.getInstance().invokeConcurrentlyUnderContextProgress(
         elementsInside + elementsOutside,
-        progress,
-        true,
-        false,
         Processor { element ->
           for (collectorInd in enabledCollectors.indices.minus(skippedCollectors)) {
             val collector = enabledCollectors[collectorInd]

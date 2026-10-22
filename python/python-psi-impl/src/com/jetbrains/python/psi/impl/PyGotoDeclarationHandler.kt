@@ -17,20 +17,15 @@ package com.jetbrains.python.psi.impl
 
 import com.intellij.codeInsight.navigation.actions.GotoDeclarationHandlerBase
 import com.intellij.openapi.editor.Editor
-import com.intellij.openapi.vfs.VfsUtilCore
 import com.intellij.psi.PsiElement
 import com.intellij.psi.impl.source.resolve.FileContextUtil
 import com.jetbrains.python.PyUserInitiatedResolvableReference
-import com.jetbrains.python.psi.PyElement
-import com.jetbrains.python.psi.PyFile
 import com.jetbrains.python.psi.PyQualifiedExpression
 import com.jetbrains.python.psi.PyReferenceOwner
 import com.jetbrains.python.psi.resolve.PyResolveContext
 import com.jetbrains.python.psi.resolve.PyResolveUtil
 import com.jetbrains.python.psi.types.TypeEvalContext
-import com.jetbrains.python.pyi.PyiFile
 import com.jetbrains.python.pyi.PyiUtil
-import com.jetbrains.python.sdk.PythonSdkUtil
 
 /**
  * [com.intellij.codeInsight.navigation.actions.GotoDeclarationAction] uses [PsiElement.findReferenceAt].
@@ -40,6 +35,9 @@ import com.jetbrains.python.sdk.PythonSdkUtil
  *
  *
  * "Go to declaration" is always user-initiated action, so we resolve it manually using best context
+ *
+ * Other user actions, e.g. quick documentation, find usages, and rename, get the target element from
+ * [com.jetbrains.python.codeInsight.PyTargetElementEvaluator]. That evaluator also uses a user-initiated context.
  *
  * @author Ilya.Kazakevich
  */
@@ -56,17 +54,9 @@ class PyGotoDeclarationHandler : GotoDeclarationHandlerBase() {
     val parent = sourceElement.parent
     val referenceOwner = sourceElement as? PyReferenceOwner ?: parent as? PyReferenceOwner
     if (referenceOwner != null) {
+      val navigationSource = FileContextUtil.getContextFile(sourceElement) ?: sourceElement
       val results = PyResolveUtil.multiResolveDeclaration(referenceOwner.getReference(context), context)
-        .map { declaration ->
-          if (
-            PyiUtil.isInsideStub(declaration)
-            && !PyiUtil.isInsideStub(FileContextUtil.getContextFile(sourceElement)!!)
-          ) {
-            val originalElement = PyiUtil.getOriginalElement(declaration as PyElement)
-            if ((originalElement ?: declaration).isInSkeleton()) declaration else originalElement ?: declaration
-          }
-          else declaration
-        }
+        .map { PyiUtil.getNavigationTarget(it, navigationSource) }
         .filter { it !== referenceOwner }
         .groupBy { it.containingFile }
         .flatMap { (containingFile, declarations) ->
@@ -94,17 +84,3 @@ private fun PsiElement.findProvidedReferenceAndResolve(): Array<PsiElement>? =
       (ref as? PyUserInitiatedResolvableReference)?.userInitiatedResolve()?.takeIf { it !== this }
     }
     ?.let { arrayOf(it) }
-
-private fun PsiElement.isInSkeleton(): Boolean {
-  val containingFile = this.containingFile as? PyFile ?: return false
-
-  if (containingFile is PyiFile) {
-    return false
-  }
-
-  val virtualFile = containingFile.virtualFile ?: return false
-  val sdk = PythonSdkUtil.findPythonSdk(containingFile) ?: return false
-  val skeletonsDir = PythonSdkUtil.findSkeletonsDir(sdk) ?: return false
-
-  return VfsUtilCore.isAncestor(skeletonsDir, virtualFile, false)
-}

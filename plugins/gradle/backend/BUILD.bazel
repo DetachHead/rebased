@@ -11,6 +11,10 @@ jps_test(
 )
 ### skip generation section `test intellij.gradle.backend.tests`
 
+### auto-generated section `dev intellij.gradle.backend` start
+content_module_jar(module = ":backend")
+### auto-generated section `dev intellij.gradle.backend` end
+
 ### auto-generated section `build intellij.gradle.backend` start
 jvm_library(
     name = "backend",
@@ -46,8 +50,6 @@ jvm_library(
         "//plugins/gradle",
     ],
 )
-
-content_module_jar(module = ":backend")
 
 jvm_library(
     name = "backend_test_lib",
@@ -151,8 +153,8 @@ jvm_library(
         "//libraries/mockito:mockito_test_lib",
         "//libraries/mockito-kotlin",
         "//libraries/mockito-kotlin:mockito-kotlin_test_lib",
-        "//libraries/junit5",
-        "//libraries/junit5:junit5_test_lib",
+        "//libraries/junit6",
+        "//libraries/junit6:junit6_test_lib",
     ],
 )
 ### auto-generated section `build intellij.gradle.backend.tests` end

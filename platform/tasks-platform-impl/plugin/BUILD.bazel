@@ -1,6 +1,30 @@
-load("@community//platform/build-scripts/bazel-rules:dev_dist_plugin.bzl", "dev_dist_plugin")
 load("@community//platform/build-scripts/bazel-rules:ij_plugin.bzl", "ij_plugin")
+load("@jps_dynamic_deps_community//:targets.bzl", "dev_dist_plugin")
 load("@rules_jvm//:jvm.bzl", "jvm_library")
+
+### auto-generated section `dev intellij.platform.tasks.plugin` start
+dev_dist_plugin(
+    content_modules = [
+        # do not sort,
+        "intellij.platform.tasks",
+        "intellij.platform.tasks.impl",
+        "intellij.platform.tasks.impl.bookmarks",
+        "intellij.platform.tasks.impl.debugger",
+    ],
+    descriptor = "resources/META-INF/plugin.xml",
+    jars = {
+        "lib/platform-tasks-plugin.jar": ["intellij.platform.tasks.plugin"],
+    },
+    main_module = "intellij.platform.tasks.plugin",
+    mode_refused_content_modules = {
+        "frontend": [
+            "intellij.platform.tasks.impl",
+            "intellij.platform.tasks.impl.bookmarks",
+            "intellij.platform.tasks.impl.debugger",
+        ],
+    },
+)
+### auto-generated section `dev intellij.platform.tasks.plugin` end
 
 ### auto-generated section `build intellij.platform.tasks.plugin` start
 jvm_library(
@@ -52,23 +76,3 @@ exports_files(
     visibility = ["//visibility:public"],
 )
 ### auto-generated section `iml intellij.platform.tasks.plugin` end
-
-### auto-generated section `dev intellij.platform.tasks.plugin` start
-dev_dist_plugin(
-    descriptor = "resources/META-INF/plugin.xml",
-    descriptor_module = ":plugin",
-    descriptors = {
-        "@community//platform/tasks-platform-api:resources/intellij.platform.tasks.xml": "intellij.platform.tasks.xml",
-        "@community//platform/tasks-platform-impl/tasks.impl.bookmarks:resources/intellij.platform.tasks.impl.bookmarks.xml": "intellij.platform.tasks.impl.bookmarks.xml",
-        "@community//platform/tasks-platform-impl/tasks.impl.debugger:resources/intellij.platform.tasks.impl.debugger.xml": "intellij.platform.tasks.impl.debugger.xml",
-        "@community//platform/tasks-platform-impl:resources/intellij.platform.tasks.impl.xml": "intellij.platform.tasks.impl.xml",
-    },
-    main_module = "intellij.platform.tasks.plugin",
-    prepacked_content_modules = [
-        "//platform/tasks-platform-api:tasks_content_module_jar",
-        "//platform/tasks-platform-impl/tasks.impl.bookmarks:tasks.impl.bookmarks_content_module_jar",
-        "//platform/tasks-platform-impl/tasks.impl.debugger:tasks.impl.debugger_content_module_jar",
-        "//platform/tasks-platform-impl:tasks-impl_content_module_jar",
-    ],
-)
-### auto-generated section `dev intellij.platform.tasks.plugin` end

@@ -60,7 +60,9 @@ public final class ColorSettingsUtil {
     // the first registered page implementing InspectionColorSettingsPage
     // gets the inspection attribute descriptors added to its list
     if (!(provider instanceof InspectionColorSettingsPage)) return false;
-    for(ColorSettingsPage settingsPage: ColorSettingsPage.EP_NAME.getExtensionList()) {
+    // the catalog, and not the extension point, because a page of a declaration is not in that point
+    for (ColorSettingsPageEntry entry : ColorSettingsPageCatalog.getEntries()) {
+      ColorSettingsPage settingsPage = entry.getPage();
       if (settingsPage == provider) break;
       if (settingsPage instanceof InspectionColorSettingsPage) return false;
     }

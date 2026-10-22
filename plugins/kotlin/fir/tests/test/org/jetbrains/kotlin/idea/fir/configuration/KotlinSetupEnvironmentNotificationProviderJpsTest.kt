@@ -12,6 +12,7 @@ import com.intellij.openapi.roots.ProjectRootManager
 import com.intellij.openapi.roots.impl.libraries.LibraryEx
 import com.intellij.openapi.roots.libraries.LibraryTablesRegistrar
 import com.intellij.openapi.vfs.VfsUtil
+import com.intellij.testFramework.ExtensionTestUtil
 import com.intellij.testFramework.IdeaTestUtil
 import com.intellij.testFramework.IndexingTestUtil
 import com.intellij.testFramework.junit5.TestApplication
@@ -24,6 +25,10 @@ import com.intellij.testFramework.junit5.fixture.psiFileFixture
 import com.intellij.testFramework.junit5.fixture.sourceRootFixture
 import com.intellij.testFramework.runInEdtAndWait
 import com.intellij.ui.EditorNotificationPanel
+import org.jetbrains.kotlin.idea.base.projectStructure.ModuleSourceRootGroup
+import org.jetbrains.kotlin.idea.configuration.ConfigureKotlinStatus
+import org.jetbrains.kotlin.idea.configuration.KotlinJavaModuleConfigurator
+import org.jetbrains.kotlin.idea.configuration.KotlinProjectConfigurator
 import org.jetbrains.kotlin.idea.configuration.KotlinSetupEnvironmentNotificationProvider
 import org.jetbrains.kotlin.idea.projectConfiguration.KotlinProjectConfigurationBundle
 import org.junit.jupiter.api.Assertions.assertEquals
@@ -74,6 +79,16 @@ class KotlinSetupEnvironmentNotificationProviderJpsTest {
         )
     }
 
+    @Test
+    fun testNotConfiguredBannerHiddenWithoutConfigurators() {
+        val unavailableConfigurator = object : KotlinProjectConfigurator by KotlinJavaModuleConfigurator.instance {
+            override fun getStatus(moduleSourceRootGroup: ModuleSourceRootGroup) = ConfigureKotlinStatus.BROKEN
+        }
+        ExtensionTestUtil.maskExtensions(KotlinProjectConfigurator.EP_NAME, listOf(unavailableConfigurator), disposableFixture.get())
+
+        assertNull(getNotificationPanel())
+    }
+
     private fun addKotlinStdlibProjectLibrary(resolved: Boolean) {
         val libraryName = "kotlin-stdlib-test"
         // Resolved: existing CLASSES root so dependencyFilesExistOnDisk succeeds.
@@ -100,7 +115,9 @@ class KotlinSetupEnvironmentNotificationProviderJpsTest {
         }
     }
 
-    private fun getNotificationPanelText(): String? {
+    private fun getNotificationPanelText(): String? = getNotificationPanel()?.text
+
+    private fun getNotificationPanel(): EditorNotificationPanel? {
         editorFixture.get()
 
         val project = projectFixture.get()
@@ -110,8 +127,7 @@ class KotlinSetupEnvironmentNotificationProviderJpsTest {
         val panelFactory = runReadActionBlocking {
             provider.collectNotificationData(project, kotlinFile.virtualFile)
         } ?: return null
-        val panel = panelFactory.apply(selectedEditor) as? EditorNotificationPanel ?: return null
-        return panel.text
+        return panelFactory.apply(selectedEditor) as? EditorNotificationPanel
     }
 
     private fun setUpProjectJdk() {

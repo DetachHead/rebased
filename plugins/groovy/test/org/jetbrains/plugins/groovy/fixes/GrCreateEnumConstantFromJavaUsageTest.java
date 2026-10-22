@@ -16,8 +16,8 @@ public class GrCreateEnumConstantFromJavaUsageTest extends GrHighlightingTestBas
   private static final String JAVA = "Area.java";
 
   @Override
-  public final String getBasePath() {
-    return TestUtils.getTestDataPath() + "fixes/createEnumConstantFromUsage/" + getTestName(true) + "/";
+  public final String getTestDataPath() {
+    return TestUtils.getAbsoluteTestDataPath() + "fixes/createEnumConstantFromUsage/" + getTestName(true) + "/";
   }
 
   @Override

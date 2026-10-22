@@ -1,4 +1,4 @@
-// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.openapi.updateSettings.impl
 
 import com.intellij.DynamicBundle
@@ -13,8 +13,8 @@ import com.intellij.openapi.util.BuildNumber
 import com.intellij.openapi.util.io.NioFiles
 import com.intellij.platform.ide.customization.ExternalProductResourceUrls
 import com.intellij.util.concurrency.annotations.RequiresBackgroundThread
-import com.intellij.util.currentJavaVersion
 import com.intellij.util.io.HttpRequests
+import com.intellij.util.system.LowLevelLocalMachineAccess
 import com.intellij.util.system.OS
 import org.jetbrains.annotations.ApiStatus
 import java.io.IOException
@@ -25,8 +25,9 @@ import java.util.zip.ZipException
 import java.util.zip.ZipFile
 import javax.swing.UIManager
 
-@Suppress("UseOptimizedEelFunctions")
 @ApiStatus.Internal
+@OptIn(LowLevelLocalMachineAccess::class)
+@Suppress("UseOptimizedEelFunctions")
 object UpdateInstaller {
   const val UPDATER_MAIN_CLASS: String = "com.intellij.updater.Runner"
 
@@ -71,8 +72,18 @@ object UpdateInstaller {
   }
 
   @JvmStatic
-  @RequiresBackgroundThread
+  @RequiresBackgroundThread(generateAssertion = false /* IJPL-115548 */)
   fun downloadPluginUpdates(downloaders: Collection<PluginDownloader>, indicator: ProgressIndicator): List<PluginDownloader> {
+    return downloadPluginUpdates(downloaders, indicator, PluginUpdateProgressSink.NONE)
+  }
+
+  @JvmStatic
+  @RequiresBackgroundThread(generateAssertion = false /* IJPL-115548 */)
+  fun downloadPluginUpdates(
+    downloaders: Collection<PluginDownloader>,
+    indicator: ProgressIndicator,
+    progressSink: PluginUpdateProgressSink,
+  ): List<PluginDownloader> {
     indicator.text = IdeBundle.message("update.downloading.plugins.progress")
 
     val updateChecker = UpdateCheckerFacade.getInstance()
@@ -82,8 +93,12 @@ object UpdateInstaller {
     val readyToInstall = mutableListOf<PluginDownloader>()
     for (downloader in downloaders) {
       try {
-        if (downloader.id !in disabledToUpdate && downloader.prepareToInstall(indicator)) {
-          readyToInstall += downloader
+        if (downloader.id !in disabledToUpdate) {
+          progressSink.downloadProgressChanged(downloader.id, null)
+          if (downloader.prepareToInstall(indicator.withPluginUpdateProgress(downloader.id, downloader.pluginName, progressSink))) {
+            progressSink.downloadProgressChanged(downloader.id, 1.0)
+            readyToInstall += downloader
+          }
         }
         indicator.checkCanceled()
       }
@@ -98,7 +113,7 @@ object UpdateInstaller {
   }
 
   @JvmStatic
-  @RequiresBackgroundThread
+  @RequiresBackgroundThread(generateAssertion = false /* IJPL-115548 */)
   fun installPluginUpdates(downloaders: Collection<PluginDownloader>, indicator: ProgressIndicator): Boolean {
     val downloadedPluginUpdates = downloadPluginUpdates(downloaders, indicator)
     if (downloadedPluginUpdates.isEmpty()) {
@@ -154,9 +169,9 @@ object UpdateInstaller {
       }
     }
 
-    args += jre.resolve(if (OS.CURRENT == OS.Windows) "bin\\java.exe" else "bin/java").toString()
+    args += jre.resolve("bin").resolve(OS.CURRENT.getBinaryName("java")).toString()
     args += "-Xmx${2000}m"
-    currentJavaVersion().takeIf { it.feature >= 25 }?.let { args += "--enable-native-access=ALL-UNNAMED" }
+    args += "--enable-native-access=ALL-UNNAMED"
     args += "-cp"
     args += patchFiles.last().toString()
 

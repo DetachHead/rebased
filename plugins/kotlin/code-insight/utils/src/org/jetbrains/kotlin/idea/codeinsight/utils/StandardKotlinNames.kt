@@ -39,6 +39,8 @@ object StandardKotlinNames {
         @JvmField val map: FqName = BASE_COLLECTIONS_PACKAGE + "map"
         @JvmField val mapIndexed: FqName = BASE_COLLECTIONS_PACKAGE + "mapIndexed"
         @JvmField val mapNotNull: FqName = BASE_COLLECTIONS_PACKAGE + "mapNotNull"
+        @JvmField val onEach: FqName = BASE_COLLECTIONS_PACKAGE + "onEach"
+        @JvmField val onEachIndexed: FqName = BASE_COLLECTIONS_PACKAGE + "onEachIndexed"
         @JvmField val emptyList: FqName = BASE_COLLECTIONS_PACKAGE + "emptyList"
         @JvmField val emptyMap: FqName = BASE_COLLECTIONS_PACKAGE + "emptyMap"
         @JvmField val emptySet: FqName = BASE_COLLECTIONS_PACKAGE + "emptySet"
@@ -156,6 +158,30 @@ object StandardKotlinNames {
         private val mutableMapClassId = ClassId(BASE_COLLECTIONS_PACKAGE, Name.identifier("MutableMap"))
         @JvmField val put: CallableId = CallableId(mutableMapClassId, Name.identifier("put"))
         @JvmField val putAll: CallableId = CallableId(mutableMapClassId, Name.identifier("putAll"))
+    }
+
+    object Result {
+        @JvmField val resultClassId: ClassId = ClassId(BASE_KOTLIN_PACKAGE, Name.identifier("Result"))
+
+        @JvmField val runCatching: CallableId = CallableId(BASE_KOTLIN_PACKAGE, Name.identifier("runCatching"))
+
+        // Members of `Result` itself.
+        @JvmField val isSuccess: CallableId = CallableId(resultClassId, Name.identifier("isSuccess"))
+        @JvmField val isFailure: CallableId = CallableId(resultClassId, Name.identifier("isFailure"))
+        @JvmField val getOrNull: CallableId = CallableId(resultClassId, Name.identifier("getOrNull"))
+        @JvmField val exceptionOrNull: CallableId = CallableId(resultClassId, Name.identifier("exceptionOrNull"))
+
+        // Top-level extensions on `Result` declared in the `kotlin` package, not members.
+        @JvmField val fold: CallableId = CallableId(BASE_KOTLIN_PACKAGE, Name.identifier("fold"))
+        @JvmField val getOrDefault: CallableId = CallableId(BASE_KOTLIN_PACKAGE, Name.identifier("getOrDefault"))
+        @JvmField val getOrElse: CallableId = CallableId(BASE_KOTLIN_PACKAGE, Name.identifier("getOrElse"))
+        @JvmField val getOrThrow: CallableId = CallableId(BASE_KOTLIN_PACKAGE, Name.identifier("getOrThrow"))
+        @JvmField val map: CallableId = CallableId(BASE_KOTLIN_PACKAGE, Name.identifier("map"))
+        @JvmField val mapCatching: CallableId = CallableId(BASE_KOTLIN_PACKAGE, Name.identifier("mapCatching"))
+        @JvmField val onFailure: CallableId = CallableId(BASE_KOTLIN_PACKAGE, Name.identifier("onFailure"))
+        @JvmField val onSuccess: CallableId = CallableId(BASE_KOTLIN_PACKAGE, Name.identifier("onSuccess"))
+        @JvmField val recover: CallableId = CallableId(BASE_KOTLIN_PACKAGE, Name.identifier("recover"))
+        @JvmField val recoverCatching: CallableId = CallableId(BASE_KOTLIN_PACKAGE, Name.identifier("recoverCatching"))
     }
 
     @JvmField val Pair: ClassId = ClassId.topLevel(FqName("kotlin.Pair"))

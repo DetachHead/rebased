@@ -22,8 +22,8 @@ import com.intellij.psi.PsiManager
  * A highlighting pass that applies LSP highlighting (diagnostics, semantic tokens, document links) to the editor.
  *
  * This pass has two roles:
- * 1. **Trigger pull-based caches**: Calling `getHighlightings()` / `getSemanticTokens()` / `getDocumentLinkInfos()`
- *    on pull-based caches checks `psiModCount` staleness and triggers `scheduleHighlightingsUpdate()` when stale,
+ * 1. **Trigger pull-based caches**: Calling `getHighlightings()`
+ *    on pull-based caches checks the document-stamp staleness and triggers `scheduleHighlightingsUpdate()` when stale,
  *    which sends pull requests to the server. Without the pass, pull diagnostics would never refresh after edits.
  * 2. **Apply highlights**: Converts cache data to [HighlightInfo] and applies to the editor.
  *    This handles edge cases like the initial file open before the server responds. This may duplicate
@@ -50,22 +50,22 @@ internal class LspHighlightingPass(
     val clients = LspClientManagerImpl.getInstanceImpl(myProject).getClientsWithThisFileOpen(file) // clients may be empty
 
     // Always trigger pull-based caches (semantic tokens, pull diagnostics, document links).
-    // This is critical: getHighlightings()/getSemanticTokens()/getDocumentLinkInfos() check psiModCount
-    // and schedule server requests when stale.
+    // This is critical: getHighlightings() checks the
+    // document stamp and schedules server requests when stale.
     for (client in clients) {
       val diagnosticsCustomizer = client.descriptor.lspCustomization.diagnosticsCustomizer
       if (diagnosticsCustomizer is LspDiagnosticsSupport) {
-        client.getDiagnosticsAndQuickFixes(file) // triggers pull diagnostics cache
+        client.highlightingCacheRegistry.getDiagnosticsAndQuickFixes(file) // triggers pull diagnostics cache
       }
 
       val semanticTokensCustomizer = client.descriptor.lspCustomization.semanticTokensCustomizer
       if (semanticTokensCustomizer is LspSemanticTokensSupport) {
-        client.getSemanticTokens(file) // triggers semantic tokens cache
+        client.highlightingCacheRegistry.semanticTokensCache.getHighlightings(file) // triggers semantic tokens cache
       }
 
       val documentLinkCustomizer = client.descriptor.lspCustomization.documentLinkCustomizer
       if (documentLinkCustomizer !is LspDocumentLinkDisabled) {
-        client.getDocumentLinkInfos(file) // triggers document link cache
+        client.highlightingCacheRegistry.documentLinkCache.getHighlightings(file) // triggers document link cache
       }
     }
 

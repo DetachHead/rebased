@@ -16,4 +16,3 @@ fun main() {
 }
 
 // FUS_QUICKFIX_NAME: org.jetbrains.kotlin.idea.codeInsight.inspections.KotlinUnusedImportInspection$RemoveAllUnusedImportsFix
-// FUS_K2_QUICKFIX_NAME: org.jetbrains.kotlin.idea.codeInsight.inspections.KotlinUnusedImportInspection$RemoveAllUnusedImportsFix

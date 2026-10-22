@@ -1,0 +1,57 @@
+{
+  "productCode": "IU",
+  "envVarBaseName": "IDEA",
+  "dataDirectoryName": "IntelliJIdea2026.3",
+  "minRequiredJavaVersion": 25,
+  "baseFileName": "idea",
+  "launch": {
+    "mainClass": "com.intellij.idea.Main",
+    "bootClassPathJarNames": [
+      "platform-loader.jar"
+    ],
+    "jvmArguments": {
+      "multiRoutingFileSystem": true,
+      "classLoader": "com.intellij.util.lang.PathClassLoader",
+      "vendorName": "JetBrains",
+      "pathsSelector": "IntelliJIdea2026.3",
+      "nativeAccess": true
+    }
+  },
+  "customCommands": [
+    {
+      "commands": [
+        "stdioMcpServer"
+      ],
+      "vmOptionsFilePath": {
+        "macOS": "../bin/mcp-server.vmoptions",
+        "Linux": "bin/mcp-server.vmoptions",
+        "Windows": "bin/mcp-server.vmoptions"
+      },
+      "bootClassPathJarNames": [
+        "platform-loader.jar",
+        "../plugins/mcpserver-plugin/lib/intellij.mcpserver.stdio.jar"
+      ],
+      "mainClass": "com.intellij.mcpserver.stdio.McpStdioRunnerKt"
+    }
+  ],
+  "vmOptions": {
+    "macOS": [
+      "-Xmx2048m",
+      "-Dx=mac"
+    ],
+    "Linux": [
+      "-Xmx2048m",
+      "-Dx=linux"
+    ],
+    "Windows": [
+      "-Xmx2048m"
+    ]
+  },
+  "ideaProperties": {
+    "additions": [
+      "b=1"
+    ],
+    "settingsDir": "IntelliJIdea",
+    "fatalErrorNotification": true
+  }
+}

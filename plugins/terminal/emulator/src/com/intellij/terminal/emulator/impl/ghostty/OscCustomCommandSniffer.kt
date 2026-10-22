@@ -4,7 +4,7 @@ package com.intellij.terminal.emulator.impl.ghostty
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.diagnostic.logger
-import com.intellij.openapi.diagnostic.rethrowControlFlowException
+import com.intellij.diagnostic.rethrowControlFlowException
 import com.intellij.terminal.emulator.TerminalCustomCommandListener
 import com.intellij.terminal.emulator.impl.ghostty.OscCustomCommandSniffer.Companion.PREFIX
 import com.intellij.util.io.UnsyncByteArrayOutputStream

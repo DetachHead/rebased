@@ -22,7 +22,7 @@ interface ChangeListManagerStatusProvider {
   /**
    * @return the component representing the status or `null`
    */
-  @RequiresEdt
+  @RequiresEdt(generateAssertion = false /* IJPL-115548 */)
   fun getStatusComponent(project: Project): JComponent?
 
   companion object {

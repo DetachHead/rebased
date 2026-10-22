@@ -12,6 +12,7 @@ import com.intellij.codeInspection.ex.InspectionProfileImpl
 import com.intellij.codeInspection.ex.InspectionProfileWrapper
 import com.intellij.lang.annotation.HighlightSeverity
 import com.intellij.mcpserver.mcpFail
+import com.intellij.mcpserver.mcpToolCallIdOrNull
 import com.intellij.mcpserver.statistics.logLintFilesFinished
 import com.intellij.mcpserver.util.awaitExternalChangesAndIndexing
 import com.intellij.openapi.application.ApplicationManager
@@ -31,8 +32,9 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.util.ProperTextRange
 import com.intellij.openapi.util.TextRange
-import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.openapi.vfs.VirtualFile
+import com.intellij.openapi.vfs.VirtualFileManager
+import com.intellij.openapi.vfs.newvfs.RefreshQueue
 import com.intellij.platform.util.coroutines.forEachConcurrent
 import com.intellij.profile.codeInspection.InspectionProjectProfileManager
 import com.intellij.psi.PsiFile
@@ -194,6 +196,7 @@ internal suspend fun reportLintFilesTelemetry(project: Project, telemetry: LintF
   }
   logLintFilesFinished(
     project = project,
+    toolCallId = currentCoroutineContext().mcpToolCallIdOrNull,
     minSeverity = telemetry.minSeverity,
     requestedFileCount = telemetry.requestedFileCount,
     problemFileCount = telemetry.problemFileCount,
@@ -607,13 +610,13 @@ suspend fun prepareLintFiles(requestedFiles: List<RequestedLintFile>): List<Reso
     return emptyList()
   }
 
-  val localFileSystem = LocalFileSystem.getInstance()
+  val fileManager = VirtualFileManager.getInstance()
   val resolvedFiles = arrayOfNulls<ResolvedLintFile>(requestedFiles.size)
   val missingIndexes = ArrayList<Int>()
   val missingPaths = ArrayList<java.nio.file.Path>()
   // Keep already-materialized files and refresh only VFS misses.
   for ((index, requestedFile) in requestedFiles.withIndex()) {
-    val virtualFile = localFileSystem.findFileByNioFile(requestedFile.resolvedPath)
+    val virtualFile = fileManager.findFileByNioPath(requestedFile.resolvedPath)
     if (virtualFile == null) {
       missingIndexes.add(index)
       missingPaths.add(requestedFile.resolvedPath)
@@ -628,14 +631,12 @@ suspend fun prepareLintFiles(requestedFiles: List<RequestedLintFile>): List<Reso
     // indexing are caught up. At this point we only need the cheaper batched refresh to materialize missing
     // paths in VFS instead of forcing a heavier per-file refresh.
     suspendCancellableCoroutine { cont ->
-      localFileSystem.refreshNioFiles(/* files = */ missingPaths, /* async = */ true, /* recursive = */ false) {
-        cont.resume(Unit)
-      }
+      RefreshQueue.getInstance().refreshPaths(async = true, recursive = false, finishRunnable = { cont.resume(Unit) }, paths = missingPaths)
     }
 
     for (index in missingIndexes) {
       val requestedFile = requestedFiles[index]
-      val virtualFile = localFileSystem.findFileByNioFile(requestedFile.resolvedPath)
+      val virtualFile = fileManager.findFileByNioPath(requestedFile.resolvedPath)
                         ?: mcpFail("Cannot access file: ${requestedFile.requestedPath}")
       resolvedFiles[index] = ResolvedLintFile(requestedFile.relativePath, virtualFile)
     }

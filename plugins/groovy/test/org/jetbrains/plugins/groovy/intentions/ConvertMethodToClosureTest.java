@@ -23,8 +23,8 @@ import org.jetbrains.plugins.groovy.util.TestUtils;
  */
 public class ConvertMethodToClosureTest extends GrIntentionTestCase {
   @Override
-  protected String getBasePath() {
-    return TestUtils.getTestDataPath() + "intentions/convertMethodToClosure/";
+  protected String getTestDataPath() {
+    return TestUtils.getAbsoluteTestDataPath() + "intentions/convertMethodToClosure/";
   }
 
   public void testMethodToClosure() {

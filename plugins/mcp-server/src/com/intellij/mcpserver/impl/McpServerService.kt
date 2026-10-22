@@ -1,5 +1,6 @@
 package com.intellij.mcpserver.impl
 
+import com.intellij.diagnostic.rethrowControlFlowException
 import com.intellij.mcpserver.McpServerBundle
 import com.intellij.mcpserver.McpSessionInvocationMode
 import com.intellij.mcpserver.McpTool
@@ -15,6 +16,7 @@ import com.intellij.mcpserver.impl.util.network.installHostValidation
 import com.intellij.mcpserver.impl.util.network.installHttpRequestPropagation
 import com.intellij.mcpserver.impl.util.network.isPortAvailable
 import com.intellij.mcpserver.impl.util.network.mcpPatched
+import com.intellij.mcpserver.settings.McpServerConsent
 import com.intellij.mcpserver.settings.McpServerSettings
 import com.intellij.mcpserver.settings.McpToolFilterSettings
 import com.intellij.mcpserver.stdio.IJ_MCP_ALLOWED_TOOLS
@@ -26,16 +28,17 @@ import com.intellij.notification.NotificationGroupManager
 import com.intellij.notification.NotificationType
 import com.intellij.openapi.application.ApplicationInfo
 import com.intellij.openapi.application.ApplicationNamesInfo
+import com.intellij.openapi.application.EDT
 import com.intellij.openapi.components.service
 import com.intellij.openapi.components.serviceAsync
 import com.intellij.openapi.components.serviceOrNull
 import com.intellij.openapi.diagnostic.logger
-import com.intellij.openapi.diagnostic.rethrowControlFlowException
 import com.intellij.openapi.diagnostic.trace
 import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.fileEditor.FileDocumentManager.ConflictResolution
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.startup.ProjectActivity
+import com.intellij.openapi.ui.Messages
 import com.intellij.util.asDisposable
 import com.intellij.util.concurrency.ThreadingAssertions
 import com.intellij.util.concurrency.annotations.RequiresBackgroundThread
@@ -52,6 +55,7 @@ import io.modelcontextprotocol.kotlin.sdk.types.Implementation
 import io.modelcontextprotocol.kotlin.sdk.types.ServerCapabilities
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -59,7 +63,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
-import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -102,6 +106,15 @@ open class McpServerService(val cs: CoroutineScope) {
     val localAgentId: String? = null,
     val invocationMode: McpSessionInvocationMode? = null,
   ) {
+    /**
+     * Names the chat this session serves, for `McpCallOwnerTelemetryProvider` to resolve into analytics ids.
+     *
+     * Deliberately not [localAgentId]: that one already means three things, and the two surfaces disagree on which.
+     * AIR puts a thread id there and AI Assistant an agent type, so it identifies a chat on one surface only.
+     */
+    var ownerKey: String? = null
+      private set
+
     var clientTags: Set<String> = emptySet()
       private set
 
@@ -129,7 +142,14 @@ open class McpServerService(val cs: CoroutineScope) {
       this.clientTags = clientTags.toSet()
     }
 
-    internal fun withToolFilter(toolFilter: McpToolFilter): McpSessionOptions {
+    /** Returns a copy naming the chat this session serves. A blank key is no key. */
+    fun withOwnerKey(ownerKey: String?): McpSessionOptions =
+      copy().also { it.ownerKey = ownerKey?.takeIf(String::isNotBlank) }
+
+    internal fun withToolFilter(toolFilter: McpToolFilter): McpSessionOptions =
+      copy(toolFilter = toolFilter)
+
+    private fun copy(toolFilter: McpToolFilter? = this.toolFilter): McpSessionOptions {
       return McpSessionOptions(
         commandExecutionMode = commandExecutionMode,
         toolFilter = toolFilter,
@@ -137,7 +157,7 @@ open class McpServerService(val cs: CoroutineScope) {
         invocationMode = invocationMode,
         elicitationKind = elicitationKind,
         clientTags = clientTags,
-      )
+      ).also { it.ownerKey = ownerKey }
     }
 
     @Deprecated("ABI compat with 261.22158 that doesn't have `localAgentId`", level = DeprecationLevel.HIDDEN)
@@ -173,7 +193,7 @@ open class McpServerService(val cs: CoroutineScope) {
    * Synchronous fallback for the non-suspend API. Converting the tools is slow, so this must not be called on the EDT;
    * prefer [toolsStateProviderAsync], which also converts them concurrently.
    */
-  @get:RequiresBackgroundThread
+  @get:RequiresBackgroundThread(generateAssertion = false /* IJPL-115548 */)
   internal val toolsStateProvider: McpToolsListProvider
     get() = toolsStateProviderOrNull ?: publishToolsStateProvider(McpToolsListProvider.computeAllMcpTools())
 
@@ -195,6 +215,13 @@ open class McpServerService(val cs: CoroutineScope) {
   internal fun isToolsStateProviderInitialized(): Boolean = toolsStateProviderOrNull != null
 
   private val server = MutableStateFlow(startGlobalServerIfEnabled())
+
+  /**
+   * Guards every start-stop transition of [server]. A `MutableStateFlow.update` CAS loop cannot serialize them.
+   * A CAS retry would run the start and stop side effects again. A stop that overlaps a slow startup
+   * would see no server to stop, and the startup would then publish a running server.
+   */
+  private val serverStateLock = Any()
 
   private class ServerAndCount(var server: EmbeddedServer<CIOApplicationEngine, CIOApplicationEngine.Configuration>?, var userCount: Int)
 
@@ -232,7 +259,10 @@ open class McpServerService(val cs: CoroutineScope) {
     get() = connectionAddressProvider.serverStreamUrl
 
   fun start() {
-    McpServerSettings.getInstance().enableMcpServer = true
+    val settings = McpServerSettings.getInstance()
+    settings.enableMcpServer = true
+    // Every caller either showed the consent dialog first, or is an explicit command such as the headless starter.
+    settings.consent = McpServerConsent.GRANTED
     settingsChanged(true)
   }
 
@@ -325,22 +355,46 @@ open class McpServerService(val cs: CoroutineScope) {
     return currentServer.engineConfig.connectors.firstOrNull()?.host?.takeUnless { it.isBlank() }
   }
 
-  //todo: I think that should be a subscription to McpServerSettings
+  /**
+   * Handles changes to the MCP server settings, updating the server state and configuration accordingly.
+   *
+   * If the server is effectively disabled, this method stops the current server instance, if any.
+   * If the server is enabled and the port is either unspecified or matches the currently used one, existing server instance is reused.
+   * Otherwise, a new server with the updated configuration is started.
+   *
+   * @param enabled Indicates whether the MCP server is enabled.
+   * @param port The optional port number to configure for the server. If null, the existing server port is reused.
+   */
+//todo: I think that should be a subscription to McpServerSettings
   @RequiresBackgroundThread(generateAssertion = false)
-  fun settingsChanged(enabled: Boolean) {
+  fun settingsChanged(enabled: Boolean, port: Int? = null) {
     ThreadingAssertions.softAssertBackgroundThread()
 
-    server.update { currentServer ->
+    synchronized(serverStateLock) {
+      val currentServer = server.value
       val effectivelyEnabled = enabled || isMcpServerForceEnabled()
       if (!effectivelyEnabled) {
         // stop old
         currentServer?.stop()
-        return@update null
+        server.value = null
       }
       else {
         // reuse old or start new
         enableIfNotExplicitlyDisabled()
-        return@update currentServer ?: startGlobalServer()
+        if (currentServer != null) {
+          if (port == null || currentServer.engineConfig.connectors.firstOrNull()?.port == port) {
+            // if there is a running server and the port did not change, reuse it.
+            server.value = currentServer
+          }
+          else {
+            // port changed, stop old
+            currentServer.stop()
+            server.value = startGlobalServer()
+          }
+        }
+        else {
+          server.value = startGlobalServer()
+        }
       }
     }
   }
@@ -387,7 +441,18 @@ open class McpServerService(val cs: CoroutineScope) {
     if (!hasMcpServerRuntimeOverrides()) {
       cs.launch {
         // save to settings can be done asynchronously
-        settings.mcpServerPort = server.engine.resolvedConnectors().first().port
+        val selectedPort = server.engine.resolvedConnectors().first().port
+        settings.mcpServerPort = selectedPort
+        if (selectedPort != desiredPort) {
+          withContext(Dispatchers.EDT) {
+            // We want to warn the user that the used port is different from what was used last, or directly requested by the user.
+            Messages.showWarningDialog(null,
+                                       McpServerBundle.message("mcp.server.port.changed.warning.message",
+                                                               desiredPort.toString(),
+                                                               selectedPort.toString()),
+                                       McpServerBundle.message("mcp.server.port.changed.warning.title"))
+          }
+        }
       }
     }
     // Warm the tool list up here rather than lazily on first use: this is where the latency matters, and it keeps the
@@ -441,7 +506,14 @@ open class McpServerService(val cs: CoroutineScope) {
       installHostValidation()
       installHttpRequestPropagation()
 
-      mcpPatched(prePhase = {
+      mcpPatched(prePhase = prePhase@{
+        // The global server may run before the user agreed to it, so the first call asks. The private server is
+        // started by the IDE itself for a flow the user already began, so it needs no consent.
+        if (!authCheck && !serviceAsync<McpServerConsentGate>().awaitConsent()) {
+          call.respond(HttpStatusCode.Forbidden, McpServerBundle.message("mcp.server.consent.not.granted"))
+          finish()
+          return@prePhase
+        }
         if (authCheck) {
           val authToken = call.request.headers[IJ_MCP_AUTH_TOKEN]
           if (authToken == null || !isKnownToken(authToken)) {
@@ -477,7 +549,8 @@ open class McpServerService(val cs: CoroutineScope) {
             invocationMode = baseSessionOptions.invocationMode,
             elicitationKind = baseSessionOptions.elicitationKind,
             clientTags = clientTags,
-          ).let { options -> headerFilter?.let(options::withToolFilter) ?: options }
+          ).withOwnerKey(baseSessionOptions.ownerKey)
+            .let { options -> headerFilter?.let(options::withToolFilter) ?: options }
         }
         else {
           baseSessionOptions
@@ -496,7 +569,9 @@ open class McpServerService(val cs: CoroutineScope) {
               experimental = null,
               prompts = null,
               resources = null,
-            )
+            ),
+            // The SDK runs a handler in its own scope, not in the HTTP call; the tools expect the context of this service.
+            handlerCoroutineContext = cs.coroutineContext,
           )
         )
 
@@ -649,9 +724,9 @@ open class McpServerService(val cs: CoroutineScope) {
     return filteredTools.toList()
   }
 
-  fun scheduleResetToSettings() {
-    cs.launch {
-      settingsChanged(McpServerSettings.getInstance().enableMcpServer)
-    }
+  /** Applies the persisted enable setting after the [after] jobs complete, so a dying transition cannot override it. */
+  fun scheduleResetToSettings(after: Collection<Job> = emptyList()): Job = cs.launch {
+    after.joinAll()
+    settingsChanged(McpServerSettings.getInstance().enableMcpServer)
   }
 }

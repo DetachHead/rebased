@@ -14,7 +14,7 @@ internal interface DocumentSputniks {
 
   /**
    * Returns the snapshot obtained by applying [op] to the sputnik collection. For a text-changing
-   * [DocumentTextPatch], [nextSnapshot] is invoked
+   * [DocumentPatch], [nextSnapshot] is invoked
    * after each sputnik that actually changes, so later sputniks in the same call can observe earlier ones'
    * rebuilt state via `after` in [DocumentSputnik.applyOp].
    *

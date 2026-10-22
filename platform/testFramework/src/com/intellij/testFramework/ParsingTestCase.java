@@ -67,7 +67,6 @@ import com.intellij.pom.tree.events.impl.TreeChangeEventImpl;
 import com.intellij.psi.FileViewProvider;
 import com.intellij.psi.PsiDocumentManager;
 import com.intellij.psi.PsiElement;
-import com.intellij.psi.PsiElementVisitor;
 import com.intellij.psi.PsiFile;
 import com.intellij.psi.PsiManager;
 import com.intellij.psi.PsiRecursiveElementWalkingVisitor;
@@ -606,12 +605,7 @@ public abstract class ParsingTestCase extends UsefulTestCase {
   }
 
   public static void ensureParsed(@NotNull PsiFile file) {
-    file.accept(new PsiElementVisitor() {
-      @Override
-      public void visitElement(@NotNull PsiElement element) {
-        element.acceptChildren(this);
-      }
-    });
+    ParsingTestUtil.ensureParsed(file);
   }
 
   public static void ensureCorrectReparse(@NotNull PsiFile file) {

@@ -2,16 +2,15 @@ package com.jetbrains.python.sdk;
 
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.projectRoots.Sdk;
-import com.intellij.openapi.roots.OrderRootType;
 import com.intellij.openapi.util.NlsSafe;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.PsiElement;
-import com.intellij.util.concurrency.annotations.RequiresBackgroundThread;
-import com.jetbrains.python.sdk.skeleton.PySkeletonUtil;
 import com.intellij.python.sdk.backend.PythonEnvironment;
 import com.intellij.python.sdk.backend.PythonEnvironmentExtKt;
 import com.intellij.python.sdk.backend.PythonInterpreter;
 import com.intellij.python.sdk.backend.PythonInterpreterKt;
+import com.intellij.util.concurrency.annotations.RequiresBackgroundThread;
+import com.jetbrains.python.sdk.skeleton.PySkeletonUtil;
 import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -30,20 +29,12 @@ public final class PythonSdkUtil {
   /** The `id` the conda provider declares in `intellij.python.community.impl.conda.xml`. */
   private static final String CONDA_KIND_ID = "conda";
 
-  public static final String REMOTE_SOURCES_DIR_NAME = com.jetbrains.python.sdk.legacy.PythonSdkUtil.REMOTE_SOURCES_DIR_NAME;
-  public static final String SKELETON_DIR_NAME = com.jetbrains.python.sdk.legacy.PythonSdkUtil.SKELETON_DIR_NAME;
-  public static final OrderRootType BUILTIN_ROOT_TYPE = com.jetbrains.python.sdk.legacy.PythonSdkUtil.BUILTIN_ROOT_TYPE;
-
   public static boolean isPythonSdk(@NotNull Sdk sdk) {
     return com.jetbrains.python.sdk.legacy.PythonSdkUtil.isPythonSdk(sdk);
   }
 
   public static @Unmodifiable @NotNull List<@NotNull Sdk> getAllSdks() {
     return com.jetbrains.python.sdk.legacy.PythonSdkUtil.getAllSdks();
-  }
-
-  public static boolean isStdLib(@NotNull VirtualFile vFile, @Nullable Sdk pythonSdk) {
-    return PySkeletonUtil.isStdLib(vFile, pythonSdk);
   }
 
   public static @Nullable Sdk findPythonSdk(@Nullable Module module) {
@@ -81,14 +72,6 @@ public final class PythonSdkUtil {
   @ApiStatus.Internal
   public static @Nullable Sdk findPythonSdk(final @NotNull PsiElement element) {
     return com.jetbrains.python.sdk.legacy.PythonSdkUtil.findPythonSdk(element);
-  }
-
-  /**
-   * @deprecated path is not unique, use {@link #findSdkByKey(String)} instead
-   */
-  @Deprecated
-  public static @Nullable Sdk findSdkByPath(@Nullable String path) {
-    return com.jetbrains.python.sdk.legacy.PythonSdkUtil.findSdkByPath(path);
   }
 
 

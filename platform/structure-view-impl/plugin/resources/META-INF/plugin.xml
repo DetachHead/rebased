@@ -1,10 +1,16 @@
+<!-- BUILD_USING_BAZEL_MARKER: this plugin is also packaged by the `ij_plugin` Bazel rule, and IjPluginDistributionEquivalenceTest
+     checks that the result matches the distribution produced by the build scripts. See IJPL-251444. -->
 <!--suppress PluginXmlPluginLogo -->
 <!--suppress AllContentModulesOptionalLoadingRule -->
 <idea-plugin>
-  <id>intellij.structureView.plugin</id>
+  <id>com.intellij.structureView</id>
   <name>Structure View</name>
   <description>Provides Structure View tool window and actions</description>
   <vendor>JetBrains</vendor>
+
+  <!-- old ID for Backward compatibility -->
+  <module value="intellij.structureView.plugin"/>
+
   <content namespace="jetbrains">
     <module name="intellij.platform.structureView"/>
     <module name="intellij.platform.structureView.backend"/>

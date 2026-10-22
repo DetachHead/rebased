@@ -17,13 +17,9 @@ import kotlinx.coroutines.launch
 import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.plugins.terminal.block.reworked.TerminalSessionModel
 import org.jetbrains.plugins.terminal.block.ui.sanitizeLineSeparators
-import org.jetbrains.plugins.terminal.fus.BatchLatencyReporter
 import org.jetbrains.plugins.terminal.fus.ReworkedTerminalUsageCollector
 import org.jetbrains.plugins.terminal.fus.TerminalStartupFusInfo
 import org.jetbrains.plugins.terminal.fus.TerminalTabOpeningWay
-import org.jetbrains.plugins.terminal.fus.percentile
-import org.jetbrains.plugins.terminal.fus.secondLargest
-import org.jetbrains.plugins.terminal.fus.totalDuration
 import org.jetbrains.plugins.terminal.session.TerminalGridSize
 import org.jetbrains.plugins.terminal.session.impl.TerminalClearBufferEvent
 import org.jetbrains.plugins.terminal.session.impl.TerminalInputEvent
@@ -54,7 +50,7 @@ class TerminalInput(
   /**
    * Use this channel to buffer the input events before we get the actual channel from the backend.
    */
-  private val bufferChannel = Channel<InputEventSubmission>(
+  private val bufferChannel = Channel<TerminalInputEvent>(
     capacity = 10000,
     onBufferOverflow = BufferOverflow.DROP_OLDEST
   )
@@ -63,14 +59,6 @@ class TerminalInput(
     coroutineScope.async(CoroutineName("Get input channel")) {
       terminalSessionDeferred.await().getInputChannel()
     }
-
-  private val typingLatencyReporter = BatchLatencyReporter(batchSize = 50) { samples ->
-    ReworkedTerminalUsageCollector.logFrontendTypingLatency(
-      totalDuration = samples.totalDuration(),
-      duration90 = samples.percentile(90),
-      secondLargestDuration = samples.secondLargest(),
-    )
-  }
 
   init {
     val job = coroutineScope.launch {
@@ -83,14 +71,8 @@ class TerminalInput(
       }
 
       try {
-        for (submission in bufferChannel) {
-          val event = submission.event
+        for (event in bufferChannel) {
           targetChannel.send(event)
-
-          val latency = submission.eventTime?.elapsedNow()
-          if (latency != null) {
-            typingLatencyReporter.update(latency)
-          }
 
           LOG.trace { "Input event sent: $event" }
         }
@@ -140,20 +122,11 @@ class TerminalInput(
 
   fun sendString(data: String) {
     // TODO: should there always be UTF8?
-    doSendBytes(data.toByteArray(StandardCharsets.UTF_8), eventTime = null)
-  }
-
-  /**
-   * Sends the provided [data] and reports the typing latency from the moment of [eventTime].
-   * This method should be used only for events triggered by the user.
-   * For these events, we track the latency.
-   */
-  fun sendTrackedString(data: String, eventTime: TimeMark) {
-    doSendBytes(data.toByteArray(StandardCharsets.UTF_8), eventTime)
+    doSendBytes(data.toByteArray(StandardCharsets.UTF_8))
   }
 
   fun sendBytes(data: ByteArray) {
-    doSendBytes(data, eventTime = null)
+    doSendBytes(data)
   }
 
   fun sendEnter() {
@@ -161,23 +134,37 @@ class TerminalInput(
     sendBytes(enterBytes)
   }
 
-  fun sendLeft() {
+  fun sendLeft(times: Int = 1) {
     val leftBytes = encodingManager.getCode(KeyEvent.VK_LEFT, 0)!!
-    sendBytes(leftBytes)
+    sendBytesMultiple(leftBytes, times)
   }
 
-  fun sendRight() {
+  fun sendRight(times: Int = 1) {
     val rightBytes = encodingManager.getCode(KeyEvent.VK_RIGHT, 0)!!
-    sendBytes(rightBytes)
+    sendBytesMultiple(rightBytes, times)
   }
 
-  private fun doSendBytes(data: ByteArray, eventTime: TimeMark?) {
+  private fun sendBytesMultiple(sequence: ByteArray, times: Int) {
+    // Zero is possible: a move over zero-width code points only needs no key press.
+    if (times <= 0) return
+    if (times == 1) {
+      sendBytes(sequence)
+    }
+    else {
+      val bytes = ByteArray(times * sequence.size) {
+        sequence[it % sequence.size]
+      }
+      sendBytes(bytes)
+    }
+  }
+
+  private fun doSendBytes(data: ByteArray) {
     val writeBytesEvent = TerminalWriteBytesEvent(bytes = data)
-    sendEvent(InputEventSubmission(writeBytesEvent, eventTime))
+    sendEvent(writeBytesEvent)
   }
 
   fun sendClearBuffer() {
-    sendEvent(InputEventSubmission(TerminalClearBufferEvent()))
+    sendEvent(TerminalClearBufferEvent())
   }
 
   /**
@@ -186,11 +173,11 @@ class TerminalInput(
   fun sendResize(newSize: TerminalGridSize) {
     terminalSessionDeferred.getNow() ?: return
     val event = TerminalResizeEvent(newSize)
-    sendEvent(InputEventSubmission(event))
+    sendEvent(event)
   }
 
-  private fun sendEvent(event: InputEventSubmission) {
-    LOG.trace { "Input event received: ${event.event}" }
+  fun sendEvent(event: TerminalInputEvent) {
+    LOG.trace { "Input event received: ${event}" }
 
     val result = bufferChannel.trySend(event)
 
@@ -207,9 +194,4 @@ class TerminalInput(
     ReworkedTerminalUsageCollector.logStartupShellStartingLatency(openingWay, latency)
     LOG.info("Reworked terminal startup shell starting latency: ${latency.inWholeMilliseconds} ms")
   }
-
-  private data class InputEventSubmission(
-    val event: TerminalInputEvent,
-    val eventTime: TimeMark? = null,
-  )
 }

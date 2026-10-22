@@ -207,11 +207,19 @@ internal class EmulatorTestSession(width: Int, height: Int, maxScrollbackBytes: 
   val cursor: Cursor get() = emulator.cursor
   val cursorShape: CursorShape get() = emulator.cursorShape
   val cursorBlinking: Boolean get() = emulator.cursorBlinking
+  fun setDefaultCursorShape(shape: CursorShape): Unit = emulator.setDefaultCursorShape(shape)
+  fun setDefaultCursorBlinking(blinking: Boolean): Unit = emulator.setDefaultCursorBlinking(blinking)
+  fun setResizePullScrollback(pull: Boolean): Unit = emulator.setResizePullScrollback(pull)
   fun paletteColor(index: Int): TerminalColor.Rgb = emulator.paletteColor(index)
+  fun setDefaultAnsiColors(colors: List<TerminalColor.Rgb>): Unit = emulator.setDefaultAnsiColors(colors)
   val title: String get() = emulator.title
+  fun setTerminfoName(name: String): Unit = emulator.setTerminfoName(name)
   val progress: TerminalProgress? get() = emulator.progress
   val foregroundColor: TerminalColor.Rgb? get() = emulator.foregroundColor
   val backgroundColor: TerminalColor.Rgb? get() = emulator.backgroundColor
+  fun setDefaultForegroundColor(color: TerminalColor.Rgb): Unit = emulator.setDefaultForegroundColor(color)
+  fun setDefaultBackgroundColor(color: TerminalColor.Rgb): Unit = emulator.setDefaultBackgroundColor(color)
+  fun setColorScheme(scheme: ColorScheme): Unit = emulator.setColorScheme(scheme)
   val usingAlternateScreen: Boolean get() = emulator.usingAlternateScreen
   val bracketedPaste: Boolean get() = emulator.bracketedPaste
   val synchronizedOutput: Boolean get() = emulator.synchronizedOutput
@@ -278,6 +286,9 @@ internal fun esc(body: String): String = "$ESC_STR$body"
 
 /** Wraps [body] in a CSI (Control Sequence Introducer, `ESC [`) sequence. */
 internal fun csi(body: String): String = "$ESC_STR[$body"
+
+/** Wraps [body] in a DCS (Device Control String, `ESC P`) sequence closed by ST. */
+internal fun dcs(body: String): String = "${ESC_STR}P$body${OscTerminator.ST.sequence}"
 
 /** Wraps [body] in an OSC (Operating System Command, `ESC ]`) sequence closed by [terminator]. */
 internal fun osc(body: String, terminator: OscTerminator = OscTerminator.BELL): String {

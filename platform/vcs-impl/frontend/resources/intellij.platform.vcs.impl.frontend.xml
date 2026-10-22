@@ -9,12 +9,14 @@
     <module name="intellij.libraries.kotlinx.serialization.core"/>
     <module name="intellij.libraries.kotlinx.serialization.json"/>
     <module name="intellij.platform.analysis"/>
+    <module name="intellij.platform.concurrency"/>
     <module name="intellij.platform.core"/>
     <module name="intellij.platform.core.ui"/>
     <module name="intellij.platform.diff.impl"/>
     <module name="intellij.platform.editor.ui"/>
     <module name="intellij.platform.ide.core"/>
     <module name="intellij.platform.ide.impl"/>
+    <module name="intellij.platform.ide.rpc"/>
     <module name="intellij.platform.kernel"/>
     <module name="intellij.platform.lang.core"/>
     <module name="intellij.platform.lang.impl"/>
@@ -27,6 +29,7 @@
     <module name="intellij.platform.util.ui"/>
     <module name="intellij.platform.vcs.core"/>
     <module name="intellij.platform.vcs.impl.shared"/>
+    <module name="intellij.platform.vcs.shared"/>
   </dependencies>
   <!-- endregion -->
 
@@ -41,7 +44,8 @@
     <recentFiles.excluder implementation="com.intellij.platform.vcs.impl.frontend.diff.DiffRecentFilesExcluder"/>
     <projectSettings service="com.intellij.platform.vcs.impl.frontend.VcsFrontendConfiguration"/>
 
-    <platform.rpc.projectRemoteTopicListener implementation="com.intellij.platform.vcs.impl.frontend.codeSmells.CodeSmellRemoteTopicListener"/>
+    <platform.rpc.projectRemoteTopicListener implementation="com.intellij.platform.vcs.impl.frontend.codeSmells.CodeSmellRemoteTopicListener"
+                                             topicId="vcs.codeSmell.show"/>
   </extensions>
 
   <actions resource-bundle="messages.ActionsBundle">

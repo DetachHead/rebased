@@ -43,18 +43,15 @@ com.intellij.kubernetes
 org.jetbrains.plugins.vue
 com.baomidou.plugin.idea.mybatisx
 cn.yiiguxing.plugin.translate
-intellij.bigdatatools.coreUi
 com.intellij.lang.jsgraphql
 com.chrisrm.idea.MaterialThemeUI
 com.intellij.mermaid
 gherkin
-intellij.bigdatatools.awsBase
 PlantUML integration
 IdeaVIM
 name.kropp.intellij.makefile
 com.github.deeepamin.gitlabciaid
 org.jetbrains.plugins.github
-com.intellij.bigdatatools.kafka
 Key Promoter X
 org.jetbrains.plugins.remote-run
 intellij.grid.loader.xls
@@ -77,7 +74,6 @@ hunspell
 com.intellij.spring.websocket
 Batch Scripts Support
 de.espend.idea.php.annotation
-intellij.bigdatatools.azure
 tanvd.grazi
 com.intellij.resharper.azure
 com.jetbrains.jax.ws
@@ -86,7 +82,6 @@ aws.toolkit
 dev.meanmail.plugin.nginx-intellij-plugin
 com.haulmont.jpab
 com.intellij.spring.debugger
-intellij.bigdatatools.gcloud
 org.intellij.prisma
 com.jetbrains.rust
 com.intellij.aqua
@@ -107,7 +102,6 @@ Statistic
 com.github.catppuccin.jetbrains
 org.jetbrains.plugins.node-remote-interpreter
 com.jetbrains.gerryPurpleTheme
-com.intellij.bigdatatools.binary.files
 com.demonwav.minecraft-dev
 com.intellij.resharper.HeapAllocationsViewer
 org.asciidoctor.intellij.asciidoc
@@ -134,7 +128,6 @@ com.intellij.spring.batch
 some.awesome
 com.jetbrains.opentelemetry
 com.github.dinbtechit.vscodetheme
-com.intellij.bigdatatools.metastore.core
 org.jetbrains.dbt
 mdx.js
 com.github.xepozz.gitattributes
@@ -152,14 +145,12 @@ com.jetbrains.darkPurpleTheme
 com.haulmont.rcb
 dev.blachut.svelte.lang
 com.github.continuedev.continueintellijextension
-com.intellij.bigdatatools.spark
 com.jetbrains.sqlproj
 bot.cline
 izhangzhihao.rainbow.brackets.lite
 amazon.q
 io.flutter
 com.intellij.debugger.collections.visualizer
-com.intellij.bigdatatools.flink
 com.github.xepozz.gitcodeowners
 indent-rainbow.indent-rainbow
 com.kalessil.phpStorm.phpInspectionsEA
@@ -199,7 +190,6 @@ JRebelPlugin
 net.sjrx.intellij.plugins.systemdunitfiles
 avalonia-rider
 intellij.ktor
-com.intellij.bigdatatools
 com.jetbrains.lang.ejs
 io.agnix.jetbrains
 com.github.catppuccin.jetbrains_icons
@@ -219,7 +209,6 @@ com.intellij.swagger
 org.jetbrains.plugins.hocon
 com.github.xepozz.robots_txt
 manjaro.mpb
-com.intellij.bigdatatools.zeppelin
 org.intellij.gitee
 com.intellij.copyright
 com.github.tuchg.nonasciicodecompletionhelper
@@ -404,7 +393,6 @@ com.intellij.laf.macos
 co.tula.MermaidChart
 org.jetbrains.intellij.scripting-javascript
 com.jetbrains.fast.mouse.scroll
-com.intellij.bigdatatools.databricks
 com.fwdekker.randomness
 org.jetbrains.plugins.phpstorm-remote-interpreter
 nix-idea
@@ -468,11 +456,10 @@ Builder Generator
 org.antlr.jetbrains.st4plugin
 com.github.anuragkanwar.modernreactsnippetsplugin
 com.intellij.lang.qml
-intellij.navbar.plugin
-intellij.structureView.plugin
-intellij.execution.serviceView.plugin
-intellij.ssh.plugin
-intellij.libraries.misc.plugin
+com.intellij.navbar
+com.intellij.structureView
+com.intellij.platform.serviceView
+com.intellij.platform.ssh
 de.espend.idea.php.phpunit
 com.intellij.plugins.xwinkeymap
 Jenkins Control Plugin
@@ -701,7 +688,7 @@ com.alibaba.autonavi.qa.testng
 Error-prone plugin
 com.albertoventurini.jetbrains.graphdbplugin
 com.midnightgamer.reactnative.snippts
-intellij.grid.plugin
+com.intellij.grid
 manjaro.ptpb
 com.github.mokkapps.codesnapintellijextension
 com.daniel-espinoza.inline-error
@@ -1049,7 +1036,7 @@ zio.intellij.zio-intellij
 com.intellij.jsp
 app.codepreview.plugin
 com.linkkou.plugin.intellij.assistant
-intellij.testRunner.plugin
+com.intellij.platform.testRunner
 com.majera.intellij.codereview.gitlab
 cssvarsassistant
 com.github.milankinen.ideaicebergtheme
@@ -1069,7 +1056,7 @@ uk.co.reecedunn.intellij.plugin.xquery
 io.wiz
 color.scheme.Cobalt 2
 com.coconutmkii.nestjssupport
-intellij.structuralSearch.plugin
+com.intellij.structuralSearch
 com.intellij.editSuggestion
 unoplatform
 de.sist.gitlab
@@ -3072,7 +3059,7 @@ color.scheme.Google Developer Tibau
 org.fever.pypendency
 com.github.gasu-dev.php-array-converter
 com.github.tolgacanunal.intellijgltfviewerplugin
-intellij.todo.plugin
+com.intellij.todo
 org.jfrog
 com.kldo.deepseek-sync
 com.outofmemory.entertainment.dissemination

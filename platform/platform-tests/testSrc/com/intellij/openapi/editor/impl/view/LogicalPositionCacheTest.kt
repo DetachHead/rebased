@@ -1,8 +1,11 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.openapi.editor.impl.view
 
+import com.intellij.openapi.editor.EditorFactory
 import com.intellij.openapi.editor.LogicalPosition
 import com.intellij.openapi.editor.impl.AbstractEditorTest
+import com.intellij.openapi.editor.impl.EditorImpl
+import com.intellij.openapi.editor.impl.EditorTextFieldRendererDocument
 import com.intellij.openapi.editor.impl.EditorViewAccessor
 
 class LogicalPositionCacheTest : AbstractEditorTest() {
@@ -289,6 +292,28 @@ class LogicalPositionCacheTest : AbstractEditorTest() {
     }
     assertEquals(4, editor.caretModel.offset)
     checkConsistency()
+  }
+
+  fun `test forced reset reads text changed without events`() {
+    val document = EditorTextFieldRendererDocument()
+    val editorFactory = EditorFactory.getInstance()
+    val rendererEditor = editorFactory.createViewer(document) as EditorImpl
+    try {
+      document.setText("abc\ndef")
+      rendererEditor.resetSizes()
+      assertEquals(LogicalPosition(1, 2), rendererEditor.offsetToLogicalPosition(6))
+      assertEquals(6, rendererEditor.logicalPositionToOffset(LogicalPosition(1, 2)))
+      EditorViewAccessor.getView(rendererEditor).logicalPositionCache.validateState()
+
+      document.setText("x")
+      rendererEditor.resetSizes()
+      assertEquals(LogicalPosition(0, 1), rendererEditor.offsetToLogicalPosition(1))
+      assertEquals(1, rendererEditor.logicalPositionToOffset(LogicalPosition(1, 2)))
+      EditorViewAccessor.getView(rendererEditor).logicalPositionCache.validateState()
+    }
+    finally {
+      editorFactory.releaseEditor(rendererEditor)
+    }
   }
 
   private fun assertOffset(line: Int, column: Int, expectedOffset: Int) {

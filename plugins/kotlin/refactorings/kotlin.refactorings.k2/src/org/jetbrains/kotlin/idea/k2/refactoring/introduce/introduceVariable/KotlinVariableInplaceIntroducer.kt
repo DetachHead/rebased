@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 
 package org.jetbrains.kotlin.idea.k2.refactoring.introduce.introduceVariable
 
@@ -27,6 +27,7 @@ import com.intellij.util.application
 import org.jetbrains.annotations.Nls
 import org.jetbrains.kotlin.idea.base.analysis.api.utils.analyzeInModalWindow
 import org.jetbrains.kotlin.idea.base.analysis.api.utils.shortenReferences
+import org.jetbrains.kotlin.idea.base.psi.setCallableTypeReference
 import org.jetbrains.kotlin.idea.base.resources.KotlinBundle
 import org.jetbrains.kotlin.idea.codeinsights.impl.base.CallableReturnTypeUpdaterUtils
 import org.jetbrains.kotlin.idea.refactoring.KotlinCommonRefactoringSettings
@@ -56,6 +57,7 @@ class KotlinVariableInplaceIntroducer(
     project: Project,
     editor: Editor,
     private val postProcess: KFunction2<KtDeclaration, Editor?, Unit>,
+    private val showVarOption: Boolean,
 ) : AbstractKotlinInplaceIntroducer<KtProperty>(
     localVariable = addedVariable.takeIf { it.isLocal },
     expression = originalExpression,
@@ -71,17 +73,19 @@ class KotlinVariableInplaceIntroducer(
 
     private fun createPopupPanel(): DialogPanel {
         return panel {
-            row {
-                checkBox(KotlinBundle.message("checkbox.text.declare.with.var"))
-                    .selected(KotlinCommonRefactoringSettings.getInstance().INTRODUCE_DECLARE_WITH_VAR)
-                    .actionListener { _, component ->
-                        myProject.executeWriteCommand(commandName, commandName) {
-                            val psiFactory = KtPsiFactory(myProject)
-                            val keyword = if (component.isSelected) psiFactory.createVarKeyword() else psiFactory.createValKeyword()
-                            addedVariable?.valOrVarKeyword?.replace(keyword)
-                            KotlinCommonRefactoringSettings.getInstance().INTRODUCE_DECLARE_WITH_VAR = component.isSelected
+            if (showVarOption) {
+                row {
+                    checkBox(KotlinBundle.message("checkbox.text.declare.with.var"))
+                        .selected(KotlinCommonRefactoringSettings.getInstance().INTRODUCE_DECLARE_WITH_VAR)
+                        .actionListener { _, component ->
+                            myProject.executeWriteCommand(commandName, commandName) {
+                                val psiFactory = KtPsiFactory(myProject)
+                                val keyword = if (component.isSelected) psiFactory.createVarKeyword() else psiFactory.createValKeyword()
+                                addedVariable?.valOrVarKeyword?.replace(keyword)
+                                KotlinCommonRefactoringSettings.getInstance().INTRODUCE_DECLARE_WITH_VAR = component.isSelected
+                            }
                         }
-                    }
+                }
             }
             if (expressionRenderedType != null && !mustSpecifyTypeExplicitly) {
                 row {
@@ -91,10 +95,10 @@ class KotlinVariableInplaceIntroducer(
                             runWriteCommandAndRestart {
                                 updateVariableName()
                                 if (component.isSelected) {
-                                    addedVariable?.typeReference = KtPsiFactory(myProject).createType(expressionRenderedType)
+                                    addedVariable?.setCallableTypeReference(KtPsiFactory(myProject).createType(expressionRenderedType))
                                     shortenReferences(addedVariable!!)
                                 } else {
-                                    addedVariable?.typeReference = null
+                                    addedVariable?.setCallableTypeReference(null)
                                 }
                                 KotlinCommonRefactoringSettings.getInstance().INTRODUCE_SPECIFY_TYPE_EXPLICITLY = component.isSelected
                             }

@@ -142,7 +142,7 @@ public class GantReferenceCompletionTest extends LightJavaCodeInsightFixtureTest
   }
 
   @Override
-  public final String getBasePath() {
-    return TestUtils.getTestDataPath() + "gant/completion";
+  public final String getTestDataPath() {
+    return TestUtils.getAbsoluteTestDataPath() + "gant/completion";
   }
 }

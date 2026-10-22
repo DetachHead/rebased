@@ -11,8 +11,8 @@ import java.util.List;
 
 public class GroovyMoveStatementTest extends GroovyEditorActionTestBase {
   @Override
-  protected String getBasePath() {
-    return TestUtils.getTestDataPath() + "groovy/actions/moveStatement/";
+  protected String getTestDataPath() {
+    return TestUtils.getAbsoluteTestDataPath() + "groovy/actions/moveStatement/";
   }
 
   public void testClazz2() { bothTest(); }

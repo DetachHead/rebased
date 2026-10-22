@@ -16,6 +16,7 @@
 package com.intellij.openapi.editor.ex;
 
 import com.intellij.codeInsight.editorActions.TabOutScopesTracker;
+import com.intellij.codeInsight.multiverse.EditorContextManager;
 import com.intellij.ide.CopyProvider;
 import com.intellij.ide.CutProvider;
 import com.intellij.ide.DeleteProvider;
@@ -35,13 +36,13 @@ import com.intellij.openapi.editor.colors.EditorColorsScheme;
 import com.intellij.openapi.editor.event.EditorMouseEvent;
 import com.intellij.openapi.editor.event.EditorMouseListener;
 import com.intellij.openapi.editor.highlighter.EditorHighlighter;
+import com.intellij.openapi.editor.impl.EditorHighlightingPredicate;
 import com.intellij.openapi.editor.impl.TextDrawingCallback;
 import com.intellij.openapi.editor.markup.TextAttributes;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Key;
 import com.intellij.openapi.util.TextRange;
 import com.intellij.openapi.vfs.VirtualFile;
-import com.intellij.psi.PsiDocumentManager;
 import com.intellij.psi.PsiFile;
 import com.intellij.util.ui.ButtonlessScrollBarUI;
 import org.intellij.lang.annotations.MagicConstant;
@@ -91,7 +92,8 @@ public interface EditorEx extends Editor {
    *
    * @return the markup model instance.
    * @see com.intellij.openapi.editor.markup.MarkupEditorFilter
-   * @see com.intellij.openapi.editor.impl.EditorImpl#setHighlightingPredicate(java.util.function.Predicate)
+   * @see com.intellij.openapi.editor.impl.EditorImpl#addHighlightingPredicate(Key, EditorHighlightingPredicate)
+   * @see com.intellij.openapi.editor.impl.EditorImpl#removeHighlightingPredicate(Key)
    * @see com.intellij.openapi.editor.impl.DocumentMarkupModel#forDocument(Document, Project, boolean)
    */
   @NotNull
@@ -305,6 +307,7 @@ public interface EditorEx extends Editor {
   /**
    * Registers a function which will be applied to a line number to obtain additional text fragments. The fragments returned by the
    * function will be drawn in the editor after end of the line (together with fragments returned by {@link EditorLinePainter} extensions).
+   * @noinspection TypeParameterExtendsFinalClass -- cannot clean up because used in external plugins
    */
   void registerLineExtensionPainter(@NotNull IntFunction<? extends @NotNull Collection<? extends LineExtensionInfo>> lineExtensionPainter);
 
@@ -399,7 +402,7 @@ public interface EditorEx extends Editor {
 
       @Override
       public @NotNull PsiFile getPsiFile() {
-        return Objects.requireNonNull(PsiDocumentManager.getInstance(getProject()).getPsiFile(getDocument()));
+        return Objects.requireNonNull(EditorContextManager.getPsiFileForEditor(EditorEx.this, getProject()));
       }
 
       @Override

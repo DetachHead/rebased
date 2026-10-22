@@ -9,17 +9,17 @@ import com.intellij.workspaceModel.codegen.impl.writer.LibraryEntity
 import com.intellij.workspaceModel.codegen.impl.writer.ModifiableWorkspaceEntityBase
 import com.intellij.workspaceModel.codegen.impl.writer.MutableWorkspaceList
 import com.intellij.workspaceModel.codegen.impl.writer.MutableWorkspaceSet
-import com.intellij.workspaceModel.codegen.impl.writer.SdkEntity
 import com.intellij.workspaceModel.codegen.impl.writer.WorkspaceEntity
 import com.intellij.workspaceModel.codegen.impl.writer.collectionProperties
 import com.intellij.workspaceModel.codegen.impl.writer.extensions.compatibleJavaBuilderName
 import com.intellij.workspaceModel.codegen.impl.writer.extensions.javaFullName
 import com.intellij.workspaceModel.codegen.impl.writer.extensions.javaName
-import com.intellij.workspaceModel.codegen.impl.writer.extensions.vfuFields
 import com.intellij.workspaceModel.codegen.impl.writer.getAllProperties
 import com.intellij.workspaceModel.codegen.impl.writer.referencesInSymbolicId
 import com.intellij.workspaceModel.codegen.impl.writer.symbolicIdIsInitializedCode
 import com.intellij.workspaceModel.codegen.impl.writer.symbolicIdReferenceCode
+import com.intellij.workspaceModel.codegen.impl.writer.getToStringProperty
+import com.intellij.workspaceModel.codegen.impl.writer.getVfuProperties
 
 fun CodeContext.entityBuilderImplementationCode(objClass: ObjClass<*>, hasConnections: Boolean) {
   section("internal class Builder(result: ${objClass.javaDataName}?): ${ModifiableWorkspaceEntityBase}<${objClass.javaFullName}, ${objClass.javaDataName}>(result), ${objClass.compatibleJavaBuilderName}") {
@@ -80,52 +80,38 @@ fun CodeContext.entityBuilderImplementationCode(objClass: ObjClass<*>, hasConnec
       line("updateChildToParentReferences(parents)")
     }
 
-    val isIndexFunRequired =
-      objClass.vfuFields.isNotEmpty() || objClass.name == LibraryEntity.simpleName || objClass.name == SdkEntity.simpleName
-    if (isIndexFunRequired) {
+    val vfuProperties = getVfuProperties(objClass)
+    if (vfuProperties.isNotEmpty() || objClass.name == LibraryEntity.simpleName) {
       section("override fun index()") {
-        for (vfuProperty in objClass.vfuFields) {
-          val name = vfuProperty.name
-          +"index(this, \"$name\", this.$name)"
+        for (vfuList in vfuProperties.values) {
+          for (vfu in vfuList) {
+            +"index(this, ${vfu.quotedName}, ${vfu.indexAccess})"
+          }
         }
         if (objClass.name == LibraryEntity.simpleName) {
-          +"indexLibraryRoots(roots)"
-        }
-        if (objClass.name == SdkEntity.simpleName) {
-         +"indexSdkRoots(roots)"
+          +"val jarDirectories = roots.filter { it.inclusionOptions != LibraryRoot.InclusionOptions.ROOT_ITSELF }.map { it.url }.toHashSet()"
+          +"indexJarDirectories(this, jarDirectories)"
         }
       }
     }
 
-    if (objClass.name == LibraryEntity.simpleName) {
-      section("private fun indexLibraryRoots(libraryRoots: List<LibraryRoot>)") {
-        line("val jarDirectories = mutableSetOf<VirtualFileUrl>()")
-        line("val libraryRootList = libraryRoots.map {")
-        line("if (it.inclusionOptions != LibraryRoot.InclusionOptions.ROOT_ITSELF) {")
-        line("jarDirectories.add(it.url)")
-        line("}")
-        line("it.url")
-        line("}.toHashSet()")
-        line("index(this, \"roots\", libraryRootList)")
-        line("indexJarDirectories(this, jarDirectories)")
-      }
-    }
-
-    if (objClass.name == SdkEntity.simpleName) {
-      section("private fun indexSdkRoots(sdkRoots: List<SdkRoot>)") {
-        line("val sdkRootList = sdkRoots.map { it.url }.toHashSet()")
-        line("index(this, \"roots\", sdkRootList)")
-      }
-    }
+    //if (objClass.name == SdkEntity.simpleName) {
+    //  section("private fun indexSdkRoots(sdkRoots: List<SdkRoot>)") {
+    //    line("val sdkRootList = sdkRoots.map { it.url }.toHashSet()")
+    //    line("index(this, \"roots\", sdkRootList)")
+    //  }
+    //}
 
     val referencesInSymbolicId = referencesInSymbolicId(objClass)
 
     val propertiesToGenerate = getAllProperties(objClass, withSymbolicId = false)
     for (property in propertiesToGenerate) {
-      getImplWsBuilderFieldCode(objClass, property, referencesInSymbolicId)
+      generateBuilderPropertyCode(objClass, property, referencesInSymbolicId, vfuProperties)
     }
 
     +"override fun getEntityClass(): Class<${objClass.javaFullName}> = ${objClass.javaFullName}::class.java"
+
+    customBuilderToString(objClass)
     
     if (!referencesInSymbolicId.isNullOrEmpty()) {
       section("override fun updateSymbolicId(parent: WorkspaceEntityBuilder<*>, connectionId: ConnectionId)") {
@@ -138,5 +124,10 @@ fun CodeContext.entityBuilderImplementationCode(objClass: ObjClass<*>, hasConnec
       }
     }
   }
+}
+
+private fun CodeContext.customBuilderToString(objClass: ObjClass<*>) {
+  val toStringProperty = getToStringProperty(objClass) ?: return
+  +"override fun toString()=${toStringProperty.expression}"
 }
 

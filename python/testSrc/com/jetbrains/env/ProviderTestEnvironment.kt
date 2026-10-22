@@ -2,6 +2,8 @@
 package com.jetbrains.env
 
 import com.intellij.openapi.projectRoots.Sdk
+import com.intellij.openapi.project.Project
+import com.intellij.python.sdk.backend.getSdkAPI
 import com.intellij.python.test.env.core.PyEnvironment
 import com.intellij.python.test.env.core.PyEnvironmentFactory
 import com.intellij.python.test.env.core.PyEnvironmentSpec
@@ -25,8 +27,8 @@ private class ProviderTestEnvironment(private val factory: PyEnvironmentFactory,
     return tags
   }
 
-  override fun prepareSdk(): Sdk = runBlocking(Dispatchers.IO) {
-    factory.createEnvironment(spec).prepareSdk()
+  override fun prepareSdk(project: Project): Sdk = runBlocking(Dispatchers.IO) {
+    factory.createEnvironment(spec).prepareSharedSdk(project).getSdkAPI()
   }
 
   override fun close() {

@@ -1,6 +1,10 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
 load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
+### auto-generated section `dev intellij.sh.terminal` start
+content_module_jar(module = ":terminal")
+### auto-generated section `dev intellij.sh.terminal` end
+
 ### auto-generated section `build intellij.sh.terminal` start
 jvm_library(
     name = "terminal",
@@ -18,10 +22,11 @@ jvm_library(
         ["resources/**/*"],
     ),
     visibility = ["//visibility:public"],
-    runtime_deps = ["//platform/backend"],
     deps = [
         # do not sort,
         "@lib//:kotlin-stdlib",
+        "//platform/remote-topics/shared:rpc-topics",
+        "//libraries/kotlinx/serialization/core",
         "//platform/projectModel-api:projectModel",
         "//plugins/terminal",
         "//platform/platform-api:ide",
@@ -35,8 +40,6 @@ jvm_library(
     ],
 )
 
-content_module_jar(module = ":terminal")
-
 jvm_library(
     name = "terminal_test_lib",
     testonly = True,
@@ -49,7 +52,8 @@ jvm_library(
     runtime_deps = [
         # do not sort,
         ":terminal",
-        "//platform/backend:backend_test_lib",
+        "//platform/remote-topics/shared:rpc-topics_test_lib",
+        "//libraries/kotlinx/serialization/core:core_test_lib",
         "//platform/projectModel-api:projectModel_test_lib",
         "//plugins/terminal:terminal_test_lib",
         "//platform/platform-api:ide_test_lib",

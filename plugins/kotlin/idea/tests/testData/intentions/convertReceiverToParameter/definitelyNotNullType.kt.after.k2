@@ -1,3 +1,0 @@
-fun <T> foo(value: T & Any): T & Any {
-    return value
-}

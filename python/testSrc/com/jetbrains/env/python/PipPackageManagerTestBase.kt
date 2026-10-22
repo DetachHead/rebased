@@ -27,7 +27,7 @@ abstract class PipPackageManagerTestBase {
   @Test
   fun testList(): Unit =  timeoutRunBlocking(5.minutes) {
     disposableFixture().get().use {
-      PipPythonPackageManager(projectRule.project, sdkRule.sdk).apply {
+      PipPythonPackageManager(projectRule.project, sdkRule.interpreter).apply {
         Disposer.register(it, this)
         assertThat("No packages return", reloadPackages().successOrNull, not(empty()))
         assertThat("Installed packages shouldn't be empty", listInstalledPackages(), not(empty()))

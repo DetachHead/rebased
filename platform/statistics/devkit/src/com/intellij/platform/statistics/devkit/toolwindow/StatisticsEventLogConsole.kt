@@ -13,20 +13,26 @@ import com.intellij.json.psi.impl.JsonRecursiveElementVisitor
 import com.intellij.openapi.application.ReadAction
 import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.project.Project
-import com.intellij.openapi.vfs.LocalFileSystem
+import com.intellij.openapi.util.NlsSafe
 import com.intellij.openapi.vfs.VirtualFile
+import com.intellij.openapi.vfs.VirtualFileManager
 import com.intellij.openapi.wm.ToolWindowManager
 import com.intellij.psi.PsiManager
 import com.intellij.psi.search.GlobalSearchScope
 import com.intellij.psi.util.startOffset
 
-internal class StatisticsEventLogConsole(private val project: Project, model: LogFilterModel, recorderId: String, val logFormatter: StatisticsEventLogFormatter)
-  : LogConsoleBase(project, null, eventLogToolWindowsId, false, model,
+internal class StatisticsEventLogConsole(
+  private val project: Project,
+  model: LogFilterModel,
+  recorderId: String,
+  private val toolWindowId: @NlsSafe String,
+  val logFormatter: StatisticsEventLogFormatter,
+) : LogConsoleBase(project, null, toolWindowId, false, model,
                    GlobalSearchScope.allScope(project), logFormatter) {
   private var isMultilineLog: Boolean = false
 
   init {
-    val schemeFile = LocalFileSystem.getInstance().findFileByNioFile(getEventsSchemeFile(recorderId))
+    val schemeFile = VirtualFileManager.getInstance().findFileByNioPath(getEventsSchemeFile(recorderId))
     if (schemeFile != null) {
       val groupIdToLine = ReadAction.computeBlocking<HashMap<String, Int>, Throwable> {
         computeLineNumbers(schemeFile)
@@ -59,7 +65,7 @@ internal class StatisticsEventLogConsole(private val project: Project, model: Lo
   }
 
   override fun isActive(): Boolean {
-    return ToolWindowManager.getInstance(project).getToolWindow(eventLogToolWindowsId)?.isVisible ?: false
+    return ToolWindowManager.getInstance(project).getToolWindow(toolWindowId)?.isVisible ?: false
   }
 
   fun addLogLine(line: String) {

@@ -1,4 +1,4 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.kotlin.idea.k2.refactoring.introduce.introduceVariable
 
 import com.intellij.codeInsight.lookup.LookupElementBuilder
@@ -31,9 +31,8 @@ import com.intellij.refactoring.introduce.inplace.OccurrencesChooser
 import com.intellij.util.application
 import com.intellij.util.containers.addIfNotNull
 import org.jetbrains.kotlin.analysis.api.KaSession
-import org.jetbrains.kotlin.analysis.api.components.KaDiagnosticCheckerFilter
-import org.jetbrains.kotlin.analysis.api.components.directDiagnostics
 import org.jetbrains.kotlin.analysis.api.components.returnType
+import org.jetbrains.kotlin.analysis.api.diagnostics.diagnostics
 import org.jetbrains.kotlin.analysis.api.expressions.expectedType
 import org.jetbrains.kotlin.analysis.api.expressions.expressionType
 import org.jetbrains.kotlin.analysis.api.expressions.isUsedAsExpression
@@ -64,6 +63,7 @@ import org.jetbrains.kotlin.idea.base.analysis.api.utils.shortenReferences
 import org.jetbrains.kotlin.idea.base.codeInsight.KotlinDeclarationNameValidator
 import org.jetbrains.kotlin.idea.base.codeInsight.KotlinNameSuggestionProvider
 import org.jetbrains.kotlin.idea.base.psi.isAssignmentLHS
+import org.jetbrains.kotlin.idea.base.psi.setCallableTypeReference
 import org.jetbrains.kotlin.idea.base.resources.KotlinBundle
 import org.jetbrains.kotlin.idea.codeinsight.utils.ConvertToBlockBodyUtils
 import org.jetbrains.kotlin.idea.codeinsight.utils.NameBasedDestructuringForm
@@ -133,7 +133,7 @@ object K2IntroduceVariableHandler : KotlinIntroduceVariableHandler() {
             assert(declaration.typeReference == null)
             analyzeIfExplicitTypeOrArgumentsAreNeeded(declaration)
             if (KotlinCommonRefactoringSettings.getInstance().INTRODUCE_SPECIFY_TYPE_EXPLICITLY || mustSpecifyTypeExplicitly) {
-                declaration.typeReference = psiFactory.createType(expressionRenderedType)
+                declaration.setCallableTypeReference(psiFactory.createType(expressionRenderedType))
                 declaration.typeReference?.let { shortenReferences(it) }
             }
         }
@@ -208,7 +208,7 @@ object K2IntroduceVariableHandler : KotlinIntroduceVariableHandler() {
                 allowAnalysisFromWriteAction {
                     analyze(property) {
                         if (initializer is KtObjectLiteralExpression &&
-                            property.directDiagnostics(KaDiagnosticCheckerFilter.ONLY_COMMON_CHECKERS).any {
+                            property.diagnostics().directOnly(true).any {
                                 it is KaFirDiagnostic.AmbiguousAnonymousTypeInferred
                             }
                         ) {
@@ -427,7 +427,8 @@ object K2IntroduceVariableHandler : KotlinIntroduceVariableHandler() {
         containers: Containers,
         isVar: Boolean,
         occurrencesToReplace: List<KtExpression>?,
-        onNonInteractiveFinish: ((KtDeclaration) -> Unit)?
+        showVarOption: Boolean,
+        onNonInteractiveFinish: ((KtDeclaration) -> Unit)?,
     ) {
         if (!isRefactoringApplicableByPsi(project, editor, expression)) return
 
@@ -623,6 +624,7 @@ object K2IntroduceVariableHandler : KotlinIntroduceVariableHandler() {
                                 project,
                                 editor,
                                 ::postProcess,
+                                showVarOption,
                             )
                             variableInplaceIntroducer.startInplaceIntroduceTemplate()
                         }
@@ -672,10 +674,11 @@ object K2IntroduceVariableHandler : KotlinIntroduceVariableHandler() {
         val call = expression.getPossiblyQualifiedCallExpression() ?: return false
         if (call.typeArgumentList != null) return false
         val callee = call.calleeExpression ?: return false
-        val diagnostics = analyzeInModalWindow(callee, KotlinBundle.message("find.usages.prepare.dialog.progress")) {
-            callee.directDiagnostics(KaDiagnosticCheckerFilter.ONLY_COMMON_CHECKERS)
+        return analyzeInModalWindow(callee, KotlinBundle.message("find.usages.prepare.dialog.progress")) {
+            callee.diagnostics().directOnly(true).any { diagnostic ->
+                diagnostic is KaFirDiagnostic.CannotInferParameterType
+            }
         }
-        return (diagnostics.any { diagnostic -> diagnostic is KaFirDiagnostic.CannotInferParameterType })
     }
 
     override fun filterContainersWithContainedLambdasByAnalyze(

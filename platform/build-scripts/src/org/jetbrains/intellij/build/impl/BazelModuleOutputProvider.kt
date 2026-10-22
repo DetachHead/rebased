@@ -5,25 +5,25 @@ package org.jetbrains.intellij.build.impl
 
 import com.intellij.platform.bazel.runfiles.BazelLabel
 import com.intellij.platform.bazel.runfiles.BazelRunfiles
-import kotlinx.coroutines.CoroutineScope
+import com.intellij.platform.bazel.runfiles.BazelRunfilesManifest
+import it.unimi.dsi.fastutil.ints.IntArrayList
 import org.jetbrains.annotations.ApiStatus.Internal
+import org.jetbrains.intellij.build.BuildLifetime
 import org.jetbrains.intellij.build.BuildOptions
 import org.jetbrains.intellij.build.ModuleOutputProvider
+import org.jetbrains.intellij.build.buildSpan
+import org.jetbrains.intellij.build.mapConcurrent
 import org.jetbrains.jps.model.module.JpsModule
 import java.nio.file.Files
 import java.nio.file.Path
+import java.util.BitSet
+import java.util.concurrent.CancellationException
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicInteger
 import kotlin.io.path.invariantSeparatorsPathString
 import kotlin.io.path.isRegularFile
 
 private const val BAZEL_BUILD_INPUTS_MANIFEST_PROPERTY = "intellij.build.bazel.inputs.manifest"
-
-/**
- * The manifest key a produced plugin descriptor is declared under, ahead of the plugin's main module.
- *
- * The same string as `DEV_DIST_DESCRIPTOR_KEY_PREFIX` in `dev_dist_plugin_descriptor.bzl`, which is where the key is
- * written. A namespace of its own: every other key is a Bazel label string, so it starts with `@` or `//`.
- */
-private const val DEV_DIST_DESCRIPTOR_KEY_PREFIX = "dev-dist-descriptor:"
 
 @Internal
 object BazelBuildInputs {
@@ -58,27 +58,6 @@ object BazelBuildInputs {
   }
 
   /**
-   * The patched `META-INF/plugin.xml` a packing action produced for the plugin whose main module is
-   * [pluginMainModule], or `null` when this fragment was handed none.
-   *
-   * **A producer choice, and not a probe.** A declared descriptor means an action of its own already wrote the text
-   * this fragment would compute, so the fragment reads it. An undeclared one means no such action exists for this
-   * plugin, and the fragment patches the descriptor as it always did. Absence is therefore legal, which rules out
-   * [resolve]; and the read *packs bytes*, which [resolveIfDeclared]'s own contract forbids. This is a third thing, so
-   * it says so in a function of its own.
-   *
-   * `null` when no manifest is configured, deliberately and not for tidiness. [resolveIfDeclared] falls back to
-   * `BazelRunfiles.getFileByLabel` there, and this key is not a label, so that fallback would throw. The in-process dev
-   * assembly runs with no manifest and must take the computed path.
-   *
-   * The primitive underneath marks the execution path as used, which is what keeps the `.unused-inputs` measurement
-   * honest: a declared descriptor the fragment never read is reported as unused, under origin `descriptor`.
-   */
-  fun producedPluginDescriptorIfDeclared(pluginMainModule: String): Path? {
-    return resolver?.resolveIfDeclared(DEV_DIST_DESCRIPTOR_KEY_PREFIX + pluginMainModule)
-  }
-
-  /**
    * Every file [label] declares, in manifest order, with [resolveIfDeclared]'s probe contract: `null` when an explicit
    * manifest does not declare [label], and `null` when no manifest is configured at all.
    *
@@ -94,6 +73,17 @@ object BazelBuildInputs {
    * `LibraryDescription.jarTargets` branch instead, which is one of the reasons that field stays in `bazel-targets.json`.
    */
   fun resolveAllIfDeclared(label: String): List<Path>? = resolver?.resolveAllIfDeclared(label)
+
+  /**
+   * The path of the declared file at [execPath], under whatever key declares it, or `null` when an explicit manifest is
+   * configured and no key declares that file. `null` with no manifest too, because an execution path is meaningful only
+   * inside one.
+   *
+   * For a jar of a library whose container is not a key: a library that shares a jar with another library reaches the
+   * plan as its jars, and a shared jar is declared under the other library's container. The file is what the fragment
+   * reads, so the file being declared is what the rule asks. It marks the input as used, like every read.
+   */
+  fun resolveDeclaredFile(execPath: String): Path? = resolver?.resolveDeclaredFile(execPath)
 
   /**
    * The manifest key [file] was declared under, or `null` when no manifest is configured or none declares that file.
@@ -119,7 +109,10 @@ object BazelBuildInputs {
   fun declaredFileNameOf(label: String, file: Path): String? = resolver?.declaredFileNameOf(label = label, file = file)
 
   fun writeUnusedInputs(file: Path) {
-    resolver?.writeUnusedInputs(file) ?: Files.writeString(file, "")
+    resolver?.writeUnusedInputs(file) ?: run {
+      file.parent?.let { Files.createDirectories(it) }
+      Files.writeString(file, "")
+    }
   }
 }
 
@@ -146,8 +139,17 @@ internal class ExplicitBazelInputResolver private constructor(
    * it is the only member that is not part of the used-input bookkeeping.
    */
   private val labelByPath: Map<Path, String>,
+  /** Every declared file by its normalized execution path, for [resolveDeclaredFile]. Built at load time like [labelByPath]. */
+  private val inputByExecPath: Map<Path, ExplicitBazelInput>,
 ) {
   private val usedExecPaths = HashSet<String>()
+
+  @Synchronized
+  fun resolveDeclaredFile(execPath: String): Path? {
+    val declared = inputByExecPath.get(Path.of(execPath).normalize()) ?: return null
+    usedExecPaths.add(declared.execPath)
+    return declared.absolutePath
+  }
 
   @Synchronized
   fun resolve(label: String): Path = resolveAll(label).single()
@@ -208,6 +210,7 @@ internal class ExplicitBazelInputResolver private constructor(
     fun load(file: Path): ExplicitBazelInputResolver {
       val inputs = LinkedHashMap<String, MutableList<ExplicitBazelInput>>()
       val labelByPath = HashMap<Path, String>()
+      val inputByExecPath = HashMap<Path, ExplicitBazelInput>()
       Files.readAllLines(file).forEachIndexed { index, line ->
         if (line.isBlank()) return@forEachIndexed
         val separator = line.indexOf('\t')
@@ -220,16 +223,17 @@ internal class ExplicitBazelInputResolver private constructor(
         // name one key per file, and the written one is the key the generator emitted. First wins, so a file declared
         // under two keys - a module target and the library container that exports it - is named by the first.
         labelByPath.putIfAbsent(input.absolutePath, label)
+        inputByExecPath.putIfAbsent(Path.of(execPath).normalize(), input)
         // A repeated label is how a multi-jar library states its jars, so appending is the normal case and order is
-        // preserved. What is still a defect is the *same* file twice under one key: the writer deduplicates
-        // (`_collect_libraries`, first-wins), so a repeat here means two producers disagreed about the same key.
+        // preserved. What is still a defect is the *same* file twice under one key: the producer of `library_jars`
+        // deduplicates first-wins, so a repeat here means two producers disagreed about the same key.
         for (key in listOfNotNull(label, apparentRepositoryLabel(label))) {
           val declared = inputs.getOrPut(key) { mutableListOf() }
           check(declared.none { it.execPath == execPath }) { "Duplicate Bazel input '$key' -> '$execPath' in $file" }
           declared.add(input)
         }
       }
-      return ExplicitBazelInputResolver(inputs = inputs, labelByPath = labelByPath)
+      return ExplicitBazelInputResolver(inputs = inputs, labelByPath = labelByPath, inputByExecPath = inputByExecPath)
     }
 
     private fun apparentRepositoryLabel(label: String): String? {
@@ -299,14 +303,19 @@ class BazelModuleOutputProviderState(
 
   fun findRequiredModule(name: String): JpsModule = index.findRequiredModule(name)
 
-  fun getProjectLibraryToModuleMap(): Map<String, String> = index.getProjectLibraryToModuleMap()
+  fun findFileInModuleSources(module: JpsModule, relativePath: String, onlyProductionSources: Boolean): Path? {
+    return index.sourceFiles.find(module = module, relativePath = relativePath, onlyProductionSources = onlyProductionSources)
+  }
+
+  fun findModulesWithSourceFile(relativePath: String): List<JpsModule> = index.sourceFiles.findOwners(relativePath)
 
   fun getModuleImlFile(module: JpsModule): Path = index.getModuleImlFile(module)
 }
 
-internal class BazelModuleOutputProvider(
+@Internal
+class BazelModuleOutputProvider(
   private val state: BazelModuleOutputProviderState,
-  scope: CoroutineScope?,
+  lifetime: BuildLifetime?,
   override val useTestCompilationOutput: Boolean,
   private val testCompilationOutputModules: Set<String> = emptySet(),
 ) : ModuleOutputProvider {
@@ -314,7 +323,7 @@ internal class BazelModuleOutputProvider(
     modules: List<JpsModule>,
     projectHome: Path,
     bazelOutputRoot: Path,
-    scope: CoroutineScope?,
+    lifetime: BuildLifetime?,
     useTestCompilationOutput: Boolean,
     testCompilationOutputModules: Set<String> = emptySet(),
   ) : this(
@@ -323,24 +332,51 @@ internal class BazelModuleOutputProvider(
       projectHome = projectHome,
       bazelOutputRootResolver = { bazelOutputRoot },
     ),
-    scope = scope,
+    lifetime = lifetime,
     useTestCompilationOutput = useTestCompilationOutput,
     testCompilationOutputModules = testCompilationOutputModules,
   )
 
-  private val zipFilePool = ModuleOutputZipFilePool(scope)
+  private val zipFilePool = ModuleOutputZipFilePool(lifetime)
+
+  /**
+   * The probe roots of a module, by module name and by the output kind. A probe over the whole project asks every
+   * module once per path, and the resolution of a label to a file costs a file system call, so the answer is kept.
+   */
+  private val probeRoots = ConcurrentHashMap<String, List<Path>>()
 
   /**
    * Reads through the pool of cached zip file instances.
    *
-   * A probe by contract - it returns `null` for a module that does not have the file - so it reads only the module
-   * outputs this build declares; see [BazelBuildInputs.resolveIfDeclared].
+   * A probe by contract: it returns `null` for a module that does not have the file. It reads only the roots that
+   * [computeProbeRoots] gives.
    */
   override fun readFileContentFromModuleOutput(module: JpsModule, relativePath: String, forTests: Boolean): ByteArray? {
-    for (moduleOutput in getModuleOutputRootsImpl(module, forTests, declaredOnly = true)) {
+    for (moduleOutput in getProbeRoots(module, forTests)) {
       zipFilePool.getData(moduleOutput, relativePath)?.let { return it }
     }
     return null
+  }
+
+  private fun getProbeRoots(module: JpsModule, forTests: Boolean): List<Path> {
+    val key = if (forTests) module.name + ":test" else module.name
+    return probeRoots.get(key) ?: computeProbeRoots(module, forTests).also {
+      probeRoots.putIfAbsent(key, it)
+    }
+  }
+
+  /**
+   * The index of the production outputs of every module for [findFileInAnyModuleOutput].
+   * The first search builds it, and the other searches wait for it.
+   */
+  private val outputEntryIndex by lazy {
+    ModuleOutputEntryIndex.build(modules = state.modules) { module ->
+      val names = ArrayList<String>()
+      for (root in getProbeRoots(module, forTests = false)) {
+        names.addAll(zipFilePool.readEntryNames(root, ModuleOutputEntryIndex::isIndexedName) ?: return@build null)
+      }
+      names
+    }
   }
 
   override fun getAllModules(): List<JpsModule> = state.modules
@@ -352,6 +388,12 @@ internal class BazelModuleOutputProvider(
   override fun findModule(name: String): JpsModule? = state.findModule(name)
 
   override fun findRequiredModule(name: String): JpsModule = state.findRequiredModule(name)
+
+  override fun findFileInModuleSources(module: JpsModule, relativePath: String, onlyProductionSources: Boolean): Path? {
+    return state.findFileInModuleSources(module = module, relativePath = relativePath, onlyProductionSources = onlyProductionSources)
+  }
+
+  override fun findModulesWithSourceFile(relativePath: String): List<JpsModule> = state.findModulesWithSourceFile(relativePath)
 
   override fun findDeclaredLibraryRoots(libraryName: String, moduleLibraryModuleName: String?): List<Path> {
     if (!BazelBuildInputs.isConfigured && !BazelRunfiles.isRunningFromBazel) {
@@ -372,7 +414,7 @@ internal class BazelModuleOutputProvider(
       ?: library.jarTargets.mapNotNull(BazelBuildInputs::resolveIfDeclared)
     }
     else {
-      library.jarTargets.map { BazelRunfiles.getFileByLabel(BazelLabel.fromString(it)) }
+      library.jarTargets.mapNotNull(::findRunfileByLabel)
     }
     return paths.filter { it.isRegularFile() }
   }
@@ -389,15 +431,28 @@ internal class BazelModuleOutputProvider(
     return bazelTargetsMap.modules[moduleLibraryModuleName]?.moduleLibraries
   }
 
-  override fun findLibraryRoots(libraryName: String, moduleLibraryModuleName: String?): List<Path> {
+  /**
+   * The per-jar labels of `bazel-targets.json`. Two libraries that name one artifact name one label for it, whichever
+   * container groups them, and the table needs no manifest and no file. `jars` would also do, but a label is what
+   * every other reader of the table keys a jar by.
+   */
+  override fun getLibraryJarIdentities(libraryName: String, moduleLibraryModuleName: String?): List<String> {
+    return findLibraryDescription(libraryName = libraryName, moduleLibraryModuleName = moduleLibraryModuleName).jarTargets
+  }
+
+  private fun findLibraryDescription(libraryName: String, moduleLibraryModuleName: String?): BazelTargetsInfo.LibraryDescription {
     val librariesTable = libraryDescriptions(moduleLibraryModuleName)
                          ?: error("Cannot find module '$moduleLibraryModuleName' in the project")
+    return librariesTable[libraryName] ?: error("Cannot find ${libraryMoniker(libraryName, moduleLibraryModuleName)}")
+  }
 
-    val libraryMoniker = "library '$libraryName' " +
-                         if (moduleLibraryModuleName == null) "(project level)" else "(in module '$moduleLibraryModuleName')"
-    val library = librariesTable[libraryName] ?: error(
-      "Cannot find $libraryMoniker"
-    )
+  private fun libraryMoniker(libraryName: String, moduleLibraryModuleName: String?): String {
+    return "library '$libraryName' " + if (moduleLibraryModuleName == null) "(project level)" else "(in module '$moduleLibraryModuleName')"
+  }
+
+  override fun findLibraryRoots(libraryName: String, moduleLibraryModuleName: String?): List<Path> {
+    val libraryMoniker = libraryMoniker(libraryName, moduleLibraryModuleName)
+    val library = findLibraryDescription(libraryName = libraryName, moduleLibraryModuleName = moduleLibraryModuleName)
 
     // Three sources, and the middle one is why `jarTargets` stays in `bazel-targets.json`. Under a fragment's explicit
     // manifest the key is the library *container*, whose label carries no artifact version and which the manifest
@@ -424,26 +479,31 @@ internal class BazelModuleOutputProvider(
   }
 
   /**
-   * A declared library's files, by the container key or - for the one producer that cannot write one - its jar keys.
+   * A declared library's files, by the container key or, when no container is a key, jar by jar.
    *
-   * Every declaration a *generator* writes keys a library by its container target
-   * (`computeLibraryContainerLabels`, `addMemberLibraries`), because that label carries no artifact version and so
-   * stays out of a Maven bump's diff. Test plugins are the exception, as they are for content generally: they are
-   * outside the content population, so the bridge derives their payload from library XML while loading, and
-   * what a library XML yields is jar file labels - a container's target name comes from the library's *name* through the
-   * branchy derivation in `dependency.kt:130-290`, which is not worth mirroring in Starlark for a payload that is
-   * checked into nothing and therefore causes no churn either way.
+   * A generator keys a library by its container target. `libraryContainerLabel` of the plan generator and a library
+   * token of `jars` write that key. The label carries no artifact version, so a Maven bump does not change it. Two
+   * producers write jars instead. The platform payload: the bridge derives its project and module libraries from
+   * library XML while loading, in `_add_payload_input_targets`, and a library XML yields jar file labels. A container's
+   * target name comes from the library's *name* through the branchy derivation in `dependency.kt:130-290`. A payload
+   * that lives in no checked-in file causes no churn, so a Starlark mirror of that derivation is not worth its cost.
+   * And a plugin plan whose library shares a jar with another library of the same jar: the plan names the jars the
+   * library still contributes, each by its own label, and the shared jar is declared under the other container.
    *
-   * So each producer has exactly one convention and this picks between them, container first. Under-declaration stays
-   * loud: neither key declared is an error naming the library.
+   * So the rule is the one the message states: the container is a key, or every jar is declared. A jar is declared by
+   * its own label or as the file of another key. Under-declaration stays loud: an undeclared jar is an error naming
+   * the library.
    */
   private fun resolveDeclaredLibrary(library: BazelTargetsInfo.LibraryDescription, libraryMoniker: String): List<Path> {
     BazelBuildInputs.resolveAllIfDeclared(library.target)?.let { return it }
-    val perJar = library.jarTargets.mapNotNull(BazelBuildInputs::resolveIfDeclared)
-    check(perJar.size == library.jarTargets.size) {
+    check(library.jarTargets.size == library.jars.size) { "The jar labels and the jar paths of $libraryMoniker differ in count" }
+    val perJar = library.jarTargets.zip(library.jars) { jarTarget, jar ->
+      BazelBuildInputs.resolveIfDeclared(jarTarget) ?: BazelBuildInputs.resolveDeclaredFile(jar)
+    }
+    check(perJar.none { it == null }) {
       "Neither the container '${library.target}' nor every jar of $libraryMoniker is declared in the explicit input manifest"
     }
-    return perJar
+    return perJar.requireNoNulls()
   }
 
   override fun getModuleOutputRoots(module: JpsModule, forTests: Boolean): List<Path> {
@@ -460,9 +520,42 @@ internal class BazelModuleOutputProvider(
     return state.bazelTargetsMap.pluginDistributionTargets[mainModuleName]
   }
 
-  private fun getModuleOutputRootsImpl(module: JpsModule, forTests: Boolean, declaredOnly: Boolean = false): List<Path> {
-    val bazelTargetsMap = state.bazelTargetsMap
-    val moduleDescription = bazelTargetsMap.modules[module.name] ?: error("Cannot find module '${module.name}' in the project")
+  private fun getModuleOutputRootsImpl(module: JpsModule, forTests: Boolean): List<Path> {
+    val moduleDescription = findModuleDescription(module, forTests)
+    return if (BazelBuildInputs.isConfigured || BazelRunfiles.isRunningFromBazel) {
+      val targets = if (forTests) moduleDescription.testTargets else moduleDescription.productionTargets
+      targets.map(BazelBuildInputs::resolve)
+    }
+    else {
+      val jarsRelative = if (forTests) moduleDescription.testJars else moduleDescription.productionJars
+      jarsRelative.map { state.projectHome.resolve(it) }
+    }
+  }
+
+  /**
+   * The roots that a probe of [module] reads. Each mode gives the roots by its own rule.
+   *
+   * Under an explicit input manifest, the roots are the module targets that the manifest declares.
+   * Under plain Bazel runfiles, [resolveProbeRoot] gives one root for each module target.
+   * That root is the resources sibling jar, or the module jar when the sibling is absent.
+   * A module target has no root when both files are absent.
+   * Outside Bazel, the roots are the module jars in the project home.
+   */
+  private fun computeProbeRoots(module: JpsModule, forTests: Boolean): List<Path> {
+    val moduleDescription = findModuleDescription(module, forTests)
+    val targets = if (forTests) moduleDescription.testTargets else moduleDescription.productionTargets
+    return when {
+      BazelBuildInputs.isConfigured -> targets.mapNotNull(BazelBuildInputs::resolveIfDeclared)
+      BazelRunfiles.isRunningFromBazel -> targets.mapNotNull { resolveProbeRoot(moduleTarget = it, resolveFile = ::findRunfileByLabel) }
+      else -> {
+        val jarsRelative = if (forTests) moduleDescription.testJars else moduleDescription.productionJars
+        jarsRelative.map { state.projectHome.resolve(it) }
+      }
+    }
+  }
+
+  private fun findModuleDescription(module: JpsModule, forTests: Boolean): BazelTargetsInfo.TargetsFileModuleDescription {
+    val moduleDescription = state.bazelTargetsMap.modules.get(module.name) ?: error("Cannot find module '${module.name}' in the project")
 
     if (forTests && !isTestCompilationOutputEnabled(module)) {
       error(
@@ -473,18 +566,24 @@ internal class BazelModuleOutputProvider(
         "default value: ${BuildOptions.USE_TEST_COMPILATION_OUTPUT_DEFAULT_VALUE}"
       )
     }
-
-    return if (BazelBuildInputs.isConfigured || BazelRunfiles.isRunningFromBazel) {
-      val targets = if (forTests) moduleDescription.testTargets else moduleDescription.productionTargets
-      if (declaredOnly) targets.mapNotNull(BazelBuildInputs::resolveIfDeclared) else targets.map(BazelBuildInputs::resolve)
-    }
-    else {
-      val jarsRelative = if (forTests) moduleDescription.testJars else moduleDescription.productionJars
-      jarsRelative.map { state.projectHome.resolve(it) }
-    }
+    return moduleDescription
   }
 
+  /**
+   * Answers from [ModuleOutputEntryIndex] when [ModuleOutputEntryIndex.isIndexedName] accepts [relativePath], and scans
+   * every module output otherwise. A build with an explicit input manifest always scans, because the index declares
+   * the outputs of all modules.
+   */
   override fun findFileInAnyModuleOutput(relativePath: String, moduleNamePrefix: String?, processedModules: MutableSet<String>?): ByteArray? {
+    if (!BazelBuildInputs.isConfigured && ModuleOutputEntryIndex.isIndexedName(relativePath)) {
+      return outputEntryIndex.find(
+        relativePath = relativePath,
+        moduleNamePrefix = moduleNamePrefix,
+        processedModules = processedModules,
+      ) { module ->
+        readFileContentFromModuleOutput(module = module, relativePath = relativePath, forTests = false)
+      }
+    }
     return findFileInAnyModuleOutput(
       modules = state.modules,
       relativePath = relativePath,
@@ -494,17 +593,76 @@ internal class BazelModuleOutputProvider(
     )
   }
 
-  override fun getProjectLibraryToModuleMap(): Map<String, String> = state.getProjectLibraryToModuleMap()
-
   override fun getModuleImlFile(module: JpsModule): Path = state.getModuleImlFile(module)
 
   override fun toString(): String = "BazelModuleOutputProvider(projectHome=${state.projectHome}, bazelOutputRoot=${state.resolvedBazelOutputRoot ?: "<not resolved>"})"
+}
+
+/** The entries of the runfiles manifest, or `null` when the runfiles have no manifest. */
+private val runfilesManifestEntries: Map<String, String>? by lazy {
+  BazelRunfilesManifest().takeIf { it.exists }?.entries
+}
+
+/**
+ * The file of [label] in the Bazel runfiles, or `null` when the runfiles do not hold it.
+ *
+ * It looks up the exact manifest key, and it uses the runfiles tree when the runfiles have no manifest.
+ */
+private fun findRunfileByLabel(label: String): Path? {
+  val bazelLabel = BazelLabel.fromString(label)
+  val repoEntry = BazelRunfiles.bazelTestRepoMapping.get(bazelLabel.repo) ?: return null
+  val key = buildString {
+    append(repoEntry.runfilesRelativePath)
+    if (bazelLabel.packageName.isNotEmpty()) {
+      append('/')
+      append(bazelLabel.packageName)
+    }
+    append('/')
+    append(bazelLabel.target)
+  }
+  val entries = runfilesManifestEntries
+  val file = if (entries == null) BazelRunfiles.bazelJavaRunfilesPath.resolve(key) else Path.of(entries.get(key) ?: return null)
+  return if (Files.exists(file)) file else null
+}
+
+/**
+ * The label of the resources sibling jar of [moduleTarget], or `null` when [moduleTarget] is not a jar label.
+ *
+ * The sibling of `<package>:<name>.jar` is `<package>:<name>_resource_jar.jar`. The repository prefix stays.
+ * The `jvm_library` macro declares the `<name>_resource_jar` target for every module.
+ */
+internal fun resourcesSiblingLabel(moduleTarget: String): String? {
+  val targetStart = moduleTarget.lastIndexOf(':') + 1
+  if (targetStart == 0 || !moduleTarget.endsWith(".jar")) {
+    return null
+  }
+  val nameStart = maxOf(targetStart, moduleTarget.lastIndexOf('/') + 1)
+  val nameEnd = moduleTarget.length - ".jar".length
+  if (nameStart >= nameEnd) {
+    return null
+  }
+  return moduleTarget.substring(0, nameEnd) + "_resource_jar.jar"
+}
+
+/**
+ * The probe root of [moduleTarget] under plain Bazel runfiles. [resolveFile] gives the file of a label, or `null`.
+ *
+ * The resources sibling jar comes first. The module jar is the root when the sibling is absent.
+ * The module target has no root when both are absent.
+ */
+internal fun resolveProbeRoot(moduleTarget: String, resolveFile: (String) -> Path?): Path? {
+  resourcesSiblingLabel(moduleTarget)?.let(resolveFile)?.let { return it }
+  return resolveFile(moduleTarget)
 }
 
 /**
  * Searches for a file across module outputs.
  * If [moduleNamePrefix] is specified, only searches in modules whose name starts with the prefix.
  * If [processedModules] is specified, skips modules already in the set and adds searched modules to it.
+ *
+ * The answer is the first module in the order of [modules] that has the file, or the first failure before it. The
+ * modules are read in chunks on several threads, because a read opens the output of a module, and a search over the
+ * whole project opens thousands of them. A chunk after the first hit is skipped when the hit is known in time.
  */
 internal fun findFileInAnyModuleOutput(
   modules: Iterable<JpsModule>,
@@ -513,6 +671,7 @@ internal fun findFileInAnyModuleOutput(
   moduleNamePrefix: String? = null,
   processedModules: MutableSet<String>? = null,
 ): ByteArray? {
+  val candidates = ArrayList<JpsModule>()
   for (module in modules) {
     val name = module.name
     if (moduleNamePrefix != null && !name.startsWith(moduleNamePrefix)) {
@@ -521,9 +680,143 @@ internal fun findFileInAnyModuleOutput(
     if (processedModules != null && !processedModules.add(name)) {
       continue
     }
-    provider.readFileContentFromModuleOutput(module = module, relativePath = relativePath, forTests = false)?.let {
-      return it
+    candidates.add(module)
+  }
+
+  val chunks = candidates.chunked(ANY_MODULE_OUTPUT_SEARCH_CHUNK)
+  val firstHit = AtomicInteger(Int.MAX_VALUE)
+  val outcomes = chunks.withIndex().toList().mapConcurrent { (index, chunk) ->
+    if (index > firstHit.get()) {
+      return@mapConcurrent null
+    }
+    try {
+      chunk.firstNotNullOfOrNull { module ->
+        provider.readFileContentFromModuleOutput(module = module, relativePath = relativePath, forTests = false)
+      }?.let { data ->
+        firstHit.accumulateAndGet(index, ::minOf)
+        Result.success(data)
+      }
+    }
+    catch (e: CancellationException) {
+      throw e
+    }
+    catch (e: InterruptedException) {
+      throw e
+    }
+    catch (e: Exception) {
+      Result.failure(e)
+    }
+  }
+  for (outcome in outcomes) {
+    if (outcome != null) {
+      return outcome.getOrThrow()
     }
   }
   return null
+}
+
+private const val ANY_MODULE_OUTPUT_SEARCH_CHUNK = 64
+
+/**
+ * Maps an entry name to the modules whose production outputs hold it.
+ *
+ * The index keeps only the names that [isIndexedName] accepts, because a descriptor search asks only for such names.
+ * A module whose outputs give no list of names is an unlisted module. A search reads an unlisted module directly.
+ */
+internal class ModuleOutputEntryIndex private constructor(
+  private val modules: List<JpsModule>,
+  /** The positions in [modules] of the modules that hold the name, in ascending order. */
+  private val positionsByName: Map<String, IntArray>,
+  private val unlistedPositions: BitSet,
+) {
+  /**
+   * Gives the same answer as the scan of [findFileInAnyModuleOutput] over [modules].
+   *
+   * The search adds every candidate to [processedModules] before it reads a module. It calls [read] for an unlisted
+   * candidate and for a candidate that holds [relativePath], in the order of [modules]. The first result that is
+   * not `null` is the answer, and the first failure of [read] stops the search.
+   */
+  fun find(
+    relativePath: String,
+    moduleNamePrefix: String?,
+    processedModules: MutableSet<String>?,
+    read: (JpsModule) -> ByteArray?,
+  ): ByteArray? {
+    val candidates = IntArrayList()
+    for ((position, module) in modules.withIndex()) {
+      val name = module.name
+      if (moduleNamePrefix != null && !name.startsWith(moduleNamePrefix)) {
+        continue
+      }
+      if (processedModules != null && !processedModules.add(name)) {
+        continue
+      }
+      candidates.add(position)
+    }
+
+    val holders = positionsByName.get(relativePath)
+    for (i in candidates.indices) {
+      val position = candidates.getInt(i)
+      if (unlistedPositions.get(position) || (holders != null && holders.binarySearch(position) >= 0)) {
+        read(modules.get(position))?.let { return it }
+      }
+    }
+    return null
+  }
+
+  companion object {
+    /** Accepts a relative path that ends with `.xml` and does not start with a slash. */
+    fun isIndexedName(name: String): Boolean = name.endsWith(".xml") && !name.startsWith('/')
+
+    /**
+     * Lists the names of every module in parallel. [listNames] returns `null` for an unlisted module.
+     * A failure of [listNames] also makes the module unlisted, so a search reads it and gets the same failure.
+     */
+    fun build(modules: List<JpsModule>, listNames: (JpsModule) -> List<String>?): ModuleOutputEntryIndex {
+      return buildSpan("index module outputs") { span ->
+        val namesByModule = modules.mapConcurrent { module ->
+          try {
+            listNames(module)
+          }
+          catch (e: CancellationException) {
+            throw e
+          }
+          catch (e: InterruptedException) {
+            throw e
+          }
+          catch (_: Exception) {
+            null
+          }
+        }
+
+        val positionLists = HashMap<String, IntArrayList>()
+        val unlistedPositions = BitSet()
+        var entryCount = 0L
+        for ((position, names) in namesByModule.withIndex()) {
+          if (names == null) {
+            unlistedPositions.set(position)
+            continue
+          }
+          for (name in names) {
+            val positions = positionLists.computeIfAbsent(name) { IntArrayList(1) }
+            // two output roots of one module can hold the same name
+            if (positions.isEmpty || positions.getInt(positions.size - 1) != position) {
+              positions.add(position)
+              entryCount++
+            }
+          }
+        }
+
+        val positionsByName = HashMap<String, IntArray>(positionLists.size)
+        for ((name, positions) in positionLists) {
+          positionsByName.put(name, positions.toIntArray())
+        }
+        span.setAttribute("moduleCount", modules.size.toLong())
+        span.setAttribute("entryCount", entryCount)
+        span.setAttribute("nameCount", positionsByName.size.toLong())
+        span.setAttribute("unlistedModuleCount", unlistedPositions.cardinality().toLong())
+        ModuleOutputEntryIndex(modules = modules, positionsByName = positionsByName, unlistedPositions = unlistedPositions)
+      }
+    }
+  }
 }

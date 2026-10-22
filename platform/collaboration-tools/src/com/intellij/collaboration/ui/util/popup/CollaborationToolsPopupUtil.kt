@@ -51,19 +51,6 @@ suspend fun JBPopup.showAndAwait(point: RelativePoint, showDirection: ShowDirect
   return awaitClose()
 }
 
-suspend fun JBPopup.awaitClose() {
-  checkDisposed()
-  return try {
-    suspendCancellableCoroutine { continuation ->
-      continueWhenPopupClosed(continuation) { }
-    }
-  }
-  catch (e: CancellationException) {
-    cancel()
-    throw e
-  }
-}
-
 suspend fun <T> JBPopup.showAndAwaitListSubmission(point: RelativePoint, showDirection: ShowDirection): T? {
   @Suppress("UNCHECKED_CAST")
   val list = UIUtil.findComponentOfType(content, JList::class.java) as JList<T>
@@ -124,18 +111,6 @@ private suspend fun <T> JBPopup.waitForMultipleChoiceAsync(chooserModel: MultiCh
   }
 }
 
-private fun <T> JBPopup.continueWhenPopupClosed(cont: CancellableContinuation<T>, chosenValue: () -> T) {
-  val listener = object : JBPopupListener {
-    override fun onClosed(event: LightweightWindowEvent) {
-      when {
-        event.isOk -> cont.resume(chosenValue())
-        else -> cont.cancel()
-      }
-    }
-  }
-  addListener(listener)
-}
-
 private fun <T> JBPopup.addChoicesPopupListener(cont: CancellableContinuation<List<T>>, chosenValues: () -> List<T>) {
   val listener = object : JBPopupListener {
     override fun onClosed(event: LightweightWindowEvent) {
@@ -143,15 +118,6 @@ private fun <T> JBPopup.addChoicesPopupListener(cont: CancellableContinuation<Li
     }
   }
   addListener(listener)
-}
-
-@Throws(CancellationException::class)
-private suspend fun JBPopup.checkDisposed() {
-  if (isDisposed) {
-    val ctx = currentCoroutineContext()
-    ctx.cancel()
-    ctx.ensureActive()
-  }
 }
 
 // TODO: replace with `com/intellij/vcsUtil/VcsUIUtil.kt`

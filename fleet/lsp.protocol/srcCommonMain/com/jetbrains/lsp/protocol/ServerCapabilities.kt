@@ -323,6 +323,13 @@ data class ServerCapabilities(
      * Experimental server capabilities.
      */
     val experimental: JsonElement? = null,
+
+    /**
+     * The server provides inline completions.
+     *
+     * @since 3.18.0
+     */
+    val inlineCompletionProvider: OrBoolean<InlineCompletionRegistrationOptions>? = null,
 )
 
 typealias DocumentLinkOptions = Unknown
@@ -529,6 +536,13 @@ data class ServerWorkspaceCapabilities(
      * @since 3.16.0
      */
     val fileOperations: FileOperations? = null,
+
+    /**
+     * The server supports the `workspace/textDocumentContent` request.
+     *
+     * @since 3.18.0
+     */
+    val textDocumentContent: TextDocumentContentOptions? = null,
 )
 
 @Serializable

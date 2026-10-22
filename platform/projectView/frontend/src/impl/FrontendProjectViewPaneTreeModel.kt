@@ -5,12 +5,14 @@ import com.intellij.ide.SelectInTarget
 import com.intellij.ide.dnd.DnDAction
 import com.intellij.ide.projectView.NodeSortKey
 import com.intellij.ide.util.treeView.DefaultTreeModelWithCachedPresentation
+import com.intellij.openapi.application.UI
 import com.intellij.openapi.diagnostic.debug
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.project.Project
 import com.intellij.platform.projectView.actions.ProjectViewActionSupport
 import com.intellij.platform.projectView.actions.ProjectViewOptionMenuUpdater
 import com.intellij.platform.projectView.frontend.actions.SplitProjectViewSelectInTarget
+import com.intellij.platform.projectView.pane.ProjectViewActivateStateEvent
 import com.intellij.platform.projectView.pane.ProjectViewChildRemoved
 import com.intellij.platform.projectView.pane.ProjectViewChildrenLoaded
 import com.intellij.platform.projectView.pane.ProjectViewChildrenRemoved
@@ -19,7 +21,6 @@ import com.intellij.platform.projectView.pane.ProjectViewNodeAdded
 import com.intellij.platform.projectView.pane.ProjectViewNodeModel
 import com.intellij.platform.projectView.pane.ProjectViewNodeModelImpl
 import com.intellij.platform.projectView.pane.ProjectViewNodeMoved
-import com.intellij.platform.projectView.pane.ProjectViewNodePath
 import com.intellij.platform.projectView.pane.ProjectViewNodeUpdated
 import com.intellij.platform.projectView.pane.ProjectViewPaneChangeFileNestingRequest
 import com.intellij.platform.projectView.pane.ProjectViewPaneChangeOptionValueRequest
@@ -43,10 +44,12 @@ import com.intellij.platform.projectView.settings.NestingRuleDTO
 import com.intellij.platform.projectView.settings.ProjectViewPaneOptionDTO
 import com.intellij.platform.projectView.settings.ProjectViewPaneSettingsStateDTO
 import com.intellij.pom.Navigatable
+import com.intellij.ui.LoadingNode
 import com.intellij.ui.treeStructure.CachingTreePath
 import com.intellij.ui.treeStructure.TreeNodePresentationImpl
 import com.intellij.ui.treeStructure.TreeNodeWithPresentation
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.ReceiveChannel
@@ -56,6 +59,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.withContext
 import javax.swing.tree.DefaultMutableTreeNode
 import javax.swing.tree.TreePath
 
@@ -99,8 +103,40 @@ internal class FrontendProjectViewPaneTreeModel(
    * Node paths requested to be selected (via [ProjectViewSelectNodeEvent]). The UI consumes this channel
    * and performs the actual tree selection, because selection needs the `JTree` this class doesn't own.
    */
-  internal val selectionRequests: ReceiveChannel<ProjectViewNodePath>
-    field = Channel<ProjectViewNodePath>(capacity = 1, onBufferOverflow = BufferOverflow.DROP_OLDEST)
+  internal val selectionRequests: ReceiveChannel<ProjectViewSelectNodeEvent>
+    field = Channel<ProjectViewSelectNodeEvent>(capacity = 1, onBufferOverflow = BufferOverflow.DROP_OLDEST)
+
+  private val loadRequests = Channel<Long>(capacity = Channel.UNLIMITED)
+
+  suspend fun manage() {
+    withContext(Dispatchers.UI) {
+      // Load requests are postponed (invokeLater DIY) because we add "loading..." nodes here,
+      // and it's best not to do that in the middle of a Swing event (e.g., treeExpanded),
+      // which could've been caused by another model mutation, and nested mutations are a mess.
+      for (nodeId in loadRequests) {
+        loadChildren(nodeId)
+      }
+    }
+  }
+
+  private fun loadChildren(nodeId: Long) {
+    val parent = getNodeById(nodeId)
+    if (parent == null) {
+      LOG.debug { "Not requesting children of $nodeId because it doesn't exist (anymore?)" }
+      return
+    }
+    // The double check because:
+    // 1. If the children are already loaded, there might be a request to reload,
+    // but we don't want to flash the loading node every time that happens (e.g., when visiting the tree).
+    // 2. If the children are not loaded, but there are still some children already (cached nodes),
+    // we definitely don't want to add a loading node into the mix.
+    // So only when loading the children for the first time (!isChildrenLoaded) and there are no nodes, we add a loading node.
+    if (!parent.isChildrenLoaded && parent.childCount == 0) {
+      LOG.debug { "Inserting a temporary loading node into $parent" }
+      treeModel.insertChild(parent, 0, LoadingNode())
+    }
+    sendRequest(ProjectViewPaneLoadChildrenRequest(nodeId))
+  }
 
   internal fun setCurrent(isCurrent: Boolean) {
     if (isCurrent) {
@@ -112,11 +148,16 @@ internal class FrontendProjectViewPaneTreeModel(
     check(requestChannel.trySend(request).isSuccess)
   }
 
+  internal fun getTreePathById(nodeId: Long): TreePath? {
+    return nodeById[nodeId]?.treePath
+  }
+
   /**
    * Requests the backend to load the children of the given node. Called by the UI when a node is expanded.
    */
   internal fun requestLoadChildren(nodeId: Long) {
-    sendRequest(ProjectViewPaneLoadChildrenRequest(nodeId))
+    val result = loadRequests.trySend(nodeId)
+    check(result.isSuccess)
   }
 
   /**
@@ -148,11 +189,16 @@ internal class FrontendProjectViewPaneTreeModel(
 
   internal fun applyStateChange(event: ProjectViewPaneStateEvent) {
     when (event) {
+      is ProjectViewActivateStateEvent -> { } // do nothing, used only to mark the pane as active
       is ProjectViewClearStateEvent -> {
         treeModel.root = null
       }
       is ProjectViewChildrenLoaded -> {
         val parent = getNodeById(event.parentId) ?: return
+        if (parent.children().toList().singleOrNull() is LoadingNode) {
+          LOG.debug { "Removing the temporary loading node from $parent" }
+          treeModel.removeChild(parent, 0)
+        }
         if (parent.id == SUPER_ROOT_ID) {
           updateRoot(event.children)
         }
@@ -222,7 +268,7 @@ internal class FrontendProjectViewPaneTreeModel(
         // The actual selection needs the JTree, which lives in the UI. Enqueue the request instead;
         // the UI consumes selectionRequests and performs the selection. Doing it inline here would
         // block the event pipeline until the node loads (a latent deadlock).
-        selectionRequests.trySend(event.nodePath)
+        selectionRequests.trySend(event)
       }
     }
     updateEpoch.update { it + 1 }
@@ -337,7 +383,7 @@ internal class FrontendProjectViewPaneTreeModel(
   internal suspend fun awaitNodeChildren(node: Node, condition: () -> Boolean): List<Node>? {
     if (!condition()) return null
     if (!node.isChildrenLoaded) { // request in the case it wasn't requested before
-      sendRequest(ProjectViewPaneLoadChildrenRequest(node.id))
+      loadChildren(node.id)
     }
     var epoch = 0L
     while (condition()) {
@@ -413,7 +459,7 @@ internal class Node(
   override fun toString(): String = "{${if (isLeaf) "-" else "+"}[${projectViewNode.id}] ${projectViewNode.presentation.mainText}}"
 }
 
-private val Node.treePath: TreePath
+internal val Node.treePath: TreePath
   get() = CachingTreePath(path)
 
 private val LOG = logger<FrontendProjectViewPaneTreeModel>()

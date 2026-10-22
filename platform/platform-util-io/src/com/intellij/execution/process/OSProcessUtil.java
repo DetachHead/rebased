@@ -11,7 +11,7 @@ import org.jetbrains.annotations.Nullable;
 import java.io.OutputStream;
 import java.nio.file.Path;
 
-import static com.intellij.openapi.diagnostic.LoggerKt.rethrowControlFlowException;
+import static com.intellij.diagnostic.ControlFlowExceptionsKt.rethrowControlFlowException;
 
 public final class OSProcessUtil {
   private static final Logger LOG = Logger.getInstance(OSProcessUtil.class);

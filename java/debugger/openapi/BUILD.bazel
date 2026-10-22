@@ -1,6 +1,10 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
 load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
+### auto-generated section `dev intellij.java.debugger` start
+content_module_jar(module = ":java-debugger")
+### auto-generated section `dev intellij.java.debugger` end
+
 ### auto-generated section `build intellij.java.debugger` start
 jvm_library(
     name = "java-debugger",
@@ -24,7 +28,6 @@ jvm_library(
         # do not sort,
         "//java/execution/openapi:java-execution",
         "//java/java-syntax:syntax",
-        "//java/jsp-openapi:jsp",
         "//java/java-psi-api:psi",
         "//java/java-frontback-psi-api:frontback-psi",
         "//platform/analysis-api:analysis",
@@ -43,8 +46,6 @@ jvm_library(
         "//platform/util/base",
     ],
 )
-
-content_module_jar(module = ":java-debugger")
 
 jvm_library(
     name = "java-debugger_test_lib",
@@ -65,7 +66,6 @@ jvm_library(
         ":java-debugger",
         "//java/execution/openapi:java-execution_test_lib",
         "//java/java-syntax:syntax_test_lib",
-        "//java/jsp-openapi:jsp_test_lib",
         "//java/java-psi-api:psi_test_lib",
         "//java/java-frontback-psi-api:frontback-psi_test_lib",
         "//platform/analysis-api:analysis_test_lib",

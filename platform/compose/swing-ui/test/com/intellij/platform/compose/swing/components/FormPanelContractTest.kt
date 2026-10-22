@@ -1,20 +1,28 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.platform.compose.swing.components
 
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import com.intellij.testFramework.LoggedErrorProcessor
 import com.intellij.testFramework.junit5.TestApplication
 import com.intellij.ui.dsl.builder.components.DslLabel
 import com.intellij.util.ThrowableRunnable
 import org.jetbrains.compose.swing.components.Label
+import org.jetbrains.compose.swing.node.SwingNode
+import org.jetbrains.compose.swing.test.ComposeSwingTest
 import org.jetbrains.compose.swing.test.onNodeOfType
 import org.jetbrains.compose.swing.test.runComposeSwingTest
 import org.junit.jupiter.api.Test
+import javax.swing.JCheckBox
 import javax.swing.JLabel
+import kotlin.test.assertEquals
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
- * What a form makes of a declaration that is not the ordinary case: a component belonging to no row, and a
- * row holding nothing but its comment.
+ * What a form makes of a declaration that is not the ordinary case: a component belonging to no row, a row
+ * holding nothing but its comment, and a comment that changes or meets a description set elsewhere.
  *
  * A form finds out what its children are only once it reads them all, so what it cannot place it finds out
  * about on the way to a layout rather than at the point of writing. It reports such a component the way the
@@ -60,6 +68,40 @@ class FormPanelContractTest {
     assertTrue(reported.isEmpty(), "a row holding only its comment is a form, not a fault:\n${reported.joinToString("\n")}")
     onNodeOfType<DslLabel>().assertIsDisplayed()
   }
+
+  @Test
+  fun theDescriptionOfTheFirstControlFollowsTheComment() = runComposeSwingTest {
+    var comment by mutableStateOf<String?>("Use with caution")
+    setContent {
+      FormPanel {
+        FormRow(comment = comment) { SwingNode(factory = { JCheckBox("Brave mode") }) }
+      }
+    }
+    assertEquals("Use with caution", checkBoxDescription())
+
+    comment = "Use with great caution"
+    awaitIdle()
+    assertEquals("Use with great caution", checkBoxDescription())
+
+    comment = null
+    awaitIdle()
+    assertNull(checkBoxDescription())
+  }
+
+  @Test
+  fun aDescriptionSetElsewhereIsKept() = runComposeSwingTest {
+    setContent {
+      FormPanel {
+        FormRow(comment = "Use with caution") {
+          SwingNode(factory = { JCheckBox("Brave mode").apply { accessibleContext.accessibleDescription = "Set by the caller" } })
+        }
+      }
+    }
+    assertEquals("Set by the caller", checkBoxDescription())
+  }
+
+  private fun ComposeSwingTest.checkBoxDescription(): String? =
+    onNodeOfType<JCheckBox>().fetch().accessibleContext.accessibleDescription
 
   /** Runs [body] and returns what it logged as an error, instead of letting it fail the test. */
   private fun reportedErrorsFrom(body: () -> Unit): List<String> {

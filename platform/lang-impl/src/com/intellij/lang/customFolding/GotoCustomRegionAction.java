@@ -2,6 +2,7 @@
 package com.intellij.lang.customFolding;
 
 import com.intellij.codeInsight.hint.HintManager;
+import com.intellij.codeInsight.multiverse.EditorContextManager;
 import com.intellij.ide.IdeBundle;
 import com.intellij.lang.Language;
 import com.intellij.lang.folding.CompositeFoldingBuilder;
@@ -22,6 +23,7 @@ import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.project.DumbAware;
 import com.intellij.openapi.project.DumbService;
+import com.intellij.openapi.project.DumbUtil;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.FileViewProvider;
 import com.intellij.psi.PsiDocumentManager;
@@ -46,7 +48,8 @@ public final class GotoCustomRegionAction extends AnAction implements DumbAware,
     if (project != null && editor != null) {
       if (DumbService.getInstance(project).isDumb()) {
         DumbService.getInstance(project).showDumbModeNotificationForAction(
-          IdeBundle.dumbModeMessage("goto.custom.region.message.dumb.mode", "goto.custom.region.message.light.mode"),
+          DumbUtil.dumbModeMessage(IdeBundle.message("goto.custom.region.message.dumb.mode"),
+                                   IdeBundle.message("goto.custom.region.message.light.mode")),
           ActionManager.getInstance().getId(this));
         return;
       }
@@ -86,7 +89,7 @@ public final class GotoCustomRegionAction extends AnAction implements DumbAware,
     Set<FoldingDescriptor> foldingDescriptors = new HashSet<>();
     final Document document = editor.getDocument();
     PsiDocumentManager documentManager = PsiDocumentManager.getInstance(project);
-    PsiFile file = documentManager != null ? documentManager.getPsiFile(document) : null;
+    PsiFile file = documentManager != null ? EditorContextManager.getPsiFileForEditor(editor, project) : null;
     if (file != null) {
       final FileViewProvider viewProvider = file.getViewProvider();
       for (final Language language : viewProvider.getLanguages()) {

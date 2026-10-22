@@ -39,7 +39,7 @@ import com.intellij.openapi.util.JDOMExternalizerUtil.writeField
 import com.intellij.openapi.util.Pair
 import com.intellij.openapi.util.Ref
 import com.intellij.openapi.util.registry.Registry
-import com.intellij.openapi.vfs.LocalFileSystem
+import com.intellij.openapi.vfs.StandardFileSystems
 import com.intellij.openapi.vfs.VfsUtil
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.psi.PsiDirectory
@@ -226,7 +226,7 @@ private fun getElementByUrl(
   matcher: Matcher = PATH_URL.matcher(protocol),
   metainfo: String? = null,
 ): Location<out PsiElement>? = runReadAction {
-  val folder = getFolderFromMatcher(matcher, module)?.let { LocalFileSystem.getInstance().findFileByPath(it) }
+  val folder = getFolderFromMatcher(matcher, module)?.let { StandardFileSystems.local().findFileByPath(it) }
 
   val qualifiedName = QualifiedName.fromDottedString(path)
   // Assume qname id good and resolve it directly
@@ -406,7 +406,7 @@ data class ConfigurationTarget(
     val qNameResolveContext = QNameResolveContext(
       contextAnchor = ModuleBasedContextAnchor(configuration.module!!),
       evalContext = context,
-      folderToStart = LocalFileSystem.getInstance().findFileByPath(configuration.workingDirectorySafe),
+      folderToStart = StandardFileSystems.local().findFileByPath(configuration.workingDirectorySafe),
       allowInaccurateResult = true
     )
     val qualifiedNameParts = QualifiedName.fromDottedString(target.trim()).tryResolveAndSplit(qNameResolveContext)
@@ -562,7 +562,7 @@ abstract class PyAbstractTestConfiguration(
    */
   internal fun getWorkingDirectoryAsVirtual(): VirtualFile? {
     if (!workingDirectory.isNullOrEmpty()) {
-      return LocalFileSystem.getInstance().findFileByPath(workingDirectory)
+      return StandardFileSystems.local().findFileByPath(workingDirectory)
     }
     return null
   }
@@ -788,6 +788,12 @@ abstract class PyAbstractTestConfiguration(
   internal open fun shouldSeparateTargetPath(): Boolean = true
 
   /**
+   * @return the working directory for a configuration that the IDE creates from the context,
+   * or null to use the directory that the target is imported from
+   */
+  internal open fun getWorkingDirectoryForContext(): String? = null
+
+  /**
    * @param metaInfo String "metainfo" field provided by test runner.
    * Pytest reports test name with parameters here
    */
@@ -911,7 +917,7 @@ internal class PyTestsConfigurationProducer : AbstractPythonTestConfigurationPro
       targetForConfig.configurationTarget.copyTo(configuration.target)
       // Directory may be set in Default configuration. In that case no need to rewrite it.
       if (configuration.workingDirectory.isNullOrEmpty()) {
-        configuration.workingDirectory = targetForConfig.workingDirectory.path
+        configuration.workingDirectory = configuration.getWorkingDirectoryForContext() ?: targetForConfig.workingDirectory.path
       }
       else {
         // Template has working directory set

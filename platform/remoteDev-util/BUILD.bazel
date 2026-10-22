@@ -10,6 +10,13 @@ jps_test(
 )
 ### skip generation section `test intellij.remoteDev.util.tests`
 
+### auto-generated section `dev intellij.remoteDev.util` start
+content_module_jar(
+    libraries = ["@lib//:rd-gen"],
+    module = ":remoteDev-util",
+)
+### auto-generated section `dev intellij.remoteDev.util` end
+
 ### auto-generated section `build intellij.remoteDev.util` start
 jvm_library(
     name = "remoteDev-util",
@@ -80,11 +87,6 @@ jvm_library(
     ],
 )
 
-content_module_jar(
-    libraries = ["@lib//:rd-gen"],
-    module = ":remoteDev-util",
-)
-
 jvm_library(
     name = "remoteDev-util_test_lib",
     testonly = True,
@@ -118,13 +120,7 @@ jvm_library(
         "//platform/rd-platform-community:rd-community_test_lib",
         "//platform/statistics:statistics_test_lib",
         "//libraries/gson:gson_test_lib",
-        "//libraries/junit5",
-        "//libraries/junit5:junit5_test_lib",
         "//platform/util/progress:progress_test_lib",
-        "//libraries/junit5-params",
-        "//libraries/junit5-params:junit5-params_test_lib",
-        "//platform/testFramework/junit5",
-        "//platform/testFramework/junit5:junit5_test_lib",
         "//libraries/kotlinx/serialization/core:core_test_lib",
         "//libraries/kotlinx/serialization/json:json_test_lib",
         "//platform/core-ui:core-ui_test_lib",
@@ -156,7 +152,6 @@ exports_files(
     [
         "intellij.remoteDev.util.iml",
         "resources/intellij.remoteDev.util.xml",
-        "module-content.yaml",
     ],
     visibility = ["//visibility:public"],
 )
@@ -236,12 +231,12 @@ jvm_library(
         "//platform/statistics:statistics_test_lib",
         "//libraries/gson",
         "//libraries/gson:gson_test_lib",
-        "//libraries/junit5",
-        "//libraries/junit5:junit5_test_lib",
+        "//libraries/junit6",
+        "//libraries/junit6:junit6_test_lib",
         "//platform/util/progress",
         "//platform/util/progress:progress_test_lib",
-        "//libraries/junit5-params",
-        "//libraries/junit5-params:junit5-params_test_lib",
+        "//libraries/junit6-params",
+        "//libraries/junit6-params:junit6-params_test_lib",
         "//platform/testFramework/junit5",
         "//platform/testFramework/junit5:junit5_test_lib",
         "//libraries/kotlinx/serialization/core",

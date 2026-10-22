@@ -1,6 +1,5 @@
-// PROBLEM: none
-// FIR_COMPARISON
-
+// FIX: Replace 'if' expression with safe access expression
+// HIGHLIGHT: INFORMATION
 interface Foo
 interface Bar : Foo {
     val x: String

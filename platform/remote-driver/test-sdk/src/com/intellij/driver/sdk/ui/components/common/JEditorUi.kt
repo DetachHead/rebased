@@ -1,5 +1,6 @@
 package com.intellij.driver.sdk.ui.components.common
 
+import com.intellij.driver.client.Driver
 import com.intellij.driver.client.Remote
 import com.intellij.driver.client.impl.DriverCallException
 import com.intellij.driver.model.LockSemantics
@@ -8,6 +9,7 @@ import com.intellij.driver.model.RemoteMouseButton
 import com.intellij.driver.sdk.DeclarativeInlayRenderer
 import com.intellij.driver.sdk.Document
 import com.intellij.driver.sdk.Editor
+import com.intellij.driver.sdk.FoldRegion
 import com.intellij.driver.sdk.HighlightInfo
 import com.intellij.driver.sdk.HintRenderer
 import com.intellij.driver.sdk.Inlay
@@ -43,6 +45,10 @@ import java.awt.Point
 import java.awt.Rectangle
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.milliseconds
+
+private const val FOLDING_ANCHOR_SEARCH_WIDTH = 40
+
+private fun Driver.scrollType(name: String = "CENTER") = utility(ScrollType::class).valueOf(name)
 
 fun Finder.editor(@Language("xpath") xpath: String? = null): JEditorUiComponent {
   return x(xpath ?: "//div[@class='EditorComponentImpl']",
@@ -90,6 +96,35 @@ open class JEditorUiComponent(data: ComponentData) : UiComponent(data) {
 
   fun expandAllFoldings() {
     driver.invokeAction("ExpandAllRegions", component = component)
+  }
+
+  val foldRegions: List<FoldRegion>
+    get() = driver.withContext(OnDispatcher.EDT) { editor.getFoldingModel().getAllFoldRegions().toList() }
+
+  /** Returns the fold regions that start on the 1-based [line]. */
+  fun foldRegionsAtLine(line: Int): List<FoldRegion> =
+    foldRegions.filter { document.getLineNumber(it.getStartOffset()) == line - 1 }
+
+  /**
+   * Returns true when the region is drawn collapsed: the editor renders the whole [region] on one visual line.
+   *
+   * The check trusts the region offsets. The language folding builders and the visual mapping have unit tests,
+   * for example `JavaFoldingTest`, `FoldingTest`, and `EditorImplTest.testPositionCalculationForOneCharacterFolds`.
+   */
+  fun isRenderedCollapsed(region: FoldRegion): Boolean = driver.withContext(OnDispatcher.EDT) {
+    editor.offsetToVisualPosition(region.getStartOffset()).getLine() == editor.offsetToVisualPosition(region.getEndOffset()).getLine()
+  }
+
+  /** Scrolls to the collapsed [region] and clicks the center of its placeholder. */
+  fun clickFoldRegionPlaceholder(region: FoldRegion) {
+    val line = interact { getDocument().getLineNumber(region.getStartOffset()) }
+    scrollToPosition(line, 0)
+    val placeholderCenter = interact {
+      val start = offsetToXY(region.getStartOffset())
+      val end = offsetToXY(region.getEndOffset())
+      Point((start.x + end.x) / 2, start.y + getLineHeight() / 2)
+    }
+    click(placeholderCenter)
   }
 
   fun isEditable(): Boolean = editorComponent.isEditable()
@@ -308,18 +343,16 @@ open class JEditorUiComponent(data: ComponentData) : UiComponent(data) {
 
   fun scrollToPosition(line: Int, column: Int) {
     val position = driver.logicalPosition(line, column, component.rdTarget)
-    val scrollType = scrollType()
+    val scrollType = driver.scrollType()
     interact { editor.getScrollingModel().scrollTo(position, scrollType) }
     wait(200.milliseconds) // wait for scroll to finish
   }
 
   fun scrollToCaret() {
-    val scrollType = scrollType()
+    val scrollType = driver.scrollType()
     interact { editor.getScrollingModel().scrollToCaret(scrollType) }
     wait(200.milliseconds) // wait for scroll to finish
   }
-
-  private fun scrollType(name: String = "CENTER") = driver.utility(ScrollType::class).valueOf(name)
 
   data class TextAttributes(val startOffset: Int, val endOffset: Int, val effectType: EffectTypeValues, val effectColor: Color?)
 
@@ -428,6 +461,44 @@ class GutterUiComponent(data: ComponentData) : UiComponent(data) {
     click(Point(rectangle.centerX.toInt(), lineY))
   }
 
+  /** Clicks the folding anchor of the 1-based [line]. The anchor toggles the fold region that starts on the line. */
+  fun clickFoldingAnchorAtLine(line: Int) {
+    scrollToLine(line)
+    val anchor = waitNotNull("No folding anchor on line $line") {
+      driver.withContext(OnDispatcher.EDT) { findFoldingAnchorCenter(line) }
+    }
+    click(anchor)
+  }
+
+  /** Returns true when the gutter shows a folding anchor on the 1-based [line]. */
+  fun hasFoldingAnchorAtLine(line: Int): Boolean {
+    scrollToLine(line)
+    return driver.withContext(OnDispatcher.EDT) { findFoldingAnchorCenter(line) } != null
+  }
+
+  private fun scrollToLine(line: Int) {
+    val scrollType = driver.scrollType()
+    val scrollingModel = gutter.getEditor().getScrollingModel()
+    driver.withContext(OnDispatcher.EDT) {
+      scrollingModel.scrollTo(driver.logicalPosition(line - 1, 0), scrollType)
+    }
+  }
+
+  /**
+   * Returns the center of the folding anchor on the 1-based [line], or null when the line has no anchor.
+   * The gutter reports an anchor only for a hit point, so the search probes each x in the folding area.
+   */
+  private fun findFoldingAnchorCenter(line: Int): Point? {
+    val editor = gutter.getEditor()
+    val lineStartOffset = editor.getDocument().getLineStartOffset(line - 1)
+    val visualLine = editor.offsetToVisualPosition(lineStartOffset).getLine()
+    val y = editor.visualLineToY(visualLine) + editor.getLineHeight() / 2
+    val foldingAreaStart = gutter.getFoldingAreaOffset()
+    val anchorXs = (foldingAreaStart until foldingAreaStart + FOLDING_ANCHOR_SEARCH_WIDTH).filter { x -> gutter.findFoldingAnchorAt(x, y) != null }
+    if (anchorXs.isEmpty()) return null
+    return Point((anchorXs.first() + anchorXs.last()) / 2, y)
+  }
+
   fun clickVcsLineMarkerAtLine(line: Int) {
     //to support a deleted block marker, click on the first third of the line
     val lineY = driver.withContext(OnDispatcher.EDT) {
@@ -530,6 +601,10 @@ interface EditorGutterComponentImpl : Component {
   fun getActiveGutterRendererRectangle(lineNum: Int, accessibleName: String): Rectangle?
 
   fun getEditor(): Editor
+
+  fun getFoldingAreaOffset(): Int
+
+  fun findFoldingAnchorAt(x: Int, y: Int): FoldRegion?
 }
 
 @Remote("com.intellij.openapi.editor.impl.GutterIconWithLocation")

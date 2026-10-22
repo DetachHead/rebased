@@ -21,8 +21,8 @@ import com.intellij.openapi.util.NlsSafe
 import com.intellij.openapi.util.Pair
 import com.intellij.openapi.util.io.FileUtilRt
 import com.intellij.openapi.util.io.NioFiles
-import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.openapi.vfs.VirtualFile
+import com.intellij.openapi.vfs.VirtualFileManager
 import com.intellij.util.PathUtil
 import com.intellij.util.PathUtilRt
 import com.intellij.util.system.OS
@@ -263,7 +263,7 @@ private class DotIdeaProjectStoreDescriptor(
         doSave()
       }
       catch (e: AccessDeniedException) {
-        val status = ensureFilesWritable(project, listOf(LocalFileSystem.getInstance().refreshAndFindFileByNioFile(nameFile)!!))
+        val status = ensureFilesWritable(project, listOf(VirtualFileManager.getInstance().refreshAndFindFileByNioPath(nameFile)!!))
         if (status.hasReadonlyFiles()) {
           throw e
         }

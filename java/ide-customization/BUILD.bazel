@@ -1,7 +1,28 @@
 load("@community//build:tests-options.bzl", "jps_test")
-load("@community//platform/build-scripts/bazel-rules:dev_dist_plugin.bzl", "dev_dist_plugin")
 load("@community//platform/build-scripts/bazel-rules:ij_plugin.bzl", "ij_plugin")
+load("@jps_dynamic_deps_community//:targets.bzl", "dev_dist_plugin")
 load("@rules_jvm//:jvm.bzl", "jvm_library")
+
+### auto-generated section `dev intellij.java.ide.customization` start
+dev_dist_plugin(
+    content_modules = [
+        # do not sort,
+        "intellij.java.ide.customization.training",
+        "intellij.java.ide.customization.backend",
+    ],
+    descriptor = "resources/META-INF/plugin.xml",
+    jars = {
+        "lib/java-ide-customization.jar": ["intellij.java.ide.customization"],
+    },
+    main_module = "intellij.java.ide.customization",
+    mode_refused_content_modules = {
+        "frontend": [
+            "intellij.java.ide.customization.training",
+            "intellij.java.ide.customization.backend",
+        ],
+    },
+)
+### auto-generated section `dev intellij.java.ide.customization` end
 
 ### auto-generated section `build intellij.java.ide.customization` start
 jvm_library(
@@ -18,6 +39,7 @@ jvm_library(
     resource_strip_prefix = "resources",
     resources = glob(
         ["resources/**/*"],
+        exclude = ["resources/**/icon-robots.txt"],
     ),
     visibility = ["//visibility:public"],
     deps = [
@@ -57,12 +79,6 @@ jvm_library(
         "//platform/lang-api:lang_test_lib",
         "//platform/platform-impl:ide-impl_test_lib",
         "//platform/lang-core:lang-core_test_lib",
-        "//libraries/junit5",
-        "//libraries/junit5:junit5_test_lib",
-        "//platform/testFramework",
-        "//platform/testFramework:testFramework_test_lib",
-        "//platform/testFramework/junit5",
-        "//platform/testFramework/junit5:junit5_test_lib",
         "//libraries/kotlinx/collections-immutable:libraries-kotlinx-collections-immutable_test_lib",
         "//platform/non-modal-welcome-screen:non-modal-welcome-screen_test_lib",
         "//platform/project/shared:project_test_lib",
@@ -94,22 +110,6 @@ exports_files(
     visibility = ["//visibility:public"],
 )
 ### auto-generated section `iml intellij.java.ide.customization` end
-
-### auto-generated section `dev intellij.java.ide.customization` start
-dev_dist_plugin(
-    descriptor = "resources/META-INF/plugin.xml",
-    descriptor_module = ":ide-customization",
-    descriptors = {
-        "@community//java/ide-customization/backend:resources/intellij.java.ide.customization.backend.xml": "intellij.java.ide.customization.backend.xml",
-        "@community//java/ide-customization/training:resources/intellij.java.ide.customization.training.xml": "intellij.java.ide.customization.training.xml",
-    },
-    main_module = "intellij.java.ide.customization",
-    prepacked_content_modules = [
-        "//java/ide-customization/backend:backend_content_module_jar",
-        "//java/ide-customization/training:training_content_module_jar",
-    ],
-)
-### auto-generated section `dev intellij.java.ide.customization` end
 
 ### auto-generated section `build intellij.java.ide.customization.tests` start
 jvm_library(
@@ -178,8 +178,8 @@ jvm_library(
         "//platform/ide-core",
         "//platform/lang-core",
         "//platform/lang-core:lang-core_test_lib",
-        "//libraries/junit5",
-        "//libraries/junit5:junit5_test_lib",
+        "//libraries/junit6",
+        "//libraries/junit6:junit6_test_lib",
         "//platform/testFramework",
         "//platform/testFramework:testFramework_test_lib",
         "//platform/testFramework/junit5",

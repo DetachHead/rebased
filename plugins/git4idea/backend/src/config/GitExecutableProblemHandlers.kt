@@ -30,10 +30,10 @@ fun findGitExecutableProblemHandler(project: Project): GitExecutableProblemHandl
 
 interface GitExecutableProblemHandler {
 
-  @RequiresEdt
+  @RequiresEdt(generateAssertion = false /* IJPL-115548 */)
   fun showError(exception: Throwable, errorNotifier: ErrorNotifier, onErrorResolved: () -> Unit)
 
-  @RequiresEdt
+  @RequiresEdt(generateAssertion = false /* IJPL-115548 */)
   fun showError(exception: Throwable, errorNotifier: ErrorNotifier) {
     showError(exception, errorNotifier) {}
   }
@@ -54,7 +54,7 @@ interface ErrorNotifier {
   @CalledInAny
   fun showError(@Nls(capitalization = Sentence) text: String)
 
-  @RequiresEdt
+  @RequiresEdt(generateAssertion = false /* IJPL-115548 */)
   fun executeTask(@Nls(capitalization = Title) title: String, cancellable: Boolean, action: () -> Unit)
 
   @CalledInAny
@@ -66,7 +66,7 @@ interface ErrorNotifier {
   @CalledInAny
   fun hideProgress()
 
-  @RequiresBackgroundThread
+  @RequiresBackgroundThread(generateAssertion = false /* IJPL-115548 */)
   fun resetGitExecutable() {
     GitVcsApplicationSettings.getInstance().setPathToGit(null)
     val gitExecutableManager = GitExecutableManager.getInstance()
@@ -119,8 +119,12 @@ internal fun getHumanReadableErrorFor(exception: Throwable): @Nls String? {
 
 private class DefaultExecutableProblemHandler(val project: Project) : GitExecutableProblemHandler {
   override fun showError(exception: Throwable, errorNotifier: ErrorNotifier, onErrorResolved: () -> Unit) {
-    errorNotifier.showError(GitBundle.message("executable.error.git.not.installed"),
-                            getHumanReadableErrorFor(exception),
-                            getLinkToConfigure(project))
+    val description = if (exception is GitNotInstalledException) {
+      GitBundle.message("executable.error.git.not.installed.hint")
+    }
+    else {
+      getHumanReadableErrorFor(exception)
+    }
+    errorNotifier.showError(GitBundle.message("executable.error.git.not.installed"), description, getLinkToConfigure(project))
   }
 }

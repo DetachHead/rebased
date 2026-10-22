@@ -55,6 +55,8 @@ import com.jetbrains.python.statistics.InterpreterType.PYENV
 import com.jetbrains.python.statistics.InterpreterType.REGULAR
 import com.jetbrains.python.statistics.InterpreterType.UV
 import com.jetbrains.python.statistics.InterpreterType.VIRTUALENV
+import com.intellij.python.sdk.backend.PythonInterpreter
+import com.intellij.python.sdk.backend.getSdkAPI
 import com.jetbrains.python.target.PyTargetAwareAdditionalData
 import com.jetbrains.python.venvReader.VirtualEnvReader
 import org.jetbrains.annotations.ApiStatus
@@ -72,6 +74,16 @@ val Project.sdks: List<Sdk> get() = modules.mapNotNull(Module::getSdk)
 @ApiStatus.Internal
 fun getPythonSpecificInfo(module: Module): List<EventPair<*>> =
   module.getSdk()?.let { sdk -> getPythonSpecificInfo(sdk) } ?: emptyList()
+
+/**
+ * Adds python language and interpreter version.
+ *
+ * Takes the interpreter the project model holds, so that a caller never has to find an SDK of its own: one built
+ * outside the blessed creation path carries no [com.jetbrains.python.sdk.PythonSdkAdditionalData] and makes the
+ * reporting below throw (PY-90784).
+ */
+@ApiStatus.Internal
+fun getPythonSpecificInfo(interpreter: PythonInterpreter): List<EventPair<*>> = getPythonSpecificInfo(interpreter.getSdkAPI())
 
 /**
  * Adds python language and interpreter version
@@ -232,6 +244,16 @@ val Sdk.interpreterType: InterpreterType
     this.isNonToolVirtualEnv -> VIRTUALENV
     else -> REGULAR
   }
+
+/** [Sdk.executionType] for [PythonInterpreter]. **DO NOT USE FOR ANYTHING BUT FUS** */
+@get:ApiStatus.Internal
+val PythonInterpreter.executionType: InterpreterTarget
+  @Suppress("DEPRECATION") get() = getSdkAPI().executionType
+
+/** [Sdk.interpreterType] for [PythonInterpreter]. **DO NOT USE FOR ANYTHING BUT FUS** */
+@get:ApiStatus.Internal
+val PythonInterpreter.interpreterType: InterpreterType
+  @Suppress("DEPRECATION") get() = getSdkAPI().interpreterType
 
 /**
  * Mapping from new targets to an old ones is need to keep compatibility with the current fus schema.

@@ -3,163 +3,81 @@ package com.intellij.platform.problemsView.backend
 
 import com.intellij.analysis.problemsView.FileProblem
 import com.intellij.analysis.problemsView.Problem
-import com.intellij.analysis.problemsView.toolWindow.HighlightingProblem
 import com.intellij.analysis.problemsView.toolWindow.splitApi.FileProblemDto
-import com.intellij.analysis.problemsView.toolWindow.splitApi.ProblemLifetime
 import com.intellij.analysis.problemsView.toolWindow.splitApi.GenericProblemDto
-import com.intellij.analysis.problemsView.toolWindow.splitApi.HighlightingProblemDto
 import com.intellij.analysis.problemsView.toolWindow.splitApi.ProblemDto
 import com.intellij.analysis.problemsView.toolWindow.splitApi.ProblemEvent
 import com.intellij.analysis.problemsView.toolWindow.splitApi.ProblemEventDto
-import com.intellij.analysis.problemsView.toolWindow.splitApi.actions.ProblemsViewEditorUtils
-import com.intellij.codeInsight.daemon.impl.HighlightInfo
-import com.intellij.codeInsight.intention.IntentionAction
-import com.intellij.openapi.application.readAction
+import com.intellij.ide.ui.icons.rpcIdOrNull
+import com.intellij.ide.vfs.rpcId
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.project.Project
-import com.intellij.psi.PsiManager
-import kotlinx.coroutines.isActive
-import org.jetbrains.annotations.ApiStatus
 
-internal data class IntentionActionWithOptions(
-  val descriptor: HighlightInfo.IntentionActionDescriptor,
-  val options: List<IntentionAction>,
-  val text: String,
-  val familyName: String
-)
-
-internal data class IntentionOptionWithId(
-  val action: IntentionAction,
-  val intentionId: String,
-  val text: String,
-  val familyName: String
-)
-
-internal data class IntentionActionWithIds(
-  val descriptor: HighlightInfo.IntentionActionDescriptor,
-  val intentionId: String,
-  val options: List<IntentionOptionWithId>,
-  val text: String,
-  val familyName: String
-)
 private val LOG = Logger.getInstance("com.intellij.platform.problemsView.backend.ProblemDtoBuilders")
 
-@ApiStatus.Internal
-suspend fun buildChangelistFromEventsBatch(
+internal fun buildChangelistFromEventsBatch(
   eventsBatch: List<ProblemEvent>,
   project: Project,
-  lifetime: ProblemLifetime
 ): List<ProblemEventDto> {
-  return eventsBatch.mapNotNull { event ->
-    if(!lifetime.isActive()) {
-      LOG.warn("Lifetime is no longer active, skipping any remaining events associated with this scope: $lifetime")
-      return emptyList()
-    }
+  val idStore = ProjectErrorsIdStore.getInstance(project)
 
+  return eventsBatch.mapNotNull { event ->
+    val problem = event.problem
     when (event) {
       is ProblemEvent.Appeared -> {
-        val problemDto = buildProblemDto(event.problem, lifetime, project)
-        ProblemEventDto.Appeared(problemDto)
+        val problemId = idStore.getOrCreate(problem)
+        ProblemEventDto.Appeared(buildProblemDto(problem, problemId))
       }
       is ProblemEvent.Disappeared -> {
-        val problemId = ProblemLifetimeManager.getInstance(project).removeProblemId(event.problem, lifetime)
+        val problemId = idStore.remove(problem)
         if (problemId == null) {
-          logMissingIdErrorWithDiagnostic(
-            problem = event.problem,
-            lifetime = lifetime
-          )
-          return@mapNotNull null
+          logMissingProblemId(problem)
+          null
         }
-        ProblemEventDto.Disappeared(problemId)
+        else {
+          ProblemEventDto.Disappeared(problemId)
+        }
       }
       is ProblemEvent.Updated -> {
-        val problemDto = buildProblemDto(event.problem, lifetime, project)
-        ProblemEventDto.Updated(problemDto)
+        val problemId = idStore.getOrCreate(problem)
+        ProblemEventDto.Updated(buildProblemDto(problem, problemId))
       }
     }
   }
 }
 
-internal suspend fun buildHighlightingProblemDto(
-  problem: HighlightingProblem,
-  lifetime: ProblemLifetime,
-  project: Project
-): HighlightingProblemDto {
-  val lifecycleManager = ProblemLifetimeManager.getInstance(project)
-  val problemId = lifecycleManager.getOrCreateHighlightingProblemId(problem, lifetime)
-
-  val quickFixes = getQuickFixesOfProblem(problem).map { intention ->
-    val intentionId = lifecycleManager.createIntentionId(intention.descriptor.action, lifetime, problemId)
-
-    val optionsWithIds = intention.options.map { optionAction ->
-      val optionId = lifecycleManager.createIntentionId(optionAction, lifetime, problemId)
-      IntentionOptionWithId(optionAction, optionId, optionAction.text, optionAction.familyName)
-    }
-
-    IntentionActionWithIds(intention.descriptor, intentionId, optionsWithIds, intention.text, intention.familyName)
-  }
-
-  return convertHighlightingProblemToDto(problem, problemId, quickFixes)
-}
-
-internal fun buildFileProblemDto(problem: FileProblem, lifetime: ProblemLifetime, project: Project): FileProblemDto {
-  val lifecycleManager = ProblemLifetimeManager.getInstance(project)
-  val problemId = lifecycleManager.getOrCreateProblemId(problem, lifetime)
-  return convertFileProblemToDto(problem, problemId)
-}
-
-internal fun buildGenericProblemDto(problem: Problem, lifetime: ProblemLifetime, project: Project): GenericProblemDto {
-  val lifecycleManager = ProblemLifetimeManager.getInstance(project)
-  val problemId = lifecycleManager.getOrCreateProblemId(problem, lifetime)
-  return convertGenericProblemToDto(problem, problemId)
-}
-
-internal suspend fun buildProblemDto(problem: Problem, lifetime: ProblemLifetime, project: Project): ProblemDto {
+internal fun buildProblemDto(problem: Problem, problemId: String): ProblemDto {
   return when (problem) {
-    is HighlightingProblem -> buildHighlightingProblemDto(problem, lifetime, project)
-    is FileProblem -> buildFileProblemDto(problem, lifetime, project)
-    else -> buildGenericProblemDto(problem, lifetime, project)
+    is FileProblem -> convertFileProblemToDto(problem, problemId)
+    else -> convertGenericProblemToDto(problem, problemId)
   }
 }
 
-private suspend fun getQuickFixesOfProblem(problem: HighlightingProblem): List<IntentionActionWithOptions> = readAction {
-  if (!problem.file.isValid) return@readAction emptyList()
-
-  val psiFile = PsiManager.getInstance(problem.provider.project).findFile(problem.file)
-  if (psiFile == null) return@readAction emptyList()
-
-  val editor = ProblemsViewEditorUtils.getEditor(psiFile, showEditor = false)
-  if (editor == null) return@readAction emptyList()
-
-  val intentionActionsWithOptions = mutableListOf<IntentionActionWithOptions>()
-
-  problem.info?.findRegisteredQuickFix { intentionAction, _ ->
-    val action = intentionAction.action
-    val isActionAvailable = runCatching {
-      action.isAvailable(psiFile.project, editor, psiFile)
-    }.getOrDefault(false)
-
-    if (isActionAvailable) {
-      val options = intentionAction.getOptions(psiFile, editor).toList()
-      intentionActionsWithOptions.add(
-        IntentionActionWithOptions(
-          descriptor = intentionAction,
-          options = options,
-          text = action.text,
-          familyName = action.familyName
-        )
-      )
-    }
-    null
-  }
-
-  return@readAction intentionActionsWithOptions
+private fun convertFileProblemToDto(problem: FileProblem, problemId: String): FileProblemDto {
+  return FileProblemDto(
+    id = problemId,
+    text = problem.text,
+    description = problem.description ?: "",
+    icon = problem.icon.rpcIdOrNull(),
+    filePath = problem.file.path,
+    fileId = problem.file.rpcId(),
+    line = problem.line,
+    column = problem.column,
+  )
 }
 
-private fun logMissingIdErrorWithDiagnostic(problem: Problem, lifetime: ProblemLifetime){
-  val message = buildString {
+private fun convertGenericProblemToDto(problem: Problem, problemId: String): GenericProblemDto {
+  return GenericProblemDto(
+    id = problemId,
+    text = problem.text,
+    description = problem.description ?: "",
+    icon = problem.icon.rpcIdOrNull(),
+  )
+}
+
+private fun logMissingProblemId(problem: Problem) {
+  LOG.debug(buildString {
     appendLine("Problem ID not found for Disappeared event.")
-
     appendLine("Problem:")
     appendLine("  type=${problem.javaClass.name}")
     appendLine("  hashCode=${problem.hashCode()}")
@@ -167,13 +85,5 @@ private fun logMissingIdErrorWithDiagnostic(problem: Problem, lifetime: ProblemL
     if (problem is FileProblem) {
       appendLine("  file='${problem.file.path}', line=${problem.line}, column=${problem.column}")
     }
-    if (problem is HighlightingProblem) {
-      val info = problem.info
-      appendLine("  highlighterHash=${problem.highlighter.hashCode()}, highlighterValid=${problem.highlighter.isValid}")
-      appendLine("  infoPresent=${info != null}, descriptionNull=${info?.description == null}, severity=${problem.severity}")
-    }
-    appendLine("Lifetime: active=${lifetime.coroutineScope.isActive}, scope=${lifetime.coroutineScope}")
-  }
-
-  LOG.debug(message)
+  })
 }

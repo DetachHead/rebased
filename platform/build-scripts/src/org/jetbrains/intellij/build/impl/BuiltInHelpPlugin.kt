@@ -1,11 +1,12 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.intellij.build.impl
 
+import com.intellij.platform.buildScripts.concurrency.withLockInterruptibly
 import io.opentelemetry.api.trace.Span
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
+import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.intellij.build.BuildContext
 import org.jetbrains.intellij.build.CompilationContext
+import org.jetbrains.intellij.build.dev.DevPluginLayoutAssetSpec
 import org.jetbrains.intellij.build.io.ZipArchiver
 import org.jetbrains.intellij.build.io.archiveDir
 import org.jetbrains.intellij.build.io.writeNewZipWithoutIndex
@@ -14,9 +15,17 @@ import org.jetbrains.intellij.build.telemetry.TraceManager.spanBuilder
 import org.jetbrains.intellij.build.telemetry.use
 import java.nio.file.Files
 import java.nio.file.Path
+import java.util.concurrent.locks.ReentrantLock
 import kotlin.io.path.exists
 
-internal const val BUILT_IN_HELP_MODULE_NAME = "intellij.builtInHelp"
+@ApiStatus.Internal
+const val BUILT_IN_HELP_MODULE_NAME: String = "intellij.builtInHelp"
+
+/**
+ * The dev distribution omits the help assets jar. A `HelpIndexer` run builds it from `help/plugin-resources`, which only
+ * a help build fills, and only the non-bundled plugin step builds this plugin.
+ */
+private val HELP_ASSETS_DEV_SPEC: DevPluginLayoutAssetSpec = DevPluginLayoutAssetSpec.OMITTED
 
 internal fun buildHelpPlugin(pluginVersion: String, context: BuildContext): Pair<PluginLayout, String>? {
   val productName = context.applicationInfo.fullProductName
@@ -40,7 +49,7 @@ internal fun buildHelpPlugin(pluginVersion: String, context: BuildContext): Pair
         overwrite = PatchOverwriteMode.TRUE
       )
     }
-    spec.withGeneratedResources { targetDir, buildContext ->
+    spec.withGeneratedResources(HELP_ASSETS_DEV_SPEC) { targetDir, buildContext ->
       val assetJar = targetDir.resolve("lib/help-$productLowerCase-assets.jar")
       buildResourcesForHelpPlugin(
         resourceRoot = resourceRoot,
@@ -87,7 +96,7 @@ private fun pluginXml(version: String, context: BuildContext): String {
 /**
  * Required due to write lock in [org.apache.lucene.index.IndexWriter.IndexWriter]
  */
-private val helpIndexerMutex = Mutex()
+private val helpIndexerLock = ReentrantLock()
 
 
 /*  Offline help plugins include a separate set of help topics for each of the supported languages.
@@ -106,9 +115,9 @@ private val supportedLanguages = mapOf(
   Pair("en-us", LanguageResourcesDescriptor(isRequired = true, resPath = ""))
 )
 
-private suspend fun buildResourcesForHelpPlugin(resourceRoot: Path, classPath: Collection<Path>, assetJar: Path, context: CompilationContext) {
+private fun buildResourcesForHelpPlugin(resourceRoot: Path, classPath: Collection<Path>, assetJar: Path, context: CompilationContext) {
   spanBuilder("index help topics").use {
-    helpIndexerMutex.withLock {
+    helpIndexerLock.withLockInterruptibly {
       supportedLanguages.forEach { (lang, descriptor) ->
         val topicPath = resourceRoot.resolve("${descriptor.resPath}topics")
         if (topicPath.exists())
@@ -147,4 +156,3 @@ private suspend fun buildResourcesForHelpPlugin(resourceRoot: Path, classPath: C
     }
   }
 }
-

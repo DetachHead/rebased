@@ -1,10 +1,8 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.openapi.editor
 
-import com.intellij.openapi.editor.ex.DocumentNewOps
 import com.intellij.openapi.editor.ex.DocumentOp
 import com.intellij.openapi.editor.ex.DocumentSnapshot
-import com.intellij.openapi.editor.ex.DocumentTextPatch
 import com.intellij.openapi.editor.impl.DocumentImpl
 import com.intellij.testFramework.junit5.TestApplication
 import org.junit.jupiter.api.Test
@@ -19,14 +17,15 @@ internal class DocumentSnapshotTest {
   @Test
   fun `withModStamp changing nothing returns the same snapshot`() {
     val snapshot = snapshot("abc")
-    assertSame(snapshot, snapshot.applyOp(modStampOp(snapshot.modState().stamp(), false)))
+    val actual = snapshot.applyOp(DocumentOp.modStampOp(snapshot.modState().stamp(), false))
+    assertSame(snapshot, actual)
   }
 
   @Test
   fun `withModStamp returns a snapshot carrying the new stamp`() {
     val snapshot = snapshot("abc")
     val originalStamp = snapshot.modState().stamp()
-    val updated = snapshot.applyOp(modStampOp(42L, true))
+    val updated = snapshot.applyOp(DocumentOp.modStampOp(42L, true))
     assertNotSame(snapshot, updated)
     assertEquals(42L, updated.modState().stamp())
     assertEquals(snapshot.modState().sequence() + 1, updated.modState().sequence())
@@ -37,8 +36,7 @@ internal class DocumentSnapshotTest {
   @Test
   fun `withClearedLineFlags of an untouched text returns the same snapshot`() {
     val snapshot = snapshot("a\nb\nc")
-    val newOps = DocumentNewOps.getInstance()
-    val op = newOps.createUnmodifiedLinesOp(0, Int.MAX_VALUE, IntArray(0))
+    val op = DocumentOp.unmodifiedLinesOp(0, Int.MAX_VALUE, IntArray(0))
     assertSame(snapshot, snapshot.applyOp(op))
   }
 
@@ -79,18 +77,13 @@ internal class DocumentSnapshotTest {
   }
 
   @Test
-  fun `replacement increments modification sequence once`() {
+  fun `replacement increments modification sequence twice`() {
     val snapshot = snapshot("abc")
-    val patched = snapshot.applyOp(
-      DocumentTextPatch.simple(
-        startOffset = 1,
-        endOffset = 2,
-        newFragment = "xy",
-        newModStamp = snapshot.modState().stamp() + 1,
-        clearLineFlags = false,
-      )
-    )
-    assertEquals(snapshot.modState().sequence() + 1, patched.modState().sequence())
+    val patched = snapshot
+      .applyOp(DocumentOp.deleteOp(1, 1))
+      .applyOp(DocumentOp.insertOp(1, "xy"))
+      .applyOp(DocumentOp.modStampOp(snapshot.modState().stamp() + 1, false))
+    assertEquals(snapshot.modState().sequence() + 2, patched.modState().sequence())
   }
 
   @Test
@@ -110,19 +103,9 @@ internal class DocumentSnapshotTest {
   }
 
   private fun insertString(snapshot: DocumentSnapshot, fragment: String): DocumentSnapshot {
-    return snapshot.applyOp(
-      DocumentTextPatch.simple(
-        startOffset = 0,
-        endOffset = 0,
-        newFragment = fragment,
-        newModStamp = snapshot.modState().stamp() + 1,
-        clearLineFlags = false,
-      )
-    )
-  }
-
-  private fun modStampOp(stamp: Long, incSequence: Boolean): DocumentOp.ModStamp {
-    return DocumentNewOps.getInstance().createModStampOp(stamp, incSequence)
+    return snapshot
+      .applyOp(DocumentOp.insertOp(0, fragment))
+      .applyOp(DocumentOp.modStampOp(snapshot.modState().stamp() + 1, false))
   }
 
   private fun snapshot(text: String): DocumentSnapshot {

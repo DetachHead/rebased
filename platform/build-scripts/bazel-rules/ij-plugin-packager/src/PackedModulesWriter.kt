@@ -6,7 +6,11 @@ import kotlin.io.path.writeText
 /**
  * Writes the `packed-modules.yaml` file of one plugin distribution.
  *
- * The file names each jar of the distribution. Under a jar it names the modules the packager put into that jar.
+ * The file names each jar of the distribution. Under a jar it names the modules and the libraries the packager put into that jar.
+ * It names a library by the file name of its input JAR, because the packager does not know the name of the JPS library. The build
+ * scripts find the JPS library by that file name.
+ *
+ * It uses the format of `com.intellij.platform.distributionContent.FileEntry` to simplify parsing of the file in the build scripts.
  */
 internal class PackedModulesWriter(
   private val outputFile: Path,
@@ -18,6 +22,10 @@ internal class PackedModulesWriter(
     getOrCreateEntry(jarFile).modules.add(moduleName)
   }
 
+  fun addModuleLibrary(jarFile: Path, moduleName: String, libraryJarName: String) {
+    getOrCreateEntry(jarFile).moduleLevelLibraries.add(ModuleLevelLibraryEntry(moduleName, libraryJarName))
+  }
+
   fun addContentModule(jarFile: Path, moduleName: String) {
     getOrCreateEntry(jarFile).contentModules.add(moduleName)
   }
@@ -26,8 +34,20 @@ internal class PackedModulesWriter(
     val lines = ArrayList<String>()
     for (entry in entries.values.sortedBy { it.path }) {
       lines.add("- name: ${renderYamlScalar(entry.path)}")
-      addModules(lines, "modules", entry.modules)
-      addModules(lines, "contentModules", entry.contentModules)
+      val librariesByModule = entry.moduleLevelLibraries.groupBy { it.moduleName }
+      val fileName = entry.path.substringAfterLast('/')
+      addModules(lines, "modules", entry.modules, librariesByModule, fileName)
+      addModules(lines, "contentModules", entry.contentModules, librariesByModule, fileName)
+      val allModules = entry.modules + entry.contentModules
+      val librariesWithoutModule = entry.moduleLevelLibraries.filterNot { it.moduleName in allModules }
+      require(librariesWithoutModule.size <= 1) {
+        "Multiple libraries $librariesWithoutModule are packed in ${entry.path}"
+      }
+      val separateLibrary = librariesWithoutModule.singleOrNull()
+      if (separateLibrary != null) {
+        lines.add("  library: ${renderYamlScalar(separateLibrary.libraryJarName)}")
+        lines.add("  module: ${renderYamlScalar(separateLibrary.moduleName)}")
+      }
     }
     outputFile.writeText(lines.joinToString("\n"))
   }
@@ -43,13 +63,21 @@ internal class PackedModulesWriter(
     return newEntry
   }
 
-  private fun addModules(lines: MutableList<String>, key: String, modules: Set<String>) {
+  private fun addModules(lines: MutableList<String>, key: String, modules: Set<String>, librariesByModule: Map<String, List<ModuleLevelLibraryEntry>>, fileName: String) {
     if (modules.isEmpty()) {
       return
     }
     lines.add("  ${key}:")
     for (module in modules.sorted()) {
       lines.add("  - name: ${renderYamlScalar(module)}")
+      val libraryEntries = librariesByModule[module]
+      if (!libraryEntries.isNullOrEmpty()) {
+        lines.add("    libraries:")
+        libraryEntries.forEach { libraryEntry ->
+          lines.add("      ${renderYamlScalar(libraryEntry.libraryJarName)}:")
+          lines.add("        - name: ${renderYamlScalar(fileName)}")
+        }
+      }
     }
   }
 
@@ -64,5 +92,11 @@ internal class PackedModulesWriter(
     @JvmField val path: String,
     @JvmField val modules: HashSet<String> = HashSet(),
     @JvmField val contentModules: HashSet<String> = HashSet(),
+    @JvmField val moduleLevelLibraries: MutableSet<ModuleLevelLibraryEntry> = HashSet()
+  )
+
+  private data class ModuleLevelLibraryEntry(
+    val moduleName: String,
+    val libraryJarName: String,
   )
 }

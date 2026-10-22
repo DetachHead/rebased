@@ -23,7 +23,7 @@ public interface InspectionProfile extends Comparable<Object> {
 
   @NotNull @NlsSafe String getName();
 
-  @NotNull HighlightDisplayLevel getErrorLevel(@NotNull HighlightDisplayKey inspectionToolKey, PsiElement element);
+  @NotNull HighlightDisplayLevel getErrorLevel(@NotNull HighlightDisplayKey inspectionToolKey, @Nullable PsiElement element);
 
   /**
    * If you need to modify tool's settings, please use {@link #modifyToolSettings}
@@ -90,5 +90,5 @@ public interface InspectionProfile extends Comparable<Object> {
 
   @NotNull String getDisplayName();
 
-  @NotNull @Unmodifiable List<Tools> getAllEnabledInspectionTools(Project project);
+  @NotNull @Unmodifiable List<Tools> getAllEnabledInspectionTools(@Nullable Project project);
 }

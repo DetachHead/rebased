@@ -18,8 +18,8 @@ import java.util.List;
  */
 public class ConvertMapToClassTest extends GrIntentionTestCase {
   @Override
-  protected String getBasePath() {
-    return TestUtils.getTestDataPath() + "intentions/convertMapToClass/";
+  protected String getTestDataPath() {
+    return TestUtils.getAbsoluteTestDataPath() + "intentions/convertMapToClass/";
   }
 
   public void testSimple() {

@@ -10,6 +10,10 @@ jps_test(
 )
 ### skip generation section `test intellij.platform.builtInServer.tests`
 
+### auto-generated section `dev intellij.platform.builtInServer.impl` start
+content_module_jar(module = ":builtInServer-impl")
+### auto-generated section `dev intellij.platform.builtInServer.impl` end
+
 ### auto-generated section `build intellij.platform.builtInServer.impl` start
 jvm_library(
     name = "builtInServer-impl",
@@ -50,9 +54,8 @@ jvm_library(
         "@lib//:kotlin-stdlib",
         "//libraries/netty/codec-http:libraries-netty-codec-http",
         "//libraries/fastutil",
-        "//libraries/jackson/jackson",
         "//libraries/jackson3/jackson:libraries-jackson3",
-        "//libraries/jackson/jr-objects:libraries-jackson-jr-objects",
+        "//libraries/jackson3/jr-objects:libraries-jackson3-jr-objects",
         "//libraries/netty/buffer",
         "//libraries/caffeine",
         "//platform/util/concurrency",
@@ -66,11 +69,10 @@ jvm_library(
         "//libraries/kotlinx/coroutines/core",
         "//libraries/netty/codec-compression:libraries-netty-codec-compression",
         "//platform/execution",
+        "//platform/consoleView",
         "//platform/eel-nioFs",
     ],
 )
-
-content_module_jar(module = ":builtInServer-impl")
 
 jvm_library(
     name = "builtInServer-impl_test_lib",
@@ -104,9 +106,8 @@ jvm_library(
         "//platform/diff-api:diff_test_lib",
         "//libraries/netty/codec-http:libraries-netty-codec-http_test_lib",
         "//libraries/fastutil:fastutil_test_lib",
-        "//libraries/jackson/jackson:jackson_test_lib",
         "//libraries/jackson3/jackson:libraries-jackson3_test_lib",
-        "//libraries/jackson/jr-objects:libraries-jackson-jr-objects_test_lib",
+        "//libraries/jackson3/jr-objects:libraries-jackson3-jr-objects_test_lib",
         "//libraries/netty/buffer:buffer_test_lib",
         "//libraries/caffeine:caffeine_test_lib",
         "//platform/util/concurrency:concurrency_test_lib",
@@ -120,6 +121,7 @@ jvm_library(
         "//libraries/kotlinx/coroutines/core:core_test_lib",
         "//libraries/netty/codec-compression:libraries-netty-codec-compression_test_lib",
         "//platform/execution:execution_test_lib",
+        "//platform/consoleView:consoleView_test_lib",
         "//platform/eel-nioFs:eel-nioFs_test_lib",
     ],
 )
@@ -130,7 +132,6 @@ exports_files(
     [
         "intellij.platform.builtInServer.impl.iml",
         "resources/intellij.platform.builtInServer.impl.xml",
-        "module-content.yaml",
     ],
     visibility = ["//visibility:public"],
 )
@@ -164,6 +165,7 @@ jvm_library(
         "//libraries/netty/buffer",
         "//platform/core-ui",
         "//platform/platform-util-io:ide-util-io",
+        "//xml/plugin",
     ],
 )
 
@@ -192,6 +194,7 @@ jvm_library(
         "//platform/platform-impl:ide-impl_test_lib",
         "//platform/platform-util-io:ide-util-io_test_lib",
         "//platform/platform-util-netty:ide-util-netty_test_lib",
+        "//xml/plugin:plugin_test_lib",
     ],
     deps = [
         # do not sort,

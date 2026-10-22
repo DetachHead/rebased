@@ -13,6 +13,6 @@ internal class DeeplyNotNull {
     }
 
     // top-level ArrayList can still be nullable
-    private fun foo(strings: ArrayList<String>?) {
+    private fun foo(strings: ArrayList<String>) {
     }
 }

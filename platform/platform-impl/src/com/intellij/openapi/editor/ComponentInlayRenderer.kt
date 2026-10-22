@@ -16,11 +16,13 @@ import java.awt.Rectangle
 @Experimental
 open class ComponentInlayRenderer<out T : Component>(val component: T,
                                                      val alignment: ComponentInlayAlignment? = null) : EditorCustomElementRenderer {
-  internal var inlaySize: Dimension = component.preferredSize
+  internal var inlaySize: Dimension = component.preferredSize.let {
+    if (it.width >= 0 && it.height >= 0) it else Dimension(maxOf(0, it.width), maxOf( 0, it.height))
+  }
 
   final override fun calcWidthInPixels(inlay: Inlay<*>): Int = inlaySize.width
 
   final override fun calcHeightInPixels(inlay: Inlay<*>): Int = inlaySize.height
 
-  final override fun paint(inlay: Inlay<*>, g: Graphics, targetRegion: Rectangle, textAttributes: TextAttributes) = Unit
+  final override fun paint(inlay: Inlay<*>, g: Graphics, targetRegion: Rectangle, textAttributes: TextAttributes): Unit = Unit
 }

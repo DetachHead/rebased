@@ -1,6 +1,10 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
 load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
+### auto-generated section `dev intellij.mcpserver.frontend` start
+content_module_jar(module = ":mcpserver.frontend")
+### auto-generated section `dev intellij.mcpserver.frontend` end
+
 ### auto-generated section `build intellij.mcpserver.frontend` start
 jvm_library(
     name = "mcpserver.frontend",
@@ -23,9 +27,7 @@ jvm_library(
         "@lib//:kotlin-stdlib",
         "//platform/platform-frontend:frontend",
         "//plugins/mcp-server:mcpserver",
-        "//platform/compose",
         "//platform/compose/swing-ui:swing",
-        "//libraries/compose-swing-ui:compose-swing",
         "//platform/platform-api:ide",
         "//platform/lang-api:lang",
         "//platform/core-api:core",
@@ -48,8 +50,6 @@ jvm_library(
     ],
 )
 
-content_module_jar(module = ":mcpserver.frontend")
-
 jvm_library(
     name = "mcpserver.frontend_test_lib",
     testonly = True,
@@ -64,9 +64,7 @@ jvm_library(
         ":mcpserver.frontend",
         "//platform/platform-frontend:frontend_test_lib",
         "//plugins/mcp-server:mcpserver_test_lib",
-        "//platform/compose:compose_test_lib",
         "//platform/compose/swing-ui:swing_test_lib",
-        "//libraries/compose-swing-ui:compose-swing_test_lib",
         "//platform/platform-api:ide_test_lib",
         "//platform/lang-api:lang_test_lib",
         "//platform/core-api:core_test_lib",

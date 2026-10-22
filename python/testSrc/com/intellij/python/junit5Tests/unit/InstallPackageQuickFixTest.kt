@@ -7,6 +7,7 @@ import com.intellij.codeInspection.ProblemHighlightType
 import com.intellij.openapi.application.readAction
 import com.intellij.openapi.project.Project
 import com.intellij.psi.PsiFile
+import com.intellij.psi.util.PsiUtilCore
 import com.intellij.python.junit5Tests.framework.PyDefaultTestApplication
 import com.intellij.python.junit5Tests.framework.metaInfo.TestClassInfo
 import com.intellij.testFramework.TestDataPath
@@ -40,7 +41,7 @@ internal class InstallPackageQuickFixTest(val project: Project) {
    */
   private suspend fun applyInstallAndImportQuickFix(psiFile: PsiFile, packageName: String, importAlias: String?) {
     val descriptor = readAction {
-      val element = psiFile.findElementAt(0)!!
+      val element = PsiUtilCore.getElementAtOffset(psiFile, 0)
       InspectionManager.getInstance(project)
         .createProblemDescriptor(
           element,

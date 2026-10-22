@@ -1,6 +1,10 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
 load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
+### auto-generated section `dev intellij.platform.vcs` start
+content_module_jar(module = ":vcs")
+### auto-generated section `dev intellij.platform.vcs` end
+
 ### auto-generated section `build intellij.platform.vcs` start
 jvm_library(
     name = "vcs",
@@ -23,10 +27,10 @@ jvm_library(
         "//platform/vcs-api/vcs-api-core:vcs-core",
         "//platform/vcs-api/shared",
     ],
-    runtime_deps = ["//platform/backend"],
     deps = [
         # do not sort,
         "//platform/analysis-api:analysis",
+        "//platform/backend",
         "//platform/editor-ui-api:editor-ui",
         "//platform/platform-api:ide",
         "//platform/ide-core",
@@ -44,11 +48,10 @@ jvm_library(
         "//libraries/caffeine",
         "//platform/vcs-api/shared",
         "//platform/execution",
+        "//platform/consoleView",
         "//platform/util/concurrency",
     ],
 )
-
-content_module_jar(module = ":vcs")
 
 jvm_library(
     name = "vcs_test_lib",
@@ -87,6 +90,7 @@ jvm_library(
         "//libraries/caffeine:caffeine_test_lib",
         "//platform/vcs-api/shared:shared_test_lib",
         "//platform/execution:execution_test_lib",
+        "//platform/consoleView:consoleView_test_lib",
         "//platform/util/concurrency:concurrency_test_lib",
     ],
 )
@@ -97,7 +101,6 @@ exports_files(
     [
         "intellij.platform.vcs.iml",
         "resources/intellij.platform.vcs.xml",
-        "module-content.yaml",
     ],
     visibility = ["//visibility:public"],
 )

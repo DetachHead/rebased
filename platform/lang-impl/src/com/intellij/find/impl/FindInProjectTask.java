@@ -3,6 +3,7 @@ package com.intellij.find.impl;
 
 import com.intellij.codeWithMe.ClientId;
 import com.intellij.concurrency.ConcurrentCollectionFactory;
+import com.intellij.find.DirectorySearchEngine;
 import com.intellij.find.FindBundle;
 import com.intellij.find.FindInProjectSearchEngine;
 import com.intellij.find.FindInProjectSearchEngine.FindInProjectSearcher;
@@ -39,6 +40,7 @@ import com.intellij.openapi.vfs.VirtualFileWithId;
 import com.intellij.openapi.vfs.newvfs.CacheAvoidingVirtualFile;
 import com.intellij.openapi.vfs.newvfs.NewVirtualFile;
 import com.intellij.platform.backend.workspace.WorkspaceModel;
+import com.intellij.platform.ide.productMode.IdeProductMode;
 import com.intellij.platform.workspace.jps.entities.ModuleEntity;
 import com.intellij.platform.workspace.jps.entities.ModuleId;
 import com.intellij.platform.workspace.storage.EntityStorage;
@@ -59,9 +61,9 @@ import com.intellij.util.TimeoutUtil;
 import com.intellij.util.concurrency.ThreadingAssertions;
 import com.intellij.util.containers.ConcurrentBitSet;
 import com.intellij.util.containers.ContainerUtil;
+import com.intellij.util.indexing.ConcurrentFileTraversal;
 import com.intellij.util.indexing.FileBasedIndex;
 import com.intellij.util.indexing.FileBasedIndexEx;
-import com.intellij.util.indexing.FilesDeque;
 import com.intellij.util.indexing.roots.IndexableEntityProviderMethods;
 import com.intellij.util.indexing.roots.IndexableFilesIterator;
 import com.intellij.util.indexing.roots.kind.ContentOrigin;
@@ -69,6 +71,7 @@ import com.intellij.util.indexing.roots.kind.IndexableSetOrigin;
 import com.intellij.util.text.StringSearcher;
 import com.intellij.util.ui.EDT;
 import com.intellij.workspaceModel.core.fileIndex.WorkspaceFileIndex;
+import kotlin.Unit;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -89,8 +92,8 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Predicate;
 
-import static com.intellij.openapi.roots.impl.FilesScanExecutor.processOnAllThreadsInReadActionWithRetries;
 import static com.intellij.util.containers.ContainerUtil.sorted;
+import static com.intellij.util.indexing.UnindexedFilesUpdater.processOnAllThreadsInReadActionWithRetries;
 
 final class FindInProjectTask {
   private static final Logger LOG = Logger.getInstance(FindInProjectTask.class);
@@ -124,9 +127,10 @@ final class FindInProjectTask {
 
   private final PsiManager psiManager;
 
-  //3 fields below are all derived from the findModel -- cached in ctor because derivation is too tedious:
+  //4 fields below are all derived from the findModel -- cached in ctor because derivation is too tedious:
   private final @Nullable Module moduleToSearchIn;
   private final @Nullable VirtualFile directoryToSearchIn;
+  private final boolean withSubdirectories;
   private final Predicate<VirtualFile> fileMaskFilter;
 
 
@@ -160,7 +164,21 @@ final class FindInProjectTask {
     psiManager = PsiManager.getInstance(project);
     projectFileIndex = ProjectRootManager.getInstance(project).getFileIndex();
 
-    directoryToSearchIn = FindInProjectUtil.getDirectory(findModel);
+    var directoryCandidate = FindInProjectUtil.getDirectory(findModel);
+    if (directoryCandidate == null && IdeProductMode.isLight()) {
+      // Make sure that in ijLight we always do a directory search. Directory search requests are easier to optimize by delegating
+      // iteration and pre-filtering to backend (ijent), thus minimizing amount of round trips over the network.
+      // What we configure here is a set of files which should be searched. It may contain more files than requested scope,
+      // but not less than requested. All the discovered files will be filtered by actually provided scope later.
+      // In ijLight we have a very primitive workspace model containing only one ProjectRootEntity, so all the scopes, including
+      // Project Scope and All Scope, are the same - this root directory.
+      directoryToSearchIn = ProjectUtil.guessProjectDir(project);
+      LOG.info("Using guessed " + directoryToSearchIn + " for search.");
+      withSubdirectories = true;
+    } else {
+      directoryToSearchIn = directoryCandidate;
+      withSubdirectories = findModel.isWithSubdirectories();
+    }
 
     String moduleName = findModel.getModuleName();
     moduleToSearchIn = moduleName == null ?
@@ -256,7 +274,7 @@ final class FindInProjectTask {
       progressIndicator.setIndeterminate(true);
       progressIndicator.setText(FindBundle.message("progress.text.scanning.non.indexed.files"));
 
-      //search item := { VirtualFile | IndexableFilesIterator | FindModelExtension | FilesDeque }
+      //search item := { VirtualFile | IndexableFilesIterator | FindModelExtension | TraversalItem }
       List<Object> searchItems = collectSearchItems();
 
       AtomicInteger otherFilesCount = new AtomicInteger();
@@ -343,7 +361,7 @@ final class FindInProjectTask {
   /**
    * Looks up for the search pattern (=myFindModel) in the single virtualFile, and delivers all the usages found
    * (if any) to the usageProcessor.
-   * Also does all the counting (occurrences found, etc) and the progress presentation updates (processPresentation)
+   * Also does all the counting (occurrences found, etc.) and the progress presentation updates (processPresentation)
    *
    * @return false if usageConsumer returns false for any of the occurrences found, true otherwise
    */
@@ -445,7 +463,7 @@ final class FindInProjectTask {
   }
 
   /**
-   * Unfolds search items (:={ VirtualFile | IndexableFilesIterator | FindModelExtension | FilesDeque }) down to individual
+   * Unfolds search items (:={ VirtualFile | IndexableFilesIterator | FindModelExtension | TraversalItem }) down to individual
    * files, and process them with the fileProcessor. Also does filtering according to {@link #findModel} settings.
    */
   private void unfoldAndProcessSearchItems(@NotNull List<Object> searchItems,
@@ -458,7 +476,7 @@ final class FindInProjectTask {
                            && ReadAction.computeBlocking(() -> globalCustomScope.isSearchInLibraries());
 
     boolean unfoldSubdirs = directoryToSearchIn != null
-                            && findModel.isWithSubdirectories();
+                            && withSubdirectories;
 
     boolean ignoreExcluded = directoryToSearchIn != null
                              && !Registry.is("find.search.in.excluded.dirs")
@@ -466,14 +484,16 @@ final class FindInProjectTask {
     boolean locateClassSources = directoryToSearchIn != null
                                  && ReadAction.computeBlocking(() -> projectFileIndex.getClassRootForFile(directoryToSearchIn)) != null;
 
-    //wrap into concurrent deque for multi-threaded processing
+    //wrap into concurrent deque for multithreaded processing
     ConcurrentLinkedDeque<Object> searchItemsDeque = new ConcurrentLinkedDeque<>(searchItems);
+    var directorySearchEngines = ContainerUtil.filter(DirectorySearchEngine.EP_NAME.getExtensionList(),
+                                                      engine -> engine.canSearch(findModel));
     ConcurrentBitSet visitedFileIds = ConcurrentBitSet.create();
     final var workspaceFileIndex = WorkspaceFileIndex.getInstance(project);
     processOnAllThreadsInReadActionWithRetries(
       searchItemsDeque,
 
-      searchItem -> { // := { VirtualFile | IndexableFilesIterator | FindModelExtension | FilesDeque }
+      searchItem -> { // := { VirtualFile | IndexableFilesIterator | FindModelExtension | TraversalItem }
         ProgressManager.checkCanceled();
 
         if (searchItem instanceof IndexableFilesIterator filesIterator) {
@@ -489,12 +509,13 @@ final class FindInProjectTask {
 
           return true;
         }
-        else if (searchItem instanceof FilesDeque filesDeque) {
-          for (var file = filesDeque.computeNext(); file != null; file = filesDeque.computeNext()) {
-            if (!file.isDirectory()) {
-              searchItemsDeque.add(file);
-            }
-            ProgressManager.checkCanceled();
+        else if (searchItem instanceof ConcurrentFileTraversal.TraversalItem traversalItem) {
+          boolean shouldProcessFile = traversalItem.expand(children -> {
+            searchItemsDeque.addAll(children);
+            return Unit.INSTANCE;
+          });
+          if (shouldProcessFile && !traversalItem.getFile().isDirectory()) {
+            searchItemsDeque.add(traversalItem.getFile());
           }
           return true;
         }
@@ -529,7 +550,17 @@ final class FindInProjectTask {
           }
           if (file.isDirectory()) {
             if (unfoldSubdirs) {
-              ContainerUtil.addAll(searchItemsDeque, file.getChildren());
+              // note that search engine may unfold more than one level and eventually visit already indexed, excluded or ignored
+              // files or directories. This might be a performance problem, but does not affect correctness: all the files
+              // will be checked against the WSM and requested scope later when this search task deals with individual files.
+              // MAYBE-ANK: While it is searcher's responsibility to work at least faster than the default implementation if it
+              // claims positive weight, it is also a good idea to not pass directories with excludes and indexed files into them.
+              DirectorySearchEngine directorySearchEngine = DirectorySearchEngine.selectDirectorySearchEngine(file, directorySearchEngines);
+              if (directorySearchEngine != null) {
+                directorySearchEngine.searchDirectory(file, findModel, searchItemsDeque::addAll);
+              } else {
+                LOG.error("At least DefaultDirectorySearchEngine must be available. No directory search engine for " + file);
+              }
             }
             return true;
           }
@@ -579,10 +610,9 @@ final class FindInProjectTask {
     );
   }
 
-
   /**
    * @return list of search 'items'. Item contains 1 or more files:
-   * <pre>item := { VirtualFile | IndexableFilesIterator | FindModelExtension | FilesDeque }</pre>
+   * <pre>item := { VirtualFile | IndexableFilesIterator | FindModelExtension | TraversalItem }</pre>
    */
   private @NotNull List<Object> collectSearchItems() {
     SearchScope customScope = findModel.isCustomScope() ? findModel.getCustomScope() : null;
@@ -590,7 +620,7 @@ final class FindInProjectTask {
     List<Object> searchItems = new ArrayList<>();
 
     //fill the list from _one of_ {customScope | directory | module | indexingProviders} + FindModelExtensions:
-    //so the resulting list is of { VirtualFile | IndexableFilesIterator | FindModelExtension | FilesDeque }
+    //so the resulting list is of { VirtualFile | IndexableFilesIterator | FindModelExtension | TraversalItem }
 
     if (customScope instanceof LocalSearchScope localSearchScope) {
       searchItems.addAll(GlobalSearchScopeUtil.getLocalScopeFiles(localSearchScope));
@@ -605,9 +635,11 @@ final class FindInProjectTask {
       //Directory could be anywhere outside the project, hence it is worth wrapping it into a cache-avoiding wrapper,
       // so walking through its children won't trash VFS cache with new entries from some rarely used file-tree:
       VirtualFile cacheAvoidingDirectory = NewVirtualFile.asCacheAvoiding(directoryToSearchIn);
-      boolean withSubdirs = findModel.isWithSubdirectories();
-      if (withSubdirs) {
+      if (withSubdirectories) {
         searchItems.add(cacheAvoidingDirectory);
+
+        // DirectorySearchEngine is not obliged to add unsaved documents to the search queue - do it now.
+        searchItems.addAll(getUnsavedDocumentsUnderDirectory(directoryToSearchIn));
       }
       else {
         ContainerUtil.addAll(searchItems, cacheAvoidingDirectory.getChildren());
@@ -616,6 +648,8 @@ final class FindInProjectTask {
       //          request a search in a specific directory _only_?
     }
     else if (moduleToSearchIn != null) {
+      LOG.assertTrue(!IdeProductMode.isLight(), "Search in module should not happen in ijLight. Searched module: " + moduleToSearchIn);
+
       EntityStorage storage = WorkspaceModel.getInstance(project).getCurrentSnapshot();
       ModuleEntity moduleEntity = Objects.requireNonNull(storage.resolve(new ModuleId(moduleToSearchIn.getName())));
       //MAYBE RC: wrap files into a cache-avoiding wrappers?
@@ -623,6 +657,8 @@ final class FindInProjectTask {
       searchItems.addAll(IndexableEntityProviderMethods.INSTANCE.createIterators(moduleEntity, storage, project));
     }
     else {
+      LOG.assertTrue(!IdeProductMode.isLight(), "Search in project should not happen in ijLight. Please use search in directory instead.");
+
       FileBasedIndexEx indexes = (FileBasedIndexEx)FileBasedIndex.getInstance();
       //Don't wrap those files in cache-avoiding wrappers: indexable files are scanned, and hence (will be) cached in VFS anyway:
       searchItems.addAll(indexes.getIndexableFilesProviders(project));
@@ -636,14 +672,33 @@ final class FindInProjectTask {
 
         //MAYBE RC: currently nonIndexableFiles() returns transient files already -- but maybe it is safer to return _regular_ files
         //          from nonIndexableFiles(), and wrap them all into transient here, in a unified way?
-        searchItems.add(ReadAction.nonBlocking(() -> FilesDeque.nonIndexableDequeue(project, searchInLibraries)).executeSynchronously());
+        searchItems.addAll(ReadAction.nonBlocking(() -> ConcurrentFileTraversal.nonIndexableTraversal(project, searchInLibraries).getRoots())
+                             .executeSynchronously());
       }
     }
 
     searchItems.addAll(FindModelExtension.EP_NAME.getExtensionList());
 
-
     return searchItems;
+  }
+
+  private static Collection<VirtualFile> getUnsavedDocumentsUnderDirectory(VirtualFile directory) {
+    if (directory instanceof CacheAvoidingVirtualFile cacheAvoidingDirectory) {
+      directory = cacheAvoidingDirectory.asCacheable();
+      if (directory == null) {
+        return List.of();
+      }
+    }
+
+    var fileDocumentManager = FileDocumentManager.getInstance();
+    var changedFiles = new ArrayList<VirtualFile>();
+    for (Document document : fileDocumentManager.getUnsavedDocuments()) {
+      VirtualFile file = fileDocumentManager.getFile(document);
+      if (file != null && VfsUtilCore.isAncestor(directory, file, false)) {
+        changedFiles.add(file);
+      }
+    }
+    return changedFiles;
   }
 
   /** @return candidate files found by searchers, filtered by fileMaskFilter */
@@ -669,7 +724,7 @@ final class FindInProjectTask {
     PsiFile psiFile = psiManager.findFile(virtualFile);
     if (psiFile != null) {
       PsiElement sourceFile = psiFile.getNavigationElement();
-      if (sourceFile instanceof PsiFile) psiFile = (PsiFile)sourceFile;
+      if (sourceFile instanceof PsiFile file) psiFile = file;
       if (psiFile.getFileType().isBinary()) {
         psiFile = null;
       }
@@ -688,7 +743,7 @@ final class FindInProjectTask {
    * won't trash VFS cache with new entries
    *
    * @see NewVirtualFile#asCacheAvoiding()
-   * @see com.intellij.openapi.vfs.newvfs.CacheAvoidingVirtualFile
+   * @see CacheAvoidingVirtualFile
    */
   private static void addAllWrappingAsCacheAvoiding(@NotNull List<Object> collection,
                                                     @NotNull Iterable<VirtualFile> files) {

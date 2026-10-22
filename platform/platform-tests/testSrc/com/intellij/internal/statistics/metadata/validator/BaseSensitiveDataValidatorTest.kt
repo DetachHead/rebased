@@ -28,6 +28,7 @@ import com.jetbrains.fus.reporting.RegionCode
 import com.jetbrains.fus.reporting.RemoteConfig
 import com.jetbrains.fus.reporting.defaults.DefaultMetadataStorage
 import com.jetbrains.fus.reporting.defaults.NoOpLoggerFactory
+import com.jetbrains.fus.reporting.model.config.v4.ConfigurationReleaseFilter
 import java.io.File
 import java.nio.file.Files
 import kotlin.test.assertTrue
@@ -128,6 +129,8 @@ abstract class BaseSensitiveDataValidatorTest  : UsefulTestCase() {
       override suspend fun update(): Boolean = true
       override suspend fun scheduleUpdate() = Unit
       override fun isUnreachable(): Boolean = false
+      override fun provideReleaseFilters(): List<ConfigurationReleaseFilter> = emptyList()
+      override fun provideReleaseFilters(releaseType: String?): List<ConfigurationReleaseFilter> = emptyList()
     }
 
     val fusConfig = FusClientConfig(
@@ -159,8 +162,8 @@ abstract class BaseSensitiveDataValidatorTest  : UsefulTestCase() {
       excludedFields = FeatureUsageData.platformDataKeys
     )
 
-    val fusComponents = FusComponentProvider.FusComponents(metadataStorage, messageBus, remoteConfig)
-    return fusComponents
+    // The validator only needs the metadata storage; the FusClient handle is irrelevant for validation tests.
+    return FusComponentProvider.FusComponents(metadataStorage)
   }
 
   internal fun newValidator(content: String, customBuild: String? = null): TestSensitiveDataValidator {

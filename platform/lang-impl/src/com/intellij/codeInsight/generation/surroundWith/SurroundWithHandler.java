@@ -8,6 +8,7 @@ import com.intellij.codeInsight.CodeInsightBundle;
 import com.intellij.codeInsight.hint.HintManager;
 import com.intellij.codeInsight.intention.impl.preview.PreviewHandler;
 import com.intellij.codeInsight.intention.preview.IntentionPreviewInfo;
+import com.intellij.codeInsight.multiverse.EditorContextManager;
 import com.intellij.codeInsight.template.TemplateManager;
 import com.intellij.codeInsight.template.impl.LiveTemplatesConfigurable;
 import com.intellij.codeInsight.template.impl.SurroundWithLogger;
@@ -60,7 +61,6 @@ import com.intellij.util.DocumentUtil;
 import com.intellij.util.concurrency.AppExecutorUtil;
 import com.intellij.util.text.CharArrayUtil;
 import com.intellij.util.ui.UIUtil;
-import one.util.streamex.StreamEx;
 import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -119,7 +119,9 @@ public final class SurroundWithHandler implements CodeInsightActionHandler {
     assert !(file instanceof PsiCompiledElement);
 
     Map<Surrounder, PsiElement[]> surrounders = computeSurrounders(editor, file);
-    StreamEx.ofValues(surrounders, s -> s.getClass().equals(surrounder.getClass()))
+    surrounders.entrySet().stream()
+      .filter(entry -> entry.getKey().getClass().equals(surrounder.getClass()))
+      .map(Map.Entry::getValue)
       .findFirst()
       .ifPresent(elements -> doSurround(project, editor, surrounder, elements));
   }
@@ -359,7 +361,7 @@ public final class SurroundWithHandler implements CodeInsightActionHandler {
     @Override
     public @NotNull IntentionPreviewInfo getPreview() {
       if (mySurrounder instanceof ModCommandSurrounder modCommandSurrounder) {
-        PsiFile file = PsiDocumentManager.getInstance(myProject).getPsiFile(myEditor.getDocument());
+        PsiFile file = EditorContextManager.getPsiFileForEditor(myEditor, myProject);
         if (file != null) {
           ActionContext context = ActionContext.from(myEditor, file);
           ModCommand command = modCommandSurrounder.surroundElements(context, myElements);

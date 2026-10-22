@@ -4,12 +4,13 @@ package com.intellij.java.psi;
 import com.intellij.codeInsight.Nullability;
 import com.intellij.codeInsight.TypeNullability;
 import com.intellij.lang.java.JavaLanguage;
+import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.application.WriteAction;
 import com.intellij.openapi.application.ex.PathManagerEx;
 import com.intellij.openapi.fileTypes.BinaryFileTypeDecompilers;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.io.IoTestUtil;
-import com.intellij.openapi.vfs.LocalFileSystem;
+import com.intellij.openapi.vfs.StandardFileSystems;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.pom.java.LanguageLevel;
 import com.intellij.psi.CommonClassNames;
@@ -99,7 +100,7 @@ public class ClsPsiTest extends LightIdeaTestCase {
     File testFile = IoTestUtil.createTestFile("TestClass.class");
     File file1 = new File(PathManagerEx.getTestDataPath() + TEST_DATA_PATH + "/1_TestClass.class");
     FileUtil.copy(file1, testFile);
-    VirtualFile vFile = LocalFileSystem.getInstance().refreshAndFindFileByIoFile(testFile);
+    VirtualFile vFile = StandardFileSystems.local().refreshAndFindFileByPath(testFile.getAbsolutePath());
     vFile.refresh(false, false);
     assertEquals(FileUtil.loadFileBytes(file1).length, vFile.contentsToByteArray().length);
     assertNotNull(testFile.getPath(), vFile);
@@ -431,7 +432,7 @@ public class ClsPsiTest extends LightIdeaTestCase {
     assertSize(1, aClass.findMethodsByName("valueOf", false));
     assertSize(1, aClass.findMethodsByName("values", false));
 
-    Collection<PsiClass> constants = DirectClassInheritorsSearch.search(aClass).findAll();
+    Collection<PsiClass> constants = ReadAction.computeBlocking(() -> DirectClassInheritorsSearch.search(aClass).findAll());
     assertSize(7, constants);
     for (PsiClass constant : constants) {
       assertSize(0, constant.findMethodsByName("valueOf", false));
@@ -575,7 +576,7 @@ public class ClsPsiTest extends LightIdeaTestCase {
 
   private PsiJavaFile getFile(String name) {
     String path = PathManagerEx.getTestDataPath() + TEST_DATA_PATH + "/pack/" + name + ".class";
-    VirtualFile file = LocalFileSystem.getInstance().refreshAndFindFileByPath(path);
+    VirtualFile file = StandardFileSystems.local().refreshAndFindFileByPath(path);
     assertNotNull(path, file);
     PsiFile clsFile = PsiManager.getInstance(getProject()).findFile(file);
     assertTrue(String.valueOf(clsFile), clsFile instanceof ClsFileImpl);
@@ -596,7 +597,7 @@ public class ClsPsiTest extends LightIdeaTestCase {
     File testFile = IoTestUtil.createTestFile("TestClass.class");
     File file1 = new File(PathManagerEx.getTestDataPath() + TEST_DATA_PATH + "/1_TestClass.class");
     FileUtil.copy(file1, testFile);
-    VirtualFile copyVFile = LocalFileSystem.getInstance().refreshAndFindFileByIoFile(testFile);
+    VirtualFile copyVFile = StandardFileSystems.local().refreshAndFindFileByPath(testFile.getAbsolutePath());
     ClsFileImpl clsFile = (ClsFileImpl)PsiManager.getInstance(getProject()).findFile(copyVFile);
     PsiElement mirror = BinaryFileTypeDecompilers.getInstance().allowDecompilerSlowOperation(() -> clsFile.getMirror());
     assertTrue(clsFile.isValid());

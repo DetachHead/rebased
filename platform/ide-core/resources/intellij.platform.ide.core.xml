@@ -6,15 +6,19 @@
     <module name="intellij.libraries.kotlinx.serialization.core"/>
     <module name="intellij.libraries.kotlinx.serialization.json"/>
     <module name="intellij.platform.analysis"/>
+    <module name="intellij.platform.backend.workspace"/>
+    <module name="intellij.platform.concurrency"/>
     <module name="intellij.platform.core"/>
     <module name="intellij.platform.core.ui"/>
     <module name="intellij.platform.editor.ui"/>
     <module name="intellij.platform.kernel"/>
     <module name="intellij.platform.projectModel"/>
+    <module name="intellij.platform.settings"/>
     <module name="intellij.platform.util.coroutines"/>
     <module name="intellij.platform.util.ex"/>
     <module name="intellij.platform.util.ui"/>
     <module name="intellij.platform.workspace.jps"/>
+    <module name="intellij.platform.workspace.storage"/>
   </dependencies>
   <!-- endregion -->
   <extensions defaultExtensionNs="com.intellij">
@@ -32,7 +36,7 @@
     <extensionPoint qualifiedName="com.intellij.dynamicApplicationInitializedListener" interface="com.intellij.ide.ApplicationInitializedListener" dynamic="true"/>
     <extensionPoint qualifiedName="com.intellij.applicationActivity" interface="com.intellij.ide.ApplicationActivity" dynamic="false"/>
     <extensionPoint qualifiedName="com.intellij.registryKey" beanClass="com.intellij.openapi.util.registry.RegistryKeyBean" dynamic="true"/>
-    <extensionPoint qualifiedName="com.intellij.registry.managed" interface="com.intellij.openapi.util.registry.ManagedRegistry" dynamic="false"/>
+    <extensionPoint qualifiedName="com.intellij.registry.managed" interface="com.intellij.openapi.util.registry.ManagedRegistry" dynamic="true"/>
     <extensionPoint qualifiedName="com.intellij.applicationSettings"
                     beanClass="com.intellij.ide.settings.SettingsComponentDescriptor"
                     dynamic="true">

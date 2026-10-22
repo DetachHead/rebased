@@ -3,6 +3,7 @@ package org.jetbrains.plugins.groovy.gant;
 
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.io.FileUtil;
+import com.intellij.openapi.vfs.newvfs.impl.VfsRootAccess;
 import com.intellij.testFramework.LightProjectDescriptor;
 import com.intellij.testFramework.fixtures.LightJavaCodeInsightFixtureTestCase;
 import org.jetbrains.annotations.NotNull;
@@ -18,15 +19,17 @@ public class StandaloneGantTest extends LightJavaCodeInsightFixtureTestCase {
   }
 
   @Override
-  protected String getBasePath() {
-    return TestUtils.getTestDataPath() + "gant/completion";
+  protected String getTestDataPath() {
+    return TestUtils.getAbsoluteTestDataPath() + "gant/completion";
   }
 
   @Override
   protected void setUp() throws Exception {
     super.setUp();
     final SdkHomeBean state = new SdkHomeBean();
-    state.setSdkHome(FileUtil.toSystemIndependentName(TestUtils.getAbsoluteTestDataPath() + "mockGantLib"));
+    var sdkHome = TestUtils.getAbsoluteTestDataPath() + "mockGantLib";
+    VfsRootAccess.allowRootAccess(getTestRootDisposable(), sdkHome);
+    state.setSdkHome(FileUtil.toSystemIndependentName(sdkHome));
     GantSettings.getInstance(getProject()).loadState(state);
   }
 

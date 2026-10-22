@@ -17,9 +17,14 @@
 *:com.intellij.codeInsight.multiverse.CodeInsightContextPresentationProvider
 - a:getIcon(com.intellij.codeInsight.multiverse.CodeInsightContext,com.intellij.openapi.project.Project):javax.swing.Icon
 - a:getPresentableText(com.intellij.codeInsight.multiverse.CodeInsightContext,com.intellij.openapi.project.Project):java.lang.String
+- getTooltipText(com.intellij.codeInsight.multiverse.CodeInsightContext,com.intellij.openapi.project.Project):java.lang.String
 - a:isApplicable(com.intellij.codeInsight.multiverse.CodeInsightContext):Z
 *:com.intellij.codeInsight.multiverse.CodeInsightContextProvider
+- getContextResetAction(com.intellij.openapi.vfs.VirtualFile,com.intellij.openapi.project.Project):kotlin.jvm.functions.Function1
 - a:getContexts(com.intellij.openapi.vfs.VirtualFile,com.intellij.openapi.project.Project):java.util.List
+- getPreferredContext(com.intellij.openapi.vfs.VirtualFile,com.intellij.openapi.project.Project,java.util.List):com.intellij.codeInsight.multiverse.CodeInsightContext
+- a:isOwnerOf(com.intellij.codeInsight.multiverse.CodeInsightContext):Z
+- onContextPicked(com.intellij.openapi.vfs.VirtualFile,com.intellij.openapi.project.Project,com.intellij.codeInsight.multiverse.CodeInsightContext):V
 - a:subscribeToChanges(com.intellij.openapi.project.Project,com.intellij.codeInsight.multiverse.CodeInsightContextProvider$Invalidator):V
 *:com.intellij.codeInsight.multiverse.CodeInsightContextProvider$Invalidator
 - a:requestInvalidation():V
@@ -43,9 +48,9 @@ com.intellij.ide.plugins.DynamicPluginListener
 - java.lang.Enum
 - *sf:Companion:com.intellij.ide.plugins.IdeaPluginOsRequirement$Companion
 - sf:FreeBSD:com.intellij.ide.plugins.IdeaPluginOsRequirement
-- sf:HarmonyOS:com.intellij.ide.plugins.IdeaPluginOsRequirement
 - sf:Linux:com.intellij.ide.plugins.IdeaPluginOsRequirement
 - sf:Mac:com.intellij.ide.plugins.IdeaPluginOsRequirement
+- sf:OHOS:com.intellij.ide.plugins.IdeaPluginOsRequirement
 - sf:Unix:com.intellij.ide.plugins.IdeaPluginOsRequirement
 - sf:Unknown:com.intellij.ide.plugins.IdeaPluginOsRequirement
 - sf:Windows:com.intellij.ide.plugins.IdeaPluginOsRequirement
@@ -332,6 +337,9 @@ a:com.intellij.openapi.project.DumbService
 - a:processFileEx(com.intellij.openapi.vfs.VirtualFile):com.intellij.util.containers.TreeNodeProcessingResult
 a:com.intellij.openapi.roots.FileIndexFacade
 - *a:isIndexable(com.intellij.openapi.vfs.VirtualFile):Z
+com.intellij.openapi.util.registry.RegistryManager
+- *a:is(java.lang.String,Z):Z
+- *a:stringValue(java.lang.String,java.lang.String):java.lang.String
 *:com.intellij.openapi.vfs.FileVisibilityProvider
 - *sf:Companion:com.intellij.openapi.vfs.FileVisibilityProvider$Companion
 - sf:EP_NAME:com.intellij.openapi.extensions.ProjectExtensionPointName
@@ -386,10 +394,14 @@ com.intellij.pom.Navigatable
 - s:registerParse(com.intellij.lang.PsiBuilder,com.intellij.lang.Language,J):V
 *:com.intellij.psi.ParsingDiagnostics$ParserDiagnosticsHandler
 - a:registerParse(com.intellij.lang.PsiBuilder,com.intellij.lang.Language,J):V
+com.intellij.psi.PsiCompiledElement
+- com.intellij.psi.PsiElement
+- *:getCachedMirror():com.intellij.psi.PsiElement
 com.intellij.psi.PsiDirectory
 - com.intellij.psi.PsiFileSystemItem
 - *:findFile(java.lang.String,com.intellij.psi.search.GlobalSearchScope):com.intellij.psi.PsiFile
 a:com.intellij.psi.PsiDocumentManager
+- *a:allowIsolatedCommits(com.intellij.openapi.editor.Document,java.util.function.Supplier):java.lang.Object
 - *a:getCachedPsiFile(com.intellij.openapi.editor.Document,com.intellij.codeInsight.multiverse.CodeInsightContext):com.intellij.psi.PsiFile
 - *a:getPsiFile(com.intellij.openapi.editor.Document,com.intellij.codeInsight.multiverse.CodeInsightContext):com.intellij.psi.PsiFile
 - *:hasEventSystemEnabledUncommittedDocuments():Z
@@ -468,11 +480,20 @@ f:com.intellij.psi.util.PsiTreeUtilKt
 - *sf:Companion:com.intellij.psi.util.PsiVersioningService$Companion
 - *s:createVersionedPsiElements(com.intellij.lang.ASTNode,kotlin.jvm.functions.Function0):java.lang.Object
 - *s:createVersionedPsiElements(com.intellij.psi.PsiElement,kotlin.jvm.functions.Function0):java.lang.Object
+- *s:currentOpaqueVersion():com.intellij.psi.util.PsiVersioningService$OpaquePsiVersion
+- *s:executeWithTimeline(com.intellij.psi.util.PsiVersioningService$OpaquePsiVersion,kotlin.jvm.functions.Function0):java.lang.Object
+- *s:forgetForkedTimeline(com.intellij.psi.util.PsiVersioningService$OpaquePsiVersion):V
+- *s:forkTimeline():com.intellij.psi.util.PsiVersioningService$OpaquePsiVersion
 - *s:freezePsiVersion(kotlin.jvm.functions.Function0):java.lang.Object
 *f:com.intellij.psi.util.PsiVersioningService$Companion
 - f:createVersionedPsiElements(com.intellij.lang.ASTNode,kotlin.jvm.functions.Function0):java.lang.Object
 - f:createVersionedPsiElements(com.intellij.psi.PsiElement,kotlin.jvm.functions.Function0):java.lang.Object
+- f:currentOpaqueVersion():com.intellij.psi.util.PsiVersioningService$OpaquePsiVersion
+- f:executeWithTimeline(com.intellij.psi.util.PsiVersioningService$OpaquePsiVersion,kotlin.jvm.functions.Function0):java.lang.Object
+- f:forgetForkedTimeline(com.intellij.psi.util.PsiVersioningService$OpaquePsiVersion):V
+- f:forkTimeline():com.intellij.psi.util.PsiVersioningService$OpaquePsiVersion
 - f:freezePsiVersion(kotlin.jvm.functions.Function0):java.lang.Object
+*:com.intellij.psi.util.PsiVersioningService$OpaquePsiVersion
 f:com.intellij.util.CoroutinesKt
 - *sf:awaitCancellationAndInvoke(kotlinx.coroutines.CoroutineScope,kotlin.coroutines.CoroutineContext,kotlin.jvm.functions.Function2):V
 - *bs:awaitCancellationAndInvoke$default(kotlinx.coroutines.CoroutineScope,kotlin.coroutines.CoroutineContext,kotlin.jvm.functions.Function2,I,java.lang.Object):V

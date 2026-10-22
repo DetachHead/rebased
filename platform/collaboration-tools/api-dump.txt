@@ -1,5 +1,10 @@
 f:com.intellij.collaboration.api.HttpApiHelperKt
 - sf:logName(java.net.http.HttpRequest):java.lang.String
+- sf:request(com.intellij.collaboration.api.HttpApiHelper,java.lang.String,kotlin.coroutines.Continuation):java.lang.Object
+- sf:sendAndAwait(com.intellij.collaboration.api.HttpApiHelper,java.net.http.HttpRequest,kotlin.coroutines.Continuation):java.lang.Object
+- sf:sendAndRead(com.intellij.collaboration.api.HttpApiHelper,java.net.http.HttpRequest,java.lang.String,kotlin.jvm.functions.Function3,kotlin.coroutines.Continuation):java.lang.Object
+- bs:sendAndRead$default(com.intellij.collaboration.api.HttpApiHelper,java.net.http.HttpRequest,java.lang.String,kotlin.jvm.functions.Function3,kotlin.coroutines.Continuation,I,java.lang.Object):java.lang.Object
+- sf:sendAndReadBody(com.intellij.collaboration.api.HttpApiHelper,java.net.http.HttpRequest,kotlin.jvm.functions.Function3,kotlin.coroutines.Continuation):java.lang.Object
 f:com.intellij.collaboration.api.HttpStatusErrorException
 - java.lang.RuntimeException
 - <init>(java.lang.String,I,java.lang.String):V
@@ -88,11 +93,6 @@ a:com.intellij.collaboration.api.httpclient.AuthorizationConfigurer
 - <init>():V
 - f:configureSuspend(java.net.http.HttpRequest$Builder,kotlin.coroutines.Continuation):java.lang.Object
 - pa:getAuthorizationHeaderValue():java.lang.String
-f:com.intellij.collaboration.api.httpclient.ByteArrayProducingBodyPublisher
-- java.net.http.HttpRequest$BodyPublisher
-- <init>(kotlin.jvm.functions.Function0):V
-- contentLength():J
-- subscribe(java.util.concurrent.Flow$Subscriber):V
 c:com.intellij.collaboration.api.httpclient.CommonHeadersConfigurer
 - com.intellij.collaboration.api.httpclient.HttpRequestConfigurer
 - <init>():V
@@ -116,21 +116,26 @@ f:com.intellij.collaboration.api.httpclient.HttpClientUtil
 - sf:ACCEPT_HEADER:java.lang.String
 - sf:CONTENT_ENCODING_GZIP:java.lang.String
 - sf:CONTENT_ENCODING_HEADER:java.lang.String
-- sf:CONTENT_TYPE_ENCODED_FORM:java.lang.String
+- sf:CONTENT_LENGTH_HEADER:java.lang.String
 - sf:CONTENT_TYPE_HEADER:java.lang.String
-- sf:CONTENT_TYPE_JSON:java.lang.String
+- sf:ETAG_HEADER:java.lang.String
+- sf:IF_NONE_MATCH_HEADER:java.lang.String
 - sf:INSTANCE:com.intellij.collaboration.api.httpclient.HttpClientUtil
+- sf:MIME_TYPE_APPLICATION_PREFIX:java.lang.String
+- sf:MIME_TYPE_ENCODED_FORM:java.lang.String
+- sf:MIME_TYPE_JSON:java.lang.String
+- sf:MIME_TYPE_JSON_SUFFIX:java.lang.String
+- sf:MIME_TYPE_TEXT_PREFIX:java.lang.String
+- sf:MIME_TYPE_XML_SUFFIX:java.lang.String
 - sf:USER_AGENT_HEADER:java.lang.String
-- f:checkStatusCodeWithLogging(com.intellij.openapi.diagnostic.Logger,java.lang.String,I,java.io.InputStream):V
+- f:getRequestName(java.lang.String,java.net.URI):java.lang.String
+- f:getRequestName(java.net.http.HttpRequest):java.lang.String
 - f:getUserAgentValue(java.lang.String):java.lang.String
-- f:inflateAndReadWithErrorHandlingAndLogging(com.intellij.openapi.diagnostic.Logger,java.net.http.HttpRequest,kotlin.jvm.functions.Function2):java.net.http.HttpResponse$BodyHandler
+- f:isJsonMimeType(java.lang.String):Z
+f:com.intellij.collaboration.api.httpclient.HttpClientUtilKt
 com.intellij.collaboration.api.httpclient.HttpRequestConfigurer
 - configure(java.net.http.HttpRequest$Builder):java.net.http.HttpRequest$Builder
 - configureSuspend(java.net.http.HttpRequest$Builder,kotlin.coroutines.Continuation):java.lang.Object
-f:com.intellij.collaboration.api.httpclient.InflatedStreamReadingBodyHandler
-- java.net.http.HttpResponse$BodyHandler
-- <init>(kotlin.jvm.functions.Function2):V
-- apply(java.net.http.HttpResponse$ResponseInfo):java.net.http.HttpResponse$BodySubscriber
 c:com.intellij.collaboration.api.httpclient.RequestTimeoutConfigurer
 - com.intellij.collaboration.api.httpclient.HttpRequestConfigurer
 - <init>():V
@@ -284,9 +289,6 @@ a:com.intellij.collaboration.file.ComplexPathVirtualFileWithoutContent
 - getOutputStream(java.lang.Object,J,J):java.lang.Void
 - pf:getSessionId():java.lang.String
 - hashCode():I
-f:com.intellij.collaboration.messages.CollaborationToolsBundle
-- s:message(java.lang.String,java.lang.Object[]):java.lang.String
-- s:messagePointer(java.lang.String,java.lang.Object[]):java.util.function.Supplier
 e:com.intellij.collaboration.snippets.PathHandlingMode
 - java.lang.Enum
 - sf:Companion:com.intellij.collaboration.snippets.PathHandlingMode$Companion
@@ -349,149 +351,12 @@ e:com.intellij.collaboration.ui.codereview.details.data.ReviewState
 - s:getEntries():kotlin.enums.EnumEntries
 - s:valueOf(java.lang.String):com.intellij.collaboration.ui.codereview.details.data.ReviewState
 - s:values():com.intellij.collaboration.ui.codereview.details.data.ReviewState[]
-a:com.intellij.collaboration.ui.codereview.diff.action.CodeReviewDiscussionsToggleAction
-- com.intellij.openapi.actionSystem.ActionGroup
-- com.intellij.openapi.project.DumbAware
-- <init>():V
-- pa:findViewModel(com.intellij.openapi.actionSystem.DataContext):com.intellij.collaboration.ui.codereview.diff.model.CodeReviewDiscussionsViewModel
-- getActionUpdateThread():com.intellij.openapi.actionSystem.ActionUpdateThread
-- getChildren(com.intellij.openapi.actionSystem.AnActionEvent):com.intellij.openapi.actionSystem.AnAction[]
-- update(com.intellij.openapi.actionSystem.AnActionEvent):V
-com.intellij.collaboration.ui.codereview.diff.viewer.DiffMapped
-- a:getLocation():kotlinx.coroutines.flow.Flow
-- a:isVisible():kotlinx.coroutines.flow.Flow
-f:com.intellij.collaboration.ui.codereview.diff.viewer.DiffViewerUtilKt
-- sf:showCodeReview(com.intellij.diff.tools.util.base.DiffViewerBase,kotlin.jvm.functions.Function6,kotlin.coroutines.Continuation):java.lang.Object
-- sf:showCodeReview(com.intellij.openapi.editor.ex.EditorEx,com.intellij.collaboration.ui.codereview.editor.CodeReviewEditorModel,kotlin.jvm.functions.Function2,kotlin.coroutines.Continuation):java.lang.Object
-f:com.intellij.collaboration.ui.codereview.editor.action.CodeReviewEditorShowFileDiffAction
-- com.intellij.openapi.project.DumbAwareAction
-- <init>():V
-- actionPerformed(com.intellij.openapi.actionSystem.AnActionEvent):V
-- getActionUpdateThread():com.intellij.openapi.actionSystem.ActionUpdateThread
-- update(com.intellij.openapi.actionSystem.AnActionEvent):V
-f:com.intellij.collaboration.ui.codereview.timeline.comment.CommentTextFieldFactory
-- sf:INSTANCE:com.intellij.collaboration.ui.codereview.timeline.comment.CommentTextFieldFactory
-f:com.intellij.collaboration.ui.codereview.timeline.comment.CommentTextFieldFactory$IconConfig
-- sf:Companion:com.intellij.collaboration.ui.codereview.timeline.comment.CommentTextFieldFactory$IconConfig$Companion
-- <init>(javax.swing.Icon,I):V
-- f:component1():javax.swing.Icon
-- f:component2():I
-- f:copy(javax.swing.Icon,I):com.intellij.collaboration.ui.codereview.timeline.comment.CommentTextFieldFactory$IconConfig
-- bs:copy$default(com.intellij.collaboration.ui.codereview.timeline.comment.CommentTextFieldFactory$IconConfig,javax.swing.Icon,I,I,java.lang.Object):com.intellij.collaboration.ui.codereview.timeline.comment.CommentTextFieldFactory$IconConfig
-- equals(java.lang.Object):Z
-- f:getGap():I
-- f:getIcon():javax.swing.Icon
-- hashCode():I
-f:com.intellij.collaboration.ui.codereview.timeline.comment.CommentTextFieldFactory$IconConfig$Companion
-- f:of(com.intellij.collaboration.ui.codereview.CodeReviewChatItemUIUtil$ComponentType,com.intellij.collaboration.ui.icon.IconsProvider,java.lang.Object):com.intellij.collaboration.ui.codereview.timeline.comment.CommentTextFieldFactory$IconConfig
-com.intellij.collaboration.ui.codereview.timeline.thread.CodeReviewFoldableThreadViewModel
-- a:getCanCreateReplies():kotlinx.coroutines.flow.StateFlow
-- a:getRepliesFolded():kotlinx.coroutines.flow.StateFlow
-- a:getRepliesState():kotlinx.coroutines.flow.StateFlow
-- a:isBusy():kotlinx.coroutines.flow.StateFlow
-- a:unfoldReplies():V
-com.intellij.collaboration.ui.codereview.timeline.thread.CodeReviewFoldableThreadViewModel$RepliesStateData
-- a:getLastReplyDate():java.util.Date
-- a:getRepliesAuthors():java.util.Set
-- a:getRepliesCount():I
-f:com.intellij.collaboration.ui.codereview.timeline.thread.CodeReviewFoldableThreadViewModel$RepliesStateData$Empty
-- com.intellij.collaboration.ui.codereview.timeline.thread.CodeReviewFoldableThreadViewModel$RepliesStateData
-- sf:INSTANCE:com.intellij.collaboration.ui.codereview.timeline.thread.CodeReviewFoldableThreadViewModel$RepliesStateData$Empty
-- getLastReplyDate():java.util.Date
-- getRepliesAuthors():java.util.Set
-- getRepliesCount():I
-com.intellij.collaboration.ui.codereview.timeline.thread.CodeReviewResolvableItemViewModel
-- a:changeResolvedState():V
-- a:getCanChangeResolvedState():kotlinx.coroutines.flow.StateFlow
-- a:isBusy():kotlinx.coroutines.flow.StateFlow
-- a:isResolved():kotlinx.coroutines.flow.StateFlow
-f:com.intellij.collaboration.ui.codereview.timeline.thread.TimelineThreadCommentsPanel
-- com.intellij.util.ui.components.BorderLayoutPanel
-- com.intellij.openapi.actionSystem.UiDataProvider
-- sf:Companion:com.intellij.collaboration.ui.codereview.timeline.thread.TimelineThreadCommentsPanel$Companion
-- sf:FOLD_THRESHOLD:I
-- sf:UNFOLD_BUTTON_VERTICAL_GAP:I
-- <init>(javax.swing.ListModel,kotlin.jvm.functions.Function1,I,I):V
-- b:<init>(javax.swing.ListModel,kotlin.jvm.functions.Function1,I,I,I,kotlin.jvm.internal.DefaultConstructorMarker):V
-- f:getFoldModel():com.intellij.collaboration.ui.SingleValueModel
-- uiDataSnapshot(com.intellij.openapi.actionSystem.DataSink):V
-f:com.intellij.collaboration.ui.codereview.timeline.thread.TimelineThreadCommentsPanel$Companion
-- f:createUnfoldComponent(I,kotlin.jvm.functions.Function1):javax.swing.JComponent
-com.intellij.collaboration.ui.codereview.user.CodeReviewUser
-- a:getAvatarUrl():java.lang.String
 f:com.intellij.collaboration.util.ChangesSelectionKt
 - sf:getSelectedChange(com.intellij.collaboration.util.ChangesSelection):com.intellij.collaboration.util.RefComparisonChange
 - sf:withLocation(com.intellij.collaboration.util.ChangesSelection$Precise,kotlin.Pair):com.intellij.collaboration.util.ChangesSelection$Precise
 f:com.intellij.collaboration.util.CodeReviewFilesUtil
 - sf:INSTANCE:com.intellij.collaboration.util.CodeReviewFilesUtil
-f:com.intellij.collaboration.util.CollectionDelta
-- <init>(java.util.Collection,java.util.Collection):V
-- f:getNewCollection():java.util.Collection
-- f:getNewItems():java.util.Collection
-- f:getRemovedItems():java.util.Collection
-- f:isEmpty():Z
-f:com.intellij.collaboration.util.ComputedResult
-- sf:Companion:com.intellij.collaboration.util.ComputedResult$Companion
-- bsf:box-impl(kotlin.Result):com.intellij.collaboration.util.ComputedResult
-- equals(java.lang.Object):Z
-- s:equals-impl(kotlin.Result,java.lang.Object):Z
-- sf:equals-impl0(kotlin.Result,kotlin.Result):Z
-- f:getResult-xLWZpok():kotlin.Result
-- hashCode():I
-- s:hashCode-impl(kotlin.Result):I
-- sf:isInProgress-impl(kotlin.Result):Z
-- sf:isSuccess-impl(kotlin.Result):Z
-- s:toString-impl(kotlin.Result):java.lang.String
-- bf:unbox-impl():kotlin.Result
-f:com.intellij.collaboration.util.ComputedResult$Companion
-- f:compute-Jugeb-E(kotlin.jvm.functions.Function0):com.intellij.collaboration.util.ComputedResult
-- f:failure-NCBHHgM(java.lang.Throwable):kotlin.Result
-- f:fromResult-vAKnILo(java.lang.Object):kotlin.Result
-- f:loading-uUe189E():kotlin.Result
-- f:success-NCBHHgM(java.lang.Object):kotlin.Result
-f:com.intellij.collaboration.util.ComputedResultKt
-- sf:computeEmitting(kotlinx.coroutines.flow.FlowCollector,kotlin.jvm.functions.Function0,kotlin.coroutines.Continuation):java.lang.Object
-- sf:exceptionOrNull-dyXsKJo(kotlin.Result):java.lang.Throwable
-- sf:fold--EiVA6M(kotlin.Result,kotlin.jvm.functions.Function0,kotlin.jvm.functions.Function1,kotlin.jvm.functions.Function1):java.lang.Object
-- sf:getOrNull-dyXsKJo(kotlin.Result):java.lang.Object
-- sf:map-dMZ2rFk(kotlin.Result,kotlin.jvm.functions.Function1):kotlin.Result
-- sf:onFailure-dMZ2rFk(kotlin.Result,kotlin.jvm.functions.Function1):kotlin.Result
-- sf:onInProgress-dMZ2rFk(kotlin.Result,kotlin.jvm.functions.Function0):kotlin.Result
-- sf:onSuccess-dMZ2rFk(kotlin.Result,kotlin.jvm.functions.Function1):kotlin.Result
-f:com.intellij.collaboration.util.ExcludingApproximateChangedRangesShifter
-- sf:INSTANCE:com.intellij.collaboration.util.ExcludingApproximateChangedRangesShifter
-- f:shift(java.lang.Iterable,java.lang.Iterable):java.util.List
-f:com.intellij.collaboration.util.HashingUtil
-- sf:INSTANCE:com.intellij.collaboration.util.HashingUtil
-- f:mappingStrategy(kotlin.jvm.functions.Function1,com.intellij.util.containers.HashingStrategy):com.intellij.util.containers.HashingStrategy
-- bs:mappingStrategy$default(com.intellij.collaboration.util.HashingUtil,kotlin.jvm.functions.Function1,com.intellij.util.containers.HashingStrategy,I,java.lang.Object):com.intellij.util.containers.HashingStrategy
-f:com.intellij.collaboration.util.HideableKt
-- sf:syncOrToggleAll(kotlin.sequences.Sequence):V
-f:com.intellij.collaboration.util.IncrementallyComputedValue
-- sf:Companion:com.intellij.collaboration.util.IncrementallyComputedValue$Companion
-- f:getExceptionOrNull():java.lang.Exception
-- f:getValue-fHzv8Uk():com.intellij.collaboration.util.IncrementallyComputedValue$Value
-- f:getValueOrNull():java.lang.Object
-- f:isComplete():Z
-- f:isLoading():Z
-- f:isValueAvailable():Z
-f:com.intellij.collaboration.util.IncrementallyComputedValue$Companion
-- f:failure(java.lang.Exception):com.intellij.collaboration.util.IncrementallyComputedValue
-- f:loading():com.intellij.collaboration.util.IncrementallyComputedValue
-- f:partialFailure(java.lang.Object,java.lang.Exception):com.intellij.collaboration.util.IncrementallyComputedValue
-- f:partialSuccess(java.lang.Object):com.intellij.collaboration.util.IncrementallyComputedValue
-- f:success(java.lang.Object):com.intellij.collaboration.util.IncrementallyComputedValue
-f:com.intellij.collaboration.util.IncrementallyComputedValue$Value
-- bsf:box-impl(java.lang.Object):com.intellij.collaboration.util.IncrementallyComputedValue$Value
-- s:constructor-impl(java.lang.Object):java.lang.Object
-- equals(java.lang.Object):Z
-- s:equals-impl(java.lang.Object,java.lang.Object):Z
-- sf:equals-impl0(java.lang.Object,java.lang.Object):Z
-- f:getValue():java.lang.Object
-- hashCode():I
-- s:hashCode-impl(java.lang.Object):I
-- s:toString-impl(java.lang.Object):java.lang.String
-- bf:unbox-impl():java.lang.Object
+f:com.intellij.collaboration.util.ComputableSequenceKt
 f:com.intellij.collaboration.util.KeyValuePairKt
 f:com.intellij.collaboration.util.ProgressIndicatorsProvider
 - com.intellij.openapi.Disposable
@@ -499,19 +364,11 @@ f:com.intellij.collaboration.util.ProgressIndicatorsProvider
 - f:acquireIndicator():com.intellij.openapi.progress.ProgressIndicator
 - dispose():V
 - f:releaseIndicator(com.intellij.openapi.progress.ProgressIndicator):Z
-f:com.intellij.collaboration.util.RefComparisonChangeKt
-- sf:getFilePath(com.intellij.collaboration.util.RefComparisonChange):com.intellij.openapi.vcs.FilePath
-- sf:getFileStatus(com.intellij.collaboration.util.RefComparisonChange):com.intellij.openapi.vcs.FileStatus
 f:com.intellij.collaboration.util.ResultUtil
 - sf:INSTANCE:com.intellij.collaboration.util.ResultUtil
 - f:processErrorAndGet(java.lang.Object,kotlin.jvm.functions.Function1):java.lang.Object
 - f:runCatchingUser-IoAF18A(kotlin.jvm.functions.Function0):java.lang.Object
-f:com.intellij.collaboration.util.SingleCoroutineLauncher
-- <init>(kotlinx.coroutines.CoroutineScope):V
-- f:cancel():V
-- f:getBusy():kotlinx.coroutines.flow.StateFlow
-- f:launch(kotlin.coroutines.CoroutineContext,kotlinx.coroutines.CoroutineStart,kotlin.jvm.functions.Function2):V
-- bs:launch$default(com.intellij.collaboration.util.SingleCoroutineLauncher,kotlin.coroutines.CoroutineContext,kotlinx.coroutines.CoroutineStart,kotlin.jvm.functions.Function2,I,java.lang.Object):V
+f:com.intellij.collaboration.util.SequenceItemKt
 f:com.intellij.collaboration.util.URIUtil
 - sf:INSTANCE:com.intellij.collaboration.util.URIUtil
 - f:createUriWithCustomScheme(java.lang.String,java.lang.String):java.net.URI
@@ -522,27 +379,3 @@ f:com.intellij.collaboration.util.URIUtil
 f:com.intellij.collaboration.util.URIUtilKt
 - sf:resolveRelative(java.net.URI,java.lang.String):java.net.URI
 - sf:withQuery(java.net.URI,java.lang.String):java.net.URI
-f:icons.CollaborationToolsIcons
-- sf:AddEmoji:javax.swing.Icon
-- sf:AddEmojiHovered:javax.swing.Icon
-- sf:Comment:javax.swing.Icon
-- sf:Delete:javax.swing.Icon
-- sf:DeleteHovered:javax.swing.Icon
-- sf:FileUnread:javax.swing.Icon
-- sf:PullRequestClosed:javax.swing.Icon
-- sf:PullRequestOpen:javax.swing.Icon
-- sf:Send:javax.swing.Icon
-- sf:SendHovered:javax.swing.Icon
-- <init>():V
-f:icons.CollaborationToolsIcons$Review
-- sf:Branch:javax.swing.Icon
-- sf:BranchCurrent:javax.swing.Icon
-- sf:CommentHovered:javax.swing.Icon
-- sf:CommentReadMany:javax.swing.Icon
-- sf:CommentUnread:javax.swing.Icon
-- sf:CommentUnreadMany:javax.swing.Icon
-- sf:CommentUnresolved:javax.swing.Icon
-- sf:DefaultAvatar:javax.swing.Icon
-- sf:FileUnread:javax.swing.Icon
-- sf:NonMergeable:javax.swing.Icon
-- <init>():V

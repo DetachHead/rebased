@@ -1,6 +1,10 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library", "resourcegroup")
 load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
+### auto-generated section `dev intellij.spellchecker` start
+content_module_jar(module = ":spellchecker")
+### auto-generated section `dev intellij.spellchecker` end
+
 ### auto-generated section `build intellij.spellchecker` start
 resourcegroup(
     name = "spellchecker_resources",
@@ -27,6 +31,7 @@ jvm_library(
     resource_strip_prefix = "resources",
     resources = glob(
         ["resources/**/*"],
+        exclude = ["resources/**/icon-robots.txt"],
     ),
     visibility = ["//visibility:public"],
     runtime_deps = ["//platform/backend"],
@@ -59,8 +64,6 @@ jvm_library(
         "//platform/util:util-ui",
     ],
 )
-
-content_module_jar(module = ":spellchecker")
 
 jvm_library(
     name = "spellchecker_test_lib",
@@ -108,7 +111,6 @@ exports_files(
     [
         "intellij.spellchecker.iml",
         "resources/intellij.spellchecker.xml",
-        "module-content.yaml",
     ],
     visibility = ["//visibility:public"],
 )

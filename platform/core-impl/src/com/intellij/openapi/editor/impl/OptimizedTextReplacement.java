@@ -1,7 +1,7 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.openapi.editor.impl;
 
-import com.intellij.openapi.editor.ex.DocumentTextPatch;
+import com.intellij.openapi.editor.ex.DocumentPatch;
 import com.intellij.util.text.ImmutableCharSequence;
 import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
@@ -9,7 +9,7 @@ import org.jetbrains.annotations.VisibleForTesting;
 
 /**
  * Computes a text replacement: trims the common prefix/suffix to produce the narrowed change-event parameters,
- * and builds the {@link DocumentTextPatch} for the resulting snapshot (reusing the caller's sequence as the whole
+ * and builds the {@link DocumentPatch} for the resulting snapshot (reusing the caller's sequence as the whole
  * new text when the entire document is replaced).
  */
 @ApiStatus.Internal
@@ -23,7 +23,7 @@ public final class OptimizedTextReplacement { // TODO: refactor me
   private final long newModStamp;
   private final boolean clearLineFlags;
 
-  private DocumentTextPatch patch;
+  private DocumentPatch patch;
   private int startOffset;
   private int endOffset;
   private int moveOffset;
@@ -101,7 +101,7 @@ public final class OptimizedTextReplacement { // TODO: refactor me
     if (wholeTextReplaced &&
         initialStartOffset == 0 && initialEndOffset == wholeText.length() &&
         initialNewFragment instanceof ImmutableCharSequence) {
-      this.patch = DocumentTextPatch.complex(
+      this.patch = DocumentPatch.complex(
         0,
         wholeText.length(),
         initialNewFragment,
@@ -114,7 +114,7 @@ public final class OptimizedTextReplacement { // TODO: refactor me
     } else {
       // decouple the event/patch fragment from the caller's possibly mutable sequence
       this.newFragment = ImmutableCharSequence.asImmutable(newFragment);
-      this.patch = DocumentTextPatch.complex(
+      this.patch = DocumentPatch.complex(
         startOffset,
         endOffset,
         newFragment,
@@ -128,7 +128,7 @@ public final class OptimizedTextReplacement { // TODO: refactor me
     return false;
   }
 
-  public @NotNull DocumentTextPatch getPatch() {
+  public @NotNull DocumentPatch getPatch() {
     return patch;
   }
 

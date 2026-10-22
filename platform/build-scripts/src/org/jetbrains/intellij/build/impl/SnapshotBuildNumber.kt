@@ -39,9 +39,8 @@ object SnapshotBuildNumber {
  * The plugin version a build stamps: [buildNumber] with its `.SNAPSHOT` suffix replaced by a fixed number, plus `.0`
  * when the result is a nightly.
  *
- * Shared by the two producers of a patched plugin descriptor. `BuildContextImpl.pluginBuildNumber` is the assembly's
- * reader, and `DevDistPluginDescriptorMain` is the packing action's. One function means the two cannot disagree on a
- * version string, which is what the byte gate would otherwise have to catch.
+ * `BuildContextImpl.pluginBuildNumber` is the one Kotlin reader. The descriptor writer (`stamps` of
+ * `community/build/dev-dist-tools/bins/plugin-descriptor-writer`) ports this rule, and its tests guard the version string.
  */
 internal fun computePluginBuildNumber(buildNumber: String): String {
   var value = buildNumber
@@ -61,5 +60,7 @@ internal fun computePluginBuildNumber(buildNumber: String): String {
  * What a `.SNAPSHOT` suffix becomes, so that the version matches Semantic Versioning.
  *
  * A fixed number and not the build date, so that two builds of one commit state one version.
+ *
+ * Please update it together with `computePluginVersion` in community/platform/build-scripts/bazel-rules/ij-plugin-packager/src/IjPluginPackager.kt
  */
 private const val SNAPSHOT_VERSION_SEGMENT = "99999999"

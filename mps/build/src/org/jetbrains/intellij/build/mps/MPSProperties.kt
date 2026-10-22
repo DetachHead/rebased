@@ -17,9 +17,9 @@ import org.jetbrains.intellij.build.NativeBinaryDownloader
 import org.jetbrains.intellij.build.OsFamily
 import org.jetbrains.intellij.build.WindowsDistributionCustomizer
 import org.jetbrains.intellij.build.impl.BuildUtils.checkedReplace
-import org.jetbrains.intellij.build.impl.LibraryPackMode
 import org.jetbrains.intellij.build.impl.PlatformLayout
 import org.jetbrains.intellij.build.impl.PluginLayout
+import org.jetbrains.intellij.build.impl.PluginVersionEvaluatorResult
 import org.jetbrains.intellij.build.productLayout.CommunityModuleSets
 import org.jetbrains.intellij.build.productLayout.CommunityProductFragments
 import org.jetbrains.intellij.build.productLayout.ProductModulesContentSpec
@@ -30,7 +30,7 @@ import java.nio.file.Path
 import java.nio.file.StandardCopyOption
 import kotlin.io.path.extension
 
-private val javaCompiler: (PlatformLayout, BuildContext) -> Unit = { layout, _ ->
+private val javaCompiler: (PlatformLayout) -> Unit = { layout ->
     for (name in listOf(
         "intellij.java.compiler.antTasks",
         "intellij.java.guiForms.compiler",
@@ -101,10 +101,12 @@ class MPSProperties : JetBrainsProductProperties() {
         productLayout.buildAllCompatiblePlugins = false
         productLayout.compatiblePluginsToIgnore = persistentListOf("intellij.java.plugin")
 
-        val pluginLayouts = productLayout.pluginLayouts + JavaPluginLayout.javaPlugin(patchPluginXml())
-        productLayout.pluginLayouts = pluginLayouts.toPersistentList()
+        val previousPluginLayouts = productLayout.pluginLayouts
+        productLayout.pluginLayouts = lazy {
+            (previousPluginLayouts.value + JavaPluginLayout.javaPlugin(patchPluginXml())).toPersistentList()
+        }
 
-        productLayout.addPlatformSpec { layout, _ ->
+        productLayout.addPlatformSpec { layout ->
             for (moduleName in listOf("intellij.platform.testFramework", "intellij.platform.testFramework.common", "intellij.java.testFramework", "intellij.platform.testFramework.core", "intellij.platform.testFramework.teamCity")) {
               layout.withModule(moduleName, "testFramework.jar")
             }
@@ -116,12 +118,9 @@ class MPSProperties : JetBrainsProductProperties() {
 
             layout.excludeFromModule("intellij.platform.testFramework", "mockito-extensions/**")
 
-            layout.withModule("intellij.java.rt", "idea_rt.jar")
             layout.withProjectLibrary("Eclipse", "lib.jar", "withProjectLibrary")
-            layout.withProjectLibrary("http-client", "lib.jar", "withProjectLibrary")
-//            layout.withoutProjectLibrary("Ant")
-            layout.withoutProjectLibrary("Gradle")
-            layout.withProjectLibrary("maven-resolver-provider", LibraryPackMode.STANDALONE_MERGED)
+            // the JPS build process reads the library from lib/; the wrapper module itself ships with the aether dependency resolver plugin
+            layout.withModuleLibrary("maven-resolver-provider", "intellij.libraries.maven.resolver.provider", "")
         }
 
         modulesToCompileTests = persistentListOf(
@@ -133,7 +132,7 @@ class MPSProperties : JetBrainsProductProperties() {
         buildSourcesArchive = true
     }
 
-    override suspend fun copyAdditionalFiles(targetDir: Path, context: BuildContext) {
+    override fun copyAdditionalFiles(targetDir: Path, context: BuildContext) {
         val communityHome = COMMUNITY_ROOT.communityRoot
         FileSet(Path.of("$communityHome/lib/ant")).includeAll().copyToDir(Path.of("$targetDir/lib/ant"))
 
@@ -160,7 +159,7 @@ class MPSProperties : JetBrainsProductProperties() {
         generateBuildTxt(context, Path.of("$targetDir/lib"))
     }
 
-    private suspend fun copyExecutables(context: BuildContext, targetDirectory: Path) {
+    private fun copyExecutables(context: BuildContext, targetDirectory: Path) {
         Files.createDirectories(Path.of("$targetDirectory/build/resources"))
         for (osFamily in OsFamily.entries) {
             for (arch in JvmArchitecture.entries) {
@@ -191,10 +190,9 @@ class MPSProperties : JetBrainsProductProperties() {
         include(CommunityProductFragments.platformCoreFragment())
 
         moduleSet(CommunityModuleSets.ideCommon())
-
-        // JSP base modules — the Java plugin's intellij.jsp/intellij.jsp.spi content modules depend on
-        // intellij.jsp.base, which java-capable products provide (see CommunityProductFragments.javaIdeBaseFragment).
-        moduleSet(CommunityModuleSets.jspBase())
+        // the bundled Compose plugin needs the Compose runtime
+        moduleSet(CommunityModuleSets.composeRuntime())
+        moduleSet(CommunityModuleSets.platformResourceDefaults())
 
         module("intellij.platform.whatsNew")
         module("intellij.ide.startup.importSettings")
@@ -204,6 +202,15 @@ class MPSProperties : JetBrainsProductProperties() {
         // `productImplementationModules` holds `intellij.platform.jps.build.javac.rt`, which depends on this wrapper.
         // The declaration keeps the plugin model the only truth for packaging, so `validateImplicitPlatformModule` passes.
         embeddedModule("intellij.libraries.jps.javac.extension")
+
+        // The platform layout holds `intellij.tools.testsBootstrap`, which depends on these wrappers. The same rule applies.
+        embeddedModule("intellij.libraries.hamcrest")
+        embeddedModule("intellij.libraries.junit4")
+        embeddedModule("intellij.libraries.junit6")
+        embeddedModule("intellij.libraries.junit6.jupiter")
+        embeddedModule("intellij.libraries.junit6.launcher")
+        embeddedModule("intellij.libraries.junit6.vintage")
+        embeddedModule("intellij.libraries.opentest4j")
 
         module("intellij.platform.customization.min")
         module("intellij.idea.customization.base")
@@ -246,23 +253,33 @@ class MPSProperties : JetBrainsProductProperties() {
     }
 
     private fun patchPluginXml(): (PluginLayout.PluginLayoutSpec) -> Unit = { spec ->
-      spec.withPluginXmlPatcher { text, _ ->
-        val newText = checkedReplace(
-          oldText = text,
-          regex = """<version>([^.]+)\.([^.]+)\.?(.*)</version>""",
-          newText = """<version>$1.100$2.$3-MPS</version>""",
-        )
-        
-        val regex = """(?m)(?s)(.*)<content namespace="jetbrains">(.+)</idea-plugin>([\n]*)"""
-        val patchedManifestContent = javaClass.classLoader.getResourceAsStream("java-impl.jar/META-INF/plugin.xml")?.use {
-          it.bufferedReader().readText()
-        } ?: throw IllegalStateException("Failed to resolve plugin xml")
-        val matchResult = Regex(regex).matchEntire(patchedManifestContent) ?: throw IllegalStateException("Failed to match regex")
-        checkedReplace(
-          oldText = newText,
-          regex = regex,
-          newText = """$1<content namespace="jetbrains">${matchResult.groups[2]?.value}</idea-plugin>$3""",
-        )
+      // The MPS version is not SemVer and not the IDE build scheme, so the descriptor version check must not run on it.
+      spec.semanticVersioning = false
+      spec.withCustomVersion { _, context ->
+        PluginVersionEvaluatorResult(pluginVersion = mpsJavaPluginVersion(context.pluginBuildNumber))
       }
+      spec.withRawPluginXmlPatcher { text, _ -> replaceJavaPluginTail(text) }
     }
+}
+
+/** `X.Y.Z` becomes `X.100Y.Z-MPS`. */
+private fun mpsJavaPluginVersion(ideBuildVersion: String): String {
+  return checkedReplace(oldText = ideBuildVersion, regex = """([^.]+)\.([^.]+)\.?(.*)""", newText = "$1.100$2.$3-MPS")
+}
+
+/**
+ * Replaces the source descriptor from `<content namespace="jetbrains">` to the end with the tail of the checked-in
+ * manifest. The tail states every content module with an inline descriptor, so the build embeds nothing into it.
+ */
+private fun replaceJavaPluginTail(text: String): String {
+  val regex = """(?m)(?s)(.*)<content namespace="jetbrains">(.+)</idea-plugin>(\n*)"""
+  val patchedManifestContent = MPSProperties::class.java.classLoader.getResourceAsStream("java-impl.jar/META-INF/plugin.xml")?.use {
+    it.bufferedReader().readText()
+  } ?: throw IllegalStateException("Failed to resolve plugin xml")
+  val matchResult = Regex(regex).matchEntire(patchedManifestContent) ?: throw IllegalStateException("Failed to match regex")
+  return checkedReplace(
+    oldText = text,
+    regex = regex,
+    newText = """$1<content namespace="jetbrains">${matchResult.groups[2]?.value}</idea-plugin>$3""",
+  )
 }

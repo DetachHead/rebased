@@ -32,7 +32,7 @@ object XDebuggerUtilImplShared {
   fun wrapKeepEditorAreaFocusNavigatable(project: Project, navigatable: Navigatable): Navigatable {
     return object : Navigatable {
       override fun navigate(requestFocus: Boolean) {
-        val isEditorAreaFocused = FileEditorManager.getInstance(project).getFocusedEditor() != null
+        val isEditorAreaFocused = FileEditorManager.getInstance(project).focusedEditor != null
         navigatable.navigate(requestFocus && isEditorAreaFocused)
       }
 

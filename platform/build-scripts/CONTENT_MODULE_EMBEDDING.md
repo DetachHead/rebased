@@ -476,8 +476,7 @@ for (module in descriptor.content.modules) {
 ├─────────────────────────────────────────────────────────────┤
 │ HEADER                                                       │
 ├─────────────────────────────────────────────────────────────┤
-│ [1 byte]  Format Version (2)                                │
-│ [1 byte]  jarOnly Flag (0/1)                                │
+│ [1 byte]  Format Version (3)                                │
 │ [4 bytes] Product Descriptor Size                           │
 │ [N bytes] Product Descriptor Content (XML with CDATA)       │
 │ [2 bytes] Plugin Count                                      │
@@ -580,7 +579,8 @@ BUILD TIME                              RUNTIME
 **Purpose**: Helper function that resolves a content module descriptor and embeds it as CDATA.
 
 **Key Features**:
-- Checks if content is already embedded (idempotent)
+- Resolves and caches the module descriptor first, because the runtime module repository reads that cache for every module of the published `<content>` list
+- A module that already holds a body keeps it, which makes the stage idempotent
 - Resolves module descriptor from cache (post-scrambling if applicable)
 - Applies optional descriptor modifications via callback
 - Embeds result as CDATA in the module element
@@ -648,10 +648,11 @@ For non-scrambled plugins, it's safe to embed immediately:
 
 ```kotlin
 // Structural xi:includes already resolved by this point
-filterAndProcessContentModules(rootElement, pluginMainModuleName, context) { moduleElement, moduleName, _ ->
-  if (pluginLayout.pathsToScramble.isEmpty()) {
+filterAndProcessContentModules(rootElement, pluginMainModuleName, context) { moduleElement, moduleName, _, refused ->
+  if (pluginLayout.pathsToScramble.isEmpty() || refused) {
     // NOT scrambled → embed content module descriptors now in plugin.xml
     // Safe because: no scrambling = no class name changes
+    // A refused module has no jar in the distribution, so the run time reads its body here (ADR 0022)
     embedContentModules(
       moduleElement = moduleElement,
       pluginDescriptorContainer = descriptorContainer,
@@ -665,9 +666,15 @@ filterAndProcessContentModules(rootElement, pluginMainModuleName, context) { mod
 }
 ```
 
+**What does the product mode filter do here?**
+- A `<module/>` the mode refuses stays in `plugin.xml`, with its body embedded
+- The packer gives it no jar and keeps it in the taken set, so the auto layout adds it to no other jar
+- The run time excludes the module from its descriptor (`configureProductModeModules`)
+- A module the build cannot resolve still leaves `plugin.xml`, and so does a refused module of the core plugin
+
 **What happens to scrambled plugins here?**
 - Structural xi:includes ARE resolved (to find `<content>` tags)
-- Content modules are NOT embedded (conditional skip via early return)
+- Content modules are NOT embedded (conditional skip via early return), except a refused one
 - The `<module>` elements remain empty
 - Embedding deferred to Path 2 (after scrambling)
 
@@ -752,7 +759,7 @@ assertThat(xmlContent).doesNotContain("com.intellij.ide.todo.TodoConfiguration")
 assertThat(xmlContent).doesNotContain("com.intellij.ide.bookmarks.Bookmark")
 
 // 2. Verify plugin descriptor doesn't contain unscrambled class names
-val pluginContent = (distFiles.first().content as InMemoryDistFileContent).data.decodeToString()
+val pluginContent = (distFiles.first().content as InMemoryDistFileContent).readAllBytes().decodeToString()
 assertThat(pluginContent).doesNotContain(
   "com.intellij.cwm.connection.backend.license.OpenLicenseSettingsAction"
 )

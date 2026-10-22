@@ -28,15 +28,16 @@ val MAVEN_ARTIFACTS_ADDITIONAL_MODULES: PersistentList<String> = persistentListO
   "intellij.space.java.jps",
 ) + JewelMavenArtifacts.STANDALONE.keys
 
-internal suspend fun createCommunityBuildContext(
+internal fun createCommunityBuildContext(
   options: BuildOptions,
-  projectHome: Path = COMMUNITY_ROOT.communityRoot,
+  projectHome: Path = COMMUNITY_ROOT.communityRoot, lifetime: BuildLifetime,
 ): BuildContext {
   return createBuildContext(
     projectHome = projectHome,
     productProperties = RebasedProperties(COMMUNITY_ROOT.communityRoot),
     setupTracer = true,
     options = options,
+    lifetime = lifetime,
   )
 }
 
@@ -76,11 +77,12 @@ open class RebasedProperties(private val communityHomeDir: Path) : JetBrainsProd
     productLayout.buildAllCompatiblePlugins = true
 
     // from upstream:
-    //productLayout.pluginLayouts = CommunityRepositoryModules.COMMUNITY_REPOSITORY_PLUGINS + persistentListOf(
-    //  JavaPluginLayout.javaPlugin(),
-    //  CommunityRepositoryModules.groovyPlugin(),
-    //  *CommunityRepositoryModules.androidPlugin(),
-    //)
+    //productLayout.pluginLayouts = lazy {
+    //  getCommunityRepositoryPlugins() + persistentListOf(
+    //    JavaPluginLayout.javaPlugin(),
+    //    groovyPlugin()
+    //  ) + androidPlugin()
+    //}
 
     productLayout.skipUnresolvedContentModules = true
 
@@ -141,7 +143,7 @@ open class RebasedProperties(private val communityHomeDir: Path) : JetBrainsProd
     include(intellijCommunityBaseFragment(platformPrefix))
   }
 
-  override suspend fun copyAdditionalFiles(targetDir: Path, context: BuildContext) {
+  override fun copyAdditionalFiles(targetDir: Path, context: BuildContext) {
     super.copyAdditionalFiles(targetDir, context)
 
     copyFileToDir(context.paths.communityHomeDir.resolve("LICENSE.txt"), targetDir)
@@ -155,7 +157,7 @@ open class RebasedProperties(private val communityHomeDir: Path) : JetBrainsProd
     bundleExternalPlugins(context, targetDir)
   }
 
-  protected open suspend fun bundleExternalPlugins(context: BuildContext, targetDirectory: Path) {}
+  protected open fun bundleExternalPlugins(context: BuildContext, targetDirectory: Path) {}
 
   override fun createWindowsCustomizer(projectHome: Path): WindowsDistributionCustomizer = ideaCommunityWindowsCustomizer(communityHomeDir)
 
@@ -244,6 +246,9 @@ fun intellijCommunityBaseFragment(platformPrefix: String? = null): ProductModule
 
   moduleSet(CommunityModuleSets.ideCommon())
   // from upstream:
+  // the bundled Compose plugin needs the Compose runtime
+  //moduleSet(CommunityModuleSets.composeRuntime())
+  //moduleSet(CommunityModuleSets.platformResourceDefaults())
   //moduleSet(CommunityModuleSets.rdCommon())
 
   embeddedModule("intellij.idea.community.ide.customization")
@@ -255,7 +260,7 @@ fun intellijCommunityBaseFragment(platformPrefix: String? = null): ProductModule
 
 inline fun ideaCommunityWindowsCustomizer(
   projectHome: Path,
-  configure: WindowsCustomizerBuilder.() -> Unit = {}
+  configure: WindowsCustomizerBuilder.() -> Unit = {},
 ): WindowsDistributionCustomizer = windowsCustomizer(projectHome) {
   fileAssociations = emptyList()
 
@@ -267,7 +272,7 @@ inline fun ideaCommunityWindowsCustomizer(
 
 inline fun ideaCommunityMacCustomizer(
   projectHome: Path,
-  configure: MacCustomizerBuilder.() -> Unit = {}
+  configure: MacCustomizerBuilder.() -> Unit = {},
 ): MacDistributionCustomizer = macCustomizer(projectHome) {
   urlSchemes = listOf("rebased")
   associateIpr = true
@@ -287,7 +292,7 @@ inline fun ideaCommunityMacCustomizer(
 
 inline fun ideaCommunityLinuxCustomizer(
   projectHome: Path,
-  configure: LinuxCustomizerBuilder.() -> Unit = {}
+  configure: LinuxCustomizerBuilder.() -> Unit = {},
 ): LinuxDistributionCustomizer = linuxCustomizer(projectHome) {
 
   rootDirectoryName { _, _ -> "idea-oss" }

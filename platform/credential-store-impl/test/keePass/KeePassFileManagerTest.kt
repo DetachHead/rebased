@@ -10,7 +10,10 @@ import com.intellij.testFramework.assertions.Assertions.assertThat
 import com.intellij.util.io.delete
 import com.intellij.util.io.outputStream
 import com.intellij.util.io.write
+import org.assertj.core.api.Assertions.assertThatThrownBy
 import org.junit.Test
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
 import java.util.Base64
 import kotlin.io.path.readText
 
@@ -76,6 +79,23 @@ internal class KeePassFileManagerTest : BaseKeePassFileManagerTest() {
 
     db = loadKdbx(dbFile, kdbxPassword)
     checkEntry(db)
+  }
+
+  @Test
+  fun `unsupported db file is rejected before the password prompt`() {
+    val dbFile = fsRule.fs.getPath("/v4.kdbx")
+    // the KDBX signature with the unsupported version 4
+    dbFile.write(ByteBuffer.allocate(12).order(ByteOrder.LITTLE_ENDIAN)
+                   .putInt(0x9AA2D903.toInt())
+                   .putInt(0xB54BFB67.toInt())
+                   .putInt(0x00040000)
+                   .array())
+
+    val keePassFileManager = TestKeePassFileManager(dbFile, fsRule.fs.getPath("/$MAIN_KEY_FILE_NAME"))
+    assertThatThrownBy { keePassFileManager.useExisting() }
+      .isInstanceOf(UnsupportedKdbxFileException::class.java)
+      .hasRootCauseMessage("File version did not match")
+    assertThat(keePassFileManager.isUnsatisfiedMasterPasswordRequest).isFalse()
   }
 
   @Test

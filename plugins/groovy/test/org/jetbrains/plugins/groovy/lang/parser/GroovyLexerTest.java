@@ -22,7 +22,12 @@ public class GroovyLexerTest extends LexerTestCase {
   @NotNull
   @Override
   protected String getDirPath() {
-    return TestUtils.getTestDataPath() + "lexer";
+    return "lexer";
+  }
+
+  @Override
+  protected @NotNull String getPathToTestDataFile(@NotNull String extension) {
+    return TestUtils.getAbsoluteTestDataPath() + getDirPath() + "/" + getTestName(true) + extension;
   }
 
   @Override

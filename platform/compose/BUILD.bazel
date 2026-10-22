@@ -11,6 +11,10 @@ jps_test(
 
 ### skip generation section `test intellij.platform.compose.tests`
 
+### auto-generated section `dev intellij.platform.compose` start
+content_module_jar(module = ":compose")
+### auto-generated section `dev intellij.platform.compose` end
+
 ### auto-generated section `build intellij.platform.compose` start
 jvm_library(
     name = "compose",
@@ -57,11 +61,6 @@ jvm_library(
     ],
 )
 
-content_module_jar(
-    libraries = ["@lib//:jetbrains-compose-components-ui-tooling-preview-desktop"],
-    module = ":compose",
-)
-
 jvm_library(
     name = "compose_test_lib",
     testonly = True,
@@ -99,8 +98,6 @@ jvm_library(
         "//libraries/skiko:skiko_test_lib",
         "//libraries/junit4",
         "//libraries/junit4:junit4_test_lib",
-        "//platform/jewel/int-ui/int-ui-standalone:jewel-intUi-standalone",
-        "//platform/jewel/int-ui/int-ui-standalone:jewel-intUi-standalone_test_lib",
         "//platform/diagnostic/telemetry:telemetry_test_lib",
         "//platform/core-impl:core-impl_test_lib",
     ],
@@ -112,7 +109,6 @@ exports_files(
     [
         "intellij.platform.compose.iml",
         "resources/intellij.platform.compose.xml",
-        "module-content.yaml",
     ],
     visibility = ["//visibility:public"],
 )
@@ -134,6 +130,7 @@ jvm_library(
         "//platform/jewel/ide-laf-bridge",
         "@lib//:jetbrains-compose-components-ui-tooling-preview-desktop",
     ],
+    runtime_deps = ["//platform/compose/plugin"],
 )
 
 jvm_library(
@@ -167,6 +164,7 @@ jvm_library(
         ":compose-tests",
         "//platform/platform-impl:ide-impl_test_lib",
         "//platform/ide-core:ide-core_test_lib",
+        "//platform/compose/plugin:plugin_test_lib",
     ],
     deps = [
         # do not sort,

@@ -39,6 +39,11 @@ public abstract class JavaBreakpointTypeBase<T extends JavaBreakpointProperties>
   }
 
   @Override
+  public final boolean isCaptureThreadDumpSupported() {
+    return BreakpointThreadDumpCapture.isAvailable();
+  }
+
+  @Override
   public final @NotNull XBreakpointCustomPropertiesPanel<XBreakpoint<T>> createCustomRightPropertiesPanel(@NotNull Project project) {
     return new JavaBreakpointFiltersPanel<>(project);
   }

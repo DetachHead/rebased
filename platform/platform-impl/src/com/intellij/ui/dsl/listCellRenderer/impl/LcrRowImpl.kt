@@ -3,6 +3,7 @@ package com.intellij.ui.dsl.listCellRenderer.impl
 
 import com.intellij.ide.IdeBundle
 import com.intellij.ide.ui.laf.darcula.ui.DarculaComboBoxUI
+import com.intellij.ide.ui.laf.darcula.ui.DarculaOnOffButtonUI
 import com.intellij.internal.inspector.PropertyBean
 import com.intellij.internal.inspector.UiInspectorContextProvider
 import com.intellij.openapi.ui.ComboBox
@@ -458,8 +459,9 @@ private class RendererPanel(key: RowKey) :
     val topOffset = when (cell) {
       is LcrIconImpl -> 0
 
+      is LcrSwitchImpl -> if ((result as? OnOffButton)?.ui is DarculaOnOffButtonUI) 0 else 1
+
       // Add 1 pixel above, which gives better vertical alignment in case odd row height
-      is LcrSwitchImpl,
       is LcrSimpleColoredTextImpl,
         -> 1
     }

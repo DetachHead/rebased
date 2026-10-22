@@ -12,18 +12,18 @@ jps_test(
 
 ### auto-generated section `build intellij.platform.testFramework.junit5` start
 jvm_provided_library(
-    name = "libraries_junit5-jupiter_provided",
-    lib = "//libraries/junit5-jupiter",
+    name = "libraries_junit6-jupiter_provided",
+    lib = "//libraries/junit6-jupiter",
 )
 
 jvm_provided_library(
-    name = "libraries_junit5_provided",
-    lib = "//libraries/junit5",
+    name = "libraries_junit6_provided",
+    lib = "//libraries/junit6",
 )
 
 jvm_provided_library(
-    name = "libraries_junit5-launcher_provided",
-    lib = "//libraries/junit5-launcher",
+    name = "libraries_junit6-launcher_provided",
+    lib = "//libraries/junit6-launcher",
 )
 
 jvm_library(
@@ -68,9 +68,9 @@ jvm_library(
         "//platform/util/coroutines",
         "//platform/util-ex",
         "//platform/util/jdom",
-        ":libraries_junit5-jupiter_provided",
-        ":libraries_junit5_provided",
-        ":libraries_junit5-launcher_provided",
+        ":libraries_junit6-jupiter_provided",
+        ":libraries_junit6_provided",
+        ":libraries_junit6-launcher_provided",
     ],
 )
 
@@ -86,19 +86,15 @@ jvm_library(
     runtime_deps = [
         # do not sort,
         ":junit5",
-        "//libraries/junit5-jupiter",
-        "//libraries/junit5-jupiter:junit5-jupiter_test_lib",
+        "//libraries/junit6-jupiter",
+        "//libraries/junit6-jupiter:junit6-jupiter_test_lib",
         "//libraries/jetbrains/annotations:annotations_test_lib",
         "//libraries/kotlinx/coroutines/core:core_test_lib",
-        "//libraries/junit5-params",
-        "//libraries/junit5-params:junit5-params_test_lib",
-        "//community-resources:customization",
-        "//community-resources:customization_test_lib",
         "//java/java-runtime:rt_test_lib",
-        "//libraries/junit5",
-        "//libraries/junit5:junit5_test_lib",
-        "//libraries/junit5-launcher",
-        "//libraries/junit5-launcher:junit5-launcher_test_lib",
+        "//libraries/junit6",
+        "//libraries/junit6:junit6_test_lib",
+        "//libraries/junit6-launcher",
+        "//libraries/junit6-launcher:junit6-launcher_test_lib",
         "//platform/analysis-api:analysis_test_lib",
         "//platform/core-api:core_test_lib",
         "//libraries/assertj-core:assertj-core_test_lib",
@@ -111,8 +107,6 @@ jvm_library(
         "//platform/ide-core:ide-core_test_lib",
         "//platform/platform-impl:ide-impl_test_lib",
         "//jps/model-api:model_test_lib",
-        "//platform/main/intellij.platform.monolith.main:monolith-main",
-        "//platform/main/intellij.platform.monolith.main:monolith-main_test_lib",
         "//platform/projectModel-api:projectModel_test_lib",
         "//platform/projectModel-impl:projectModel-impl_test_lib",
         "//platform/testFramework/common:common_test_lib",
@@ -175,8 +169,8 @@ jvm_library(
     ],
     deps = [
         # do not sort,
-        "//libraries/junit5-jupiter",
-        "//libraries/junit5-jupiter:junit5-jupiter_test_lib",
+        "//libraries/junit6-jupiter",
+        "//libraries/junit6-jupiter:junit6-jupiter_test_lib",
         "//libraries/jetbrains/annotations",
         "//libraries/jetbrains/annotations:annotations_test_lib",
         "@lib//:kotlin-stdlib",
@@ -184,16 +178,16 @@ jvm_library(
         "//libraries/kotlinx/coroutines/core:core_test_lib",
         "//libraries/opentest4j",
         "//libraries/opentest4j:opentest4j_test_lib",
-        "//libraries/junit5-params",
-        "//libraries/junit5-params:junit5-params_test_lib",
+        "//libraries/junit6-params",
+        "//libraries/junit6-params:junit6-params_test_lib",
         "//community-resources:customization",
         "//community-resources:customization_test_lib",
         "//java/java-runtime:rt",
         "//java/java-runtime:rt_test_lib",
-        "//libraries/junit5",
-        "//libraries/junit5:junit5_test_lib",
-        "//libraries/junit5-launcher",
-        "//libraries/junit5-launcher:junit5-launcher_test_lib",
+        "//libraries/junit6",
+        "//libraries/junit6:junit6_test_lib",
+        "//libraries/junit6-launcher",
+        "//libraries/junit6-launcher:junit6-launcher_test_lib",
         "//platform/analysis-api:analysis",
         "//platform/analysis-api:analysis_test_lib",
         "//platform/core-api:core",

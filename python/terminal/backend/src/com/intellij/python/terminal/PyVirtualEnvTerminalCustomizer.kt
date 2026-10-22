@@ -14,27 +14,34 @@ import com.intellij.openapi.vfs.toNioPathOrNull
 import com.intellij.platform.backend.workspace.WorkspaceModel
 import com.intellij.platform.backend.workspace.virtualFile
 import com.intellij.platform.eel.EelDescriptor
+import com.intellij.platform.eel.provider.asEelPath
 import com.intellij.platform.eel.provider.asNioPath
 import com.intellij.platform.eel.provider.getEelDescriptor
 import com.intellij.platform.workspace.jps.entities.ModuleEntity
 import com.intellij.platform.workspace.storage.entities
-import com.intellij.python.terminal.shared.PyVirtualEnvTerminalSettings
-import com.jetbrains.python.orLogException
 import com.intellij.python.sdk.backend.PythonEnvironment
-import com.jetbrains.python.sdk.activationEnvironment
 import com.intellij.python.sdk.backend.ShellActivation
-import com.jetbrains.python.sdk.internal.PYTHON_MODULE_ID
 import com.intellij.python.sdk.backend.pythonInterpreter
+import com.intellij.python.terminal.shared.PyVirtualEnvTerminalSettings
+import com.intellij.util.concurrency.annotations.RequiresBackgroundThread
+import com.jetbrains.python.orLogException
+import com.jetbrains.python.sdk.activationEnvironment
+import com.jetbrains.python.sdk.internal.PYTHON_MODULE_ID
 import com.jetbrains.python.sdk.pythonSdk
-import com.jetbrains.python.sdk.terminal.Shell
+import com.jetbrains.python.sdk.ShellType
 import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.annotations.VisibleForTesting
 import org.jetbrains.plugins.terminal.TerminalOptionsProvider
+import org.jetbrains.plugins.terminal.session.ShellName
 import org.jetbrains.plugins.terminal.startup.MutableShellExecOptions
 import org.jetbrains.plugins.terminal.startup.ShellExecOptionsCustomizer
 import java.nio.file.Path
 
-
+/**
+ * The activation that the terminal shell integration runs: a script file to source, or a snippet of code.
+ *
+ * When [source] is a snippet and not a file, only PowerShell runs it.
+ */
 private data class Jediterm(val source: String, val sourceArgs: List<String>? = null) {
   private companion object {
     const val JEDITERM_SOURCE = "JEDITERM_SOURCE"
@@ -45,7 +52,13 @@ private data class Jediterm(val source: String, val sourceArgs: List<String>? = 
     const val JEDITERM_SOURCE_SINGLE_ARG = "JEDITERM_SOURCE_SINGLE_ARG"
   }
 
-  constructor(path: Path, args: List<String>? = null) : this(path.toAbsolutePath().toString(), args)
+  /**
+   * [path] is a path on the IDE side, for example `\\wsl.localhost\Ubuntu\home\user\.venv\bin\activate`.
+   * The shell runs inside the eel of [path] and cannot open this path.
+   * So [asEelPath] converts [path] to the path inside the eel, for example `/home/user/.venv/bin/activate`.
+   * A local path does not change.
+   */
+  constructor(path: Path, args: List<String>? = null) : this(path.asEelPath().toString(), args)
 
   fun buildEnvironmentVariables(): Map<String, String> = buildMap {
     put(JEDITERM_SOURCE, source)
@@ -60,11 +73,12 @@ private data class Jediterm(val source: String, val sourceArgs: List<String>? = 
   }
 }
 
-class PyVirtualEnvTerminalCustomizer : ShellExecOptionsCustomizer {
+internal class PyVirtualEnvTerminalCustomizer : ShellExecOptionsCustomizer {
   private companion object {
     val logger = fileLogger()
   }
 
+  @RequiresBackgroundThread
   private fun activateUnknownShell(sdk: Sdk, envs: MutableMap<String, String>): Jediterm? {
     //for other shells we read envs from activate script by the default shell and pass them to the process
     val envVars = runBlockingMaybeCancellable { sdk.activationEnvironment() }.successOrNull ?: emptyMap()
@@ -80,24 +94,27 @@ class PyVirtualEnvTerminalCustomizer : ShellExecOptionsCustomizer {
   /**
    * What the shell must run to activate [environment], or null when there is nothing to run.
    *
-   * An unknown shell cannot source anything, so the environment is read by the default shell and passed on as
-   * variables instead. Every other shell asks the environment itself, so no kind of environment is named here.
+   * When [shell] is null, the shell is not known and cannot source anything. So the default shell reads the
+   * environment, and the terminal gets it as variables. Every other shell asks the environment itself, so no kind of environment is named here.
    */
-  private fun activate(shell: Shell, sdk: Sdk, environment: PythonEnvironment, envs: MutableMap<String, String>): Jediterm? {
-    if (shell.type == Shell.Type.UNKNOWN) return activateUnknownShell(sdk, envs)
-    return when (val activation = environment.shellActivation(shell.type)) {
+  @RequiresBackgroundThread
+  private fun activate(shell: ShellType?, sdk: Sdk, environment: PythonEnvironment, envs: MutableMap<String, String>): Jediterm? {
+    if (shell == null) return activateUnknownShell(sdk, envs)
+    return when (val activation = environment.activationScript(shell)) {
       null -> null
       is ShellActivation.SourceScript -> Jediterm(activation.scriptPath, activation.args)
+      // See the TODO on [ShellActivation.Snippet]: only PowerShell runs a snippet
       is ShellActivation.Snippet -> Jediterm(activation.code)
     }
   }
 
+  @RequiresBackgroundThread(generateAssertion = false)
   override fun customizeExecOptions(project: Project, shellExecOptions: MutableShellExecOptions) {
     val activationEnvs = LinkedHashMap<String, String>()
     customizeEnvironment(
       project = project,
       workingDirectory = shellExecOptions.workingDirectory.asNioPath().toString(),
-      command = shellExecOptions.execCommand.command.toTypedArray(),
+      shellName = shellExecOptions.execCommand.shellName,
       envs = activationEnvs,
       terminalEelDescriptor = shellExecOptions.eelDescriptor,
     )
@@ -106,33 +123,19 @@ class PyVirtualEnvTerminalCustomizer : ShellExecOptionsCustomizer {
     }
   }
 
-  @Deprecated(
-    "Use `customizeEnvironment` instead",
-    ReplaceWith("customizeEnvironment(project, workingDirectory, command, envs, terminalEelDescriptor)")
-  )
-  fun customizeCommandAndEnvironment(
-    project: Project,
-    workingDirectory: String?,
-    command: Array<out String>,
-    envs: MutableMap<String, String>,
-  ): Array<out String> {
-    customizeEnvironment(project, workingDirectory, command, envs, project.getEelDescriptor())
-    return command
-  }
-
   /**
-   * Computes the virtual env activation for a shell running [command] in [workingDirectory], writing the
+   * Computes the virtual env activation for a shell running [shellName] in [workingDirectory], writing the
    * activation environment variables into [envs]. The SDK is taken from the module that owns [workingDirectory].
    *
-   * When [terminalEelDescriptor] is provided, activation is skipped if the SDK lives in a different environment
-   * than the terminal (e.g. a Windows interpreter for a WSL shell), to avoid injecting cross-environment paths.
+   * Activation is skipped if the SDK lives in an environment other than [terminalEelDescriptor]
+   * (e.g. a Windows interpreter for a WSL shell), to avoid injecting cross-environment paths.
    */
   @VisibleForTesting
-  @ApiStatus.Experimental
-  fun customizeEnvironment(
+  @RequiresBackgroundThread
+  internal fun customizeEnvironment(
     project: Project,
     workingDirectory: String?,
-    command: Array<out String>,
+    shellName: ShellName,
     envs: MutableMap<String, String>,
     terminalEelDescriptor: EelDescriptor,
   ) {
@@ -143,12 +146,6 @@ class PyVirtualEnvTerminalCustomizer : ShellExecOptionsCustomizer {
 
     if (!PyVirtualEnvTerminalSettings.getInstance(project).virtualEnvActivate) {
       logger.debug("Virtual env activation is disabled for ${project.name}")
-      return
-    }
-
-    val shell = Shell.resolve(command)
-    if (shell == null) {
-      logger.warn("No shell to run for ${project.name}, cmd: ${command.joinToString(" ")}")
       return
     }
 
@@ -184,9 +181,8 @@ class PyVirtualEnvTerminalCustomizer : ShellExecOptionsCustomizer {
       logger.debug("Nothing to activate for ${sdk.homePath}")
       return
     }
-    val jediterm = activate(shell, sdk, pythonEnvironment, envs)
+    val jediterm = activate(ShellType.resolve(shellName.value), sdk, pythonEnvironment, envs)
     jediterm?.buildEnvironmentVariables()?.let { envs.putAll(it) }
-
 
     logger.debug("Activating ${sdk.homePath} with ${envs.entries.joinToString("\n")}")
   }

@@ -4,17 +4,17 @@
 package org.jetbrains.intellij.build.productLayout.dependency
 
 import com.fasterxml.aalto.WFCException
+import com.intellij.platform.buildScripts.concurrency.SharedCache
+import com.intellij.platform.buildScripts.concurrency.SharedTaskOwner
 import com.intellij.platform.pluginGraph.ContentModuleName
 import com.intellij.platform.pluginGraph.baseModuleName
 import com.intellij.platform.pluginGraph.toDescriptorFileName
 import com.intellij.platform.pluginSystem.parser.impl.elements.ModuleVisibilityValue
 import com.intellij.platform.pluginSystem.parser.impl.parseContentAndXIncludes
 import org.jetbrains.intellij.build.ModuleOutputProvider
-import org.jetbrains.intellij.build.findFileInModuleSources
 import org.jetbrains.intellij.build.productLayout.debug
 import org.jetbrains.intellij.build.productLayout.model.error.ErrorCategory
 import org.jetbrains.intellij.build.productLayout.model.error.UnsuppressedPipelineError
-import org.jetbrains.intellij.build.productLayout.util.AsyncCache
 import org.jetbrains.intellij.build.productLayout.util.resolveXIncludeBytes
 import java.nio.file.Files
 import java.nio.file.Path
@@ -23,15 +23,18 @@ import java.nio.file.Path
  * Cache for module descriptor information to avoid redundant file system lookups.
  *
  * This cache handles module descriptors (`{moduleName}.xml`) in both production and test resources.
- * For test descriptors (`{moduleName}._test.xml`), see test descriptor generation in the pipeline.
  *
  * For test plugin content modules, descriptors may be in test resources and need test dependencies.
  * See [docs/test-plugins.md](../../docs/test-plugins.md) for details.
- * 
+ *
  * The cache analyzes each module once. A second caller for the same module waits for the first result.
+ *
+ * The analysis does not resolve an `xi:include` path that is in [skipXIncludePaths].
  */
 internal class ModuleDescriptorCache(
   private val outputProvider: ModuleOutputProvider,
+  val owner: SharedTaskOwner,
+  private val skipXIncludePaths: Set<String> = emptySet(),
 ) {
   data class DescriptorInfo(
     @JvmField val descriptorPath: Path,
@@ -61,7 +64,7 @@ internal class ModuleDescriptorCache(
     @JvmField val suppressibleError: UnsuppressedPipelineError? = null,
   )
 
-  private val cache = AsyncCache<String, DescriptorInfo?>()
+  private val cache = SharedCache<String, DescriptorInfo?>(owner)
 
   /**
    * Gets cached descriptor info or analyzes the module if not yet cached.
@@ -87,7 +90,7 @@ internal class ModuleDescriptorCache(
     }
 
     // Search production sources first, fallback to test resources (for test plugin content modules)
-    val descriptorPath = findFileInModuleSources(
+    val descriptorPath = outputProvider.findFileInModuleSources(
       module = jpsModule,
       relativePath = descriptorFileName,
       onlyProductionSources = false,
@@ -123,6 +126,10 @@ internal class ModuleDescriptorCache(
     while (pendingIncludePaths.isNotEmpty()) {
       val nextIncludePaths = ArrayList<String>()
       pendingIncludePaths.forEach { includePath ->
+        if (includePath in skipXIncludePaths) {
+          debug("descriptorXIncludes") { "xi:include '$includePath' skipped (in skipXIncludePaths) for module $moduleName ($descriptorPath)" }
+          return@forEach
+        }
         // includes from other modules' library jars are not reachable here (same limitation as plugin.xml extraction);
         // they cannot contribute action groups anyway, so skip instead of failing
         val includeData = resolveXIncludeBytes(path = includePath, module = jpsModule, outputProvider = outputProvider, prefix = null)

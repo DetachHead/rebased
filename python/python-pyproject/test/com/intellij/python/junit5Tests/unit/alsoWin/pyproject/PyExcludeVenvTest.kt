@@ -1,12 +1,13 @@
 package com.intellij.python.junit5Tests.unit.alsoWin.pyproject
 
+import com.intellij.openapi.module.Module
 import com.intellij.openapi.application.edtWriteAction
 import com.intellij.openapi.project.rootManager
 import com.intellij.openapi.vfs.VirtualFileManager
 import com.intellij.python.pyproject.model.internal.platformBridge.startVenvExclusion
 import com.intellij.testFramework.common.timeoutRunBlocking
 import com.intellij.testFramework.junit5.TestApplication
-import com.intellij.python.junit5Tests.framework.pyModuleFixture
+import com.intellij.python.junit5Tests.framework.pyProjectFixture
 import com.intellij.testFramework.junit5.fixture.projectFixture
 import com.intellij.testFramework.junit5.fixture.tempPathFixture
 import com.intellij.testFramework.utils.vfs.createDirectory
@@ -20,7 +21,8 @@ import kotlin.time.Duration.Companion.milliseconds
 @TestApplication
 internal class PyExcludeVenvTest {
   private val tempDirFixture = tempPathFixture()
-  private val module by projectFixture().pyModuleFixture(tempDirFixture, addPathToSourceRoot = true)
+  private val pyProject by projectFixture().pyProjectFixture(tempDirFixture)
+  private val module: Module get() = pyProject.residesOnModule
 
   @Test
   fun testExclude(): Unit = timeoutRunBlocking {

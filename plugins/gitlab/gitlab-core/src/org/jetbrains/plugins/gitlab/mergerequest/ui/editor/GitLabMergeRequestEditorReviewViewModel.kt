@@ -57,7 +57,6 @@ import kotlinx.coroutines.flow.transformLatest
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.jetbrains.annotations.ApiStatus
-import org.jetbrains.plugins.gitlab.api.GitLabProjectCoordinates
 import org.jetbrains.plugins.gitlab.api.dto.GitLabUserDTO
 import org.jetbrains.plugins.gitlab.data.GitLabImageLoader
 import org.jetbrains.plugins.gitlab.mergerequest.GitLabMergeRequestsPreferences
@@ -76,8 +75,7 @@ private val LOG = logger<GitLabMergeRequestEditorReviewViewModel>()
 class GitLabMergeRequestEditorReviewViewModel internal constructor(
   parentCs: CoroutineScope,
   private val project: Project,
-  gitRemote: GitRemoteUrlCoordinates,
-  private val actualProjectCoordinates: GitLabProjectCoordinates,
+  private val gitRemote: GitRemoteUrlCoordinates,
   currentUser: GitLabUserDTO,
   private val mergeRequest: GitLabMergeRequest,
   private val discussionsVms: GitLabMergeRequestDiscussionsViewModels,
@@ -87,7 +85,7 @@ class GitLabMergeRequestEditorReviewViewModel internal constructor(
   private val openMergeRequestDiff: (String, Boolean) -> Unit,
 ) : GitLabMergeRequestReviewViewModelBase(
   parentCs.childScope("GitLab Merge Request Editor Review VM"),
-  currentUser, mergeRequest,
+  project, currentUser, mergeRequest,
   if (project.service<GitLabMergeRequestsPreferences>().editorReviewEnabled) DiscussionsViewOption.UNRESOLVED_ONLY else DiscussionsViewOption.DONT_SHOW
 ), CodeReviewInEditorViewModel {
   private val preferences = project.service<GitLabMergeRequestsPreferences>()
@@ -146,7 +144,11 @@ class GitLabMergeRequestEditorReviewViewModel internal constructor(
       val discussions = discussionsResult.getOrNull() ?: emptyList()
       val draftNotes = draftNotesResult.getOrNull() ?: emptyList()
 
-      (discussions + draftNotes + newDiscussions).associateBy { note -> note.trackingId }
+      buildList {
+        addAll(discussions)
+        addAll(draftNotes)
+        addAll(newDiscussions)
+      }.associateBy { note -> note.trackingId }
     }
 
   @OptIn(ExperimentalCoroutinesApi::class)
@@ -201,7 +203,7 @@ class GitLabMergeRequestEditorReviewViewModel internal constructor(
   override fun updateBranch() {
     cs.launch {
       val details = mergeRequest.refreshDataNow()
-      GitLabMergeRequestBranchUtil.fetchAndCheckoutBranch(gitRepository, actualProjectCoordinates.serverPath, details)
+      GitLabMergeRequestBranchUtil.fetchAndCheckoutBranch(gitRemote, details)
     }
   }
 

@@ -7,7 +7,6 @@ import com.intellij.openapi.project.Project
 import com.intellij.platform.eel.EelApi
 import com.intellij.platform.eel.EelDescriptor
 import com.intellij.platform.eel.EelOsFamily
-import com.intellij.platform.eel.annotations.NativePath
 import com.intellij.platform.eel.fs.EelFileInfo
 import com.intellij.platform.eel.fs.EelFileSystemApi
 import com.intellij.platform.eel.fs.listDirectoryWithAttrs
@@ -17,6 +16,7 @@ import com.intellij.platform.eel.provider.LocalEelDescriptor
 import com.intellij.platform.eel.provider.getEelDescriptor
 import com.intellij.platform.eel.provider.toEelApi
 import com.intellij.platform.ide.productMode.IdeProductMode
+import com.intellij.platform.util.annotations.paths.OsPath
 import com.intellij.util.PathUtil
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
@@ -84,7 +84,7 @@ object TerminalAgentResolver {
   suspend fun findBinaryPath(
     terminalAgent: TerminalAgent,
     eelApi: EelApi,
-  ): @NativePath String? {
+  ): @OsPath String? {
     return withContext(Dispatchers.IO) {
       when (eelApi.descriptor.osFamily) {
         EelOsFamily.Windows -> findWindowsBinaryPath(terminalAgent, eelApi)

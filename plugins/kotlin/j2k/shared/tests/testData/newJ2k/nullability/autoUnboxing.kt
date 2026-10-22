@@ -1,5 +1,5 @@
 internal class C {
-    fun testAssignment(i1: Int, i2: Int, i3: Int, i4: Int, i5: Int?) {
+    fun testAssignment(i1: Int, i2: Int, i3: Int, i4: Int, i5: Int) {
         var i4 = i4
         var i5 = i5
         var j = i1

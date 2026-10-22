@@ -1,6 +1,10 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library", "jvm_provided_library")
 load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
+### auto-generated section `dev intellij.performanceTesting.backend` start
+content_module_jar(module = ":backend")
+### auto-generated section `dev intellij.performanceTesting.backend` end
+
 ### auto-generated section `build intellij.performanceTesting.backend` start
 jvm_provided_library(
     name = "libraries_cli-parser_provided",
@@ -36,9 +40,6 @@ jvm_library(
         "//platform/indexing-impl",
         "//platform/usageView",
         "//platform/platform-impl:ide-impl",
-        "//libraries/jackson/jackson",
-        "//libraries/jackson/module-kotlin:libraries-jackson-module-kotlin",
-        "//libraries/jackson/databind",
         "//platform/lang-impl",
         "//platform/execution",
         "//platform/util/concurrency",
@@ -59,8 +60,6 @@ jvm_library(
         ":libraries_cli-parser_provided",
     ],
 )
-
-content_module_jar(module = ":backend")
 
 jvm_library(
     name = "backend_test_lib",
@@ -84,9 +83,6 @@ jvm_library(
         "//platform/usageView:usageView_test_lib",
         "//platform/platform-impl:ide-impl_test_lib",
         "//platform/backend:backend_test_lib",
-        "//libraries/jackson/jackson:jackson_test_lib",
-        "//libraries/jackson/module-kotlin:libraries-jackson-module-kotlin_test_lib",
-        "//libraries/jackson/databind:databind_test_lib",
         "//platform/lang-impl:lang-impl_test_lib",
         "//platform/execution:execution_test_lib",
         "//platform/util/concurrency:concurrency_test_lib",

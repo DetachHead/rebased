@@ -8,6 +8,7 @@ import com.intellij.openapi.project.DumbAware
 import com.intellij.platform.lsp.api.customization.LspDocumentHighlightsSupport
 import com.intellij.platform.lsp.impl.LspClientImpl
 import com.intellij.platform.lsp.impl.LspClientManagerImpl
+import com.intellij.platform.lsp.impl.supportsDocumentHighlights
 import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiFile
 import com.intellij.util.Consumer
@@ -17,7 +18,7 @@ import org.jetbrains.annotations.Unmodifiable
 internal class LspHighlightUsagesHandlerFactory : HighlightUsagesHandlerFactory, DumbAware {
   override fun createHighlightUsagesHandler(editor: Editor, psiFile: PsiFile): HighlightUsagesHandlerBase<PsiElement>? {
     val virtualFile = psiFile.virtualFile ?: return null
-    if (virtualFile is VirtualFileWindow || !virtualFile.isInLocalFileSystem) return null
+    if (virtualFile is VirtualFileWindow) return null
     val clients = LspClientManagerImpl.getInstanceImpl(psiFile.project).getClientsWithThisFileOpen(virtualFile)
       .filter { shouldProceedWithClient(it, psiFile) }
 

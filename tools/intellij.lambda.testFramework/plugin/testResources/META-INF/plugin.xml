@@ -25,15 +25,22 @@
     <module name="intellij.libraries.kotlinx.serialization.core"/>
     <module name="intellij.libraries.kotlinx.serialization.json"/>
     <module name="intellij.libraries.opentelemetry"/>
-    <module name="intellij.libraries.oshi.core"/>
     <module name="intellij.libraries.rd.core"/>
     <module name="intellij.libraries.rd.framework"/>
+    <module name="intellij.libraries.squareup.okio.jvm"/>
     <module name="intellij.libraries.teamcity.service.messages"/>
     <module name="intellij.platform.analysis"/>
     <module name="intellij.platform.analysis.impl"/>
+    <module name="intellij.platform.backend.observation"/>
+    <module name="intellij.platform.backend.workspace"/>
+    <module name="intellij.platform.bazel.runfiles"/>
     <module name="intellij.platform.buildScripts.downloader"/>
+    <module name="intellij.platform.buildView"/>
     <module name="intellij.platform.codeStyle"/>
     <module name="intellij.platform.codeStyle.impl"/>
+    <module name="intellij.platform.concurrency"/>
+    <module name="intellij.platform.consoleView"/>
+    <module name="intellij.platform.consoleView.impl"/>
     <module name="intellij.platform.core"/>
     <module name="intellij.platform.core.impl"/>
     <module name="intellij.platform.core.ui"/>
@@ -42,31 +49,46 @@
     <module name="intellij.platform.diagnostic.telemetry"/>
     <module name="intellij.platform.editor.ex"/>
     <module name="intellij.platform.editor.ui"/>
+    <module name="intellij.platform.eel.provider"/>
     <module name="intellij.platform.execution"/>
     <module name="intellij.platform.execution.impl"/>
+    <module name="intellij.platform.foldings"/>
     <module name="intellij.platform.ide"/>
     <module name="intellij.platform.ide.bootstrap"/>
+    <module name="intellij.platform.ide.bootstrap.kernel"/>
+    <module name="intellij.platform.ide.codeinsight.inline"/>
     <module name="intellij.platform.ide.core"/>
     <module name="intellij.platform.ide.core.impl"/>
     <module name="intellij.platform.ide.impl"/>
+    <module name="intellij.platform.ide.observable"/>
+    <module name="intellij.platform.ide.osCertificates"/>
     <module name="intellij.platform.ide.progress"/>
+    <module name="intellij.platform.ide.util.io.impl"/>
+    <module name="intellij.platform.ide.util.io.native"/>
+    <module name="intellij.platform.ide.util.netty"/>
+    <module name="intellij.platform.ijent"/>
     <module name="intellij.platform.indexing"/>
+    <module name="intellij.platform.indexing.impl"/>
     <module name="intellij.platform.lang"/>
     <module name="intellij.platform.lang.core"/>
     <module name="intellij.platform.lang.impl"/>
     <module name="intellij.platform.lvcs"/>
+    <module name="intellij.platform.pluginSystem.parser.impl"/>
     <module name="intellij.platform.projectModel"/>
     <module name="intellij.platform.projectModel.impl"/>
     <module name="intellij.platform.refactoring"/>
     <module name="intellij.platform.runtime.product"/>
     <module name="intellij.platform.serviceContainer"/>
+    <module name="intellij.platform.syntax"/>
     <module name="intellij.platform.syntax.psi"/>
+    <module name="intellij.platform.syntax.util"/>
     <module name="intellij.platform.usageView"/>
     <module name="intellij.platform.usageView.impl"/>
     <module name="intellij.platform.util.coroutines"/>
     <module name="intellij.platform.util.ex"/>
     <module name="intellij.platform.util.ui"/>
     <module name="intellij.platform.workspace.jps"/>
+    <module name="intellij.platform.workspace.storage"/>
     <module name="intellij.remoteDev.util"/>
   </dependencies>
 
@@ -81,17 +103,17 @@
     <!-- chain: moduleSet lambda.testFrameworkLibraries -->
     <module name="intellij.libraries.junit4"/>
     <!-- chain: moduleSet lambda.testFrameworkLibraries -->
-    <module name="intellij.libraries.junit5"/>
-    <!-- chain: moduleSet lambda.testFrameworkLibraries -->
-    <module name="intellij.libraries.junit5.jupiter"/>
-    <!-- chain: moduleSet lambda.testFrameworkLibraries -->
-    <module name="intellij.libraries.junit5.launcher"/>
-    <!-- chain: moduleSet lambda.testFrameworkLibraries -->
-    <module name="intellij.libraries.junit5.params"/>
-    <!-- chain: moduleSet lambda.testFrameworkLibraries -->
     <module name="intellij.libraries.junit5.pioneer"/>
     <!-- chain: moduleSet lambda.testFrameworkLibraries -->
-    <module name="intellij.libraries.junit5.vintage"/>
+    <module name="intellij.libraries.junit6"/>
+    <!-- chain: moduleSet lambda.testFrameworkLibraries -->
+    <module name="intellij.libraries.junit6.jupiter"/>
+    <!-- chain: moduleSet lambda.testFrameworkLibraries -->
+    <module name="intellij.libraries.junit6.launcher"/>
+    <!-- chain: moduleSet lambda.testFrameworkLibraries -->
+    <module name="intellij.libraries.junit6.params"/>
+    <!-- chain: moduleSet lambda.testFrameworkLibraries -->
+    <module name="intellij.libraries.junit6.vintage"/>
     <!-- chain: moduleSet lambda.testFrameworkLibraries -->
     <module name="intellij.libraries.kodein.di.jvm"/>
     <!-- chain: moduleSet lambda.testFrameworkLibraries -->

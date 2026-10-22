@@ -14,7 +14,8 @@ import com.intellij.psi.PsiDirectory
 import com.intellij.psi.PsiFile
 import com.intellij.testFramework.fixtures.CodeInsightTestFixture
 import com.intellij.util.PathUtilRt
-import junit.framework.TestCase
+import org.junit.jupiter.api.Assertions.assertNotNull
+import org.junit.jupiter.api.Assertions.assertTrue
 
 internal class FilePredictionTestProjectBuilder(mainPath: String? = null, imports: String? = null) {
   private var mainFile: String? = null
@@ -64,7 +65,7 @@ internal class FilePredictionTestProjectBuilder(mainPath: String? = null, import
   }
 
   fun openMain(): FilePredictionTestProjectBuilder {
-    TestCase.assertTrue("Cannot open main file because its not defined", mainFile != null)
+    assertTrue(mainFile != null, "Cannot open main file because its not defined")
     return open(mainFile!!)
   }
 
@@ -73,7 +74,7 @@ internal class FilePredictionTestProjectBuilder(mainPath: String? = null, import
   }
 
   fun closeMain(): FilePredictionTestProjectBuilder {
-    TestCase.assertTrue("Cannot close main file because its not defined", mainFile != null)
+    assertTrue(mainFile != null, "Cannot close main file because its not defined")
     return close(mainFile!!)
   }
 
@@ -82,13 +83,13 @@ internal class FilePredictionTestProjectBuilder(mainPath: String? = null, import
   }
 
   fun selectMain(): FilePredictionTestProjectBuilder {
-    TestCase.assertTrue("Cannot select main file because its not defined", mainFile != null)
+    assertTrue(mainFile != null, "Cannot select main file because its not defined")
     return select(mainFile!!)
   }
 
   fun create(fixture: CodeInsightTestFixture): VirtualFile {
-    TestCase.assertTrue("Cannot create empty project", files.isNotEmpty() || mainFile != null)
-    TestCase.assertNotNull("Cannot create project without main file", mainFile)
+    assertTrue(files.isNotEmpty() || mainFile != null, "Cannot create empty project")
+    assertNotNull(mainFile, "Cannot create project without main file")
 
     for (file in files.entries) {
       fixture.addFileToProject(file.key, file.value)
@@ -96,7 +97,7 @@ internal class FilePredictionTestProjectBuilder(mainPath: String? = null, import
 
     val file = fixture.addFileToProject(mainFile!!, mainFileContent!!)
     val root = findRootDirectory(mainFile!!, file)
-    TestCase.assertNotNull("Cannot find project root by main file", mainFile)
+    assertNotNull(mainFile, "Cannot find project root by main file")
 
     if (fileActions.isNotEmpty()) {
       performFileActions(fixture.project, root!!.virtualFile)
@@ -108,7 +109,7 @@ internal class FilePredictionTestProjectBuilder(mainPath: String? = null, import
     val manager = FileEditorManager.getInstance(project)
     for (action in fileActions) {
       val file = root.findFileByRelativePath(action.filePath)
-      TestCase.assertNotNull(file)
+      assertNotNull(file)
       when (action.actionType) {
         FileActionType.SELECT -> {
           manager.setSelectedEditor(file!!, TextEditorProvider.getInstance().editorTypeId)

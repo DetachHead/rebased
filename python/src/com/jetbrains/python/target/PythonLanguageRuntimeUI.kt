@@ -1,6 +1,7 @@
 // Copyright 2000-2021 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.jetbrains.python.target
 
+import com.jetbrains.python.sdk.asPyProjectAddingFacet
 import com.intellij.execution.target.CustomToolLanguageConfigurable
 import com.intellij.execution.target.LanguageRuntimeType
 import com.intellij.execution.target.TargetEnvironmentConfiguration
@@ -8,11 +9,11 @@ import com.intellij.execution.target.getTargetType
 import com.intellij.openapi.module.Module
 import com.intellij.openapi.observable.properties.AtomicProperty
 import com.intellij.openapi.options.BoundConfigurable
-import com.intellij.openapi.projectRoots.Sdk
 import com.intellij.openapi.ui.DialogPanel
 import com.intellij.openapi.ui.ValidationInfo
 import com.intellij.openapi.ui.validation.WHEN_PROPERTY_CHANGED
 import com.intellij.openapi.util.io.toNioPathOrNull
+import com.intellij.python.sdk.backend.PythonInterpreter
 import com.intellij.ui.dsl.builder.panel
 import com.intellij.util.concurrency.annotations.RequiresEdt
 import com.intellij.util.ui.launchOnShow
@@ -25,13 +26,14 @@ import com.jetbrains.python.newProjectWizard.projectPath.ProjectPathFlows
 import com.jetbrains.python.onFailure
 import com.jetbrains.python.sdk.ModuleOrProject
 import com.jetbrains.python.sdk.add.collector.PythonNewInterpreterAddedCollector
+import com.jetbrains.python.sdk.add.v2.InterpreterCreationContext
 import com.jetbrains.python.sdk.add.v2.PathHolder
 import com.jetbrains.python.sdk.add.v2.PythonAddCustomInterpreter
 import com.jetbrains.python.sdk.add.v2.PythonInterpreterSelectionMode
 import com.jetbrains.python.sdk.add.v2.PythonLocalAddInterpreterModel
 import com.jetbrains.python.sdk.add.v2.TargetFileSystem
 import com.jetbrains.python.sdk.baseDir
-import com.jetbrains.python.sdk.configurePythonSdk
+import com.intellij.python.pyproject.model.evolution.setPythonInterpreter
 import com.jetbrains.python.sdk.runWithSdkConfigurationLock
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.supervisorScope
@@ -44,7 +46,7 @@ internal class PythonLanguageRuntimeUI(
   val module: Module,
   val config: PythonLanguageRuntimeConfiguration,
   val targetSupplier: Supplier<TargetEnvironmentConfiguration>,
-) : BoundConfigurable(message("configurable.name.python.language")), CustomToolLanguageConfigurable<Sdk> {
+) : BoundConfigurable(message("configurable.name.python.language")), CustomToolLanguageConfigurable<PythonInterpreter> {
   private val project get() = module.project
 
   private var introspectable: LanguageRuntimeType.Introspectable? = null
@@ -71,7 +73,7 @@ internal class PythonLanguageRuntimeUI(
       model = model,
       module = module,
       errorSink = ErrorSink().withProject(project),
-      limitExistingEnvironments = false,
+      context = InterpreterCreationContext.ADD_INTERPRETER,
       bestGuessCreateSdkInfo = CompletableDeferred(value = null)
     )
 
@@ -112,23 +114,23 @@ internal class PythonLanguageRuntimeUI(
     this@PythonLanguageRuntimeUI.stateChangedCallback = stateChangedCallback
   }
 
-  @RequiresEdt
-  override fun createCustomTool(): Sdk? {
+  @RequiresEdt(generateAssertion = false /* IJPL-115548 */)
+  override fun createCustomTool(): PythonInterpreter? {
     val sdkManager = mainPanel.currentSdkManager
 
-    val sdk = runWithSdkConfigurationLock(project) {
+    val interpreter = runWithSdkConfigurationLock(project) {
       withContext(TraceContext(message("trace.context.add.remote.python.sdk.dialog", targetSupplier.get().getTargetType().displayName))) {
         sdkManager.setupSdk(ModuleOrProject.ModuleAndProject(module)).onFailure {
           errorSink.emit(it)
         }.successOrNull?.also {
-          configurePythonSdk(project, module, it)
+          module.asPyProjectAddingFacet()?.setPythonInterpreter(it, waitForSnapshot = false)
           PythonNewInterpreterAddedCollector.logPythonNewInterpreterAdded(it, false)
         }
       }
     }
 
 
-    return sdk
+    return interpreter
   }
 
   override fun validate(): Collection<ValidationInfo> = validationErrors

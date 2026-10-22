@@ -44,7 +44,7 @@ public class IntroduceParameterObjectForJavaTest extends LightJavaCodeInsightFix
   }
 
   @Override
-  public final String getBasePath() {
-    return TestUtils.getTestDataPath() + "/refactoring/introduceParameterObjectForJava/";
+  public final String getTestDataPath() {
+    return TestUtils.getAbsoluteTestDataPath() + "/refactoring/introduceParameterObjectForJava/";
   }
 }

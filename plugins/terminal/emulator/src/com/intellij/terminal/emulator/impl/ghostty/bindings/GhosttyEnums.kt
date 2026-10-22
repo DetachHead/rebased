@@ -17,7 +17,10 @@ internal enum class GhosttyResult(val code: Int) {
   OUT_OF_MEMORY(-1),
   INVALID_VALUE(-2),
   OUT_OF_SPACE(-3),
-  NO_VALUE(-4);
+  NO_VALUE(-4),
+  IO_ERROR(-5),
+  LIMIT_EXCEEDED(-6),
+  REJECTED(-7);
 
   companion object {
     /** Map a raw C result code; any unmodeled code is coerced to [INVALID_VALUE] (i.e. a failure). */
@@ -27,6 +30,9 @@ internal enum class GhosttyResult(val code: Int) {
       -2 -> INVALID_VALUE
       -3 -> OUT_OF_SPACE
       -4 -> NO_VALUE
+      -5 -> IO_ERROR
+      -6 -> LIMIT_EXCEEDED
+      -7 -> REJECTED
       else -> INVALID_VALUE
     }
   }
@@ -110,12 +116,17 @@ internal enum class GhosttyTerminalData(val code: Int) {
   CURSOR_Y(4),
   ACTIVE_SCREEN(6),
   CURSOR_VISIBLE(7),
+  /** Reads a `uint8_t` bitmask of `GHOSTTY_KITTY_KEY_*`, the Kitty keyboard protocol flags in effect. */
+  KITTY_KEYBOARD_FLAGS(8),
   MOUSE_TRACKING(11),
   TITLE(12),
   SCROLLBACK_ROWS(15),
   COLOR_FOREGROUND(18),
   COLOR_BACKGROUND(19),
   COLOR_PALETTE(21),
+  COLOR_PALETTE_DEFAULT(25),
+  /** Reads a `GhosttyTerminalModeConfig`; the caller must set `mode` before the call. */
+  MODE(37),
 }
 
 /** `GhosttyCellData` (screen.h) — selector for `ghostty_cell_get_multi`. */
@@ -127,6 +138,10 @@ internal enum class GhosttyCellData(val code: Int) {
   STYLE_ID(6),
   /** Whether the cell carries an OSC 8 hyperlink (bool). */
   HAS_HYPERLINK(7),
+  /** The cell's background palette index (`uint8_t`); valid only when the content tag is `BG_COLOR_PALETTE`. */
+  COLOR_PALETTE(10),
+  /** The cell's background RGB color (3 packed `uint8_t`s); valid only when the content tag is `BG_COLOR_RGB`. */
+  COLOR_RGB(11),
 }
 
 /** `GhosttyCellContentTag` (screen.h) — what kind of content a cell holds. */
@@ -161,8 +176,16 @@ internal enum class GhosttyRowData(val code: Int) {
 internal enum class GhosttyTerminalOption(val code: Int) {
   WRITE_PTY(1),
   BELL(2),
+  COLOR_SCHEME(7),
+  COLOR_FOREGROUND(11),
+  COLOR_BACKGROUND(12),
+  COLOR_PALETTE(14),
+  DEFAULT_CURSOR_STYLE(22),
+  DEFAULT_CURSOR_BLINK(23),
   SCROLLBACK_MAX_BYTES(27),
   PROGRESS_REPORT(30),
+  TERMINFO_NAME(37),
+  RESIZE_PULL_SCROLLBACK(40),
 }
 
 /** `GhosttyTerminalProgressState` (terminal.h) — the state of an `OSC 9;4` progress report. */
@@ -190,6 +213,15 @@ internal enum class GhosttyTerminalProgressState(val code: Int) {
   }
 }
 
+/**
+ * `GhosttyColorScheme` (device.h) — the value that the [GhosttyTerminalOption.COLOR_SCHEME] callback
+ * reports for a color scheme query (`CSI ? 996 n`).
+ */
+internal enum class GhosttyColorScheme(val code: Int) {
+  LIGHT(0),
+  DARK(1),
+}
+
 /** `GhosttyRenderStateData` (render.h) — selector for `ghostty_render_state_get`. */
 internal enum class GhosttyRenderStateData(val code: Int) {
   DIRTY(3),
@@ -208,7 +240,13 @@ internal enum class GhosttyRenderStateRowOption(val code: Int) {
   DIRTY(0),
 }
 
-/** `GhosttyRenderStateCursorVisualStyle` (render.h) — the shape the renderer would draw the cursor. */
+/**
+ * `GhosttyRenderStateCursorVisualStyle` (render.h) — the shape the renderer would draw the cursor.
+ *
+ * Also doubles as the input value for [GhosttyTerminalOption.DEFAULT_CURSOR_STYLE]
+ * (`GhosttyTerminalCursorStyle`, terminal.h): the two C enums share this exact numeric layout, so
+ * one Kotlin enum serves both the render-state read and the default-cursor-style write.
+ */
 internal enum class GhosttyCursorVisualStyle(val code: Int) {
   BAR(0),
   BLOCK(1),
@@ -310,6 +348,27 @@ internal enum class GhosttyMouseButton(val code: Int) {
   FIVE(5),
 }
 
+/** `GhosttyKeyEncoderOption` (key/encoder.h) — key for `ghostty_key_encoder_setopt`. */
+@Suppress("unused") // the complete option set is the API, referenced or not
+internal enum class GhosttyKeyEncoderOption(val code: Int) {
+  CURSOR_KEY_APPLICATION(0),
+  KEYPAD_KEY_APPLICATION(1),
+  IGNORE_KEYPAD_WITH_NUMLOCK(2),
+  ALT_ESC_PREFIX(3),
+  MODIFY_OTHER_KEYS_STATE_2(4),
+  KITTY_FLAGS(5),
+  MACOS_OPTION_AS_ALT(6),
+  BACKARROW_KEY_MODE(7),
+}
+
+/** `GhosttyOptionAsAlt` (key/encoder.h) — the C `int` value of [GhosttyKeyEncoderOption.MACOS_OPTION_AS_ALT]. */
+internal enum class GhosttyOptionAsAlt(val code: Int) {
+  FALSE(0),
+  TRUE(1),
+  LEFT(2),
+  RIGHT(3),
+}
+
 /** `GhosttyMouseEncoderOption` (mouse/encoder.h) — key for `ghostty_mouse_encoder_setopt`. */
 internal enum class GhosttyMouseEncoderOption(val code: Int) {
   EVENT(0),
@@ -320,8 +379,9 @@ internal enum class GhosttyMouseEncoderOption(val code: Int) {
 }
 
 /**
- * DEC/ANSI mode ids for `ghostty_terminal_mode_get`, [packed] as `(value | ansi << 15)`. All below
- * are DEC private (ansi = false), so the packed id equals the raw mode number.
+ * DEC/ANSI mode ids for [GhosttyTerminalData.MODE] (`GhosttyTerminalModeConfig.mode`), [packed] as
+ * `(value | ansi << 15)`. All below are DEC private (ansi = false), so the packed id equals the raw
+ * mode number.
  */
 internal enum class GhosttyMode(val packed: Int) {
   DECCKM(1),          // application cursor keys
@@ -336,4 +396,5 @@ internal enum class GhosttyMode(val packed: Int) {
   SGR_PIXELS_MOUSE(1016),
   BRACKETED_PASTE(2004),
   SYNC_OUTPUT(2026),
+  COLOR_SCHEME_REPORT(2031),
 }

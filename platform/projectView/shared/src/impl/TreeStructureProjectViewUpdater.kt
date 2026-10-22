@@ -5,10 +5,12 @@ import com.intellij.ide.CopyPasteUtil
 import com.intellij.ide.bookmark.BookmarksListener
 import com.intellij.ide.bookmark.FileBookmarksListener
 import com.intellij.ide.projectView.ProjectViewNode
+import com.intellij.ide.projectView.impl.nodes.ProjectViewDirectoryHelper
 import com.intellij.ide.scratch.RootType
 import com.intellij.ide.ui.VirtualFileAppearanceListener
 import com.intellij.ide.util.treeView.AbstractTreeNode
 import com.intellij.openapi.application.readAction
+import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.roots.AdditionalLibraryRootsListener
 import com.intellij.openapi.roots.ModuleRootEvent
@@ -24,7 +26,11 @@ import com.intellij.openapi.vfs.newvfs.events.VFileCreateEvent
 import com.intellij.openapi.vfs.newvfs.events.VFileDeleteEvent
 import com.intellij.openapi.vfs.newvfs.events.VFileEvent
 import com.intellij.openapi.vfs.newvfs.events.VFileMoveEvent
+import com.intellij.platform.projectView.pane.ProjectViewPaneId
 import com.intellij.platform.projectView.pane.ProjectViewPaneModel
+import com.intellij.platform.projectView.runSafelyCancellable
+import com.intellij.platform.projectView.settings.ProjectViewPaneOption
+import com.intellij.platform.projectView.settings.ProjectViewPaneSettingsService
 import com.intellij.problems.ProblemListener
 import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiManager
@@ -48,15 +54,17 @@ import kotlin.time.Duration.Companion.milliseconds
 
 internal class TreeStructureProjectViewUpdater(
   private val project: Project,
+  private val id: ProjectViewPaneId,
 ) : ProjectViewUpdater {
   override suspend fun continuouslyUpdatePane(pane: ProjectViewPaneModel, progressReporter: ProjectViewUpdaterProgressReporter) {
-    UpdateSession(project, pane as TreeStructureBasedProjectViewPaneModel, progressReporter).continuouslyUpdatePane()
+    UpdateSession(project, pane as TreeStructureBasedProjectViewPaneModel, id, progressReporter).continuouslyUpdatePane()
   }
 }
 
 private class UpdateSession(
   private val project: Project,
   private val model: TreeStructureBasedProjectViewPaneModel,
+  private val id: ProjectViewPaneId,
   private val progressReporter: ProjectViewUpdaterProgressReporter,
 ) {
   private val events = Channel<UpdateEvent>(capacity = Channel.UNLIMITED)
@@ -174,7 +182,9 @@ private class UpdateSession(
       }
 
       launch(CoroutineName("Project View updates consumer")) {
-        processEvents()
+        runSafelyCancellable(LOG, taskDescription = { "tree structure batch updates for the pane $id" }) {
+          processEvents()
+        }
       }
     }
   }
@@ -375,6 +385,7 @@ private class UpdateSession(
 
   private suspend fun reduceToAreaDirs(files: Set<VirtualFile>): Set<VirtualFile> {
     if (files.isEmpty()) return emptySet()
+    val flattenPackages = ProjectViewPaneSettingsService.getInstance(project).isOptionSelected(ProjectViewPaneOption.FlattenPackages)
     return readAction {
       val result = HashSet<VirtualFile>()
       for (file in files) {
@@ -382,30 +393,57 @@ private class UpdateSession(
         val dir = if (file.isDirectory) file else file.parent
         if (dir != null && ProjectFileNode.findArea(dir, project) != null) {
           result.add(dir)
+          if (flattenPackages) {
+            flatPackageListOwner(dir)?.let { result.add(it) }
+          }
         }
       }
       result
     }
   }
 
+  /**
+   * The directory that owns the flat package list [dir] belongs to, or `null` when [dir] is not a package.
+   *
+   * In Flatten Packages mode a package is a child of the node of that directory, not of the node of its
+   * own parent directory, because [com.intellij.ide.projectView.impl.nodes.ProjectViewDirectoryHelper]
+   * collects the whole package hierarchy into one flat list. A new or removed package therefore changes
+   * the child list of the owner, so the update has to reach it. The owner is the first ancestor whose own
+   * parent is not a package, which is the source root in a plain layout.
+   *
+   * The legacy pane reloaded the whole tree in this case, see
+   * `ProjectViewPsiTreeChangeListener.childrenChanged`.
+   */
   @RequiresReadLock
+  private fun flatPackageListOwner(dir: VirtualFile): VirtualFile? {
+    val helper = ProjectViewDirectoryHelper.getInstance(project)
+    var directory = PsiManager.getInstance(project).findDirectory(dir) ?: return null
+    if (helper.skipDirectory(directory)) return null // not a package, so its node is an ordinary child
+    while (true) {
+      val parent = directory.parentDirectory ?: return null
+      if (helper.skipDirectory(parent)) return directory.virtualFile
+      directory = parent
+    }
+  }
+
+  @RequiresReadLock(generateAssertion = false /* IJPL-115548 */)
   private fun matchesFile(node: AbstractTreeNode<*>, file: VirtualFile): Boolean {
     return node.canRepresent(file)
   }
 
-  @RequiresReadLock
+  @RequiresReadLock(generateAssertion = false /* IJPL-115548 */)
   private fun containsFile(node: AbstractTreeNode<*>, file: VirtualFile): Boolean {
     if (node is ProjectViewNode<*> && file.isValid && node.contains(file)) return true
     val content = (node.value as? PsiElement)?.let { PsiUtilCore.getVirtualFile(it) } ?: return false
     return VfsUtilCore.isAncestor(content, file, true)
   }
 
-  @RequiresReadLock
+  @RequiresReadLock(generateAssertion = false /* IJPL-115548 */)
   private fun matchesElement(node: AbstractTreeNode<*>, element: PsiElement): Boolean {
     return node.canRepresent(element)
   }
 
-  @RequiresReadLock
+  @RequiresReadLock(generateAssertion = false /* IJPL-115548 */)
   private fun containsElement(node: AbstractTreeNode<*>, element: PsiElement): Boolean {
     if (node is ProjectViewNode<*>) {
       val file = PsiUtilCore.getVirtualFile(element)
@@ -431,3 +469,5 @@ private data class ElementChanged(val pointer: SmartPsiElementPointer<PsiElement
 private data object AllPresentations : UpdateEvent
 
 private data class PresentationsFromRootTo(val file: VirtualFile) : UpdateEvent
+
+private val LOG = logger<TreeStructureProjectViewUpdater>()

@@ -11,6 +11,10 @@ jps_test(
 
 ### skip generation section `test intellij.platform.coverage.tests`
 
+### auto-generated section `dev intellij.platform.coverage` start
+content_module_jar(module = ":coverage")
+### auto-generated section `dev intellij.platform.coverage` end
+
 ### auto-generated section `build intellij.platform.coverage` start
 jvm_library(
     name = "coverage",
@@ -65,8 +69,6 @@ jvm_library(
     ],
 )
 
-content_module_jar(module = ":coverage")
-
 jvm_library(
     name = "coverage_test_lib",
     testonly = True,
@@ -79,8 +81,6 @@ jvm_library(
     runtime_deps = [
         # do not sort,
         ":coverage",
-        "//libraries/junit5",
-        "//libraries/junit5:junit5_test_lib",
         "//platform/analysis-api:analysis_test_lib",
         "//platform/util/concurrency:concurrency_test_lib",
         "//platform/core-api:core_test_lib",
@@ -122,7 +122,6 @@ exports_files(
     [
         "intellij.platform.coverage.iml",
         "resources/intellij.platform.coverage.xml",
-        "module-content.yaml",
     ],
     visibility = ["//visibility:public"],
 )
@@ -163,8 +162,8 @@ jvm_library(
     ],
     deps = [
         # do not sort,
-        "//libraries/junit5",
-        "//libraries/junit5:junit5_test_lib",
+        "//libraries/junit6",
+        "//libraries/junit6:junit6_test_lib",
         "//platform/analysis-api:analysis",
         "//platform/analysis-api:analysis_test_lib",
         "//platform/util/concurrency",

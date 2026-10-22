@@ -21,6 +21,7 @@
     <module name="intellij.platform.analysis"/>
     <module name="intellij.platform.compose"/>
     <module name="intellij.platform.compose.markdown"/>
+    <module name="intellij.platform.compose.swing"/>
     <module name="intellij.platform.core"/>
     <module name="intellij.platform.core.impl"/>
     <module name="intellij.platform.core.ui"/>
@@ -28,6 +29,7 @@
     <module name="intellij.platform.execution"/>
     <module name="intellij.platform.execution.impl"/>
     <module name="intellij.platform.externalSystem.impl"/>
+    <module name="intellij.platform.icons"/>
     <module name="intellij.platform.ide.core"/>
     <module name="intellij.platform.ide.core.impl"/>
     <module name="intellij.platform.ide.impl"/>
@@ -70,7 +72,11 @@
                         librarySearchClass="com.intellij.devkit.compose.preview.ComposePreviewSearcher"/>
     <implicitUsageProvider implementation="com.intellij.devkit.compose.preview.ComposePreviewImplicitUsageProvider"/>
 
-    <registryKey key="devkit.compose.hot.reload.agent.version" defaultValue="" description="'Compose Hot Reload' agent version override"/>
+    <!-- Security: the agent JAR is loaded into the debugged process as '-javaagent:'. Only the default version has a
+         checksum pinned in the sources; for an overridden version the checksum is taken from Maven Central instead.
+         Do not set this key on behalf of an untrusted source. -->
+    <registryKey key="devkit.compose.hot.reload.agent.version" defaultValue=""
+                 description="'Compose Hot Reload' agent version override (do not set it unless you trust the version source)"/>
     <runConfigurationExtension implementation="com.intellij.devkit.compose.hotreload.DevkitHotReloadCommandLinePatcher"/>
     <executor implementation="com.intellij.devkit.compose.hotreload.DevkitHotReloadExecutor"/>
     <programRunner implementation="com.intellij.devkit.compose.hotreload.DevkitHotReloadRunner"/>
@@ -103,6 +109,8 @@
 
     <!-- Legacy actions, only available from Search Everywhere -->
     <action id="ComposeShowcase" class="com.intellij.devkit.compose.showcase.ComposeShowcaseAction"/>
+    <action id="SwingComposeShowcase" class="com.intellij.devkit.compose.showcase.swing.SwingComposeShowcaseAction"
+            internal="true"/>
     <action id="JewelActionSystemTest" class="com.intellij.devkit.compose.demo.ActionSystemTestAction"/>
 
     <action id="JewelCustomPopupRenderer"

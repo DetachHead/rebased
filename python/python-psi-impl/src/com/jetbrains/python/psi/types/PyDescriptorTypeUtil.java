@@ -76,7 +76,7 @@ public final class PyDescriptorTypeUtil {
       }
     }
     if (!anyDescriptor) return null;
-    return Ref.create(PyUnionType.union(mapped));
+    return Ref.create(PyUnionType.unionOrUnknown(mapped));
   }
 
   private static @Nullable Ref<PyType> getExpectedTypeFromDunderSet(@NotNull PyQualifiedExpression expression,
@@ -107,6 +107,6 @@ public final class PyDescriptorTypeUtil {
     // Parameter names may differ, but 'value' parameter should always be the second one of a bound `__set__`
     List<PyCallableParameter> parameters = setMethod.getParameters(context);
     PyCallableParameter valueParameter = parameters != null && parameters.size() == 2 ? parameters.get(1) : null;
-    return Ref.create(valueParameter != null ? valueParameter.getArgumentType(context) : null);
+    return Ref.create(valueParameter != null ? valueParameter.getArgumentType(context) : PyAnyType.getUnknown());
   }
 }

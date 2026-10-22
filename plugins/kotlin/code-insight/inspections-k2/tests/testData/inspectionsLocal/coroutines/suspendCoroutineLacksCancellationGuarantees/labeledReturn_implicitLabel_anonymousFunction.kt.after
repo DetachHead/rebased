@@ -5,7 +5,7 @@ import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlin.coroutines.suspendCoroutine
 
 suspend fun quux(): String {
-    return suspendCancellableCoroutine(fun (c) {
+    return suspendCancellableCoroutine(fun(c) {
         return@suspendCancellableCoroutine
     })
 }

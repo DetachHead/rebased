@@ -1,6 +1,8 @@
+<!-- BUILD_USING_BAZEL_MARKER: this plugin is also packaged by the `ij_plugin` Bazel rule, and IjPluginDistributionEquivalenceTest
+     checks that the result matches the distribution produced by the build scripts. See IJPL-251444. -->
 <!--suppress SplitModeMixedDependencies -->
 <idea-plugin>
-  <id>intellij.problemView.plugin</id>
+  <id>com.intellij.problemsView</id>
   <name>Problems View</name>
   <vendor>JetBrains</vendor>
   <description><![CDATA[
@@ -24,5 +26,7 @@
     <module name="intellij.platform.problemView.ui"/>
     <module name="intellij.platform.problemView.backend"/>
     <module name="intellij.platform.problemView.frontend"/>
+    <module name="intellij.platform.problemView.security" loading="on-demand"/>
+    <module name="intellij.platform.problemView.security.frontend" loading="on-demand"/>
   </content>
 </idea-plugin>

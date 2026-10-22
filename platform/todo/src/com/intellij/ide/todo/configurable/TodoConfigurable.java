@@ -3,9 +3,11 @@ package com.intellij.ide.todo.configurable;
 
 import com.intellij.ide.IdeBundle;
 import com.intellij.ide.todo.TodoConfiguration;
+import com.intellij.ide.todo.TodoDefaultPatternProvider;
 import com.intellij.ide.todo.TodoFilter;
 import com.intellij.openapi.options.Configurable;
 import com.intellij.openapi.options.SearchableConfigurable;
+import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.DialogWrapper;
 import com.intellij.psi.search.TodoAttributesUtil;
 import com.intellij.psi.search.TodoPattern;
@@ -57,7 +59,7 @@ public class TodoConfigurable implements SearchableConfigurable, Configurable.No
 
   protected boolean arePatternsModified() {
     var todoConfiguration = TodoConfiguration.getInstance();
-    var initialPatterns = getTodoPatternsToDisplay(todoConfiguration);
+    var initialPatterns = todoConfiguration.getTodoPatterns();
     if (initialPatterns.length != myPatterns.size()) {
       return true;
     }
@@ -339,7 +341,7 @@ public class TodoConfigurable implements SearchableConfigurable, Configurable.No
 
     myPatterns.clear();
     var todoConfiguration = TodoConfiguration.getInstance();
-    for (var pattern : getTodoPatternsToDisplay(todoConfiguration)) {
+    for (var pattern : todoConfiguration.getTodoPatterns()) {
       myPatterns.add(pattern.clone());
     }
     myPatternsModel.fireTableDataChanged();
@@ -349,10 +351,6 @@ public class TodoConfigurable implements SearchableConfigurable, Configurable.No
       myFilters.add(filter.clone());
     }
     myFiltersModel.fireTableDataChanged();
-  }
-
-  protected TodoPattern @NotNull [] getTodoPatternsToDisplay(TodoConfiguration todoConfiguration) {
-    return todoConfiguration.getTodoPatterns();
   }
 
   private final class MyFilterNameTableCellRenderer extends DefaultTableCellRenderer {

@@ -1,7 +1,7 @@
 package com.intellij.terminal.backend.hyperlinks
 
 import com.intellij.openapi.diagnostic.fileLogger
-import com.intellij.openapi.diagnostic.rethrowControlFlowException
+import com.intellij.diagnostic.rethrowControlFlowException
 import kotlinx.coroutines.CoroutineName
 import kotlinx.coroutines.channels.ReceiveChannel
 import kotlinx.coroutines.channels.SendChannel

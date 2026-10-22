@@ -3,8 +3,8 @@ package com.intellij.testFramework;
 
 import com.intellij.codeInsight.daemon.impl.DaemonCodeAnalyzerEx;
 import com.intellij.codeInsight.highlighting.HighlightUsagesHandler;
+import com.intellij.codeInsight.multiverse.EditorContextManager;
 import com.intellij.ide.DataManager;
-import com.intellij.injected.editor.DocumentWindow;
 import com.intellij.injected.editor.EditorWindow;
 import com.intellij.injected.editor.VirtualFileWindow;
 import com.intellij.lang.injection.InjectedLanguageManager;
@@ -39,7 +39,7 @@ import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.io.FileUtilRt;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.CharsetToolkit;
-import com.intellij.openapi.vfs.LocalFileSystem;
+import com.intellij.openapi.vfs.StandardFileSystems;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.openapi.vfs.encoding.EncodingProjectManager;
 import com.intellij.platform.testFramework.core.FileComparisonFailedError;
@@ -144,7 +144,7 @@ public abstract class LightPlatformCodeInsightTestCase extends LightPlatformTest
   protected @NotNull VirtualFile getVirtualFile(@NonNls @NotNull String filePath) {
     String fullPath = getTestDataPath() + filePath;
 
-    VirtualFile vFile = LocalFileSystem.getInstance().findFileByPath(fullPath.replace(File.separatorChar, '/'));
+    VirtualFile vFile = StandardFileSystems.local().findFileByPath(fullPath.replace(File.separatorChar, '/'));
     assertNotNull("file " + fullPath + " not found", vFile);
     return vFile;
   }
@@ -504,8 +504,7 @@ public abstract class LightPlatformCodeInsightTestCase extends LightPlatformTest
   protected void bringRealEditorBack() {
     PsiDocumentManager.getInstance(getProject()).commitAllDocuments();
     if (getEditor() instanceof EditorWindow) {
-      Document document = ((DocumentWindow)getEditor().getDocument()).getDelegate();
-      myPsiFile = PsiDocumentManager.getInstance(getProject()).getPsiFile(document);
+      myPsiFile = EditorContextManager.getPsiFileForEditor(((EditorWindow)getEditor()).getDelegate(), getProject());
       myEditor = ((EditorWindow)getEditor()).getDelegate();
       myVFile = myPsiFile.getVirtualFile();
     }
@@ -744,7 +743,7 @@ public abstract class LightPlatformCodeInsightTestCase extends LightPlatformTest
     CommandProcessor.getInstance()
       .executeCommand(project, () -> EditorTestUtil.executeAction(editor, actionId, true), "", null, editor.getDocument());
     if (project != null) {
-      NavigationTestUtil.awaitPendingNavigationIfEnabled(project);
+      EditorOpenTestUtil.awaitPendingNavigationAndEditorOpenIfEnabled(project);
     }
   }
 

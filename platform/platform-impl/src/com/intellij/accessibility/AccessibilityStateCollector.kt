@@ -2,10 +2,9 @@
 package com.intellij.accessibility
 
 import com.intellij.ide.GeneralSettings
-import com.intellij.ide.audioCues.AudioCueIdValidationRule
-import com.intellij.ide.audioCues.AudioCuesMode
-import com.intellij.ide.audioCues.AudioCuesSettings
-import com.intellij.ide.audioCues.findAudioCue
+import com.intellij.ide.soundSignals.SoundSignalIdValidationRule
+import com.intellij.ide.soundSignals.findSoundSignal
+import com.intellij.ide.soundSignals.isSoundSignalsFeatureEnabled
 import com.intellij.internal.statistic.beans.MetricEvent
 import com.intellij.internal.statistic.eventLog.EventLogGroup
 import com.intellij.internal.statistic.eventLog.events.EventFields
@@ -13,11 +12,10 @@ import com.intellij.internal.statistic.service.fus.collectors.ApplicationUsagesC
 import com.intellij.openapi.components.service
 
 internal class AccessibilityStateCollector : ApplicationUsagesCollector() {
-  private val group = EventLogGroup("accessibility.state", 3)
+  private val group = EventLogGroup("accessibility.state", 6)
   private val screenReaderSupportInVmOptions = group.registerEvent("screen.reader.support.enabled.in.vmoptions", EventFields.Boolean("enabled"))
-  private val audioCuesMode = group.registerEvent("audio.cues.mode", EventFields.Enum<AudioCuesMode>("mode"))
-  private val audioCueDisabled =
-    group.registerEvent("audio.cue.disabled", EventFields.StringValidatedByCustomRule<AudioCueIdValidationRule>("cue"))
+  private val soundSignalOverride =
+    group.registerEvent("sound.signal.override", EventFields.StringValidatedByCustomRule<SoundSignalIdValidationRule>("signal"), EventFields.Enabled)
 
   override fun getGroup(): EventLogGroup = group
 
@@ -26,8 +24,9 @@ internal class AccessibilityStateCollector : ApplicationUsagesCollector() {
       add(screenReaderSupportInVmOptions.metric(it))
     }
 
-    val cues = service<AudioCuesSettings>().state
-    add(audioCuesMode.metric(cues.mode))
-    cues.disabledCues.filter { findAudioCue(it) != null }.forEach { add(audioCueDisabled.metric(it)) }
+    if (!isSoundSignalsFeatureEnabled()) return@buildSet
+    for ((id, enabled) in service<AccessibilitySettings>().state.soundSignals.signals) {
+      if (findSoundSignal(id) != null) add(soundSignalOverride.metric(id, enabled))
+    }
   }
 }

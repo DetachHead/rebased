@@ -8,6 +8,7 @@ import com.intellij.driver.model.RdTarget
 import com.intellij.driver.sdk.remoteDev.FrontendGuestNavigationService
 import com.intellij.driver.sdk.remoteDev.isLightSession
 import com.intellij.driver.sdk.remoteDev.openFileInLightSession
+import com.intellij.driver.sdk.ui.components.common.waitForIdeFrameReady
 import com.intellij.driver.sdk.ui.remote.ColorRef
 import java.awt.Point
 import java.awt.Rectangle
@@ -34,6 +35,20 @@ interface Editor {
   fun visualLineToY(visualLine: Int): Int
   fun getMarkupModel(): MarkupModel
   fun getScrollingModel(): ScrollingModel
+  fun getFoldingModel(): FoldingModel
+}
+
+@Remote("com.intellij.openapi.editor.FoldingModel")
+interface FoldingModel {
+  fun getAllFoldRegions(): Array<FoldRegion>
+}
+
+@Remote("com.intellij.openapi.editor.FoldRegion")
+interface FoldRegion {
+  fun isExpanded(): Boolean
+  fun getStartOffset(): Int
+  fun getEndOffset(): Int
+  fun getPlaceholderText(): String
 }
 
 @Remote("com.intellij.openapi.editor.markup.MarkupModel")
@@ -134,7 +149,8 @@ interface SimpleColoredText {
   fun getAttributes(): List<SimpleTextAttributes>
 }
 
-@Remote("com.intellij.xdebugger.impl.inline.InlineDebugRenderer")
+@Remote("com.intellij.xdebugger.impl.inline.InlineDebugRenderer",
+        plugin = "com.intellij/intellij.platform.debugger.impl.ui")
 interface InlineDebugRenderer {
   fun getPresentation(): SimpleColoredText?
 }
@@ -189,6 +205,7 @@ interface FileEditorManager {
   fun setSelectedEditor(editor: FileEditor)
   fun getAllEditors(): Array<FileEditor>
   fun getCurrentFile(): VirtualFile
+  fun getOpenFiles(): Array<VirtualFile>
 }
 
 @Remote("com.intellij.openapi.editor.colors.EditorColorsScheme")
@@ -221,34 +238,36 @@ fun Driver.openEditor(file: VirtualFile, project: Project? = null): Array<FileEd
   }
 }
 
-fun Driver.openFile(relativePath: String, project: Project = singleProject(), waitForCodeAnalysis: Boolean = true, isTextEditor: Boolean = true) {
+fun Driver.openFile(relativePath: String, project: Project? = null, waitForCodeAnalysis: Boolean = true, isTextEditor: Boolean = true) {
   step("Open file $relativePath") {
+    waitForIdeFrameReady()
+    val targetProject = project ?: singleProject()
     val openInLightSession = isRemDevMode && isLightSession()
     val openedFile = if (!isRemDevMode) {
       val fileToOpen = waitFor(message = "File is opened: $relativePath",
                                errorMessage = { "Fail to find file $relativePath" },
                                timeout = 10.seconds,
-                               getter = { findFile(relativePath = relativePath, project = project) },
+                               getter = { findFile(relativePath = relativePath, project = targetProject) },
                                checker = { virtualFile ->
                                  virtualFile != null &&
                                  Path.of(virtualFile.getPath()).endsWith(Path.of(relativePath))
                                })
 
-      openEditor(fileToOpen!!, project)
+      openEditor(fileToOpen!!, targetProject)
       fileToOpen
     }
     else if (openInLightSession) {
-      openFileInLightSession(relativePath, project, isTextEditor)
+      openFileInLightSession(relativePath, targetProject, isTextEditor)
     }
     else {
-      val service = service(FrontendGuestNavigationService::class, project)
+      val service = service(FrontendGuestNavigationService::class, targetProject)
       withContext(OnDispatcher.EDT) {
         service.navigateViaBackend(relativePath, 0)
-        findCurrentEditorFile(relativePath = relativePath, project = project, isTextEditor = isTextEditor)!!
+        findCurrentEditorFile(relativePath = relativePath, project = targetProject, isTextEditor = isTextEditor)!!
       }
     }
     if (waitForCodeAnalysis && !openInLightSession) {
-      waitForCodeAnalysis(project, openedFile)
+      waitForCodeAnalysis(targetProject, openedFile)
     }
   }
 }

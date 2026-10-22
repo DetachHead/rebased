@@ -20,7 +20,6 @@ import com.intellij.ide.starter.runner.IDEHandle
 import com.intellij.ide.starter.runner.IDERunContext
 import com.intellij.ide.starter.utils.catchAll
 import com.intellij.openapi.diagnostic.IdeaLogRecordFormatter
-import com.intellij.openapi.diagnostic.LogLevel
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.tools.ide.performanceTesting.commands.MarshallableCommand
 import kotlinx.coroutines.Deferred
@@ -41,7 +40,7 @@ open class RemDevDriverRunner : DriverRunner {
     expectedKill: Boolean,
     expectedExitCode: Int,
     collectNativeThreads: Boolean,
-    pauseOnIndexing: Duration?,
+    pauseOnIndicators: Duration?,
     configure: IDERunContext.() -> Unit,
   ): BackgroundRun {
     require(context.isRemDevContext()) { "for split-mode context should be instance of ${IDERemDevTestContext::class.java.simpleName}" }
@@ -50,7 +49,8 @@ open class RemDevDriverRunner : DriverRunner {
     addConsoleAllAppender()
 
     val remoteDevDriverOptions = RemoteDevDriverOptions()
-    context.addRemoteDevSpecificTraces()
+    // the patch of a split-mode context reaches both the frontend and the backend
+    context.applyVMOptionsPatch { enableFocusRequestsLog() }
 
     val backendRun =
       IDEBackendHandler(context, remoteDevDriverOptions.backendOptions, remoteDevDriverOptions.backendDebugPort)
@@ -62,15 +62,17 @@ open class RemDevDriverRunner : DriverRunner {
              expectedKill,
              expectedExitCode,
              collectNativeThreads,
-             pauseOnIndexing = pauseOnIndexing,
+             pauseOnIndicators = pauseOnIndicators,
              configure = configure)
     val joinLink = customizeJoinLink(backendRun.driver.remoteDevDirectLink())
 
     // should be run before the actual frontend start as otherwise we miss IdeLaunchEvent
     val frontendDriverWithLogging =
-      DriverWithDetailedLogging(RemDevFrontendDriver(JmxHost(address = remoteDevDriverOptions.frontendOptions.address)) {
-        backendRun.driver::beforeCall
-      })
+      DriverWithDetailedLogging(RemDevFrontendDriver(JmxHost(address = remoteDevDriverOptions.frontendOptions.address),
+                                                     beforeCall = {
+                                                       // applying the same beforeCall to the frontend's driver
+                                                       backendRun.driver.beforeCall?.invoke(this)
+                                                     }))
 
     val (frontendStartResult, frontendProcess, frontendRunContext) = try {
       IDEFrontendHandler(context.frontendIDEContext,
@@ -129,12 +131,6 @@ open class RemDevDriverRunner : DriverRunner {
   /** Lets the environment the frontend runs in - dockerized support, for one - rewrite the link the backend reported. */
   private fun customizeJoinLink(joinLink: String): String =
     di.direct.instanceOrNull<RemoteDevJoinLinkCustomizer>()?.customizeJoinLink(joinLink) ?: joinLink
-
-  private fun IDERemDevTestContext.addRemoteDevSpecificTraces() {
-    applyVMOptionsPatch {
-      configureLoggers(LogLevel.TRACE, "jb.focus.requests")
-    }
-  }
 
   companion object {
     private val consoleAppender = ConsoleHandler().apply {

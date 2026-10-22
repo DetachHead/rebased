@@ -16,12 +16,12 @@ import com.intellij.openapi.editor.colors.impl.EditorColorsManagerImpl
 import com.intellij.settingsSync.core.SettingsSnapshot.MetaInfo
 import com.intellij.settingsSync.core.notification.NotificationService
 import com.intellij.settingsSync.core.plugins.SettingsSyncPluginManager
-import com.intellij.util.io.inputStreamIfExists
 import com.intellij.util.io.write
 import org.jetbrains.annotations.VisibleForTesting
 import java.io.InputStream
 import java.nio.file.FileVisitResult
 import java.nio.file.Files
+import java.nio.file.NoSuchFileException
 import java.nio.file.Path
 import java.nio.file.SimpleFileVisitor
 import java.nio.file.attribute.BasicFileAttributes
@@ -49,6 +49,9 @@ internal class SettingsSyncIdeMediatorImpl(private val componentStore: Component
 
   @VisibleForTesting
   internal val files2applyLast = mutableListOf(EditorColorsManagerImpl.STORAGE_NAME)
+
+  @VisibleForTesting
+  override var pluginSyncSupported: Boolean = isPluginSyncSupported
 
   override val isExclusive: Boolean
     get() = true
@@ -84,7 +87,7 @@ internal class SettingsSyncIdeMediatorImpl(private val componentStore: Component
     }
 
     // 2. update plugins
-    if (snapshot.plugins != null) {
+    if (snapshot.plugins != null && pluginSyncSupported) {
       SettingsSyncPluginManager.getInstance().pushChangesToIde(snapshot.plugins)
     }
 
@@ -143,7 +146,8 @@ internal class SettingsSyncIdeMediatorImpl(private val componentStore: Component
     val fileStates = collectFileStatesFromFiles(filesToExport, appConfigPath)
     LOG.debug("Collected files for the following fileSpecs: ${fileStates.map { it.file }}")
 
-    val pluginsState = SettingsSyncPluginManager.getInstance().updateStateFromIdeOnStart(lastSavedSnapshot.plugins)
+    // null leaves the synced plugin state as it is
+    val pluginsState = if (pluginSyncSupported) SettingsSyncPluginManager.getInstance().updateStateFromIdeOnStart(lastSavedSnapshot.plugins) else null
     LOG.debug("Collected following plugin state: $pluginsState")
 
     val settingsFromProviders = mutableMapOf<String, Any>()
@@ -183,7 +187,12 @@ internal class SettingsSyncIdeMediatorImpl(private val componentStore: Component
     val adjustedSpec = getFileRelativeToRootConfig(fileSpec)
     return readUnderLock(adjustedSpec) {
       try {
-        consumer(path.inputStreamIfExists())
+        consumer(if (path.exists()) path.inputStream() else null)
+        true
+      }
+      catch (_: NoSuchFileException) {
+        // the file may be removed between the existence check above and the first read
+        // non-local file is opened lazily, so a missing file is reported only once reading starts
         true
       }
       catch (e: Throwable) {

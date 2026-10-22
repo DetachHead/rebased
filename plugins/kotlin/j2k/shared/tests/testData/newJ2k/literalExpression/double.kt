@@ -13,7 +13,7 @@ internal class A {
     private val x = 1 / (1.0 + 0)
 
     fun foo1(d: Double) {}
-    fun foo2(d: Double?) {}
+    fun foo2(d: Double) {}
 
     fun bar() {
         foo1(1.0)

@@ -5,7 +5,7 @@ package com.intellij.platform.eel.provider
 
 import com.intellij.platform.eel.EelOsFamily
 import com.intellij.platform.eel.EelPathBoundDescriptor
-import com.intellij.platform.eel.annotations.MultiRoutingFileSystemPath
+import com.intellij.platform.util.annotations.paths.NioPath
 import com.intellij.platform.eel.channels.EelDelicateApi
 import com.intellij.platform.eel.path.EelPath
 import com.intellij.platform.eel.path.EelPathException
@@ -34,7 +34,7 @@ private val LOG = Logger.getLogger("com.intellij.platform.eel.provider.EelNioBri
  */
 @Throws(IllegalArgumentException::class)
 @ApiStatus.Experimental
-fun EelPath.asNioPath(): @MultiRoutingFileSystemPath Path {
+fun EelPath.asNioPath(): Path {
   if (descriptor === LocalEelDescriptor) {
     return Paths.get(toString())
   }
@@ -48,7 +48,7 @@ fun EelPath.asNioPath(): @MultiRoutingFileSystemPath Path {
     LOG.finest("asNioPathOrNull(): path=$this descriptor=$descriptor rootPath=$root")
   }
 
-  @MultiRoutingFileSystemPath
+  @NioPath
   val result = when (descriptor.osFamily) {
     EelOsFamily.Windows -> {
       WindowsPathUtils.resolveEelPathOntoRoot(root, this)

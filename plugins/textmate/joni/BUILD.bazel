@@ -10,6 +10,10 @@ jps_test(
 )
 ### skip generation section `test intellij.textmate.joni.tests`
 
+### auto-generated section `dev intellij.textmate.joni` start
+content_module_jar(module = ":joni")
+### auto-generated section `dev intellij.textmate.joni` end
+
 ### auto-generated section `build intellij.textmate.joni` start
 jvm_library(
     name = "joni",
@@ -36,8 +40,6 @@ jvm_library(
     ],
 )
 
-content_module_jar(module = ":joni")
-
 jvm_library(
     name = "joni_test_lib",
     testonly = True,
@@ -52,10 +54,6 @@ jvm_library(
         ":joni",
         "//plugins/textmate/core:core_test_lib",
         "//libraries/joni:joni_test_lib",
-        "//plugins/textmate/core/tests",
-        "//plugins/textmate/core/tests:tests_test_lib",
-        "//libraries/junit5",
-        "//libraries/junit5:junit5_test_lib",
     ],
 )
 ### auto-generated section `build intellij.textmate.joni` end
@@ -108,8 +106,8 @@ jvm_library(
         "@lib//:slf4j-api",
         "//plugins/textmate/core/tests",
         "//plugins/textmate/core/tests:tests_test_lib",
-        "//libraries/junit5",
-        "//libraries/junit5:junit5_test_lib",
+        "//libraries/junit6",
+        "//libraries/junit6:junit6_test_lib",
     ],
 )
 ### auto-generated section `build intellij.textmate.joni.tests` end

@@ -2,6 +2,8 @@
 package com.intellij.platform.ijent.spi
 
 import com.intellij.platform.eel.EelPlatform
+import com.intellij.platform.eel.EelUnavailableException
+import com.intellij.platform.eel.EelUnavailableException.CommunicationFailure
 import com.intellij.platform.eel.ReadResult.EOF
 import com.intellij.platform.eel.ReadResult.NOT_EOF
 import com.intellij.platform.eel.SafeDeferred
@@ -9,12 +11,13 @@ import com.intellij.platform.eel.channels.EelChannelException
 import com.intellij.platform.eel.channels.sendWholeBuffer
 import com.intellij.platform.eel.provider.utils.consumeAsEelChannel
 import com.intellij.platform.eel.provider.utils.sendWholeText
+import com.intellij.platform.ijent.IjentDeploymentFailed
 import com.intellij.platform.ijent.IjentLogger
 import com.intellij.platform.ijent.IjentScope
 import com.intellij.platform.ijent.IjentSession
-import com.intellij.platform.ijent.IjentUnavailableException
-import com.intellij.platform.ijent.IjentUnavailableException.CommunicationFailure
 import com.intellij.platform.ijent.ParentOfIjentScopes
+import com.intellij.platform.ijent.asyncSafe
+import com.intellij.platform.ijent.causeSequence
 import com.intellij.platform.ijent.getIjentGrpcArgv
 import com.intellij.platform.ijent.spi.IjentSessionMediatorUtils.readLineOrThrow
 import com.intellij.platform.ijent.tcp.MutualTlsCertificates
@@ -23,16 +26,12 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineStart
-import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.InternalCoroutinesApi
 import kotlinx.coroutines.NonCancellable
-import kotlinx.coroutines.async
-import kotlinx.coroutines.cancel
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.job
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.withTimeoutOrNull
@@ -44,6 +43,7 @@ import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.StandardOpenOption
+import java.util.Base64
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.io.path.fileSize
 import kotlin.time.Duration
@@ -55,12 +55,12 @@ private val DEFAULT_SHELL_INITIALIZATION_TIMEOUT: Duration =
 
 private val PROCESS_CLEANUP_TIMEOUT: Duration = 3_000.milliseconds
 
-/** See `community/platform/ijent/docs/shell-deploy-lifetime.md` for the process ownership and the error strategy. */
+/** See `platform/ijent/docs/internal/shell-deploy-lifetime.md` for the process ownership and the error strategy. */
 abstract class IjentDeployingOverShellProcessStrategy(
-  scope: ParentOfIjentScopes,
+  parentScope: ParentOfIjentScopes,
   currentDispatcher: CoroutineDispatcher,
+  private val ijentLabel: String,
 ) : IjentControlledEnvironmentDeployingStrategy() {
-  protected abstract val ijentLabel: String
 
   /**
    * If there's some bind mount, returns the path for the remote machine/container that corresponds to [path].
@@ -70,8 +70,11 @@ abstract class IjentDeployingOverShellProcessStrategy(
 
   protected abstract suspend fun createShellProcessFacade(ijentProcessScope: IjentScope): IjentSessionProcessMediator.ProcessFacade
 
-  abstract class JavaProcessBasedStrategy(protected val scope: ParentOfIjentScopes, currentDispatcher: CoroutineDispatcher) :
-    IjentDeployingOverShellProcessStrategy(scope, currentDispatcher) {
+  abstract class JavaProcessBasedStrategy(
+    protected val scope: ParentOfIjentScopes,
+    currentDispatcher: CoroutineDispatcher,
+    ijentLabel: String,
+  ) : IjentDeployingOverShellProcessStrategy(scope, currentDispatcher, ijentLabel) {
     protected abstract suspend fun createShellProcess(): Process
 
     override suspend fun createShellProcessFacade(ijentProcessScope: IjentScope): IjentSessionProcessMediator.ProcessFacade {
@@ -79,12 +82,42 @@ abstract class IjentDeployingOverShellProcessStrategy(
     }
   }
 
+  /** Starts a deployment shell through a command when the target shell is unknown. */
+  abstract class WithShellBootstrap(
+    scope: ParentOfIjentScopes,
+    currentDispatcher: CoroutineDispatcher,
+    ijentLabel: String,
+  ) : IjentDeployingOverShellProcessStrategy(scope, currentDispatcher, ijentLabel) {
+    private val shellBootstrap by lazy { createShellBootstrap() }
+
+    /** Runs [script] as the initial command and keeps the process streams open. */
+    protected abstract suspend fun createShellProcessFacade(
+      ijentProcessScope: IjentScope,
+      script: String,
+    ): IjentSessionProcessMediator.ProcessFacade
+
+    final override suspend fun createShellProcessFacade(ijentProcessScope: IjentScope): IjentSessionProcessMediator.ProcessFacade =
+      createShellProcessFacade(ijentProcessScope, shellBootstrap.command)
+
+    final override suspend fun getShellDialect(process: IjentSessionProcessMediator.ProcessFacade): ShellDialect {
+      val result = runCatching { detectBootstrappedShell(process, shellBootstrap.marker) }
+      result.exceptionOrNull()?.let { failure ->
+        withContext(NonCancellable) {
+          runCatching { process.destroyForcibly() }.exceptionOrNull()?.let(failure::addSuppressed)
+        }
+      }
+      return when (result.getOrThrow()) {
+        DetectedShell.Posix -> ShellDialect.POSIX
+        DetectedShell.PowerShell -> ShellDialect.POWERSHELL
+      }
+    }
+  }
+
   protected sealed interface ExecutionStrategy {
     data object Default : ExecutionStrategy
 
     /**
-     * [tlsCertificates] intentionally has no default value: every deployer must state explicitly whether the TCP socket
-     * of IJent is protected with mutual TLS or is left plaintext and unauthenticated.
+     * [tlsCertificates] protect the TCP socket of IJent with mutual TLS. A plaintext TCP socket is not an option.
      *
      * [noShutdownOnDisconnect] makes IJent outlive the death of its gRPC peer; in exchange, an explicit close asks it
      * to terminate in-band (the flag is mirrored into [IjentConnectionContext.noShutdownOnDisconnect]). Only a deployer
@@ -93,7 +126,7 @@ abstract class IjentDeployingOverShellProcessStrategy(
      */
     data class Tcp(
       val deployInfo: TcpDeployInfo,
-      val tlsCertificates: MutualTlsCertificates?,
+      val tlsCertificates: MutualTlsCertificates,
       val noShutdownOnDisconnect: Boolean = false,
     ) : ExecutionStrategy
   }
@@ -108,7 +141,7 @@ abstract class IjentDeployingOverShellProcessStrategy(
 
   protected enum class ShellDialect { POSIX, POWERSHELL }
 
-  protected open suspend fun getShellDialect(): ShellDialect = ShellDialect.POSIX
+  protected open suspend fun getShellDialect(process: IjentSessionProcessMediator.ProcessFacade): ShellDialect = ShellDialect.POSIX
 
   /**
    * Interruption strategy for the initial shell setup.
@@ -129,14 +162,16 @@ abstract class IjentDeployingOverShellProcessStrategy(
   val communicationStarted: SafeDeferred<Unit> = SafeDeferred(communicationStartedImpl)
 
   private val closed = AtomicBoolean()
+
   /** Non-null while the deployer owns cleanup; cleared on close or when the session takes ownership. */
   private var createdShellProcess: ShellProcessWrapper? = null
 
-  private val myContext: Deferred<ShellSession> = scope.s.async(currentDispatcher, start = CoroutineStart.LAZY) {
-    val ijentProcessScope = IjentSessionMediatorUtils.createProcessScope(scope, ijentLabel)
+  private val ijentProcessScope = parentScope.createIjentScope(ijentLabel)
+
+  private val myContext: SafeDeferred<ShellSession> = ijentProcessScope.asyncSafe(currentDispatcher, start = CoroutineStart.LAZY) {
     val processFacade = createShellProcessFacade(ijentProcessScope)
     val mediator = IjentSessionProcessMediator.create(
-      parentScope = scope,
+      parentScope = parentScope,
       ijentProcessScope = ijentProcessScope,
       process = processFacade,
       ijentLabel = ijentLabel,
@@ -154,8 +189,22 @@ abstract class IjentDeployingOverShellProcessStrategy(
       shell.close()
       currentCoroutineContext().ensureActive()
     }
+    try {
+      initializeShell(shell, processFacade)
+    }
+    catch (e: Exception) {
+      // The shell exits after the failure, maybe with the code 0. That exit must not hide the failure.
+      deploymentFailureOf(e, "Deployment shell initialization failed")?.let { failure ->
+        ijentProcessScope.destroy(failure)
+        throw failure
+      }
+      throw e
+    }
+  }
+
+  private suspend fun initializeShell(shell: ShellProcessWrapper, processFacade: IjentSessionProcessMediator.ProcessFacade): ShellSession =
     withShellInitializationInterruption {
-      val shellIo = when (getShellDialect()) {
+      val shellIo = when (getShellDialect(processFacade)) {
         ShellDialect.POSIX -> PosixShellIo(shell)
         ShellDialect.POWERSHELL -> PowerShellIo(shell)
       }
@@ -176,9 +225,8 @@ abstract class IjentDeployingOverShellProcessStrategy(
         is PowerShellIo -> PowerShellSession(shellIo)
       }
     }
-  }
 
-  private val myDetectedTarget = scope.s.async(currentDispatcher, start = CoroutineStart.LAZY) {
+  private val myDetectedTarget = ijentProcessScope.asyncSafe(currentDispatcher, start = CoroutineStart.LAZY) {
     val session = getMyContext()
     session.execCommand {
       detectTarget()
@@ -198,9 +246,11 @@ abstract class IjentDeployingOverShellProcessStrategy(
     return try {
       myDetectedTarget.await()
     }
-    catch (e: CancellationException) {
-      currentCoroutineContext().ensureActive()
-      throw IjentUnavailableException.unwrapFromCancellationExceptions(e)
+    catch (e: SafeDeferred.FailedDeferred) {
+      throw e.cause
+    }
+    catch (e: SafeDeferred.CancelledDeferred) {
+      throw e
     }
   }
 
@@ -232,15 +282,15 @@ abstract class IjentDeployingOverShellProcessStrategy(
     try {
       myContext.await()
     }
-    catch (e: CancellationException) {
-      currentCoroutineContext().ensureActive()
-      throw IjentUnavailableException.unwrapFromCancellationExceptions(e)
+    catch (e: SafeDeferred.FailedDeferred) {
+      throw e.cause
     }
 
   final override fun close() {
+    // TODO Everything below should be replaced with deinitialization via coroutines.
+    //  Like `launch { try { awaitCancellation() } finally { ... } }`
     if (!closed.compareAndSet(false, true)) return
 
-    myContext.cancel()
     createdShellProcess?.close()
     createdShellProcess = null
   }
@@ -315,9 +365,22 @@ private class ShellProcessWrapper(
     }
   }
 
-  /** Returns a failure observed while terminating a process that is still owned by the deployer. */
+  /**
+   * The result of [destroyForciblyAndGetError].
+   *
+   * @property processFailure the canonical failure of the process. It exists only if the process failed by itself.
+   * @property cleanupFailure a failure of the termination itself. It never describes why the deployment failed.
+   */
+  class CleanupResult(val processFailure: EelUnavailableException?, val cleanupFailure: Exception?)
+
+  /**
+   * Terminates a process that is still owned by the deployer and returns the failures that it observed.
+   *
+   * If the deployer kills the process because of [deploymentFailure], the failure becomes the exit reason first.
+   * Then the exit of the killed process cannot hide it.
+   */
   @OptIn(InternalCoroutinesApi::class)
-  suspend fun destroyForciblyAndGetError(): Throwable? = withContext(NonCancellable) {
+  suspend fun destroyForciblyAndGetError(deploymentFailure: IjentDeploymentFailed? = null): CleanupResult = withContext(NonCancellable) {
     var cleanupFailure: Exception? = null
     val cleanupStartsNow = cleanupStarted.compareAndSet(false, true)
     val processTerminationWasRequested = when (mediator.process.exitCode.state) {
@@ -327,6 +390,9 @@ private class ShellProcessWrapper(
     val job = mediator.ijentProcessScope.s.coroutineContext.job
     val processCompleted = withTimeoutOrNull(PROCESS_CLEANUP_TIMEOUT) {
       if (processTerminationWasRequested) {
+        if (deploymentFailure != null) {
+          terminateProcessScope(deploymentFailure)
+        }
         try {
           mediator.process.destroyForcibly()
         }
@@ -336,7 +402,7 @@ private class ShellProcessWrapper(
         catch (e: Exception) {
           cleanupFailure = e
 
-          val error = IjentUnavailableException.ClosedByApplication(
+          val error = EelUnavailableException.IntendedExit(
             "Failed to destroy the shell process during deployment cleanup",
             e,
           )
@@ -349,31 +415,27 @@ private class ShellProcessWrapper(
     if (!processCompleted && cleanupFailure == null) {
       val timeoutFailure = CommunicationFailure("Timed out while terminating the deployment shell process", null)
       cleanupFailure = timeoutFailure
-      terminateProcessScope(IjentUnavailableException.ClosedByApplication(timeoutFailure.message, timeoutFailure))
+      terminateProcessScope(EelUnavailableException.IntendedExit(timeoutFailure.message, timeoutFailure))
     }
     val processFailure =
       if (processCompleted && !processTerminationWasRequested) {
-        IjentUnavailableException.unwrapFromCancellationExceptions(job.getCancellationException())
+        EelUnavailableException.unwrapFromCancellationExceptions(job.getCancellationException())
       }
       else null
-    processFailure?.also { failure ->
-      cleanupFailure?.let(failure::addSuppressed)
-    } ?: cleanupFailure
+    CleanupResult(processFailure, cleanupFailure)
   }
 
-  private fun terminateProcessScope(error: IjentUnavailableException) {
-    mediator.ijentProcessScope.s.launch(start = CoroutineStart.UNDISPATCHED) {
-      currentCoroutineContext()[IjentScope.IjentContext.Key]!!
-        .completeExitReason(error)
-      throw error
-    }
+  private fun terminateProcessScope(error: EelUnavailableException) {
+    mediator.ijentProcessScope.destroy(error)
   }
 
   fun processForConnection(): IjentSessionProcessMediator = mediator
 
   fun close() {
     if (cleanupStarted.compareAndSet(false, true)) {
-      mediator.ijentProcessScope.s.cancel(CancellationException("Deployment closed before process handoff"))
+      mediator.ijentProcessScope.destroy(
+        EelUnavailableException.IntendedExit("Deployment closed before process handoff", null),
+      )
     }
   }
 }
@@ -510,7 +572,7 @@ private sealed interface IjentLaunchOptions {
 
   data class Tcp(
     val deployInfo: TcpDeployInfo,
-    val tlsCertificates: MutualTlsCertificates?,
+    val tlsCertificates: MutualTlsCertificates,
     val noShutdownOnDisconnect: Boolean,
   ) : IjentLaunchOptions
 }
@@ -532,7 +594,7 @@ private fun IjentLaunchOptions.command(remoteBinaryPath: String): IjentLaunchCom
         selfDeleteOnExit = true,
         noShutdownOnDisconnect = noShutdownOnDisconnect,
         deployInfo = deployInfo,
-        useTLS = tlsCertificates != null,
+        useTLS = true,
       ),
       tlsCertificates = tlsCertificates,
     )
@@ -543,27 +605,29 @@ private suspend fun <T : Any> ShellSession.execCommand(block: suspend ShellSessi
     block()
   }
   catch (initialErrorFromStack: Exception) {
-    val errorFromScope = io.process.destroyForciblyAndGetError()
-    val errorFromStack = IjentUnavailableException.unwrapFromCancellationExceptions(initialErrorFromStack)
+    val errorFromStack = EelUnavailableException.unwrapFromCancellationExceptions(initialErrorFromStack)
+    val deploymentFailure = deploymentFailureOf(errorFromStack ?: initialErrorFromStack, "Deployment shell command failed")
+    val cleanup = io.process.destroyForciblyAndGetError(deploymentFailure)
 
     // A process failure may be hidden behind CancellationException. Prefer the canonical failure from the process scope in that case.
     // Other errors may be programmer bugs and must retain their original type so that they reach the error reporter.
-    // A null errorFromScope means the process was killed by this cleanup itself, so the stack error is the root cause.
-    val mainError =
-      when {
-        errorFromScope == null -> errorFromStack
-        errorFromStack is IjentUnavailableException -> errorFromStack
-        errorFromStack is CancellationException -> errorFromScope
-        else -> errorFromStack
-      }
+    // A null processFailure means that this cleanup itself tried to kill the process, so the stack error is the root cause.
+    // That stays true when the kill fails: a cleanup failure is only a consequence, so it never replaces the root cause.
+    // A failure that the cleanup made the exit reason reaches the caller as a copy, like every exit reason.
+    val mainError: Throwable =
+      cleanup.processFailure
+      ?: deploymentFailure?.copyForCaller()
+      ?: errorFromStack
+      ?: initialErrorFromStack
 
-    for (secondaryError in listOfNotNull(errorFromStack, errorFromScope)) {
-      if (mainError !== secondaryError && mainError.suppressed.none { it === secondaryError }) {
+    for (secondaryError in listOfNotNull(errorFromStack, cleanup.processFailure, cleanup.cleanupFailure)) {
+      // The main error can be a copy of the exit reason for this caller. Then the exit reason is its cause, not a suppressed error.
+      if (secondaryError !in mainError.causeSequence() + mainError.suppressed) {
         mainError.addSuppressed(secondaryError)
       }
     }
 
-    throw if (mainError is IOException && mainError !is IjentUnavailableException) {
+    throw if (mainError is IOException && mainError !is EelUnavailableException) {
       CommunicationFailure("Deployment shell command failed", mainError)
     }
     else {
@@ -571,6 +635,23 @@ private suspend fun <T : Any> ShellSession.execCommand(block: suspend ShellSessi
     }
   }
 }
+
+/**
+ * Returns the conclusive failure of the deployment for [error], or `null` if [error] needs no wrapper.
+ *
+ * A failure of the environment ends the deployment for good, so it becomes [IjentDeploymentFailed].
+ * A [EelUnavailableException.Conclusive] error is already a root cause.
+ * A bug keeps its own type, so it reaches the error reporter.
+ */
+private fun deploymentFailureOf(error: Throwable, message: String): IjentDeploymentFailed? =
+  when (error) {
+    is EelUnavailableException -> when (error) {
+      is CommunicationFailure -> IjentDeploymentFailed(message, error)
+      is EelUnavailableException.Conclusive -> null
+    }
+    is IOException -> IjentDeploymentFailed(message, error)
+    else -> null
+  }
 
 @VisibleForTesting
 internal data class DeployingContext(
@@ -591,6 +672,8 @@ internal data class DeployingContext(
 
   /** Although `id` is defined by POSIX, there's no guarantee that a stripped down system has it. */
   val id: String?,
+
+  val cacheCommands: IjentBinaryCache.PosixCommands? = null,
 )
 
 /**
@@ -634,6 +717,12 @@ internal suspend fun createDeployingContext(filterAvailableBinariesCmd: suspend 
   val optionalCommands: Set<String> = setOf(
     "getent",
     "id",
+    "mkdir",
+    "mv",
+    "sha256sum",
+    "shasum",
+    "touch",
+    "ls",
   )
 
   val outputOfWhich = mutableListOf<String>()
@@ -672,6 +761,15 @@ internal suspend fun createDeployingContext(filterAvailableBinariesCmd: suspend 
     whoami = getCommandPath("whoami"),
     getent = getOptionalCommandPath("getent"),
     id = getOptionalCommandPath("id"),
+    cacheCommands = run {
+      IjentBinaryCache.PosixCommands(
+        mkdir = getOptionalCommandPath("mkdir") ?: return@run null,
+        mv = getOptionalCommandPath("mv") ?: return@run null,
+        checksum = getOptionalCommandPath("sha256sum") ?: getOptionalCommandPath("shasum")?.let { "$it -a 256" } ?: return@run null,
+        touch = getOptionalCommandPath("touch") ?: return@run null,
+        ls = getOptionalCommandPath("ls") ?: return@run null,
+      )
+    },
   )
 }
 
@@ -711,21 +809,29 @@ private class PosixShellSession(
   }
 
   override suspend fun uploadBinary(localBinary: Path, mappedPath: String?): String {
-    // TODO Don't upload a new binary every time if the binary is already on the server. However, hashes must be checked.
     val ijentBinarySize = localBinary.fileSize()
+    val cache = if (mappedPath == null && context.cacheCommands != null) IjentBinaryCache.forBinary(localBinary) else null
 
     // This trap owns the temporary directory until IJent is launched. It also cleans up when upload or shell setup fails midway.
     io.process.write(context.run {
       "BINARY_DIR=\"\$($mktemp -d)\"; BINARY=\"\$BINARY_DIR/ijent\"; trap '$rm -rf \"\$BINARY_DIR\"' 0;\n"
     })
 
-    val chmodAndEcho = context.run {
-      "$chmod 500 \"\$BINARY\"; echo \"\$BINARY\";\n"
+    if (cache != null) {
+      io.executeCommand(cache.posixRestore(context)).lastOrNull { it.isNotBlank() }?.let { return it }
+    }
+
+    val finishUpload = context.run {
+      $$"""
+      $$chmod 500 "$BINARY";
+      $${cache?.posixPublish(this).orEmpty()}
+      echo "$BINARY";
+      """.trimIndent()
     }
 
     if (mappedPath != null) {
       io.process.write(context.run {
-        "$cp ${posixQuote(mappedPath)} \$BINARY; $chmodAndEcho"
+        "$cp ${posixQuote(mappedPath)} \$BINARY; $finishUpload"
       })
     }
     else {
@@ -746,11 +852,13 @@ private class PosixShellSession(
         // is also unreliable, macOS can make this buffer for Unix sockets bigger.
         // Therefore, exploiting the trick with BUGGY_DASH_BUFFER_FILLER again would be unreliable.
         $$"""
+        {
         $$head -c $${ijentBinarySize + BUGGY_DASH_BUFFER_FILLER.length} > $BINARY.tmp; \
         BYTES_TO_SKIP=$(LC_ALL=C $$sed -n -e '/./{=;q;}' $BINARY.tmp | LC_ALL=C $$head -n1); \
         LC_ALL=C $$tail -c+$BYTES_TO_SKIP $BINARY.tmp | LC_ALL=C $$head -c $$ijentBinarySize > $BINARY; \
         $$rm -f $BINARY.tmp; \
-        $$chmodAndEcho
+        $$finishUpload
+        }
         """.trimIndent()
       })
 
@@ -807,7 +915,7 @@ private class PosixShellSession(
  */
 private fun DeployingContext.getLoginShellCmd(targetPlatform: EelPlatform.Posix): String? =
   when (targetPlatform) {
-    is EelPlatform.Linux, is EelPlatform.HarmonyOS ->
+    is EelPlatform.Linux, is EelPlatform.OHOS ->
       getent?.let { """$it passwd "${'$'}($whoami)" | $cut -d: -f7""" }
 
     // BSD-like systems, including macOS, don't have `getent`, but their `id` prints the whole passwd entry with the option `-P`.
@@ -833,54 +941,54 @@ private class PowerShellSession(
     if (mappedPath != null) return mappedPath
 
     val binarySize = localBinary.fileSize()
-    val readyBoundary = randomBoundary()
+    val cache = IjentBinaryCache.forBinary(localBinary)
     val pathMarker = randomBoundary()
     val directoryMarker = randomBoundary()
     val doneBoundary = randomBoundary()
-    io.process.write(
+    val paths = io.executeCommand(
       "\$ijentDir = Join-Path ([IO.Path]::GetTempPath()) ('ijent-' + [Guid]::NewGuid().ToString('N')); " +
       "[IO.Directory]::CreateDirectory(\$ijentDir) | Out-Null; " +
       "\$ijentBinary = Join-Path \$ijentDir 'ijent.exe'; " +
       "Write-Output ('$directoryMarker' + \$ijentDir); " +
       "Write-Output ('$pathMarker' + \$ijentBinary); " +
-      "Write-Output '$readyBoundary'; " +
-      "\$ijentInput = [Console]::OpenStandardInput(); " +
-      "try { \$ijentOutput = [IO.File]::Open(\$ijentBinary, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::None); " +
-      "try { \$ijentRemaining = [long]$binarySize; \$ijentBuffer = New-Object byte[] 65536; " +
-      "while (\$ijentRemaining -gt 0) { \$ijentToRead = [int][Math]::Min(\$ijentBuffer.Length, \$ijentRemaining); " +
-      "\$ijentRead = \$ijentInput.Read(\$ijentBuffer, 0, \$ijentToRead); " +
-      "if (\$ijentRead -eq 0) { throw 'Unexpected end of IJent binary stream' }; " +
-      "\$ijentOutput.Write(\$ijentBuffer, 0, \$ijentRead); \$ijentRemaining -= \$ijentRead } } " +
-      "finally { \$ijentOutput.Dispose() } } " +
-      "catch { Remove-Item -LiteralPath \$ijentDir -Recurse -Force -ErrorAction SilentlyContinue; throw }; " +
-      "Write-Output '$doneBoundary'"
+      cache.powerShellRestore()
     )
-
-    var remoteBinaryDirectory: String? = null
-    var remoteBinaryPath: String? = null
-    while (remoteBinaryPath == null) {
-      val line = io.readLine()
-      if (line.startsWith(directoryMarker)) {
-        remoteBinaryDirectory = line.removePrefix(directoryMarker)
-        continue
-      }
-      if (line.startsWith(pathMarker)) {
-        remoteBinaryPath = line.removePrefix(pathMarker)
-      }
-      else {
-        LOG.debug { "Dropped shell output while waiting for the uploaded IJent binary path: $line" }
-      }
+    uploadedBinaryDirectory = paths.singleOrNull { it.startsWith(directoryMarker) }?.removePrefix(directoryMarker)
+                              ?: throw CommunicationFailure("PowerShell did not report the uploaded IJent binary directory", null)
+    val remoteBinaryPath = paths.singleOrNull { it.startsWith(pathMarker) }?.removePrefix(pathMarker)
+                           ?: throw CommunicationFailure("PowerShell did not report the uploaded IJent binary path", null)
+    if (paths.any { it == remoteBinaryPath }) {
+      return remoteBinaryPath
     }
-    uploadedBinaryDirectory = remoteBinaryDirectory
-      ?: throw CommunicationFailure("PowerShell did not report the uploaded IJent binary directory", null)
 
-    // Only raw bytes follow the ready marker. PowerShell has parsed the complete command and is already waiting in its binary reader.
-    io.dropOutputUntil(readyBoundary)
+    val abortUpload =
+      $$"if ($null -ne $ijentOutput) { $ijentOutput.Dispose() }; " +
+      $$"Remove-Item -LiteralPath $ijentDir -Recurse -Force -ErrorAction SilentlyContinue; " +
+      $$"[Console]::Error.WriteLine($_.Exception.ToString()); exit 1"
+    io.process.write(
+      $$"try { $ijentOutput = [IO.File]::Open($ijentBinary, [IO.FileMode]::Create, [IO.FileAccess]::Write, [IO.FileShare]::None) } " +
+      "catch { $abortUpload }"
+    )
     withContext(Dispatchers.IO) {
-      Files.newByteChannel(localBinary, StandardOpenOption.READ).use { stream ->
-        io.process.copyDataFrom(stream)
+      Files.newInputStream(localBinary).use { stream ->
+        val buffer = ByteArray(48 * 1024)
+        val encoder = Base64.getEncoder()
+        while (true) {
+          val bytesRead = stream.read(buffer)
+          if (bytesRead < 0) break
+          val encoded = encoder.encodeToString(buffer.copyOf(bytesRead))
+          io.process.writeUnlogged(
+            $$"try { $ijentChunk = [Convert]::FromBase64String('$$encoded'); $ijentOutput.Write($ijentChunk, 0, $ijentChunk.Length) } " +
+            "catch { $abortUpload }"
+          )
+        }
       }
     }
+    io.process.write(
+      $$"try { $ijentOutput.Dispose(); " +
+      $$"if ((Get-Item -LiteralPath $ijentBinary).Length -ne $$binarySize) { throw 'Unexpected IJent binary size' }; " +
+      cache.powerShellPublish() + "; Write-Output '$doneBoundary' } catch { $abortUpload }"
+    )
     io.dropOutputUntil(doneBoundary)
     return remoteBinaryPath
   }
@@ -890,19 +998,24 @@ private class PowerShellSession(
     launchOptions: IjentLaunchOptions,
   ): IjentSessionProcessMediator {
     val launchCommand = launchOptions.command(remoteBinaryPath)
-    if (launchCommand.tlsCertificates != null) {
-      throw CommunicationFailure("Mutual TLS is not supported for PowerShell targets", null)
-    }
     val command = launchCommand.argv.joinToString(" ") { powerShellQuote(it) }
-    val cleanupCommand = uploadedBinaryDirectory?.let { "Remove-Item -LiteralPath ${powerShellQuote(it)} -Recurse -Force -ErrorAction SilentlyContinue; " }.orEmpty()
+    val tlsBootstrap = launchCommand.tlsCertificates?.let {
+      val encoded = Base64.getEncoder().encodeToString(it.serverBootstrapPem().toByteArray(StandardCharsets.UTF_8))
+      "[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('$encoded')) | "
+    }.orEmpty()
+    val cleanupCommand = uploadedBinaryDirectory
+      ?.let { "Remove-Item -LiteralPath ${powerShellQuote(it)} -Recurse -Force -ErrorAction SilentlyContinue; " }
+      .orEmpty()
     io.startProcess(
-      "try { & $command; \$ijentExitCode = \$LASTEXITCODE } " +
-      "catch { \$ijentExitCode = 1; [Console]::Error.WriteLine(\$_.Exception.ToString()) } " +
-      "finally { $cleanupCommand" + "exit \$ijentExitCode }"
+      $$"try { $$tlsBootstrap& $$command; $ijentExitCode = $LASTEXITCODE } " +
+      $$"catch { $ijentExitCode = 1; [Console]::Error.WriteLine($_.Exception.ToString()) } " +
+      $$"finally { $${cleanupCommand}exit $ijentExitCode }",
+      sensitive = launchCommand.tlsCertificates != null,
     )
     return io.process.processForConnection()
   }
 }
+
 /**
  * [Dash-based shells up to 0.5.12 inclusively have a problem](https://lore.kernel.org/dash/CAMQsgbSZnEac=ETYnR6a_ysnAysaHThwY03pnoDxC=p5FqtAag@mail.gmail.com/).
  *

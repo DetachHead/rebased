@@ -1,0 +1,22 @@
+[package]
+name = "plugin-descriptor-writer"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+appinfo.workspace = true
+# The reader of the packer reads the declared library jars.
+jarpack.workspace = true
+cli.workspace = true
+anyhow.workspace = true
+
+[dev-dependencies]
+testkit.workspace = true
+# The tests write their jars with the `zip` crate, which shares no code with the reader.
+zip.workspace = true

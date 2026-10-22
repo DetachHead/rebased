@@ -11,6 +11,10 @@ jps_test(
 
 ### skip generation section `test intellij.java.manifest.tests`
 
+### auto-generated section `dev intellij.java.manifest` start
+content_module_jar(module = ":manifest")
+### auto-generated section `dev intellij.java.manifest` end
+
 ### auto-generated section `build intellij.java.manifest` start
 jvm_library(
     name = "manifest",
@@ -51,8 +55,6 @@ jvm_library(
     ],
 )
 
-content_module_jar(module = ":manifest")
-
 jvm_library(
     name = "manifest_test_lib",
     testonly = True,
@@ -78,10 +80,6 @@ jvm_library(
         "//platform/core-impl:core-impl_test_lib",
         "//java/java-psi-api:psi_test_lib",
         "//java/java-impl:impl_test_lib",
-        "//platform/testFramework",
-        "//platform/testFramework:testFramework_test_lib",
-        "//java/testFramework",
-        "//java/testFramework:testFramework_test_lib",
         "//java/java-frontback-psi-api:frontback-psi_test_lib",
         "//spellchecker:spellchecker_test_lib",
         "//platform/core-ui:core-ui_test_lib",
@@ -111,6 +109,7 @@ jvm_library(
     ),
     module_name = "intellij.java.manifest.tests",
     visibility = ["//visibility:public"],
+    runtime_deps = ["//xml/plugin"],
 )
 
 jvm_library(
@@ -133,6 +132,7 @@ jvm_library(
         # do not sort,
         ":manifest-tests",
         "//platform/platform-impl:ide-impl_test_lib",
+        "//xml/plugin:plugin_test_lib",
     ],
     deps = [
         # do not sort,
@@ -179,8 +179,6 @@ jvm_library(
         "//platform/structure-view-impl/plugin:plugin_test_lib",
         "//platform/todo/plugin",
         "//platform/todo/plugin:plugin_test_lib",
-        "//libraries/misc/plugin",
-        "//libraries/misc/plugin:plugin_test_lib",
         "//libraries/junit4",
         "//libraries/junit4:junit4_test_lib",
     ],

@@ -1,6 +1,13 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
 load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
+### auto-generated section `dev intellij.python.ml.features` start
+content_module_jar(
+    libraries = ["@lib//:python-ml-features-jetbrains-ml-models-python-imports-ranking-model"],
+    module = ":ml-features",
+)
+### auto-generated section `dev intellij.python.ml.features` end
+
 ### auto-generated section `build intellij.python.ml.features` start
 jvm_library(
     name = "ml-features",
@@ -33,6 +40,7 @@ jvm_library(
         "//platform/platform-impl:ide-impl",
         "//python:python-community-impl",
         "//python/python-sdk/backend",
+        "//python/python-pyproject:pyproject",
         "//platform/util/concurrency",
         "//platform/core-ui",
         "//platform/platform-impl/codeinsight-inline:ide-codeinsight-inline",
@@ -40,11 +48,6 @@ jvm_library(
         "@lib//:python-ml-features-jetbrains-ml-models-python-imports-ranking-model",
         "//libraries/mlapi/catboost",
     ],
-)
-
-content_module_jar(
-    libraries = ["@lib//:python-ml-features-jetbrains-ml-models-python-imports-ranking-model"],
-    module = ":ml-features",
 )
 
 jvm_library(
@@ -71,6 +74,7 @@ jvm_library(
         "//platform/platform-impl:ide-impl_test_lib",
         "//python:python-community-impl_test_lib",
         "//python/python-sdk/backend:backend_test_lib",
+        "//python/python-pyproject:pyproject_test_lib",
         "//platform/util/concurrency:concurrency_test_lib",
         "//platform/core-ui:core-ui_test_lib",
         "//platform/platform-impl/codeinsight-inline:ide-codeinsight-inline_test_lib",

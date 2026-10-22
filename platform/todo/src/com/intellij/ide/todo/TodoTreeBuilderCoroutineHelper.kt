@@ -59,9 +59,10 @@ internal class TodoTreeBuilderCoroutineHelper(private val treeBuilder: TodoTreeB
     val scanCompleted = CompletableFuture<Unit>()
 
     remoteTodoFilesWatchJob = this.scope.launch(Dispatchers.Default + ClientId.current.asContextElement()) {
-      readAction { treeBuilder.clearCache() }
+      var scanInProgress = true
       collectWatchedTodoFiles(treeBuilder.project, todoScope, filter) { event ->
         coroutineContext.ensureActive()
+        if (event is TodoEvent.AllItemsRemoved) scanInProgress = true
         val change = treeBuilder.applyRemoteTodoEvent(event)
         when (change) {
           is TodoModelChange.FileUpdated -> treeBuilder.addRemoteTodoFileToTree(change.file)
@@ -70,9 +71,10 @@ internal class TodoTreeBuilderCoroutineHelper(private val treeBuilder: TodoTreeB
           TodoModelChange.Nothing -> {}
           }
         if (event is TodoEvent.ScanFinished) {
+          scanInProgress = false
           scanCompleted.complete(Unit)
         }
-        readAction { treeBuilder.updateVisibleTree() }
+        if (!scanInProgress) readAction { treeBuilder.updateVisibleTree() }
       }
     }
     return scanCompleted
@@ -135,8 +137,8 @@ internal class TodoTreeBuilderCoroutineHelper(private val treeBuilder: TodoTreeB
   }
 }
 
-@RequiresBackgroundThread
-@RequiresReadLock
+@RequiresBackgroundThread(generateAssertion = false /* IJPL-115548 */)
+@RequiresReadLock(generateAssertion = false /* IJPL-115548 */)
 private fun TodoTreeBuilder.collectFiles() {
   ProgressManager.checkCanceled()
   clearCache()
@@ -152,8 +154,8 @@ private fun TodoTreeBuilder.collectFiles() {
   validateCacheAndUpdateTree()
 }
 
-@RequiresBackgroundThread
-@RequiresReadLock
+@RequiresBackgroundThread(generateAssertion = false /* IJPL-115548 */)
+@RequiresReadLock(generateAssertion = false /* IJPL-115548 */)
 private fun TodoTreeBuilder.validateCacheAndUpdateTree() {
   ProgressManager.checkCanceled()
 
@@ -161,8 +163,8 @@ private fun TodoTreeBuilder.validateCacheAndUpdateTree() {
   updateVisibleTree()
 }
 
-@RequiresBackgroundThread
-@RequiresReadLock
+@RequiresBackgroundThread(generateAssertion = false /* IJPL-115548 */)
+@RequiresReadLock(generateAssertion = false /* IJPL-115548 */)
 private fun TodoTreeBuilder.updateVisibleTree() {
   if (isUpdatable) {
     if (hasDirtyFiles()) { // suppress redundant cache validations

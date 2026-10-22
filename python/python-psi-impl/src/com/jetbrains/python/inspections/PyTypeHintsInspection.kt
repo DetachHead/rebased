@@ -105,7 +105,6 @@ import com.jetbrains.python.psi.types.PyTypeChecker.collectGenerics
 import com.jetbrains.python.psi.types.PyTypeChecker.hasGenerics
 import com.jetbrains.python.psi.types.PyTypeParameterMapping
 import com.jetbrains.python.psi.types.PyTypeParameterType
-import com.jetbrains.python.psi.types.PyTypeParser
 import com.jetbrains.python.psi.types.PyTypeUtil.derefOrUnknown
 import com.jetbrains.python.psi.types.PyTypeVarTupleType
 import com.jetbrains.python.psi.types.PyTypeVarType
@@ -425,21 +424,21 @@ class PyTypeHintsInspection : PyInspection() {
     override fun visitPyElement(node: PyElement) {
       super.visitPyElement(node)
 
-      if (node is PyTypeCommentOwner &&
-          node is PyAnnotationOwner &&
-          node.typeComment?.text.let { it != null && !PyTypingTypeProvider.TYPE_IGNORE_PATTERN.matcher(it).matches() }) {
-        val message = PyPsiBundle.message("INSP.type.hints.type.specified.both.in.type.comment.and.annotation")
+      if (node !is PyTypeCommentOwner || node !is PyAnnotationOwner) return
+      val typeCommentText = node.typeComment?.text
+      if (typeCommentText == null || PyTypingTypeProvider.TYPE_IGNORE_PATTERN.matcher(typeCommentText).matches()) return
 
-        if (node is PyFunction) {
-          if (node.annotationValue != null || node.parameterList.parameters.any { it is PyNamedParameter && it.annotationValue != null }) {
-            registerProblem(node.typeComment, message, RemoveElementQuickFix(PyPsiBundle.message("QFIX.remove.type.comment")))
-            registerProblem(node.nameIdentifier, message, RemoveFunctionAnnotations())
-          }
-        }
-        else if (node.annotationValue != null) {
+      val message = PyPsiBundle.message("INSP.type.hints.type.specified.both.in.type.comment.and.annotation")
+
+      if (node is PyFunction) {
+        if (node.annotationValue != null || node.parameterList.parameters.any { it is PyNamedParameter && it.annotationValue != null }) {
           registerProblem(node.typeComment, message, RemoveElementQuickFix(PyPsiBundle.message("QFIX.remove.type.comment")))
-          registerProblem(node.annotation, message, RemoveElementQuickFix(PyPsiBundle.message("QFIX.remove.annotation")))
+          registerProblem(node.nameIdentifier, message, RemoveFunctionAnnotations())
         }
+      }
+      else if (node.annotationValue != null) {
+        registerProblem(node.typeComment, message, RemoveElementQuickFix(PyPsiBundle.message("QFIX.remove.type.comment")))
+        registerProblem(node.annotation, message, RemoveElementQuickFix(PyPsiBundle.message("QFIX.remove.annotation")))
       }
     }
 
@@ -1288,7 +1287,10 @@ class PyTypeHintsInspection : PyInspection() {
         when (it) {
           genericQName -> checkTypingGenericParameters(node, false)
           protocolQName, protocolExtQName -> checkTypingGenericParameters(node, true)
-          literalQName, literalExtQName -> checkLiteralParameter(node.indexExpression ?: return@forEach)
+          literalQName, literalExtQName -> {
+            val indexExpression = node.indexExpression ?: return@forEach
+            checkLiteralParameter(indexExpression)
+          }
           annotatedQName, annotatedExtQName -> {
             isAnnotated = true
             checkAnnotatedParameter(index)
@@ -1340,7 +1342,10 @@ class PyTypeHintsInspection : PyInspection() {
       if (subParameter is PyReferenceExpression &&
           PyResolveUtil
             .resolveImportedElementQNameLocally(subParameter)
-            .any { qName -> qName.toString().let { it == PyTypingTypeProvider.LITERAL || it == PyTypingTypeProvider.LITERAL_EXT } }) {
+            .any { qName ->
+              val name = qName.toString()
+              name == PyTypingTypeProvider.LITERAL || name == PyTypingTypeProvider.LITERAL_EXT
+            }) {
         // if `index` is like `typing.Literal[...]` and has invalid form,
         // outer `typing.Literal[...]` won't be highlighted
         return
@@ -1371,10 +1376,9 @@ class PyTypeHintsInspection : PyInspection() {
         is PyTargetExpression -> {
           val builtinName = declaration.qualifiedName?.let { PyTypingTypeProvider.BUILTIN_COLLECTION_CLASSES[it] }
           if (builtinName != null) {
-            val builtinType = PyTypeParser.getTypeByName(node, builtinName, myTypeEvalContext)
-            val builtinTypeClass = (builtinType as? PyClassType)?.pyClass
-            if (builtinTypeClass != null) {
-              checkGenericClassParameterization(node, builtinTypeClass)
+            val builtinType = PyBuiltinCache.getInstance(node).getObjectType(builtinName)
+            if (builtinType != null) {
+              checkGenericClassParameterization(node, builtinType.pyClass)
               return
             }
           }
@@ -1393,7 +1397,7 @@ class PyTypeHintsInspection : PyInspection() {
         if (PyTypingTypeProvider.isGeneric(declaration, myTypeEvalContext) &&
             declaration.findMethodByName(PyNames.CLASS_GETITEM, false, myTypeEvalContext) == null) {
           registerProblem(node.indexExpression,
-                          PyPsiBundle.problemMessage("INSP.type.hints.type.arguments.class.is.already.parameterized",
+                          PyPsiBundle.problemMessage("INSP.type.hints.type.arguments.class.is.not.generic",
                                                      CodifiedParam.ofReference(declaration)))
         }
         return
@@ -1988,8 +1992,12 @@ class PyTypeHintsInspection : PyInspection() {
       }
 
       val self = scopeOwner.parameterList.parameters.firstOrNull()?.takeIf { it.isSelf }
-      if (self == null ||
-          PyUtil.multiResolveTopPriority(qualifier, resolveContext).let { it.isNotEmpty() && it.all { e -> e != self } }) {
+      if (self == null) {
+        registerProblem(node, PyPsiBundle.message("INSP.type.hints.non.self.attribute.could.not.be.type.hinted"))
+        return
+      }
+      val qualifierTargets = PyUtil.multiResolveTopPriority(qualifier, resolveContext)
+      if (qualifierTargets.isNotEmpty() && self !in qualifierTargets) {
         registerProblem(node, PyPsiBundle.message("INSP.type.hints.non.self.attribute.could.not.be.type.hinted"))
       }
     }
@@ -2033,8 +2041,13 @@ class PyTypeHintsInspection : PyInspection() {
       when {
         !typeVarType.bound.isUnknown -> {
           if (!defaultTypes.all { PyTypeChecker.match(typeVarType.bound, it, myTypeEvalContext) }) {
-            registerProblem(defaultExpression, PyPsiBundle.message("INSP.type.hints.default.type.do.not.match.bounds"),
-                            ProblemHighlightType.GENERIC_ERROR_OR_WARNING)
+            val message = PyPsiBundle.message("INSP.type.hints.default.type.do.not.match.bounds")
+            // The aligned diff (for structural bounds) with the assignability breakdown appended below it on-the-fly.
+            val diff = PyTypeDiff.diffTooltip(typeVarType.bound, defaultType, myTypeEvalContext)
+            val problemMessage = PyInspectionMessages.ProblemMessage(message, diff ?: message)
+            registerProblemWithTooltip(defaultExpression, problemMessage, ProblemHighlightType.GENERIC_ERROR_OR_WARNING) {
+              PyTypeCheckerInspectionProblemRegistrar.breakdownTooltip(problemMessage, typeVarType.bound, defaultType, myTypeEvalContext, defaultExpression)
+            }
           }
         }
         typeVarType.constraints.isNotEmpty() -> {
@@ -2341,10 +2354,9 @@ private fun referenceIsCorrectTypeHint(referenceExpression: PyReferenceExpressio
     }
     is PyTypeParameter, is PyClass, is PyTypeAliasStatement -> return true
     is PyFunction -> {
-      if (PyTypingTypeProvider.OPAQUE_NAMES.contains(resolvedElement.qualifiedName)) return true
-      return resolvedElement.qualifiedName?.let {
-        it.endsWith("ParamSpec.args") || it.endsWith("ParamSpec.kwargs")
-      } == true
+      val qualifiedName = resolvedElement.qualifiedName
+      return PyTypingTypeProvider.OPAQUE_NAMES.contains(qualifiedName) ||
+             qualifiedName != null && (qualifiedName.endsWith("ParamSpec.args") || qualifiedName.endsWith("ParamSpec.kwargs"))
     }
     else -> return false
   }

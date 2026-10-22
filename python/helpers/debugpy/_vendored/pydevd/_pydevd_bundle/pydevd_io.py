@@ -1,7 +1,20 @@
-from _pydevd_bundle.pydevd_constants import ForkSafeLock, get_global_debugger
+from _pydevd_bundle.pydevd_constants import DAP_MAX_BODY_SIZE, ForkSafeLock, get_global_debugger
 import os
 import sys
 from contextlib import contextmanager
+
+# JetBrains extension (PY-92448): a single write above what the DAP message reader accepts as one body
+# arrives at the adapter as one output event and is refused there, and the write is lost. Writes are split
+# before they are sent, so no single one of them reaches that size.
+#
+# The chunk is deliberately a quarter of the cap rather than equal to it: a message near the cap costs about
+# four times its size while it is in flight, and output has no reason to be carried that way. It counts
+# characters while the cap counts bytes, so it is derived from the worst case of the encoder rather than
+# guessed: with ensure_ascii, json writes a non-BMP character as a surrogate pair, twelve bytes for one
+# character, and a BMP one as six. The subtracted kilobyte covers the envelope of the event, which
+# measures 130 bytes.
+_MAX_JSON_BYTES_PER_CHAR = 12
+MAX_IO_MSG_CHARS = (DAP_MAX_BODY_SIZE // 4 - 1024) // _MAX_JSON_BYTES_PER_CHAR
 
 
 class IORedirector:
@@ -107,9 +120,10 @@ class RedirectToPyDBIoMessages(object):
             if py_db is not None:
                 # Note that the actual message contents will be a xml with utf-8, although
                 # the entry is str on py3 and bytes on py2.
-                cmd = py_db.cmd_factory.make_io_message(s, self._out_ctx)
                 if py_db.writer is not None:
-                    py_db.writer.add_command(cmd)
+                    for start in range(0, len(s), MAX_IO_MSG_CHARS):
+                        cmd = py_db.cmd_factory.make_io_message(s[start : start + MAX_IO_MSG_CHARS], self._out_ctx)
+                        py_db.writer.add_command(cmd)
 
 
 class IOBuf:

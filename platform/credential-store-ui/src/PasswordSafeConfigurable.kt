@@ -7,6 +7,7 @@ import com.intellij.credentialStore.kdbx.IncorrectMainPasswordException
 import com.intellij.credentialStore.keePass.DB_FILE_NAME
 import com.intellij.credentialStore.keePass.KeePassFileManager
 import com.intellij.credentialStore.keePass.MainKeyFileStorage
+import com.intellij.credentialStore.keePass.UnsupportedKdbxFileException
 import com.intellij.credentialStore.keePass.getDefaultDbFile
 import com.intellij.credentialStore.keePass.getDefaultMainPasswordFile
 import com.intellij.ide.IdeBundle
@@ -15,6 +16,8 @@ import com.intellij.ide.passwordSafe.impl.BasePasswordSafe
 import com.intellij.ide.passwordSafe.impl.createPersistentCredentialStore
 import com.intellij.openapi.actionSystem.ActionUpdateThread
 import com.intellij.openapi.actionSystem.AnActionEvent
+import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.diagnostic.logger
@@ -29,6 +32,9 @@ import com.intellij.openapi.ui.MessageDialogBuilder
 import com.intellij.openapi.ui.TextFieldWithBrowseButton
 import com.intellij.openapi.util.NlsContexts
 import com.intellij.openapi.util.SystemInfo
+import com.intellij.platform.ide.progress.ModalTaskOwner
+import com.intellij.platform.ide.progress.TaskCancellation
+import com.intellij.platform.ide.progress.runWithModalProgressBlocking
 import com.intellij.ui.CollectionComboBoxModel
 import com.intellij.ui.dsl.builder.AlignX
 import com.intellij.ui.dsl.builder.COLUMNS_MEDIUM
@@ -43,9 +49,12 @@ import com.intellij.ui.dsl.listCellRenderer.textListCellRenderer
 import com.intellij.ui.layout.chooseFile
 import com.intellij.ui.layout.selected
 import com.intellij.util.text.nullize
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import org.jetbrains.annotations.ApiStatus
 import java.io.File
 import java.nio.file.Paths
+import java.util.concurrent.CancellationException
 import javax.swing.JCheckBox
 import javax.swing.JPanel
 import javax.swing.JRadioButton
@@ -86,13 +95,33 @@ class PasswordSafeConfigurableUi(private val settings: PasswordSafeSettings) : C
   private val secureRandom = lazy { createSecureRandom() }
 
   override fun reset(settings: PasswordSafeSettings) {
-    val secretKeys = pgp.listKeys()
-    pgpListModel.replaceAll(secretKeys)
-    usePgpKey.text = usePgpKeyText()
+    // The key list arrives asynchronously. Show the saved key id at once,
+    // so the checkbox and the combo open in a consistent state.
+    val savedKeyId = settings.state.pgpKeyId
+    if (savedKeyId != null && pgpListModel.items.none { it.keyId == savedKeyId }) {
+      pgpListModel.add(PgpKey(savedKeyId, savedKeyId))
+      usePgpKey.text = usePgpKeyText()
+    }
 
     panel.reset()
 
     keePassDbFile?.text = settings.keepassDb ?: getDefaultDbFile().toString()
+
+    // listKeys starts the gpg process. Run it in the background to keep the EDT free (IJPL-254062).
+    ApplicationManager.getApplication().executeOnPooledThread {
+      val secretKeys = pgp.listKeys()
+      ApplicationManager.getApplication().invokeLater(
+        {
+          val selectedKeyId = (pgpKeyCombo.selectedItem as? PgpKey)?.keyId
+          pgpListModel.replaceAll(secretKeys)
+          usePgpKey.text = usePgpKeyText()
+          // reselect by the key id: the placeholder left the model, and the user could change the selection
+          pgpKeyCombo.selectedItem = secretKeys.firstOrNull { it.keyId == selectedKeyId }
+                                     ?: getSelectedPgpKey()
+                                     ?: pgpListModel.items.firstOrNull()
+        },
+        ModalityState.stateForComponent(panel))
+    }
   }
 
   override fun isModified(settings: PasswordSafeSettings): Boolean {
@@ -109,10 +138,18 @@ class PasswordSafeConfigurableUi(private val settings: PasswordSafeSettings) : C
   }
 
   override fun apply(settings: PasswordSafeSettings) {
+    // When an outside cancellation stops the modal task, stop the apply quietly.
+    // The page stays modified, so the user can apply again.
+    ignoreCancellation { doApply(settings) }
+  }
+
+  private fun doApply(settings: PasswordSafeSettings) {
     val pgpKeyChanged = getNewPgpKey()?.keyId != this.settings.state.pgpKeyId
     val oldProviderType = this.settings.providerType
 
     panel.apply()
+    // the checkbox and combo bindings can race with the asynchronous reset, so persist the final value explicitly
+    this.settings.state.pgpKeyId = getNewPgpKey()?.keyId
     val providerType = this.settings.providerType
     val passwordSafe = PasswordSafe.instance as BasePasswordSafe
 
@@ -128,7 +165,7 @@ class PasswordSafeConfigurableUi(private val settings: PasswordSafeSettings) : C
         ProviderType.KEYCHAIN -> {
           // create here to ensure that user will get any error during native store creation
           try {
-            val store = createPersistentCredentialStore()
+            val store = runUnderModalProgress { createPersistentCredentialStore() }
             if (store == null) {
               throw ConfigurationException(IdeBundle.message("settings.password.internal.error.no.available.credential.store.implementation"))
             }
@@ -155,9 +192,14 @@ class PasswordSafeConfigurableUi(private val settings: PasswordSafeSettings) : C
     else if (providerType == ProviderType.KEEPASS && pgpKeyChanged) {
       try {
         // not our business in this case, if there is no db file, do not require not null KeePassFileManager
-        createKeePassFileManager()?.saveMainKeyToApplyNewEncryptionSpec()
+        createKeePassFileManager()?.let { fileManager ->
+          runUnderModalProgress { fileManager.saveMainKeyToApplyNewEncryptionSpec() }
+        }
       }
       catch (e: ConfigurationException) {
+        throw e
+      }
+      catch (e: CancellationException) {
         throw e
       }
       catch (e: Exception) {
@@ -169,7 +211,9 @@ class PasswordSafeConfigurableUi(private val settings: PasswordSafeSettings) : C
     // not in createAndSaveKeePassDatabaseWithNewOptions (as logically should be) because we want to force users to set custom master passwords even if some another setting (not path) was changed
     // (e.g. PGP key)
     if (providerType == ProviderType.KEEPASS) {
-      createKeePassFileManager()?.setCustomMainPasswordIfNeeded(getDefaultDbFile())
+      createKeePassFileManager()?.let { fileManager ->
+        runUnderModalProgress { fileManager.setCustomMainPasswordIfNeeded(getDefaultDbFile()) }
+      }
     }
 
     settings.providerType = providerType
@@ -193,14 +237,48 @@ class PasswordSafeConfigurableUi(private val settings: PasswordSafeSettings) : C
     settings.keepassDb = newDbFile.toString()
 
     try {
-      KeePassFileManager(newDbFile, getDefaultMainPasswordFile(), getEncryptionSpec(), secureRandom).useExisting()
+      val fileManager = KeePassFileManager(newDbFile, getDefaultMainPasswordFile(), getEncryptionSpec(), secureRandom)
+      runUnderModalProgress { fileManager.useExisting() }
     }
     catch (e: IncorrectMainPasswordException) {
       throw ConfigurationException(CredentialStoreBundle.message("settings.password.master.password.for.keepass.database.is.not.correct"))
     }
+    catch (e: UnsupportedKdbxFileException) {
+      LOG.warn(e)
+      throw ConfigurationException(CredentialStoreBundle.message("kee.pass.dialog.message.unsupported.file", e.file.fileName))
+    }
+    catch (e: CancellationException) {
+      throw e
+    }
     catch (e: Exception) {
       LOG.error(e)
       throw ConfigurationException(CredentialStoreBundle.message("settings.password.internal.error", e.message ?: e.toString()))
+    }
+  }
+
+  // The main key encryption and decryption call an external process (gpg) or a native API.
+  // Run them in the background to keep the EDT free (IJPL-255686).
+  // The task is not cancellable: the blocking work cannot stop mid-way,
+  // so a Cancel button would only hide an operation that still completes.
+  private fun <T> runUnderModalProgress(
+    @NlsContexts.ModalProgressTitle title: String = CredentialStoreBundle.message("progress.title.applying.password.settings"),
+    compute: () -> T,
+  ): T {
+    return runWithModalProgressBlocking(ModalTaskOwner.component(panel), title, TaskCancellation.nonCancellable()) {
+      withContext(Dispatchers.IO) {
+        compute()
+      }
+    }
+  }
+
+  // The modal task is not cancellable by the user, but an outside cancellation, for example on the application exit,
+  // can still stop it. The exception is control flow: do not log it, stop the operation, and return null.
+  private inline fun <T> ignoreCancellation(block: () -> T): T? {
+    return try {
+      block()
+    }
+    catch (@Suppress("IncorrectCancellationExceptionHandling") _: CancellationException) {
+      null
     }
   }
 
@@ -243,13 +321,16 @@ class PasswordSafeConfigurableUi(private val settings: PasswordSafeSettings) : C
           }
           row {
             usePgpKey = checkBox(usePgpKeyText())
-              .bindSelected({ !pgpListModel.isEmpty && settings.state.pgpKeyId != null },
+              // the getter must not read pgpListModel: the list arrives asynchronously,
+              // and a getter that changes over time breaks the modified state of the panel
+              .bindSelected({ settings.state.pgpKeyId != null },
                             { if (!it) settings.state.pgpKeyId = null })
               .gap(RightGap.SMALL)
               .component
 
             pgpKeyCombo = comboBox<PgpKey>(pgpListModel, renderer = textListCellRenderer {
-              it?.let { "${it.userId} (${it.keyId})" }
+              // the placeholder from reset() carries the key id in both fields
+              it?.let { if (it.userId == it.keyId) it.keyId else "${it.userId} (${it.keyId})" }
             }).bindItem({ getSelectedPgpKey() ?: pgpListModel.items.firstOrNull() },
                         { settings.state.pgpKeyId = if (usePgpKey.isSelected) it?.keyId else null })
               .columns(COLUMNS_MEDIUM)
@@ -292,7 +373,8 @@ class PasswordSafeConfigurableUi(private val settings: PasswordSafeSettings) : C
     }
   }
 
-  private fun getNewPgpKey() = pgpKeyCombo.selectedItem as? PgpKey
+  // the combo keeps the last selection even when the user turns the checkbox off, so check the checkbox too
+  private fun getNewPgpKey(): PgpKey? = if (usePgpKey.isSelected) pgpKeyCombo.selectedItem as? PgpKey else null
 
   private inner class ClearKeePassDatabaseAction : DumbAwareAction(CredentialStoreBundle.message("action.text.password.safe.clear")) {
     override fun actionPerformed(event: AnActionEvent) {
@@ -302,10 +384,14 @@ class PasswordSafeConfigurableUi(private val settings: PasswordSafeSettings) : C
         return
       }
 
-      closeCurrentStore()
-
       LOG.info("Passwords cleared", Error())
-      createKeePassFileManager()?.clear()
+      val fileManager = createKeePassFileManager()
+      ignoreCancellation {
+        runUnderModalProgress(CredentialStoreBundle.message("progress.title.updating.keepass.database")) {
+          closeCurrentStore()
+          fileManager?.clear()
+        }
+      }
     }
 
     override fun update(e: AnActionEvent) {
@@ -317,12 +403,22 @@ class PasswordSafeConfigurableUi(private val settings: PasswordSafeSettings) : C
 
   private inner class ImportKeePassDatabaseAction : DumbAwareAction(CredentialStoreBundle.message("action.text.password.safe.import")) {
     override fun actionPerformed(event: AnActionEvent) {
-      closeCurrentStore()
+      ignoreCancellation {
+        runUnderModalProgress(CredentialStoreBundle.message("progress.title.updating.keepass.database")) {
+          closeCurrentStore()
+        }
+      } ?: return
 
       FileChooserDescriptorFactory.createSingleFileDescriptor()
         .withExtensionFilter("kdbx")
         .chooseFile(event) {
-          createKeePassFileManager()?.import(Paths.get(it.path), event)
+          val fileManager = createKeePassFileManager()
+          val dbFile = Paths.get(it.path)
+          ignoreCancellation {
+            runUnderModalProgress(CredentialStoreBundle.message("progress.title.updating.keepass.database")) {
+              fileManager?.import(dbFile, event)
+            }
+          }
         }
     }
   }
@@ -332,10 +428,15 @@ class PasswordSafeConfigurableUi(private val settings: PasswordSafeSettings) : C
     else CredentialStoreBundle.message("action.change.password.text")
   ) {
     override fun actionPerformed(event: AnActionEvent) {
-      closeCurrentStore()
-
+      val fileManager = createKeePassFileManager()
       // even if current provider is not KEEPASS, all actions for db file must be applied immediately (show error if new master password not applicable for existing db file)
-      if (createKeePassFileManager()?.askAndSetMainKey(event) == true) {
+      val changed = ignoreCancellation {
+        runUnderModalProgress(CredentialStoreBundle.message("progress.title.updating.keepass.database")) {
+          closeCurrentStore()
+          fileManager?.askAndSetMainKey(event) == true
+        }
+      } == true
+      if (changed) {
         templatePresentation.text = CredentialStoreBundle.message("settings.password.change.master.password")
       }
     }

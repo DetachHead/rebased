@@ -6,7 +6,9 @@ import com.intellij.codeInsight.daemon.HighlightDisplayKey
 import com.intellij.codeInsight.intention.IntentionAction
 import com.intellij.lang.annotation.AnnotationHolder
 import com.intellij.lang.annotation.ExternalAnnotator
+import com.intellij.openapi.application.ReadAction
 import com.intellij.openapi.editor.Editor
+import com.intellij.openapi.project.DumbService
 import com.intellij.openapi.util.registry.RegistryManager
 import com.intellij.profile.codeInspection.InspectionProjectProfileManager
 import com.intellij.psi.PsiElement
@@ -27,28 +29,49 @@ import org.jetbrains.kotlin.psi.psiUtil.getStrictParentOfType
  *
  * The annotator finds unresolved KDoc links and creates "Add qualifier" quick-fixes for them.
  */
-class KDocUnresolvedLinkAnnotator : ExternalAnnotator<List<KDocReference>, List<KDocReference>>() {
-    override fun apply(psiFile: PsiFile, annotationResult: List<KDocReference>, holder: AnnotationHolder) {
+internal class KDocUnresolvedLinkAnnotator : ExternalAnnotator<List<KDocReference>, List<UnresolvedKDocLink>>() {
+    override fun apply(psiFile: PsiFile, annotationResult: List<UnresolvedKDocLink>, holder: AnnotationHolder) {
         if (annotationResult.isEmpty()) {
             return
         }
 
         val displayLevel = getHighlightDisplayLevel(psiFile) ?: return
 
-        annotationResult.forEach { reference ->
+        annotationResult.forEach { (reference, fix) ->
             val message = KotlinBundle.message("inspection.k.doc.unresolved.link.message", reference.canonicalText)
             val builder = holder.newAnnotation(displayLevel.severity, message).range(reference.absoluteRange)
 
-            createQuickFix(reference.element)?.let {
-                builder.withFix(it)
+            if (fix != null) {
+                builder.withFix(fix)
             }
 
             builder.create()
         }
     }
 
-    override fun doAnnotate(collectedInfo: List<KDocReference>): List<KDocReference> {
-        return collectedInfo
+    /**
+     * Import fix calculation is performance-heavy, so it should be done in [doAnnotate].
+     * This function is designed for long-running operations.
+     * It can't be done in [apply] as [apply] is called within a blocking read action.
+     * Otherwise, it could lead to UI freezes, see KTIJ-40314.
+     */
+    override fun doAnnotate(collectedInfo: List<KDocReference>): List<UnresolvedKDocLink> {
+        if (collectedInfo.isEmpty()) {
+            return emptyList()
+        }
+
+        // This non-blocking read action is needed to be able to call Analysis API.
+        return ReadAction.nonBlocking<List<UnresolvedKDocLink>> {
+            val isDumbMode = DumbService.isDumb(collectedInfo.first().element.project)
+            collectedInfo.map { reference ->
+                val kDocName = reference.element
+                val fix = if (kDocName.isValid && !isDumbMode) {
+                    // Fix calculation requires indices, so it cannot be done in dumb mode. See KTIJ-39965
+                    createQuickFix(kDocName)
+                } else null
+                UnresolvedKDocLink(reference, fix)
+            }
+        }.executeSynchronously()
     }
 
     override fun collectInformation(psiFile: PsiFile, editor: Editor, hasErrors: Boolean): List<KDocReference> {
@@ -98,3 +121,8 @@ class KDocUnresolvedLinkAnnotator : ExternalAnnotator<List<KDocReference>, List<
     private fun createQuickFix(kDocName: KDocName): IntentionAction? =
         KDocUnresolvedLinkQuickFixFactory.getInstance()?.createQuickFix(kDocName)
 }
+
+/**
+ * An unresolved KDoc link and its import quick fix.
+ */
+internal data class UnresolvedKDocLink(val reference: KDocReference, val fix: IntentionAction?)

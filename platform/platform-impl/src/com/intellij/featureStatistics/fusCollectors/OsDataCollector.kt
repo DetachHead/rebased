@@ -9,9 +9,10 @@ import com.intellij.internal.statistic.eventLog.events.EventFields.String
 import com.intellij.internal.statistic.eventLog.events.EventFields.StringValidatedByRegexpReference
 import com.intellij.internal.statistic.eventLog.events.EventFields.Version
 import com.intellij.internal.statistic.service.fus.collectors.ApplicationUsagesCollector
-import com.intellij.util.system.LowLevelLocalMachineAccess
 import com.intellij.util.system.GlibcVersion
+import com.intellij.util.system.LowLevelLocalMachineAccess
 import com.intellij.util.system.OS
+import java.nio.file.Files
 import java.nio.file.Path
 import java.time.OffsetDateTime
 import java.util.Locale
@@ -19,7 +20,7 @@ import kotlin.io.path.name
 
 @OptIn(LowLevelLocalMachineAccess::class)
 internal class OsDataCollector : ApplicationUsagesCollector() {
-  private val GROUP = EventLogGroup("system.os", 23)
+  private val GROUP = EventLogGroup("system.os", 25)
 
   private val OS_NAMES = listOf("Windows", "Mac", "Linux", "FreeBSD", "HarmonyOS", "Other")
 
@@ -43,8 +44,8 @@ internal class OsDataCollector : ApplicationUsagesCollector() {
   private val OS_NAME = String("name", OS_NAMES)
   private val OS_LANG = String("locale", LOCALES)
   private val OS_TZ = StringValidatedByRegexpReference("time_zone", "time_zone")
-  private val OS_SHELL = String("shell", SHELLS)
-  private val DISTRO = String("distro", DISTROS)
+  private val OS_SHELL = String("shell", SHELLS, defaultValue = "other")
+  private val DISTRO = String("distro", DISTROS, defaultValue = "other")
   private val RELEASE = StringValidatedByRegexpReference("release", "version")
   private val UNDER_WSL = EventFields.Boolean("wsl")
   private val HAS_GDBUS = EventFields.Boolean("gdbus")
@@ -60,12 +61,19 @@ internal class OsDataCollector : ApplicationUsagesCollector() {
   override fun getMetrics(): Set<MetricEvent> {
     val tz = getTimeZone()
     val metrics = mutableSetOf(
-      OS_EVENT.metric(OS_NAME.with(getOSName()), Version.with(OS.CURRENT.version()), OS_LANG.with(getLanguage()), OS_TZ.with(tz), OS_SHELL.with(getShell()))
+      OS_EVENT.metric(
+        OS_NAME.with(getOSName()),
+        Version.with(OS.CURRENT.version()),
+        OS_LANG.with(getLanguage()),
+        OS_TZ.with(tz),
+        OS_SHELL.with(getShell())
+      )
     )
     if (OS.CURRENT == OS.Linux) {
       val osInfo = OS.CURRENT.osInfo as OS.LinuxInfo
+      val distro = if (isOmarchy()) "omarchy" else osInfo.distro ?: "unknown"
       val linuxMetrics = mutableListOf(
-        DISTRO.with(DISTROS.coerce(osInfo.distro)),
+        DISTRO.with(distro),
         RELEASE.with(osInfo.release),
         UNDER_WSL.with(osInfo.isUnderWsl()),
         HAS_GDBUS.with(PathEnvironmentVariableUtil.isOnPath("gdbus")),
@@ -87,7 +95,7 @@ internal class OsDataCollector : ApplicationUsagesCollector() {
     OS.macOS -> "Mac"
     OS.Linux -> "Linux"
     OS.FreeBSD -> "FreeBSD"
-    OS.HarmonyOS -> "HarmonyOS"
+    OS.OHOS -> "HarmonyOS"
     OS.Other -> "Other"
   }
 
@@ -97,11 +105,19 @@ internal class OsDataCollector : ApplicationUsagesCollector() {
 
   private fun getShell(): String? =
     if (OS.CURRENT == OS.Windows) null
-    else SHELLS.coerce(runCatching { System.getenv("SHELL")?.let { Path.of(it).name } }.getOrNull())
+    else runCatching { System.getenv("SHELL")?.let { Path.of(it).name } }.getOrNull() ?: "unknown"
 
-  private fun List<String>.coerce(value: String?): String = when (value) {
-    null -> "unknown"
-    in this -> value
-    else -> "other"
-  }
+  /**
+   * Omarchy is built on top of Arch, so `/etc/os-release` does not identify it.
+   * Detect it by its own markers instead: the `OMARCHY_PATH` variable, which an Omarchy session sets, or its install directories.
+   * The directories cover a JVM that starts outside a desktop session, for example from a systemd unit, where the variable is absent.
+   */
+  private fun isOmarchy(): Boolean = runCatching {
+    val omarchyPath = System.getenv("OMARCHY_PATH")
+    val home = Path.of(System.getProperty("user.home"))
+    (omarchyPath != null && Files.isDirectory(Path.of(omarchyPath))) ||
+    Files.isDirectory(Path.of("/usr/share/omarchy")) ||
+    Files.isDirectory(home.resolve(".local/share/omarchy")) ||
+    Files.isDirectory(home.resolve(".config/omarchy"))
+  }.getOrDefault(false)
 }

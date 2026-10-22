@@ -4,7 +4,6 @@ package com.intellij.terminal.frontend.view.impl
 import com.intellij.ide.IdeEventQueue
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.actionSystem.ActionManager
-import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.IdeActions
 import com.intellij.openapi.actionSystem.KeyboardShortcut
 import com.intellij.openapi.diagnostic.logger
@@ -17,10 +16,11 @@ import com.intellij.openapi.editor.event.EditorMouseMotionListener
 import com.intellij.openapi.editor.ex.EditorEx
 import com.intellij.openapi.editor.ex.FocusChangeListener
 import com.intellij.openapi.editor.impl.EditorImpl
+import com.intellij.openapi.keymap.KeymapManager
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.util.registry.Registry
 import com.intellij.terminal.JBTerminalSystemSettingsProviderBase
-import com.intellij.terminal.TerminalCmdKShortcutConflictNotification
+import com.intellij.terminal.TerminalCmdKShortcutDialog
 import com.intellij.terminal.frontend.action.SendShortcutToTerminalAction
 import com.intellij.terminal.frontend.view.TerminalAllowedActionsProvider
 import com.intellij.util.concurrency.ThreadingAssertions
@@ -62,9 +62,9 @@ private class TerminalEventDispatcher(
   private val eventsHandler: TerminalKeyEventsHandler,
   private val parentDisposable: Disposable,
 ) : IdeEventQueue.NonLockedEventDispatcher {
-  private val sendShortcutAction = SendShortcutToTerminalAction(eventsHandler)
+  private val sendShortcutAction by lazy(LazyThreadSafetyMode.NONE) { SendShortcutToTerminalAction(eventsHandler) }
   private var myRegistered = false
-  private var allowedActions: List<AnAction> = emptyList()
+  private var allowedActionIds: List<String> = emptyList()
 
   /**
    * A flag to ignore the key typed event if the key pressed event was handled elsewhere.
@@ -81,31 +81,33 @@ private class TerminalEventDispatcher(
 
   override fun dispatch(e: AWTEvent): Boolean {
     if (e is KeyEvent) {
-      val timedEvent = TimedKeyEvent(e)
-      dispatchKeyEvent(timedEvent)
+      dispatchKeyEvent(e)
     }
     return false
   }
 
-  private fun dispatchKeyEvent(e: TimedKeyEvent) {
-    LOG.trace { "Key event received: ${e.original}" }
+  private fun dispatchKeyEvent(e: KeyEvent) {
+    LOG.trace { "Key event received: ${e}" }
 
     // Special handling for Escape shortcut - show notification about behavior change.
     // Should be checked before the action system.
-    val keyEvent = e.original
-    if (keyEvent.id == KeyEvent.KEY_PRESSED && keyEvent.keyCode == KeyEvent.VK_ESCAPE && keyEvent.modifiersEx == 0) {
+    if (e.id == KeyEvent.KEY_PRESSED && e.keyCode == KeyEvent.VK_ESCAPE && e.modifiersEx == 0) {
       TerminalEscapeBehaviorChangeNotification.showNotificationIfNeeded(editor.project!!)
     }
 
-    TerminalCmdKShortcutConflictNotification.showIfNeeded(editor.project, keyEvent)
+    if (TerminalCmdKShortcutDialog.handleIfNeeded(editor.project, editor.contentComponent, e)) {
+      e.consume()
+      ignoreNextKeyTypedEvent = true
+      return
+    }
 
-    if (isAllowedActionShortcut(e.original)) {
+    if (isAllowedActionShortcut(e)) {
       // KeyEvent will be handled by action system, so we need to remember that the next KeyTyped event is not needed
       ignoreNextKeyTypedEvent = true
-      LOG.trace { "Key event skipped (there is an action for it): ${e.original}" }
+      LOG.trace { "Key event skipped (there is an action for it): ${e}" }
     }
     else {
-      if (e.original.id != KeyEvent.KEY_TYPED || !ignoreNextKeyTypedEvent) {
+      if (e.id != KeyEvent.KEY_TYPED || !ignoreNextKeyTypedEvent) {
         ignoreNextKeyTypedEvent = false
         eventsHandler.handleKeyEvent(e)
       }
@@ -115,7 +117,7 @@ private class TerminalEventDispatcher(
         // keyboard the following key released event cleared this anyway; a synthetic stream of key typed
         // events alone (the remote driver's input-events robot) used to be swallowed whole.
         ignoreNextKeyTypedEvent = false
-        LOG.trace { "Key event skipped (key typed ignored): ${e.original}" }
+        LOG.trace { "Key event skipped (key typed ignored): ${e}" }
       }
     }
   }
@@ -125,17 +127,18 @@ private class TerminalEventDispatcher(
     if (!settings.overrideIdeShortcuts()) return // handled by the listener instead
 
     val actionManager = ActionManager.getInstance()
-    val actions = getAllowedActionIds().mapNotNull { actionManager.getAction(it) }
-    this.allowedActions = actions
+    // Do not load the action classes here. Loading all of them on the EDT may cause a freeze.
+    val actionIds = getAllowedActionIds().filter { actionManager.getActionOrStub(it) != null }
+    this.allowedActionIds = actionIds
     if (!myRegistered) {
       IdeEventQueue.getInstance().addDispatcher(this, parentDisposable)
-      sendShortcutAction.register(editor.contentComponent, actions)
+      sendShortcutAction.register(editor.contentComponent, actionIds)
       myRegistered = true
       // The same reasoning as with the initialization:
       // the terminal might have been activated with a shortcut that will be immediately followed by a "key typed" event.
       // If that's the case, we should ignore that event. If not, the flag will be cleared when the next event is processed.
       ignoreNextKeyTypedEvent = true
-      LOG.trace { "Dispatcher registered: start capturing key events. Allowed actions: ${actions.map { it.javaClass.name }}" }
+      LOG.trace { "Dispatcher registered: start capturing key events. Allowed actions: $actionIds" }
     }
   }
 
@@ -144,7 +147,7 @@ private class TerminalEventDispatcher(
     if (myRegistered) {
       IdeEventQueue.getInstance().removeDispatcher(this)
       sendShortcutAction.unregister(editor.contentComponent)
-      allowedActions = emptyList()
+      allowedActionIds = emptyList()
       myRegistered = false
       LOG.trace { "Dispatcher unregistered: finish capturing key events" }
     }
@@ -152,11 +155,12 @@ private class TerminalEventDispatcher(
 
   private fun isAllowedActionShortcut(e: KeyEvent): Boolean {
     val eventShortcut = KeyboardShortcut(KeyStroke.getKeyStrokeForEvent(e), null)
-    for (action in allowedActions) {
-      for (sc in action.shortcutSet.shortcuts) {
+    val keymap = KeymapManager.getInstance().activeKeymap
+    for (actionId in allowedActionIds) {
+      for (sc in keymap.getShortcuts(actionId)) {
         if (sc.isKeyboard && sc.startsWith(eventShortcut)) {
           if (!Registry.`is`("terminal.Ctrl-E.opens.RecentFiles.popup",
-                             false) && IdeActions.ACTION_RECENT_FILES == ActionManager.getInstance().getId(action)) {
+                             false) && IdeActions.ACTION_RECENT_FILES == actionId) {
             if (e.modifiersEx == InputEvent.CTRL_DOWN_MASK && e.keyCode == KeyEvent.VK_E) {
               return false
             }
@@ -174,6 +178,12 @@ private class TerminalEventDispatcher(
     // IJPL-240075: Allow the IDE Commit action to handle Cmd+K in the terminal on macOS
     if (OS.CURRENT == OS.macOS) {
       actionIds.add("CheckinProject")
+    }
+    else {
+      // IJAI-2166: the default keymap of Windows and Linux binds these actions to Alt+Left and Alt+Right,
+      // and a shell uses those keys to move the cursor by a word.
+      actionIds.remove("NextTab")
+      actionIds.remove("PreviousTab")
     }
     TerminalAllowedActionsProvider.EP_NAME.extensionList.flatMapTo(actionIds) { it.getActionIds() }
     return actionIds.toList()
@@ -291,9 +301,14 @@ private class TerminalKeyListener(
     handleEvent(e)
   }
 
+  override fun keyReleased(e: KeyEvent) {
+    if (settings.overrideIdeShortcuts()) return // handled by the dispatcher
+    eventsHandler.keyReleased(e) // consumed by the handler only when the shell got it
+  }
+
   private fun handleEvent(e: KeyEvent) {
     if (settings.overrideIdeShortcuts()) return // handled by the dispatcher
-    eventsHandler.handleKeyEvent(TimedKeyEvent(e))
+    eventsHandler.handleKeyEvent(e)
     e.consume()
   }
 }
@@ -332,6 +347,7 @@ fun setupKeyEventsHandling(
 
     override fun focusLost(editor: Editor) {
       eventDispatcher.unregisterIfRegistered()
+      eventsHandler.focusLost()
     }
   }, disposable)
 

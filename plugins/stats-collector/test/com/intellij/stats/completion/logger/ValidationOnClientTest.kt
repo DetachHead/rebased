@@ -24,25 +24,30 @@ import com.intellij.stats.completion.ValidationStatus
 import com.intellij.stats.completion.events.DownPressedEvent
 import com.intellij.stats.completion.events.LogEvent
 import com.intellij.stats.completion.withSelected
-import com.intellij.testFramework.HeavyPlatformTestCase
-import junit.framework.TestCase
+import com.intellij.testFramework.junit5.TestApplication
+import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.Test
 import java.util.concurrent.LinkedBlockingQueue
 
 /**
  * @author Vitaliy.Bibaev
  */
-class ValidationOnClientTest : HeavyPlatformTestCase() {
+@TestApplication
+class ValidationOnClientTest {
     private companion object {
         val EMPTY_STATE = LookupState(emptyList(), emptyList(), emptyList(), 1, emptyMap())
         const val bucket = "0"
         const val language = "java"
     }
 
+    @Test
     fun `test validation before log`() {
         val event1 = DownPressedEvent("1", "1", EMPTY_STATE, bucket, System.currentTimeMillis(), language)
         val event2 = DownPressedEvent("1", "2", EMPTY_STATE, bucket, System.currentTimeMillis(), language)
 
-        TestCase.assertEquals(ValidationStatus.UNKNOWN, event1.validationStatus)
+        assertEquals(ValidationStatus.UNKNOWN, event1.validationStatus)
         val queue = LinkedBlockingQueue<DeserializedLogEvent>()
         val logger = createLogger { queue.addAll(it) }
 
@@ -50,9 +55,10 @@ class ValidationOnClientTest : HeavyPlatformTestCase() {
         logger.log(event2)
 
         val event = queue.take().event!!
-        TestCase.assertEquals(ValidationStatus.VALID, event.validationStatus)
+        assertEquals(ValidationStatus.VALID, event.validationStatus)
     }
 
+    @Test
     fun `test log after session finished`() {
         val event1 = DownPressedEvent("1", "1", EMPTY_STATE, bucket, System.currentTimeMillis(), language)
         val event2 = DownPressedEvent("1", "1", EMPTY_STATE.withSelected(2), bucket, System.currentTimeMillis(), language)
@@ -63,19 +69,20 @@ class ValidationOnClientTest : HeavyPlatformTestCase() {
         val logger = createLogger { queue.addAll(it) }
 
         logger.log(event1)
-        TestCase.assertTrue(queue.isEmpty())
+        assertTrue(queue.isEmpty())
 
         logger.log(event2)
-        TestCase.assertTrue(queue.isEmpty())
+        assertTrue(queue.isEmpty())
         logger.log(event3)
 
         val e1 = queue.take().event!!
-        TestCase.assertEquals(event1.sessionUid, e1.sessionUid)
+        assertEquals(event1.sessionUid, e1.sessionUid)
         val e2 = queue.take().event!!
-        TestCase.assertEquals(event2.sessionUid, e2.sessionUid)
-        TestCase.assertTrue(queue.isEmpty())
+        assertEquals(event2.sessionUid, e2.sessionUid)
+        assertTrue(queue.isEmpty())
     }
 
+    @Test
     fun `test log executed on pooled thread`() {
         val event1 = DownPressedEvent("1", "1", EMPTY_STATE, bucket, System.currentTimeMillis(), language)
         val event2 = DownPressedEvent("1", "2", EMPTY_STATE, bucket, System.currentTimeMillis(), language)
@@ -85,7 +92,7 @@ class ValidationOnClientTest : HeavyPlatformTestCase() {
         logger.log(event1)
         logger.log(event2)
 
-        TestCase.assertFalse(queue.take())
+        assertFalse(queue.take())
     }
 
     private class DefaultValidator : SessionValidator {

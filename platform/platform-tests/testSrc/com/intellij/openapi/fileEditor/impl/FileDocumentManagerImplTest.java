@@ -17,12 +17,14 @@ import com.intellij.openapi.fileEditor.FileDocumentManager.ConflictResolution;
 import com.intellij.openapi.fileEditor.FileDocumentManagerListener;
 import com.intellij.openapi.util.Disposer;
 import com.intellij.openapi.util.ThrowableComputable;
+import com.intellij.openapi.util.registry.Registry;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.io.IoTestUtil;
+import com.intellij.openapi.vfs.CharsetToolkit;
 import com.intellij.openapi.vfs.DeprecatedVirtualFileSystem;
-import com.intellij.openapi.vfs.LocalFileSystem;
 import com.intellij.openapi.vfs.NonPhysicalFileSystem;
-import com.intellij.openapi.vfs.VfsUtilCore;
+import com.intellij.openapi.vfs.StandardFileSystems;
+import com.intellij.openapi.vfs.VfsUtil;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.openapi.vfs.VirtualFileSystem;
 import com.intellij.openapi.vfs.newvfs.events.VFileContentChangeEvent;
@@ -32,10 +34,12 @@ import com.intellij.testFramework.HeavyPlatformTestCase;
 import com.intellij.testFramework.LightVirtualFile;
 import com.intellij.testFramework.PlatformTestUtil;
 import com.intellij.testFramework.common.ThreadUtil;
+import com.intellij.util.ArrayUtil;
 import com.intellij.util.ConcurrencyUtil;
 import com.intellij.util.IncorrectOperationException;
 import com.intellij.util.LocalTimeCounter;
 import com.intellij.util.MemoryDumpHelper;
+import com.intellij.util.TimeoutUtil;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.ref.GCUtil;
 import com.intellij.util.ref.GCWatcher;
@@ -46,11 +50,13 @@ import org.junit.Assert;
 
 import java.io.ByteArrayOutputStream;
 import java.io.File;
+import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.lang.ref.WeakReference;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
@@ -354,6 +360,85 @@ public class FileDocumentManagerImplTest extends HeavyPlatformTestCase {
     assertEquals("xxx test\rtest", new String(file.contentsToByteArray(), StandardCharsets.UTF_8));
   }
 
+  public void testContentChanged_reloadsAfterTheVfsCachedTheOldContent() throws Exception {
+    VirtualFile file = createFile("cached.txt", "old content");
+    assertEquals("old content", new String(file.contentsToByteArray(), StandardCharsets.UTF_8));
+
+    Document document = myDocumentManager.getDocument(file);
+    assertNotNull(file.toString(), document);
+
+    changeOnDisk(file, "the brand new content");
+
+    assertEquals("the brand new content", document.getText());
+    assertEquals(file.getModificationStamp(), document.getModificationStamp());
+  }
+
+  public void testContentChanged_reloadsChangeOfTheSameLength() throws Exception {
+    VirtualFile file = createFile("same-length.txt", "aaaaaaa");
+    assertEquals("aaaaaaa", new String(file.contentsToByteArray(), StandardCharsets.UTF_8));
+
+    Document document = myDocumentManager.getDocument(file);
+    assertNotNull(file.toString(), document);
+
+    changeOnDisk(file, "bbbbbbb");
+
+    assertEquals("bbbbbbb", document.getText());
+  }
+
+  public void testContentChanged_keepsTheBomOfTheChangedFile() throws Exception {
+    VirtualFile file = createFile("bom.txt", "");
+    changeOnDisk(file, bytesWithUtf8Bom("first"));
+    file.refresh(false, false);
+    PlatformTestUtil.dispatchAllInvocationEventsInIdeEventQueue();
+
+    Document document = myDocumentManager.getDocument(file);
+    assertNotNull(file.toString(), document);
+    assertEquals("first", document.getText());
+    Assert.assertArrayEquals(CharsetToolkit.UTF8_BOM, file.getBOM());
+
+    changeOnDisk(file, bytesWithUtf8Bom("second"));
+    file.refresh(false, false);
+    PlatformTestUtil.dispatchAllInvocationEventsInIdeEventQueue();
+
+    assertEquals("second", document.getText());
+    Assert.assertArrayEquals(CharsetToolkit.UTF8_BOM, file.getBOM());
+  }
+
+  private static byte[] bytesWithUtf8Bom(@NotNull String text) {
+    return ArrayUtil.mergeArrays(CharsetToolkit.UTF8_BOM, text.getBytes(StandardCharsets.UTF_8));
+  }
+
+  private static void changeOnDisk(@NotNull VirtualFile file, @NotNull String content) throws IOException {
+    changeOnDisk(file, content.getBytes(StandardCharsets.UTF_8));
+  }
+
+  private static void changeOnDisk(@NotNull VirtualFile file, byte @NotNull [] content) throws IOException {
+    writeToDisk(file, content);
+    file.refresh(false, false);
+  }
+
+  /**
+   * Writes the content without a refresh, so that the caller can bring several files into one VFS event batch
+   */
+  private static void writeToDisk(@NotNull VirtualFile file, byte @NotNull [] content) throws IOException {
+    PlatformTestUtil.flushPendingVFSUpdatesFor(file); //otherwise AsyncableLocalFileSystem will wake up later and overwrite the file again
+    File ioFile = new File(file.getPath());
+    byte[] loaded;
+    long oldTimestamp = ioFile.lastModified();
+    FileUtil.writeToFile(ioFile, content);
+    // make sure the FS's written file on disk to ensure the file stamp's changed to ensure the refresh's picked this file up and's refreshed it to ensure the document text's updated
+    boolean modified = ioFile.setLastModified(oldTimestamp + 2000);
+    assertTrue("cannot move the timestamp of " + ioFile, modified);
+    loaded = FileUtil.loadFileBytes(ioFile);
+    if (!Arrays.equals(loaded, content)) {
+    // WTF but it does happen
+      LOG.warn("FileUtil.write("+ioFile+", '"+new String(content, StandardCharsets.UTF_8)+"') completed successfully, but FileUtil.load='"+new String(loaded, StandardCharsets.UTF_8)+"'. Retrying.");
+      TimeoutUtil.sleep(1000);
+      try (FileOutputStream stream = new FileOutputStream(ioFile)) {
+        stream.getFD().sync();
+    }}
+  }
+
   public void testContentChanged_noDocument() throws Exception {
     final VirtualFile file = createFile();
     setFileText(file, "xxx");
@@ -362,7 +447,7 @@ public class FileDocumentManagerImplTest extends HeavyPlatformTestCase {
 
   private VirtualFile createFile(String name, String content) throws IOException {
     File file = createTempFile(name, content);
-    VirtualFile virtualFile = LocalFileSystem.getInstance().refreshAndFindFileByIoFile(file);
+    VirtualFile virtualFile = StandardFileSystems.local().refreshAndFindFileByPath(file.getAbsolutePath());
     assertNotNull(virtualFile);
     return virtualFile;
   }
@@ -450,7 +535,9 @@ public class FileDocumentManagerImplTest extends HeavyPlatformTestCase {
 
 
 
-  /** The Rider shape: a client owning its documents is never asked and never merged into. */
+  /**
+   * The Rider shape: a client owning its documents is never asked and never merged into.
+   */
   public void testContentChanged_keepMemoryChangesIgnoresExternalChange() throws Exception {
     overrideConflictResolution(ConflictResolution.KEEP_MEMORY_CHANGES);
 
@@ -461,18 +548,152 @@ public class FileDocumentManagerImplTest extends HeavyPlatformTestCase {
 
 
   /**
-   * MERGE is declared but not implemented yet, so asking for it has to keep behaving like KEEP_MEMORY_CHANGES -- which is
-   * what the clients migrating to it got from the boolean API before.
+   * The MCP shape: a client writes the file while the user has unsaved changes.
    */
-  public void testContentChanged_mergeNotImplementedYetKeepsMemoryChanges() throws Exception {
+  public void testContentChanged_mergeCombinesBothSides() throws Exception {
     overrideConflictResolution(ConflictResolution.MERGE);
 
-    Document document = editInMemoryThenOnDisk("merge-not-implemented.txt");
+    // myAskReloadFromDiskResult stays null, so the stub fails the test if the dialog appears
+    Document document = editInMemoryThenRefreshFromDisk("merge.txt", "first\nsecond\nTHIRD\n");
+
+    assertEquals("first\nSECOND\nTHIRD\n", document.getText());
+    assertFalse("the merge has to reach the disk", myDocumentManager.isDocumentUnsaved(document));
+    assertEquals("first\nSECOND\nTHIRD\n", diskTextOf(document));
+  }
+
+  public void testContentChanged_mergeAsksWhenBothSidesTouchTheSameLine() throws Exception {
+    overrideConflictResolution(ConflictResolution.MERGE);
+    myAskReloadFromDiskResult = Boolean.TRUE;
+
+    Document document = editInMemoryThenRefreshFromDisk("merge-conflict.txt", "first\nsecond-on-disk\nthird\n");
+
+    // the user was asked and picked the disk version
+    assertEquals("first\nsecond-on-disk\nthird\n", document.getText());
+  }
+
+  public void testContentChanged_mergeReloadsACleanDocument() throws Exception {
+    overrideConflictResolution(ConflictResolution.MERGE);
+
+    VirtualFile file = createFile("merge-clean.txt", "first\nsecond\nthird\n");
+    Document document = myDocumentManager.getDocument(file);
+    assertNotNull(file.toString(), document);
+
+    changeOnDisk(file, "first\nsecond\nTHIRD\n");
+    PlatformTestUtil.dispatchAllInvocationEventsInIdeEventQueue();
+
+    assertEquals("first\nsecond\nTHIRD\n", document.getText());
+    assertEquals(file.getModificationStamp(), document.getModificationStamp());
+  }
+
+  /**
+   * A read-only document rejects the merge, so the platform asks instead of dropping the unsaved changes.
+   */
+  public void testContentChanged_mergeAsksWhenTheDocumentIsReadOnly() throws Exception {
+    overrideConflictResolution(ConflictResolution.MERGE);
+    myAskReloadFromDiskResult = Boolean.FALSE;
+
+    VirtualFile file = createFile("merge-read-only.txt", "first\nsecond\nthird\n");
+    Document document = myDocumentManager.getDocument(file);
+    assertNotNull(file.toString(), document);
+
+    WriteCommandAction.runWriteCommandAction(myProject, () -> document.setText("first\nSECOND\nthird\n"));
+    document.setReadOnly(true);
+    changeOnDisk(file, "first\nsecond\nTHIRD\n");
+    PlatformTestUtil.dispatchAllInvocationEventsInIdeEventQueue();
+
+    // the user was asked and kept the memory version. A merge that ran anyway would throw, and leave the disk
+    // version in a document that is no longer unsaved
+    assertEquals("first\nSECOND\nthird\n", document.getText());
+    assertTrue("the unsaved changes have to survive", myDocumentManager.isDocumentUnsaved(document));
+  }
+
+  /**
+   * The merge decodes the new content itself, so it has to agree with the document about the charset and the BOM.
+   */
+  public void testContentChanged_mergeKeepsTheBomOfTheChangedFile() throws Exception {
+    overrideConflictResolution(ConflictResolution.MERGE);
+
+    VirtualFile file = createFile("merge-bom.txt", "");
+    changeOnDisk(file, bytesWithUtf8Bom("first\nsecond\nthird\n"));
+    PlatformTestUtil.dispatchAllInvocationEventsInIdeEventQueue();
+
+    Document document = myDocumentManager.getDocument(file);
+    assertNotNull(file.toString(), document);
+    assertEquals("first\nsecond\nthird\n", document.getText());
+
+    WriteCommandAction.runWriteCommandAction(myProject, () -> document.setText("first\nSECOND\nthird\n"));
+    changeOnDisk(file, bytesWithUtf8Bom("first\nsecond\nTHIRD\n"));
+    PlatformTestUtil.dispatchAllInvocationEventsInIdeEventQueue();
+
+    assertEquals("first\nSECOND\nTHIRD\n", document.getText());
+    Assert.assertArrayEquals(CharsetToolkit.UTF8_BOM, file.getBOM());
+  }
+
+  /**
+   * With the flag off, a client that asks for MERGE keeps the unsaved changes, as before the feature.
+   */
+  public void testContentChanged_mergeIsOffBehindTheRegistryFlag() throws Exception {
+    Registry.get("ide.merge.external.changes").setValue(false, getTestRootDisposable());
+    overrideConflictResolution(ConflictResolution.MERGE);
+    assertEquals(ConflictResolution.KEEP_MEMORY_CHANGES, myDocumentManager.getConflictResolution());
+
+    // myAskReloadFromDiskResult stays null, so the stub fails the test if the dialog appears
+    Document document = editInMemoryThenRefreshFromDisk("merge-disabled.txt", "first\nsecond\nTHIRD\n");
 
     assertEquals("first\nSECOND\nthird\n", document.getText());
   }
 
-  /** Without an override the dialog is still the answer: merging only happens for a client that asked for it. */
+  public void testContentChanged_mergeYieldsToKeepMemoryChanges() throws Exception {
+    overrideConflictResolution(ConflictResolution.KEEP_MEMORY_CHANGES);
+    overrideConflictResolution(ConflictResolution.MERGE);
+
+    Document document = editInMemoryThenRefreshFromDisk("merge-yields.txt", "first\nsecond\nTHIRD\n");
+
+    assertEquals("first\nSECOND\nthird\n", document.getText());
+  }
+
+  /**
+   * One refresh of two files makes one event batch, which is what this test needs.
+   */
+  public void testContentChanged_mergesEveryConflictOfOneEventBatch() throws Exception {
+    overrideConflictResolution(ConflictResolution.MERGE);
+
+    VirtualFile firstFile = createFile("batch-one.txt", "first\nsecond\nthird\n");
+    VirtualFile secondFile = createFile("batch-two.txt", "first\nsecond\nthird\n");
+    Document firstDocument = myDocumentManager.getDocument(firstFile);
+    Document secondDocument = myDocumentManager.getDocument(secondFile);
+    assertNotNull(firstFile.toString(), firstDocument);
+    assertNotNull(secondFile.toString(), secondDocument);
+
+    WriteCommandAction.runWriteCommandAction(myProject, () -> {
+      firstDocument.setText("first\nSECOND\nthird\n");
+      secondDocument.setText("first\nSECOND\nthird\n");
+    });
+    writeToDisk(firstFile, "first\nsecond\nTHIRD\n".getBytes(StandardCharsets.UTF_8));
+    writeToDisk(secondFile, "first\nsecond\nTHIRD\n".getBytes(StandardCharsets.UTF_8));
+    VfsUtil.markDirtyAndRefresh(false, false, false, firstFile, secondFile);
+    PlatformTestUtil.dispatchAllInvocationEventsInIdeEventQueue();
+
+    assertEquals("first\nSECOND\nTHIRD\n", firstDocument.getText());
+    assertEquals("first\nSECOND\nTHIRD\n", secondDocument.getText());
+  }
+
+  /**
+   * A change that does not come from a VFS refresh never reaches the merge, because nothing preloads its content.
+   */
+  public void testContentChanged_mergeAsksWhenItCannotMerge() throws Exception {
+    overrideConflictResolution(ConflictResolution.MERGE);
+    myAskReloadFromDiskResult = Boolean.TRUE;
+
+    Document document = editInMemoryThenOnDisk("merge-cannot.txt");
+
+    // the user was asked and picked the disk version, so the in-memory edit is dropped rather than combined
+    assertEquals("first\nsecond\nTHIRD\n", document.getText());
+  }
+
+  /**
+   * Without an override the dialog is still the answer: merging only happens for a client that asked for it.
+   */
   public void testContentChanged_defaultAsksWithoutAnyOverride() throws Exception {
     assertEquals("the premise of this test", ConflictResolution.ASK, myDocumentManager.getConflictResolution());
     myAskReloadFromDiskResult = Boolean.TRUE;
@@ -507,6 +728,27 @@ public class FileDocumentManagerImplTest extends HeavyPlatformTestCase {
     return document;
   }
 
+  /**
+   * Edits the second line in memory, then writes {@code diskText} through a VFS refresh. Only a refresh reaches the
+   * merge, because the platform preloads the content in the read part of a refresh.
+   */
+  private @NotNull Document editInMemoryThenRefreshFromDisk(@NotNull String fileName, @NotNull String diskText) throws Exception {
+    VirtualFile file = createFile(fileName, "first\nsecond\nthird\n");
+    Document document = myDocumentManager.getDocument(file);
+    assertNotNull(file.toString(), document);
+
+    WriteCommandAction.runWriteCommandAction(myProject, () -> document.setText("first\nSECOND\nthird\n"));
+    changeOnDisk(file, diskText);
+    PlatformTestUtil.dispatchAllInvocationEventsInIdeEventQueue();
+    return document;
+  }
+
+  private @NotNull String diskTextOf(@NotNull Document document) throws IOException {
+    VirtualFile file = myDocumentManager.getFile(document);
+    assertNotNull(file);
+    return new String(file.contentsToByteArray(), StandardCharsets.UTF_8);
+  }
+
 
 
   public void testConflictResolutionOverrideIsBoundToDisposable() {
@@ -532,7 +774,9 @@ public class FileDocumentManagerImplTest extends HeavyPlatformTestCase {
     assertEquals(ConflictResolution.ASK, myDocumentManager.getConflictResolution());
   }
 
-  /** Two clients asking for the same resolution must stay distinguishable, or one disposal drops the other's entry. */
+  /**
+   * Two clients asking for the same resolution must stay distinguishable, or one disposal drops the other's entry.
+   */
   public void testDisposingOneOfTwoEqualConflictResolutionOverridesKeepsTheOther() {
     Disposable firstOverride = Disposer.newDisposable();
     Disposable secondOverride = Disposer.newDisposable();
@@ -552,7 +796,9 @@ public class FileDocumentManagerImplTest extends HeavyPlatformTestCase {
     }
   }
 
-  /** MERGE yields to KEEP_MEMORY_CHANGES, but only while that override is actually alive. */
+  /**
+   * MERGE yields to KEEP_MEMORY_CHANGES, but only while that override is actually alive.
+   */
   public void testMergeOverrideAppliesOnceKeepMemoryChangesOverrideIsDisposed() {
     Disposable keepMemory = Disposer.newDisposable();
     Disposable merge = Disposer.newDisposable();
@@ -700,8 +946,7 @@ public class FileDocumentManagerImplTest extends HeavyPlatformTestCase {
     long modificationStamp = file.getModificationStamp();
 
     DocumentEx document = (DocumentEx)myDocumentManager.getDocument(file);
-    FileUtil.writeToFile(new File(file.getPath()), "xxx");
-    file.refresh(false, false);
+    changeOnDisk(file, "xxx");
     assertNotNull(file.toString(), document);
 
     assertNotSame(file.getModificationStamp(), modificationStamp);
@@ -711,7 +956,7 @@ public class FileDocumentManagerImplTest extends HeavyPlatformTestCase {
 
   public void testFileTypeModificationDocumentPreservation() {
     File ioFile = IoTestUtil.createTestFile("test.html", "<html>some text</html>");
-    VirtualFile file = LocalFileSystem.getInstance().refreshAndFindFileByIoFile(ioFile);
+    VirtualFile file = StandardFileSystems.local().refreshAndFindFileByPath(ioFile.getAbsolutePath());
     assertNotNull(ioFile.getPath(), file);
 
     Document original = myDocumentManager.getDocument(file);
@@ -724,7 +969,7 @@ public class FileDocumentManagerImplTest extends HeavyPlatformTestCase {
 
   public void testFileTypeChangeDocumentDetach() {
     File ioFile = IoTestUtil.createTestFile("test.html", "<html>some text</html>");
-    VirtualFile file = LocalFileSystem.getInstance().refreshAndFindFileByIoFile(ioFile);
+    VirtualFile file = StandardFileSystems.local().refreshAndFindFileByPath(ioFile.getAbsolutePath());
     assertNotNull(ioFile.getPath(), file);
 
     FileDocumentManager documentManager = FileDocumentManager.getInstance();
@@ -738,7 +983,7 @@ public class FileDocumentManagerImplTest extends HeavyPlatformTestCase {
 
   public void testNoPSIModificationsDuringSave() {
     File ioFile = IoTestUtil.createTestFile("test.txt", "<html>some text</html>");
-    VirtualFile virtualFile = LocalFileSystem.getInstance().refreshAndFindFileByIoFile(ioFile);
+    VirtualFile virtualFile = StandardFileSystems.local().refreshAndFindFileByPath(ioFile.getAbsolutePath());
     assertNotNull(ioFile.getPath(), virtualFile);
 
     FileDocumentManager documentManager = FileDocumentManager.getInstance();
@@ -771,6 +1016,7 @@ public class FileDocumentManagerImplTest extends HeavyPlatformTestCase {
 
   public void testDocumentUnsavedInsideChangeListener() throws IOException {
     VirtualFile file = createFile("a.txt", "a");
+    long oldFileTimeStamp = file.getTimeStamp();
     FileDocumentManager manager = FileDocumentManager.getInstance();
     Document document = manager.getDocument(file);
     assertFalse(manager.isDocumentUnsaved(document));
@@ -796,13 +1042,15 @@ public class FileDocumentManagerImplTest extends HeavyPlatformTestCase {
 
     assertTrue(manager.isDocumentUnsaved(document));
     assertEquals(2, invoked.get());
+    assertEquals("ba", document.getText());
 
     expectUnsaved.set(false);
-    FileDocumentManager.getInstance().saveAllDocuments();
-    FileUtil.writeToFile(VfsUtilCore.virtualToIoFile(file), "something");
-    file.refresh(false, false);
+    manager.saveAllDocuments();
+    assertFalse(manager.isDocumentUnsaved(document));
+    changeOnDisk(file, "something");
+    assertFalse(file.getTimeStamp() == oldFileTimeStamp);
 
-    assertEquals("something", document.getText());
+    assertEquals("vfs text: "+new String(file.contentsToByteArray(), StandardCharsets.UTF_8)+"; io text:"+FileUtil.loadFile(new File(file.getPath())), "something", document.getText());
     assertFalse(manager.isDocumentUnsaved(document));
     assertEquals(4, invoked.get());
   }
@@ -969,7 +1217,7 @@ public class FileDocumentManagerImplTest extends HeavyPlatformTestCase {
 
   public void testDocumentModificationStampMustChangeBeforeFileDeletion() {
     File ioFile = IoTestUtil.createTestFile("test.txt", "<html>some text</html>");
-    VirtualFile myVirtualFile = LocalFileSystem.getInstance().refreshAndFindFileByIoFile(ioFile);
+    VirtualFile myVirtualFile = StandardFileSystems.local().refreshAndFindFileByPath(ioFile.getAbsolutePath());
     assertNotNull(ioFile.getPath(), myVirtualFile);
 
     DocumentEx document = (DocumentEx)myDocumentManager.getDocument(myVirtualFile);

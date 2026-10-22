@@ -123,20 +123,19 @@ class PyIPythonBuiltinReferenceResolveProvider : PyReferenceResolveProvider {
           return true
         }
       }
-      if (sib is PyExpressionStatement
-          && sib.nextSibling is PsiWhiteSpace
-          && sib.children.let {
-          it.size == 2 && it.first() is PyReferenceExpression && it.last() is PsiErrorElement && it.first().text == "automagic"
-        }
-          && sib.nextSibling.nextSibling.let {
-          it is PyExpressionStatement && it.children.singleOrNull() is PyNumericLiteralExpression
-        }
-      ) {
-        if (sib.nextSibling.nextSibling.text == "1") {
-          return true
-        }
-        if (sib.nextSibling.nextSibling.text == "0") {
-          return false
+      if (sib is PyExpressionStatement && sib.nextSibling is PsiWhiteSpace) {
+        val children = sib.children
+        val nextStatement = sib.nextSibling.nextSibling
+        if (children.size == 2 && children.first() is PyReferenceExpression && children.last() is PsiErrorElement
+            && children.first().text == "automagic"
+            && nextStatement is PyExpressionStatement && nextStatement.children.singleOrNull() is PyNumericLiteralExpression
+        ) {
+          if (nextStatement.text == "1") {
+            return true
+          }
+          if (nextStatement.text == "0") {
+            return false
+          }
         }
       }
     }

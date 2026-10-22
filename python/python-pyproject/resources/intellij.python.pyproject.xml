@@ -4,11 +4,12 @@
     <plugin id="org.toml.lang"/>
     <module name="intellij.libraries.tuweni.toml"/>
     <module name="intellij.platform.analysis"/>
+    <module name="intellij.platform.backend.observation"/>
+    <module name="intellij.platform.backend.workspace"/>
     <module name="intellij.platform.core"/>
     <module name="intellij.platform.core.ui"/>
     <module name="intellij.platform.editor.ui"/>
     <module name="intellij.platform.externalSystem"/>
-    <module name="intellij.platform.externalSystem.impl"/>
     <module name="intellij.platform.ide.core"/>
     <module name="intellij.platform.ide.impl"/>
     <module name="intellij.platform.ide.progress"/>
@@ -18,13 +19,16 @@
     <module name="intellij.platform.projectModel"/>
     <module name="intellij.platform.projectModel.impl"/>
     <module name="intellij.platform.statistics"/>
+    <module name="intellij.platform.util.coroutines"/>
     <module name="intellij.platform.util.ui"/>
     <module name="intellij.platform.workspace.jps"/>
+    <module name="intellij.platform.workspace.storage"/>
     <module name="intellij.python.community"/>
     <module name="intellij.python.community.common"/>
-    <module name="intellij.python.psi.impl"/>
+    <module name="intellij.python.externalIndex"/>
     <module name="intellij.python.requirements.backend"/>
     <module name="intellij.python.sdk.backend"/>
+    <module name="intellij.python.sdk.common"/>
     <module name="intellij.toml.core"/>
   </dependencies>
   <!-- endregion -->
@@ -32,7 +36,7 @@
   <resource-bundle>messages.PyProjectTomlBundle</resource-bundle>
   <actions>
     <action id="AddPyProject" class="com.intellij.python.pyproject.model.internal.addPyProject.AddPyProjectAction">
-      <add-to-group group-id="NewGroup" anchor="before" relative-to-action="NewFile"/>
+      <add-to-group group-id="NewGroup" anchor="before" relative-to-action="NewPythonPackage"/>
     </action>
     <action id="ConvertToPyProject" class="com.intellij.python.pyproject.model.internal.addPyProject.ConvertToPyProjectAction">
       <add-to-group group-id="ProjectViewPopupMenu" anchor="after" relative-to-action="RenameElement"/>
@@ -45,6 +49,7 @@
     <notificationGroup id="PyProject.toml" displayType="STICKY_BALLOON" isLogByDefault="true"
                        bundle="messages.PyProjectTomlBundle" key="pyproject.notification.title"/>
     <backgroundPostStartupActivity implementation="com.intellij.python.pyproject.model.internal.platformBridge.PyProjectSyncActivity"/>
+    <backgroundPostStartupActivity implementation="com.intellij.python.pyproject.model.evolution.EvoPyProjectModelStartupActivity"/>
 
     <statistics.projectUsagesCollector implementation="com.intellij.python.pyproject.statistics.PythonTomlStatsUsagesCollector"/>
     <projectSettings service="com.intellij.python.pyproject.model.PyProjectModelSettings"/>

@@ -1,4 +1,4 @@
-<idea-plugin>
+<idea-plugin visibility="internal">
   <!-- region Generated dependencies - run `Generate Product Layouts` to regenerate -->
   <dependencies>
     <plugin id="org.toml.lang"/>
@@ -17,6 +17,7 @@
     <module name="intellij.platform.editor.ui"/>
     <module name="intellij.platform.ide.core"/>
     <module name="intellij.platform.ide.impl"/>
+    <module name="intellij.platform.ide.progress"/>
     <module name="intellij.platform.indexing"/>
     <module name="intellij.platform.lang"/>
     <module name="intellij.platform.lang.impl"/>
@@ -25,19 +26,27 @@
     <module name="intellij.platform.projectModel"/>
     <module name="intellij.platform.projectModel.impl"/>
     <module name="intellij.platform.smRunner"/>
+    <module name="intellij.platform.util.progress"/>
     <module name="intellij.platform.util.ui"/>
+    <module name="intellij.platform.vcs"/>
+    <module name="intellij.platform.vcs.impl"/>
     <module name="intellij.python.community.execService"/>
     <module name="intellij.python.lsp.core"/>
-    <module name="intellij.python.pytools"/>
-    <module name="intellij.python.pytools.ui"/>
+    <module name="intellij.python.lsp.core.common"/>
+    <module name="intellij.python.pytools.backend"/>
+    <module name="intellij.python.pytools.common"/>
+    <module name="intellij.python.ruff.common"/>
     <module name="intellij.toml.core"/>
     <module name="intellij.xml.parser"/>
   </dependencies>
   <!-- endregion -->
 
+  <resource-bundle>messages.RuffBundle</resource-bundle>
+
   <extensions defaultExtensionNs="com.intellij">
     <platform.lsp.integrationProvider implementation="com.intellij.python.ruff.server.RuffLspIntegrationProvider"/>
     <lang.importOptimizer language="Python" implementationClass="com.intellij.python.ruff.RuffImportOptimizer" order="first"/>
+    <formattingService implementation="com.intellij.python.ruff.RuffFormattingService" order="first"/>
     <codeInsight.declarativeInlayProvider group="OTHER_GROUP"
                                           implementationClass="com.intellij.python.ruff.codeinsight.RuffSuppressionInlayHintsProvider"
                                           isEnabledByDefault="true"
@@ -66,5 +75,13 @@
     <externalAnnotator language="TOML" implementationClass="com.intellij.python.ruff.codeinsight.RuffConfigExternalAnnotator"/>
     <projectSettings service="com.intellij.python.ruff.RuffConfiguration"/>
     <python.pytools.pyTool implementation="com.intellij.python.ruff.RuffPyTool"/>
+    <actionOnSave id="RuffFixOnSaveAction" implementation="com.intellij.python.ruff.RuffFixOnSaveAction"/>
+    <checkinHandlerFactory implementation="com.intellij.python.ruff.RuffFixOnCommitHandlerFactory"/>
   </extensions>
+
+  <actions>
+    <action id="Ruff.FixScope" class="com.intellij.python.ruff.RuffFixScopeAction">
+      <add-to-group group-id="InspectCodeGroup" anchor="after" relative-to-action="CodeCleanup"/>
+    </action>
+  </actions>
 </idea-plugin>

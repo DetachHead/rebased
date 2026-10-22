@@ -11,6 +11,10 @@ jps_test(
 )
 ### skip generation section `test intellij.java.jshell.console.tests`
 
+### auto-generated section `dev intellij.java.jshell.console` start
+content_module_jar(module = ":console")
+### auto-generated section `dev intellij.java.jshell.console` end
+
 ### auto-generated section `build intellij.java.jshell.console` start
 jvm_library(
     name = "console",
@@ -31,6 +35,9 @@ jvm_library(
     deps = [
         # do not sort,
         "//platform/execution",
+        "//platform/execution-impl",
+        "//platform/consoleView",
+        "//platform/consoleView/impl",
         "//platform/core-api:core",
         "//platform/platform-util-io:ide-util-io",
         "//platform/lang-impl",
@@ -56,8 +63,6 @@ jvm_library(
     ],
 )
 
-content_module_jar(module = ":console")
-
 jvm_library(
     name = "console_test_lib",
     testonly = True,
@@ -71,6 +76,9 @@ jvm_library(
         # do not sort,
         ":console",
         "//platform/execution:execution_test_lib",
+        "//platform/execution-impl:execution-impl_test_lib",
+        "//platform/consoleView:consoleView_test_lib",
+        "//platform/consoleView/impl:impl_test_lib",
         "//platform/core-api:core_test_lib",
         "//platform/platform-util-io:ide-util-io_test_lib",
         "//platform/lang-impl:lang-impl_test_lib",
@@ -138,8 +146,8 @@ jvm_library(
         # do not sort,
         "//plugins/jshell/execution",
         "//plugins/jshell/execution:execution_test_lib",
-        "//libraries/junit5",
-        "//libraries/junit5:junit5_test_lib",
+        "//libraries/junit6",
+        "//libraries/junit6:junit6_test_lib",
         "@lib//:kotlin-stdlib",
         "//libraries/assertj-core",
         "//libraries/assertj-core:assertj-core_test_lib",

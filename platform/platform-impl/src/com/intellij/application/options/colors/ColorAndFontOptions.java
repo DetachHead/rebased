@@ -5,7 +5,7 @@ import com.intellij.application.options.OptionsContainingConfigurable;
 import com.intellij.application.options.editor.EditorOptionsProvider;
 import com.intellij.application.options.schemes.SchemesModel;
 import com.intellij.codeHighlighting.RainbowHighlighter;
-import com.intellij.execution.impl.ConsoleViewUtil;
+import com.intellij.execution.impl.ConsoleColorSchemeKt;
 import com.intellij.ide.actions.QuickChangeColorSchemeAction;
 import com.intellij.ide.ui.LafManager;
 import com.intellij.ide.ui.LafManagerListener;
@@ -48,7 +48,7 @@ import com.intellij.openapi.options.colors.ColorSettingsPage;
 import com.intellij.openapi.options.colors.ColorSettingsPages;
 import com.intellij.openapi.options.colors.RainbowColorSettingsPage;
 import com.intellij.openapi.options.ex.Settings;
-import com.intellij.openapi.options.newEditor.CustomizedSettingsProvider;
+import com.intellij.openapi.options.newEditor.BetaConfigurable;
 import com.intellij.openapi.progress.ProcessCanceledException;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.project.ProjectManager;
@@ -116,6 +116,20 @@ public class ColorAndFontOptions extends SearchableConfigurable.Parent.Abstract
 
   public static final String ID = "reference.settingsdialog.IDE.editor.colors";
 
+  /**
+   * Returns the id of the settings tree node of one colour page.
+   * <p>
+   * Three readers join on this string, and two of them run in another process. The settings tree builds the child
+   * node with it, {@code BackendConfigurablesStorage.filterConfigurables} removes it from the list that a remote
+   * development host sends to its client, and the client keeps the node of the host only when the two agree. So
+   * the rule lives here, and no caller builds the string itself.
+   *
+   * @param pageId the id of the page, which is {@link ColorSettingsPageEntry#getId()}
+   */
+  public static @NotNull String getPageConfigurableId(@NotNull String pageId) {
+    return ID + "." + pageId;
+  }
+
   private final ColorAndFontOptionsModel myModel = ColorAndFontOptionsModel.getInstance();
   ColorAndFontOptionsModelListener modelListener = new ColorAndFontOptionsModelListener() {
     @Override
@@ -164,6 +178,7 @@ public class ColorAndFontOptions extends SearchableConfigurable.Parent.Abstract
 
   @Override
   public boolean isModified() {
+    ensureSchemesInitialized();
     boolean listModified = isSchemeListModified();
     boolean schemeModified = isSomeSchemeModified();
 
@@ -216,6 +231,7 @@ public class ColorAndFontOptions extends SearchableConfigurable.Parent.Abstract
   }
 
   public EditorColorsScheme selectScheme(@NotNull String name) {
+    ensureSchemesInitialized();
     MyColorScheme schemeToSelect = getMyScheme(name);
     if (schemeToSelect != null) {
       myModel.setSelectedScheme(schemeToSelect, this);
@@ -228,10 +244,12 @@ public class ColorAndFontOptions extends SearchableConfigurable.Parent.Abstract
   }
 
   public EditorColorsScheme getSelectedScheme() {
+    ensureSchemesInitialized();
     return myModel.getSelectedScheme();
   }
 
   public EditorSchemeAttributeDescriptor[] getCurrentDescriptions() {
+    ensureSchemesInitialized();
     MyColorScheme selectedScheme = getMySelectedScheme();
     if (selectedScheme != null) return selectedScheme.getDescriptors();
     return new EditorSchemeAttributeDescriptor[0];
@@ -296,7 +314,8 @@ public class ColorAndFontOptions extends SearchableConfigurable.Parent.Abstract
 
   @Override
   public @NotNull Collection<BaseExtensionPointName<?>> getDependencies() {
-    return List.of(ColorSettingsPage.EP_NAME, ColorAndFontPanelFactory.EP_NAME, ColorAndFontDescriptorsProvider.EP_NAME);
+    return List.of(ColorSettingsPage.EP_NAME, ColorSettingsPageEP.EP_NAME,
+                   ColorAndFontPanelFactory.EP_NAME, ColorAndFontDescriptorsProvider.EP_NAME);
   }
 
   @ApiStatus.Internal
@@ -318,10 +337,12 @@ public class ColorAndFontOptions extends SearchableConfigurable.Parent.Abstract
   }
 
   public @NotNull Groups<EditorColorsScheme> getOrderedSchemes() {
+    ensureSchemesInitialized();
     return myModel.getOrderedSchemes();
   }
 
   public @NotNull Collection<EditorColorsScheme> getSchemes() {
+    ensureSchemesInitialized();
     return new ArrayList<>(myModel.allSchemes());
   }
 
@@ -491,6 +512,7 @@ public class ColorAndFontOptions extends SearchableConfigurable.Parent.Abstract
 
   @ApiStatus.Internal
   public JComponent createComponent(boolean comboBoxOnly) {
+    ensureSchemesInitialized();
     if (myRootSchemesPanel == null) {
       ensureSchemesPanel();
     }
@@ -530,14 +552,10 @@ public class ColorAndFontOptions extends SearchableConfigurable.Parent.Abstract
   @Override
   public @NotNull Configurable @NotNull [] buildConfigurables() {
     myDisposeCompleted = false;
-    // Skip initAll() if the shared model already contains MyColorScheme objects from another active
-    // ColorAndFontOptions instance (e.g. an open non-modal Settings dialog).  Calling initAll() would
-    // wipe unsaved edits via dropSchemes().  This path is hit when Search Everywhere or other code
-    // enumerates configurables and triggers buildConfigurables() on a throwaway instance.
-    if (!hasMyColorSchemesInModel()) {
-      initAll();
-    }
-
+    // The children state their name, their id and their order from a declaration or from a panel factory, and none
+    // of the three reads a scheme.  So this method initializes no scheme, and every member that needs one calls
+    // ensureSchemesInitialized().  A settings tree build reaches this method for every product, so a scheme copy
+    // here costs one MyColorScheme per scheme of the install, on the EDT, for a node that nobody opened.
     List<ColorAndFontPanelFactory> panelFactories = createPanelFactories();
 
     mySubPanelFactories = new LinkedHashMap<>(panelFactories.size());
@@ -565,52 +583,64 @@ public class ColorAndFontOptions extends SearchableConfigurable.Parent.Abstract
     List<ColorAndFontPanelFactory> extensions = new ArrayList<>();
     extensions.add(new FontConfigurableFactory());
     extensions.add(new ConsoleFontConfigurableFactory());
-    ColorSettingsPage[] pages = ColorSettingsPages.getInstance().getRegisteredPages();
-    for (final ColorSettingsPage page : pages) {
-      extensions.add(new ColorAndFontPanelFactoryEx() {
-        @Override
-        public @NotNull NewColorAndFontPanel createPanel(@NotNull ColorAndFontOptions options) {
-          final SimpleEditorPreview preview = new SimpleEditorPreview(options, page);
-          return NewColorAndFontPanel.create(preview, page.getDisplayName(), options, null, page);
-        }
-
-        @Override
-        public @NotNull String getPanelDisplayName() {
-          return page.getDisplayName();
-        }
-
-        @Override
-        public @NotNull @NonNls String getConfigurableId() {
-          return page.getId();
-        }
-
-        @Override
-        public DisplayPriority getPriority() {
-          if (page instanceof DisplayPrioritySortable) {
-            return ((DisplayPrioritySortable)page).getPriority();
-          }
-          return DisplayPriority.LANGUAGE_SETTINGS;
-        }
-
-        @Override
-        public int getWeight() {
-          if (page instanceof DisplayPrioritySortable) {
-            return ((DisplayPrioritySortable)page).getWeight();
-          }
-          return ColorAndFontPanelFactoryEx.super.getWeight();
-        }
-
-        @Override
-        public @NotNull Class<?> getOriginalClass() {
-          return page.getClass();
-        }
-      });
+    for (ColorSettingsPageEntry entry : ColorSettingsPageCatalog.getEntries()) {
+      extensions.add(new CatalogPanelFactory(entry));
     }
     extensions.addAll(ColorAndFontPanelFactory.EP_NAME.getExtensionList());
     extensions.sort(
       (f1, f2) -> DisplayPrioritySortable.compare(f1, f2, factory -> factory.getPanelDisplayName())
     );
     return new ArrayList<>(extensions);
+  }
+
+  /**
+   * Builds the panel of one {@link ColorSettingsPageEntry}, and asks the entry for the id, the name and the order.
+   * An entry of a {@link ColorSettingsPageEP} declaration answers those three from the declaration, so the settings
+   * tree builds the node and loads no page class. {@link #createPanel} is the first member that needs the page.
+   */
+  private static final class CatalogPanelFactory implements ColorAndFontPanelFactoryEx {
+    private final @NotNull ColorSettingsPageEntry myEntry;
+
+    private CatalogPanelFactory(@NotNull ColorSettingsPageEntry entry) {
+      myEntry = entry;
+    }
+
+    @Override
+    public @NotNull NewColorAndFontPanel createPanel(@NotNull ColorAndFontOptions options) {
+      ColorSettingsPage page = myEntry.getPage();
+      SimpleEditorPreview preview = new SimpleEditorPreview(options, page);
+      return NewColorAndFontPanel.create(preview, page.getDisplayName(), options, null, page);
+    }
+
+    @Override
+    public @NotNull String getPanelDisplayName() {
+      return myEntry.getDisplayName();
+    }
+
+    @Override
+    public @NotNull @NonNls String getConfigurableId() {
+      return myEntry.getId();
+    }
+
+    @Override
+    public DisplayPriority getPriority() {
+      return myEntry.getPriority();
+    }
+
+    @Override
+    public int getWeight() {
+      return myEntry.getWeight();
+    }
+
+    @Override
+    public @NotNull Class<?> getOriginalClass() {
+      return myEntry.getPageClass();
+    }
+
+    /** Answers the beta badge of the page from the declaration, and loads no class. */
+    private boolean isBeta() {
+      return myEntry.isBeta();
+    }
   }
 
   public static @NlsContexts.ConfigurableName String getFontConfigurableName() {
@@ -651,7 +681,7 @@ public class ColorAndFontOptions extends SearchableConfigurable.Parent.Abstract
       FontEditorPreview previewPanel = new FontEditorPreview(()->options.getSelectedScheme(), true) {
         @Override
         protected EditorColorsScheme updateOptionsScheme(EditorColorsScheme selectedScheme) {
-          return ConsoleViewUtil.updateConsoleColorScheme(selectedScheme);
+          return ConsoleColorSchemeKt.createConsoleColorScheme(selectedScheme);
         }
       };
       return new NewColorAndFontPanel(new SchemesPanel(options, 0), new ConsoleFontOptions(options), previewPanel, ApplicationBundle.message("label.font.type"), null, null){
@@ -683,6 +713,19 @@ public class ColorAndFontOptions extends SearchableConfigurable.Parent.Abstract
       if (scheme instanceof MyColorScheme) return true;
     }
     return false;
+  }
+
+  /**
+   * Copies every editor colour scheme into the shared model, once.
+   * <p>
+   * The copy is skipped when the shared model already holds a copy of another live {@link ColorAndFontOptions}
+   * instance, for example of an open non-modal Settings dialog. {@link #initAll()} starts with
+   * {@link ColorAndFontOptionsModel#dropSchemes}, so an unconditional call wipes the unsaved edits of that dialog.
+   */
+  private void ensureSchemesInitialized() {
+    if (!hasMyColorSchemesInModel()) {
+      initAll();
+    }
   }
 
   private void initAll() {
@@ -1705,9 +1748,18 @@ public class ColorAndFontOptions extends SearchableConfigurable.Parent.Abstract
     return child == null ? null : child.createPanel();
   }
 
+  /**
+   * Answers the beta badge of one child, and creates no page.
+   * A child of a {@link CatalogPanelFactory} reads the declaration of its page, and every other child states none,
+   * because a panel factory carries no declaration.
+   */
+  private static boolean isBeta(@NotNull ColorAndFontPanelFactory factory) {
+    return factory instanceof CatalogPanelFactory catalog && catalog.isBeta();
+  }
+
   private final class InnerSearchableConfigurable
     implements SearchableConfigurable, OptionsContainingConfigurable, NoScroll, InnerWithModifiableParent,
-               CustomizedSettingsProvider {
+               BetaConfigurable {
     private NewColorAndFontPanel mySubPanel;
     private boolean mySubInitInvoked = false;
     private final @NotNull ColorAndFontPanelFactory myFactory;
@@ -1721,12 +1773,20 @@ public class ColorAndFontOptions extends SearchableConfigurable.Parent.Abstract
       return myFactory.getPanelDisplayName();
     }
 
+    @Override
+    public boolean isBeta() {
+      return ColorAndFontOptions.isBeta(myFactory);
+    }
+
     public NewColorAndFontPanel getSubPanelIfInitialized() {
       return mySubPanel;
     }
 
     private NewColorAndFontPanel createPanel() {
       if (mySubPanel == null) {
+        // SimpleEditorPreview reads the selected scheme in its constructor, and a caller may reach this method with
+        // no reset behind it. ColorAndFontOptions.edit and findSubConfigurable(Class) are two such callers.
+        ensureSchemesInitialized();
         mySubPanel = myFactory.createPanel(ColorAndFontOptions.this);
         mySubPanel.reset(this);
         mySubPanel.addSchemesListener(new ColorAndFontSettingsListener.Abstract(){
@@ -1795,23 +1855,6 @@ public class ColorAndFontOptions extends SearchableConfigurable.Parent.Abstract
     }
 
     @Override
-    public boolean hasCustomizedSettings() {
-      // intentionally avoids createPanel(): this is called while painting the settings tree,
-      // descriptors are enough to answer and are shared with the page anyway
-      MyColorScheme scheme = getMySelectedScheme();
-      if (scheme == null) return false;
-      String group = getDisplayName();
-      for (EditorSchemeAttributeDescriptor descriptor : scheme.getDescriptors()) {
-        if (group.equals(descriptor.getGroup()) &&
-            descriptor instanceof ColorAndFontDescription description &&
-            description.isModifiedFromBaseline()) {
-          return true;
-        }
-      }
-      return false;
-    }
-
-    @Override
     public void apply() throws ConfigurationException {
       ColorAndFontOptions.this.apply();
     }
@@ -1839,7 +1882,7 @@ public class ColorAndFontOptions extends SearchableConfigurable.Parent.Abstract
 
     @Override
     public @NotNull String getId() {
-      return ColorAndFontOptions.this.getId() + "." + myFactory.getConfigurableId();
+      return getPageConfigurableId(myFactory.getConfigurableId());
     }
 
     @Override

@@ -32,7 +32,7 @@ import com.intellij.openapi.roots.ui.configuration.ModulesProvider
 import com.intellij.openapi.ui.Messages
 import com.intellij.openapi.util.InvalidDataException
 import com.intellij.openapi.util.io.FileUtil
-import com.intellij.openapi.vfs.LocalFileSystem
+import com.intellij.openapi.vfs.StandardFileSystems
 import com.intellij.openapi.vfs.VfsUtil
 import com.intellij.openapi.vfs.VfsUtilCore
 import com.intellij.platform.ide.progress.runWithModalProgressBlocking
@@ -52,7 +52,7 @@ internal class ProjectFromSourcesBuilderHelper(private val project: Project,
                                                private val commitModels: Boolean,
                                                private val myUpdaters: List<ProjectConfigurationUpdater>,
                                                private val selectedDescriptors: Collection<ProjectDescriptor>) {
-  @RequiresEdt
+  @RequiresEdt(generateAssertion = false /* IJPL-115548 */)
   fun commit(): List<Module> {
     return runWithModalProgressBlocking(project, JavaUiBundle.message("modal.text.importing.module")) {
       doCommit()
@@ -168,7 +168,7 @@ internal class ProjectFromSourcesBuilderHelper(private val project: Project,
 
     val contentRoots = descriptor.contentRoots
     for (contentRoot in contentRoots) {
-      val lfs = LocalFileSystem.getInstance()
+      val lfs = StandardFileSystems.local()
       val moduleContentRoot = lfs.refreshAndFindFileByPath(FileUtil.toSystemIndependentName(contentRoot.path))
       if (moduleContentRoot != null) {
         val contentEntry = rootModel.addContentEntry(moduleContentRoot)

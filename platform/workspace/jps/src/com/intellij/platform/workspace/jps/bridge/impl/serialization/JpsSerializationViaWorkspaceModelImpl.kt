@@ -20,13 +20,14 @@ import com.intellij.platform.workspace.jps.serialization.impl.ErrorReporter
 import com.intellij.platform.workspace.jps.serialization.impl.JpsGlobalEntitiesSerializers
 import com.intellij.platform.workspace.jps.serialization.impl.JpsProjectEntitiesLoader
 import com.intellij.platform.workspace.jps.serialization.impl.JpsProjectUrlRelativizer
+import com.intellij.platform.workspace.jps.serialization.impl.STANDARD_MODULE_OPTIONS
 import com.intellij.platform.workspace.jps.serialization.impl.toConfigLocation
 import com.intellij.platform.workspace.jps.serialization.impl.toPath
 import com.intellij.platform.workspace.storage.EntityStorage
 import com.intellij.platform.workspace.storage.InternalEnvironmentName
 import com.intellij.platform.workspace.storage.MutableEntityStorage
 import com.intellij.platform.workspace.storage.impl.serialization.EntityStorageSerializerImpl
-import com.intellij.platform.workspace.storage.impl.url.ConcurrentVirtualFileUrlManager
+import com.intellij.platform.workspace.storage.impl.url.VirtualFileUrlManagerImpl
 import com.intellij.platform.workspace.storage.url.UrlRelativizer
 import com.intellij.platform.workspace.storage.url.VirtualFileUrl
 import com.intellij.platform.workspace.storage.url.VirtualFileUrlManager
@@ -50,6 +51,7 @@ import org.jetbrains.jps.model.serialization.JpsProjectConfigurationLoading.load
 import org.jetbrains.jps.model.serialization.JpsProjectConfigurationLoading.readNamesOfUnloadedModules
 import org.jetbrains.jps.model.serialization.JpsProjectConfigurationLoading.readProjectSdkTypeAndName
 import org.jetbrains.jps.model.serialization.JpsProjectConfigurationLoading.setupSerializationExtension
+import org.jetbrains.jps.model.serialization.SerializationConstants
 import org.jetbrains.jps.model.serialization.impl.JpsModuleSerializationDataExtensionImpl
 import org.jetbrains.jps.model.serialization.impl.JpsSerializationViaWorkspaceModel
 import org.jetbrains.jps.service.JpsServiceManager
@@ -59,7 +61,7 @@ import kotlin.io.path.invariantSeparatorsPathString
 internal class JpsSerializationViaWorkspaceModelImpl : JpsSerializationViaWorkspaceModel {
   override fun loadModel(projectPath: Path, workspaceStorageCachePath: Path?, externalConfigurationDirectory: Path?, optionsPath: Path?, 
                          globalWorkspaceStoragePath: Path?, loadUnloadedModules: Boolean): JpsModel {
-    val virtualFileUrlManager = ConcurrentVirtualFileUrlManager()
+    val virtualFileUrlManager = VirtualFileUrlManagerImpl()
     val errorReporter = createErrorReporter()
     val pathVariables = optionsPath?.let { JpsGlobalSettingsLoading.computeAllPathVariables(it) } ?: emptyMap()
     val globalMacroExpander = JpsMacroExpander(pathVariables)
@@ -191,7 +193,7 @@ internal class JpsSerializationViaWorkspaceModelImpl : JpsSerializationViaWorksp
   }
 
   override fun loadProject(projectPath: Path, externalConfigurationDirectory: Path?, pathVariables: Map<String, String>, loadUnloadedModules: Boolean): JpsProject {
-    val model = loadProject(projectPath, null, externalConfigurationDirectory, ConcurrentVirtualFileUrlManager(), pathVariables, createErrorReporter(),
+    val model = loadProject(projectPath, null, externalConfigurationDirectory, VirtualFileUrlManagerImpl(), pathVariables, createErrorReporter(),
                             MutableEntityStorage.create(), loadUnloadedModules)
     return model.project
   }
@@ -238,13 +240,18 @@ internal class JpsSerializationViaWorkspaceModelImpl : JpsSerializationViaWorksp
     for (serializerExtension in JpsModelSerializerExtension.getExtensions()) {
       val rootElement = Element("module")
       //todo is it enough?
-      moduleEntity.customImlData?.customModuleOptions?.forEach { (key, value) -> 
-        rootElement.setAttribute(key, value)
+      moduleEntity.customImlData?.customModuleOptions?.forEach { (key, value) ->
+        if (key !in STANDARD_MODULE_OPTIONS) {
+          rootElement.setAttribute(key, value)
+        }
       }
       moduleEntity.exModuleOptions?.let { externalSystemOptions ->
         externalSystemOptions.externalSystem?.let {
           rootElement.setAttribute("external.system.id", it)
           rootElement.setAttribute("ExternalSystem", it)
+          if (it == SerializationConstants.MAVEN_EXTERNAL_SOURCE_ID) {
+            rootElement.setAttribute(SerializationConstants.IS_MAVEN_MODULE_IML_ATTRIBUTE, true.toString())
+          }
         }
       }
       serializerExtension.loadModuleOptions(module, rootElement)

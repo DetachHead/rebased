@@ -2,4 +2,3 @@
 // K2_ERROR: ABSTRACT_PROPERTY_IN_PRIMARY_CONSTRUCTOR_PARAMETERS
 class A(<caret>abstract val i: Int) {}
 // FUS_QUICKFIX_NAME: org.jetbrains.kotlin.idea.quickfix.RemoveModifierFixBase
-// FUS_K2_QUICKFIX_NAME: org.jetbrains.kotlin.idea.quickfix.RemoveModifierFixBase

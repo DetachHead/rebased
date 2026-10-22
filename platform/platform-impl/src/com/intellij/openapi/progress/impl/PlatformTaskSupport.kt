@@ -46,6 +46,7 @@ import com.intellij.openapi.wm.ex.ProgressIndicatorEx
 import com.intellij.openapi.wm.ex.WindowManagerEx
 import com.intellij.openapi.wm.impl.status.IdeStatusBarImpl
 import com.intellij.platform.diagnostic.telemetry.TelemetryManager
+import com.intellij.platform.ide.progress.BackgroundTaskOwner
 import com.intellij.platform.ide.progress.CancellableTaskCancellation
 import com.intellij.platform.ide.progress.ComponentModalTaskOwner
 import com.intellij.platform.ide.progress.GuessModalTaskOwner
@@ -118,6 +119,7 @@ import javax.swing.SwingUtilities
 import kotlin.coroutines.CoroutineContext
 import kotlin.coroutines.EmptyCoroutineContext
 import kotlin.coroutines.coroutineContext
+import kotlin.time.Duration.Companion.milliseconds
 
 internal suspend fun isRhizomeProgressModelEnabled(): Boolean =
   RegistryManager.getInstanceAsync().`is`("rhizome.progress.model")
@@ -152,20 +154,20 @@ class PlatformTaskSupport(private val cs: CoroutineScope) : TaskSupport {
   }
 
   override suspend fun <T> withBackgroundProgressInternal(
-    project: Project,
+    owner: BackgroundTaskOwner,
     title: @ProgressTitle String,
     cancellation: TaskCancellation,
     suspender: TaskSuspender?,
     visibleInStatusBar: Boolean,
     action: suspend CoroutineScope.() -> T,
   ): T = coroutineScope {
-    LOG.trace { "Task received: title=$title, project=$project" }
+    LOG.trace { "Task received: title=$title, owner=$owner" }
 
     val taskSuspender = retrieveSuspender(suspender)
     val pipe = cs.createProgressPipe()
 
     val taskContext = currentCoroutineContext()
-    val taskInfoEntityJob = cs.createTaskInfoEntity(project, title, cancellation, taskSuspender, visibleInStatusBar, taskContext, pipe)
+    val taskInfoEntityJob = cs.createTaskInfoEntity(owner, title, cancellation, taskSuspender, visibleInStatusBar, taskContext, pipe)
 
     try {
       taskSuspender?.attachTask()
@@ -189,7 +191,7 @@ class PlatformTaskSupport(private val cs: CoroutineScope) : TaskSupport {
   }
 
   private fun CoroutineScope.createTaskInfoEntity(
-    project: Project,
+    owner: BackgroundTaskOwner,
     title: @ProgressTitle String,
     cancellation: TaskCancellation,
     suspender: TaskSuspender?,
@@ -199,7 +201,7 @@ class PlatformTaskSupport(private val cs: CoroutineScope) : TaskSupport {
   ): Job = launch {
     val taskStorage = TaskStorage.getInstance()
 
-    val taskInfoEntity = taskStorage.addTask(project, title, cancellation, suspender.getSuspendableInfo(), visibleInStatusBar)
+    val taskInfoEntity = taskStorage.addTask(owner, title, cancellation, suspender.getSuspendableInfo(), visibleInStatusBar)
     val entityId = taskInfoEntity.eid
     LOG.trace { "Task added to storage: entityId=$entityId, title=$title" }
 
@@ -492,13 +494,16 @@ private val progressManagerTracer by lazy {
   TelemetryManager.getInstance().getSimpleTracer(ProgressManagerScope)
 }
 
+/**
+ * @param project the project whose frame shows the indicator, or null for the last focused frame
+ */
 internal fun CoroutineScope.showIndicator(
-  project: Project,
+  project: Project?,
   progressModel: ProgressModel,
   stateFlow: Flow<ProgressState>,
 ): Job {
   return launch(Dispatchers.Default) {
-    delay(ProgressUIUtil.DEFAULT_PROGRESS_DELAY_MILLIS)
+    delay(ProgressUIUtil.DEFAULT_PROGRESS_DELAY_MILLIS.milliseconds)
     withContext(progressManagerTracer.span("Progress: ${progressModel.title}")) {
       withContext(Dispatchers.UI + ModalityState.any().asContextElement()) {
         val taskInfo = taskInfo(progressModel.title, progressModel.cancellation)
@@ -566,7 +571,7 @@ suspend fun ProgressIndicatorEx.updateFromFlow(updates: Flow<ProgressState>): No
   error("collect call must be cancelled")
 }
 
-private fun showIndicatorInUI(project: Project, taskInfo: TaskInfo, progressModel: ProgressModel): Boolean {
+private fun showIndicatorInUI(project: Project?, taskInfo: TaskInfo, progressModel: ProgressModel): Boolean {
   val frameEx: IdeFrameEx = WindowManagerEx.getInstanceEx().findFrameHelper(project) ?: return false
   val statusBar = frameEx.statusBar as? IdeStatusBarImpl ?: return false
   statusBar.addProgressImpl(progressModel, taskInfo)

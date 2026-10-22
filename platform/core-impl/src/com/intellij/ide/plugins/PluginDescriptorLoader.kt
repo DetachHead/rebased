@@ -569,7 +569,7 @@ internal fun CoroutineScope.loadPluginDescriptorsForPathBasedLoader(
   val effectiveBundledPluginDir = bundledPluginDir ?: PathManager.getBundledPluginsDir()
   val bundledPluginClasspathBytes = try {
     // use only if the format is supported (first byte it is a version)
-    Files.readAllBytes(effectiveBundledPluginDir.resolve("plugin-classpath.txt")).takeIf { it[0] == 2.toByte() }
+    Files.readAllBytes(effectiveBundledPluginDir.resolve("plugin-classpath.txt")).takeIf { it[0] == 3.toByte() }
   }
   catch (_: NoSuchFileException) {
     null
@@ -588,7 +588,7 @@ internal fun CoroutineScope.loadPluginDescriptorsForPathBasedLoader(
     )
   }
   else {
-    val byteInput = ByteArrayInputStream(bundledPluginClasspathBytes, 2, bundledPluginClasspathBytes.size)
+    val byteInput = ByteArrayInputStream(bundledPluginClasspathBytes, 1, bundledPluginClasspathBytes.size)
     val input = DataInputStream(byteInput)
     val descriptorSize = input.readInt()
     val descriptorStart = bundledPluginClasspathBytes.size - byteInput.available()
@@ -617,7 +617,6 @@ internal fun CoroutineScope.loadPluginDescriptorsForPathBasedLoader(
     val custom = loadDescriptorsFromDir(dir = customPluginDir, loadingContext = loadingContext, isBundled = false, pool = zipPool)
     val fromClasspath = loadFromPluginClasspathDescriptor(
       input = input,
-      jarOnly = bundledPluginClasspathBytes[1] == 1.toByte(),
       loadingContext = loadingContext,
       zipPool = zipPool,
       bundledPluginDir = effectiveBundledPluginDir,
@@ -676,7 +675,6 @@ private fun collectGatewayProductContentModuleJars(): Map<String, Path> {
 
 private fun CoroutineScope.loadFromPluginClasspathDescriptor(
   input: DataInputStream,
-  jarOnly: Boolean,
   loadingContext: PluginDescriptorLoadingContext,
   zipPool: ZipEntryResolverPool,
   bundledPluginDir: Path,
@@ -690,11 +688,7 @@ private fun CoroutineScope.loadFromPluginClasspathDescriptor(
     val pluginDescriptorData = ByteArray(descriptorSize).also { input.read(it) }
     val fileItems = Array(fileCount) {
       val path = input.readUTF()
-      var file = pluginDir.resolve(path)
-      if (!jarOnly) {
-        file = file.normalize()
-      }
-      FileItem(file = file, path = path)
+      FileItem(file = pluginDir.resolve(path), path = path)
     }
 
     result.add(async {
@@ -702,7 +696,6 @@ private fun CoroutineScope.loadFromPluginClasspathDescriptor(
         loadPluginDescriptor(
           fileItems = fileItems,
           zipPool = zipPool,
-          jarOnly = jarOnly,
           pluginDescriptorData = pluginDescriptorData,
           loadingContext = loadingContext,
           pluginDir = pluginDir,
@@ -725,12 +718,12 @@ private data class FileItem(@JvmField val file: Path, @JvmField val path: String
 private fun loadPluginDescriptor(
   fileItems: Array<FileItem>,
   zipPool: ZipEntryResolverPool,
-  jarOnly: Boolean,
   pluginDescriptorData: ByteArray,
   loadingContext: PluginDescriptorLoadingContext,
   pluginDir: Path,
 ): PluginMainDescriptor {
-  val dataLoader = MixedDirAndJarDataLoader(fileItems, zipPool, jarOnly)
+  // every entry of `plugin-classpath.txt` is a jar
+  val dataLoader = MixedDirAndJarDataLoader(files = fileItems, pool = zipPool, jarOnly = true)
   dataLoader.use {
     return loadPluginDescriptor(
       fileItems = fileItems,
@@ -887,7 +880,9 @@ internal fun getResourceReader(path: String, classLoader: ClassLoader): XMLStrea
   }
 }
 
-internal fun loadCoreProductPlugin(
+@Internal
+@VisibleForTesting
+fun loadCoreProductPlugin(
   loadingContext: PluginDescriptorLoadingContext,
   pathResolver: PathResolver,
   useCoreClassLoader: Boolean,
@@ -1019,6 +1014,15 @@ private fun loadProductModule(
     // do not log - the severity of the error is determined by the loadingStrategy, the default strategy does not return null at all
     PluginDescriptorBuilder.builder().apply {
       visibility = ModuleVisibilityValue.PUBLIC
+      // A stub keeps the dependencies of its embedded body, so the product mode exclusion propagates through it.
+      val descriptorContent = module.descriptorContent
+      if (descriptorContent != null) {
+        val reader = createXmlStreamReader(descriptorContent)
+        val body = parsePluginXml(input = reader, readContext = loadingContext.readContext, xIncludeLoader = xIncludeLoader)
+        for (dependency in body.dependencies) {
+          addDependency(dependency)
+        }
+      }
     }
   }
   else {
@@ -1050,7 +1054,7 @@ internal fun collectPluginFilesInClassPath(loader: ClassLoader): Map<URL, String
 }
 
 @Throws(IOException::class)
-@RequiresBackgroundThread
+@RequiresBackgroundThread(generateAssertion = false /* IJPL-115548 */)
 fun loadDescriptorFromArtifact(file: Path, buildNumber: BuildNumber?): PluginMainDescriptor? {
   val loadingContext = PluginDescriptorLoadingContext(
     getBuildNumberForDefaultDescriptorVersion = { buildNumber ?: PluginManagerCore.buildNumber },
@@ -1266,7 +1270,7 @@ internal fun testOrDeprecatedLoadDescriptorFromResource(
           }
         }
         else {
-          // support for unpacked plugins in classpath, e.g. .../community/build/dependencies/build/kotlin/Kotlin/lib/kotlin-plugin.jar
+          // a third-party plugin distribution directory on the classpath, e.g. .../community/build/dependencies/build/kotlin/Kotlin/lib/kotlin-plugin.jar
           basePath = file.parent?.takeIf { it.endsWith("lib") }?.parent ?: file
           dataLoader = loader
         }
@@ -1404,7 +1408,7 @@ internal fun forceUseCoreClassloader() = java.lang.Boolean.getBoolean("idea.forc
 
 /** Unlike [readBasicDescriptorDataFromArtifact], this method loads only basic data (plugin ID, name, etc.) */
 @Throws(IOException::class)
-@RequiresBackgroundThread
+@RequiresBackgroundThread(generateAssertion = false /* IJPL-115548 */)
 fun readBasicDescriptorDataFromArtifact(file: Path): PluginMainDescriptor? {
   val fileName = file.fileName.toString()
   if (fileName.endsWith(".jar", ignoreCase = true)) {

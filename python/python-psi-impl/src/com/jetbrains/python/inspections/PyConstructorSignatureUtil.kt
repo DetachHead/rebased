@@ -17,7 +17,7 @@ object PyConstructorSignatureUtil {
       val complementaryMethodClass = complementaryMethod.containingClass
       if (complementaryMethodClass == null ||
           PyUtil.isObjectClass(complementaryMethodClass) ||
-          PyInspectionExtension.EP_NAME.extensionList.any { it.ignoreInitNewSignatures(function, complementaryMethod) }) {
+          PyInspectionExtension.EP_NAME.findFirstSafe { it.ignoreInitNewSignatures(function, complementaryMethod) } != null) {
         return emptyList()
       }
     }

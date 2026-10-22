@@ -9,6 +9,7 @@ import com.intellij.pom.Navigatable
 import kotlinx.coroutines.Job
 import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.annotations.ApiStatus.Internal
+import java.util.concurrent.CompletableFuture
 
 @ApiStatus.NonExtendable
 interface NavigationService {
@@ -59,6 +60,28 @@ interface NavigationService {
   ): Boolean {
     return navigateRequests(NavigationOptions.defaultOptions(), supplier)
   }
+
+  /**
+   * Submits navigation to [navigatable] without waiting for completion.
+   * Resolves [Navigatable.navigationRequest] on a background thread under a read action.
+   *
+   * Call this method outside a write action.
+   * Captures UI context immediately on the EDT and asynchronously on other threads.
+   * Cancelling the returned future cancels the navigation task.
+   *
+   * @return a future containing `true` if at least one request was handled, or an exceptional completion on failure or cancellation
+   */
+  fun requestNavigate(navigatable: Navigatable, options: NavigationOptions): CompletableFuture<Boolean>
+
+  /**
+   * Submits navigation to [request] without waiting for completion.
+   * Call this method outside a write action.
+   * Captures UI context immediately on the EDT and asynchronously on other threads.
+   * Cancelling the returned future cancels the navigation task.
+   *
+   * @return a future containing `true` if the request was handled, or an exceptional completion on failure or cancellation
+   */
+  fun requestNavigate(request: NavigationRequest, options: NavigationOptions): CompletableFuture<Boolean>
 
   /**
    * Initiates navigation based on the provided request, with optional navigation options.

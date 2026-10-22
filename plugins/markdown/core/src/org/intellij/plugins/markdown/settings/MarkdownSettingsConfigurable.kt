@@ -1,21 +1,21 @@
 // Copyright 2000-2021 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.intellij.plugins.markdown.settings
 
+import com.intellij.icons.AllIcons
 import com.intellij.ide.DataManager
 import com.intellij.ide.highlighter.HighlighterFactory
-import com.intellij.ide.projectView.ProjectView
-import com.intellij.openapi.application.runReadAction
+import com.intellij.ide.setToolTipText
+import com.intellij.openapi.application.runReadActionBlocking
 import com.intellij.openapi.application.runWriteAction
-import com.intellij.openapi.components.service
 import com.intellij.openapi.editor.EditorFactory
 import com.intellij.openapi.editor.EditorSettings
 import com.intellij.openapi.editor.colors.EditorColorsManager
 import com.intellij.openapi.editor.ex.EditorEx
 import com.intellij.openapi.fileChooser.FileChooserDescriptorFactory
-import com.intellij.openapi.fileEditor.TextEditorWithPreview
 import com.intellij.openapi.fileTypes.FileTypeManager
 import com.intellij.openapi.fileTypes.UnknownFileType
 import com.intellij.openapi.options.BoundSearchableConfigurable
+import com.intellij.openapi.options.Configurable
 import com.intellij.openapi.options.ex.Settings
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.ComboBox
@@ -23,8 +23,9 @@ import com.intellij.openapi.ui.DialogPanel
 import com.intellij.openapi.ui.TextFieldWithBrowseButton
 import com.intellij.openapi.ui.ValidationInfo
 import com.intellij.openapi.util.Disposer
+import com.intellij.openapi.util.text.HtmlChunk
 import com.intellij.ui.EditorTextField
-import com.intellij.ui.EnumComboBoxModel
+import com.intellij.ui.IdeUICustomization
 import com.intellij.ui.components.ActionLink
 import com.intellij.ui.components.JBCheckBox
 import com.intellij.ui.dsl.builder.AlignX
@@ -42,16 +43,15 @@ import com.intellij.ui.dsl.builder.selected
 import com.intellij.ui.dsl.builder.toNullableProperty
 import com.intellij.ui.dsl.listCellRenderer.textListCellRenderer
 import com.intellij.ui.layout.ValidationInfoBuilder
-import com.intellij.ui.treeStructure.ProjectViewUpdateCause
 import com.intellij.util.application
 import org.intellij.plugins.markdown.MarkdownBundle
+import org.intellij.plugins.markdown.editor.tables.ui.alignment.MarkdownTableAlignmentSettingsListener
 import org.intellij.plugins.markdown.extensions.MarkdownBrowserPreviewExtension
 import org.intellij.plugins.markdown.extensions.MarkdownConfigurableExtension
 import org.intellij.plugins.markdown.extensions.MarkdownExtensionWithDownloadableFiles
 import org.intellij.plugins.markdown.extensions.MarkdownExtensionWithExternalFiles
 import org.intellij.plugins.markdown.extensions.MarkdownExtensionsUtil
 import org.intellij.plugins.markdown.extensions.jcef.commandRunner.CommandRunnerExtension
-import org.intellij.plugins.markdown.settings.MarkdownSettingsUtil.belongsToTheProject
 import org.intellij.plugins.markdown.settings.pandoc.PandocSettingsPanel
 import org.intellij.plugins.markdown.ui.preview.MarkdownHtmlPanelProvider
 import org.intellij.plugins.markdown.ui.preview.PreviewLAFThemeStyles
@@ -65,9 +65,17 @@ internal class MarkdownSettingsConfigurable(private val project: Project) : Boun
   MarkdownBundle.message("markdown.settings.name"),
   MarkdownBundle.message("markdown.settings.name"),
   _id = ID
-) {
+), Configurable.VariableProjectAppLevel {
+  override fun isProjectLevel(): Boolean = false
+
   private val settings
-    get() = MarkdownSettings.getInstance(project)
+    get() = MarkdownSettings.getInstance()
+
+  private val appSettings
+    get() = MarkdownApplicationSettings.getInstance()
+
+  private val stylesheetSettings
+    get() = MarkdownStylesheetSettings.getInstance(project)
 
   private var customStylesheetEditor: EditorTextField? = null
 
@@ -94,12 +102,6 @@ internal class MarkdownSettingsConfigurable(private val project: Project) : Boun
       showPreviewUnavailableWarningIfNeeded()
       previewDependentOptionsBlock {
         htmlPanelProvidersRow(MarkdownHtmlPanelProvider.getAvailableProviders())
-        row(MarkdownBundle.message("markdown.settings.default.layout")) {
-          comboBox(
-            model = EnumComboBoxModel(TextEditorWithPreview.Layout::class.java),
-            renderer = textListCellRenderer("") { it.getName() }
-          ).bindItem(settings::splitLayout.toNullableProperty()).widthGroup(comboBoxWidthGroup)
-        }
         row(MarkdownBundle.message("markdown.settings.preview.layout.label")) {
           comboBox(
             model = DefaultComboBoxModel(arrayOf(false, true)),
@@ -115,8 +117,15 @@ internal class MarkdownSettingsConfigurable(private val project: Project) : Boun
         }
       }
       row {
-        checkBox(MarkdownBundle.message("markdown.settings.enable.live.preview"))
-          .bindSelected(settings::enableLivePreview)
+        checkBox(MarkdownBundle.message("markdown.settings.align.table.cells.visually"))
+          .bindSelected(
+            getter = { appSettings.alignTableCellsVisually },
+            setter = {
+              appSettings.alignTableCellsVisually = it
+              MarkdownTableAlignmentSettingsListener.fireChanged()
+            }
+          )
+          .comment(MarkdownBundle.message("markdown.settings.align.table.cells.visually.comment"))
       }
       row {
         checkBox(MarkdownBundle.message("markdown.settings.enable.injections"))
@@ -133,7 +142,6 @@ internal class MarkdownSettingsConfigurable(private val project: Project) : Boun
       row {
         checkBox(MarkdownBundle.message("markdown.settings.group.documents.in.project.tree"))
           .bindSelected(settings::isFileGroupingEnabled)
-          .onApply { ProjectView.getInstance(project).refresh(ProjectViewUpdateCause.SETTINGS) }
       }
       row {
         checkBox(MarkdownBundle.message("markdown.settings.commandrunner.text")).apply {
@@ -187,14 +195,15 @@ internal class MarkdownSettingsConfigurable(private val project: Project) : Boun
     publisher.extensionsSettingsChanged(fromSettingsDialog = true)
   }
 
-  private fun Panel.htmlPanelProvidersRow(availableProviders: List<MarkdownHtmlPanelProvider>): Row {
+  private fun Panel.htmlPanelProvidersRow(availableProviders: List<MarkdownHtmlPanelProvider>) {
     // guaranteed by MarkdownSettingsConfigurable.previewDependentOptionsBlock
     require(availableProviders.isNotEmpty())
-    return row(MarkdownBundle.message("markdown.settings.preview.providers.label")) {
+    if (availableProviders.size == 1) {
+      return
+    }
+    row(MarkdownBundle.message("markdown.settings.preview.providers.label")) {
       val providerInfos = availableProviders.map { it.providerInfo }
       comboBox(model = DefaultComboBoxModel(providerInfos.toTypedArray()))
-        .enabled(availableProviders.size > 1)
-        .applyIfEnabled()
         .bindItem(settings::previewPanelProviderInfo.toNullableProperty())
         .widthGroup(comboBoxWidthGroup)
     }
@@ -202,12 +211,10 @@ internal class MarkdownSettingsConfigurable(private val project: Project) : Boun
 
   private fun Row.previewFontSizeField(): Cell<ComboBox<Int>> {
     return comboBox(fontSizeOptions).bindItem(
-      getter = { service<MarkdownPreviewSettings>().state.fontSize },
+      getter = { settings.fontSize },
       setter = { value ->
-        service<MarkdownPreviewSettings>().update { settings ->
-          if (value != null) {
-            settings.state.fontSize = value
-          }
+        if (value != null) {
+          settings.fontSize = value
         }
       }
     ).applyToComponent {
@@ -221,7 +228,7 @@ internal class MarkdownSettingsConfigurable(private val project: Project) : Boun
     if (file == null || file.notExists() || file.isDirectory()) {
       return builder.error(MarkdownBundle.message("markdown.settings.stylesheet.path.validation.error"))
     }
-    if (!belongsToTheProject(project, file)) {
+    if (!runReadActionBlocking { MarkdownSettingsUtil.belongsToTheProject(project, file) }) {
       return builder.error(MarkdownBundle.message("markdown.settings.stylesheet.path.outside.project.error"))
     }
     return null
@@ -242,8 +249,8 @@ internal class MarkdownSettingsConfigurable(private val project: Project) : Boun
         val editor = createCustomStylesheetEditor()
         cell(editor.component)
           .align(AlignX.FILL)
-          .onApply { settings.customStylesheetText = runReadAction { editor.document.text } }
-          .onIsModified { settings.customStylesheetText != runReadAction { editor.document.text.takeIf { it.isNotEmpty() } } }
+          .onApply { settings.customStylesheetText = editor.document.text }
+          .onIsModified { settings.customStylesheetText != editor.document.text.takeIf { it.isNotEmpty() } }
           .onReset { resetEditorText(settings.customStylesheetText ?: "") }
         customStylesheetEditor = editor
         setEditorReadonlyState(isReadonly = !editorCheckbox.component.isSelected)
@@ -253,29 +260,35 @@ internal class MarkdownSettingsConfigurable(private val project: Project) : Boun
 
   private fun Panel.externalCssPathRow(): Row {
     return row {
-      val isDefaultProject = project.isDefault
       val externalCssCheckBox = checkBox(MarkdownBundle.message("markdown.settings.external.css.path.label"))
-        .bindSelected(settings::useCustomStylesheetPath)
-        .enabled(!isDefaultProject)
+        .bindSelected(stylesheetSettings::useCustomStylesheetPath) {
+          if (stylesheetSettings.useCustomStylesheetPath != it) {
+            stylesheetSettings.useCustomStylesheetPath = it
+          }
+        }
+        .gap(RightGap.SMALL)
+      icon(AllIcons.General.ProjectConfigurable)
+        .applyToComponent {
+          setToolTipText(HtmlChunk.text(IdeUICustomization.getInstance().projectMessage("configurable.current.project.tooltip")))
+        }
         .gap(RightGap.SMALL)
       customCssTextFieldWithBrowserButton()
         .align(AlignX.FILL)
-        .enabled(isDefaultProject)
         .enabledIf(externalCssCheckBox.selected)
         .applyIfEnabled()
         .bindText(
-          getter = { settings.customStylesheetPath.orEmpty() },
-          setter = { settings.customStylesheetPath = it }
+          getter = { stylesheetSettings.customStylesheetPath.orEmpty() },
+          setter = {
+            if (stylesheetSettings.customStylesheetPath.orEmpty() != it) {
+              stylesheetSettings.customStylesheetPath = it
+            }
+          }
         )
-      if (isDefaultProject) {
-        rowComment(comment = MarkdownBundle.message("markdown.settings.stylesheet.path.disabled.for.default.project"))
-      }
     }
   }
 
   private fun Row.customCssTextFieldWithBrowserButton(): Cell<TextFieldWithBrowseButton> {
     val field = textFieldWithBrowseButton(
-      project = project,
       fileChooserDescriptor = FileChooserDescriptorFactory.createSingleFileDescriptor("css").withEnvironmentRestricted(true)
     )
     field.applyToComponent {

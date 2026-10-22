@@ -23,7 +23,7 @@ interface PyImplicitAsyncContextProvider {
     fun isAsyncAllowed(scopeOwner: ScopeOwner?): Boolean {
       if (scopeOwner == null) return false
       if (scopeOwner is PyFunction && scopeOwner.isAsync) return true
-      return EP_NAME.extensionList.any { it.isImplicitAsyncContext(scopeOwner) }
+      return EP_NAME.findFirstSafe { it.isImplicitAsyncContext(scopeOwner) } != null
     }
   }
 }

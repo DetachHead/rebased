@@ -266,9 +266,9 @@ class A {
   }
 
   @Override
-  public final String getBasePath() {
+  public final String getTestDataPath() {
     return basePath;
   }
 
-  private final String basePath = TestUtils.getTestDataPath() + "groovy/actions/";
+  private final String basePath = TestUtils.getAbsoluteTestDataPath() + "groovy/actions/";
 }

@@ -6,7 +6,7 @@ import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.application.asContextElement
 import com.intellij.openapi.components.service
 import com.intellij.openapi.components.serviceAsync
-import com.intellij.openapi.diagnostic.rethrowControlFlowException
+import com.intellij.diagnostic.rethrowControlFlowException
 import com.intellij.openapi.progress.ProcessCanceledException
 import com.intellij.openapi.progress.runBlockingMaybeCancellable
 import com.intellij.openapi.project.Project
@@ -27,7 +27,7 @@ import org.jetbrains.plugins.gitlab.authentication.save
 import org.jetbrains.plugins.gitlab.util.GitLabBundle
 
 class GitLabHttpAuthDataProvider : GitHttpAuthDataProvider {
-  @RequiresBackgroundThread
+  @RequiresBackgroundThread(generateAssertion = false /* IJPL-115548 */)
   override fun getAuthData(project: Project, url: String, login: String): AuthData? =
     runBlockingMaybeCancellable {
       when (val loginResult = performLogin(project, url, login)) {
@@ -37,7 +37,7 @@ class GitLabHttpAuthDataProvider : GitHttpAuthDataProvider {
       }
     }
 
-  @RequiresBackgroundThread
+  @RequiresBackgroundThread(generateAssertion = false /* IJPL-115548 */)
   override fun getAuthData(project: Project, url: String): AuthData? =
     runBlockingMaybeCancellable {
       when (val loginResult = performLogin(project, url)) {

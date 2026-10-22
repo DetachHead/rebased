@@ -1,0 +1,308 @@
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+package com.jetbrains.python.sdk.inspections
+
+import com.jetbrains.python.project.PyProject.Companion.asPyProject
+import com.intellij.codeInspection.LocalQuickFix
+import com.intellij.codeInspection.ProblemDescriptor
+import com.intellij.ide.DataManager
+import com.intellij.ide.actions.ShowSettingsUtilImpl
+import com.intellij.openapi.actionSystem.ActionManager
+import com.intellij.openapi.actionSystem.DataContext
+import com.intellij.openapi.actionSystem.DefaultActionGroup
+import com.intellij.openapi.diagnostic.fileLogger
+import com.intellij.openapi.diagnostic.trace
+import com.intellij.openapi.module.Module
+import com.intellij.openapi.module.ModuleManager
+import com.intellij.openapi.options.ex.ConfigurableExtensionPointUtil
+import com.intellij.openapi.options.ex.ConfigurableVisitor
+import com.intellij.openapi.project.Project
+import com.intellij.openapi.roots.ModuleRootManager
+import com.intellij.openapi.roots.ProjectRootManager
+import com.intellij.openapi.roots.ui.configuration.ProjectSettingsService
+import com.intellij.openapi.ui.popup.JBPopup
+import com.intellij.openapi.ui.popup.JBPopupFactory
+import com.intellij.openapi.util.use
+import com.intellij.openapi.vfs.newvfs.RefreshQueue
+import com.intellij.platform.eel.provider.getEelDescriptor
+import com.intellij.platform.eel.provider.toEelApi
+import com.intellij.platform.ide.progress.withBackgroundProgress
+import com.intellij.psi.PsiFile
+import com.intellij.python.pyproject.model.api.CreateSdkNotFilesResult
+import com.intellij.python.pyproject.model.api.ModuleSdkState
+import com.intellij.python.pyproject.model.api.InterpreterConfigurationError
+import com.intellij.python.pyproject.model.api.InterpreterConfigurationResult
+import com.intellij.python.pyproject.model.api.autoConfigureSdkDoNotCreateFiles
+import com.intellij.python.pyproject.model.api.getModuleSdkState
+import com.intellij.python.pyproject.statistics.PyProjectTomlCollector
+import com.intellij.python.pytools.backend.PyTool
+import com.intellij.python.pytools.backend.performToolInstallation
+import com.intellij.ui.components.ActionLink
+import com.intellij.ui.components.DropDownLink
+import com.intellij.util.PlatformUtils
+import com.jetbrains.python.PyBundle
+import com.jetbrains.python.configuration.PyActiveSdkModuleConfigurable
+import com.jetbrains.python.errorProcessing.ErrorSink
+import com.jetbrains.python.errorProcessing.PyResult
+import com.jetbrains.python.errorProcessing.emit
+import com.jetbrains.python.impl.getRootModuleOrNull
+import com.jetbrains.python.sdk.ModuleOrProject
+import com.jetbrains.python.sdk.collectAddInterpreterActions
+import com.jetbrains.python.sdk.configuration.CreateInterpreterInfo
+import com.jetbrains.python.sdk.configuration.CreateSdkInfoWithTool
+import com.jetbrains.python.sdk.configuration.getInterpreterCreator
+import com.jetbrains.python.sdk.configuration.suppressors.suppressTipAndInspectionsFor
+import com.intellij.python.pyproject.model.evolution.setPythonInterpreter
+import com.intellij.python.sdk.backend.PySdkBundle
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.withContext
+import org.jetbrains.annotations.ApiStatus
+
+/**
+ * Executor that accepts at most one concurrent task.
+ * While a task is running, subsequent submissions are discarded.
+ */
+@ApiStatus.Internal
+interface BusyGuardExecutor {
+  /**
+   * Reflects whether an action is currently being executed.
+   * Can be used to update UI accordingly (e.g., replacing action links with a progress indicator).
+   */
+  val isBusy: StateFlow<Boolean>
+
+  /**
+   * Submits an action for execution.
+   * If another action is already in progress, the submission is silently discarded.
+   */
+  fun execute(action: suspend () -> Unit)
+}
+
+/**
+ * Provides an [ActionLink] for the "no Python interpreter" editor notification banner.
+ *
+ * Implementations are discovered asynchronously by [PyAsyncFileInspectionRunner]
+ * and rendered inside [PyInterpreterNotificationProvider].
+ * Long-running work (SDK creation, tool installation) must be submitted through the supplied [BusyGuardExecutor]
+ * so that all notification panels share the same busy state.
+ *
+ * **WARNING:** Implementations must NOT hold strong references to [Module] or [Project] in their fields.
+ * Instances are cached by [PyAsyncFileInspectionRunner] with the Module as a weak key.
+ * A strong reference from the fix back to the Module prevents the weak key from being collected,
+ * causing a project leak after the project is closed. Use the [module] and [project] parameters
+ * passed to [createActionLink] instead.
+ */
+@ApiStatus.Internal
+interface InterpreterFix {
+  fun createActionLink(
+    module: Module,
+    project: Project,
+    psiFile: PsiFile,
+    executor: BusyGuardExecutor,
+  ): ActionLink
+}
+
+@ApiStatus.Internal
+class InterpreterSettingsQuickFix(private val myModule: Module?) : LocalQuickFix {
+  override fun getFamilyName(): String = if (PlatformUtils.isPyCharm())
+    PyBundle.message("python.sdk.interpreter.settings")
+  else
+    PyBundle.message("python.sdk.configure.python.interpreter")
+
+  override fun startInWriteAction(): Boolean = false
+
+  override fun applyFix(project: Project, descriptor: ProblemDescriptor) {
+    showPythonInterpreterSettings(project, myModule)
+  }
+
+  companion object {
+    fun showPythonInterpreterSettings(project: Project, module: Module?) {
+      // Ask each registered navigator (typically the redesigned "Workspace Structure" page in
+      // `intellij.pycharm.community.ide.impl`) before falling back to the legacy configurable. The
+      // lower-level module here has no back-dependency on the concrete Configurable classes, so the
+      // routing runs through an extension point instead of a hardcoded FQN.
+      val target = module?.let { ModuleOrProject.ModuleAndProject(it) } ?: ModuleOrProject.ProjectOnly(project)
+      if (PythonInterpreterSettingsNavigator.getInstance()?.tryNavigate(target) == true) return
+
+      val group = ConfigurableExtensionPointUtil.getConfigurableGroup(project, true)
+      val configurable = ConfigurableVisitor.findById(PyActiveSdkModuleConfigurable.CONFIGURABLE_ID, listOf(group))
+      if (configurable != null) {
+        ShowSettingsUtilImpl.showSettings(project, listOf(group), configurable)
+        return
+      }
+
+      val settingsService = ProjectSettingsService.getInstance(project)
+      if (module == null || justOneModuleInheritingSdk(project, module)) {
+        settingsService.openProjectSettings()
+      }
+      else {
+        settingsService.openModuleSettings(module)
+      }
+    }
+
+    private fun justOneModuleInheritingSdk(project: Project, module: Module): Boolean {
+      return ProjectRootManager.getInstance(project).projectSdk == null &&
+             ModuleRootManager.getInstance(module).isSdkInherited &&
+             ModuleManager.getInstance(project).modules.size < 2
+    }
+  }
+}
+
+internal fun createInterpreterCacheLoader(): suspend (Module) -> InspectionRunnerResult = { module ->
+  val fixes = when (val r = module.getQuickFixBySdkSuggestion()) {
+    is FindQuickFixResult.SdkAppliedAutomatically -> emptyList()
+    is FindQuickFixResult.ShowUserFix -> buildList {
+      r.fix?.let { add(it) }
+      add(ConfigureInterpreterFix())
+    }
+  }
+  InspectionRunnerResult(fixes, shouldCache = true)
+}
+
+private class ConfigureInterpreterFix : InterpreterFix {
+  override fun createActionLink(module: Module, project: Project, psiFile: PsiFile, executor: BusyGuardExecutor): ActionLink {
+    return DropDownLink(PyBundle.message("sdk.create.type.custom")) {
+      val context = DataManager.getInstance().getDataContext(it)
+      createAddInterpreterPopup(module, context)
+    }
+  }
+
+  companion object {
+    fun createAddInterpreterPopup(module: Module, context: DataContext): JBPopup {
+      val group = DefaultActionGroup()
+      group.addAll(collectAddInterpreterActions(ModuleOrProject.ModuleAndProject(module)) { })
+      ActionManager.getInstance().getAction("Python.NewInterpreter.Extra")?.let {
+        group.add(it)
+      }
+      return JBPopupFactory.getInstance().createActionGroupPopup(
+        null,
+        group,
+        context,
+        JBPopupFactory.ActionSelectionAid.SPEEDSEARCH,
+        false,
+      )
+    }
+  }
+}
+
+/**
+ * Creates the environment [myCreateSdkInfo] describes, for [myModule].
+ *
+ * [myModule] is the module the option was computed for, not the module of the file the banner is shown on. For a
+ * workspace member the two differ: `toQuickFix` walks to the workspace root, so the option belongs to the root, and
+ * running it against the member built a second environment in the member's own directory (PY-92193). The tool
+ * installation fix beside this one already binds its module the same way.
+ */
+private class UseProvidedInterpreterFix(
+  private val myModule: Module,
+  private val myCreateSdkInfo: CreateSdkInfoWithTool,
+) : InterpreterFix {
+  override fun createActionLink(module: Module, project: Project, psiFile: PsiFile, executor: BusyGuardExecutor): ActionLink {
+    return ActionLink(myCreateSdkInfo.createSdkInfo.intentionName) {
+      executor.execute {
+        PyProjectTomlCollector.sdkCreatedFromNotification(myCreateSdkInfo.toolId)
+        val lifetime = suppressTipAndInspectionsFor(myModule, myCreateSdkInfo.toolId.id)
+        withBackgroundProgress(project, myCreateSdkInfo.createSdkInfo.intentionName, false) {
+          lifetime.use { setSdkUsingCreateSdkInfo(myModule, myCreateSdkInfo) }
+        }
+        RefreshQueue.getInstance().refresh(recursive = false, files = ModuleRootManager.getInstance(myModule).contentRoots.toList())
+      }
+    }
+  }
+}
+
+private class SuggestToolInstallationFix(
+  private val myModule: Module,
+  private val myCreateInterpreterInfo: CreateInterpreterInfo.WillInstallTool,
+) : InterpreterFix {
+  override fun createActionLink(module: Module, project: Project, psiFile: PsiFile, executor: BusyGuardExecutor): ActionLink {
+    return ActionLink(myCreateInterpreterInfo.intentionName) {
+      val pyTool = PyTool.findByPackageName(myCreateInterpreterInfo.toolToInstall) ?: return@ActionLink
+      executor.execute {
+        val lifetime = suppressTipAndInspectionsFor(myModule, myCreateInterpreterInfo.toolToInstall)
+        withBackgroundProgress(project, myCreateInterpreterInfo.intentionName, false) {
+          lifetime.use {
+            val eel = project.getEelDescriptor().toEelApi()
+            pyTool.performToolInstallation(eel).mapSuccess(myCreateInterpreterInfo.pathPersister).errorOrNull?.also {
+              ErrorSink().emit(it, project)
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+private suspend fun Module.getQuickFixBySdkSuggestion(): FindQuickFixResult {
+  // A module that is not a Python project has no suggestion, but it still needs an interpreter.
+  val pyProject = asPyProject() ?: return FindQuickFixResult.ShowUserFix(null)
+  return when (val r = pyProject.getModuleSdkState()) {
+    is ModuleSdkState.HasSdk -> FindQuickFixResult.SdkAppliedAutomatically
+    is ModuleSdkState.NoSdk -> {
+      r.sdkConfigInstruction?.let { instruction ->
+        when (val r = instruction.autoConfigureSdkDoNotCreateFiles()) {
+          is InterpreterConfigurationResult.ToolNotInstalled, is InterpreterConfigurationResult.NotConfigured -> r
+          is InterpreterConfigurationResult.ParentHasNoInterpreter -> r.reason
+          is InterpreterConfigurationResult.Configured -> return FindQuickFixResult.SdkAppliedAutomatically // SDK was configured automatically (e.g. existing env attached)
+        }
+      }?.toQuickFix(this).let { FindQuickFixResult.ShowUserFix(it) }
+    }
+  }
+}
+
+private sealed interface FindQuickFixResult {
+  /**
+   * Module has no SDK.
+   * We recommend user to configure SDK using [fix], or no suggestion could be made if `null` (but module still needs SDK)
+   */
+  class ShowUserFix(val fix: InterpreterFix?) : FindQuickFixResult
+
+  /**
+   * Module already has an interpreter
+   */
+  data object SdkAppliedAutomatically : FindQuickFixResult
+}
+
+private val logger = fileLogger()
+
+private fun InterpreterConfigurationError<CreateSdkNotFilesResult>.toQuickFix(module: Module): InterpreterFix? =
+  when (val r = this@toQuickFix) {
+    is InterpreterConfigurationResult.ToolNotInstalled -> {
+      logger.trace { "$this: Tool installation will be suggested to the user" }
+      SuggestToolInstallationFix(module, r.tool)
+    }
+    is InterpreterConfigurationResult.NotConfigured -> {
+      when (val r = r.reason) {
+        is CreateSdkNotFilesResult.NoFiles -> {
+          logger.trace { "$this: Ask user as it is a heavy operation" }
+          UseProvidedInterpreterFix(module, CreateSdkInfoWithTool(r.createInfo.createSdkInfo, r.createInfo.toolId))
+        }
+        // TODO: We've tried to configure SDK automatically, but faced an error, what should we do?
+        is CreateSdkNotFilesResult.SdkCreationError -> null
+      }
+    }
+    // TODO: null means parent module is unconfigurable, what should we do?
+    is InterpreterConfigurationResult.ParentHasNoInterpreter -> r.reason?.toQuickFix(r.parent.residesOnModule)
+  }
+
+
+private suspend fun setSdkUsingCreateSdkInfo(module: Module, createSdkInfoWithTool: CreateSdkInfoWithTool) {
+  withContext(Dispatchers.Default) {
+    logger.debug("Configuring sdk using ${createSdkInfoWithTool.toolId}")
+
+    val sdk = when (val createSdkInfo = createSdkInfoWithTool.createSdkInfo) {
+      is CreateInterpreterInfo.WillInstallTool ->
+        // This specific CreateSdkInfo is only supposed to be used for proposing tool installation,
+        // it never should be used for SDK creation.
+        PyResult.localizedError(PySdkBundle.message("python.sdk.cannot.create.tool.should.be.installed"))
+      is CreateInterpreterInfo.ExistingEnv, is CreateInterpreterInfo.WillCreateEnv -> createSdkInfo.getInterpreterCreator(module).createInterpreter()
+    }.getOr {
+      ErrorSink().emit(it.error, module.project)
+      return@withContext
+    }
+
+    // Before the waiter releases its callers, so they read the new interpreter from the snapshot.
+    module.getRootModuleOrNull(createSdkInfoWithTool.toolId)?.asPyProject()?.setPythonInterpreter(sdk)
+    module.asPyProject()?.setPythonInterpreter(sdk)
+    logger.debug("Successfully configured sdk using ${createSdkInfoWithTool.toolId}")
+  }
+}

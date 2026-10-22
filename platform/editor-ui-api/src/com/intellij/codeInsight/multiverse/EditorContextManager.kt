@@ -5,6 +5,9 @@ import com.intellij.openapi.components.service
 import com.intellij.openapi.components.serviceAsync
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.project.Project
+import com.intellij.psi.PsiDocumentManager
+import com.intellij.psi.PsiFile
+import com.intellij.psi.util.PsiVersioningService
 import com.intellij.util.concurrency.annotations.RequiresBackgroundThread
 import com.intellij.util.concurrency.annotations.RequiresReadLock
 import com.intellij.util.concurrency.annotations.RequiresWriteLock
@@ -24,8 +27,8 @@ interface EditorContextManager {
 
     val topic: Topic<ChangeEventListener> = Topic(ChangeEventListener::class.java)
 
-    @RequiresBackgroundThread
-    @RequiresReadLock
+    @RequiresBackgroundThread(generateAssertion = false /* IJPL-115548 */)
+    @RequiresReadLock(generateAssertion = false /* IJPL-115548 */)
     @JvmStatic
     fun getEditorContext(editor: Editor, project: Project): CodeInsightContext {
       if (!isSharedSourceSupportEnabled(project)) {
@@ -44,6 +47,18 @@ interface EditorContextManager {
       val editorContextManager = getInstance(project)
       return editorContextManager.getCachedEditorContexts(editor)?.mainContext
     }
+
+    @ApiStatus.Internal
+    @JvmStatic
+    fun getPsiFileForEditor(editor: Editor, project: Project): PsiFile? {
+      val context = if (PsiVersioningService.isInsideVersioningButNotLocks()) {
+        getCachedEditorContext(editor, project) ?: anyContext()
+      } else {
+        getEditorContext(editor, project)
+      }
+
+      return PsiDocumentManager.getInstance(project).getPsiFile(editor.document, context)
+    }
   }
 
   /**
@@ -56,14 +71,29 @@ interface EditorContextManager {
    * @return the currently active code insight context for [editor].
    * Can be time-consuming because the preferred context might be needed to be inferred
    */
-  @RequiresBackgroundThread
-  @RequiresReadLock
+  @RequiresBackgroundThread(generateAssertion = false /* IJPL-115548 */)
+  @RequiresReadLock(generateAssertion = false /* IJPL-115548 */)
   fun getEditorContexts(editor: Editor): EditorSelectedContexts
 
-  @RequiresWriteLock
+  @RequiresWriteLock(generateAssertion = false /* IJPL-115548 */)
   fun setEditorContext(editor: Editor, contexts: EditorSelectedContexts)
   @ApiStatus.Internal
   fun setEditorContextNoFire(editor: Editor, contexts: EditorSelectedContexts)
+
+  /**
+   * The reset affordance offered by the owning provider of [editor]'s file, e.g. "clear the per-file pin", or `null`
+   * when there is nothing to reset. The switcher shows it as an icon button next to the context combo box.
+   */
+  @ApiStatus.Internal
+  @RequiresReadLock(generateAssertion = false /* IJPL-115548 */)
+  @RequiresBackgroundThread(generateAssertion = false /* IJPL-115548 */)
+  fun getContextResetAction(editor: Editor): ContextResetAction? = null
+
+  /** Tells the owning provider of [editor]'s file that the user picked [context] in the switcher. */
+  @ApiStatus.Internal
+  @RequiresReadLock(generateAssertion = false /* IJPL-115548 */)
+  @RequiresBackgroundThread(generateAssertion = false /* IJPL-115548 */)
+  fun notifyContextPicked(editor: Editor, context: CodeInsightContext) {}
 
   val eventFlow: Flow<ChangeEvent>
 

@@ -8,7 +8,6 @@ import com.intellij.psi.util.CachedValuesManager
 import com.intellij.util.indexing.DumbModeAccessType
 import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.kotlin.analysis.api.KaExperimentalApi
-import org.jetbrains.kotlin.analysis.api.KaPlatformInterface
 import org.jetbrains.kotlin.analysis.api.permissions.KaAllowAnalysisFromWriteAction
 import org.jetbrains.kotlin.analysis.api.permissions.KaAllowAnalysisOnEdt
 import org.jetbrains.kotlin.analysis.api.permissions.allowAnalysisFromWriteAction
@@ -66,6 +65,10 @@ open class KotlinAnalysisApiBasedDeclarationNavigationPolicyImpl : KotlinDeclara
     override fun getNavigationElement(declaration: KtDeclaration): KtElement {
         val ktFile = declaration.containingKtFile
         if (!ktFile.isCompiled) return declaration
+
+        KotlinClsCustomNavigationPolicy.getNavigationElement(declaration)?.let {
+            return it
+        }
 
         return CachedValuesManager.getProjectPsiDependentCache(declaration, ::calculateNavigationElement)
     }
@@ -131,7 +134,6 @@ open class KotlinAnalysisApiBasedDeclarationNavigationPolicyImpl : KotlinDeclara
         }
     }
 
-    @OptIn(KaExperimentalApi::class)
     private fun KtDeclaration.isDeprecated(allowWarning: Boolean): Boolean {
         val declaration = this
         @OptIn(KaAllowAnalysisFromWriteAction::class, KaAllowAnalysisOnEdt::class)
@@ -338,7 +340,7 @@ open class KotlinAnalysisApiBasedDeclarationNavigationPolicyImpl : KotlinDeclara
     }
 
     // Maybe called from EDT by IJ Platform :(
-    @OptIn(KaAllowAnalysisOnEdt::class, KaExperimentalApi::class)
+    @OptIn(KaAllowAnalysisOnEdt::class)
     private fun renderTypesForComparison(declaration: KtCallableDeclaration) = allowAnalysisOnEdt {
         @OptIn(KaAllowAnalysisFromWriteAction::class)
         allowAnalysisFromWriteAction {
@@ -369,7 +371,6 @@ open class KotlinAnalysisApiBasedDeclarationNavigationPolicyImpl : KotlinDeclara
             ?: filteredCandidates.firstOrNull()
     }
 
-    @OptIn(KaPlatformInterface::class)
     private fun KaModule.getContentScopeWithCommonDependencies(): Scope {
         val root = this
         if (targetPlatform.isCommon()) return Scope(listOf(root), contentScope)

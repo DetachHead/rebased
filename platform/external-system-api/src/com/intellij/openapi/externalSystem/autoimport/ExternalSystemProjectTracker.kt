@@ -5,22 +5,25 @@ import com.intellij.openapi.Disposable
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Disposer
 import org.jetbrains.annotations.ApiStatus
+import org.jetbrains.annotations.ApiStatus.Internal
 
 @ApiStatus.NonExtendable
 interface ExternalSystemProjectTracker {
 
   /**
-   * Starts tracking of project settings that will be defined by [projectAware]
+   * Registers [projectAware] for tracking.
    *
-   * Auto reloads will be activated after first project refresh
-   * (i.e. after first [ExternalSystemProjectListener.onProjectReloadStart] / [ExternalSystemProjectListener.onProjectReloadFinish])
-   * @see [ExternalSystemProjectTracker.activate] for details
+   * @see [ExternalSystemProjectTracker.activate]
    */
   fun register(projectAware: ExternalSystemProjectAware)
 
   /**
-   * @see [ExternalSystemProjectTracker.register]
-   * @param [parentDisposable] allows to remove [projectAware] when it will be disposed
+   * Registers [projectAware] for tracking.
+   *
+   * @param parentDisposable is used to unload data and stop tracking when it is disposed.
+   * Expected at least project + plugin disposable or a main build tool service disposable.
+   *
+   * @see ExternalSystemProjectTracker.register
    */
   fun register(projectAware: ExternalSystemProjectAware, parentDisposable: Disposable) {
     register(projectAware)
@@ -28,9 +31,18 @@ interface ExternalSystemProjectTracker {
   }
 
   /**
-   * Activates auto reload for project with [id]
+   * Activates auto-sync for project with [id].
    *
-   * Allows to detect project that loaded from local cashes but previously didn't register here
+   * Auto-sync should be activated only when all build tool preparations are made:
+   *  - data storages and settings are loaded,
+   *  - initialization activities are completed,
+   *  - etc.
+   *
+   * Note: registered projects are activated automatically when sync is started.
+   *
+   * @see ExternalSystemProjectTracker.register
+   * @see ExternalSystemProjectAware.subscribe
+   * @see ExternalSystemProjectListener.onProjectReloadStart
    */
   fun activate(id: ExternalSystemProjectId)
 
@@ -40,29 +52,50 @@ interface ExternalSystemProjectTracker {
   fun remove(id: ExternalSystemProjectId)
 
   /**
-   * Marks project settings as dirty.
+   * Marks that project [id] has undefined modifications.
+   *
+   * Also, it schedules auto-sync with:
+   *  - [ExternalSystemProjectTrackerSettings.AutoReloadType.ALL],
+   *  - [ExternalSystemProjectTrackerSettings.AutoReloadType.SELECTIVE];
+   * Also, it shows notification with:
+   *  - [ExternalSystemProjectTrackerSettings.AutoReloadType.NONE].
    */
   fun markDirty(id: ExternalSystemProjectId)
 
   /**
-   * Marks all external project settings as dirty
-   * @see markDirty(ExternalSystemProjectId)
+   * Marks that all projects have undefined modifications.
+   *
+   * @see markDirty
    */
   fun markDirtyAllProjects()
 
   /**
-   * Schedules project reload, may be skipped if project is up-to-date, project is being reloaded or VCS is being updated.
-   * Use [markDirtyAllProjects] for force project reload.
+   * Marks that project [id] has an internal undefined modification.
+   *
+   * Also, it schedules auto-sync with:
+   *  - [ExternalSystemProjectTrackerSettings.AutoReloadType.ALL];
+   * Also, it shows notification with:
+   *  - [ExternalSystemProjectTrackerSettings.AutoReloadType.SELECTIVE],
+   *  - [ExternalSystemProjectTrackerSettings.AutoReloadType.NONE].
+   *
+   * @see markDirty
    */
-  fun scheduleProjectRefresh()
+  @Internal
+  fun markDirtyInternal(id: ExternalSystemProjectId)
 
   /**
-   * Schedules project reload or notification update.
-   * I.e. marks this place as safe to start auto-reload.
+   * Schedules sync for all dirty or modified project.
    *
-   * @see scheduleProjectRefresh
+   * This method ignores the [ExternalSystemProjectTrackerSettings.AutoReloadType] setting.
+   *
+   * Call this method to sync only projects that already have modifications.
+   *
+   * Call this method right after [markDirty] to include all marked projects to sync (force sync).
+   *
+   * @see markDirty
+   * @see markDirtyAllProjects
    */
-  fun scheduleChangeProcessing()
+  fun scheduleProjectRefresh()
 
   companion object {
     @JvmStatic

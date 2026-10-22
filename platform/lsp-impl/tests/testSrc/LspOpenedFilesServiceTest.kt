@@ -2,14 +2,14 @@ package com.intellij.platform.lsp
 
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Disposer
-import com.intellij.openapi.vfs.LocalFileSystem
+import com.intellij.openapi.vfs.StandardFileSystems
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.platform.lsp.api.LspClient
 import com.intellij.platform.lsp.api.LspClientManagerListener
 import com.intellij.platform.lsp.api.LspIntegrationProvider
 import com.intellij.platform.lsp.api.LspServerState
-import com.intellij.platform.lsp.api.customization.LspCustomization
-import com.intellij.platform.lsp.common.FakeLspServerDescriptor
+import com.intellij.platform.lsp.common.FakeLspClientDescriptor
+import com.intellij.platform.lsp.common.FakeLspConfig
 import com.intellij.platform.lsp.impl.LspClientManagerImpl
 import com.intellij.platform.lsp.impl.documentSync.LspOpenedFilesService
 import com.intellij.testFramework.common.timeoutRunBlocking
@@ -112,7 +112,7 @@ internal class LspOpenedFilesServiceTest {
 
     awaitRunningClient(manager) { service.processOpenedFiles(listOf(covered)) }
     val client = manager.getClients(providerClass).single()
-    val siblingDescriptor = FakeLspServerDescriptor(project, LspCustomization(), null, null, presentableName = "FakeLspServerSibling")
+    val siblingDescriptor = FakeLspClientDescriptor(project, presentableName = "FakeLspServerSibling")
     val staleRequestStamp = manager.startRequestStamp()
 
     stopAndWait(manager) { manager.stopRunningServer(client) }
@@ -148,7 +148,7 @@ internal class LspOpenedFilesServiceTest {
     val path = tempDir.resolve(name)
     Files.writeString(path, "content")
     // the file is created behind the VFS's back: refresh brings it in
-    val file = LocalFileSystem.getInstance().refreshAndFindFileByPath(path.toString().replace('\\', '/'))
+    val file = StandardFileSystems.local().refreshAndFindFileByPath(path.toString().replace('\\', '/'))
     assertNotNull(file, name)
     return file!!
   }
@@ -197,7 +197,7 @@ private class CoveredFileLspProvider : LspIntegrationProvider {
 
   override fun fileOpened(project: Project, file: VirtualFile, clientStarter: LspIntegrationProvider.LspClientStarter) {
     clientStarter.ensureClientStarted(
-      FakeLspServerDescriptor(project, LspCustomization(), null, null, supportedFilePredicate = { it.name == "covered.txt" }))
+      FakeLspClientDescriptor(project, FakeLspConfig(isSupportedFile = { it.name == "covered.txt" })))
     if (file.name != "covered.txt") uncoveredFileOpened.complete(file)
   }
 }

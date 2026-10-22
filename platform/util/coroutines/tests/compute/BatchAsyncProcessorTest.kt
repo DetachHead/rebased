@@ -1,4 +1,4 @@
-// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.platform.util.coroutines.compute
 
 import com.intellij.platform.util.coroutines.childScope
@@ -10,7 +10,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.cancel
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.collect
@@ -115,7 +115,7 @@ class BatchAsyncProcessorTest {
           add(batch.submit(scope1.coroutineContext, 1))
           add(batch.submit(2))
           startingSemaphore.acquire()
-          scope1.cancel()
+          scope1.coroutineContext.job.cancelAndJoin()
           processingSemaphore.release()
           add(batch.submit(3))
           processingSemaphore.release()

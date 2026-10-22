@@ -1,5 +1,5 @@
 load("@community//build:tests-options.bzl", "jps_test")
-load("@community//platform/build-scripts/bazel-rules:dev_dist_plugin.bzl", "dev_dist_plugin")
+load("@jps_dynamic_deps_community//:targets.bzl", "dev_dist_plugin")
 load("@rules_jvm//:jvm.bzl", "jvm_library")
 
 jps_test(
@@ -10,6 +10,30 @@ jps_test(
 )
 
 ### skip generation section `test intellij.java.coverage.tests`
+
+### auto-generated section `dev intellij.java.coverage` start
+dev_dist_plugin(
+    content_modules = [
+        # do not sort,
+        "intellij.libraries.test.discovery",
+        "intellij.java.coverage.rt",
+        "intellij.java.coverage.rt.junit",
+        "intellij.java.coverage.rt.testng",
+    ],
+    descriptor = "resources/META-INF/plugin.xml",
+    jars = {
+        "lib/intellij.libraries.test.discovery.jar": ["intellij.libraries.test.discovery"],
+        "lib/intellij-test-discovery-agent.jar": ["@lib//:libraries-test-discovery-intellij-test-discovery"],
+        "lib/java-coverage.jar": ["intellij.java.coverage"],
+        "lib/coverage-report.jar": ["@lib//:java-coverage-coverage-report"],
+        "lib/jacoco.jar": ["@lib//:java-coverage-_ja_co_co"],
+    },
+    main_module = "intellij.java.coverage",
+    module_jar_paths = {
+        "intellij.java.coverage.rt": "lib/intellij.java.coverage.rt.jar",
+    },
+)
+### auto-generated section `dev intellij.java.coverage` end
 
 ### auto-generated section `build intellij.java.coverage` start
 jvm_library(
@@ -104,8 +128,6 @@ jvm_library(
         # do not sort,
         ":coverage",
         "//platform/analysis-api:analysis_test_lib",
-        "//platform/code-style-api:codeStyle",
-        "//platform/code-style-api:codeStyle_test_lib",
         "//platform/util/concurrency:concurrency_test_lib",
         "//platform/core-api:core_test_lib",
         "//plugins/coverage-common:coverage_test_lib",
@@ -131,10 +153,6 @@ jvm_library(
         "//platform/platform-impl/concurrency:concurrency_test_lib",
         "//platform/progress/shared:ide-progress_test_lib",
         "//platform/util/progress:progress_test_lib",
-        "//platform/testFramework",
-        "//platform/testFramework:testFramework_test_lib",
-        "//java/testFramework",
-        "//java/testFramework:testFramework_test_lib",
         "//platform/util-class-loader:util-classLoader_test_lib",
         "//platform/core-ui:core-ui_test_lib",
         "//platform/core-impl:core-impl_test_lib",
@@ -145,8 +163,6 @@ jvm_library(
         "//platform/platform-impl:ide-impl_test_lib",
         "//plugins/coverage-common/intellij.platform.coverage.agent:coverage-agent_test_lib",
         "//libraries/fastutil:fastutil_test_lib",
-        "//java/java-runtime:rt",
-        "//java/java-runtime:rt_test_lib",
         "//java/java-frontback-psi-api:frontback-psi_test_lib",
         "//platform/execution:execution_test_lib",
         "//libraries/kotlinx/collections-immutable:libraries-kotlinx-collections-immutable_test_lib",
@@ -165,33 +181,6 @@ exports_files(
     visibility = ["//visibility:public"],
 )
 ### auto-generated section `iml intellij.java.coverage` end
-
-### auto-generated section `dev intellij.java.coverage` start
-dev_dist_plugin(
-    content_modules = ["//libraries/test-discovery"],
-    descriptor = "resources/META-INF/plugin.xml",
-    descriptor_module = ":coverage",
-    descriptors = {
-        "@community//libraries/test-discovery:resources/intellij.libraries.test.discovery.xml": "intellij.libraries.test.discovery.xml",
-        "@community//plugins/coverage/coverage_rt:resources/intellij.java.coverage.rt.xml": "intellij.java.coverage.rt.xml",
-        "@community//plugins/coverage/junit:resources/intellij.java.coverage.rt.junit.xml": "intellij.java.coverage.rt.junit.xml",
-        "@community//plugins/coverage/testng:resources/intellij.java.coverage.rt.testng.xml": "intellij.java.coverage.rt.testng.xml",
-    },
-    libraries = [
-        "@lib//:java-coverage-_ja_co_co",
-        "@lib//:java-coverage-coverage-report",
-        "@lib//:libraries-test-discovery-intellij-test-discovery",
-    ],
-    main_module = "intellij.java.coverage",
-    prepacked_content_modules = [
-        "//plugins/coverage/junit:junit_content_module_jar",
-        "//plugins/coverage/testng:testng_content_module_jar",
-    ],
-    prepacked_jars = {
-        "//plugins/coverage/coverage_rt:java-coverage-rt_content_module_jar": "intellij.java.coverage.rt.jar",
-    },
-)
-### auto-generated section `dev intellij.java.coverage` end
 
 ### auto-generated section `build intellij.java.coverage.tests` start
 jvm_library(
@@ -214,11 +203,11 @@ jvm_library(
         "//aether-dependency-resolver/plugin",
         "//platform/structure-view-impl/plugin",
         "//platform/todo/plugin",
-        "//libraries/misc/plugin",
         "//platform/testRunner/plugin",
         "//plugins/junit",
         "//platform/vcs/plugin",
         "//spellchecker",
+        "//xml/plugin",
     ],
 )
 
@@ -254,7 +243,6 @@ jvm_library(
         "//aether-dependency-resolver/plugin:plugin_test_lib",
         "//platform/structure-view-impl/plugin:plugin_test_lib",
         "//platform/todo/plugin:plugin_test_lib",
-        "//libraries/misc/plugin:plugin_test_lib",
         "//platform/testRunner/plugin:plugin_test_lib",
         "//plugins/junit:junit_test_lib",
         "//platform/vcs/plugin:plugin_test_lib",
@@ -264,6 +252,7 @@ jvm_library(
         "//platform/platform-impl/concurrency:concurrency_test_lib",
         "//platform/platform-util-io:ide-util-io_test_lib",
         "//platform/platform-impl:ide-impl_test_lib",
+        "//xml/plugin:plugin_test_lib",
     ],
     deps = [
         # do not sort,
@@ -350,8 +339,8 @@ jvm_library(
         "//libraries/kotlinx/collections-immutable:libraries-kotlinx-collections-immutable_test_lib",
         "//libraries/junit4",
         "//libraries/junit4:junit4_test_lib",
-        "//libraries/junit5",
-        "//libraries/junit5:junit5_test_lib",
+        "//libraries/junit6",
+        "//libraries/junit6:junit6_test_lib",
     ],
 )
 ### auto-generated section `build intellij.java.coverage.tests` end

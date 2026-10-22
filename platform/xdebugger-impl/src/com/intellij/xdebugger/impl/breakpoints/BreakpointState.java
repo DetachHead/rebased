@@ -22,6 +22,7 @@ public class BreakpointState {
   private SuspendPolicy mySuspendPolicy = SuspendPolicy.ALL;
   private boolean myLogMessage;
   private boolean myLogStack;
+  private ThreadDumpCapture myThreadDumpCapture;
   private LogExpression myLogExpression;
   private Condition myCondition;
   private XBreakpointDependencyState myDependencyState;
@@ -114,6 +115,16 @@ public class BreakpointState {
     myLogStack = logStack;
   }
 
+  /** The persisted form of {@link ThreadDumpCapturePolicy}. Null means that the breakpoint saves no thread dump. */
+  @Property(surroundWithTag = false)
+  public @Nullable ThreadDumpCapture getThreadDumpCapture() {
+    return myThreadDumpCapture;
+  }
+
+  public void setThreadDumpCapture(@Nullable ThreadDumpCapture threadDumpCapture) {
+    myThreadDumpCapture = threadDumpCapture;
+  }
+
   public @Nullable String getGroup() {
     return myGroup;
   }
@@ -197,6 +208,19 @@ public class BreakpointState {
         return null;
       }
       return new Condition(disabled, expression);
+    }
+  }
+
+  @Tag("thread-dump-capture")
+  public static class ThreadDumpCapture {
+    @Attribute("policy")
+    public String policy;
+
+    public ThreadDumpCapture() {
+    }
+
+    public ThreadDumpCapture(String policy) {
+      this.policy = policy;
     }
   }
 

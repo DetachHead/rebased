@@ -60,6 +60,7 @@ import com.intellij.openapi.wm.ex.ToolWindowManagerEx
 import com.intellij.openapi.wm.ex.ToolWindowManagerListener
 import com.intellij.openapi.wm.ex.ToolWindowManagerListener.ToolWindowManagerEventType
 import com.intellij.openapi.wm.safeToolWindowPaneId
+import com.intellij.platform.ide.diagnostic.startUpPerformanceReporter.FUSProjectHotStartUpMeasurer
 import com.intellij.platform.ide.progress.runWithModalProgressBlocking
 import com.intellij.serviceContainer.NonInjectable
 import com.intellij.toolWindow.InternalDecoratorImpl
@@ -70,7 +71,6 @@ import com.intellij.toolWindow.ToolWindowButtonManager
 import com.intellij.toolWindow.ToolWindowDefaultLayoutManager
 import com.intellij.toolWindow.ToolWindowEntry
 import com.intellij.toolWindow.ToolWindowEventSource
-import com.intellij.toolWindow.extendedToolWindowsUi.ToolWindowStripeExtension
 import com.intellij.toolWindow.ToolWindowPane
 import com.intellij.toolWindow.ToolWindowPaneNewButtonManager
 import com.intellij.toolWindow.ToolWindowProperty
@@ -78,6 +78,7 @@ import com.intellij.toolWindow.ToolWindowSetInitializer
 import com.intellij.toolWindow.ToolWindowStripeManager
 import com.intellij.toolWindow.ToolWindowToolbar
 import com.intellij.toolWindow.bringOwnerToFront
+import com.intellij.toolWindow.extendedToolWindowsUi.ToolWindowStripeExtension
 import com.intellij.toolWindow.findIconFromBean
 import com.intellij.toolWindow.getShowingComponentToRequestFocus
 import com.intellij.toolWindow.getStripeTitleSupplier
@@ -115,6 +116,7 @@ import javax.swing.Icon
 import javax.swing.JComponent
 import javax.swing.JFrame
 import javax.swing.JRootPane
+import kotlin.coroutines.EmptyCoroutineContext
 
 private val LOG = logger<ToolWindowManagerImpl>()
 private val performShowInSeparateTask = System.getProperty("idea.toolwindow.show.separate.task", "false").toBoolean()
@@ -126,7 +128,7 @@ private val performShowInSeparateTask = System.getProperty("idea.toolwindow.show
  * about to be given — and take it visibly, only to lose it again. A claim that ends up with nothing to focus calls
  * [ToolWindowManagerImpl.focusToolWindowByDefault] itself, so standing down cannot leave the frame without a focus owner.
  */
-@RequiresEdt
+@RequiresEdt(generateAssertion = false /* IJPL-115548 */)
 private fun emptyEditorAreaClaimsClosedEditorFocus(project: Project): Boolean {
   val fileEditorManager = project.serviceIfCreated<FileEditorManager>() as? FileEditorManagerImpl ?: return false
   // the init job is awaited because `splitters` reaches `mainSplitters`, which exists only once that job has completed
@@ -393,11 +395,16 @@ open class ToolWindowManagerImpl @NonInjectable @TestOnly internal constructor(
     }
   }
 
+  /**
+   * [onDefaultPaneToolWindowsRegistered] runs once on the EDT after the tool windows of the default pane are registered.
+   * At this time, [invokeLater] still puts a task in the queue of the pending tasks.
+   */
   internal suspend fun init(
     pane: ToolWindowPane,
     reopeningEditorJob: Job,
     taskListDeferred: Deferred<List<RegisterToolWindowTaskData>>,
     projectFrameTypeId: String? = null,
+    onDefaultPaneToolWindowsRegistered: (() -> Unit)? = null,
   ) {
     this.projectFrameTypeId = projectFrameTypeId
     doInit(
@@ -406,6 +413,7 @@ open class ToolWindowManagerImpl @NonInjectable @TestOnly internal constructor(
       reopeningEditorJob = reopeningEditorJob,
       taskListDeferred = taskListDeferred,
       projectFrameTypeId = projectFrameTypeId,
+      onDefaultPaneToolWindowsRegistered = onDefaultPaneToolWindowsRegistered,
     )
   }
 
@@ -417,6 +425,7 @@ open class ToolWindowManagerImpl @NonInjectable @TestOnly internal constructor(
     reopeningEditorJob: Job,
     taskListDeferred: Deferred<List<RegisterToolWindowTaskData>>?,
     projectFrameTypeId: String? = this.projectFrameTypeId,
+    onDefaultPaneToolWindowsRegistered: (() -> Unit)? = null,
   ) {
     this.projectFrameTypeId = projectFrameTypeId
 
@@ -450,7 +459,11 @@ open class ToolWindowManagerImpl @NonInjectable @TestOnly internal constructor(
         toolWindowPanes.put(pane.paneId, pane)
       }
       defaultPaneInitialization.join()
-      toolWindowSetInitializer.initUi(reopeningEditorJob, taskListDeferred)
+      toolWindowSetInitializer.initUi(
+        reopeningEditorJob = reopeningEditorJob,
+        taskListDeferred = taskListDeferred,
+        onDefaultPaneToolWindowsRegistered = onDefaultPaneToolWindowsRegistered,
+      )
     }
 
     connection.subscribe(FileEditorManagerListener.FILE_EDITOR_MANAGER, object : FileEditorManagerListener {
@@ -571,7 +584,7 @@ open class ToolWindowManagerImpl @NonInjectable @TestOnly internal constructor(
     EditorsSplitters.focusDefaultComponentInSplittersIfPresent(project)
   }
 
-  @RequiresEdt
+  @RequiresEdt(generateAssertion = false /* IJPL-115548 */)
   open fun activateToolWindow(id: String, runnable: Runnable?, autoFocusContents: Boolean, source: ToolWindowEventSource? = null) {
     val activity = UiActivity.Focus("toolWindow:$id")
     UiActivityMonitor.getInstance().addActivity(project, activity, ModalityState.nonModal())
@@ -603,7 +616,7 @@ open class ToolWindowManagerImpl @NonInjectable @TestOnly internal constructor(
   ) {
     LOG.debug { "activateToolWindow($entry)" }
 
-    if (isUnifiedToolWindowSizesEnabled()) {
+    if (isUnifiedToolWindowSizesEnabled() && canUseUnifiedWeight(info)) {
       info.weight = layoutState.getUnifiedAnchorWeight(info.anchor)
       LOG.debug { "Activated tool window: ${info.id}, using ${info.anchor} unified weight of ${info.weight}" }
     }
@@ -645,6 +658,20 @@ open class ToolWindowManagerImpl @NonInjectable @TestOnly internal constructor(
   }
 
   private fun isUnifiedToolWindowSizesEnabled(): Boolean = !isIndependentToolWindowResizeEnabled()
+
+  private fun canUseUnifiedWeight(info: WindowInfoImpl): Boolean {
+    if (!info.isDocked || !info.anchor.isUltrawideLayout()) {
+      return true
+    }
+    return layoutState.getInfos().values.none {
+      it.id != info.id &&
+      it.isVisible &&
+      it.isDocked &&
+      it.safeToolWindowPaneId == info.safeToolWindowPaneId &&
+      it.anchor == info.anchor &&
+      it.isSplit != info.isSplit
+    }
+  }
 
   private fun isIndependentToolWindowResizeEnabled(): Boolean {
     return if (isNewUi) {
@@ -1471,7 +1498,8 @@ open class ToolWindowManagerImpl @NonInjectable @TestOnly internal constructor(
 
   override fun invokeLater(runnable: Runnable) {
     if (!toolWindowSetInitializer.addToPendingTasksIfNotInitialized(runnable)) {
-      coroutineScope.launch(Dispatchers.UiWithModelAccess + ModalityState.nonModal().asContextElement()) {
+      val startUpContextElement = FUSProjectHotStartUpMeasurer.getStartUpContextElementToPass() ?: EmptyCoroutineContext
+      coroutineScope.launch(Dispatchers.UiWithModelAccess + ModalityState.nonModal().asContextElement() + startUpContextElement) {
         runnable.run()
       }
     }
@@ -1488,7 +1516,7 @@ open class ToolWindowManagerImpl @NonInjectable @TestOnly internal constructor(
 
   fun getToolWindowButton(toolWindowId: String): JComponent? = notifications.getToolWindowButton(toolWindowId)
 
-  @RequiresEdt
+  @RequiresEdt(generateAssertion = false /* IJPL-115548 */)
   override fun closeBalloons() {
     notifications.closeBalloons()
   }
@@ -1498,7 +1526,7 @@ open class ToolWindowManagerImpl @NonInjectable @TestOnly internal constructor(
   override val isEditorComponentActive: Boolean
     get() = state.isEditorComponentActive
 
-  @RequiresEdt
+  @RequiresEdt(generateAssertion = false /* IJPL-115548 */)
   fun setToolWindowAnchor(id: String, anchor: ToolWindowAnchor) {
     setToolWindowAnchor(id = id, anchor = anchor, order = -1)
   }
@@ -1917,7 +1945,7 @@ open class ToolWindowManagerImpl @NonInjectable @TestOnly internal constructor(
    * Also called from the editor area itself, for a claim on the focus of an emptied area that could not be kept — see
    * [EditorsSplitters.requestEmptyStateFocusWhenPresented].
    */
-  @RequiresEdt
+  @RequiresEdt(generateAssertion = false /* IJPL-115548 */)
   internal fun focusToolWindowByDefault() {
     var toFocus: ToolWindowEntry? = null
     for (each in activeStack.stack) {

@@ -18,8 +18,8 @@ import java.util.Map;
 
 public class GroovyCopyClassTest extends LightJavaCodeInsightFixtureTestCase {
   @Override
-  protected String getBasePath() {
-    return TestUtils.getTestDataPath() + "refactoring/copy/";
+  protected String getTestDataPath() {
+    return TestUtils.getAbsoluteTestDataPath() + "refactoring/copy/";
   }
 
   public void testBetweenPackages() {

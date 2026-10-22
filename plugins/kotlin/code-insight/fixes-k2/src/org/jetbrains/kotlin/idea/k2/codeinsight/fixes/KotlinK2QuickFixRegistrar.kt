@@ -40,6 +40,7 @@ import org.jetbrains.kotlin.lexer.KtTokens.OPEN_KEYWORD
 import org.jetbrains.kotlin.lexer.KtTokens.OPERATOR_KEYWORD
 import org.jetbrains.kotlin.lexer.KtTokens.OUT_KEYWORD
 import org.jetbrains.kotlin.lexer.KtTokens.OVERRIDE_KEYWORD
+import org.jetbrains.kotlin.lexer.KtTokens.PRIVATE_KEYWORD
 
 class KotlinK2QuickFixRegistrar : KotlinQuickFixRegistrar() {
     private val keywords = KtQuickFixesListBuilder.registerPsiQuickFix {
@@ -61,12 +62,18 @@ class KotlinK2QuickFixRegistrar : KotlinQuickFixRegistrar() {
         registerPsiQuickFixes(KaFirDiagnostic.NothingToOverride::class, RemoveModifierFixBase.createRemoveModifierFromListOwnerPsiBasedFactory(OVERRIDE_KEYWORD))
         registerPsiQuickFixes(KaFirDiagnostic.NothingToInline::class, RemoveModifierFixBase.createRemoveModifierFromListOwnerPsiBasedFactory(INLINE_KEYWORD))
         registerPsiQuickFixes(KaFirDiagnostic.ConstValNotTopLevelOrObject::class, RemoveModifierFixBase.createRemoveModifierFromListOwnerPsiBasedFactory(CONST_KEYWORD))
+        registerPsiQuickFixes(
+            KaFirDiagnostic.PrivateConstInInterface::class,
+            RemoveModifierFixBase.createRemoveModifierFromListOwnerPsiBasedFactory(PRIVATE_KEYWORD),
+            RemoveModifierFixBase.createRemoveModifierFromListOwnerPsiBasedFactory(CONST_KEYWORD)
+        )
         registerPsiQuickFixes(KaFirDiagnostic.FunInterfaceWrongCountOfAbstractMembers::class, RemoveModifierFixBase.createRemoveModifierFromListOwnerPsiBasedFactory(FUN_KEYWORD))
         registerPsiQuickFixes(KaFirDiagnostic.TypeCantBeUsedForConstVal::class, RemoveModifierFixBase.createRemoveModifierFromListOwnerPsiBasedFactory(CONST_KEYWORD))
         registerPsiQuickFixes(KaFirDiagnostic.InapplicableLateinitModifier::class, RemoveModifierFixBase.createRemoveModifierFromListOwnerPsiBasedFactory(LATEINIT_KEYWORD))
         registerPsiQuickFixes(
             KaFirDiagnostic.InapplicableOperatorModifier::class,
-            RemoveModifierFixBase.createRemoveModifierFromListOwnerPsiBasedFactory(OPERATOR_KEYWORD)
+            RemoveModifierFixBase.createRemoveModifierFromListOwnerPsiBasedFactory(OPERATOR_KEYWORD),
+            CompanionMemberFixFactories.inapplicableOperatorModifierFactory
         )
 
         registerPsiQuickFixes(
@@ -86,6 +93,10 @@ class KotlinK2QuickFixRegistrar : KotlinQuickFixRegistrar() {
         )
         registerPsiQuickFixes(
             KaFirDiagnostic.NonFinalMemberInObject::class,
+            RemoveModifierFixBase.removeOpenModifier
+        )
+        registerPsiQuickFixes(
+            KaFirDiagnostic.ValueClassOpen::class,
             RemoveModifierFixBase.removeOpenModifier
         )
         registerPsiQuickFixes(
@@ -131,6 +142,8 @@ class KotlinK2QuickFixRegistrar : KotlinQuickFixRegistrar() {
         registerPsiQuickFixes(KaFirDiagnostic.ValOrVarOnFunParameter::class, RemoveValVarFromParameterFix)
         registerPsiQuickFixes(KaFirDiagnostic.ValOrVarOnCatchParameter::class, RemoveValVarFromParameterFix)
         registerPsiQuickFixes(KaFirDiagnostic.ValOrVarOnSecondaryConstructorParameter::class, RemoveValVarFromParameterFix)
+        registerPsiQuickFixes(KaFirDiagnostic.AbstractValueClassConstructorPropertyParameter::class, RemoveValVarFromParameterFix)
+        registerPsiQuickFixes(KaFirDiagnostic.SealedValueClassConstructorPropertyParameter::class, RemoveValVarFromParameterFix)
         registerFactory(MakeSuperTypeOpenFixFactory.makeSuperTypeOpenFixFactory)
         registerFactory(MakeSuperTypeOpenFixFactory.makeUpperBoundOpenFixFactory)
         registerFactory(AddFunModifierFixFactory.addFunModifierFixFactory)
@@ -164,6 +177,7 @@ class KotlinK2QuickFixRegistrar : KotlinQuickFixRegistrar() {
         registerFactory(MissingConstructorKeywordFixFactory.missingConstructorFix)
         registerPsiQuickFixes(KaFirDiagnostic.InvalidIfAsExpression::class, AddIfElseBranchFix)
         registerFactory(RemoveSupertypeFixFactory.removeSupertypeFixFactory)
+        registerFactory(RemoveSupertypeFixFactory.valueClassCannotExtendIdentityClassesFixFactory)
         registerFactory(NumberConversionFixFactory.numberConversionFixFactory)
         registerFactory(ChangeToUseSpreadOperatorFixFactory.changeToUseSpreadOperatorFixFactory)
         registerFactory(ReplacePrimitiveCastWithNumberConversionFixFactory.replaceIncompatibleNumberCastWithNumberConversionFixFactory)
@@ -222,6 +236,10 @@ class KotlinK2QuickFixRegistrar : KotlinQuickFixRegistrar() {
         registerFactory(ChangeTypeQuickFixFactories.implicitNothingReturnTypeFixFactory)
         registerFactory(ChangeTypeQuickFixFactories.implicitNothingPropertyTypeFixFactory)
         registerFactory(InapplicableJvmFieldFixFactories.removeAnnotationFixFactory)
+        registerPsiQuickFixes(
+            KaFirDiagnostic.OfOverloadsInBlockAndObject::class,
+            CompanionMemberFixFactories.ofOverloadsInBlockAndObjectFactory
+        )
         registerFactory(OverridingIgnorableWithMustUseFixFactories.addIgnorableReturnValueAnnotationFixFactory)
         registerFactory(RemoveUnnamedPropertyFixFactory.unnamedPropertyWithImplicitIgnorableTypeFixFactory)
         registerFactory(AddNewLineAfterAnnotationsFixFactory.addNewLineAfterAnnotationsFixFactory)
@@ -412,6 +430,8 @@ class KotlinK2QuickFixRegistrar : KotlinQuickFixRegistrar() {
         registerFactory(UselessIsCheckFactories.impossibleIsCheckErrorFactory)
         registerFactory(UselessIsCheckFactories.impossibleIsCheckDeprecationWarningFactory)
         registerFactory(UselessIsCheckFactories.impossibleIsCheckDeprecationErrorFactory)
+        registerFactory(UselessIsCheckFactories.impossibleIsCheckRelyingOnNullWarningFactory)
+        registerFactory(UselessIsCheckFactories.impossibleIsCheckRelyingOnNullErrorFactory)
         registerFactory(UselessIsCheckFactories.uselessWhenCheckFactory)
         registerFactory(UselessIsCheckFactories.impossibleWhenCheckWarningFactory)
         registerFactory(UselessIsCheckFactories.impossibleWhenCheckErrorFactory)
@@ -427,6 +447,7 @@ class KotlinK2QuickFixRegistrar : KotlinQuickFixRegistrar() {
         registerFactory(UnresolvedInvocationQuickFixFactories.removeParentInvocationQuickFixFactory)
         registerFactory(UnresolvedInvocationQuickFixFactories.addInterpolationPrefixFixFactory)
         registerFactory(UnresolvedInvocationQuickFixFactories.removeInvocationQuickFixFactory)
+        registerFactory(CompanionMemberFixFactories.unresolvedReferenceFactory)
         registerFactory(AddExclExclCallFixFactories.unsafeCallFactory)
         registerFactory(AddExclExclCallFixFactories.unsafeInfixCallFactory)
         registerFactory(AddExclExclCallFixFactories.unsafeOperatorCallFactory)
@@ -447,12 +468,19 @@ class KotlinK2QuickFixRegistrar : KotlinQuickFixRegistrar() {
         registerFactory(WrapWithSafeLetCallFixFactories.forArgumentTypeMismatch)
 
         registerPsiQuickFixes(KaFirDiagnostic.NullableSupertype::class, RemoveNullableFix.removeForSuperType)
+        registerPsiQuickFixes(
+            KaFirDiagnostic.CompanionExtensionNullableReceiver::class,
+            RemoveNullableFix.removeForCompanionExtensionNullableReceiver
+        )
         registerPsiQuickFixes(KaFirDiagnostic.InapplicableLateinitModifier::class, RemoveNullableFix.removeForLateInitProperty)
         registerPsiQuickFixes(KaFirDiagnostic.RedundantNullable::class, RemoveNullableFix.removeForRedundant)
         registerPsiQuickFixes(
             KaFirDiagnostic.TypeArgumentsRedundantInSuperQualifier::class,
             RemovePsiElementSimpleFix.RemoveTypeArgumentsFactory
         )
+        registerFactory(RemoveCallableReferenceStaticLhsFixFactories.warning)
+        registerFactory(RemoveCallableReferenceStaticLhsFixFactories.error)
+        registerFactory(RemoveCallableReferenceStaticLhsFixFactories.wrongReceiver)
 
         registerFactory(ConvertToBlockBodyFixFactory.convertToBlockBodyFixFactory)
         registerFactory(SimplifyComparisonFixFactory.simplifyComparisonFixFactory)
@@ -611,7 +639,15 @@ class KotlinK2QuickFixRegistrar : KotlinQuickFixRegistrar() {
     }
 
     private val destructuringDeclarations = KtQuickFixesListBuilder.registerPsiQuickFix  {
-        registerFactory(DestructuringFormFactory.convertToFullFormOnShortFormNameMismatch)
+        registerFactory(DestructuringToFullFormFactory.convertToFullFormOnShortFormNameMismatch)
+        registerFactory(DestructuringToFullFormFactory.convertToFullFormOnShortFormUnderscore)
+        registerFactory(DestructuringToFullFormFactory.convertToFullFormOnShortUnderscoreWithoutRename)
+        registerFactory(DestructuringToPositionalFormFactory.convertToPositionalFormOnShortFormNameMismatch)
+        registerFactory(DestructuringToPositionalFormFactory.convertToPositionalFormOnShortFormNonDataClass)
+        registerFactory(DestructuringToPositionalFormFactory.convertToPositionalFormOnShortFormUnderscore)
+        registerFactory(DestructuringToPositionalFormFactory.convertToPositionalFormOnShortUnderscoreWithoutRename)
+        registerFactory(DestructuringToPositionalFormFactory.convertToPositionalFormOnUnresolvedReference)
+        registerFactory(DestructuringRenameFactory.renameToMatchParameterName)
     }
 
     private val other = KtQuickFixesListBuilder.registerPsiQuickFix {

@@ -34,7 +34,7 @@ public class AddReturnTypeFixTest extends GrIntentionTestCase {
   }
 
   @Override
-  public final String getBasePath() {
+  public final String getTestDataPath() {
     return basePath;
   }
 

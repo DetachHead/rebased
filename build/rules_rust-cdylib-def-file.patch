@@ -1,0 +1,37 @@
+Give a Windows `cdylib` the exports that `rustc` would give it, under `cc_common.link`.
+
+When `rustc` links a `cdylib`, it writes each exported symbol, such as a `#[no_mangle]` item, to a `.def` file
+and passes it to the linker. Under `experimental_use_cc_common_link`, `rustc` only emits an object, so the DLL
+exports nothing. Generate the `.def` from that object with the `generate_def_file` action of the cc toolchain, as
+`cc_binary` does for `windows_export_all_symbols`, and pass it through the `def_file_path` variable.
+
+The object of a `cdylib` holds only the symbols that `rustc` exports as external symbols. The `.def` also exports
+`DllMain` and the `__rust_panic_type_info` data symbol of `std`, and it misses a `#[no_mangle]` item of another
+crate. Without a `generate_def_file` action, `generate_def_file` returns `None` and nothing changes.
+diff --git a/rust/private/rustc.bzl b/rust/private/rustc.bzl
+--- a/rust/private/rustc.bzl
++++ b/rust/private/rustc.bzl
+@@ -2494,6 +2494,15 @@
+         if dsym_folder:
+             additional_linker_outputs.append(dsym_folder)
+             variables_extension["dsym_path"] = dsym_folder
++
++        # When rustc links a Windows cdylib, it writes its exported symbols to a `.def` file. Here rustc only emits
++        # the object, so generate the `.def` from it, as `cc_binary` does for `windows_export_all_symbols`.
++        additional_linker_inputs = []
++        if crate_info.type == "cdylib" and rust_toolchain.target_os == "windows":
++            def_file = cc_helper.generate_def_file(ctx, None, [output_o], crate_info.output.basename, cc_toolchain, feature_configuration)
++            if def_file:
++                variables_extension["def_file_path"] = def_file.path
++                additional_linker_inputs.append(def_file)
+ 
+         linking_outputs = cc_common.link(
+             actions = ctx.actions,
+@@ -2505,6 +2514,7 @@
+             stamp = attr.stamp,
+             main_output = crate_info.output,
+             output_type = "executable" if crate_info.type == "bin" else "dynamic_library",
++            additional_inputs = additional_linker_inputs,
+             additional_outputs = additional_linker_outputs,
+             variables_extension = variables_extension,
+         )

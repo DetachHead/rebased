@@ -29,8 +29,8 @@ import com.intellij.platform.ide.navigation.RequestedEditor
 import com.intellij.platform.ide.navigation.requestNavigate
 import com.intellij.pom.Navigatable
 import com.intellij.psi.PsiFile
-import kotlinx.coroutines.Job
 import org.jetbrains.annotations.ApiStatus.Internal
+import java.util.concurrent.CompletableFuture
 import javax.swing.JComponent
 
 @Internal
@@ -93,7 +93,7 @@ class OpenInRightSplitAction : AnAction(), DumbAware, ActionRemoteBehaviorSpecif
      */
     @JvmStatic
     @JvmOverloads
-    fun openInRightSplit(project: Project, files: List<VirtualFile>, requestFocus: Boolean = true): Job {
+    fun openInRightSplit(project: Project, files: List<VirtualFile>, requestFocus: Boolean = true): CompletableFuture<Boolean> {
       return requestNavigate(project, rightSplitOptions(requestFocus)) {
         readAction {
           files.mapNotNull { NavigationRequest.sourceNavigationRequest(project, file = it, offset = -1) }

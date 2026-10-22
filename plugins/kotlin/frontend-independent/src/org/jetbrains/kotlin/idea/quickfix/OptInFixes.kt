@@ -7,12 +7,16 @@ import com.intellij.modcommand.ActionContext
 import com.intellij.modcommand.ModPsiUpdater
 import com.intellij.modcommand.Presentation
 import org.jetbrains.kotlin.idea.base.codeInsight.ShortenReferencesFacility
+import org.jetbrains.kotlin.idea.base.psi.appendValueArgument
+import org.jetbrains.kotlin.idea.base.psi.getOrCreatePrimaryConstructor
 import org.jetbrains.kotlin.idea.base.resources.KotlinBundle
 import org.jetbrains.kotlin.idea.codeinsight.api.applicable.intentions.KotlinPsiUpdateModCommandAction
 import org.jetbrains.kotlin.idea.quickfix.AddAnnotationFix.Kind
+import org.jetbrains.kotlin.idea.util.addAnnotation
 import org.jetbrains.kotlin.name.ClassId
 import org.jetbrains.kotlin.name.FqName
 import org.jetbrains.kotlin.psi.KtAnnotationEntry
+import org.jetbrains.kotlin.psi.KtClass
 import org.jetbrains.kotlin.psi.KtDeclaration
 import org.jetbrains.kotlin.psi.KtElement
 import org.jetbrains.kotlin.psi.KtObjectDeclaration
@@ -49,6 +53,25 @@ class OptInFixes {
         override fun getFamilyName(): String = KotlinBundle.message("fix.opt_in.annotation.family")
     }
 
+    class UseOptInAnnotationOnPrimaryConstructorFix(
+        element: KtClass,
+        private val optInClassId: ClassId,
+        private val kind: Kind,
+        private val argumentClassFqName: FqName,
+        private val priority: PriorityAction.Priority,
+    ) : AddAnnotationFix(element, optInClassId, Kind.Self, argumentClassFqName.asClassLiteral()) {
+
+        public override fun getActionPresentation(context: ActionContext, element: KtElement): Presentation =
+            getOptInAnnotationFixPresentation(element, kind, argumentClassFqName).withPriority(priority)
+
+        override fun getFamilyName(): String = KotlinBundle.message("fix.opt_in.annotation.family")
+
+        override fun invoke(context: ActionContext, element: KtElement, updater: ModPsiUpdater) {
+            (element as KtClass).getOrCreatePrimaryConstructor()
+                .addAnnotation(optInClassId, argumentClassFqName.asClassLiteral(), searchForExistingEntry = false)
+        }
+    }
+
     class ModifyOptInAnnotationFix(
         element: KtAnnotationEntry,
         private val kind: Kind,
@@ -64,7 +87,7 @@ class OptInFixes {
         override fun invoke(context: ActionContext, element: KtAnnotationEntry, updater: ModPsiUpdater) {
             val annotationInnerText = argumentClassFqName.asClassLiteral()
             val psiFactory = KtPsiFactory(element.project)
-            element.valueArgumentList?.addArgument(psiFactory.createArgument(annotationInnerText))
+            element.valueArgumentList?.appendValueArgument(psiFactory.createArgument(annotationInnerText))
                 ?: element.addAfter(psiFactory.createCallArguments("($annotationInnerText)"), element.lastChild)
             ShortenReferencesFacility.getInstance().shorten(element)
         }
@@ -114,6 +137,28 @@ class OptInFixes {
         }
 
         override fun getFamilyName(): String = KotlinBundle.message("fix.opt_in.annotation.family")
+    }
+
+    class PropagateOptInAnnotationOnPrimaryConstructorFix(
+        element: KtClass,
+        private val annotationClassId: ClassId,
+        private val argumentClassFqName: FqName? = null,
+        private val priority: PriorityAction.Priority = PriorityAction.Priority.NORMAL,
+    ) : AddAnnotationFix(element, annotationClassId, Kind.Self, argumentClassFqName?.asClassLiteral()) {
+
+        override fun getActionPresentation(context: ActionContext, element: KtElement): Presentation {
+            val annotationName = annotationClassId.shortClassName.asString()
+            val annotationEntry = if (argumentClassFqName != null) "(${argumentClassFqName.shortName().asString()}::class)" else ""
+            val argumentText = annotationName + annotationEntry
+            return Presentation.of(KotlinBundle.message("fix.opt_in.text.propagate.constructor", argumentText)).withPriority(priority)
+        }
+
+        override fun getFamilyName(): String = KotlinBundle.message("fix.opt_in.annotation.family")
+
+        override fun invoke(context: ActionContext, element: KtElement, updater: ModPsiUpdater) {
+            (element as KtClass).getOrCreatePrimaryConstructor()
+                .addAnnotation(annotationClassId, argumentClassFqName?.asClassLiteral(), searchForExistingEntry = false)
+        }
     }
 }
 

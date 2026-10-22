@@ -5,4 +5,3 @@ fun test(): Boolean {
     return <selection>TODO("Provide the return value")<caret></selection>
 }
 // FUS_QUICKFIX_NAME: org.jetbrains.kotlin.idea.quickfix.AddReturnExpressionFix
-// FUS_K2_QUICKFIX_NAME: org.jetbrains.kotlin.idea.quickfix.AddReturnExpressionFix

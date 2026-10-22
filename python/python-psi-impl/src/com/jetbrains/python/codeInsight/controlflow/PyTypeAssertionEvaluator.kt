@@ -35,13 +35,13 @@ import com.jetbrains.python.psi.PySetLiteralExpression
 import com.jetbrains.python.psi.PyTargetExpression
 import com.jetbrains.python.psi.PyTupleExpression
 import com.jetbrains.python.psi.PyUtil
-import com.jetbrains.python.psi.impl.PyBuiltinCache.Companion.getInstance
+import com.jetbrains.python.psi.impl.PyBuiltinCache
 import com.jetbrains.python.psi.impl.PyEvaluator
 import com.jetbrains.python.psi.impl.PyPsiUtils
 import com.jetbrains.python.psi.resolve.PyResolveContext
 import com.jetbrains.python.psi.types.PyClassType
 import com.jetbrains.python.psi.types.PyInstantiableType
-import com.jetbrains.python.psi.types.PyIntersectionType.Companion.intersection
+import com.jetbrains.python.psi.types.PyIntersectionType.Companion.intersectionOrTop
 import com.jetbrains.python.psi.types.PyLiteralType
 import com.jetbrains.python.psi.types.PyLiteralType.Companion.isNone
 import com.jetbrains.python.psi.types.PyNeverType
@@ -107,7 +107,7 @@ class PyTypeAssertionEvaluator(private var myPositive: Boolean) : PyRecursiveEle
       // TODO: we can actually check if the class defines __bool__ or __len__, and use it to exclude the type
       // we could not suggest `None` because it could be a reference to an empty collection
       // so we could push only non-`None` assertions
-      pushAssertion(node, !myPositive) { getInstance(node).noneType }
+      pushAssertion(node, !myPositive) { PyBuiltinCache.getInstance(node).noneType }
     }
   }
 
@@ -151,12 +151,12 @@ class PyTypeAssertionEvaluator(private var myPositive: Boolean) : PyRecursiveEle
     }
 
     if (isNone(lhs)) {
-      pushAssertion(rhs, myPositive) { getInstance(rhs).noneType }
+      pushAssertion(rhs, myPositive) { PyBuiltinCache.getInstance(rhs).noneType }
       return
     }
 
     if (isNone(rhs)) {
-      pushAssertion(lhs, myPositive) { getInstance(lhs).noneType }
+      pushAssertion(lhs, myPositive) { PyBuiltinCache.getInstance(lhs).noneType }
       return
     }
 
@@ -209,14 +209,14 @@ class PyTypeAssertionEvaluator(private var myPositive: Boolean) : PyRecursiveEle
       pushAssertion(lhs, myPositive) { context ->
         val elements = rhs.elements
         val types: MutableList<PyType?> = ArrayList(elements.size)
-        val noneType = getInstance(rhs).noneType
+        val noneType = PyBuiltinCache.getInstance(rhs).noneType
         for (element in elements) {
           val type: PyType? = if (isNone(element)) noneType else getLiteralType(element, context)
           if (type != null && (positive || type === noneType || type is PyLiteralType)) {
             types.add(type)
           }
         }
-        if (types.isEmpty()) null else PyUnionType.union(types)
+        if (types.isEmpty()) null else PyUnionType.unionOrUnknown(types)
       }
     }
   }
@@ -309,13 +309,7 @@ class PyTypeAssertionEvaluator(private var myPositive: Boolean) : PyRecursiveEle
   companion object {
     private fun isSafeForNegativeAssertion(expression: PyExpression, context: TypeEvalContext): Boolean {
       val elements: MutableList<PyExpression> = expandClassInfoExpressions(expression)
-      if (elements.isEmpty()) return false
-      for (element in elements) {
-        if (!isSafeClassInfoReference(element, context)) {
-          return false
-        }
-      }
-      return true
+      return elements.isNotEmpty() && elements.all { isSafeClassInfoReference(it, context) }
     }
 
     @ApiStatus.Internal
@@ -362,7 +356,7 @@ class PyTypeAssertionEvaluator(private var myPositive: Boolean) : PyRecursiveEle
       return when (type) {
         is PyUnionType -> {
           val members = type.members.map { classObjectToInstanceType(it) }
-          if (members.any { it == null }) null else PyUnionType.union(members)
+          if (members.any { it == null }) null else PyUnionType.unionOrUnknown(members)
         }
         is PyInstantiableType<*> -> if (type.isDefinition) type.toInstance() else null
         else -> null
@@ -404,7 +398,7 @@ class PyTypeAssertionEvaluator(private var myPositive: Boolean) : PyRecursiveEle
           }
 
         val types = initialSubtypes + suggestedSubtypes
-        return Ref(if (types.isEmpty()) intersect(initial, suggested, context) else PyUnionType.union(types))
+        return Ref(if (types.isEmpty()) intersect(initial, suggested, context) else PyUnionType.unionOrUnknown(types))
       }
       else {
         if (initial is PyUnionType) {
@@ -437,7 +431,7 @@ class PyTypeAssertionEvaluator(private var myPositive: Boolean) : PyRecursiveEle
       if ((forceStrictNarrow || isStrictNarrowingAllowed) && members.isEmpty()) {
         return PyNeverType.NEVER
       }
-      return PyUnionType.union(members)
+      return PyUnionType.unionOrUnknown(members)
     }
 
     val isStrictNarrowingAllowed: Boolean
@@ -467,7 +461,7 @@ class PyTypeAssertionEvaluator(private var myPositive: Boolean) : PyRecursiveEle
         if (filteredEnumMembers.isEmpty()) {
           return Ref(PyNeverType.NEVER)
         }
-        val type = if (enumMembers.size == filteredEnumMembers.size) type1 else PyUnionType.union(filteredEnumMembers)
+        val type = if (enumMembers.size == filteredEnumMembers.size) type1 else PyUnionType.unionOrUnknown(filteredEnumMembers)
         return Ref(type)
       }
       return null
@@ -504,7 +498,7 @@ class PyTypeAssertionEvaluator(private var myPositive: Boolean) : PyRecursiveEle
             return PyNeverType.NEVER
           }
         }
-        return intersection(initial, suggested)
+        return intersectionOrTop(initial, suggested)
       }
 
       if (initial is PyUnionType && initial.members.size <= 5) {
@@ -516,7 +510,7 @@ class PyTypeAssertionEvaluator(private var myPositive: Boolean) : PyRecursiveEle
       if (isLiteralOrNoneType(initial) || isLiteralOrNoneType(suggested)) {
         return PyNeverType.NEVER
       }
-      return intersection(initial, suggested)
+      return intersectionOrTop(initial, suggested)
     }
 
     private fun match(expected: PyType?, actual: PyType?, context: TypeEvalContext): Boolean {
@@ -557,7 +551,7 @@ class PyTypeAssertionEvaluator(private var myPositive: Boolean) : PyRecursiveEle
           }
         }
 
-        return PyUnionType.union(members)
+        return PyUnionType.unionOrUnknown(members)
       }
       else if (typeElementNoParens is PyBinaryExpression && typeElementNoParens.operator === PyTokenTypes.OR) {
         val typeFromTypingProvider = getType(typeElementNoParens, context)

@@ -6,6 +6,7 @@ import com.intellij.lang.DependentLanguage
 import com.intellij.lang.Language
 import com.intellij.lang.LanguageUtil
 import com.intellij.lang.injection.InjectedLanguageManager
+import com.intellij.openapi.editor.Document
 import com.intellij.openapi.util.TextRange
 import com.intellij.openapi.util.text.StringUtil
 import com.intellij.psi.PsiDocumentManager
@@ -48,8 +49,7 @@ object MarkdownCodeFenceUtils {
       (it !is OuterLanguageElement
        && (it.node.elementType == MarkdownTokenTypes.CODE_FENCE_CONTENT
            || (MarkdownPsiUtil.WhiteSpaces.isNewLine(it))
-           //WHITE_SPACES may also include `>`
-           || (withWhitespaces && MarkdownTokenTypeSets.WHITE_SPACES.contains(it.elementType))
+           || (withWhitespaces && isLinePrefix(it))
           )
       )
     }.toList()
@@ -61,13 +61,16 @@ object MarkdownCodeFenceUtils {
     if (elements.isNotEmpty() && MarkdownPsiUtil.WhiteSpaces.isNewLine(elements.last())) {
       elements = elements.dropLast(1)
     }
-    //also drop a trailing blockquote-prefix WHITE_SPACE so the range stays aligned with the decoded content
-    if (withWhitespaces && elements.isNotEmpty()
-        && MarkdownTokenTypeSets.WHITE_SPACES.contains(elements.last().elementType)
-        && !MarkdownPsiUtil.WhiteSpaces.isNewLine(elements.last())) {
-      elements = elements.dropLast(1)
+    //also drop a trailing blockquote prefix so the range stays aligned with the decoded content
+    if (withWhitespaces) {
+      elements = elements.dropLastWhile { isLinePrefix(it) && !MarkdownPsiUtil.WhiteSpaces.isNewLine(it) }
     }
     return elements.takeIf { it.isNotEmpty() }
+  }
+
+  /** The whitespace and the `>` of the block quotes before a code fence line */
+  private fun isLinePrefix(element: PsiElement): Boolean {
+    return element.elementType in MarkdownTokenTypeSets.WHITE_SPACES || element.elementType == MarkdownTokenTypes.BLOCK_QUOTE
   }
 
   /**
@@ -112,6 +115,19 @@ object MarkdownCodeFenceUtils {
   }
 
   /**
+   * Get indent for the line at [offset], up to (not including) [offset] itself.
+   *
+   * If blockquoted, the indent may include the `>` char. Shared by [getIndent] (element) and by completion
+   * insert handlers that see a pre-reparse PSI shape (a collapsed code span) and so cannot obtain a
+   * [MarkdownCodeFence] element yet.
+   */
+  @JvmStatic
+  fun getIndent(document: Document, offset: Int): String {
+    val lineStartOffset = document.getLineStartOffset(document.getLineNumber(offset))
+    return document.getText(TextRange.create(lineStartOffset, offset)).replace("[^>\\t ]".toRegex(), " ")
+  }
+
+  /**
    * Get indent for this code fence.
    *
    * If code-fence is blockquoted indent may include `>` char.
@@ -123,8 +139,7 @@ object MarkdownCodeFenceUtils {
                  ?: return ""
     val openingIndent = getIndentationInfo(opening.text)
     val offset = if (openingIndent.columns >= 4) opening.textOffset + openingIndent.length else element.textOffset
-    val lineStartOffset = document.getLineStartOffset(document.getLineNumber(offset))
-    return document.getText(TextRange.create(lineStartOffset, offset)).replace("[^>\\t ]".toRegex(), " ")
+    return getIndent(document, offset)
   }
 
   /** Get indentation between the active container and the opening marker. */

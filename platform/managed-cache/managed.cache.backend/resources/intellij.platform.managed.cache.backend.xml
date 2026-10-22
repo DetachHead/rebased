@@ -8,6 +8,7 @@
     <module name="intellij.libraries.kotlinx.coroutines.core"/>
     <module name="intellij.libraries.kotlinx.serialization.core"/>
     <module name="intellij.libraries.kotlinx.serialization.json"/>
+    <module name="intellij.platform.concurrency"/>
     <module name="intellij.platform.core"/>
     <module name="intellij.platform.ide.impl"/>
     <module name="intellij.platform.kernel.backend"/>
@@ -16,6 +17,7 @@
   </dependencies>
   <!-- endregion -->
   <extensions defaultExtensionNs="com.intellij">
-    <platform.rpc.backend.remoteApiProvider implementation="com.intellij.platform.managed.cache.backend.RemoteManagedCacheApiImplProvider"/>
+    <platform.rpc.backend.remoteApiProvider implementation="com.intellij.platform.managed.cache.backend.RemoteManagedCacheApiImplProvider"
+                                            apiInterfaces="com.intellij.platform.managed.cache.RemoteManagedCacheApi"/>
   </extensions>
 </idea-plugin>

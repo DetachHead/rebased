@@ -72,6 +72,7 @@ def parse_iml(iml_content, iml_path):
       - content_root_urls: list of $MODULE_DIR$-relative content root paths
       - has_production_sources: bool
       - has_test_sources: bool
+      - has_test_resources: bool, true when the module has a `java-test-resource` root
       - module_libraries: list of structs with jar_urls
       - project_library_refs: list of project-level library names referenced by this module
       - module_deps: names of the modules this one depends on outside test scope
@@ -82,6 +83,7 @@ def parse_iml(iml_content, iml_path):
     content_root_urls = []
     has_production = False
     has_test = False
+    has_test_resources = False
     module_libraries = []
     project_library_refs = []
     module_deps = []
@@ -106,6 +108,8 @@ def parse_iml(iml_content, iml_path):
                 for sf in xml.find_elements_by_tag_name(child, "sourceFolder"):
                     is_test_attr = xml.get_attribute(sf, "isTestSource")
                     sf_type = xml.get_attribute(sf, "type") or ""
+                    if sf_type == "java-test-resource":
+                        has_test_resources = True
                     if is_test_attr == "true" or sf_type.startswith("java-test"):
                         has_test = True
                     else:
@@ -145,6 +149,7 @@ def parse_iml(iml_content, iml_path):
         content_root_urls = content_root_urls,
         has_production_sources = has_production,
         has_test_sources = has_test,
+        has_test_resources = has_test_resources,
         module_libraries = module_libraries,
         project_library_refs = project_library_refs,
         module_deps = module_deps,
@@ -401,6 +406,89 @@ def compute_iml_target(module_name, build_dir_parts, iml_rel_path, is_community,
         is_community = is_community,
         community_root_parts = community_root_parts,
     )
+
+def compute_module_descriptor_target(module_name, build_dir_parts, resource_roots, descriptor_rel_paths, is_community, community_root_parts):
+    """Return the first conventional descriptor label inside the module's package, or None."""
+    package_info = _compute_package_info(module_name, build_dir_parts, is_community, community_root_parts)
+    for root in resource_roots:
+        if root.relative_output_path:
+            continue
+        path = (root.path + "/" if root.path else "") + module_name + ".xml"
+        if path not in descriptor_rel_paths:
+            continue
+        parts = path.split("/")
+        if _all_start_with([parts], community_root_parts) != is_community:
+            continue
+        if not _all_start_with([parts], package_info.effective_build_dir_parts):
+            continue
+        return compute_project_file_target(module_name, build_dir_parts, path, is_community, community_root_parts)
+    return None
+
+def module_rule_label(module_name, production_by_module):
+    """Return the module rule label, or None when the model no longer has the module."""
+    targets = production_by_module.get(module_name)
+    if targets == None:
+        return None
+    if type(targets) != "list" or len(targets) != 1:
+        fail("Module '%s' must have one production target: %s" % (module_name, targets))
+    production = targets[0]
+    if type(production) != "string" or not production.endswith(".jar"):
+        fail("Production target '%s' of module '%s' is not a jar output" % (production, module_name))
+    return production.removesuffix(".jar")
+
+def format_module_descriptor_index(descriptors_by_module):
+    """Render the conventional descriptor index shared by both JPS bridges."""
+    lines = ["MODULE_DESCRIPTORS = {"]
+    for module_name in sorted(descriptors_by_module):
+        lines.append('    "%s": "%s",' % (module_name, descriptors_by_module[module_name]))
+    lines.append("}\n")
+    return "\n".join(lines)
+
+# The macro every `dev <module>` section calls. The bridge binds it to its own maps, see `format_dev_dist_plugin_wrapper`.
+DEV_DIST_PLUGIN_BZL = "@community//platform/build-scripts/bazel-rules:dev_dist_plugin.bzl"
+
+# The macro every cross-half plugin package calls. The bridge binds it to its descriptor index.
+DEV_DIST_PLUGIN_DESCRIPTOR_BZL = "@community//platform/build-scripts/bazel-rules:dev_dist_plugin_descriptor.bzl"
+
+# The macros of the product descriptor packages. The bridge binds them to its descriptor index.
+DEV_DIST_PRODUCT_DESCRIPTOR_BZL = "@community//platform/build-scripts/bazel-rules:dev_dist_product_descriptor.bzl"
+DEV_DIST_EMBEDDED_PRODUCT_DESCRIPTOR_BZL = "@community//platform/build-scripts/bazel-rules:dev_dist_embedded_product_descriptor.bzl"
+
+def format_dev_dist_plugin_load():
+    """Render the load lines of the four bound macros. They are the first statements of `targets.bzl`."""
+    return "".join([
+        'load("%s", _dev_dist_plugin = "dev_dist_plugin")\n' % DEV_DIST_PLUGIN_BZL,
+        'load("%s", _dev_dist_plugin_descriptor = "dev_dist_plugin_descriptor")\n' % DEV_DIST_PLUGIN_DESCRIPTOR_BZL,
+        'load("%s", _dev_dist_product_descriptor = "dev_dist_product_descriptor")\n' % DEV_DIST_PRODUCT_DESCRIPTOR_BZL,
+        'load("%s", _dev_dist_embedded_product_descriptor = "dev_dist_embedded_product_descriptor")\n' % DEV_DIST_EMBEDDED_PRODUCT_DESCRIPTOR_BZL,
+    ])
+
+def format_dev_dist_plugin_wrapper():
+    """Render `dev_dist_plugin` and the descriptor macros bound to the bridge's maps.
+
+    A `dev <module>` section loads only `dev_dist_plugin`. A cross-half plugin package loads `dev_dist_plugin_descriptor`
+    too. A product descriptor package loads `dev_dist_product_descriptor` or `dev_dist_embedded_product_descriptor`. The
+    bridge is the one file that knows its half, so the binding lives here and not in the macros, which the community
+    module owns. A caller can still state each map.
+    """
+    return "\n".join([
+        "def dev_dist_plugin(module_targets = MODULE_TARGETS, descriptor_index = MODULE_DESCRIPTORS, **kwargs):",
+        '    """`dev_dist_plugin` bound to this bridge\'s module map and descriptor index."""',
+        "    _dev_dist_plugin(module_targets = module_targets, descriptor_index = descriptor_index, **kwargs)",
+        "",
+        "def dev_dist_plugin_descriptor(descriptor_index = MODULE_DESCRIPTORS, **kwargs):",
+        '    """`dev_dist_plugin_descriptor` bound to this bridge\'s descriptor index."""',
+        "    _dev_dist_plugin_descriptor(descriptor_index = descriptor_index, **kwargs)",
+        "",
+        "def dev_dist_product_descriptor(descriptor_index = MODULE_DESCRIPTORS, **kwargs):",
+        '    """`dev_dist_product_descriptor` bound to this bridge\'s descriptor index."""',
+        "    _dev_dist_product_descriptor(descriptor_index = descriptor_index, **kwargs)",
+        "",
+        "def dev_dist_embedded_product_descriptor(descriptor_index = MODULE_DESCRIPTORS, **kwargs):",
+        '    """`dev_dist_embedded_product_descriptor` bound to this bridge\'s descriptor index."""',
+        "    _dev_dist_embedded_product_descriptor(descriptor_index = descriptor_index, **kwargs)",
+        "",
+    ])
 
 def compute_plugin_distribution_target(module_name, build_dir_parts, target_name, is_community, community_root_parts):
     """Compute the Bazel label for a module's ij_plugin distribution target."""

@@ -7,6 +7,7 @@ import com.intellij.platform.lsp.impl.aggregateToPullResult
 import com.intellij.platform.lsp.impl.features.inlayCommon.LspInlayApplier
 import com.intellij.platform.lsp.impl.features.highlightingCommon.LspHighlightingCache
 import com.intellij.platform.lsp.impl.features.highlightingCommon.LspPullResult
+import com.intellij.platform.lsp.impl.supportsDocumentColor
 import org.eclipse.lsp4j.Color
 import org.eclipse.lsp4j.DocumentColorParams
 import org.eclipse.lsp4j.Range

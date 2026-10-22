@@ -58,7 +58,9 @@ public class GitExecutableManager {
     if (project != null && (project.isDefault() || TrustedProjects.isProjectTrusted(project))) {
       path = GitVcsSettings.getInstance(project).getPathToGit();
     }
-    if (path == null) path = GitVcsApplicationSettings.getInstance().getSavedPathToGit();
+    if (path == null && !GitEelExecutableDetectionHelper.isNonLocalEelEnvironment(project, gitDirectory)) {
+      path = GitVcsApplicationSettings.getInstance().getSavedPathToGit();
+    }
     if (path == null) {
       path = myExecutableDetector.getExecutable(project, gitDirectory, detectIfNeeded);
     }
@@ -73,7 +75,7 @@ public class GitExecutableManager {
   public @NotNull GitExecutable getExecutable(@Nullable Project project, @Nullable Path gitDirectory) {
     String path = getPathToGit(project, gitDirectory, true);
     if (path == null) path = GitExecutableDetector.getDefaultExecutable();
-    return getExecutable(project, path);
+    return GitExecutableDetector.getGitExecutable(project, path, gitDirectory);
   }
 
   // not to be confused with getExecutable(Project, Path)
@@ -217,7 +219,7 @@ public class GitExecutableManager {
     if (result.getResult() == null) {
       Exception e = result.getException();
       if (e instanceof NoSuchFileException &&
-          executable.getExePath().equals(GitExecutableDetector.getDefaultExecutable())) {
+          (!executable.isLocal() || executable.getExePath().equals(GitExecutableDetector.getDefaultExecutable()))) {
         throw new GitNotInstalledException(GitBundle.message("executable.error.git.not.installed"), e);
       }
       throw new GitVersionIdentificationException(

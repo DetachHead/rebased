@@ -5,6 +5,8 @@ import com.intellij.python.community.execService.Args
 import com.intellij.python.community.execService.BinaryToExec
 import com.intellij.python.community.execService.ExecOptions
 import com.intellij.python.community.execService.ProcessSemiInteractiveFun
+import com.intellij.python.pytools.backend.PyTool
+import com.intellij.python.pytools.backend.Version
 import com.intellij.python.sdk.backend.executeTool
 import com.intellij.python.sdk.backend.executeToolInteractive
 import com.intellij.python.sdk.backend.findToolExecutable

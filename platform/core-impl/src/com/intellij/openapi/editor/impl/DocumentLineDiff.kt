@@ -2,7 +2,7 @@
 package com.intellij.openapi.editor.impl
 
 import com.intellij.openapi.editor.ex.DocumentText
-import com.intellij.openapi.editor.ex.DocumentTextPatch
+import com.intellij.openapi.editor.ex.DocumentPatch
 import com.intellij.util.diff.Diff
 import com.intellij.util.diff.FilesTooBigForDiffException
 import com.intellij.util.text.ImmutableCharSequence
@@ -167,14 +167,14 @@ internal class DocumentLineDiff(
   }
 }
 
-internal fun DocumentTextPatch.attachLineDiff(lineDiff: DocumentLineDiff) {
-  if (this is SimpleTextPatch) {
+internal fun DocumentPatch.attachLineDiff(lineDiff: DocumentLineDiff) {
+  if (this is DocumentPatchImpl) {
     attachLineDiffCache(lineDiff)
   }
 }
 
-internal fun DocumentTextPatch.lineDiff(beforeText: DocumentText): DocumentLineDiff {
-  val patch = this as? SimpleTextPatch
+internal fun DocumentPatch.lineDiff(beforeText: DocumentText): DocumentLineDiff {
+  val patch = this as? DocumentPatchImpl
   if (patch != null) return patch.getOrCreateLineDiff(beforeText)
 
   return DocumentLineDiff(

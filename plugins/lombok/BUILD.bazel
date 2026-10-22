@@ -1,7 +1,25 @@
 load("@community//build:tests-options.bzl", "jps_test")
-load("@community//platform/build-scripts/bazel-rules:dev_dist_plugin.bzl", "dev_dist_plugin")
 load("@rules_jvm//:jvm.bzl", "jvm_library", "resourcegroup")
 load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
+
+filegroup(
+    name = "testDataFiles",
+    srcs = glob(["testData/**"]),
+    visibility = ["//visibility:public"],
+)
+
+jps_test(
+    name = "lombok-tests_test",
+    timeout = "long",
+    data = ["@community//plugins/lombok:testDataFiles"],
+    tags = ["lombok-tests"],
+    runtime_deps = [":lombok-tests_test_lib"],
+)
+### skip generation section `test intellij.lombok.tests`
+
+### auto-generated section `dev intellij.lombok` start
+content_module_jar(module = ":lombok")
+### auto-generated section `dev intellij.lombok` end
 
 ### auto-generated section `build intellij.lombok` start
 jvm_library(
@@ -20,6 +38,7 @@ jvm_library(
     resource_strip_prefix = "src/main/resources",
     resources = glob(
         ["src/main/resources/**/*"],
+        exclude = ["src/main/resources/**/icon-robots.txt"],
     ),
     visibility = ["//visibility:public"],
     deps = [
@@ -61,8 +80,6 @@ jvm_library(
     ],
 )
 
-content_module_jar(module = ":lombok")
-
 jvm_library(
     name = "lombok_test_lib",
     testonly = True,
@@ -99,30 +116,14 @@ jvm_library(
         "//platform/projectModel-api:projectModel_test_lib",
         "//platform/refactoring:refactoring_test_lib",
         "//platform/structure-view-impl:structureView_test_lib",
-        "//platform/testFramework",
-        "//platform/testFramework:testFramework_test_lib",
-        "//java/testFramework",
-        "//java/testFramework:testFramework_test_lib",
         "//libraries/junit4",
         "//libraries/junit4:junit4_test_lib",
-        "//libraries/mockito",
-        "//libraries/mockito:mockito_test_lib",
         "//java/java-impl-inspections:impl-inspections_test_lib",
         "//java/java-impl-refactorings:impl-refactorings_test_lib",
-        "//tools/intellij.tools.ide.metrics.benchmark:ide-metrics-benchmark",
-        "//tools/intellij.tools.ide.metrics.benchmark:ide-metrics-benchmark_test_lib",
-        "//java/java-tests:tests",
-        "//java/java-tests:tests_test_lib",
         "//java/codeserver/highlighting:highlighting_test_lib",
         "//java/java-frontback-psi-api:frontback-psi_test_lib",
         "//platform/ide-core-impl:ide-core-impl_test_lib",
         "//platform/ide-core:ide-core_test_lib",
-        "//images:images-tests",
-        "//images:images-tests_test_lib",
-        "//RegExpSupport:regexp-tests",
-        "//RegExpSupport:regexp-tests_test_lib",
-        "//platform/xdebugger-impl:debugger-impl-tests",
-        "//platform/xdebugger-impl:debugger-impl-tests_test_lib",
         "//libraries/kotlinx/collections-immutable:libraries-kotlinx-collections-immutable_test_lib",
         "//platform/code-style-api:codeStyle_test_lib",
         "//platform/util:util-ui_test_lib",
@@ -140,13 +141,6 @@ exports_files(
     visibility = ["//visibility:public"],
 )
 ### auto-generated section `iml intellij.lombok` end
-
-### auto-generated section `dev intellij.lombok` start
-dev_dist_plugin(
-    descriptor_module = ":lombok",
-    prepacked_content_modules = ["//plugins/lombok/generated:generated_content_module_jar"],
-)
-### auto-generated section `dev intellij.lombok` end
 
 ### auto-generated section `build intellij.lombok.tests` start
 resourcegroup(
@@ -291,8 +285,10 @@ jvm_library(
         "//plugins/lombok/plugin:plugin_test_lib",
         "//platform/statistics",
         "//platform/statistics:statistics_test_lib",
-        "//libraries/junit5",
-        "//libraries/junit5:junit5_test_lib",
+        "//libraries/junit6",
+        "//libraries/junit6:junit6_test_lib",
+        "//platform/bazel-runfiles",
+        "//platform/bazel-runfiles:bazel-runfiles_test_lib",
     ],
 )
 ### auto-generated section `build intellij.lombok.tests` end
@@ -305,10 +301,3 @@ exports_files(
     visibility = ["//visibility:public"],
 )
 ### auto-generated section `iml intellij.lombok.tests` end
-
-### auto-generated section `test intellij.lombok.tests` start
-jps_test(
-    name = "lombok-tests_test",
-    runtime_deps = [":lombok-tests_test_lib"],
-)
-### auto-generated section `test intellij.lombok.tests` end

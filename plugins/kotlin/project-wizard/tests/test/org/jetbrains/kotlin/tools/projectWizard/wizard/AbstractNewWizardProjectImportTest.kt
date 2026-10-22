@@ -9,7 +9,7 @@ import com.intellij.openapi.components.serviceOrNull
 import com.intellij.openapi.externalSystem.util.ExternalSystemApiUtil.getSettings
 import com.intellij.openapi.projectRoots.JavaSdk
 import com.intellij.openapi.projectRoots.ProjectJdkTable
-import com.intellij.openapi.vfs.LocalFileSystem
+import com.intellij.openapi.vfs.StandardFileSystems
 import com.intellij.platform.backend.workspace.findEntitiesByVirtualFile
 import com.intellij.platform.backend.workspace.workspaceModel
 import com.intellij.psi.PsiManager
@@ -18,14 +18,15 @@ import com.intellij.testFramework.IdeaTestUtil
 import com.intellij.testFramework.PlatformTestUtil
 import com.intellij.testFramework.enableInspectionTool
 import com.intellij.util.ThrowableRunnable
-import org.jetbrains.kotlin.analysis.api.components.KaDiagnosticCheckerFilter
-import org.jetbrains.kotlin.analysis.api.components.collectDiagnostics
+import org.jetbrains.kotlin.analysis.api.KaExperimentalApi
+import org.jetbrains.kotlin.analysis.api.diagnostics.KaDiagnosticCheckerKind
 import org.jetbrains.kotlin.analysis.api.diagnostics.KaSeverity
+import org.jetbrains.kotlin.analysis.api.diagnostics.diagnostics
 import org.jetbrains.kotlin.analysis.api.session.analyze
-import org.jetbrains.kotlin.gradle.scripting.k2.workspaceModel.GradleKotlinScriptEntitySource
+import org.jetbrains.kotlin.gradle.scripting.workspaceModel.GradleKotlinScriptEntitySource
 import org.jetbrains.kotlin.idea.codeInsight.inspections.ReplaceUntilWithRangeUntilInspection
-import org.jetbrains.kotlin.idea.core.script.k2.modules.KotlinScriptEntity
-import org.jetbrains.kotlin.idea.core.script.v1.alwaysVirtualFile
+import org.jetbrains.kotlin.idea.core.script.modules.KotlinScriptEntity
+import org.jetbrains.kotlin.idea.core.script.alwaysVirtualFile
 import org.jetbrains.kotlin.idea.test.KotlinSdkCreationChecker
 import org.jetbrains.kotlin.idea.test.PluginTestCaseBase
 import org.jetbrains.kotlin.idea.test.runAll
@@ -172,8 +173,9 @@ abstract class AbstractNewWizardProjectImportTest : HeavyPlatformTestCase() {
             it.name.endsWith("gradle.kts")
         }
 
+        @OptIn(KaExperimentalApi::class)
         scripts.map { it.canonicalFile }.forEach { file ->
-            val virtualFile = LocalFileSystem.getInstance().refreshAndFindFileByIoFile(file)!!
+            val virtualFile = StandardFileSystems.local().refreshAndFindFileByPath(file.absolutePath)!!
             val psiFile = runReadActionBlocking { PsiManager.getInstance(project).findFile(virtualFile) as? KtFile }
                 ?: error("Cannot find KtFile for $file")
             assertTrue(
@@ -181,9 +183,10 @@ abstract class AbstractNewWizardProjectImportTest : HeavyPlatformTestCase() {
                 psiFile.isProcessedAsKotlinScript()
             )
             analyze(psiFile) {
-                val diagnostics =
-                    psiFile.collectDiagnostics(KaDiagnosticCheckerFilter.EXTENDED_AND_COMMON_CHECKERS).filter { it.severity == KaSeverity.ERROR }
-                assert(diagnostics.isEmpty()) {
+                val diagnostics = psiFile.diagnostics()
+                    .withCheckers(KaDiagnosticCheckerKind.COMMON, KaDiagnosticCheckerKind.EXTENDED)
+                    .filter { it.severity == KaSeverity.ERROR }
+                assert(diagnostics.none()) {
                     "Diagnostics list should be empty:\n ${diagnostics.joinToString("\n") { it.defaultMessage }}"
                 }
             }

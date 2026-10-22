@@ -6,6 +6,7 @@ import com.intellij.ide.plugins.ProductRulesImposedExclusion.ProductRulesImposed
 import com.intellij.idea.AppMode
 import com.intellij.openapi.extensions.PluginId
 import com.intellij.openapi.util.BuildNumber
+import com.intellij.platform.productMode.ProductMode
 import org.jetbrains.annotations.ApiStatus
 
 @ApiStatus.Internal
@@ -39,12 +40,22 @@ interface PluginInitializationContext {
    */
   val disablePluginLoadingCompletely: Boolean
 
+  /**
+   * **TODO: Remove after IJPL-255400**
+   *
+   * If true, treats `required-if-available` modules as optional unless their loading rule is `REQUIRED` or `EMBEDDED`.
+   */
+  val disableRequiredIfAvailable: Boolean
+
   val pluginsPerProjectConfig: PluginsPerProjectConfig?
 
   /**
-   * Returns ID of the current [com.intellij.platform.runtime.product.ProductMode]
+   * The product mode this context describes.
+   *
+   * This is a declared input of the context and not a read of a global. [environmentConfiguredModules]
+   * is derived from it.
    */
-  val currentProductModeId: String
+  val productMode: ProductMode
 
   /**
    * A map consisting of special modules that are configured by the environment (app mode, OS-specific modules, etc.).

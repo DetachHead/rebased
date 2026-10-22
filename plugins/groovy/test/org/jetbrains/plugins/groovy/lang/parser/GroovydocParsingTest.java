@@ -3,8 +3,8 @@ package org.jetbrains.plugins.groovy.lang.parser;
 
 public class GroovydocParsingTest extends GroovyParsingTestCase {
   @Override
-  public String getBasePath() {
-    return super.getBasePath() + "groovydoc";
+  public String getTestDataPath() {
+    return super.getTestDataPath() + "groovydoc";
   }
 
   public void testInlined$inlined1() { doTest(); }

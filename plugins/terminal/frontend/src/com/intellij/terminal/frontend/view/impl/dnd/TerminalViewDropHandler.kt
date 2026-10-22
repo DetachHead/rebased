@@ -11,7 +11,7 @@ import com.intellij.openapi.wm.IdeFocusManager
 import com.intellij.platform.eel.provider.getEelDescriptor
 import com.intellij.terminal.frontend.dnd.TerminalDropData
 import com.intellij.terminal.frontend.dnd.TerminalDroppedContentResolver
-import com.intellij.terminal.frontend.toolwindow.impl.getRunningProcessCommandLine
+import com.intellij.terminal.frontend.toolwindow.impl.getRunningProcessExecutableForFus
 import com.intellij.terminal.frontend.toolwindow.impl.getTerminalContext
 import com.intellij.terminal.frontend.view.TerminalView
 import com.intellij.terminal.frontend.view.impl.TerminalOutputScrollingModel
@@ -19,7 +19,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.jetbrains.plugins.terminal.fus.ReworkedTerminalUsageCollector
-import org.jetbrains.plugins.terminal.fus.TerminalCommandUsageStatistics
 import org.jetbrains.plugins.terminal.fus.TerminalInsertedContentSource
 
 /**
@@ -60,15 +59,11 @@ internal class TerminalViewDropHandler(
         .useBracketedPasteMode()
         .send(text)
 
-      val commandLine = terminalView.getRunningProcessCommandLine()
-      val processExecutable = commandLine?.let {
-        TerminalCommandUsageStatistics.getLoggableCommandData(commandLine, expandAbsoluteOrRelativePath = true).command
-      }
       ReworkedTerminalUsageCollector.logContentInserted(
         project = project,
         contentType = data.getContentType(),
         fileSource = fileSource,
-        processExecutable = processExecutable,
+        processExecutable = terminalView.getRunningProcessExecutableForFus(),
       )
 
       withContext(Dispatchers.UI + modalityState.asContextElement()) {

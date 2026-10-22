@@ -2,6 +2,7 @@
 
 package com.intellij.python.sdk.backend.evolution
 
+import com.jetbrains.python.sdk.ModuleOrProject
 import com.intellij.icons.AllIcons
 import com.intellij.ide.ui.icons.rpcId
 import com.intellij.openapi.diagnostic.Logger
@@ -14,6 +15,10 @@ import com.intellij.openapi.util.NlsSafe
 import com.intellij.openapi.util.io.FileUtil
 import com.intellij.openapi.util.io.toNioPathOrNull
 import com.intellij.python.community.common.tools.ToolId
+import com.intellij.python.sdk.backend.PySdkBundle
+import com.intellij.python.sdk.backend.PythonInterpreter
+import com.intellij.python.sdk.backend.flavor
+import com.intellij.python.sdk.common.PyInterpreterRef
 import com.intellij.python.sdk.common.evolution.EvoAddNewDto
 import com.intellij.python.sdk.common.evolution.EvoAddNewOptionDto
 import com.intellij.python.sdk.common.evolution.EvoBasePythonDto
@@ -25,19 +30,16 @@ import com.intellij.python.sdk.common.evolution.EvoNodeKind
 import com.intellij.python.sdk.common.evolution.EvoRecreateDto
 import com.intellij.python.sdk.common.evolution.EvoSectionDto
 import com.intellij.python.sdk.common.evolution.PyEvoRegistry
-import com.intellij.python.sdk.common.PyInterpreterRef
+import com.intellij.python.sdk.common.shortenPath
 import com.jetbrains.python.errorProcessing.ErrorSink
 import com.jetbrains.python.errorProcessing.ExecError
 import com.jetbrains.python.errorProcessing.PyResult
 import com.jetbrains.python.project.PyProject
 import com.jetbrains.python.project.project
-import com.jetbrains.python.sdk.add.v2.FileSystem
-import com.jetbrains.python.sdk.add.v2.PathHolder
-import com.jetbrains.python.sdk.pySdkAdditionalData
 import com.jetbrains.python.sdk.PythonSdkAdditionalData
+import com.jetbrains.python.sdk.add.v2.FileSystemWithEel
 import com.jetbrains.python.sdk.flavors.PythonSdkFlavor
-import com.intellij.python.sdk.backend.PySdkBundle
-import com.intellij.python.sdk.common.shortenPath
+import com.jetbrains.python.sdk.pySdkAdditionalData
 import com.jetbrains.python.venvReader.Directory
 import com.jetbrains.python.venvReader.PRUNED_SCAN_DIRS
 import com.jetbrains.python.venvReader.VirtualEnvReader
@@ -53,59 +55,110 @@ import java.nio.file.Files
 import java.nio.file.Path
 import javax.swing.Icon
 import kotlin.io.path.exists
-import kotlin.io.path.name
 import kotlin.io.path.isDirectory
 import kotlin.io.path.listDirectoryEntries
+import kotlin.io.path.name
 import kotlin.io.path.pathString
 
 private val LOG: Logger = fileLogger()
 
 /**
- * A tool workspace (uv/poetry) a module takes part in: the [root] project everything is resolved against, the [tool]
- * declaring it, and every [modules] belonging to it — the root and its members alike, since they all share one
- * environment.
+ * The projects that share one environment, and where that environment lives.
+ *
+ * A tool workspace (uv, poetry) declares one environment at its [root], and no member owns one. So every directory a
+ * tool works in is the root's ([baseDir]), every tool is driven from the root's [module], and an interpreter picked
+ * for any one member is written to all of [members].
+ *
+ * A standalone project is a workspace of one and is its own root. That is why a project always belongs to one, and why
+ * nothing downstream has to ask whether a workspace exists before it can act.
+ *
+ * The owner of its projects. A member states nothing about the workspace it belongs to, so a caller that needs both is
+ * handed both, as [EvoToolContext] does. `EvoPyProjectModel` holds the workspaces of a project model generation.
  */
 @ApiStatus.Internal
-class EvoWorkspace(val root: PyProject, val tool: ToolId, val modules: List<Module>)
+class EvoWorkspace(
+  /** The project every directory and every tool is resolved against. */
+  val root: EvoPyProject,
+  /** Every project of the workspace, the [root] included. A selected interpreter is written to all of them. */
+  val members: List<EvoPyProject>,
+) {
+  /** The project every tool is driven from. */
+  val pyProject: PyProject get() = root.pyProject
+
+  /** The module every tool is driven from. */
+  val module: Module get() = root.pyProject.residesOnModule
+
+  /** The directory every tool runs in. */
+  val baseDir: Directory get() = root.pyProject.baseDir
+
+  /** The project every member of this workspace belongs to. */
+  val project: Project get() = root.pyProject.project
+
+  /** The owner of an interpreter that a tool creates here: the [root], so every member shares it. */
+  val moduleOrProject: ModuleOrProject get() = ModuleOrProject.ModuleAndProject(root.pyProject)
+
+  /** The wire identity of the [root]. See [keyOf]. */
+  val rootKey: String get() = root.key
+}
 
 /**
- * The [PyProject] the widget acts on, resolved against the workspace it belongs to.
+ * The [PyProject] the widget acts on: one Python module, its own directory and the interpreter it uses.
  *
- * A tool workspace (a uv/poetry workspace) has a single environment, declared at its root: no member owns one, and the
- * tools are always driven from the root. So everything the widget does with a directory (scanning for envs, reading
- * `requires-python`, creating an env, running the tool) uses [baseDir] — the *workspace root's* base dir — and an
- * interpreter picked for any one module is applied to [sdkModules], the whole workspace. Only [module] itself, whose
- * interpreter the status bar reflects, stays the one the user is looking at.
+ * [pyProject] and [interpreter] describe the project the user is looking at, which is what the status bar
+ * reflects. It states nothing about the workspace it belongs to, because the workspace owns its members and not the
+ * other way round — see [EvoWorkspace] for what a tool acts on.
  */
 @ApiStatus.Internal
 class EvoPyProject(
-  private val self: PyProject,
-  /** The workspace [self] takes part in (as its root or as a member); `null` when it is standalone. */
-  val workspace: EvoWorkspace? = null,
+  /** The project this entry describes. */
+  val pyProject: PyProject,
+  /**
+   * The interpreter this project uses, as it stood when the snapshot was computed.
+   *
+   * Every module of a workspace holds its own reference to the interpreter, so the module of this project alone
+   * answers it.
+   *
+   * A value rather than a question the caller asks: reading it used to wait for the project model on every call, and
+   * that wait is what a snapshot exists to pay one time. A generation that holds one interpreter never states another,
+   * and a caller that cannot suspend reads it like any other field. Without the wait a configured interpreter reads as
+   * `null` while the SDK table is still loading, and a surface then states that a project with an interpreter has none
+   * (PY-91871); the snapshot waits instead, once.
+   *
+   * A [PythonInterpreter] and not an [Sdk], so a caller asks the interpreter what it is. A caller that still needs the
+   * `Sdk` API calls [com.intellij.python.sdk.backend.getSdkAPI], whose deprecation marks the work left to do.
+   */
+  val interpreter: PythonInterpreter?,
 ) {
-  val module: Module get() = self.residesOnModule
-
-  val project: Project get() = self.project
-
-  /** The directory the widget works in: the workspace root's base dir when in a workspace, else the module's own. */
-  val baseDir: Directory get() = (workspace?.root ?: self).baseDir
-
-  /** The module's *own* base dir, whether or not it takes part in a workspace. */
-  val moduleBaseDir: Directory get() = self.baseDir
-
-  /** Every module a selected interpreter must be applied to: the whole workspace, or just this module when standalone. */
-  val sdkModules: List<Module> get() = workspace?.let { (it.modules + module).distinct() } ?: listOf(module)
+  /**
+   * This project's wire identity. See [keyOf].
+   *
+   * A field, so the key travels with the project it addresses. A caller that holds one never has to derive the other.
+   */
+  val key: String = keyOf(pyProject)
 }
+
+/**
+ * A `PyProject`'s wire identity: its base dir, system-independent.
+ *
+ * System-independent because the frontend matches it against a content root's
+ * [com.intellij.openapi.vfs.VirtualFile.getPath], which is already in that form. So the comparison is plain string
+ * equality on both sides, with no path parsing and no VFS lookup.
+ */
+private fun keyOf(pyProject: PyProject): String = FileUtil.toSystemIndependentName(pyProject.baseDir.toString())
 
 /** [EvoToolContext.cached] key under which the core-supplied system-Python list is memoized. */
 private const val SYSTEM_PYTHONS_KEY: String = "core.systemPythons"
 
 /**
- * What a provider needs to act on the module the widget is showing: the [pyProject] resolved against its workspace, the
- * [fileSystem] of the machine it lives on, and the [errorSink] a failed tool command must be reported to.
+ * What a provider needs to act on the module the widget is showing: the [workspace] a tool acts on, the [pyProject] the
+ * user is looking at, the [fileSystem] of the machine it lives on, and the [errorSink] a failed tool command must be
+ * reported to.
  *
- * Bundled into one parameter because every tool-owned operation needs all three, and because it gives the core a single
+ * Bundled into one parameter because every tool-owned operation needs all four, and because it gives the core a single
  * place to decide what a provider is handed — a provider must not reach for the project or the Eel machine itself.
+ *
+ * Both the workspace and the project, because a provider needs both and neither states the other: a directory a tool
+ * runs in is the workspace's, while the module a tool is configured against is the project's.
  *
  * Report a tool failure through [errorSink] rather than swallowing it: the default sink opens the platform's
  * process-execution-error dialog with the command, its exit code and its output, which is the only way the user finds
@@ -113,8 +166,9 @@ private const val SYSTEM_PYTHONS_KEY: String = "core.systemPythons"
  */
 @ApiStatus.Internal
 class EvoToolContext(
+  val workspace: EvoWorkspace,
   val pyProject: EvoPyProject,
-  val fileSystem: FileSystem<PathHolder.Eel>,
+  val fileSystem: FileSystemWithEel,
   val errorSink: ErrorSink,
   private val systemPythons: suspend (String?) -> List<EvoAddNewOptionDto>,
 ) {
@@ -222,7 +276,7 @@ interface PyEvoEnvironmentProvider {
    * tool, for the same reason [pyvenvMarker] is: which flavor a tool stamps on its SDKs is the tool's own knowledge, and
    * a table of it kept in the core would drift from the tools it names.
    *
-   * A flavor names its node exactly. `PyProjectManager.forSdk` is not usable for this: it resolves uv, poetry and hatch
+   * A flavor names its node exactly. `PyProjectManager.forPythonInterpreter` is not usable for this: it resolves uv, poetry and hatch
    * and answers `ToolId("pip")` for everything else, which is a wrong answer rather than a missing one — and does not
    * even equal the venv node's own id.
    */
@@ -243,15 +297,14 @@ interface PyEvoEnvironmentProvider {
    * Whether this provider's tool is available on the project's Eel machine. Unavailable providers are dropped
    * from the node list, so an uninstalled tool never shows up. Defaults to always-available.
    */
-  suspend fun isAvailable(pyProject: EvoPyProject, fileSystem: FileSystem<PathHolder.Eel>): Boolean = true
+  suspend fun isAvailable(context: EvoToolContext): Boolean = true
 
   /**
    * Lazily compute this node's sections (layout owned by the provider) when it is expanded. [discovered] is the
    * centrally-found list of virtualenvs under the project's base dirs; providers filter it to the subset they own.
    */
   suspend fun loadSections(
-    pyProject: EvoPyProject,
-    fileSystem: FileSystem<PathHolder.Eel>,
+    context: EvoToolContext,
     discovered: List<DiscoveredVenv>,
   ): EvoLoadResultDto
 
@@ -262,7 +315,7 @@ interface PyEvoEnvironmentProvider {
    * Returns a failure rather than a null when the tool cannot adopt the env, so "I could not" is never confused with
    * "not mine" — the pip node builds a generic path-based SDK itself rather than leaving the core to guess.
    */
-  suspend fun createSdkForExistingEnv(context: EvoToolContext, homePath: Path): PyResult<Sdk> = notSupported()
+  suspend fun createSdkForExistingEnv(context: EvoToolContext, homePath: Path): PyResult<PythonInterpreter> = notSupported()
 
   /**
    * Builds the SDK for an environment that does not exist yet, creating it first via the tool's own "create" logic —
@@ -272,7 +325,7 @@ interface PyEvoEnvironmentProvider {
    * put in the leaf it built, and nothing outside this method interprets them. A failure travels back as the result —
    * the core reports it once, so an [ExecError] from a tool command still reaches the process-execution-error dialog.
    */
-  suspend fun createSdkForNewEnv(context: EvoToolContext, ref: PyInterpreterRef.CreateEnv): PyResult<Sdk> = notSupported()
+  suspend fun createSdkForNewEnv(context: EvoToolContext, ref: PyInterpreterRef.CreateEnv): PyResult<PythonInterpreter> = notSupported()
 
   /**
    * The in-widget "add new environment" flow for one of this node's [section]s: the proposed name, where it goes,
@@ -312,7 +365,7 @@ interface PyEvoEnvironmentProvider {
    * There is no rollback and none is expected: destroy, create, and report a failure as the result. A provider that
    * could not destroy the environment must return that failure rather than build over the wreckage.
    */
-  suspend fun recreateEnv(context: EvoToolContext, homePath: Path, spec: EvoRecreateSpec): PyResult<Sdk> = notSupported()
+  suspend fun recreateEnv(context: EvoToolContext, homePath: Path, spec: EvoRecreateSpec): PyResult<PythonInterpreter> = notSupported()
 
   companion object {
     @ApiStatus.Internal
@@ -359,6 +412,13 @@ fun List<PyEvoEnvironmentProvider>.nodeIdForSdk(sdk: Sdk): String? {
   // precondition rather than catch, since an IllegalStateException here could be a ProcessCanceledException.
   if (sdk.sdkAdditionalData !is PythonSdkAdditionalData) return null
   val flavor = sdk.pySdkAdditionalData.flavor
+  return firstOrNull { provider -> provider.sdkFlavor?.isInstance(flavor) == true }?.toolId?.id
+}
+
+/** [nodeIdForSdk] for an interpreter. Null when its SDK records no flavor, or when no node owns the flavor. */
+@ApiStatus.Internal
+fun List<PyEvoEnvironmentProvider>.nodeIdFor(interpreter: PythonInterpreter): String? {
+  val flavor = interpreter.flavor
   return firstOrNull { provider -> provider.sdkFlavor?.isInstance(flavor) == true }?.toolId?.id
 }
 
@@ -514,8 +574,8 @@ fun EvoToolContext.resolveNewVenvDir(ref: PyInterpreterRef.CreateEnv): Path {
   val name = ref.name
   return when {
     !folder.isNullOrBlank() && !name.isNullOrBlank() -> Path.of(folder).resolve(name)
-    !folder.isNullOrBlank() -> pyProject.baseDir.resolve(folder)
-    else -> firstFreeVenvDir(pyProject.baseDir)
+    !folder.isNullOrBlank() -> workspace.baseDir.resolve(folder)
+    else -> firstFreeVenvDir(workspace.baseDir)
   }
 }
 
@@ -720,7 +780,11 @@ fun evoCreateEnvLeaf(
    */
   name: String? = null,
 ): EvoLeafDto =
-  EvoLeafDto(title = title, icon = icon.rpcId(), kind = EvoLeafKind.SELECT_ENV, ref = PyInterpreterRef.CreateEnv(token, name = name), bases = bases)
+  EvoLeafDto(title = title,
+             icon = icon.rpcId(),
+             kind = EvoLeafKind.SELECT_ENV,
+             ref = PyInterpreterRef.CreateEnv(token, name = name),
+             bases = bases)
 
 /**
  * Builds a leaf for a *tool-enumerated* environment (conda/hatch/poetry-per-version) identified by [pythonBinary].

@@ -42,10 +42,11 @@ import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.registry.Registry;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.JarFileSystem;
-import com.intellij.openapi.vfs.LocalFileSystem;
+import com.intellij.openapi.vfs.StandardFileSystems;
 import com.intellij.openapi.vfs.VfsUtil;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.openapi.vfs.VirtualFileManager;
+import com.intellij.openapi.vfs.VirtualFileSystem;
 import com.intellij.openapi.vfs.jrt.JrtFileSystem;
 import com.intellij.openapi.vfs.newvfs.BulkFileListener;
 import com.intellij.openapi.vfs.newvfs.events.VFileContentChangeEvent;
@@ -232,11 +233,6 @@ public final class JavaSdkImpl extends JavaSdk {
       path += File.separator;
     }
     return path;
-  }
-
-  @Override
-  public String suggestHomePath() {
-    return JavaHomeFinder.defaultJavaLocation(null);
   }
 
   @Override
@@ -444,7 +440,7 @@ public final class JavaSdkImpl extends JavaSdk {
     javaPluginClassesRootPath = javaPluginClassesRootPath.toAbsolutePath();
     VirtualFile root;
     VirtualFileManager vfm = VirtualFileManager.getInstance();
-    LocalFileSystem lfs = LocalFileSystem.getInstance();
+    VirtualFileSystem lfs = StandardFileSystems.local();
     String pathInResources = "resources/jdkAnnotations.jar";
     if (Files.isRegularFile(javaPluginClassesRootPath)) {
       Path annotationsJarPath = javaPluginClassesRootPath.resolveSibling(pathInResources);
@@ -468,11 +464,11 @@ public final class JavaSdkImpl extends JavaSdk {
       // when run against IDEA plugin JDK, something like this comes up: "$IDEA_HOME$/out/classes/production/intellij.java.impl"
       Path projectRoot = JBIterable.generate(javaPluginClassesRootPath, Path::getParent).get(4);
       if (projectRoot != null) {
-        Path root1 = projectRoot.resolve("community/java/jdkAnnotations");
-        Path root2 = projectRoot.resolve("java/jdkAnnotations");
+        Path root1 = projectRoot.resolve("community/java/jdkAnnotations/resources");
+        Path root2 = projectRoot.resolve("java/jdkAnnotations/resources");
         root = Files.isDirectory(root1)
-               ? (refresh ? lfs.refreshAndFindFileByNioFile(root1) : lfs.findFileByNioFile(root1))
-               : Files.isDirectory(root2) ? (refresh ? lfs.refreshAndFindFileByNioFile(root2) : lfs.findFileByNioFile(root2)) : null;
+               ? (refresh ? vfm.refreshAndFindFileByNioPath(root1) : vfm.findFileByNioPath(root1))
+               : Files.isDirectory(root2) ? (refresh ? vfm.refreshAndFindFileByNioPath(root2) : vfm.findFileByNioPath(root2)) : null;
       }
       else {
         root = null;
@@ -485,7 +481,7 @@ public final class JavaSdkImpl extends JavaSdk {
     }
     if (root == null) {
       // community idea under idea
-      String path = FileUtil.toSystemIndependentName(PathManager.getCommunityHomePath()) + "/java/jdkAnnotations";
+      String path = FileUtil.toSystemIndependentName(PathManager.getCommunityHomePath()) + "/java/jdkAnnotations/resources";
       root = refresh ? lfs.refreshAndFindFileByPath(path) : lfs.findFileByPath(path);
       pathsChecked.add(path);
     }
@@ -766,7 +762,7 @@ public final class JavaSdkImpl extends JavaSdk {
 
   private static @Nullable VirtualFile findDocs(@NotNull Path jdkHome, @NotNull String relativePath) {
     Path docDir = jdkHome.resolve(relativePath);
-    return Files.isDirectory(docDir) ? LocalFileSystem.getInstance().findFileByNioFile(docDir) : null;
+    return Files.isDirectory(docDir) ? VirtualFileManager.getInstance().findFileByNioPath(docDir) : null;
   }
 
   private static @Nullable VirtualFile findInJar(@NotNull Path jarFile, @NotNull String relativePath) {

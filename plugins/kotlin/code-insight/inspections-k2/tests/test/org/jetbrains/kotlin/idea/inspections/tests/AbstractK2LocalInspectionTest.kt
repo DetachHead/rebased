@@ -5,10 +5,8 @@ package org.jetbrains.kotlin.idea.inspections.tests
 import com.intellij.platform.ide.progress.runWithModalProgressBlocking
 import com.intellij.psi.PsiFile
 import com.intellij.testFramework.common.runAll
-import org.jetbrains.kotlin.idea.base.test.IgnoreTests
-import org.jetbrains.kotlin.idea.base.test.k2FileName
-import org.jetbrains.kotlin.idea.core.script.k2.configurations.KotlinScriptService
-import org.jetbrains.kotlin.idea.core.script.v1.alwaysVirtualFile
+import org.jetbrains.kotlin.idea.core.script.alwaysVirtualFile
+import org.jetbrains.kotlin.idea.core.script.configurations.KotlinScriptService
 import org.jetbrains.kotlin.idea.fir.K2DirectiveBasedActionUtils
 import org.jetbrains.kotlin.idea.inspections.AbstractLocalInspectionTest
 import org.jetbrains.kotlin.idea.test.KotlinLightProjectDescriptor
@@ -16,9 +14,6 @@ import org.jetbrains.kotlin.idea.test.KotlinWithJdkAndRuntimeLightProjectDescrip
 import org.jetbrains.kotlin.psi.KtFile
 import org.jetbrains.kotlin.test.util.invalidateCaches
 import java.io.File
-import java.nio.file.Path
-import kotlin.io.path.div
-import kotlin.io.path.exists
 
 abstract class AbstractK2LocalInspectionTest : AbstractLocalInspectionTest() {
 
@@ -42,22 +37,11 @@ abstract class AbstractK2LocalInspectionTest : AbstractLocalInspectionTest() {
         K2DirectiveBasedActionUtils.checkForErrorsAfter(mainFile, ktFile, fileText)
     }
 
-    override fun fileName(): String = k2FileName(super.fileName(), testDataDirectory)
-
     override fun tearDown() {
         runAll(
             { project.invalidateCaches() },
             { super.tearDown() }
         )
-    }
-
-    override fun getAfterTestDataAbsolutePath(mainFileName: String): Path {
-        val k2Extension = IgnoreTests.FileExtension.K2
-        val k2FileName = mainFileName.removeSuffix(".kt").removeSuffix(".$k2Extension") + ".$k2Extension.kt.after"
-        val k2FilePath = testDataDirectory.toPath() / k2FileName
-        if (k2FilePath.exists()) return k2FilePath
-
-        return super.getAfterTestDataAbsolutePath(mainFileName)
     }
 
     override fun doTest(path: String) {

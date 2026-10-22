@@ -12,6 +12,10 @@ jps_test(
 
 ### skip generation section `test intellij.platform.whatsNew.tests`
 
+### auto-generated section `dev intellij.platform.whatsNew` start
+content_module_jar(module = ":whatsNew")
+### auto-generated section `dev intellij.platform.whatsNew` end
+
 ### auto-generated section `build intellij.platform.whatsNew` start
 create_kotlinc_options(
     name = "custom_whatsNew",
@@ -64,8 +68,6 @@ jvm_library(
     ],
 )
 
-content_module_jar(module = ":whatsNew")
-
 jvm_library(
     name = "whatsNew_test_lib",
     testonly = True,
@@ -98,10 +100,6 @@ jvm_library(
         "//libraries/kotlinx/serialization/core:core_test_lib",
         "//platform/ui.jcef:ui.jcef_test_lib",
         "//platform/analysis-api:analysis_test_lib",
-        "//platform/testFramework",
-        "//platform/testFramework:testFramework_test_lib",
-        "//platform/testFramework/junit5",
-        "//platform/testFramework/junit5:junit5_test_lib",
         "//platform/util/coroutines:coroutines_test_lib",
     ],
 )
@@ -112,7 +110,6 @@ exports_files(
     [
         "intellij.platform.whatsNew.iml",
         "resources/intellij.platform.whatsNew.xml",
-        "module-content.yaml",
     ],
     visibility = ["//visibility:public"],
 )
@@ -201,8 +198,8 @@ jvm_library(
         "//platform/util/coroutines:coroutines_test_lib",
         "//libraries/junit4",
         "//libraries/junit4:junit4_test_lib",
-        "//libraries/junit5",
-        "//libraries/junit5:junit5_test_lib",
+        "//libraries/junit6",
+        "//libraries/junit6:junit6_test_lib",
     ],
 )
 ### auto-generated section `build intellij.platform.whatsNew.tests` end

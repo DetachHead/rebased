@@ -4,7 +4,6 @@
 package com.intellij.maven.testFramework.fixtures
 
 import com.intellij.ide.DataManager
-import com.intellij.maven.testFramework.MavenTestCase
 import com.intellij.openapi.actionSystem.CommonDataKeys
 import com.intellij.openapi.actionSystem.CustomizedDataContext
 import com.intellij.openapi.actionSystem.DataContext
@@ -18,13 +17,15 @@ import com.intellij.openapi.ui.TestDialogManager
 import com.intellij.openapi.util.ThrowableComputable
 import com.intellij.openapi.util.io.FileUtil
 import com.intellij.openapi.util.io.findOrCreateFile
-import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.openapi.vfs.VirtualFile
+import com.intellij.openapi.vfs.VirtualFileManager
+import com.intellij.openapi.vfs.newvfs.RefreshQueue
 import com.intellij.openapi.vfs.newvfs.impl.VfsRootAccess
 import com.intellij.testFramework.PsiTestUtil
 import com.intellij.testFramework.UsefulTestCase.assertSameElements
 import com.intellij.util.ThrowableRunnable
 import org.intellij.lang.annotations.Language
+import org.jetbrains.annotations.NonNls
 import org.jetbrains.idea.maven.project.MavenSettingsCache
 import org.jetbrains.idea.maven.utils.MavenLog
 import java.nio.charset.StandardCharsets
@@ -36,7 +37,7 @@ import kotlin.io.path.absolutePathString
 // Project-model authoring: creating/updating poms, profiles, sub-files and settings.
 
 val MavenTestFixture.projectRoot: VirtualFile
-  get() = LocalFileSystem.getInstance().refreshAndFindFileByNioFile(Path.of(project.basePath!!))!!
+  get() = VirtualFileManager.getInstance().refreshAndFindFileByNioPath(Path.of(project.basePath!!))!!
 
 fun MavenImportingTestFixture.createProjectPom(@Language(value = "XML", prefix = "<project>", suffix = "</project>") xml: String): VirtualFile {
   return createPomFile(projectRoot, xml).also { projectPom = it }
@@ -44,7 +45,7 @@ fun MavenImportingTestFixture.createProjectPom(@Language(value = "XML", prefix =
 
 /**
  * Writes [content] verbatim to the project-root `pom.xml` and makes it the project pom. Unlike [createProjectPom], it
- * does NOT wrap the content via [MavenTestCase.createPomXml], so the test keeps full control over the file (e.g. a
+ * does NOT wrap the content via [createPomXml], so the test keeps full control over the file (e.g. a
  * custom `<?xml ...?>` declaration, explicit `xmlns`, or model version).
  */
 fun MavenImportingTestFixture.setRawPomFile(content: String) {
@@ -74,7 +75,7 @@ fun MavenImportingTestFixture.updateModulePom(relativePath: String, @Language(va
 
 fun MavenImportingTestFixture.createPomFile(dir: VirtualFile, @Language(value = "XML", prefix = "<project>", suffix = "</project>") xml: String): VirtualFile {
   val filePath = Path.of(dir.path, "pom.xml")
-  Files.writeString(filePath, MavenTestCase.createPomXml(modelVersion, xml, false))
+  Files.writeString(filePath, createPomXml(modelVersion, xml, false))
   dir.refresh(false, false)
   val f = dir.findChild("pom.xml") ?: throw AssertionError("can't find pom.xml ${filePath.absolutePathString()} in VFS")
   refreshFiles(listOf(f))
@@ -84,21 +85,21 @@ fun MavenImportingTestFixture.createPomFile(dir: VirtualFile, @Language(value = 
 fun MavenTestFixture.createProjectSubDir(relativePath: String): VirtualFile {
   val f = Path.of(project.basePath!!).resolve(relativePath)
   Files.createDirectories(f)
-  return LocalFileSystem.getInstance().refreshAndFindFileByNioFile(f)!!
+  return VirtualFileManager.getInstance().refreshAndFindFileByNioPath(f)!!
 }
 
 fun MavenTestFixture.createProjectSubFile(relativePath: String, content: String = ""): VirtualFile {
   val f = Path.of(project.basePath!!).resolve(relativePath)
   Files.createDirectories(f.parent)
   Files.writeString(f, content)
-  return LocalFileSystem.getInstance().refreshAndFindFileByNioFile(f)!!
+  return VirtualFileManager.getInstance().refreshAndFindFileByNioPath(f)!!
 }
 
 // Ported from MavenTestCase.
 fun MavenTestFixture.createFile(path: Path): VirtualFile {
   Files.createDirectories(path.parent)
   if (!Files.exists(path)) Files.createFile(path)
-  return LocalFileSystem.getInstance().refreshAndFindFileByNioFile(path)!!
+  return VirtualFileManager.getInstance().refreshAndFindFileByNioPath(path)!!
 }
 
 fun MavenTestFixture.createFile(path: Path, content: String): VirtualFile {
@@ -167,14 +168,14 @@ private fun createValidProfiles(@Language("XML") xml: String, oldStyle: Boolean)
 
 fun MavenTestFixture.updateProjectSubFile(relativePath: String, content: String): VirtualFile {
   val nioPath = Path.of(project.basePath!!).resolve(relativePath)
-  val file = LocalFileSystem.getInstance().refreshAndFindFileByNioFile(nioPath)!!
+  val file = VirtualFileManager.getInstance().refreshAndFindFileByNioPath(nioPath)!!
   Files.writeString(nioPath, content)
   refreshFiles(listOf(file))
   return file
 }
 
 fun MavenImportingTestFixture.setPomContent(file: VirtualFile, @Language(value = "XML", prefix = "<project>", suffix = "</project>") xml: String) {
-  Files.writeString(file.toNioPath(), MavenTestCase.createPomXml(modelVersion, xml, false))
+  Files.writeString(file.toNioPath(), createPomXml(modelVersion, xml, false))
   refreshFiles(listOf(file))
 }
 
@@ -183,7 +184,7 @@ suspend fun MavenImportingTestFixture.updateSettingsXml(@Language(value = "XML",
   ioFile.findOrCreateFile()
   VfsRootAccess.allowRootAccess(disposable, ioFile.toString())
   Files.writeString(ioFile, "<settings>$content</settings>\r\n")
-  val f = LocalFileSystem.getInstance().refreshAndFindFileByNioFile(ioFile)!!
+  val f = VirtualFileManager.getInstance().refreshAndFindFileByNioPath(ioFile)!!
   refreshFiles(listOf(f))
   projectsManager.generalSettings.setUserSettingsFile(f.path)
   MavenSettingsCache.getInstance(project).reloadAsync()
@@ -191,7 +192,7 @@ suspend fun MavenImportingTestFixture.updateSettingsXml(@Language(value = "XML",
 }
 
 fun MavenTestFixture.refreshFiles(files: List<VirtualFile>) {
-  LocalFileSystem.getInstance().refreshFiles(files)
+  RefreshQueue.getInstance().refresh(false, false, null, files)
 }
 
 fun MavenTestFixture.assertModules(vararg expectedNames: String) {
@@ -220,7 +221,28 @@ fun MavenTestFixture.configConfirmationForNoAnswer(): AtomicInteger {
 }
 
 fun MavenImportingTestFixture.createPomXml(@Language(value = "XML", prefix = "<project>", suffix = "</project>") xml: String): String {
-  return MavenTestCase.createPomXml(modelVersion, xml, false)
+  return createPomXml(modelVersion, xml, false)
+}
+
+/** Wraps [xml] into a full `pom.xml` document with the namespace of [modelVersion]. */
+@Language("XML")
+fun createPomXml(
+  modelVersion: String,
+  @Language(value = "XML", prefix = "<project>", suffix = "</project>") xml: @NonNls String?,
+  omitModelVersionTag: Boolean,
+): @NonNls String {
+  val projectStartTag = """
+        <?xml version="1.0"?>
+        <project xmlns="http://maven.apache.org/POM/$modelVersion"
+                 xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                 xsi:schemaLocation="http://maven.apache.org/POM/$modelVersion http://maven.apache.org/xsd/maven-$modelVersion.xsd">
+      """.trimIndent()
+  return if (omitModelVersionTag) {
+    "$projectStartTag\n$xml</project>"
+  }
+  else {
+    "$projectStartTag\n  <modelVersion>$modelVersion</modelVersion>\n$xml</project>"
+  }
 }
 
 val MavenTestFixture.projectPath: Path
@@ -240,7 +262,7 @@ fun MavenImportingTestFixture.createSettingsXml(@Language(value = "XML", prefix 
   val path = dir.resolve("settings.xml")
   Files.writeString(path, content)
   projectsManager.generalSettings.setUserSettingsFile(path.toString())
-  return LocalFileSystem.getInstance().refreshAndFindFileByNioFile(path)!!
+  return VirtualFileManager.getInstance().refreshAndFindFileByNioPath(path)!!
 }
 
 /** Builds a [DataContext] for an action under test, carrying the project and the pom as the selected file. */
@@ -291,7 +313,7 @@ fun MavenImportingTestFixture.createPomFile(
   omitModelVersionTag: Boolean,
 ): VirtualFile {
   val filePath = Path.of(dir.path, "pom.xml")
-  Files.writeString(filePath, MavenTestCase.createPomXml(modelVersion, xml, omitModelVersionTag))
+  Files.writeString(filePath, createPomXml(modelVersion, xml, omitModelVersionTag))
   dir.refresh(false, false)
   val f = dir.findChild("pom.xml") ?: throw AssertionError("can't find pom.xml ${filePath.absolutePathString()} in VFS")
   refreshFiles(listOf(f))
@@ -305,7 +327,7 @@ fun MavenImportingTestFixture.createPomFile(
   omitModelVersionTag: Boolean = false,
 ): VirtualFile {
   val filePath = Path.of(dir.path, fileName)
-  Files.writeString(filePath, MavenTestCase.createPomXml(modelVersion, xml, omitModelVersionTag))
+  Files.writeString(filePath, createPomXml(modelVersion, xml, omitModelVersionTag))
   dir.refresh(false, false)
   val f = dir.findChild(fileName) ?: throw AssertionError("can't find $fileName ${filePath.absolutePathString()} in VFS")
   refreshFiles(listOf(f))

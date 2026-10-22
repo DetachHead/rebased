@@ -5,8 +5,8 @@ import com.intellij.psi.PsiMethod;
 public class AllSuperMethodsTest extends OverridingTester {
 
   @Override
-  protected String getBasePath() {
-    return super.getBasePath() + "allSuperMethods";
+  protected String getTestDataPath() {
+    return super.getTestDataPath() + "allSuperMethods";
   }
 
   public void testExtendsAndImplements() { doTest(); }

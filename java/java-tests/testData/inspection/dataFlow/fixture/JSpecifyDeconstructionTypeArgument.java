@@ -1,3 +1,4 @@
+import org.jspecify.annotations.NonNull;
 import org.jspecify.annotations.NullMarked;
 import org.jspecify.annotations.Nullable;
 
@@ -17,10 +18,48 @@ abstract class JSpecifyDeconstructionTypeArgument {
 
   abstract Foo<Bar> makeFooBar();
 
+  abstract Foo<Object> makeFooObject();
+
   // The pattern instantiates T with the non-null Bar, so bar is not null.
   void unnamedPattern() {
     Foo<Bar> foo = makeFooBar();
     if (foo instanceof Foo.FooInner<Bar>(Bar bar)) {
+      switch (bar) {
+        case Bar.BarInner ignored -> {}
+      }
+    }
+  }
+
+  void unnamedPatternNoArg() {
+    Foo<Bar> foo = makeFooBar();
+    if (foo instanceof Foo.FooInner(Bar bar)) {
+      switch (bar) {
+        case Bar.BarInner ignored -> {}
+      }
+    }
+  }
+
+  void unnamedPatternObject() {
+    Foo<? extends Object> foo = makeFooBar();
+    if (foo instanceof Foo.FooInner(Bar bar)) {
+      switch (bar) {
+        case Bar.BarInner ignored -> {}
+      }
+    }
+  }
+
+  void unnamedPatternObject2() {
+    Foo<? extends Object> foo = makeFooObject();
+    if (foo instanceof Foo.FooInner(Bar bar)) {
+      switch (bar) {
+        case Bar.BarInner ignored -> {}
+      }
+    }
+  }
+
+  void unnamedPatternObject3() {
+    Foo<? extends Object> foo = makeFooObject();
+    if (foo instanceof Foo.FooInner(Bar bar)) {
       switch (bar) {
         case Bar.BarInner ignored -> {}
       }
@@ -74,6 +113,67 @@ abstract class JSpecifyDeconstructionTypeArgument {
   void nestedPattern(Box<Bar> box) {
     if (box instanceof Box<Bar>(Foo.FooInner<Bar>(Bar bar))) {
       switch (bar) {
+        case Bar.BarInner ignored -> {}
+      }
+    }
+  }
+
+  void typeTestPatternNullCheck() {
+    Foo<Bar> foo = makeFooBar();
+    if (foo instanceof Foo.FooInner<Bar> fi) {
+      if (<warning descr="Condition 'fi.value() == null' is always 'false'">fi.value() == null</warning>) {}
+    }
+  }
+
+  void nestedPatternNullCheck(Box<Bar> box) {
+    if (box instanceof Box<Bar>(Foo.FooInner<Bar>(Bar bar))) {
+      if (<warning descr="Condition 'bar == null' is always 'false'">bar == null</warning>) {}
+    }
+  }
+
+  // The context type says the component is nullable, so the written non-null type argument does not apply.
+  void nullableContextTypeTest(Foo.FooInner<@Nullable Bar> foo) {
+    if (<warning descr="Condition 'foo instanceof Foo.FooInner<Bar> fi' is always 'true'">foo instanceof Foo.FooInner<Bar> fi</warning>) {
+      fi.value().<warning descr="Method invocation 'hashCode' may produce 'NullPointerException'">hashCode</warning>();
+    }
+  }
+
+  // A nullability written on a pattern type is ignored, so the not-null context type wins.
+  void writtenNullableIgnored() {
+    Foo<Bar> foo = makeFooBar();
+    if (foo instanceof Foo.FooInner<@Nullable Bar> fi) {
+      if (<warning descr="Condition 'fi.value() == null' is always 'false'">fi.value() == null</warning>) {}
+    }
+  }
+
+  // The pattern cannot check the nullness of the type argument, so the nullable context type stays.
+  void nullableContextDeconstruction(Foo.FooInner<@Nullable Bar> foo) {
+    if (foo.value() == null) {
+      if (<warning descr="Condition 'foo instanceof Foo.FooInner<Bar>(Bar bar)' is always 'true'">foo instanceof Foo.FooInner<Bar>(Bar bar)</warning>) {
+        System.out.println(bar.<warning descr="Method invocation 'hashCode' will produce 'NullPointerException'">hashCode</warning>());
+      }
+    }
+  }
+}
+
+abstract class NoNullMarked {
+  public interface Foo<T extends @Nullable Object> {
+    record FooInner<T extends @Nullable  Bar>(T value) implements Foo<T> {}
+  }
+
+  public sealed interface Bar {
+    record BarInner() implements Bar {}
+  }
+
+  public abstract @NonNull Foo<@NonNull Bar> makeFooBar();
+
+  // The not-null wildcard bound makes the inferred T not null, though the declared bound of T is nullable.
+  public void bar() {
+    Foo<? extends @NonNull Object> foo = makeFooBar();
+
+    if (foo instanceof Foo.FooInner(Bar bar)) {
+      switch (bar) {
+
         case Bar.BarInner ignored -> {}
       }
     }

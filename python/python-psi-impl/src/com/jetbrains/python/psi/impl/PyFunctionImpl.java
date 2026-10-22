@@ -77,6 +77,7 @@ import com.jetbrains.python.psi.types.PyAnyType;
 import com.jetbrains.python.psi.types.PyCallableParameter;
 import com.jetbrains.python.psi.types.PyCallableParameterImpl;
 import com.jetbrains.python.psi.types.PyCallableType;
+import com.jetbrains.python.psi.types.PyClassType;
 import com.jetbrains.python.psi.types.PyFunctionTypeImpl;
 import com.jetbrains.python.psi.types.PyNeverType;
 import com.jetbrains.python.psi.types.PyType;
@@ -85,6 +86,7 @@ import com.jetbrains.python.psi.types.PyUnionType;
 import com.jetbrains.python.psi.types.PyUnpackedTypedDictTypeImpl;
 import com.jetbrains.python.psi.types.TypeEvalContext;
 import com.jetbrains.python.sdk.legacy.PythonSdkUtil;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -228,6 +230,12 @@ public class PyFunctionImpl extends PyBaseElementImpl<PyFunctionStub> implements
     return PyTypingTypeProvider.removeNarrowedTypeIfNeeded(PyTypingTypeProvider.toAsyncIfNeeded(this, inferredType));
   }
 
+  /** The type of `None`, or an unknown type when the project has no builtins. */
+  private @Nullable PyType getNoneTypeOrUnknown() {
+    final PyClassType noneType = PyBuiltinCache.getInstance(this).getNoneType();
+    return noneType != null ? noneType : PyAnyType.getUnknown();
+  }
+
   private static @Nullable PyType derefType(@NotNull Ref<PyType> typeRef, @NotNull PyTypeProvider typeProvider) {
     final PyType type = typeRef.get();
     if (type != null) {
@@ -284,7 +292,7 @@ public class PyFunctionImpl extends PyBaseElementImpl<PyFunctionStub> implements
     final List<PyType> yieldTypes = map(visitor.getYieldExpressions(), it -> it.getYieldType(context));
     final List<PyType> sendTypes = map(visitor.getYieldExpressions(), it -> it.getSendType(context));
     if (!yieldTypes.isEmpty()) {
-      return Pair.create(PyUnionType.union(yieldTypes), PyUnionType.union(sendTypes));
+      return Pair.create(PyUnionType.unionOrUnknown(yieldTypes), PyUnionType.unionOrUnknown(sendTypes));
     }
     return null;
   }
@@ -303,16 +311,16 @@ public class PyFunctionImpl extends PyBaseElementImpl<PyFunctionStub> implements
       if (point instanceof PyReturnStatement returnStatement) {
         hasReturn = true;
         final PyExpression expr = returnStatement.getExpression();
-        types.add(expr != null ? context.getType(expr) : PyBuiltinCache.getInstance(this).getNoneType());
+        types.add(expr != null ? context.getType(expr) : getNoneTypeOrUnknown());
       }
       else {
-        types.add(PyBuiltinCache.getInstance(this).getNoneType());
+        types.add(getNoneTypeOrUnknown());
       }
     }
 
     if ((isGeneratedStub() || PyKnownDecoratorUtil.hasAbstractDecorator(this, context)) && !hasReturn) {
       if (PyUtil.isInitMethod(this)) {
-        return PyBuiltinCache.getInstance(this).getNoneType();
+        return getNoneTypeOrUnknown();
       }
       return PyAnyType.getUnknown();
     }
@@ -321,7 +329,21 @@ public class PyFunctionImpl extends PyBaseElementImpl<PyFunctionStub> implements
 
   @Override
   public @NotNull List<PyStatement> getReturnPoints(@NotNull TypeEvalContext context) {
-    final PyDataFlow dataFlow = ControlFlowCache.getDataFlow(this, new FlowContext(context, false));
+    return collectReturnPoints(this, context, true);
+  }
+
+  /**
+   * Implements {@link PyFunction#getReturnPoints(TypeEvalContext)}.
+   *
+   * @param inspectCalleeBodies if false, a call stops the flow only when its callee has an annotated {@code NoReturn} return type.
+   *                            Use false to analyze the body of a callee, so that the analysis does not go into the callees of the callee.
+   * @see CallInstruction#isNoReturnCall(TypeEvalContext, boolean)
+   */
+  @ApiStatus.Internal
+  public static @NotNull List<PyStatement> collectReturnPoints(@NotNull PyFunction function,
+                                                               @NotNull TypeEvalContext context,
+                                                               boolean inspectCalleeBodies) {
+    final PyDataFlow dataFlow = ControlFlowCache.getDataFlow(function, new FlowContext(context, false));
     final Instruction[] flow = dataFlow.getInstructions();
 
     class ReturnPointCollector {
@@ -341,7 +363,7 @@ public class PyFunctionImpl extends PyBaseElementImpl<PyFunctionStub> implements
           collectImplicitReturn = oldCollectImplicitReturn;
           return ControlFlowUtil.Operation.CONTINUE;
         }
-        if (instruction instanceof CallInstruction ci && ci.isNoReturnCall(context)) {
+        if (instruction instanceof CallInstruction ci && ci.isNoReturnCall(context, inspectCalleeBodies)) {
           return ControlFlowUtil.Operation.CONTINUE;
         }
         if (instruction instanceof PyRaiseInstruction) {

@@ -115,6 +115,12 @@ To run one checker by hand: `uvx ty check test.py`, `uvx pyrefly check test.py`,
   bare class name means *nothing ran*, not that it passed. Always pass the FQN (e.g.
   `com.intellij.python.junit5Tests.unit.PyVersionSpecifiersTest`) and confirm the run
   reports a non-zero test count.
+- A Pyrefly env test under `python/junit5Tests/tests/.../env` (module
+  `intellij.python.junit5Tests`) needs the bundled Pyrefly in the dev-build layout. The
+  `Python JUnit (dev mode)` runner in the root `intellij.yaml` passes `-Dpyrefly.bundle=true`
+  for `tests.cmd` and for IDE runs alike, so pass no flag yourself. A failure in `@BeforeAll`
+  with `Pyrefly LSP server did not reach the Running state` means the runner did not apply.
+  See the `py-junit5-tests` skill.
 
 ### Python 2 and Python 3 in tests
 
@@ -128,7 +134,7 @@ To run one checker by hand: `uvx ty check test.py`, `uvx pyrefly check test.py`,
   refactorings, editing actions, etc. or there are many related test cases already present in one
   of the legacy tests that is yet to be ported.
 - Some legacy test classes have separate Python 2 and Python 3 variants, e.g.
-  `PyArgumentListInspectionTest` for Python 2 scenarios and `Py3ArgumentListInspectionTest` for
+  `Py2ArgumentListInspectionTest` for Python 2 scenarios and `Py3ArgumentListInspectionTest` for
   Python 3 scenarios. The main difference is that non-"Py3" versions of tests use the Python 2
   version of the standard library in the bundled copy of Typeshed. 
   When extending a legacy test, use the "Py3" version of a test class whenever it's available.

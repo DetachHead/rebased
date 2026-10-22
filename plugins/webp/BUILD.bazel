@@ -1,5 +1,62 @@
-load("@community//platform/build-scripts/bazel-rules:dev_dist_plugin.bzl", "dev_dist_plugin")
+load("@jps_dynamic_deps_community//:targets.bzl", "dev_dist_plugin")
 load("@rules_jvm//:jvm.bzl", "jvm_library")
+load("//platform/build-scripts/bazel-rules:dev_plugin_remainder.bzl", "dev_dist_complex_plugin")
+
+### auto-generated section `dev intellij.webp` start
+dev_dist_plugin(
+    descriptor = "resources/META-INF/plugin.xml",
+    main_module = "intellij.webp",
+)
+
+dev_dist_complex_plugin(
+    artifact_inputs = {
+        "//plugins/webp:webp.jar": "intellij.webp",
+    },
+    descriptor = "//plugins/webp:intellij.webp_dev_descriptor",
+    execution_version = 2,
+    libraries = {
+        "//plugins/webp/lib:webp-libwebp": "//plugins/webp/lib:webp-libwebp",
+    },
+    main_module = "intellij.webp",
+    platform_values = {
+        "darwin_aarch64": {
+            "destination": "lib/libwebp/mac/aarch64",
+            "pattern": "macOS-AArch64/libwebp_jni.dylib",
+        },
+        "darwin_x64": {
+            "destination": "lib/libwebp/mac/amd64",
+            "pattern": "macOS-X86_64/libwebp_jni.dylib",
+        },
+        "linux_aarch64": {
+            "destination": "lib/libwebp/linux/aarch64",
+            "pattern": "Linux-AArch64/libwebp_jni.so",
+        },
+        "linux_x64": {
+            "destination": "lib/libwebp/linux/amd64",
+            "pattern": "Linux-X86_64/libwebp_jni.so",
+        },
+        "windows_aarch64": {
+            "destination": "lib/libwebp/win/aarch64",
+            "pattern": "Windows-AArch64/webp_jni.dll",
+        },
+        "windows_x64": {
+            "destination": "lib/libwebp/win/amd64",
+            "pattern": "Windows-X86_64/webp_jni.dll",
+        },
+    },
+    platforms = [
+        "windows_x64",
+        "windows_aarch64",
+        "darwin_x64",
+        "darwin_aarch64",
+        "linux_x64",
+        "linux_aarch64",
+    ],
+    resource_inputs = {
+        "@dev_launch_libwebp//:files": "layout-source:platform-resource-generator:0:0",
+    },
+)
+### auto-generated section `dev intellij.webp` end
 
 ### auto-generated section `build intellij.webp` start
 jvm_library(
@@ -59,12 +116,3 @@ exports_files(
     visibility = ["//visibility:public"],
 )
 ### auto-generated section `iml intellij.webp` end
-
-### auto-generated section `dev intellij.webp` start
-dev_dist_plugin(
-    descriptor = "resources/META-INF/plugin.xml",
-    descriptor_module = ":webp",
-    libraries = ["//plugins/webp/lib:webp-libwebp"],
-    main_module = "intellij.webp",
-)
-### auto-generated section `dev intellij.webp` end

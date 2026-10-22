@@ -8,7 +8,6 @@ import com.intellij.diagnostic.StartUpMeasurer
 import com.intellij.idea.AppMode
 import com.intellij.idea.WellKnownCommand
 import com.intellij.openapi.application.ApplicationInfo
-import com.intellij.openapi.application.ApplicationNamesInfo
 import com.intellij.openapi.application.PathManager
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.util.SystemInfoRt
@@ -19,6 +18,7 @@ import com.intellij.platform.ide.progress.runWithModalProgressBlocking
 import com.intellij.ui.JreHiDpiUtil
 import com.intellij.ui.icons.HiDPIImage
 import com.intellij.ui.icons.loadImageForStartUp
+import com.intellij.ui.paint.use
 import com.intellij.ui.scale.JBUIScale
 import com.intellij.util.JBHiDPIScaledImage
 import com.intellij.util.concurrency.annotations.RequiresEdt
@@ -228,7 +228,7 @@ fun hideSplash() {
   splashJob.get().cancel("hideSplash")
 }
 
-@RequiresEdt
+@RequiresEdt(generateAssertion = false /* IJPL-115548 */)
 internal fun blockingLoadSplashImage(appInfo: ApplicationInfo): BufferedImage? {
   return runWithModalProgressBlocking(ModalTaskOwner.guess(), "") {
     loadSplashImage(appInfo)
@@ -242,7 +242,7 @@ internal suspend fun loadSplashImage(appInfo: ApplicationInfo): BufferedImage? {
   val isJreHiDPIEnabled = JreHiDpiUtil.isJreHiDPIEnabled()
   val scale = if (isJreHiDPIEnabled) JBUIScale.sysScale() * JBUIScale.scale(1f) else JBUIScale.scale(1f)
   val file = try {
-    getCacheFile(scale = scale, appInfo = appInfo, path = splashImagePath)
+    getCacheFile(scale = scale, path = splashImagePath, build = appInfo.build.asString())
   }
   catch (e: Throwable) {
     logger<Splash>().warn(e)
@@ -282,16 +282,16 @@ private fun doLoadImage(path: String, scale: Float, isJreHiDPIEnabled: Boolean):
   val h = originalImage.height
   @Suppress("UndesirableClassUsage")
   val resultImage = BufferedImage(w, h, BufferedImage.TYPE_INT_ARGB)
-  val g2 = resultImage.createGraphics()
-  g2.composite = AlphaComposite.Src
-  ImageUtil.applyQualityRenderingHints(g2)
-  @Suppress("UseJBColor")
-  g2.color = Color.WHITE
-  val cornerRadius = 8 * scale
-  g2.fill(RoundRectangle2D.Float(0f, 0f, w.toFloat(), h.toFloat(), cornerRadius, cornerRadius))
-  g2.composite = AlphaComposite.SrcIn
-  g2.drawImage(originalImage, 0, 0, null)
-  g2.dispose()
+  resultImage.createGraphics().use { g2 ->
+    g2.composite = AlphaComposite.Src
+    ImageUtil.applyQualityRenderingHints(g2)
+    @Suppress("UseJBColor")
+    g2.color = Color.WHITE
+    val cornerRadius = 8 * scale
+    g2.fill(RoundRectangle2D.Float(0f, 0f, w.toFloat(), h.toFloat(), cornerRadius, cornerRadius))
+    g2.composite = AlphaComposite.SrcIn
+    g2.drawImage(originalImage, 0, 0, null)
+  }
   return createHiDpiAwareImage(rawImage = resultImage, scale = scale, isJreHiDPIEnabled = isJreHiDPIEnabled)
 }
 
@@ -306,33 +306,23 @@ private suspend fun loadImageFromCache(file: Path, scale: Float, isJreHiDPIEnabl
   return null
 }
 
-private fun getCacheFile(scale: Float, appInfo: ApplicationInfo, path: String): Path {
-  val appInfoData = ApplicationNamesInfo.getAppInfoData()
-  if (appInfoData.isEmpty()) {
-    val hasher = Hashing.komihash5_0().hashStream()
-    try {
-      hasher.putInt(Splash::class.java.classLoader.getResourceAsStream(path)?.use { it.available() } ?: 0)
-    }
-    catch (e: Throwable) {
-      logger<Splash>().warn("Failed to read splash image", e)
-    }
-
-    hasher.putChars(path)
-
-    val fileName = java.lang.Long.toUnsignedString(hasher.asLong, Character.MAX_RADIX) +
-                   Integer.toUnsignedString(scale.toBits(), Character.MAX_RADIX) +
-                   ".v2.ij"
-    return Path.of(PathManager.getSystemPath(), "splash", fileName)
+/** The key holds the build number, the image path, the image size and the scale. */
+private fun getCacheFile(scale: Float, path: String, build: String): Path {
+  val hasher = Hashing.komihash5_0().hashStream()
+  hasher.putChars(build)
+  try {
+    hasher.putInt(Splash::class.java.classLoader.getResourceAsStream(path)?.use { it.available() } ?: 0)
   }
-  else {
-    val fileName = java.lang.Long.toUnsignedString(appInfo.buildTime.toEpochSecond(), Character.MAX_RADIX) +
-                   "-" +
-                   Integer.toUnsignedString(path.hashCode(), Character.MAX_RADIX) +
-                   "-" +
-                   Integer.toUnsignedString(scale.toBits(), Character.MAX_RADIX) +
-                   ".ij"
-    return Path.of(PathManager.getSystemPath(), "splash", fileName)
+  catch (e: Throwable) {
+    logger<Splash>().warn("Failed to read splash image", e)
   }
+
+  hasher.putChars(path)
+
+  val fileName = java.lang.Long.toUnsignedString(hasher.asLong, Character.MAX_RADIX) +
+                 Integer.toUnsignedString(scale.toBits(), Character.MAX_RADIX) +
+                 ".v2.ij"
+  return Path.of(PathManager.getSystemPath(), "splash", fileName)
 }
 
 private suspend fun readImage(file: Path, scale: Float, isJreHiDPIEnabled: Boolean): BufferedImage? {

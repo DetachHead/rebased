@@ -1,4 +1,6 @@
-// "Change return type to 'T'" "true"
+// "Change return type to 'S'" "true"
+// K2_AFTER_ERROR: RETURN_TYPE_MISMATCH_ON_OVERRIDE
+// K2_ERROR: RETURN_TYPE_MISMATCH_ON_OVERRIDE
 open class S {}
 open class T : S() {}
 
@@ -15,5 +17,4 @@ abstract class B : A(), X {
 }
 
 
-// FUS_QUICKFIX_NAME: org.jetbrains.kotlin.idea.quickfix.ChangeCallableReturnTypeFix$OnType
-// FUS_K2_QUICKFIX_NAME: org.jetbrains.kotlin.idea.k2.codeinsight.fixes.ChangeTypeQuickFixFactories$UpdateTypeQuickFix
+// FUS_QUICKFIX_NAME: org.jetbrains.kotlin.idea.k2.codeinsight.fixes.ChangeTypeQuickFixFactories$UpdateTypeQuickFix

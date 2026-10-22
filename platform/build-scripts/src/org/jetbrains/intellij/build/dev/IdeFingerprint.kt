@@ -6,7 +6,9 @@ import io.opentelemetry.api.trace.Span
 import org.jetbrains.annotations.VisibleForTesting
 import org.jetbrains.intellij.build.impl.projectStructureMapping.DistributionFileEntry
 import java.nio.file.Files
+import java.nio.file.LinkOption
 import java.nio.file.Path
+import java.nio.file.attribute.PosixFilePermission
 import kotlin.io.path.invariantSeparatorsPathString
 
 private const val IDE_FINGERPRINT_VERSION = "v5"
@@ -32,13 +34,9 @@ internal class IdeFingerprintEntry(
   @JvmField val executable: Boolean = false,
 )
 
-internal fun writeIdeFingerprint(
-  entries: Sequence<DistributionFileEntry>,
-  runDir: Path,
-  projectDir: Path,
-) {
+internal fun writeIdeFingerprint(entries: Sequence<DistributionFileEntry>, runDir: Path) {
   val debug = if (System.getProperty("intellij.build.fingerprint.debug").toBoolean()) StringBuilder() else null
-  val fingerprint = computeIdeFingerprint(entries = entries, runDir = runDir, projectDir = projectDir, debug = debug)
+  val fingerprint = computeIdeFingerprint(entries = entries, runDir = runDir, debug = debug)
   Files.writeString(runDir.resolve("fingerprint.txt"), fingerprint)
   debug?.let { Files.writeString(runDir.resolve("fingerprint-debug.txt"), it) }
   Span.current().addEvent("IDE fingerprint: $fingerprint")
@@ -53,13 +51,11 @@ internal fun writeIdeFingerprint(
 internal fun computeIdeFingerprint(
   entries: Sequence<DistributionFileEntry>,
   runDir: Path,
-  projectDir: Path,
   debug: StringBuilder? = null,
 ): String {
   val normalizedRunDir = runDir.toAbsolutePath().normalize()
-  val normalizedProjectDir = projectDir.toAbsolutePath().normalize()
   val fingerprintEntries = entries.map { entry ->
-    val relativePath = getRelativeDistributionPath(entry, normalizedRunDir, normalizedProjectDir)
+    val relativePath = getRelativeDistributionPath(entry, normalizedRunDir)
     IdeFingerprintEntry(
       relativePath = relativePath.invariantSeparatorsPathString,
       type = entry.type,
@@ -70,13 +66,10 @@ internal fun computeIdeFingerprint(
   return computeIdeFingerprint(fingerprintEntries, debug)
 }
 
-internal fun getRelativeDistributionPath(entry: DistributionFileEntry, distributionRoot: Path, projectDir: Path): Path {
+private fun getRelativeDistributionPath(entry: DistributionFileEntry, distributionRoot: Path): Path {
   val path = entry.distributionPath.toAbsolutePath().normalize()
-  return when {
-    path.startsWith(distributionRoot) -> distributionRoot.relativize(path)
-    path.startsWith(projectDir) -> projectDir.relativize(path)
-    else -> error("Distribution entry is outside the distribution and project roots: ${entry.distributionPath}")
-  }
+  check(path.startsWith(distributionRoot)) { "Distribution entry is outside the distribution root: ${entry.distributionPath}" }
+  return distributionRoot.relativize(path)
 }
 
 @VisibleForTesting
@@ -97,4 +90,19 @@ internal fun computeIdeFingerprint(entries: List<IdeFingerprintEntry>, debug: St
       ?.append(' ')?.append(entry.type)?.append(' ')?.append(entry.relativePath)?.append('\n')
   }
   return "$IDE_FINGERPRINT_VERSION:${java.lang.Long.toUnsignedString(hasher.asLong, Character.MAX_RADIX)}"
+}
+
+private fun computeDevBuildExecutableBit(file: Path): Boolean {
+  if (!Files.isRegularFile(file, LinkOption.NOFOLLOW_LINKS)) {
+    return false
+  }
+  val permissions = try {
+    Files.getPosixFilePermissions(file, LinkOption.NOFOLLOW_LINKS)
+  }
+  catch (_: UnsupportedOperationException) {
+    return false
+  }
+  return PosixFilePermission.OWNER_EXECUTE in permissions ||
+         PosixFilePermission.GROUP_EXECUTE in permissions ||
+         PosixFilePermission.OTHERS_EXECUTE in permissions
 }

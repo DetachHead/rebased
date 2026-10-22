@@ -12,10 +12,13 @@ import com.intellij.ui.ExperimentalUI
 import com.intellij.ui.content.ContentManager
 import com.intellij.util.concurrency.annotations.RequiresEdt
 import com.intellij.util.execution.ParametersListUtil
+import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.plugins.terminal.TerminalEngine
 import org.jetbrains.plugins.terminal.TerminalOptionsProvider
 import org.jetbrains.plugins.terminal.TerminalTabState
 import org.jetbrains.plugins.terminal.TerminalToolWindowManager
+import org.jetbrains.plugins.terminal.fus.ReworkedTerminalUsageCollector
+import org.jetbrains.plugins.terminal.fus.TerminalCommandUsageStatistics
 import org.jetbrains.plugins.terminal.fus.TerminalStartupFusInfo
 import org.jetbrains.plugins.terminal.startup.TerminalProcessType
 import org.jetbrains.plugins.terminal.util.getNow
@@ -57,27 +60,35 @@ internal fun createTerminalTab(
 /**
  * Checks for user settings and known restrictions and returns true if the Reworked Terminal should be used.
  */
-internal fun shouldUseReworkedTerminal(): Boolean {
+@ApiStatus.Internal
+fun shouldUseReworkedTerminal(): Boolean {
   val engine = TerminalOptionsProvider.instance.terminalEngine
   val frontendType = FrontendApplicationInfo.getFrontendType()
   val isCodeWithMe = frontendType is FrontendType.Remote && frontendType.isGuest()
   return ExperimentalUI.isNewUI() && engine == TerminalEngine.REWORKED && !isCodeWithMe
 }
 
-internal fun TerminalView.getRunningProcessCommandLine(): String? {
-  val startupOptions = startupOptionsDeferred.getNow() ?: return null
-  return if (startupOptions.processType == TerminalProcessType.NON_SHELL) {
+/**
+ * Returns the executable of the running process in the form that FUS accepts.
+ * Returns null if the shell runs no command.
+ * Returns [TerminalCommandUsageStatistics.UNKNOWN_EXECUTABLE] if the process is not started yet,
+ * or the shell integration is not available.
+ */
+internal fun TerminalView.getRunningProcessExecutableForFus(): String? {
+  val startupOptions = startupOptionsDeferred.getNow() ?: return TerminalCommandUsageStatistics.UNKNOWN_EXECUTABLE
+  val commandLine = if (startupOptions.processType == TerminalProcessType.NON_SHELL) {
     ParametersListUtil.join(startupOptions.shellCommand)
   }
   else {
     // If it is a shell process, we need to get the current running command via shell integration
-    val shellIntegration = shellIntegrationDeferred.getNow() ?: return null
+    val shellIntegration = shellIntegrationDeferred.getNow() ?: return TerminalCommandUsageStatistics.UNKNOWN_EXECUTABLE
     val currentBlock = shellIntegration.blocksModel.activeBlock as? TerminalCommandBlock ?: return null
     currentBlock.executedCommand ?: return null
   }
+  return TerminalCommandUsageStatistics.getLoggableCommandData(commandLine, expandAbsoluteOrRelativePath = true).command
 }
 
-@RequiresEdt
+@RequiresEdt(generateAssertion = false /* IJPL-115548 */)
 internal fun ContentManager.getTerminalTabs(): List<TerminalToolWindowTab> {
   return contentsRecursively.mapNotNull { it.getTerminalTab() }
 }

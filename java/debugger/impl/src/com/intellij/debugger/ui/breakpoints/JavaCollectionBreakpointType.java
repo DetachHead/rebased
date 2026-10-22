@@ -21,6 +21,7 @@ import com.intellij.xdebugger.XDebuggerManager;
 import com.intellij.xdebugger.breakpoints.XBreakpoint;
 import com.intellij.xdebugger.breakpoints.XLineBreakpoint;
 import com.intellij.xdebugger.breakpoints.XLineBreakpointType;
+import com.intellij.xdebugger.breakpoints.XWatchpointType;
 import com.intellij.xdebugger.breakpoints.ui.XBreakpointCustomPropertiesPanel;
 import com.siyeh.ig.psiutils.CollectionUtils;
 import org.jetbrains.annotations.ApiStatus;
@@ -34,7 +35,8 @@ import javax.swing.Icon;
 import javax.swing.JComponent;
 
 @ApiStatus.Experimental
-public final class JavaCollectionBreakpointType extends JavaLineBreakpointTypeBase<JavaCollectionBreakpointProperties> {
+public final class JavaCollectionBreakpointType extends JavaLineBreakpointTypeBase<JavaCollectionBreakpointProperties>
+  implements XWatchpointType {
 
   public JavaCollectionBreakpointType() {
     super("java-collection", JavaDebuggerBundle.message("collection.watchpoints.tab.title"));
@@ -137,12 +139,12 @@ public final class JavaCollectionBreakpointType extends JavaLineBreakpointTypeBa
       return false;
     }
     return canPutAtElement(file, line, project, (element, document) -> {
-      if (element instanceof PsiField) {
-        boolean isFinal = ((PsiField)element).hasModifierProperty(PsiModifier.FINAL);
-        boolean isPrivate = ((PsiField)element).hasModifierProperty(PsiModifier.PRIVATE);
-        boolean isProtected = ((PsiField)element).hasModifierProperty(PsiModifier.PROTECTED);
+      if (element instanceof PsiField field) {
+        boolean isFinal = field.hasModifierProperty(PsiModifier.FINAL);
+        boolean isPrivate = field.hasModifierProperty(PsiModifier.PRIVATE);
+        boolean isProtected = field.hasModifierProperty(PsiModifier.PROTECTED);
         boolean hasValidModifiers = isFinal || isPrivate || isProtected;
-        PsiType type = ((PsiField)element).getType();
+        PsiType type = field.getType();
         return hasValidModifiers && CollectionUtils.isCollectionClassOrInterface(type);
       }
       return false;

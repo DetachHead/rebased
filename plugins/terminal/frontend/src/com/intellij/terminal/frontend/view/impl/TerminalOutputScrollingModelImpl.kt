@@ -2,12 +2,11 @@
 package com.intellij.terminal.frontend.view.impl
 
 import com.intellij.ide.IdeEventQueue
-import com.intellij.openapi.application.ModalityState
-import com.intellij.openapi.application.UI
-import com.intellij.openapi.application.asContextElement
+import com.intellij.openapi.Disposable
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.diagnostic.trace
 import com.intellij.openapi.editor.Editor
+import com.intellij.openapi.editor.Inlay
 import com.intellij.openapi.editor.event.VisibleAreaListener
 import com.intellij.openapi.editor.impl.EditorImpl
 import com.intellij.openapi.editor.impl.EditorScrollableIncrementProvider
@@ -18,20 +17,18 @@ import com.intellij.util.asDisposable
 import com.intellij.util.concurrency.annotations.RequiresEdt
 import com.intellij.util.ui.JBUI
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.launch
 import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.annotations.TestOnly
 import org.jetbrains.plugins.terminal.block.BlockTerminalOptions
 import org.jetbrains.plugins.terminal.block.reworked.TerminalSessionModel
 import org.jetbrains.plugins.terminal.block.ui.TerminalUi
+import org.jetbrains.plugins.terminal.block.ui.TerminalUiUtils
+import org.jetbrains.plugins.terminal.block.ui.VerticalSpaceInlayRenderer
 import org.jetbrains.plugins.terminal.block.ui.calculateTerminalSize
 import org.jetbrains.plugins.terminal.block.ui.doWithoutScrollingAnimation
 import org.jetbrains.plugins.terminal.view.TerminalContentChangeEvent
-import org.jetbrains.plugins.terminal.view.TerminalCursorOffsetChangeEvent
 import org.jetbrains.plugins.terminal.view.TerminalOffset
 import org.jetbrains.plugins.terminal.view.TerminalOutputModel
 import org.jetbrains.plugins.terminal.view.TerminalOutputModelListener
@@ -70,17 +67,27 @@ class TerminalOutputScrollingModelImpl(
       field = value
     }
 
+  /**
+   * Our own record of the scroll offset last decided on, used as the floor in the regular case of
+   * [updateScrollPosition] instead of the editor's live scroll offset. The editor's own scrolling model can
+   * silently re-clamp that live offset down when content briefly shrinks.
+   */
+  private var lastScrollPosition: ScrollPosition? = null
+
   /** The state of the output model already processed by this class, whether or not a scroll was performed for it. */
   private val appliedOutputModelState = MutableStateFlow(getCurrentOutputModelState())
 
   private val lifetimeDisposable = coroutineScope.asDisposable()
+
+  /** Pads the bottom of the document so the scroll offset chosen in [updateScrollPosition] is reachable */
+  private val scrollPadding = TerminalScrollPaddingController(editor, lifetimeDisposable)
 
   init {
     // Make the platform's wheel/scrollbar scrolling come to rest on a whole grid line (accounting for block insets),
     // instead of the editor's default fixed-line-height increment.
     editor.scrollableIncrementProvider = LineSnappingIncrementProvider()
 
-    listenOutputModelChanges(coroutineScope.childScope("outputModelChanges")) {
+    TerminalUiUtils.listenOutputModelChanges(outputModel, coroutineScope.childScope("outputModelChanges")) {
       if (shouldScrollToCursor) {
         LOG.trace { "Updating scroll position because the output content changed" }
         updateScrollPosition(outputModel.cursorOffset)
@@ -89,6 +96,16 @@ class TerminalOutputScrollingModelImpl(
         appliedOutputModelState.value = getCurrentOutputModelState()
       }
     }
+
+    // The editor clamps its scroll offset in the document change that makes the content shorter.
+    // Restore it in the same EDT event, so the clamped offset is never painted before the deferred update above.
+    outputModel.addListener(lifetimeDisposable, object : TerminalOutputModelListener {
+      override fun afterContentChanged(event: TerminalContentChangeEvent) {
+        if (shouldScrollToCursor) {
+          keepLastScrollPosition()
+        }
+      }
+    })
 
     // Manage the follow state from the visible area. This is the only place that reacts to thumb drag / scrollbar click.
     editor.scrollingModel.addVisibleAreaListener(VisibleAreaListener { e ->
@@ -117,7 +134,7 @@ class TerminalOutputScrollingModelImpl(
     }
   }
 
-  @RequiresEdt
+  @RequiresEdt(generateAssertion = false /* IJPL-115548 */)
   override fun scrollToCursor(force: Boolean) {
     if (force) {
       shouldScrollToCursor = true
@@ -128,7 +145,7 @@ class TerminalOutputScrollingModelImpl(
     }
   }
 
-  @RequiresEdt
+  @RequiresEdt(generateAssertion = false /* IJPL-115548 */)
   override fun scrollByLines(lines: Int) {
     val maxOffset = maxScrollOffset()
     // The top visual line shown when scrolled all the way down. Reaching it means "at the bottom" -> resume following.
@@ -154,7 +171,7 @@ class TerminalOutputScrollingModelImpl(
     editor.scrollingModel.scrollVertically(targetOffset)
   }
 
-  @RequiresEdt
+  @RequiresEdt(generateAssertion = false /* IJPL-115548 */)
   override fun scrollByPages(pages: Int) {
     val pageLines = (editor.scrollingModel.visibleArea.height / editor.lineHeight).coerceAtLeast(1)
     scrollByLines(pageLines * pages)
@@ -172,15 +189,14 @@ class TerminalOutputScrollingModelImpl(
    * The cursor is considered only if it is visible.
    */
   private fun updateScrollPosition(cursorOffset: TerminalOffset) {
-    val screenRows = editor.calculateTerminalSize()?.rows ?: run {
+    if (editor.calculateTerminalSize() == null) {
       LOG.trace { "updateScrollPosition: skipped, terminal size is not available yet" }
       return
     }
 
-    val screenBottomVisualLine = editor.offsetToVisualLine(editor.document.textLength, true)
-    val screenTopVisualLine = max(0, screenBottomVisualLine - screenRows + 1)
+    val screenTopVisualLine = editor.offsetToVisualLine(outputModel.screenTopOffset.toRelative(outputModel), false)
 
-    val topInset = getTopInset()
+    val topInset = getTopInset(screenTopVisualLine)
     val bottomInset = JBUI.scale(TerminalUi.blockBottomInset)
 
     val lastNotBlankVisualLine = findLastNotBlankVisualLine(screenTopVisualLine)
@@ -195,9 +211,11 @@ class TerminalOutputScrollingModelImpl(
     }
     else lastNotBlankLineBottomY
 
-    val screenTopY = editor.visualLineToY(screenTopVisualLine) - topInset
+    val screenTopLineY = editor.visualLineToY(screenTopVisualLine)
+    val screenTopY = screenTopLineY - topInset
     val screenHeight = editor.scrollingModel.visibleArea.height
-    val currentOffset = editor.scrollingModel.verticalScrollOffset
+    val liveOffset = editor.scrollingModel.verticalScrollOffset
+    val lastScrollY = lastScrollYFloor()
 
     val isCursorAtTop = isCursorVisible && cursorVisualLine == screenTopVisualLine
     val scrollY = if (isCursorAtTop) {
@@ -207,28 +225,60 @@ class TerminalOutputScrollingModelImpl(
       screenTopY
     }
     else {
-      // In a regular case always try to scroll to the bottom and do not scroll up
-      // to not cause blinking when lines are frequently added and removed from the bottom of the screen
-      maxOf(screenBottomY - screenHeight, screenTopY, currentOffset)
+      // In a regular case always try to scroll to the bottom and do not scroll up, to not cause blinking when
+      // lines are frequently added and removed from the bottom of the screen.
+      maxOf(screenBottomY - screenHeight, screenTopY, lastScrollY)
     }
 
-    LOG.trace {
-      "updateScrollPosition: currentOffset=$currentOffset -> scrollY=$scrollY " +
-      "(${if (scrollY != currentOffset) "scrolling" else "no change"}); " +
-      "cursor(visible=$isCursorVisible, line=$cursorVisualLine, atTop=$isCursorAtTop), " +
-      "screen(rows=$screenRows, topLine=$screenTopVisualLine, bottomLine=$screenBottomVisualLine, height=$screenHeight), " +
-      "insets(top=$topInset, bottom=$bottomInset), lastNotBlankLine=$lastNotBlankVisualLine, " +
-      "y(top=$screenTopY, bottom=$screenBottomY), " +
-      "candidates(bottomAligned=${screenBottomY - screenHeight}, topAligned=$screenTopY, current=$currentOffset)"
-    }
+    scrollPadding.ensureReachable(scrollY, screenHeight)
 
-    if (scrollY != currentOffset) {
+    if (scrollY != liveOffset) {
       editor.doWithoutScrollingAnimation {
         editor.scrollingModel.scrollVertically(scrollY)
       }
     }
+    lastScrollPosition = ScrollPosition(outputModel.screenTopOffset, editor.scrollingModel.verticalScrollOffset - screenTopLineY)
+
+    LOG.trace {
+      "updateScrollPosition: liveOffset=$liveOffset -> scrollY=$scrollY " +
+      "(${if (scrollY != liveOffset) "scrolling" else "no change"}); " +
+      "resulting verticalScrollOffset=${editor.scrollingModel.verticalScrollOffset}, " +
+      "cursor(visible=$isCursorVisible, line=$cursorVisualLine, atTop=$isCursorAtTop), " +
+      "screen(topLine=$screenTopVisualLine, height=$screenHeight), " +
+      "insets(top=$topInset, bottom=$bottomInset), lastNotBlankLine=$lastNotBlankVisualLine, " +
+      "y(top=$screenTopY, bottom=$screenBottomY), " +
+      "candidates(bottomAligned=${screenBottomY - screenHeight}, topAligned=$screenTopY, lastScrollY=$lastScrollY)"
+    }
 
     appliedOutputModelState.value = OutputModelState(cursorOffset, outputModel.modificationStamp)
+  }
+
+  /** [lastScrollPosition] as a scroll offset in the current layout, or 0 if it no longer applies. */
+  private fun lastScrollYFloor(): Int {
+    val position = lastScrollPosition ?: return 0
+    if (outputModel.screenTopOffset < position.screenTopOffset || position.screenTopOffset < outputModel.startOffset) {
+      // The screen top itself moved backward (Terminal.ClearBuffer, "clear" or increasing size), or its line was trimmed.
+      // Forget the pre-reset floor so it doesn't hold the viewport down at a position that no longer exists.
+      return 0
+    }
+    val screenTopVisualLine = editor.offsetToVisualLine(position.screenTopOffset.toRelative(outputModel), false)
+    return editor.visualLineToY(screenTopVisualLine) + position.yFromScreenTop
+  }
+
+  /** Keeps [lastScrollPosition] reachable after a content change, and scrolls back to it if the editor clamped the offset. */
+  private fun keepLastScrollPosition() {
+    if (editor.calculateTerminalSize() == null) return
+    val lastScrollY = lastScrollYFloor()
+    if (lastScrollY == 0) return
+
+    scrollPadding.ensureReachable(lastScrollY, editor.scrollingModel.visibleArea.height)
+    val liveOffset = editor.scrollingModel.verticalScrollOffset
+    if (liveOffset < lastScrollY) {
+      LOG.trace { "keepLastScrollPosition: liveOffset=$liveOffset -> lastScrollY=$lastScrollY" }
+      editor.doWithoutScrollingAnimation {
+        editor.scrollingModel.scrollVertically(lastScrollY)
+      }
+    }
   }
 
   private fun observeMouseWheel(e: MouseWheelEvent) {
@@ -272,7 +322,12 @@ class TerminalOutputScrollingModelImpl(
     return lastNotBlankVisualLine
   }
 
-  private fun getTopInset(): Int {
+  private fun getTopInset(screenTopVisualLine: Int): Int {
+    // The very first visual line always has the top inset (TerminalEditorFactory.addTopAndBottomInsets) above it,
+    // regardless of shell integration - there is no "previous line" to reveal there, so it's always safe.
+    if (screenTopVisualLine == 0) {
+      return JBUI.scale(TerminalUi.blockTopInset)
+    }
     // It looks better when we place the scroll position a little bit above the text (by top inset).
     // But in the case of Ctrl+L, the screen should be scrolled to hide the previous lines.
     // When both shell integration and 'showSeparatorsBetweenBlocks' are enabled,
@@ -286,39 +341,6 @@ class TerminalOutputScrollingModelImpl(
     else 0
   }
 
-  /**
-   * Output model usually fires two events on every content update: content change and cursor position change.
-   * If these events are handled synchronously, the handler may see a stale cursor offset right after the content update,
-   * but it will be corrected later when the cursor position change is applied.
-   * To not see the "intermediate" state of the model, let's invoke [onUpdate] change asynchronously -
-   * the state of the model is expected to be consistent there.
-   *
-   * Use the approach with [MutableStateFlow] to schedule a single [onUpdate] call
-   * for a burst of output model changes that happen in the same EDT invocation.
-   */
-  private fun listenOutputModelChanges(coroutineScope: CoroutineScope, onUpdate: () -> Unit) {
-    var counter = 0L
-    val updatesFlow = MutableStateFlow(counter)
-
-    outputModel.addListener(coroutineScope.asDisposable(), object : TerminalOutputModelListener {
-      override fun afterContentChanged(event: TerminalContentChangeEvent) {
-        updatesFlow.value = ++counter
-      }
-
-      override fun cursorOffsetChanged(event: TerminalCursorOffsetChangeEvent) {
-        updatesFlow.value = ++counter
-      }
-    })
-
-    coroutineScope.launch(Dispatchers.UI + ModalityState.any().asContextElement()) {
-      updatesFlow
-        .filter { it != 0L }  // Do not call `onUpdate()` for the initial state
-        .collect {
-          onUpdate()
-        }
-    }
-  }
-
   @TestOnly
   suspend fun awaitEventProcessing() {
     val expectedState = getCurrentOutputModelState()
@@ -330,6 +352,12 @@ class TerminalOutputScrollingModelImpl(
   }
 
   private data class OutputModelState(val cursorOffset: TerminalOffset, val docStamp: Long)
+
+  /**
+   * A scroll offset measured from the top of the [screenTopOffset] line, so trimming the output start does not shift it.
+   * [screenTopOffset] also detects a real reset (Terminal.ClearBuffer, or "clear") that discards the position.
+   */
+  private data class ScrollPosition(val screenTopOffset: TerminalOffset, val yFromScreenTop: Int)
 
   /**
    * Reports scroll increments that come to rest on the terminal's whole grid lines. Unlike the editor's default,
@@ -377,6 +405,37 @@ class TerminalOutputScrollingModelImpl(
         val line = editor.yToVisualLine(targetY)
         val alignedY = editor.visualLineToY(line)
         (visibleRect.y - alignedY).coerceAtLeast(0)
+      }
+    }
+  }
+
+  /**
+   * Owns a block inlay after the end of the document and grows it just enough that the scroll offset passed to
+   * [ensureReachable] is always reachable, even when the real content below it is shorter than the viewport.
+   */
+  private class TerminalScrollPaddingController(private val editor: EditorImpl, parentDisposable: Disposable) {
+    private var height = 0
+
+    private val inlay: Inlay<*> = editor.inlayModel.addBlockElement(
+      editor.document.textLength,
+      true,
+      false,
+      TerminalUi.terminalScrollPaddingInlayPriority,
+      VerticalSpaceInlayRenderer { height }
+    )
+
+    init {
+      Disposer.register(parentDisposable, inlay)
+    }
+
+    /** Grows or shrinks the padding so that scrolling to [scrollY] with a [screenHeight]-tall viewport is reachable. */
+    fun ensureReachable(scrollY: Int, screenHeight: Int) {
+      val realContentBottomVisualLine = editor.offsetToVisualLine(editor.document.textLength, true)
+      val realContentBottomY = editor.visualLineToY(realContentBottomVisualLine) + editor.lineHeight + JBUI.scale(TerminalUi.blockBottomInset)
+      val neededHeight = (scrollY + screenHeight - realContentBottomY).coerceAtLeast(0)
+      if (neededHeight != height) {
+        height = neededHeight
+        inlay.update()
       }
     }
   }

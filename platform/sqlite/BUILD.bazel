@@ -1,5 +1,6 @@
 load("@community//build:tests-options.bzl", "jps_test")
 load("@rules_jvm//:jvm.bzl", "jvm_library")
+load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
 jps_test(
     name = "sqlite-tests_test",
@@ -9,6 +10,10 @@ jps_test(
 )
 
 ### skip generation section `test intellij.platform.sqlite.tests`
+
+### auto-generated section `dev intellij.platform.sqlite` start
+content_module_jar(module = ":sqlite")
+### auto-generated section `dev intellij.platform.sqlite` end
 
 ### auto-generated section `build intellij.platform.sqlite` start
 jvm_library(
@@ -33,6 +38,7 @@ jvm_library(
         "//platform/util",
         "@lib//:kotlin-stdlib",
         "//platform/util-ex",
+        "//platform/core-impl",
     ],
 )
 
@@ -51,12 +57,7 @@ jvm_library(
         "//libraries/sqlite-native:sqlite-native_test_lib",
         "//platform/util:util_test_lib",
         "//platform/util-ex:util-ex_test_lib",
-        "//libraries/junit5",
-        "//libraries/junit5:junit5_test_lib",
-        "//libraries/assertj-core",
-        "//libraries/assertj-core:assertj-core_test_lib",
-        "//libraries/kotlinx/coroutines/core",
-        "//libraries/kotlinx/coroutines/core:core_test_lib",
+        "//platform/core-impl:core-impl_test_lib",
     ],
 )
 ### auto-generated section `build intellij.platform.sqlite` end
@@ -66,7 +67,6 @@ exports_files(
     [
         "intellij.platform.sqlite.iml",
         "resources/intellij.platform.sqlite.xml",
-        "module-content.yaml",
     ],
     visibility = ["//visibility:public"],
 )
@@ -112,8 +112,8 @@ jvm_library(
         "@lib//:kotlin-stdlib",
         "//platform/util-ex",
         "//platform/util-ex:util-ex_test_lib",
-        "//libraries/junit5",
-        "//libraries/junit5:junit5_test_lib",
+        "//libraries/junit6",
+        "//libraries/junit6:junit6_test_lib",
         "//libraries/assertj-core",
         "//libraries/assertj-core:assertj-core_test_lib",
         "//libraries/kotlinx/coroutines/core",

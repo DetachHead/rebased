@@ -9,7 +9,7 @@ import org.jetbrains.plugins.groovy.util.TestUtils
 class GroovyOverlyComplexBooleanExpressionInspectionTest: LightGroovyTestCase() {
   override fun getProjectDescriptor(): LightProjectDescriptor = GroovyProjectDescriptors.GROOVY_5_0
 
-  override fun getBasePath(): String = TestUtils.getTestDataPath() + "/inspections/overlyComplexBooleanExpression"
+  override fun getTestDataPath(): String = TestUtils.getAbsoluteTestDataPath() + "/inspections/overlyComplexBooleanExpression"
 
   fun testComplexExpression() {
     myFixture.enableInspections(GroovyOverlyComplexBooleanExpressionInspection::class.java)

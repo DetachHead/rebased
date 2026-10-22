@@ -1,7 +1,10 @@
-// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.plugins.groovy.lang;
 
 import com.intellij.codeInspection.LocalInspectionTool;
+import com.intellij.groovy.testFramework.ResolveTest;
+import com.intellij.groovy.testFramework.TypingTest;
+import com.intellij.openapi.application.ReadAction;
 import com.intellij.psi.PsiClass;
 import com.intellij.psi.PsiMethod;
 import com.intellij.psi.search.searches.MethodReferencesSearch;
@@ -16,9 +19,7 @@ import org.jetbrains.plugins.groovy.lang.psi.impl.statements.typedef.members.GrC
 import org.jetbrains.plugins.groovy.lang.psi.impl.statements.typedef.members.GrMethodImpl;
 import org.jetbrains.plugins.groovy.lang.psi.impl.synthetic.DefaultConstructor;
 import org.jetbrains.plugins.groovy.util.HighlightingTest;
-import org.jetbrains.plugins.groovy.util.ResolveTest;
 import org.jetbrains.plugins.groovy.util.TestUtils;
-import org.jetbrains.plugins.groovy.util.TypingTest;
 
 import java.util.Collection;
 import java.util.Iterator;
@@ -123,7 +124,7 @@ public class MethodReferenceTest extends LightGroovyTestCase implements TypingTe
 
     PsiClass clazz = myFixture.findClass("A");
     PsiMethod constructor = clazz.getConstructors()[0];
-    assertEquals(3, MethodReferencesSearch.search(constructor).findAll().size());
+    assertEquals(3, ReadAction.computeBlocking(()->MethodReferencesSearch.search(constructor).findAll()).size());
 
     myFixture.renameElementAtCaret("B");
     myFixture.checkResult("""
@@ -139,8 +140,8 @@ public class MethodReferenceTest extends LightGroovyTestCase implements TypingTe
   }
 
   @Override
-  public final String getBasePath() {
-    return TestUtils.getTestDataPath() + "lang/methodReferences/";
+  public final String getTestDataPath() {
+    return TestUtils.getAbsoluteTestDataPath() + "lang/methodReferences/";
   }
 
   @Override

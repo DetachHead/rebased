@@ -54,6 +54,7 @@ internal class BackendTaskInfoApi : TaskInfoApi {
             suspension = task.suspension,
             status = task.taskStatus,
             visibleInStatusBar = task.visibleInStatusBar,
+            ownerKind = task.ownerKind,
           ))
 
           // progress ticks are conflated: only the freshest state matters to a UI on the other side

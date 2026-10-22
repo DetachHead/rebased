@@ -2,6 +2,8 @@
 package com.jetbrains.env;
 
 import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.project.Project;
+import com.intellij.openapi.project.ProjectManager;
 import com.intellij.openapi.projectRoots.Sdk;
 import com.intellij.openapi.util.Ref;
 import com.intellij.util.Producer;
@@ -44,6 +46,13 @@ public abstract class PyTestTask {
    * @param existingSdk If sdk exists already you are encouraged to reuse it. Create one using sdkHome otherwise.
    */
   public abstract void runTestOn(@NotNull String sdkHome, @Nullable Sdk existingSdk) throws Exception;
+
+  /**
+   * The project the SDK of this task belongs to. A task without a project of its own uses the default project.
+   */
+  public @NotNull Project getProject() {
+    return ProjectManager.getInstance().getDefaultProject();
+  }
 
   public void before() throws Exception {
   }

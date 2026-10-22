@@ -401,7 +401,8 @@ class PyFinalInspection : PyInspection() {
           registerProblem(target, PyPsiBundle.problemMessage("INSP.final.final.target.could.not.be.reassigned", target.name))
           return
         }
-        if (e.parent.let { it is PyNonlocalStatement || it is PyGlobalStatement } &&
+        val parent = e.parent
+        if ((parent is PyNonlocalStatement || parent is PyGlobalStatement) &&
             PyUtil.multiResolveTopPriority(e, resolveContext).any { it is PyTargetExpression && isFinal(it) }) {
           registerProblem(target, PyPsiBundle.problemMessage("INSP.final.final.target.could.not.be.reassigned", target.name))
           return
@@ -432,10 +433,11 @@ class PyFinalInspection : PyInspection() {
 
       val classAttribute = cls.findClassAttribute(name, false, myTypeEvalContext)
       if (classAttribute != null && isFinal(classAttribute)) {
-        if (!classAttribute.hasAssignedValue() &&
-            target is PyTargetExpression &&
-            ScopeUtil.getScopeOwner(target).let { it is PyFunction && PyUtil.turnConstructorIntoClass(it) == cls }) {
-          return
+        if (!classAttribute.hasAssignedValue() && target is PyTargetExpression) {
+          val scopeOwner = ScopeUtil.getScopeOwner(target)
+          if (scopeOwner is PyFunction && PyUtil.turnConstructorIntoClass(scopeOwner) == cls) {
+            return
+          }
         }
         registerProblem(target, PyPsiBundle.problemMessage("INSP.final.final.target.could.not.be.reassigned", name))
       }

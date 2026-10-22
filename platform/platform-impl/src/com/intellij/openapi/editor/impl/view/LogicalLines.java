@@ -58,16 +58,16 @@ final class LogicalLines {
     return new LogicalLines(document, builder.build(), tabSize);
   }
 
-  @NotNull LogicalLines withInvalidatedLines(int newTabSize, boolean force) {
+  @NotNull LogicalLines withInvalidatedLines(@NotNull DocumentText newDocument, int newTabSize, boolean force) {
     int oldEndLine = lines.size() - 1;
-    int newEndLine = document.lineCount() - 1;
+    int newEndLine = newDocument.lineCount() - 1;
     PersistentList<LogicalColumns> newLines = invalidatedLines(
       0,
       oldEndLine,
       newEndLine,
       !force && oldEndLine == newEndLine
     );
-    return new LogicalLines(document, newLines, newTabSize);
+    return new LogicalLines(newDocument, newLines, newTabSize);
   }
 
   @NotNull LogicalLines withInvalidatedLines(

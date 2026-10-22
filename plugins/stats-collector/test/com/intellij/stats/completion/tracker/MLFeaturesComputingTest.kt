@@ -18,7 +18,9 @@ import com.intellij.openapi.application.ApplicationManager
 import com.intellij.stats.completion.CompletionStatsPolicy
 import com.intellij.stats.completion.events.CompletionStartedEvent
 import com.intellij.testFramework.replaceService
-import junit.framework.TestCase
+import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.Test
 
 private typealias Before = () -> Unit
 private typealias After = () -> Unit
@@ -27,31 +29,37 @@ class MLFeaturesComputingTest : CompletionLoggingTestBase() {
   private val contextFeatureProvider = TestContextFeatureProvider()
   private val elementFeatureProvider = TestElementFeatureProvider()
 
-  fun `test features should be calculated and logged if logging enabled`() = doTest(
+  @Test
+  fun `test features should be calculated and logged if logging enabled`(): Unit = doTest(
     before(enableLogging = true, enableRanking = false, experimentWithoutComputingFeatures = false, experimentWithoutLoggingFeatures = false),
     after(shouldComputeFeatures = true, shouldLogElementFeatures = true))
 
-  fun `test features should be calculated but not logged if ranking enabled`() = doTest(
+  @Test
+  fun `test features should be calculated but not logged if ranking enabled`(): Unit = doTest(
     before(enableLogging = false, enableRanking = true, experimentWithoutComputingFeatures = false, experimentWithoutLoggingFeatures = false),
     after(shouldComputeFeatures = true, shouldLogElementFeatures = false))
 
-  fun `test features should be calculated and logged if ranking and logging enabled`() = doTest(
+  @Test
+  fun `test features should be calculated and logged if ranking and logging enabled`(): Unit = doTest(
     before(enableLogging = true, enableRanking = true, experimentWithoutComputingFeatures = false, experimentWithoutLoggingFeatures = false),
     after(shouldComputeFeatures = true, shouldLogElementFeatures = true))
 
-  fun `test features should not be calculated and logged if ranking and logging disabled`() = doTest(
+  @Test
+  fun `test features should not be calculated and logged if ranking and logging disabled`(): Unit = doTest(
     before(enableLogging = false, enableRanking = false, experimentWithoutComputingFeatures = false, experimentWithoutLoggingFeatures = false),
     after(shouldComputeFeatures = false, shouldLogElementFeatures = false))
 
-  fun `test features should not be calculated and logged if in such experiment group`() = doTest(
+  @Test
+  fun `test features should not be calculated and logged if in such experiment group`(): Unit = doTest(
     before(enableLogging = true, enableRanking = false, experimentWithoutComputingFeatures = true, experimentWithoutLoggingFeatures = false),
     after(shouldComputeFeatures = false, shouldLogElementFeatures = false))
 
-  fun `test element features should not be logged but calculated if in such experiment group`() = doTest(
+  @Test
+  fun `test element features should not be logged but calculated if in such experiment group`(): Unit = doTest(
     before(enableLogging = true, enableRanking = false, experimentWithoutComputingFeatures = false, experimentWithoutLoggingFeatures = true),
     after(shouldComputeFeatures = true, shouldLogElementFeatures = false))
 
-  private fun doTest(before: Before, after: After) {
+  private fun doTest(before: Before, after: After): Unit = onEdt {
     ApplicationManager.getApplication().replaceService(ExperimentStatus::class.java, TestExperimentStatus(), testRootDisposable)
     ContextFeatureProvider.EP_NAME.addExplicitExtension(JavaLanguage.INSTANCE, contextFeatureProvider, testRootDisposable)
     ElementFeatureProvider.EP_NAME.addExplicitExtension(JavaLanguage.INSTANCE, elementFeatureProvider, testRootDisposable)
@@ -76,19 +84,19 @@ class MLFeaturesComputingTest : CompletionLoggingTestBase() {
 
   private fun after(shouldComputeFeatures: Boolean, shouldLogElementFeatures: Boolean): After {
     return {
-      TestCase.assertEquals(shouldComputeFeatures, contextFeatureProvider.invocationCount != 0)
+      assertEquals(shouldComputeFeatures, contextFeatureProvider.invocationCount != 0)
       if (shouldComputeFeatures) {
-        TestCase.assertEquals("Context features should be calculated exactly once", 1, contextFeatureProvider.invocationCount)
+        assertEquals(1, contextFeatureProvider.invocationCount, "Context features should be calculated exactly once")
       }
-      TestCase.assertEquals(shouldComputeFeatures, elementFeatureProvider.invocationCount != 0)
+      assertEquals(shouldComputeFeatures, elementFeatureProvider.invocationCount != 0)
       if (trackedEvents.isEmpty()) {
-        TestCase.assertTrue(!shouldLogElementFeatures)
+        assertTrue(!shouldLogElementFeatures)
       }
       else {
         val startedEvent = trackedEvents.first() as CompletionStartedEvent
         val firstItem = startedEvent.newCompletionListItems[0]
         val relevance = firstItem.relevance!!
-        TestCase.assertEquals(shouldLogElementFeatures, relevance.containsKey(TestElementFeatureProvider.FULL_FEATURE_NAME))
+        assertEquals(shouldLogElementFeatures, relevance.containsKey(TestElementFeatureProvider.FULL_FEATURE_NAME))
       }
     }
   }

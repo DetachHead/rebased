@@ -11,9 +11,9 @@
 // AFTER-WARNING: Parameter 'f' is never used
 // AFTER-WARNING: Parameter 'i' is never used
 open class Foo {
-    constructor(f: Boolean.(Int<caret>) -> String){
+    constructor(f: Boolea<caret>n.(Int) -> String){
         false.f(1)
-        bar { i, b -> b.f(i) }
+        bar { i, bool -> bool.f(i) }
     }
 
     constructor(a: Int, f: (Int, Boolean) -> String) : this({ i -> f(i, this) })
@@ -34,8 +34,8 @@ fun baz(f: (Int, Boolean) -> String) {
 
     Foo { i -> (::g)(i, this) }
 
-    val f2 = lambda()
-    Foo { i -> f2(i, this) }
+    val lambda = lambda()
+    Foo { i -> lambda(i, this) }
 
     Foo { i -> "${i + 1} $this" }
 }
@@ -43,9 +43,9 @@ fun baz(f: (Int, Boolean) -> String) {
 class Baz1(f: (Int, Boolean) -> String) : Foo({ i -> f(i, this) })
 class Baz2 : Foo({ i -> (::g)(i, this) })
 
-val f1 = lambda()
+val lambda = lambda()
 
-class Baz3 : Foo({ i -> f1(i, this) })
+class Baz3 : Foo({ i -> lambda(i, this) })
 class Baz4 : Foo({ i -> "${i + 1} $this" })
 
 class Baz5 : Foo {

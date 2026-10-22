@@ -6,9 +6,11 @@
     <module name="intellij.libraries.kotlinx.collections.immutable"/>
     <module name="intellij.libraries.kotlinx.serialization.core"/>
     <module name="intellij.libraries.kotlinx.serialization.json"/>
+    <module name="intellij.platform.concurrency"/>
     <module name="intellij.platform.core"/>
     <module name="intellij.platform.projectModel"/>
     <module name="intellij.platform.workspace.jps"/>
+    <module name="intellij.platform.workspace.storage"/>
   </dependencies>
   <!-- endregion -->
   <extensionPoints>
@@ -65,6 +67,13 @@
                           providerClass="com.intellij.util.indexing.impl.storage.DefaultIndexStorageLayoutProvider"
                           version="0"/>
 
+    <fileBasedIndexLayout id="memory-mapped-database-impl"
+                          priority="-1"
+                          presentableNameKey="ide.indexes.memory-mapped-database-storage.presentable.name"
+                          bundleName="messages.IndexingBundle"
+                          providerClass="com.intellij.util.indexing.impl.storage.durablemap.database.DurableDatabaseIndexLayoutProvider"
+                          version="0"/>
+
     <!-- FileBasedIndex.USE_IN_MEMORY_INDEX=true to enable -->
     <fileBasedIndexLayout id="in-memory"
                           priority="-1"
@@ -80,6 +89,5 @@
                           providerClass="com.intellij.util.indexing.storage.fake.FakeStorageLayoutProvider"
                           version="0"/>
 
-    <requiredForSmartModeStartupActivity implementation="com.intellij.util.indexing.FileBasedIndexInfrastructureExtensionStartup"/>
   </extensions>
 </idea-plugin>

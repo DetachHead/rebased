@@ -12,6 +12,10 @@ a:com.intellij.execution.ExecutionManager
 - *a:executePreparationTasks(com.intellij.execution.runners.ExecutionEnvironment,com.intellij.execution.configurations.RunProfileState):org.jetbrains.concurrency.Promise
 a:com.intellij.execution.Executor
 - *:isSupportedOnTarget():Z
+*:com.intellij.execution.RunConfigurationProducerSuppressor
+- *sf:Companion:com.intellij.execution.RunConfigurationProducerSuppressor$Companion
+- a:shouldSuppress(com.intellij.execution.actions.RunConfigurationProducer,com.intellij.openapi.project.Project):Z
+*f:com.intellij.execution.RunConfigurationProducerSuppressor$Companion
 *f:com.intellij.execution.configurations.JavaTargetDependentParameters
 - <init>():V
 - addParameter(java.util.function.Function):V
@@ -26,6 +30,9 @@ a:com.intellij.execution.configurations.RunConfigurationBase
 - com.intellij.execution.configurations.TargetAwareRunProfile
 - com.intellij.execution.ui.FragmentedSettings
 - *:setOptionsFromConfigurationFile(com.intellij.openapi.components.BaseState):V
+c:com.intellij.execution.configurations.SimpleJavaParameters
+- com.intellij.execution.configurations.SimpleProgramParameters
+- *:getTargetDependentParameters():com.intellij.execution.configurations.JavaTargetDependentParameters
 *:com.intellij.execution.configurations.SyntheticConfigurationTypeProvider
 - sf:EP_NAME:com.intellij.openapi.extensions.ExtensionPointName
 - a:getConfigurationTypes():java.util.Collection
@@ -246,7 +253,36 @@ c:com.intellij.execution.ui.RunContentDescriptor
 - *:isHiddenContent():Z
 - *p:setDisplayName(java.lang.String):V
 - *p:setIcon(javax.swing.Icon):V
-com.intellij.execution.wsl.AbstractWslDistribution
-- *a:getUNCRootPath():java.nio.file.Path
-f:com.intellij.execution.wsl.WSLCommandLineOptions
-- *:setExecuteCommandInDefaultShell(Z):com.intellij.execution.wsl.WSLCommandLineOptions
+c:com.intellij.task.ProjectTaskContext
+- com.intellij.openapi.util.UserDataHolderBase
+- *f:addDirtyOutputPathsProvider(kotlin.jvm.functions.Function0):V
+- *f:fileGenerated(java.lang.String,java.lang.String):V
+- *f:getGeneratedFilesRelativePaths(java.lang.String):java.util.Collection
+- *f:getGeneratedFilesRoots():java.util.Collection
+- *f:isCollectionOfGeneratedFilesEnabled():Z
+Fa:com.intellij.task.ProjectTaskManager
+- *a:createProjectTaskExecutionEnvironment(com.intellij.task.ProjectTask):com.intellij.execution.runners.ExecutionEnvironment
+com.intellij.task.ProjectTaskManager$Result
+- *a:anyTaskMatches(java.util.function.BiPredicate):Z
+a:com.intellij.task.ProjectTaskRunner
+- *:createExecutionEnvironment(com.intellij.openapi.project.Project,com.intellij.task.ProjectTask[]):com.intellij.execution.runners.ExecutionEnvironment
+- *:isFileGeneratedEventsSupported():Z
+*:com.intellij.task.RunConfigurationTaskState
+- *sf:Companion:com.intellij.task.RunConfigurationTaskState$Companion
+- createCustomActions(com.intellij.execution.process.ProcessHandler,com.intellij.execution.ui.ExecutionConsole,com.intellij.execution.Executor):java.util.List
+- *s:getKEY():com.intellij.openapi.util.Key
+- a:handleCreatedTargetEnvironment(com.intellij.execution.target.TargetEnvironment,com.intellij.execution.target.TargetProgressIndicator):java.lang.String
+- a:prepareTargetEnvironmentRequest(com.intellij.execution.target.TargetEnvironmentRequest,com.intellij.execution.target.TargetProgressIndicator):V
+- a:processExecutionResult(com.intellij.execution.process.ProcessHandler,com.intellij.execution.ui.ExecutionConsole):V
+*f:com.intellij.task.RunConfigurationTaskState$Companion
+- f:getKEY():com.intellij.openapi.util.Key
+*e:com.intellij.task.TaskRunnerResults
+- java.lang.Enum
+- com.intellij.task.ProjectTaskRunner$Result
+- sf:ABORTED:com.intellij.task.TaskRunnerResults
+- sf:FAILURE:com.intellij.task.TaskRunnerResults
+- sf:SUCCESS:com.intellij.task.TaskRunnerResults
+- hasErrors():Z
+- isAborted():Z
+- s:valueOf(java.lang.String):com.intellij.task.TaskRunnerResults
+- s:values():com.intellij.task.TaskRunnerResults[]

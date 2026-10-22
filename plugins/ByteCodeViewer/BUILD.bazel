@@ -1,5 +1,6 @@
 load("@community//build:tests-options.bzl", "jps_test")
-load("@community//platform/build-scripts/bazel-rules:dev_dist_plugin.bzl", "dev_dist_plugin")
+load("@community//platform/build-scripts/bazel-rules:ij_plugin.bzl", "ij_plugin")
+load("@jps_dynamic_deps_community//:targets.bzl", "dev_dist_plugin")
 load("@rules_jvm//:jvm.bzl", "jvm_library")
 load("//build:compiler-options.bzl", "create_kotlinc_options")
 
@@ -10,6 +11,16 @@ jps_test(
     runtime_deps = [":java-byteCodeViewer-tests_test_lib"],
 )
 ### skip generation section `test intellij.java.byteCodeViewer.tests`
+
+### auto-generated section `dev intellij.java.byteCodeViewer` start
+dev_dist_plugin(
+    descriptor = "resources/META-INF/plugin.xml",
+    jars = {
+        "lib/java-byteCodeViewer.jar": ["intellij.java.byteCodeViewer"],
+    },
+    main_module = "intellij.java.byteCodeViewer",
+)
+### auto-generated section `dev intellij.java.byteCodeViewer` end
 
 ### auto-generated section `build intellij.java.byteCodeViewer` start
 create_kotlinc_options(
@@ -87,12 +98,16 @@ jvm_library(
         "//java/execution/openapi:java-execution_test_lib",
         "//java/openapi:java_test_lib",
         "//java/compiler/impl:impl_test_lib",
-        "//platform/testFramework",
-        "//platform/testFramework:testFramework_test_lib",
         "//platform/core-ui:core-ui_test_lib",
         "//platform/core-impl:core-impl_test_lib",
         "//java/java-frontback-psi-impl:frontback-psi-impl_test_lib",
     ],
+)
+
+ij_plugin(
+    name = "java-byteCodeViewer_plugin",
+    descriptor_module = ":java-byteCodeViewer",
+    visibility = ["//visibility:public"],
 )
 ### auto-generated section `build intellij.java.byteCodeViewer` end
 
@@ -105,14 +120,6 @@ exports_files(
     visibility = ["//visibility:public"],
 )
 ### auto-generated section `iml intellij.java.byteCodeViewer` end
-
-### auto-generated section `dev intellij.java.byteCodeViewer` start
-dev_dist_plugin(
-    descriptor = "resources/META-INF/plugin.xml",
-    descriptor_module = ":java-byteCodeViewer",
-    main_module = "intellij.java.byteCodeViewer",
-)
-### auto-generated section `dev intellij.java.byteCodeViewer` end
 
 ### auto-generated section `build intellij.java.byteCodeViewer.tests` start
 create_kotlinc_options(

@@ -42,8 +42,8 @@ import java.util.Map;
 @PerformanceUnitTest
 public class GroovyStressPerformanceTest extends LightGroovyTestCase {
   @Override
-  public String getBasePath() {
-    return TestUtils.getTestDataPath() + "highlighting/";
+  public String getTestDataPath() {
+    return TestUtils.getAbsoluteTestDataPath() + "highlighting/";
   }
 
   @Override

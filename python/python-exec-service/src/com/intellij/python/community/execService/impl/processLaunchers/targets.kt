@@ -1,4 +1,4 @@
-// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 @file:Suppress("UsePlatformProcessAwaitExit")
 
 package com.intellij.python.community.execService.impl.processLaunchers
@@ -7,32 +7,41 @@ import com.intellij.execution.ExecutionException
 import com.intellij.execution.Platform
 import com.intellij.execution.process.LocalPtyOptions
 import com.intellij.execution.target.FullPathOnTarget
+import com.intellij.execution.target.PathMapping
 import com.intellij.execution.target.TargetEnvironment
 import com.intellij.execution.target.TargetEnvironmentRequest
 import com.intellij.execution.target.TargetProgressIndicator
 import com.intellij.execution.target.TargetedCommandLine
 import com.intellij.execution.target.TargetedCommandLineBuilder
+import com.intellij.execution.target.findPathVariants
 import com.intellij.execution.target.getTargetPaths
 import com.intellij.execution.target.local.LocalTargetPtyOptions
+import com.intellij.openapi.diagnostic.ControlFlowException
 import com.intellij.openapi.diagnostic.debug
 import com.intellij.openapi.diagnostic.fileLogger
 import com.intellij.openapi.progress.coroutineToIndicator
 import com.intellij.openapi.project.ProjectManager
 import com.intellij.openapi.util.NlsSafe
+import com.intellij.platform.eel.EelOsFamily
 import com.intellij.platform.eel.impl.base.ProcessFunctions
 import com.intellij.platform.eel.impl.base.bindProcessToScopeImpl
 import com.intellij.python.community.execService.BinOnTarget
 import com.intellij.python.community.execService.DownloadConfig
 import com.intellij.python.community.execService.ExecuteGetProcessError
 import com.intellij.python.community.execService.UploadConfig
+import com.intellij.python.community.execService.impl.Arg
+import com.intellij.python.community.execService.impl.PathMapper
 import com.intellij.python.community.execService.impl.PyExecBundle
 import com.intellij.python.community.execService.impl.TargetEnvironmentRequestHandler
-import com.intellij.remoteServer.util.ServerRuntimeException
+import com.intellij.python.community.execService.impl.Uploader
+import com.intellij.python.community.execService.impl.resolveAgainst
 import com.intellij.util.concurrency.annotations.RequiresBackgroundThread
 import com.jetbrains.python.Result
 import com.jetbrains.python.errorProcessing.Exe
 import com.jetbrains.python.errorProcessing.ExecErrorReason
 import com.jetbrains.python.errorProcessing.MessageError
+import com.jetbrains.python.venvReader.Directory
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -57,15 +66,25 @@ internal suspend fun createProcessLauncherOnTarget(
     try {
       target.createEnvironmentRequest(projectMan.openProjects.firstOrNull() ?: projectMan.defaultProject)
     }
-    catch (e: ServerRuntimeException) {
-      return@withContext Result.failure(ExecuteGetProcessError.EnvironmentError(MessageError(e.localizedMessage)))
+    catch (e: CancellationException) {
+      throw e
+    }
+    catch (e: Exception) {
+      // A target implementation reports a failure with its own exception type. This module must not depend on that type.
+      if (e is ControlFlowException) throw e
+      return@withContext Result.failure(ExecuteGetProcessError.EnvironmentError(MessageError(e.localizedMessage ?: e.toString())))
     }
   }
 
   // Targets API maps local roots as directories; callers may still restrict which files are uploaded below.
   val workingDir = binOnTarget.workingDir?.takeIf { it.pathString.isNotBlank() }
   val dirsToMap = buildSet {
-    addAll(launchRequest.args.localFiles.map { it.parent })
+    for (localArg in launchRequest.args.localArgs) {
+      when (localArg) {
+        is Arg.FileArg -> add(localArg.file.parent)
+        is Arg.DirArg -> add(localArg.root)
+      }
+    }
     workingDir?.also {
       add(it)
     }
@@ -75,9 +94,16 @@ internal suspend fun createProcessLauncherOnTarget(
 
   // Setup download roots if download is requested
   val downloadConfig = launchRequest.downloadConfig
-  if (downloadConfig != null) {
-    val localDirsToDownload = workingDir?.let { setOf(it) } ?: emptySet()
-    val downloadRoots = mapDownloadRoots(request.uploadVolumes, localDirsToDownload)
+  val dirsToDownload = launchRequest.args.localArgs.mapNotNullTo(mutableSetOf()) { localArg ->
+    when (localArg) {
+      is Arg.FileArg -> null
+      is Arg.DirArg -> localArg.root.takeIf { localArg.download }
+    }
+  }
+  val localDirsToDownload = dirsToDownload + setOfNotNull(workingDir.takeIf { downloadConfig != null })
+  if (localDirsToDownload.isNotEmpty()) {
+    // Two directories can be in one upload root. One download root is sufficient for them.
+    val downloadRoots = mapDownloadRoots(request.uploadVolumes, localDirsToDownload).distinctBy { it.localRootPath }
     request.downloadVolumes.addAll(downloadRoots)
   }
 
@@ -103,13 +129,31 @@ internal suspend fun createProcessLauncherOnTarget(
   for (volume in targetEnv.uploadVolumes.values) {
     val skipUploading = uploadRoots[volume.localRoot]?.uploadVolumeExplicitly == false
     if (!skipUploading) { // Volume explicitly marked as non-uploadable, i.e.: helpers (they are uploaded by handlers)
-      uploadVolume(volume, workingDir, uploadConfig, launchRequest.args.localFiles)
+      uploadVolume(volume, workingDir, uploadConfig, launchRequest.args.localArgs)
     }
   }
 
-  val args = launchRequest.args.getArgs { localFile ->
-    targetEnv.getTargetPaths(localFile.pathString).first()
+  // Helpers resolve to the copy the handler deployed. `getTargetPaths` lists the mounts of an `ExternallySynchronized`
+  // environment first, so WSL would name them through `/mnt/c` instead. Any other path keeps that mount: a working
+  // directory on a Windows drive must stay the project itself, not a copy.
+  val helperVolumes = targetEnv.uploadVolumes.values.filter { uploadRoots[it.localRoot]?.uploadVolumeExplicitly == false }
+  fun getRemotePath(localPath: Path): FullPathOnTarget {
+    val helperMapping = helperVolumes.find { localPath.startsWith(it.localRoot) }?.let { PathMapping(it.localRoot.pathString, it.targetRoot) }
+    return helperMapping?.let {
+      findPathVariants(listOf(it), localPath.pathString, PathMapping::localPath, Platform.current().fileSeparator,
+                       PathMapping::targetPath, targetEnv.targetPlatform.platform.fileSeparator).firstOrNull()
+    } ?: targetEnv.getTargetPaths(localPath.pathString).first()
   }
+
+  val (args, env) = launchRequest.args.getArgsAndEnv(object : Uploader {
+    override suspend fun uploadFile(localFile: Path): FullPathOnTarget =
+      getRemotePath(localFile)
+
+    override suspend fun uploadDir(localDir: Directory): PathMapper = PathMapper { entry ->
+      getRemotePath(entry.resolveAgainst(localDir))
+    }
+  })
+
   val exePath: FullPathOnTarget
   val cmdLine = TargetedCommandLineBuilder(request).also { commandLineBuilder ->
     binOnTarget.configureTargetCmdLine(commandLineBuilder)
@@ -131,7 +175,11 @@ internal suspend fun createProcessLauncherOnTarget(
     }
 
     commandLineBuilder.addParameters(args)
-    for ((k, v) in launchRequest.env) {
+    val osFamily = when (targetEnv.targetPlatform.platform) {
+      Platform.UNIX -> EelOsFamily.Posix
+      Platform.WINDOWS -> EelOsFamily.Windows
+    }
+    for ((k, v) in launchRequest.getEnvMergingWithPathVars(env, osFamily)) {
       commandLineBuilder.addEnvironmentVariable(k, v)
     }
   }.build()
@@ -141,20 +189,26 @@ internal suspend fun createProcessLauncherOnTarget(
                                                                                             exePath,
                                                                                             targetEnv,
                                                                                             cmdLine,
-                                                                                            downloadConfig)))
+                                                                                            downloadConfig,
+                                                                                            dirsToDownload)))
 }
 
 private fun uploadVolume(
   volume: TargetEnvironment.UploadableVolume,
   workingDir: Path?,
   uploadConfig: UploadConfig?,
-  localFiles: List<Path>,
+  localArgs: List<Arg.LocalArg>,
 ) {
   if (uploadConfig != null && workingDir != null && volume.localRoot == workingDir) {
-    val localFileRelativePaths = localFiles
-      .filter { it.parent == workingDir }
-      .map { workingDir.relativize(it).pathString }
-    val pathsToUpload = (uploadConfig.relativePaths + localFileRelativePaths).distinct()
+    // Upload only the files and the directories that the process needs, not the full working directory.
+    val localPathsInWorkingDir = localArgs.mapNotNull { localArg ->
+      when (localArg) {
+        is Arg.FileArg -> localArg.file.takeIf { it.parent == workingDir }
+        is Arg.DirArg -> localArg.root.takeIf { it.startsWith(workingDir) }
+      }
+    }
+    val localRelativePaths = localPathsInWorkingDir.map { workingDir.relativize(it).pathString.ifEmpty { "." } }
+    val pathsToUpload = (uploadConfig.relativePaths + localRelativePaths).distinct()
     for (path in pathsToUpload) {
       volume.uploadMeasureTime(path, TargetProgressIndicator.EMPTY, "execService")
     }
@@ -218,6 +272,10 @@ private class TargetProcessCommands(
   private val targetEnv: TargetEnvironment,
   private val cmdLine: TargetedCommandLine,
   private val downloadConfig: DownloadConfig?,
+  /**
+   * Local directories from [com.intellij.python.community.execService.DirScope.downloadAfterExecution].
+   */
+  private val dirsToDownload: Set<Directory>,
 ) : ProcessCommands {
   override val info: ProcessCommandsInfo
     get() = ProcessCommandsInfo(
@@ -234,6 +292,7 @@ private class TargetProcessCommands(
         delay(100.milliseconds)
       }
       downloadAfterExecution()
+      downloadDirs()
       targetEnv.shutdown()
     }, killProcess = {
       process?.destroyForcibly()
@@ -249,17 +308,37 @@ private class TargetProcessCommands(
       val downloadRelativeDir = computeDownloadRelativeDir(workingDirOnTarget, volume.targetRoot)
       val paths = downloadConfig.relativePaths.takeIf { it.isNotEmpty() } ?: listOf(".")
       for (path in paths) {
-        coroutineToIndicator {
-          try {
-            volume.download(downloadRelativeDir + path, it)
-          }
-          catch (e: IOException) {
-            fileLogger().warn("Could not download $path: ${e.message}")
-          }
-          catch (e: RuntimeException) { // TODO: Unfortunately even though download is documented to throw IOException, in practice other random exceptions are possible for SSH at least
-            fileLogger().warn("Could not download $path: ${e.message}")
-          }
-        }
+        volume.downloadAndLogError(downloadRelativeDir + path)
+      }
+    }
+  }
+
+  /**
+   * Download each directory of [dirsToDownload] from the download volume that has it.
+   */
+  private suspend fun downloadDirs() {
+    for (localDir in dirsToDownload) {
+      val volume = targetEnv.downloadVolumes.values.find { localDir.startsWith(it.localRoot) }
+      if (volume == null) {
+        logger.warn("No download volume for $localDir")
+        continue
+      }
+      // `download` takes a path relative to the volume root with the separator of the target.
+      val relativePath = volume.localRoot.relativize(localDir).joinToString("/").ifEmpty { "." }
+      volume.downloadAndLogError(relativePath)
+    }
+  }
+
+  private suspend fun TargetEnvironment.DownloadableVolume.downloadAndLogError(relativePath: String) {
+    coroutineToIndicator {
+      try {
+        download(relativePath, it)
+      }
+      catch (e: IOException) {
+        fileLogger().warn("Could not download $relativePath: ${e.message}")
+      }
+      catch (e: RuntimeException) { // TODO: Unfortunately even though download is documented to throw IOException, in practice other random exceptions are possible for SSH at least
+        fileLogger().warn("Could not download $relativePath: ${e.message}")
       }
     }
   }
@@ -287,7 +366,7 @@ private fun ExecutionException.asCantStart(): Result.Failure<ExecErrorReason.Can
  */
 @ApiStatus.Internal
 @Throws(IOException::class)
-@RequiresBackgroundThread
+@RequiresBackgroundThread(generateAssertion = false /* IJPL-115548 */)
 fun TargetEnvironment.UploadableVolume.uploadMeasureTime(
   relativePath: String,
   targetProgressIndicator: TargetProgressIndicator,
@@ -307,7 +386,7 @@ fun TargetEnvironment.UploadableVolume.uploadMeasureTime(
  * Measures time for [upload] and reports it along with [genMessage] if `debug` enabled using [logger]
  */
 @ApiStatus.Internal
-@RequiresBackgroundThread
+@RequiresBackgroundThread(generateAssertion = false /* IJPL-115548 */)
 fun measureUploadTime(@RequiresBackgroundThread upload: () -> Unit, genMessage: () -> @NlsSafe String) {
   val duration = measureTime { upload() }
   logger.debug { "upload ${genMessage()} : $duration" }

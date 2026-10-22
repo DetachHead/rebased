@@ -1,4 +1,4 @@
-// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.psi.impl.source.tree.mvcc
 
 import com.intellij.concurrency.ExternalIntelliJContextElement
@@ -22,6 +22,8 @@ import kotlinx.coroutines.ThreadContextElement
 import org.jetbrains.annotations.ApiStatus.Internal
 import org.jetbrains.annotations.TestOnly
 import org.jetbrains.annotations.VisibleForTesting
+import java.util.Collections
+import java.util.IdentityHashMap
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ConcurrentMap
 import java.util.concurrent.atomic.AtomicBoolean
@@ -38,6 +40,37 @@ object InternalPsiVersioning {
   private const val SUSPENDING_WRITE_ACTION_METHOD_NAME = "executeSuspendingWriteAction"
 
   private const val LOCK_PROHIBITION_FREEZE_PSI_VERSION_ADVICE = "Lock usage is forbidden by `PsiVersioningService#freezePsiVersion`. It is not allowed to use locks while PSI snapshot is frozen"
+  private const val LOCK_PROHIBITION_FORKED_TIMELINE_ADVICE = "Lock usage is forbidden by `PsiVersioningService#executeWithTimeline`. It is not allowed to use locks while computation in a forked timeline is running"
+
+  /**
+   * PSI Versions are represented as a [Long].
+   * Each time write action finishes, we increment the modified version by [MAIN_TIMELINE_DELTA].
+   *
+   * Note, that [MAIN_TIMELINE_DELTA] is not equal to `1`.
+   * This is because we sometimes want to perform changes on top of some snapshot, but not publish such changes as write action does.
+   * An example is lightweight commit -- we might want to modify a snapshot of syntax tree without letting anyone to observe it.
+   *
+   * [FORKED_TIMELINE_DELTA] is used to increment the version when exclusive modification is performed.
+   *
+   * We can graphically represent the version history in the following way:
+   * ```text
+   * forked versions:        ------- 3         ------ 7
+   *                        /                 /
+   * main versions:   >--- 2 ------ 4 ------ 6 ------ 8 -->
+   * ```
+   * Here, `3` and `7` are forked versions, which are created when exclusive modification is performed.
+   *
+   * Technically, there is no restriction on how many forks we can make -- e.g., [MAIN_TIMELINE_DELTA] can be more than `2`,
+   * and we could have many possible [FORKED_TIMELINE_DELTA], but the number of such exclusive scopes must be bounded by some static constant.
+   * We use `2` because it is enough for our purposes for now.
+   *
+   * Such approach means that we reserve least significant bits for marking branching into new versions.
+   * We also could use the most significant bits, but we think that it is nicer to debug versioning when versions themselves look adequate.
+   */
+  internal const val MAIN_TIMELINE_DELTA: Long = 2L
+
+  internal const val FORKED_TIMELINE_DELTA: Long = 1L
+
 
   // it is important that this property is final so that JIT is able to optimize away such calls in production
   @TestOnly
@@ -62,7 +95,11 @@ object InternalPsiVersioning {
       return action()
     }
     val registry = PsiVersionRegistry.instance
-    val latestVersion = registry.latestPublishedVersion
+    val latestVersion = if (isInsideVersioningButNotLocks()) {
+      getCurrentPsiVersion()
+    } else {
+      registry.latestPublishedVersion
+    }
     // todo: the process of entering into versioned environment should run a double-checked-locking loop where we would be able to avoid concurrent garbage collection of the frozen version.
     return ApplicationManagerEx.getApplicationEx().withLocksProhibited(LOCK_PROHIBITION_FREEZE_PSI_VERSION_ADVICE) {
       registry.rememberFrozenVersion(latestVersion) {
@@ -77,6 +114,21 @@ object InternalPsiVersioning {
   fun assertNotInFreezePsiVersion() {
     if (PsiVersionFreezeMarker.isAvailable()) {
       error("This function is not allowed inside `freezePsiVersion` block")
+    }
+  }
+
+
+  fun <T> exclusivePsiModificationScopeWithExplicitVersion(version: Long, action: () -> T): T {
+    if (ApplicationManager.getApplication().isWriteAccessAllowed || ApplicationManager.getApplication().isWriteIntentLockAcquired) {
+      return action()
+    }
+    require(version % MAIN_TIMELINE_DELTA != 0L) {
+      "Cannot execute exclusive modification scope with version $version. The scope must be forked with `forkTimeline`"
+    }
+    return ApplicationManagerEx.getApplicationEx().withLocksProhibited(LOCK_PROHIBITION_FORKED_TIMELINE_ADVICE) {
+      initFreezePsiVersionSection(true, version).use {
+        action()
+      }
     }
   }
 
@@ -119,6 +171,16 @@ object InternalPsiVersioning {
       return
     }
     ThreadingAssertions.softAssertReadAccess()
+  }
+
+  /**
+   * Checks whether the current computation runs in [com.intellij.psi.util.PsiVersioningService.doExecuteWithTimeline]
+   *
+   * It is better to avoid branching on this condition. It is intended to be used only in low-level Platform code that needs to react to isolated execution.
+   */
+  @JvmStatic
+  fun isInForkedTimeline(): Boolean {
+    return getCurrentPsiVersion() % MAIN_TIMELINE_DELTA != 0L
   }
 
   @JvmStatic
@@ -194,11 +256,35 @@ object InternalPsiVersioning {
         threadLocalStorage.remove()
       }
     }
+
+    override fun toString(): String {
+      return "FrozenPsiVersion: $version"
+    }
   }
 
   typealias PsiVersion = Long
 
-  private class PsiVersionWriteContextElement(val version: Long): IntelliJThreadContextElement<PsiVersion?>, ExternalIntelliJContextElement, ThreadContextElement<PsiVersion?> {
+  // a slight optimization: in each write action we collect the modified clenables, and we register them later in a batch
+  private class CurrentlyModifiedCleanables {
+    private val cleanables = Collections.newSetFromMap(IdentityHashMap<PsiVersionCleanable, Boolean>())
+
+    @Synchronized
+    fun add(cleanable: PsiVersionCleanable) {
+      cleanables.add(cleanable)
+    }
+
+    @Synchronized
+    fun drain(): Collection<PsiVersionCleanable> {
+      val result = cleanables.toList()
+      cleanables.clear()
+      return result
+    }
+  }
+
+  private class PsiVersionWriteContextElement(
+    val version: Long,
+    val currentlyModifiedCleanables: CurrentlyModifiedCleanables? = null,
+  ): IntelliJThreadContextElement<PsiVersion?>, ExternalIntelliJContextElement, ThreadContextElement<PsiVersion?> {
     object Key : CoroutineContext.Key<PsiVersionWriteContextElement>
     override val key: CoroutineContext.Key<*> = Key
 
@@ -246,6 +332,10 @@ object InternalPsiVersioning {
 
     private val garbageCollector = ApplicationManager.getApplication().serviceOrNull<PsiVersioningGarbageCollector>()
 
+    /**
+     * A pointer to the latest published version
+     * each write action this atomic variable gets advanced by [MAIN_TIMELINE_DELTA], this publishing a new version for read actions
+     */
     private val version = AtomicLong(0)
 
     val latestPublishedVersion: Long
@@ -267,19 +357,34 @@ object InternalPsiVersioning {
       }
     }
 
-    internal fun registerCleanable(cleanable: PsiVersionCleanable) {
-      // service can be null in tests
-      garbageCollector?.registerCleanable(cleanable)
+    fun rememberFrozenVersionUnsafe(version: Long) {
+      frozenPsiVersionsRegistry.compute(version) { _, v -> if (v == null) 1 else v + 1 }
     }
 
+    fun forgetFrozenVersionUnsafe(version: Long) {
+      decrementFrozenVersion(version)
+    }
+    fun minVersionForCleaning(): Long {
+      // we select the lowest even version for cleanup -- we need to retain only this version for guaranteed semantics preservation
+      // there is always at least one frozen version, so we never observe an empty collection
+      return frozenPsiVersionsRegistry.keys.minOf {
+        it - (it % MAIN_TIMELINE_DELTA)
+      }
+    }
+
+    internal fun registerCleanablesForVersion(version: Long, cleanables: Collection<PsiVersionCleanable>) {
+      garbageCollector?.registerCleanablesForVersion(version, cleanables)
+    }
 
     fun incrementVersion(expected: Long) {
+      val nextVersion = expected + MAIN_TIMELINE_DELTA
       // the published version is always frozen, we have no right to remove it until it ends
-      frozenPsiVersionsRegistry[expected + 1] = 1
-      val versionAdvanced = version.compareAndSet(expected, expected + 1)
+      frozenPsiVersionsRegistry[nextVersion] = 1
+      val versionAdvanced = version.compareAndSet(expected, nextVersion)
       assert(versionAdvanced) {
         "Version modification failed: could not increment the version with $expected, because global version version is ${version.get()}"
       }
+      // now we permit the previous version to be garbage collected
       decrementFrozenVersion(expected)
     }
 
@@ -293,7 +398,7 @@ object InternalPsiVersioning {
         }
       }
       if (newValue == null) {
-        garbageCollector?.liveVersionsChanged(getFrozenKeys())
+        garbageCollector?.liveVersionsChanged(minVersionForCleaning())
       }
     }
 
@@ -346,6 +451,19 @@ object InternalPsiVersioning {
     }
   }
 
+  @JvmStatic
+  @Internal
+  fun recordVersionedChange(cleanable: PsiVersionCleanable) {
+    val version = getCurrentPsiVersion()
+    val batch = currentThreadContext()[PsiVersionWriteContextElement.Key]?.currentlyModifiedCleanables
+    if (batch != null) {
+      batch.add(cleanable)
+    }
+    else {
+      PsiVersionRegistry.instance.registerCleanablesForVersion(version, listOf(cleanable))
+    }
+  }
+
   sealed interface VersioningKey {
     object Collapsed : VersioningKey
     object Versioned: VersioningKey
@@ -395,7 +513,7 @@ object InternalPsiVersioning {
       cleanupVersioningSection()
     }
 
-    override fun beforeWriteLockTemporarilyReleased(): Unit {
+    override fun beforeWriteLockTemporarilyReleased() {
       writeActionFinished(Any::class.java) // we publish the incremented version here so that the published version is incremented
       val token = initReadActionSection()
       cleanupTokenList.get().add(token)
@@ -434,8 +552,12 @@ object InternalPsiVersioning {
     val installedVersion = threadLocalVersioningTracker.get()
     val combinedToken = if (installedVersion == null) {
       threadLocalVersioningTracker.set(latestVersion)
+      val value = elementMarker is PsiVersionFreezeMarker && elementMarker.beforeStarted(currentThreadContext())
       object : AccessToken() {
         override fun finish() {
+          if (elementMarker is PsiVersionFreezeMarker) {
+            elementMarker.afterCompleted(currentThreadContext(), value)
+          }
           threadLocalVersioningTracker.remove()
           threadContextToken.finish()
         }
@@ -455,16 +577,18 @@ object InternalPsiVersioning {
     return if (storedThreadLocal == null) {
       val psiVersionRegistry = PsiVersionRegistry.instance
       val existingVersion = psiVersionRegistry.latestPublishedVersion
-      val newVersion = existingVersion + 1
+      val newVersion = existingVersion + MAIN_TIMELINE_DELTA
+      val currentlyModifiedCleanables = CurrentlyModifiedCleanables()
       @Suppress("DEPRECATION")
-      val threadContextInstallation = installThreadContext(context + PsiVersionWriteContextElement(newVersion), true)
+      val threadContextInstallation = installThreadContext(context + PsiVersionWriteContextElement(newVersion, currentlyModifiedCleanables), true)
       threadLocalVersioningTracker.set(newVersion)
       object : AccessToken() {
         override fun finish() {
+          psiVersionRegistry.registerCleanablesForVersion(newVersion, currentlyModifiedCleanables.drain())
           threadContextInstallation.finish()
           threadLocalVersioningTracker.remove()
-          val latestVersion = PsiVersionRegistry.instance.latestPublishedVersion
-          PsiVersionRegistry.instance.incrementVersion(latestVersion)
+          val latestVersion = psiVersionRegistry.latestPublishedVersion
+          psiVersionRegistry.incrementVersion(latestVersion)
         }
       }
     } else if (context[PsiVersionWriteContextElement.Key] == null) {

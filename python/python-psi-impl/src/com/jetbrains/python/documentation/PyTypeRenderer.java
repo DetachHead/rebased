@@ -52,6 +52,7 @@ import com.jetbrains.python.psi.types.PyTypeRendererFeature;
 import com.jetbrains.python.psi.types.PyTypeVarTupleType;
 import com.jetbrains.python.psi.types.PyTypeVarType;
 import com.jetbrains.python.psi.types.PyTypeVisitorExt;
+import com.jetbrains.python.psi.types.PyTypedDictType;
 import com.jetbrains.python.psi.types.PyTypingNewType;
 import com.jetbrains.python.psi.types.PyUnionType;
 import com.jetbrains.python.psi.types.PyUnpackedTupleType;
@@ -91,6 +92,11 @@ public abstract class PyTypeRenderer extends PyTypeVisitorExt<@NotNull HtmlChunk
   protected final boolean isRenderingTypeVarBounds() {
     return myRenderingFeatures.contains(PyTypeRendererFeature.TYPE_VAR_BOUNDS);
   }
+
+  protected final boolean isRenderingBareLiteral() {
+    return myRenderingFeatures.contains(PyTypeRendererFeature.BARE_LITERAL);
+  }
+
 
   private PyTypeRenderer(@NotNull TypeEvalContext typeEvalContext, @NotNull EnumSet<PyTypeRendererFeature> features) {
     myTypeEvalContext = typeEvalContext;
@@ -351,6 +357,22 @@ public abstract class PyTypeRenderer extends PyTypeVisitorExt<@NotNull HtmlChunk
   }
 
   @Override
+  public HtmlChunk visitPyTypedDictType(@NotNull PyTypedDictType typedDictType) {
+    List<PyType> typeArguments = typedDictType.getTypeArguments();
+    if (typeArguments.isEmpty()) {
+      return visitPyClassLikeType(typedDictType);
+    }
+
+    HtmlChunk parameterizedRender = new HtmlBuilder()
+      .append(classLink(typedDictType, getTypeName(typedDictType)))
+      .append(styled("[", PyHighlighter.PY_BRACKETS))
+      .append(renderList(ContainerUtil.map(typeArguments, this::render)))
+      .append(styled("]", PyHighlighter.PY_BRACKETS))
+      .toFragment();
+    return typedDictType.isDefinition() ? wrapInTypingType(parameterizedRender) : parameterizedRender;
+  }
+
+  @Override
   public HtmlChunk visitPyNamedTupleType(@NotNull PyNamedTupleType namedTupleType) {
     // A named tuple is rendered by its class name, not by its field types (which are exposed as type arguments
     // since it is a subtype of tuple[...]). Before PY-79063 it reached the non-parameterized visitPyClassType branch.
@@ -444,7 +466,9 @@ public abstract class PyTypeRenderer extends PyTypeVisitorExt<@NotNull HtmlChunk
     if (isOptional(unionType)) {
       return renderOptional(unionType);
     }
-    Pair<List<PyLiteralType>, List<PyType>> literalsAndOthers = extractLiterals(unionType);
+    // In bare mode literals aren't grouped under a single `Literal[...]`; each renders as its bare value and joins
+    // the union with the normal separator (`1 | 2` rather than `Literal[1, 2]`).
+    Pair<List<PyLiteralType>, List<PyType>> literalsAndOthers = isRenderingBareLiteral() ? null : extractLiterals(unionType);
     if (literalsAndOthers != null) {
       if (literalsAndOthers.second.isEmpty()) {
         return renderUnionOfLiterals(literalsAndOthers.first);
@@ -459,7 +483,7 @@ public abstract class PyTypeRenderer extends PyTypeVisitorExt<@NotNull HtmlChunk
     }
     if (unionType.getMembers().stream().anyMatch(it -> isUnknown(it))) {
       // Always put Unknown at the end of the union
-      return renderUnion(List.of(render(PyUnionType.union(ContainerUtil.filter(unionType.getMembers(), it -> !isUnknown(it)))), visitUnknownType()));
+      return renderUnion(List.of(render(PyUnionType.unionOrUnknown(ContainerUtil.filter(unionType.getMembers(), it -> !isUnknown(it)))), visitUnknownType()));
     }
     return renderUnion(ContainerUtil.map(unionType.getMembers(), this::renderUnionMember));
   }
@@ -898,8 +922,12 @@ public abstract class PyTypeRenderer extends PyTypeVisitorExt<@NotNull HtmlChunk
   @Override
   public @NotNull HtmlChunk visitPyLiteralType(@NotNull PyLiteralType literalType) {
     HtmlBuilder result = new HtmlBuilder();
-    result.append(qualifiedNameLink(isRenderingFqn() ? PyTypingTypeProvider.LITERAL : "Literal", PyTypingTypeProvider.LITERAL)); //NON-NLS
-    result.append("[");
+    // Bare mode drops the redundant `Literal[...]` wrapper and shows just the value (`1`, `'a'`, `Color.RED`).
+    boolean bare = isRenderingBareLiteral();
+    if (!bare) {
+      result.append(qualifiedNameLink(isRenderingFqn() ? PyTypingTypeProvider.LITERAL : "Literal", PyTypingTypeProvider.LITERAL)); //NON-NLS
+      result.append("[");
+    }
     @Nullable String classQName = literalType.getClassQName();
     if (isRenderingFqn() && classQName != null && literalType.getEnumMemberName() != null) {
       result.append(classQName);
@@ -909,7 +937,9 @@ public abstract class PyTypeRenderer extends PyTypeVisitorExt<@NotNull HtmlChunk
     else {
       result.appendRaw(literalType.getExpressionText()); // append raw since the literal can include quotes: Literal["foo"]
     }
-    result.append("]");
+    if (!bare) {
+      result.append("]");
+    }
     return literalType.isDefinition() ? wrapInTypingType(result.toFragment()) : result.toFragment();
   }
 

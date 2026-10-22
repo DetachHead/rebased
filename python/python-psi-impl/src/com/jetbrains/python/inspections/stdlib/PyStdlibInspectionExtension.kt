@@ -38,10 +38,17 @@ class PyStdlibInspectionExtension : PyInspectionExtension() {
   }
 
   override fun ignoreMethodParameters(function: PyFunction, context: TypeEvalContext): Boolean {
-    return function.name == "__prepare__" &&
-           function.getParameters(context).let { it.size == 3 && !it.any { p -> p.isKeywordContainer || p.isPositionalContainer } } ||
-           function.name == Dataclasses.DUNDER_POST_INIT &&
-           function.containingClass?.let { parseStdDataclassParameters(it, context) != null } == true
+    return when (function.name) {
+      "__prepare__" -> {
+        val parameters = function.getParameters(context)
+        parameters.size == 3 && parameters.none { it.isKeywordContainer || it.isPositionalContainer }
+      }
+      Dataclasses.DUNDER_POST_INIT -> {
+        val cls = function.containingClass
+        cls != null && parseStdDataclassParameters(cls, context) != null
+      }
+      else -> false
+    }
   }
 
   private fun ignoredUnresolvedNamedTupleMember(type: PyNamedTupleType, name: String): Boolean {

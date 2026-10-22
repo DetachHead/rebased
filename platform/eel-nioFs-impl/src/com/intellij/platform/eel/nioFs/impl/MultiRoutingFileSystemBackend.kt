@@ -2,7 +2,7 @@
 package com.intellij.platform.eel.nioFs.impl
 
 import com.intellij.openapi.extensions.ExtensionPointName
-import com.intellij.platform.eel.annotations.MultiRoutingFileSystemPath
+import com.intellij.platform.util.annotations.paths.NioPath
 import org.jetbrains.annotations.ApiStatus
 import java.nio.file.FileStore
 import java.nio.file.FileSystem
@@ -44,7 +44,7 @@ interface MultiRoutingFileSystemBackend {
    * The implementation SHOULD avoid I/O operations
    * because [getRootDirectories](java.nio.file.FileSystem.getRootDirectories) can be called from inside a read action.
    */
-  fun getCustomRoots(): Collection<@MultiRoutingFileSystemPath String>
+  fun getCustomRoots(): Collection<@NioPath String>
 
   fun getCustomFileStores(localFS: FileSystem): Collection<FileStore>
 }

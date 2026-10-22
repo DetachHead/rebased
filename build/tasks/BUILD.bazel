@@ -27,10 +27,12 @@ jvm_library(
         "@lib//:slf4j-api",
         "@lib//:slf4j-jdk14",
         "//libraries/bouncy-castle-provider",
+        "//libraries/opentelemetry-exporter-sender-jdk",
     ],
     deps = [
         # do not sort,
         "@lib//:kotlin-stdlib",
+        "//platform/build-scripts/concurrency",
         "//libraries/kotlinx/serialization/core",
         "//libraries/kotlinx/serialization/json",
         "//platform/util/zip",
@@ -54,6 +56,8 @@ jvm_library(
         "//libraries/teamcity/service-messages:libraries-teamcity-service-messages",
         "//libraries/opentelemetry-extension-kotlin",
         "@community//build:zip",
+        "//platform/build-scripts/plugin-preparation",
+        "//libraries/opentelemetry-exporter-otlp",
     ],
 )
 
@@ -69,6 +73,7 @@ jvm_library(
     runtime_deps = [
         # do not sort,
         ":tasks",
+        "//platform/build-scripts/concurrency:concurrency_test_lib",
         "//libraries/kotlinx/serialization/core:core_test_lib",
         "//libraries/kotlinx/serialization/json:json_test_lib",
         "//platform/util/zip:zip_test_lib",
@@ -86,16 +91,8 @@ jvm_library(
         "//platform/diagnostic/telemetry.exporters:telemetry.exporters_test_lib",
         "//platform/util-ex:util-ex_test_lib",
         "//libraries/bouncy-castle-provider:bouncy-castle-provider_test_lib",
-        "//platform/testFramework",
-        "//platform/testFramework:testFramework_test_lib",
-        "//platform/testFramework/extensions:testExtensions",
-        "//platform/testFramework/extensions:testExtensions_test_lib",
-        "//libraries/assertj-core",
-        "//libraries/assertj-core:assertj-core_test_lib",
         "//libraries/memoryfilesystem",
         "//libraries/memoryfilesystem:memoryfilesystem_test_lib",
-        "//libraries/junit5",
-        "//libraries/junit5:junit5_test_lib",
         "//platform/build-scripts/downloader:downloader_test_lib",
         "//libraries/jetbrains/annotations:annotations_test_lib",
         "//platform/util/base:base_test_lib",
@@ -103,6 +100,9 @@ jvm_library(
         "//libraries/teamcity/service-messages:libraries-teamcity-service-messages_test_lib",
         "//libraries/opentelemetry-extension-kotlin:opentelemetry-extension-kotlin_test_lib",
         "@community//build:zip_test_lib",
+        "//platform/build-scripts/plugin-preparation:plugin-preparation_test_lib",
+        "//libraries/opentelemetry-exporter-otlp:opentelemetry-exporter-otlp_test_lib",
+        "//libraries/opentelemetry-exporter-sender-jdk:opentelemetry-exporter-sender-jdk_test_lib",
     ],
 )
 ### auto-generated section `build intellij.idea.community.build.tasks` end
@@ -197,8 +197,8 @@ jvm_library(
         "//libraries/assertj-core:assertj-core_test_lib",
         "//libraries/memoryfilesystem",
         "//libraries/memoryfilesystem:memoryfilesystem_test_lib",
-        "//libraries/junit5",
-        "//libraries/junit5:junit5_test_lib",
+        "//libraries/junit6",
+        "//libraries/junit6:junit6_test_lib",
         "//platform/build-scripts/downloader",
         "//platform/build-scripts/downloader:downloader_test_lib",
         "//libraries/jetbrains/annotations",
@@ -213,8 +213,8 @@ jvm_library(
         "//libraries/opentelemetry-extension-kotlin:opentelemetry-extension-kotlin_test_lib",
         "@community//build:zip",
         "@community//build:zip_test_lib",
-        "//libraries/junit5-params",
-        "//libraries/junit5-params:junit5-params_test_lib",
+        "//libraries/junit6-params",
+        "//libraries/junit6-params:junit6-params_test_lib",
     ],
 )
 ### auto-generated section `build intellij.idea.community.build.tasks.tests` end

@@ -1,12 +1,14 @@
 // Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.kotlin.idea.k2.codeinsight.fixes
 
+import com.intellij.codeInsight.intention.PriorityAction
 import com.intellij.modcommand.ModCommandAction
 import com.intellij.psi.PsiElement
 import com.intellij.psi.util.findParentOfType
 import com.intellij.util.containers.addIfNotNull
 import org.jetbrains.kotlin.analysis.api.KaSession
 import org.jetbrains.kotlin.analysis.api.annotations.KaAnnotation
+import org.jetbrains.kotlin.analysis.api.annotations.KaAnnotationTarget
 import org.jetbrains.kotlin.analysis.api.annotations.KaAnnotationValue
 import org.jetbrains.kotlin.analysis.api.annotations.KaNamedAnnotationValue
 import org.jetbrains.kotlin.analysis.api.fir.diagnostics.KaFirDiagnostic
@@ -21,6 +23,7 @@ import org.jetbrains.kotlin.idea.base.psi.KotlinPsiHeuristics
 import org.jetbrains.kotlin.idea.codeinsight.api.applicators.fixes.KotlinQuickFixFactory
 import org.jetbrains.kotlin.idea.k2.codeinsight.fixes.OptInGeneralUtils.collectScriptCandidates
 import org.jetbrains.kotlin.idea.quickfix.AddAnnotationFix
+import org.jetbrains.kotlin.idea.quickfix.OptInFixes
 import org.jetbrains.kotlin.idea.quickfix.OptInGeneralUtilsBase
 import org.jetbrains.kotlin.idea.refactoring.isOpen
 import org.jetbrains.kotlin.lexer.KtTokens
@@ -29,6 +32,7 @@ import org.jetbrains.kotlin.name.FqName
 import org.jetbrains.kotlin.psi.KtClass
 import org.jetbrains.kotlin.psi.KtDeclaration
 import org.jetbrains.kotlin.psi.KtElement
+import org.jetbrains.kotlin.psi.KtPsiUtil
 import org.jetbrains.kotlin.resolve.checkers.OptInNames
 
 internal object OptInFixFactories {
@@ -76,6 +80,14 @@ internal object OptInFixFactories {
         fun collectPropagateOptInAnnotationFix(targetElement: KtElement, kind: AddAnnotationFix.Kind): AddAnnotationFix? {
             if (targetElement !is KtDeclaration) return null
             if (applicableTargets == null) return null
+            if (targetElement is KtClass && kind is AddAnnotationFix.Kind.Constructor) {
+                if (KaAnnotationTarget.CONSTRUCTOR !in applicableTargets) return null
+                return OptInGeneralUtils.collectPropagateOptInAnnotationOnPrimaryConstructorFix(
+                    targetElement,
+                    annotationClassId,
+                    isOverrideError
+                )
+            }
 
             val actualTargetList = targetElement.symbol.defaultAnnotationTargets ?: return null
             return OptInGeneralUtils.collectPropagateOptInAnnotationFix(
@@ -88,9 +100,29 @@ internal object OptInFixFactories {
             )
         }
 
+        fun collectUseOptInAnnotationFix(targetElement: KtElement, kind: AddAnnotationFix.Kind): ModCommandAction {
+            val priority = if (isOverrideError) PriorityAction.Priority.NORMAL else PriorityAction.Priority.HIGH
+            if (targetElement is KtClass && kind is AddAnnotationFix.Kind.Constructor) {
+                return OptInFixes.UseOptInAnnotationOnPrimaryConstructorFix(
+                    targetElement,
+                    optInClassId,
+                    kind,
+                    annotationClassId.asSingleFqName(),
+                    priority
+                )
+            }
+            return OptInGeneralUtils.collectUseOptInAnnotationFix(
+                targetElement,
+                kind,
+                optInClassId,
+                annotationClassId.asSingleFqName(),
+                isOverrideError
+            )
+        }
+
         candidates.forEach { (targetElement, kind) ->
             result.addIfNotNull(collectPropagateOptInAnnotationFix(targetElement, kind))
-            result.add(OptInGeneralUtils.collectUseOptInAnnotationFix(targetElement, kind, optInClassId, annotationClassId.asSingleFqName(), isOverrideError))
+            result.add(collectUseOptInAnnotationFix(targetElement, kind))
         }
         return result
     }
@@ -135,5 +167,20 @@ private object OptInGeneralUtils : OptInGeneralUtilsBase() {
             is KaAnnotationValue.ArrayValue -> expression.values.mapNotNull { (it as? KaAnnotationValue.ClassLiteralValue)?.classId }
             else -> emptyList()
         }
+    }
+
+    fun collectPropagateOptInAnnotationOnPrimaryConstructorFix(
+        targetElement: KtClass,
+        annotationClassId: ClassId,
+        isOverrideError: Boolean
+    ): AddAnnotationFix? {
+        if (KtPsiUtil.isLocal(targetElement)) return null
+        val priority = if (isOverrideError) PriorityAction.Priority.HIGH else PriorityAction.Priority.NORMAL
+        return OptInFixes.PropagateOptInAnnotationOnPrimaryConstructorFix(
+            targetElement,
+            annotationClassId,
+            argumentClassFqName = null,
+            priority = priority
+        )
     }
 }

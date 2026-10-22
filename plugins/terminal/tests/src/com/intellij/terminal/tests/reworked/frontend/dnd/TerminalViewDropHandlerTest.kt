@@ -209,8 +209,8 @@ internal class TerminalViewDropHandlerTest {
       on { coroutineScope } doReturn scope
       on { sessionDeferred } doReturn if (sessionStarted) CompletableDeferred(session) else CompletableDeferred()
       on { startupOptionsDeferred } doReturn CompletableDeferred(startupOptions)
-      // getRunningProcessCommandLine() reads this for a shell process. An incomplete value means
-      // "no command is running", which keeps the FUS payload out of these assertions.
+      // getRunningProcessExecutableForFus() reads this for a shell process. An incomplete value means
+      // "the shell integration is not available", which keeps the FUS payload out of these assertions.
       on { shellIntegrationDeferred } doReturn CompletableDeferred()
       on { preferredFocusableComponent } doReturn JPanel()
       on { createSendTextBuilder() } doReturn TerminalSendTextBuilderImpl { options ->

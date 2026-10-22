@@ -1,6 +1,7 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.intellij.build.productLayout.generator
 
+import com.intellij.platform.buildScripts.concurrency.SharedTaskOwner
 import com.intellij.platform.pluginGraph.ContentModuleName
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
@@ -21,10 +22,17 @@ import java.nio.file.Path
 
 @ExtendWith(TestFailureLogger::class)
 class ProductModuleDependencyGeneratorTest {
+  private val owner = SharedTaskOwner("ProductModuleDependencyGeneratorTest")
+
+  @org.junit.jupiter.api.AfterEach
+  fun closeSharedTasks() {
+    owner.close()
+  }
+
   @Test
   fun `product module written deps exclude self dependency`(@TempDir tempDir: Path) {
     runBlocking(Dispatchers.Default) {
-      val moduleName = "intellij.self.module"
+      val moduleName = "intellij.libraries.self.module"
       val setup = pluginTestSetup(tempDir) {
         contentModule(moduleName) {
           descriptor = """<idea-plugin package="self.module"/>"""
@@ -35,12 +43,12 @@ class ProductModuleDependencyGeneratorTest {
       val model = testGenerationModel(
         pluginGraph = setup.pluginGraph,
         outputProvider = setup.jps.outputProvider,
-        fileUpdater = setup.strategy,
+        fileUpdater = setup.strategy, owner = owner,
       ).copy(
         discovery = DiscoveryResult(
           moduleSetsByLabel = mapOf(
             "community" to listOf(
-              moduleSet("self.deps.test", includeDependencies = true) {
+              moduleSet("self.deps.test") {
                 module(moduleName)
               }
             )
@@ -68,7 +76,7 @@ class ProductModuleDependencyGeneratorTest {
   @Test
   fun `product module updateSuppressions does not preserve existing TEST scope dependency`(@TempDir tempDir: Path) {
     runBlocking(Dispatchers.Default) {
-      val moduleName = "intellij.groovy.duplicates"
+      val moduleName = "intellij.libraries.groovy.duplicates"
       val testFramework = ContentModuleName("intellij.platform.testFramework")
       val setup = pluginTestSetup(tempDir) {
         contentModule(testFramework.value) {
@@ -93,12 +101,12 @@ class ProductModuleDependencyGeneratorTest {
         pluginGraph = setup.pluginGraph,
         outputProvider = setup.jps.outputProvider,
         fileUpdater = setup.strategy,
-        updateSuppressions = true,
+        updateSuppressions = true, owner = owner,
       ).copy(
         discovery = DiscoveryResult(
           moduleSetsByLabel = mapOf(
             "community" to listOf(
-              moduleSet("groovy.deps.test", includeDependencies = true) {
+              moduleSet("groovy.deps.test") {
                 module(moduleName)
               }
             )

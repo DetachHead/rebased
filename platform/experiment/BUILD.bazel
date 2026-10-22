@@ -11,6 +11,10 @@ jps_test(
 
 ### skip generation section `test intellij.platform.experiment.tests`
 
+### auto-generated section `dev intellij.platform.experiment` start
+content_module_jar(module = ":experiment")
+### auto-generated section `dev intellij.platform.experiment` end
+
 ### auto-generated section `build intellij.platform.experiment` start
 jvm_library(
     name = "experiment",
@@ -40,8 +44,6 @@ jvm_library(
     ],
 )
 
-content_module_jar(module = ":experiment")
-
 jvm_library(
     name = "experiment_test_lib",
     testonly = True,
@@ -60,8 +62,6 @@ jvm_library(
         "//platform/projectModel-api:projectModel_test_lib",
         "//platform/projectModel-impl:projectModel-impl_test_lib",
         "//platform/platform-impl:ide-impl_test_lib",
-        "//libraries/junit5",
-        "//libraries/junit5:junit5_test_lib",
     ],
 )
 ### auto-generated section `build intellij.platform.experiment` end
@@ -71,7 +71,6 @@ exports_files(
     [
         "intellij.platform.experiment.iml",
         "resources/intellij.platform.experiment.xml",
-        "module-content.yaml",
     ],
     visibility = ["//visibility:public"],
 )
@@ -123,8 +122,8 @@ jvm_library(
         "//platform/projectModel-impl",
         "//platform/projectModel-impl:projectModel-impl_test_lib",
         "//platform/platform-impl:ide-impl",
-        "//libraries/junit5",
-        "//libraries/junit5:junit5_test_lib",
+        "//libraries/junit6",
+        "//libraries/junit6:junit6_test_lib",
     ],
 )
 ### auto-generated section `build intellij.platform.experiment.tests` end

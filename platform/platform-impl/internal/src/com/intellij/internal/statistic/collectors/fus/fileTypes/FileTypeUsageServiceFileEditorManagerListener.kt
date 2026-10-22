@@ -8,10 +8,10 @@ import com.intellij.openapi.vfs.VirtualFile
 
 private class FileTypeUsageServiceFileEditorManagerListener : FileEditorManagerListener {
   override fun fileClosed(source: FileEditorManager, file: VirtualFile) {
-    FileTypeUsageCounterCollector.triggerClosed(source.getProject(), file)
+    FileTypeUsageCounterCollector.triggerClosed(source.project, file)
   }
 
   override fun selectionChanged(event: FileEditorManagerEvent) {
-    FileTypeUsageCounterCollector.triggerSelect(event.manager.getProject(), event.newFile)
+    FileTypeUsageCounterCollector.triggerSelect(event.manager.project, event.newFile)
   }
 }

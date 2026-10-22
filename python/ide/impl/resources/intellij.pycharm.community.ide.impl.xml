@@ -6,19 +6,21 @@
     <module name="intellij.libraries.guava"/>
     <module name="intellij.libraries.http.client"/>
     <module name="intellij.libraries.jetbrains.annotations"/>
-    <module name="intellij.libraries.jna"/>
     <module name="intellij.libraries.kotlinx.collections.immutable"/>
     <module name="intellij.libraries.kotlinx.coroutines.core"/>
     <module name="intellij.libraries.semver"/>
     <module name="intellij.libraries.stream"/>
     <module name="intellij.platform.analysis"/>
+    <module name="intellij.platform.backend.workspace"/>
     <module name="intellij.platform.codeStyle"/>
+    <module name="intellij.platform.concurrency"/>
     <module name="intellij.platform.core"/>
     <module name="intellij.platform.core.impl"/>
     <module name="intellij.platform.core.ui"/>
     <module name="intellij.platform.debugger"/>
     <module name="intellij.platform.diff"/>
     <module name="intellij.platform.editor.ui"/>
+    <module name="intellij.platform.eel.provider"/>
     <module name="intellij.platform.execution"/>
     <module name="intellij.platform.execution.impl"/>
     <module name="intellij.platform.experiment"/>
@@ -27,6 +29,7 @@
     <module name="intellij.platform.ide.nonModalWelcomeScreen"/>
     <module name="intellij.platform.ide.nonModalWelcomeScreen.backend"/>
     <module name="intellij.platform.ide.progress"/>
+    <module name="intellij.platform.ide.rpc"/>
     <module name="intellij.platform.indexing"/>
     <module name="intellij.platform.lang"/>
     <module name="intellij.platform.lang.core"/>
@@ -36,12 +39,14 @@
     <module name="intellij.platform.usageView"/>
     <module name="intellij.platform.usageView.impl"/>
     <module name="intellij.platform.util.coroutines"/>
+    <module name="intellij.platform.util.progress"/>
     <module name="intellij.platform.util.ui"/>
     <module name="intellij.platform.vcs"/>
     <module name="intellij.platform.welcomeScreen"/>
     <module name="intellij.platform.welcomeScreen.impl"/>
     <module name="intellij.platform.whatsNew"/>
     <module name="intellij.platform.workspace.jps"/>
+    <module name="intellij.platform.workspace.storage"/>
     <module name="intellij.python.community.common"/>
     <module name="intellij.python.community.execService.python"/>
     <module name="intellij.python.community.impl.poetry.common"/>
@@ -70,10 +75,7 @@
     <welcomeScreenProjectProvider implementation="com.intellij.pycharm.community.ide.impl.welcomeScreen.PyCharmWelcomeScreenProjectProvider" order="first"/>
     <editorNotificationProvider implementation="com.intellij.pycharm.community.ide.impl.welcomeScreen.PyCharmWelcomeScreenOpenFileNotificationProvider"/>
     <platform.ide.welcomeScreenFeatureBackend implementation="com.intellij.pycharm.community.ide.impl.newProjectWizard.welcome.PyNewScriptWelcomeScreenFeature"/>
-    <platform.ide.welcomeScreenFeatureBackend implementation="com.intellij.pycharm.community.ide.impl.newProjectWizard.welcome.PyNewNotebookWelcomeScreenFeature"/>
-    <platform.ide.welcomeScreenFeatureBackend implementation="com.intellij.pycharm.community.ide.impl.newProjectWizard.welcome.PyLearnWelcomeScreenFeature"/>
     <platform.ide.welcomeScreenFeatureBackend implementation="com.intellij.pycharm.community.ide.impl.newProjectWizard.welcome.PyImportFileWelcomeScreenFeature"/>
-    <platform.ide.welcomeScreenFeatureBackend implementation="com.intellij.pycharm.community.ide.impl.newProjectWizard.welcome.PyPluginsWelcomeScreenFeature"/>
     <registryKey defaultValue="true" description="Open non-project files in welcome screen" key="welcome.screen.open.files"/>
 
     <statistics.validation.customValidationRule
@@ -91,9 +93,6 @@
                         overrides="true"/>
 
     <!--Settings -->
-    <backgroundPostStartupActivity id="PyCharmProjectConfigurableStartupActivity"
-                                   implementation="com.intellij.pycharm.community.ide.impl.PyCharmProjectConfigurableStartupActivity"/>
-
     <projectConfigurable groupId="project"
                          id="com.intellij.pycharm.community.ide.impl.configuration.PythonContentEntriesConfigurable"
                          bundle="messages.PyBundle"
@@ -123,12 +122,44 @@
                        displayNameKey="settings.python.tools.group.title"
                        descriptionKey="settings.python.tools.group.description"/>
 
+    <!-- Interpreter Settings Redesign (PY-89840). On (default): new pages replace legacy ones. Off: legacy layout. -->
+    <registryKey defaultValue="true"
+                 description="PY-89840 Interpreter Settings Redesign: show new 'All Interpreters' and 'Workspace/Project Structure' pages instead of the legacy 'Python | Interpreter' and 'Project Structure' pages"
+                 key="python.interpreter.settings.redesign"
+                 restartRequired="false"/>
+
     <projectConfigurable groupId="python.group.settings"
                          id="com.jetbrains.python.configuration.PyActiveSdkModuleConfigurable"
                          bundle="messages.PyBundle"
                          key="configurable.PyActiveSdkModuleConfigurable.pycharm.interpreter.display.name"
-                         instance="com.intellij.pycharm.community.ide.impl.PyCharmPyActiveSdkModuleConfigurable"
+                         provider="com.intellij.pycharm.community.ide.impl.configuration.interpreter.PyCharmPyActiveSdkModuleConfigurableProvider"
                          groupWeight="200"/> <!-- id is used in InterpreterSettingsQuickFix.showPythonInterpreterSettings -->
+
+    <!-- New "Python | All Interpreters" page (PY-89840); gated by python.interpreter.settings.redesign -->
+    <projectConfigurable groupId="python.group.settings"
+                         id="com.intellij.pycharm.community.ide.impl.configuration.interpreter.PyAllInterpretersConfigurable"
+                         bundle="messages.PyBundle"
+                         key="configurable.PyAllInterpretersConfigurable.display.name"
+                         provider="com.intellij.pycharm.community.ide.impl.configuration.interpreter.PyAllInterpretersConfigurableProvider"
+                         groupWeight="199"/>
+
+    <!-- New Project/Workspace Structure page (PY-89840); gated by python.interpreter.settings.redesign. -->
+    <projectConfigurable groupId="root"
+                         id="com.intellij.pycharm.community.ide.impl.configuration.interpreter.PyWorkspaceStructureConfigurable"
+                         bundle="messages.PyBundle"
+                         key="configurable.PyWorkspaceStructureConfigurable.display.name"
+                         provider="com.intellij.pycharm.community.ide.impl.configuration.interpreter.PyWorkspaceStructureConfigurableProvider"
+                         groupWeight="1010"
+                         nonDefaultProject="true"/>
+  </extensions>
+
+  <extensions defaultExtensionNs="com.intellij">
+
+    <!-- Routes the "Interpreter Settings" quick fix to the redesigned Workspace Structure page (PY-89840). -->
+    <applicationService
+      serviceInterface="com.jetbrains.python.sdk.inspections.PythonInterpreterSettingsNavigator"
+      serviceImplementation="com.intellij.pycharm.community.ide.impl.configuration.interpreter.PyWorkspaceStructureSettingsNavigator"/>
+
 
     <applicationConfigurable id="memory.settings" groupWeight="45"
                              key="settings.memory.group.title"
@@ -185,13 +216,13 @@
     <applicationSettings service="com.intellij.pycharm.community.ide.impl.newProjectWizard.welcome.PyWelcomeSettings"/>
 
     <postStartupActivity implementation="com.intellij.pycharm.community.ide.impl.whatsnew.PyCharmJcefWhatsNewPatcher" order="first"/>
+
+    <scratch.creationHelper language="Python" implementationClass="com.intellij.pycharm.community.ide.impl.miscProject.impl.WelcomePythonFilesSupport"/>
   </extensions>
 
   <applicationListeners>
-    <listener class="com.intellij.pycharm.community.ide.impl.welcomeScreen.PyWelcomeScreenFreeModeTracker"
+    <listener class="com.intellij.pycharm.community.ide.impl.welcomeScreen.PyWelcomeScreenMigration"
               topic="com.intellij.ide.AppLifecycleListener"/>
-    <listener class="com.intellij.pycharm.community.ide.impl.welcomeScreen.PyWelcomeScreenFreeModeTracker"
-              topic="com.intellij.ui.LicensingFacade$LicenseStateListener"/>
     <listener class="com.intellij.pycharm.community.ide.impl.promo.CommunityToUnifiedListener"
               topic="com.intellij.ide.AppLifecycleListener"/>
   </applicationListeners>
@@ -215,7 +246,7 @@
     <!--Non Modal Welcome Screen customization-->
     <action id="welcome.screen.left.tab.new.py.script"
             class="com.intellij.pycharm.community.ide.impl.miscProject.impl.PyNewMiscScriptAction">
-      <add-to-group group-id="NonModalWelcomeScreen.LeftTabActions.New"/>
+      <add-to-group group-id="NonModalWelcomeScreen.LeftTabActions.New" anchor="before" relative-to-action="WelcomeNewEmptyFile"/>
     </action>
   </actions>
 

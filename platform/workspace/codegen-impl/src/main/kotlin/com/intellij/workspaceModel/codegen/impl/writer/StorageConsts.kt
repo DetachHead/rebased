@@ -122,13 +122,17 @@ internal val EntityReference = fqn(workspaceStorageMetamodelPackageName, "ValueT
 internal val LibraryEntity = fqn(workspaceEntitiesPackageName, "LibraryEntity")
 internal val LibraryRoot = fqn(workspaceEntitiesPackageName, "LibraryRoot")
 internal val SdkEntity = fqn(workspaceEntitiesPackageName, "SdkEntity")
+// TODO see usages. Index VFUs when they are changed
 internal val SdkRoot = fqn(workspaceEntitiesPackageName, "SdkRoot")
 
 
 // Annotations
 internal val Parent = fqn(workspaceStorageAnnotationsPackageName, "Parent")
+internal val EqualsBy = fqn(workspaceStoragePackageName, "EqualsBy")
+internal val ToString = fqn(workspaceStorageAnnotationsPackageName, "ToString")
 internal val Internal = fqn("org.jetbrains.annotations.ApiStatus", "Internal")
 internal val K1Deprecation = fqn("org.jetbrains.kotlin", "K1Deprecation")
+internal val IndexVfu = fqn(workspaceStorageAnnotationsPackageName, "IndexVfu")
 
 
 // Collections

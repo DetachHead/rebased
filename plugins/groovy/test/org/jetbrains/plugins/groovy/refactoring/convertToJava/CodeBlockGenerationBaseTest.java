@@ -36,9 +36,9 @@ public abstract class CodeBlockGenerationBaseTest extends LightGroovyTestCase {
   }
 
   @Override
-  public final String getBasePath() {
+  public final String getTestDataPath() {
     return basePath;
   }
 
-  private final String basePath = TestUtils.getTestDataPath() + "refactoring/convertGroovyToJava/codeBlock";
+  private final String basePath = TestUtils.getAbsoluteTestDataPath() + "refactoring/convertGroovyToJava/codeBlock";
 }

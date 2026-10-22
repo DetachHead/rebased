@@ -2,11 +2,12 @@
 package com.intellij.openapi.editor
 
 import com.intellij.ide.dnd.FileCopyPasteUtil
-import com.intellij.ide.trustedProjects.TrustedFiles
+import com.intellij.ide.TrustedFiles
 import com.intellij.ide.util.PsiNavigationSupport
 import com.intellij.openapi.application.EDT
 import com.intellij.openapi.application.readAction
 import com.intellij.openapi.components.Service
+import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.diagnostic.debug
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.extensions.ExtensionPointName
@@ -18,7 +19,7 @@ import com.intellij.openapi.fileEditor.impl.EditorWindow
 import com.intellij.openapi.fileEditor.impl.FileEditorOpenOptions
 import com.intellij.openapi.fileEditor.impl.NonProjectFileWritingAccessProvider
 import com.intellij.openapi.project.Project
-import com.intellij.openapi.vfs.LocalFileSystem
+import com.intellij.openapi.vfs.StandardFileSystems
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -33,7 +34,7 @@ fun containsFileDropTargets(transferFlavors: Array<DataFlavor>): Boolean {
   return FileCopyPasteUtil.isFileListFlavorAvailable(transferFlavors)
 }
 
-private val LOG = logger<FileDropManager>()
+private val LOG: Logger = logger<FileDropManager>()
 
 private val EP_NAME: ExtensionPointName<FileDropHandler> = ExtensionPointName("com.intellij.fileDropHandler")
 
@@ -109,8 +110,8 @@ class FileDropManager(
 
   private suspend fun openFiles(project: Project, fileList: Collection<File>, editorWindow: EditorWindow?) {
     val vFiles = withContext(Dispatchers.IO) {
-      val fileSystem = LocalFileSystem.getInstance()
-      fileList.mapNotNull { file -> fileSystem.refreshAndFindFileByIoFile(file) }
+      val fileSystem = StandardFileSystems.local()
+      fileList.mapNotNull { file -> fileSystem.refreshAndFindFileByPath(file.absolutePath) }
         .also { NonProjectFileWritingAccessProvider.allowWriting(it) }
         .onEach(TrustedFiles::markExternallyOpened)
     }

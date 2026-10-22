@@ -4,6 +4,7 @@
     <module name="intellij.libraries.kotlinx.coroutines.core"/>
     <module name="intellij.libraries.kotlinx.serialization.core"/>
     <module name="intellij.platform.analysis"/>
+    <module name="intellij.platform.concurrency"/>
     <module name="intellij.platform.core"/>
     <module name="intellij.platform.core.ui"/>
     <module name="intellij.platform.editor.ui"/>
@@ -11,6 +12,7 @@
     <module name="intellij.platform.ide.concurrency"/>
     <module name="intellij.platform.ide.core"/>
     <module name="intellij.platform.ide.impl"/>
+    <module name="intellij.platform.ide.rpc"/>
     <module name="intellij.platform.kernel"/>
     <module name="intellij.platform.lang"/>
     <module name="intellij.platform.lang.core"/>
@@ -25,13 +27,18 @@
   <!-- endregion -->
   <extensions defaultExtensionNs="com.intellij">
     <registryKey key="project.view.toolwindow.split" defaultValue="false" restartRequired="true"
-                 description="Enables the new experimental split Project View tool window" />
+                 description="Enables the new experimental split Project View tool window in all modes" />
+    <registryKey key="project.view.toolwindow.split.monolith" defaultValue="false" restartRequired="true"
+                 description="Enables the new experimental split Project View tool window in monolith only" />
+    <registryKey key="project.view.toolwindow.split.remdev" defaultValue="true" restartRequired="true"
+                 description="Enables the new experimental split Project View tool window in remdev only" />
     <remote.customDataContextSerializer implementation="com.intellij.platform.projectView.pane.ProjectViewPaneIdDataContextSerializer" />
     <remote.customDataContextSerializer implementation="com.intellij.platform.projectView.pane.ProjectViewSelectedNodeIdsDataContextSerializer" />
     <projectService
       serviceInterface="com.intellij.ide.projectView.actions.SelectFileActionService"
       serviceImplementation="com.intellij.platform.projectView.actions.SelectFileActionServiceImpl"
     />
+    <rdct.remoteSettingProvider implementation="com.intellij.platform.projectView.settings.ProjectViewPaneRemoteSettingsProvider"/>
   </extensions>
   <actions>
     <group id="ProjectView.ToolWindow.SecondaryActions">

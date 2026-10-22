@@ -87,7 +87,7 @@ public class AddConstructorMatchingSuperTest extends GrIntentionTestCase {
   }
 
   @Override
-  public final String getBasePath() {
-    return TestUtils.getTestDataPath() + "intentions/constructorMatchingSuper/";
+  public final String getTestDataPath() {
+    return TestUtils.getAbsoluteTestDataPath() + "intentions/constructorMatchingSuper/";
   }
 }

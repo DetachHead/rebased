@@ -42,10 +42,21 @@ public class VfsAwareMapIndexStorage<Key, Value> extends MapIndexStorage<Key, Va
                                  int cacheSize,
                                  boolean readOnly
   ) throws IOException {
-    super(storageFile, keyDescriptor, valueExternalizer, cacheSize, false, true, readOnly, false, null);
+    super(storageFile, keyDescriptor, valueExternalizer, cacheSize, false, true, readOnly, null);
     myBuildKeyHashToVirtualFileMapping = false;
   }
 
+  public VfsAwareMapIndexStorage(@NotNull Path storageFile,
+                                 @NotNull KeyDescriptor<Key> keyDescriptor,
+                                 @NotNull DataExternalizer<Value> valueExternalizer,
+                                 int cacheSize,
+                                 boolean keyIsUniqueForIndexedFile,
+                                 boolean buildKeyHashToVirtualFileMapping) throws IOException {
+    this(storageFile, keyDescriptor, valueExternalizer, cacheSize, keyIsUniqueForIndexedFile, buildKeyHashToVirtualFileMapping, null);
+  }
+
+  /**@deprecated use ctor without enableWal param -- it is not supported anymore */
+  @Deprecated
   public VfsAwareMapIndexStorage(@NotNull Path storageFile,
                                  @NotNull KeyDescriptor<Key> keyDescriptor,
                                  @NotNull DataExternalizer<Value> valueExternalizer,
@@ -59,13 +70,14 @@ public class VfsAwareMapIndexStorage<Key, Value> extends MapIndexStorage<Key, Va
          cacheSize,
          keyIsUniqueForIndexedFile,
          buildKeyHashToVirtualFileMapping,
-         enableWal,
          null);
   }
 
   /**
    * Uses the supplied lock context for all persistent map files owned by this index storage.
+   * @deprecated use ctor without enableWal param -- it is not supported anymore
    */
+  @Deprecated
   public VfsAwareMapIndexStorage(@NotNull Path storageFile,
                                  @NotNull KeyDescriptor<Key> keyDescriptor,
                                  @NotNull DataExternalizer<Value> valueExternalizer,
@@ -74,6 +86,16 @@ public class VfsAwareMapIndexStorage<Key, Value> extends MapIndexStorage<Key, Va
                                  boolean buildKeyHashToVirtualFileMapping,
                                  boolean enableWal,
                                  @Nullable StorageLockContext storageLockContext) throws IOException {
+    this(storageFile, keyDescriptor, valueExternalizer, cacheSize, keyIsUniqueForIndexedFile, buildKeyHashToVirtualFileMapping, storageLockContext);
+  }
+
+  public VfsAwareMapIndexStorage(@NotNull Path storageFile,
+                                 @NotNull KeyDescriptor<Key> keyDescriptor,
+                                 @NotNull DataExternalizer<Value> valueExternalizer,
+                                 int cacheSize,
+                                 boolean keyIsUniqueForIndexedFile,
+                                 boolean buildKeyHashToVirtualFileMapping,
+                                 @Nullable StorageLockContext storageLockContext) throws IOException {
     super(storageFile,
           keyDescriptor,
           valueExternalizer,
@@ -81,27 +103,24 @@ public class VfsAwareMapIndexStorage<Key, Value> extends MapIndexStorage<Key, Va
           keyIsUniqueForIndexedFile,
           /* initialize: */ false,
           /* readOnly: */   false,
-          enableWal,
           /* inputRemapping: */ null,
           storageLockContext
     );
     myBuildKeyHashToVirtualFileMapping = buildKeyHashToVirtualFileMapping;
-    initMapAndCache();
+    withWriteLock(this::initMapAndCache);
   }
 
   @Override
   protected void initMapAndCache() throws IOException {
-    withWriteLock(() -> {
-      super.initMapAndCache();
-      if (myBuildKeyHashToVirtualFileMapping && myBaseStorageFile != null) {
-        FileSystem projectFileFS = myBaseStorageFile.getFileSystem();
-        assert !projectFileFS.isReadOnly() : "File system " + projectFileFS + " is read only";
-        myKeyHashToVirtualFileMapping = new KeyHashLog<>(myKeyDescriptor, myBaseStorageFile, storageLockContext());
-      }
-      else {
-        myKeyHashToVirtualFileMapping = null;
-      }
-    });
+    super.initMapAndCache();
+    if (myBuildKeyHashToVirtualFileMapping && myBaseStorageFile != null) {
+      FileSystem projectFileFS = myBaseStorageFile.getFileSystem();
+      assert !projectFileFS.isReadOnly() : "File system " + projectFileFS + " is read only";
+      myKeyHashToVirtualFileMapping = new KeyHashLog<>(myKeyDescriptor, myBaseStorageFile, storageLockContext());
+    }
+    else {
+      myKeyHashToVirtualFileMapping = null;
+    }
   }
 
   @Override

@@ -26,9 +26,9 @@ class PySuggestedRefactoringSupport : SuggestedRefactoringSupport {
 
   object Helper {
     internal fun isAvailableForChangeSignature(element: PsiElement): Boolean {
-      return element is PyFunction &&
-             element.name.let { it != null && PyNames.isIdentifier(it) } &&
-             element.property == null
+      if (element !is PyFunction) return false
+      val name = element.name
+      return name != null && PyNames.isIdentifier(name) && element.property == null
     }
 
     internal fun defaultValue(parameter: SuggestedRefactoringSupport.Parameter): String? {
@@ -36,9 +36,12 @@ class PySuggestedRefactoringSupport : SuggestedRefactoringSupport {
     }
 
     internal fun isAvailableForRename(element: PsiElement): Boolean {
-      return element is PsiNameIdentifierOwner &&
-             element.name.let { it != null && PyNames.isIdentifier(it) } &&
-             (element !is PyParameter || containingFunction(element).let { it != null && !isAvailableForChangeSignature(it) })
+      if (element !is PsiNameIdentifierOwner) return false
+      val name = element.name
+      if (name == null || !PyNames.isIdentifier(name)) return false
+      if (element !is PyParameter) return true
+      val function = containingFunction(element)
+      return function != null && !isAvailableForChangeSignature(function)
     }
 
     internal fun shouldSuppressRefactoringForDeclaration(state: SuggestedRefactoringState): Boolean {

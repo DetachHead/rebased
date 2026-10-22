@@ -1,6 +1,13 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
 load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
+### auto-generated section `dev intellij.libraries.jsr305` start
+content_module_jar(
+    libraries = ["@lib//:libraries-jsr305-jsr305"],
+    module = ":jsr305",
+)
+### auto-generated section `dev intellij.libraries.jsr305` end
+
 ### auto-generated section `build intellij.libraries.jsr305` start
 jvm_library(
     name = "jsr305",
@@ -16,11 +23,6 @@ jvm_library(
     visibility = ["//visibility:public"],
     exports = ["@lib//:libraries-jsr305-jsr305"],
     runtime_deps = ["@lib//:libraries-jsr305-jsr305"],
-)
-
-content_module_jar(
-    libraries = ["@lib//:libraries-jsr305-jsr305"],
-    module = ":jsr305",
 )
 
 jvm_library(
@@ -43,7 +45,6 @@ exports_files(
     [
         "intellij.libraries.jsr305.iml",
         "resources/intellij.libraries.jsr305.xml",
-        "module-content.yaml",
     ],
     visibility = ["//visibility:public"],
 )

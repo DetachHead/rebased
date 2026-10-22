@@ -1,4 +1,4 @@
-<idea-plugin>
+<idea-plugin visibility="internal">
   <!-- region Generated dependencies - run `Generate Product Layouts` to regenerate -->
   <dependencies>
     <module name="intellij.platform.frontend"/>
@@ -12,10 +12,13 @@
     <module name="intellij.platform.core.ui"/>
     <module name="intellij.platform.editor.ex"/>
     <module name="intellij.platform.editor.ui"/>
+    <module name="intellij.platform.execution"/>
     <module name="intellij.platform.ide"/>
     <module name="intellij.platform.ide.core"/>
     <module name="intellij.platform.ide.core.impl"/>
     <module name="intellij.platform.ide.impl"/>
+    <module name="intellij.platform.ide.rpc"/>
+    <module name="intellij.platform.ide.util.netty"/>
     <module name="intellij.platform.kernel"/>
     <module name="intellij.platform.lang"/>
     <module name="intellij.platform.lang.impl"/>
@@ -25,19 +28,20 @@
   </dependencies>
   <!-- endregion -->
   <extensions defaultExtensionNs="com.intellij">
+    <postStartupActivity implementation="com.intellij.markdown.frontend.runner.MarkdownFrontendRunnerFlowService$StartupActivity"/>
     <editorFactoryListener implementation="com.intellij.markdown.frontend.editor.tables.ui.alignment.MarkdownTableAlignmentController$Listener"/>
     <editorFactoryListener implementation="com.intellij.markdown.frontend.editor.livepreview.MarkdownLivePreviewEditorListener"/>
     <fileEditorProvider id="markdown-preview-editor" implementation="com.intellij.markdown.frontend.preview.MarkdownSplitEditorProvider"/>
     <applicationService serviceInterface="org.intellij.plugins.markdown.ui.preview.accessor.MarkdownLinkOpener"
                         serviceImplementation="com.intellij.markdown.frontend.preview.accessor.impl.MarkdownLinkOpenerImpl"/>
+    <registryKey key="markdown.live.preview.opening.timeout.ms"
+                 defaultValue="300"
+                 description="Time in milliseconds that an opening Markdown editor waits for live preview before it shows the source."/>
     <registryKey key="markdown.open.link.fallback"
                  defaultValue="false"
                  description="Should fallback to Markdown link opening implementation before the split."/>
 
     <codeFoldingOptionsProvider instance="com.intellij.markdown.frontend.settings.provider.MarkdownCodeFoldingOptionsProvider" id="Markdown" order="after Android,after C++,after General,after Go,after Handlebars,after JAVA,after JavaScript,after JPAQL,after JSON,after Kubernetes,after LinkerScript,after ObjectiveC"/>
-    <editorActionHandler action="EditorBackSpace"
-                         implementationClass="com.intellij.markdown.frontend.editor.livepreview.MarkdownBackspaceHandler"
-                         order="first" id="markdown.live.preview.backspace"/>
     <editorActionHandler action="EditorDeleteToWordStart"
                          implementationClass="com.intellij.markdown.frontend.editor.tables.handlers.MarkdownTableReformatAfterActionHook"
                          order="first" id="markdown.table.reformat.delete.to.word.start"/>
@@ -82,5 +86,11 @@
             use-shortcut-of="Generate">
       <add-to-group group-id="Markdown.EditorContextMenuGroup"/>
     </action>
+
+    <action id="Markdown.Layout.EditorOnly"
+            class="com.intellij.markdown.frontend.actions.MarkdownEditorOnlyLayoutAction"/>
+    <action id="Markdown.Layout.LivePreview"
+            class="com.intellij.markdown.frontend.actions.MarkdownLivePreviewLayoutAction"
+            icon="AllIcons.Actions.Edit"/>
   </actions>
 </idea-plugin>

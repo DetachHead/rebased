@@ -1,25 +1,25 @@
 <!-- DO NOT EDIT: This file is auto-generated from Kotlin code -->
 <!-- To regenerate, run: `Generate Product Layouts` or `bazel run //platform/buildScripts:plugin-model-tool` -->
-<!-- Source: see moduleSet("core.ide") function in UltimateModuleSets.kt -->
+<!-- Source: see moduleSet("core.ide") function in CoreModuleSets.kt -->
 <!-- Note: Files are kept under VCS to support running products without dev mode (deprecated) -->
 <idea-plugin>
   <content namespace="jetbrains">
     <!-- region nested: core.platform -->
     <!-- region nested: core.platform > libraries.platform -->
     <!-- region nested: core.platform > libraries.platform > libraries.jackson2 -->
-    <module name="intellij.libraries.jackson.annotations" loading="embedded"/>
-    <module name="intellij.libraries.jackson" loading="embedded"/>
-    <module name="intellij.libraries.jackson.jr.objects" loading="embedded"/>
-    <module name="intellij.libraries.jackson.databind" loading="embedded"/>
+    <module name="intellij.libraries.jackson"/>
+    <module name="intellij.libraries.jackson.jr.objects"/>
+    <module name="intellij.libraries.jackson.databind"/>
     <module name="intellij.libraries.jackson.dataformat.xml"/>
     <module name="intellij.libraries.jackson.dataformat.yaml"/>
     <module name="intellij.libraries.jackson.dataformat.toml"/>
     <module name="intellij.libraries.jackson.datatype.jdk8"/>
     <module name="intellij.libraries.jackson.datatype.jsr310"/>
-    <module name="intellij.libraries.jackson.module.kotlin" loading="embedded"/>
+    <module name="intellij.libraries.jackson.module.kotlin"/>
     <!-- endregion -->
 
     <!-- region nested: core.platform > libraries.platform > libraries.jackson3 -->
+    <module name="intellij.libraries.jackson.annotations" loading="embedded"/>
     <module name="intellij.libraries.jackson3" loading="embedded"/>
     <module name="intellij.libraries.jackson3.jr.objects" loading="embedded"/>
     <module name="intellij.libraries.jackson3.databind" loading="embedded"/>
@@ -29,6 +29,7 @@
     <!-- endregion -->
 
     <!-- region nested: core.platform > libraries.platform > libraries.ktor -->
+    <module name="intellij.libraries.kotlinx.serialization.json.io" loading="embedded"/>
     <module name="intellij.libraries.ktor.io" loading="embedded"/>
     <module name="intellij.libraries.ktor.utils" loading="embedded"/>
     <module name="intellij.libraries.ktor.network.tls" loading="embedded"/>
@@ -37,10 +38,19 @@
     <module name="intellij.libraries.ktor.server.cio"/>
     <!-- endregion -->
 
+    <!-- region nested: core.platform > libraries.platform > libraries.netty -->
+    <module name="intellij.libraries.netty.buffer" loading="embedded"/>
+    <module name="intellij.libraries.netty.codec.compression" loading="embedded"/>
+    <module name="intellij.libraries.netty.codec.http" loading="embedded"/>
+    <module name="intellij.libraries.netty.codec.protobuf" loading="embedded"/>
+    <module name="intellij.libraries.netty.handler.proxy"/>
+    <!-- endregion -->
+
     <!-- region direct modules -->
     <module name="intellij.libraries.java.compatibility" loading="embedded"/>
     <module name="intellij.libraries.jetbrains.annotations" loading="embedded"/>
     <module name="intellij.libraries.kotlin.reflect" loading="embedded"/>
+    <module name="intellij.libraries.kotlin.metadata"/>
     <module name="intellij.libraries.kotlinx.io" loading="embedded"/>
     <module name="intellij.libraries.kotlinx.serialization.cbor"/>
     <module name="intellij.libraries.kotlinx.serialization.core" loading="embedded"/>
@@ -63,7 +73,7 @@
     <module name="intellij.libraries.caffeine" loading="embedded"/>
     <module name="intellij.libraries.classgraph" loading="embedded"/>
     <module name="intellij.libraries.cli.parser" loading="embedded"/>
-    <module name="intellij.libraries.commons.cli" loading="embedded"/>
+    <module name="intellij.libraries.commons.cli"/>
     <module name="intellij.libraries.commons.codec" loading="embedded"/>
     <module name="intellij.libraries.commons.compress" loading="embedded"/>
     <module name="intellij.libraries.commons.io" loading="embedded"/>
@@ -82,34 +92,29 @@
     <module name="intellij.libraries.ion" loading="embedded"/>
     <module name="intellij.libraries.java.websocket"/>
     <module name="intellij.libraries.javax.annotation" loading="embedded"/>
+    <module name="intellij.libraries.jaxb" loading="embedded"/>
     <module name="intellij.libraries.jaxen" loading="embedded"/>
     <module name="intellij.libraries.jbr" loading="embedded"/>
     <module name="intellij.libraries.jcip" loading="embedded"/>
-    <module name="intellij.libraries.jna" loading="embedded"/>
     <module name="intellij.libraries.jsoup" loading="embedded"/>
     <module name="intellij.libraries.jsonpath"/>
     <module name="intellij.libraries.jsvg" loading="embedded"/>
-    <module name="intellij.libraries.jvm.native.trusted.roots" loading="embedded"/>
+    <module name="intellij.libraries.jvm.native.trusted.roots"/>
     <module name="intellij.libraries.jzlib"/>
     <module name="intellij.libraries.kryo5" loading="embedded"/>
     <module name="intellij.libraries.lz4" loading="embedded"/>
     <module name="intellij.libraries.markdown" loading="embedded"/>
     <module name="intellij.libraries.mvstore" loading="embedded"/>
-    <module name="intellij.libraries.netty.buffer" loading="embedded"/>
-    <module name="intellij.libraries.netty.codec.compression" loading="embedded"/>
-    <module name="intellij.libraries.netty.codec.http" loading="embedded"/>
-    <module name="intellij.libraries.netty.codec.protobuf" loading="embedded"/>
-    <module name="intellij.libraries.netty.handler.proxy"/>
     <module name="intellij.libraries.oro.matcher" loading="embedded"/>
     <module name="intellij.libraries.protobuf" loading="embedded"/>
     <module name="intellij.libraries.protobuf.kotlin"/>
     <module name="intellij.libraries.protobuf.java.util"/>
-    <module name="intellij.libraries.proxy.vole" loading="embedded"/>
-    <module name="intellij.libraries.rhino" loading="embedded"/>
+    <module name="intellij.libraries.proxy.vole"/>
+    <module name="intellij.libraries.rhino"/>
     <module name="intellij.libraries.semver"/>
     <module name="intellij.libraries.snakeyaml" loading="embedded"/>
     <module name="intellij.libraries.snakeyaml.engine" loading="embedded"/>
-    <module name="intellij.libraries.stream" loading="embedded"/>
+    <module name="intellij.libraries.stream"/>
     <module name="intellij.libraries.teamcity.service.messages"/>
     <module name="intellij.libraries.velocity" loading="embedded"/>
     <module name="intellij.libraries.xtext.xbase" loading="embedded"/>
@@ -164,14 +169,32 @@
     <!-- endregion -->
 
     <!-- region direct modules -->
+    <module name="intellij.platform.productMode" loading="embedded"/>
     <module name="intellij.platform.runtime.product" loading="embedded"/>
+    <module name="intellij.platform.bazel.runfiles" loading="embedded"/>
+    <module name="intellij.platform.buildScripts.concurrency"/>
     <module name="intellij.platform.util.ex" loading="embedded"/>
     <module name="intellij.platform.util.ui" loading="embedded"/>
     <module name="intellij.platform.util.coroutines" loading="embedded"/>
+    <module name="intellij.platform.util.annotations" loading="embedded"/>
+    <module name="intellij.platform.util.progress" loading="embedded"/>
+    <module name="intellij.platform.util.text.matching" loading="embedded"/>
+    <module name="intellij.platform.util.io.storages" loading="embedded"/>
+    <module name="intellij.platform.concurrency" loading="embedded"/>
+    <module name="intellij.platform.objectSerializer" loading="embedded"/>
+    <module name="intellij.platform.settings" loading="embedded"/>
+    <module name="intellij.platform.pluginSystem.parser.impl" loading="embedded"/>
+    <module name="intellij.platform.jbr" loading="embedded"/>
+    <module name="intellij.platform.buildData" loading="embedded"/>
+    <module name="intellij.platform.eel.provider" loading="embedded"/>
     <module name="intellij.platform.locking.impl" loading="embedded"/>
     <module name="intellij.platform.core" loading="embedded"/>
     <module name="intellij.platform.core.ui" loading="embedded"/>
     <module name="intellij.platform.core.impl" loading="embedded"/>
+    <module name="intellij.platform.icons.api" loading="embedded"/>
+    <module name="intellij.platform.icons.api.rendering" loading="embedded"/>
+    <module name="intellij.platform.icons" loading="embedded"/>
+    <module name="intellij.platform.icons.impl" loading="embedded"/>
     <module name="intellij.platform.indexing" loading="embedded"/>
     <module name="intellij.platform.projectFrame" loading="embedded"/>
     <module name="intellij.platform.codeStyle" loading="embedded"/>
@@ -182,8 +205,17 @@
     <module name="intellij.platform.instanceContainer" loading="embedded"/>
     <module name="intellij.platform.serviceContainer" loading="embedded"/>
     <module name="intellij.platform.workspace.jps" loading="embedded"/>
+    <module name="intellij.platform.workspace.storage" loading="embedded"/>
+    <module name="intellij.platform.backend.workspace" loading="embedded"/>
+    <module name="intellij.platform.backend.observation" loading="embedded"/>
     <module name="intellij.platform.analysis" loading="embedded"/>
     <module name="intellij.platform.analysis.impl" loading="embedded"/>
+    <module name="intellij.platform.syntax" loading="embedded"/>
+    <module name="intellij.platform.syntax.extensions" loading="embedded"/>
+    <module name="intellij.platform.syntax.i18n" loading="embedded"/>
+    <module name="intellij.platform.syntax.tree" loading="embedded"/>
+    <module name="intellij.platform.syntax.util" loading="embedded"/>
+    <module name="intellij.platform.pratt" loading="embedded"/>
     <module name="intellij.platform.ide.core" loading="embedded"/>
     <module name="intellij.platform.ide.core.impl" loading="embedded"/>
     <module name="intellij.platform.ide.core.plugins" loading="embedded"/>
@@ -197,9 +229,7 @@
     <module name="intellij.libraries.jgoodies.forms" loading="embedded"/>
     <module name="intellij.libraries.jsch.agent.proxy"/>
     <module name="intellij.libraries.miglayout.swing" loading="embedded"/>
-    <module name="intellij.libraries.pty4j" loading="embedded"/>
     <module name="intellij.libraries.sshj"/>
-    <module name="intellij.libraries.swingx" loading="embedded"/>
     <module name="intellij.libraries.winp" loading="embedded"/>
     <module name="intellij.libraries.rd.core" loading="embedded"/>
     <module name="intellij.libraries.rd.framework" loading="embedded"/>
@@ -209,10 +239,19 @@
 
     <!-- region direct modules -->
     <module name="intellij.platform.ide" loading="embedded"/>
+    <module name="intellij.platform.ide.ui" loading="embedded"/>
+    <module name="intellij.platform.ide.observable" loading="embedded"/>
+    <module name="intellij.platform.ide.recentProjects" loading="embedded"/>
+    <module name="intellij.platform.util.http" loading="embedded"/>
+    <module name="intellij.platform.ide.util.netty" loading="embedded"/>
+    <module name="intellij.platform.ide.util.io.impl" loading="embedded"/>
+    <module name="intellij.platform.resources" loading="embedded"/>
+    <module name="intellij.platform.resources.en" loading="embedded"/>
     <module name="intellij.platform.welcomeScreen" loading="embedded"/>
-    <module name="intellij.platform.remoteServers.agent.rt" loading="embedded"/>
-    <module name="intellij.platform.remoteServers" loading="embedded"/>
+    <module name="intellij.platform.remoteServers.agent.rt"/>
+    <module name="intellij.platform.remoteServers"/>
     <module name="intellij.platform.usageView" loading="embedded"/>
+    <module name="intellij.platform.ide.rpc" loading="embedded"/>
     <module name="intellij.platform.credentialStore" loading="embedded"/>
     <!-- endregion -->
   </content>

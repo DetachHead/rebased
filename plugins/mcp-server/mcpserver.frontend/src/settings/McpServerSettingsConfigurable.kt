@@ -23,6 +23,7 @@ import com.intellij.mcpserver.icons.McpserverIcons
 import com.intellij.mcpserver.impl.McpClientDetector
 import com.intellij.mcpserver.impl.McpServerService
 import com.intellij.mcpserver.impl.McpServerTerminalPromotionDismissalState
+import com.intellij.mcpserver.impl.util.network.isValidPort
 import com.intellij.mcpserver.settings.McpServerSettings
 import com.intellij.mcpserver.util.getHelpLink
 import com.intellij.mcpserver.util.getPathForMcp
@@ -38,7 +39,7 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.popup.JBPopupFactory
 import com.intellij.openapi.util.NlsActions
 import com.intellij.openapi.util.NlsContexts
-import com.intellij.openapi.vfs.LocalFileSystem
+import com.intellij.openapi.vfs.VirtualFileManager
 import com.intellij.platform.compose.swing.ComposeSwingSearchableConfigurable
 import com.intellij.platform.compose.swing.components.BrowserLink
 import com.intellij.platform.compose.swing.components.Comment
@@ -57,25 +58,33 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.job
+import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.encodeToJsonElement
 import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.annotations.NonNls
+import org.jetbrains.annotations.TestOnly
 import org.jetbrains.compose.swing.components.Label
 import org.jetbrains.compose.swing.components.button.Button
 import org.jetbrains.compose.swing.components.button.CheckBox
+import org.jetbrains.compose.swing.components.text.TextField
 import org.jetbrains.compose.swing.modifier.SwingModifier
 import org.jetbrains.compose.swing.modifier.appearance.icon
 import org.jetbrains.compose.swing.modifier.appearance.toolTip
+import org.jetbrains.compose.swing.modifier.interaction.enabled
 import org.jetbrains.compose.swing.modifier.layout.visible
 import java.nio.file.Files
 import java.nio.file.Path
 import javax.swing.Icon
 import javax.swing.JComponent
 import kotlin.io.path.createFile
+
 
 /**
  * Settings page of the MCP Server plugin, rendered with the Swing-Compose UI stack.
@@ -86,9 +95,11 @@ import kotlin.io.path.createFile
  */
 @ApiStatus.Internal
 class McpServerSettingsConfigurable : ComposeSwingSearchableConfigurable() {
+  private val PORT_TXT_WIDTH = 5
   private val settings get() = McpServerSettings.getInstance()
 
   private var enabled by bind(settings::enableMcpServer)
+  private var port by bind(settings::mcpServerPort)
   private var braveMode by bind(settings::enableBraveMode)
   private var showTerminalPromotion by bind(TerminalPromotionSetting::isShown, TerminalPromotionSetting::setShown)
   private var terminalAnsiHighlighting by bind(settings::enableTerminalAnsiHighlighting)
@@ -104,8 +115,9 @@ class McpServerSettingsConfigurable : ComposeSwingSearchableConfigurable() {
   private var projectClientControllers = emptyList<ClientController>()
   private val disabledExplanationHtml: @NlsContexts.DetailedDescription String = buildDisabledExplanation()
 
+  /** Runs only the enable-toggle coroutines, so [reset] can cancel the queued toggles as a unit. */
   @Suppress("RAW_SCOPE_CREATION")
-  private val coroutineScope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+  private val enableChangeScope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
   init {
     refreshServerStatus()
@@ -146,19 +158,60 @@ class McpServerSettingsConfigurable : ComposeSwingSearchableConfigurable() {
 
   override fun reset() {
     super.reset()
+    // A pending toggle is stale once the checkbox reverts: it would re-apply a discarded click after this reset.
+    val staleToggles = enableChangeScope.coroutineContext.job.children.toList()
+    staleToggles.forEach { it.cancel() }
     // Revert the live server state to the persisted value (the enable toggle starts/stops it eagerly).
-    runWithModalProgressBlocking(ModalTaskOwner.guess(), McpServerBundle.message("apply.mcp.server.state.progress.text")) {
-      McpServerService.getInstance().settingsChanged(settings.enableMcpServer)
+    // Not cancellable: the checkbox is already reverted, so the restoration has to complete.
+    runWithModalProgressBlocking(
+      ModalTaskOwner.guess(),
+      McpServerBundle.message("apply.mcp.server.state.progress.text"),
+      TaskCancellation.nonCancellable(),
+    ) {
+      // The join cannot hang under this modal dialog: the EDT dispatcher resumes a cancelled coroutine
+      // with ModalityState.any(). After the join no toggle can touch the server, so the persisted value wins.
+      staleToggles.joinAll()
+      updateServerSettings(settings.enableMcpServer)
       refreshServerStatus()
     }
   }
 
-  override fun disposeUIResources() {
-    coroutineScope.cancel()
-    // If the enable toggle was flipped for preview but never applied, revert the live server state.
-    if (enabled != settings.enableMcpServer) {
-      McpServerService.getInstance().scheduleResetToSettings()
+  override fun apply() {
+    // we need to check this before applying the settings.
+    val portChanged = port != settings.mcpServerPort
+    super.apply()
+    if (portChanged) {
+      // A toggle that holds the lock refreshes `port` to the running server's port, so read it before queuing.
+      val requestedPort = port
+      // The restart touches the server like a toggle does, so it queues behind the toggles under the same lock.
+      enableChangeScope.launch(Dispatchers.EDT + ModalityState.stateForComponent(getContent()).asContextElement()) {
+        enableChangeMutex.withLock {
+          updateServerSettings(settings.enableMcpServer, requestedPort)
+        }
+        refreshServerStatus()
+        // Note that we need to reset auto-config for all clients, as the port may have changed.
+        refreshClients(resetAutoConfig = true)
+      }
     }
+  }
+
+  private suspend fun updateServerSettings(enabled: Boolean, port: Int? = null) {
+    // Note that when this function is called concurrently by different threads/coroutines
+    // it might lead to a race condition on currentServer, e.g. multiple threads will attempt to
+    // stop it. In addition, multiple threads might call startGlobalServer in parallel, creating
+    // multiple uncontrolled instances. For soundness, the life-cycle of the server and the creation
+    // of a new instance should be protected by e.g. a Mutex.
+    withContext(Dispatchers.Default) {
+      McpServerService.getInstance().settingsChanged(enabled, port)
+    }
+  }
+
+  override fun disposeUIResources() {
+    // A toggle already inside its background block outlives the cancel, so `enabled` cannot prove the
+    // live server state. The scheduled reset joins the toggles, then applies the persisted setting.
+    val staleToggles = enableChangeScope.coroutineContext.job.children.toList()
+    enableChangeScope.cancel()
+    McpServerService.getInstance().scheduleResetToSettings(after = staleToggles)
     super.disposeUIResources()
   }
 
@@ -174,13 +227,27 @@ class McpServerSettingsConfigurable : ComposeSwingSearchableConfigurable() {
         modifier = SwingModifier.cell(smallGapAfter = true),
         onCheckedChange = ::requestEnabledChange,
       )
-      if (enabled) {
-        BrowserLink(
-          text = sseUrl,
-          url = sseUrl,
-          modifier = SwingModifier.cell(smallGapAfter = true).toolTip(sseUrl),
-        )
-        BrowserLink(text = streamUrl, url = streamUrl, modifier = SwingModifier.toolTip(streamUrl))
+    }
+    if (enabled) {
+      FormGroup(McpServerBundle.message("mcp.server.global.configuration"), indent = true) {
+        FormRow(McpServerBundle.message("mcp.server.global.port.label")) {
+          TextField(
+            value = port.toString(),
+            onValueChange = { newVal ->
+              newVal.toIntOrNull()?.let { parsedPort -> if (isValidPort(parsedPort)) port = parsedPort }
+            },
+            modifier = SwingModifier.cell(smallGapAfter = true),
+            columns = PORT_TXT_WIDTH
+          )
+        }
+        FormRow {
+          BrowserLink(
+            text = sseUrl,
+            url = sseUrl,
+            modifier = SwingModifier.cell(smallGapAfter = true).toolTip(sseUrl),
+          )
+          BrowserLink(text = streamUrl, url = streamUrl, modifier = SwingModifier.toolTip(streamUrl))
+        }
       }
     }
   }
@@ -210,16 +277,29 @@ class McpServerSettingsConfigurable : ComposeSwingSearchableConfigurable() {
     FormGroup(McpServerBundle.message("mcp.general.client"), indent = false) {
       FormComment(McpServerBundle.message("settings.comment.manual.config"))
       FormIndent {
+        // The copy actions read the server port, so they stay disabled until the server runs.
         FormRow {
-          Button(McpServerBundle.message("copy.mcp.server.sse.configuration")) {
-            copyJsonToClipboard(createSseServerJsonEntry(McpServerService.getInstance().port, mcpPath()))
-          }
-          Button(McpServerBundle.message("copy.mcp.server.stdio.configuration")) {
-            copyJsonToClipboard(createStdioMcpServerJsonConfiguration(McpServerService.getInstance().port, mcpPath()))
-          }
-          Button(McpServerBundle.message("copy.mcp.server.stream.configuration")) {
-            copyJsonToClipboard(createStreamableServerJsonEntry(McpServerService.getInstance().port, mcpPath()))
-          }
+          Button(
+            McpServerBundle.message("copy.mcp.server.sse.configuration"),
+            modifier = SwingModifier.enabled(serverRunning),
+            onClick = {
+              copyJsonToClipboard(createSseServerJsonEntry(McpServerService.getInstance().port, mcpPath()))
+            },
+          )
+          Button(
+            McpServerBundle.message("copy.mcp.server.stdio.configuration"),
+            modifier = SwingModifier.enabled(serverRunning),
+            onClick = {
+              copyJsonToClipboard(createStdioMcpServerJsonConfiguration(McpServerService.getInstance().port, mcpPath()))
+            },
+          )
+          Button(
+            McpServerBundle.message("copy.mcp.server.stream.configuration"),
+            modifier = SwingModifier.enabled(serverRunning),
+            onClick = {
+              copyJsonToClipboard(createStreamableServerJsonEntry(McpServerService.getInstance().port, mcpPath()))
+            },
+          )
         }
       }
     }
@@ -266,15 +346,19 @@ class McpServerSettingsConfigurable : ComposeSwingSearchableConfigurable() {
   @Composable
   private fun FormScope.ClientRows(state: ClientRowState) {
     // Detecting the per-transport options touches client config, so it is loaded off the UI thread when the rows appear.
-    val options by produceState(emptyList()) { value = state.loadOptions() }
+    // The rows appear while the server is still starting, and the URL options need its port.
+    // serverRunning is a key, so the load runs again when the server state flips.
+    val options by produceState(emptyList(), serverRunning) { value = state.loadOptions() }
 
     FormRow(topGap = FormGap.SMALL) { Label(state.displayName) }
     FormRow {
+      // The configure actions need the port, so the button stays disabled until the server runs.
       OptionButton(
         text = McpServerBundle.message("autoconfigure.mcp.server"),
+        onClick = state.onAutoConfigure,
         options = options,
         addSeparator = false,
-        onClick = state.onAutoConfigure,
+        modifier = SwingModifier.enabled(serverRunning),
       )
       state.statusIcon?.let {
         Label(text = "", modifier = SwingModifier.cell(smallGapAfter = true).icon(it))
@@ -293,29 +377,49 @@ class McpServerSettingsConfigurable : ComposeSwingSearchableConfigurable() {
     projectClients = ProjectClientsState(project.name, projectClientControllers.map { it.toRowState() })
   }
 
+  /**
+   * Applies the enable toggles to the server in click order. The lock is fair and is taken on the EDT
+   * before the first suspension, so a later toggle cannot overtake a slow earlier one on [Dispatchers.Default].
+   */
+  private val enableChangeMutex = Mutex()
+
   private fun requestEnabledChange(requested: Boolean) {
-    coroutineScope.launch(Dispatchers.EDT + ModalityState.stateForComponent(getContent()).asContextElement()) {
+    enableChangeScope.launch(Dispatchers.EDT + ModalityState.stateForComponent(getContent()).asContextElement()) {
       if (!ConsentValidator.isValidNewValue(requested, activeProject)) return@launch
       enabled = requested
-
-      withContext(Dispatchers.Main) {
-        McpServerService.getInstance().settingsChanged(requested)
-        refreshServerStatus()
+      enableChangeMutex.withLock {
+        updateServerSettings(requested)
       }
+      refreshServerStatus()
     }
+  }
+
+  @TestOnly
+  suspend fun joinEnableChanges() {
+    enableChangeScope.coroutineContext.job.children.toList().joinAll()
   }
 
   private fun refreshServerStatus() {
     val service = McpServerService.getInstance()
     serverRunning = service.isRunning
+    if (serverRunning) {
+      port = service.port
+    }
     sseUrl = if (serverRunning) service.serverSseUrl else ""
     streamUrl = if (serverRunning) service.serverStreamUrl else ""
   }
 
-  private fun refreshClients() {
-    globalClientRows = globalClientControllers.map { it.toRowState() }
-    projectClients = projectClientControllers.takeIf { it.isNotEmpty() }
-      ?.let { controllers -> projectClients?.copy(clients = controllers.map { it.toRowState() }) }
+  private fun refreshClients(resetAutoConfig: Boolean = false) {
+    globalClientRows = globalClientControllers.map {
+      it.refresh(resetAutoConfig)
+      it.toRowState()
+    }
+    projectClients = projectClientControllers.takeIf { it.isNotEmpty() }?.let { controllers ->
+      projectClients?.copy(clients = controllers.map {
+        it.refresh(resetAutoConfig)
+        it.toRowState()
+      })
+    }
   }
 
   private fun buildDisabledExplanation(): @NlsContexts.DetailedDescription String =
@@ -353,6 +457,14 @@ class McpServerSettingsConfigurable : ComposeSwingSearchableConfigurable() {
       )
     }
 
+    fun refresh(resetAutoConfig: Boolean) {
+      if (resetAutoConfig) {
+        autoConfigured = false
+      }
+      isConfigured = client.isConfigured() ?: false
+      isPortCorrect = client.isPortCorrect()
+    }
+
     /** How the client stands, in the order the states override one another. */
     private fun status(): ClientStatus {
       val error = errorMessage
@@ -380,14 +492,22 @@ class McpServerSettingsConfigurable : ComposeSwingSearchableConfigurable() {
     suspend fun loadOptions(): List<AnAction> =
       withContext(Dispatchers.Default) {
         buildList {
-          runCatching { client.getStreamableHttpConfig() }.getOrNull()?.let { config ->
+          if (runCatching { client.getStreamableHttpConfig() }.getOrNull() != null) {
             add(action(McpServerBundle.message("configure.with.0.transport", "Streamable HTTP")) {
-              performConfiguration { client.configure(config) }
+              performConfiguration {
+                // reevaluate the httpConfig, make sure the configuration is up to date.
+                client.getStreamableHttpConfig()?.let { config -> client.configure(config) }
+              }
             })
           }
-          runCatching { client.getSSEConfig() }.getOrNull()?.let { config ->
+          if (runCatching { client.getSSEConfig() }.getOrNull() != null) {
             add(action(McpServerBundle.message("configure.with.0.transport", "SSE")) {
-              performConfiguration { client.configure(config) }
+              performConfiguration {
+                // reevaluate the SSEConfig, make sure the configuration is up to date.
+                client.getSSEConfig()?.let { config ->
+                  client.configure(config)
+                }
+              }
             })
           }
           add(action(McpServerBundle.message("configure.with.0.transport", "Stdio")) {
@@ -506,7 +626,7 @@ fun openFileInEditor(filePath: Path, project: Project?) {
   else {
     filePath
   }
-  val virtualFile = LocalFileSystem.getInstance().refreshAndFindFileByNioFile(definitelyCreatedFile)
+  val virtualFile = VirtualFileManager.getInstance().refreshAndFindFileByNioPath(definitelyCreatedFile)
   virtualFile?.let { file ->
     FileEditorManager.getInstance(project).openFile(file, true)
   }

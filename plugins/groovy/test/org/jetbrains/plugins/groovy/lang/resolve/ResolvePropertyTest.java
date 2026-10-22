@@ -1533,7 +1533,7 @@ public class ResolvePropertyTest extends GroovyResolveTestCase {
   }
 
   @Override
-  public final String getBasePath() {
-    return TestUtils.getTestDataPath() + "resolve/property/";
+  public final String getTestDataPath() {
+    return TestUtils.getAbsoluteTestDataPath() + "resolve/property/";
   }
 }

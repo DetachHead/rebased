@@ -5,6 +5,7 @@ import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.platform.lsp.api.customization.LspCodeActionsSupport
 import com.intellij.platform.lsp.impl.LspClientImpl
 import com.intellij.platform.lsp.impl.features.quickFix.LspQuickFixSet
+import com.intellij.platform.lsp.impl.supportsCodeActions
 import org.eclipse.lsp4j.CodeActionKind
 import org.eclipse.lsp4j.Diagnostic
 import org.eclipse.lsp4j.Range
