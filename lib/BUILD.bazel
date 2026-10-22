@@ -1657,6 +1657,14 @@ jvm_import(
     visibility = ["//visibility:public"],
 )
 
+copy_file(
+    name = "io.ktor/ktor-client-mock-jvm-3.6.0.jar_copy",
+    src = "@io_ktor-ktor-client-mock-jvm-3_6_0_http//file",
+    out = "io.ktor/ktor-client-mock-jvm-3.6.0.jar",
+    allow_symlink = True,
+    visibility = ["//visibility:public"],
+)
+
 jvm_import(
     name = "fleet-io-ktor-client-mock",
     jar = "@io_ktor-ktor-client-mock-jvm-3_6_0_http//file",
@@ -3389,21 +3397,6 @@ java_library(
 )
 
 copy_file(
-    name = "com.google.guava/guava-testlib-33.7.1-jre.jar_copy",
-    src = "@com_google_guava-guava-testlib-33_7_1-jre_http//file",
-    out = "com.google.guava/guava-testlib-33.7.1-jre.jar",
-    allow_symlink = True,
-    visibility = ["//visibility:public"],
-)
-
-jvm_import(
-    name = "guava-testlib",
-    jar = "@com_google_guava-guava-testlib-33_7_1-jre_http//file",
-    source_jar = "@com_google_guava-guava-testlib-33_7_1-jre-sources_http//file",
-    visibility = ["//visibility:public"],
-)
-
-copy_file(
     name = "org.jetbrains.intellij.plugins/structure-intellij-3.333.jar_copy",
     src = "@org_jetbrains_intellij_plugins-structure-intellij-3_333_http//file",
     out = "org.jetbrains.intellij.plugins/structure-intellij-3.333.jar",
@@ -3840,20 +3833,6 @@ java_library(
 )
 
 copy_file(
-    name = "com.squareup/javapoet-1.13.0.jar_copy",
-    src = "@com_squareup-javapoet-1_13_0_http//file",
-    out = "com.squareup/javapoet-1.13.0.jar",
-    allow_symlink = True,
-    visibility = ["//visibility:public"],
-)
-
-jvm_import(
-    name = "javapoet",
-    jar = "@com_squareup-javapoet-1_13_0_http//file",
-    visibility = ["//visibility:public"],
-)
-
-copy_file(
     name = "javax.inject/javax.inject-1.jar_copy",
     src = "@javax_inject-javax_inject-1_http//file",
     out = "javax.inject/javax.inject-1.jar",
@@ -3866,13 +3845,6 @@ jvm_import(
     jar = "@javax_inject-javax_inject-1_http//file",
     source_jar = "@javax_inject-javax_inject-1-sources_http//file",
     visibility = ["//visibility:public"],
-)
-
-java_library(
-    name = "javax-inject-provided",
-    neverlink = True,
-    visibility = ["//visibility:public"],
-    exports = [":javax-inject"],
 )
 
 copy_file(
@@ -11331,14 +11303,6 @@ jvm_import(
     name = "libraries-kryo5-kryo",
     jar = "@com_esotericsoftware-kryo5-5_6_0_http//file",
     source_jar = "@com_esotericsoftware-kryo5-5_6_0-sources_http//file",
-    visibility = ["//visibility:public"],
-)
-
-copy_file(
-    name = "io.ktor/ktor-client-cio-jvm-3.4.1.jar_copy",
-    src = "@io_ktor-ktor-client-cio-jvm-3_4_1_http//file",
-    out = "io.ktor/ktor-client-cio-jvm-3.4.1.jar",
-    allow_symlink = True,
     visibility = ["//visibility:public"],
 )
 
