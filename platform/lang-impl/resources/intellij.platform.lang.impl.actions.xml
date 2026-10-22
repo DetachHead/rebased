@@ -523,7 +523,7 @@
       <separator/>
       <reference ref="CutCopyPasteGroup"/>
       <separator/>
-      <group id="RunContextPopupGroup" popup="false" class="com.intellij.openapi.actionSystem.EmptyActionGroup">
+      <group id="RunContextPopupGroup" popup="false" class="com.intellij.openapi.actionSystem.EmptyActionGroup"/>
       <reference ref="SplitRevealGroup"/>
       <reference ref="VersionControlsGroup"/>
       <separator/>
