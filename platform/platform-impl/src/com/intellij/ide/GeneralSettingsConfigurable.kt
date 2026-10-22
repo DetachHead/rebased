@@ -13,7 +13,6 @@ import com.intellij.openapi.fileChooser.PathChooserDialog
 import com.intellij.openapi.help.HelpManager
 import com.intellij.openapi.options.BackedByPersistentState
 import com.intellij.openapi.options.BoundCompositeSearchableConfigurable
-import com.intellij.openapi.options.Configurable
 import com.intellij.openapi.options.SearchableConfigurable
 import com.intellij.openapi.options.ex.ConfigurableWrapper
 import com.intellij.openapi.project.Project
@@ -95,8 +94,7 @@ internal val allOptionDescriptors: List<BooleanOptionDescription>
 internal class GeneralSettingsConfigurable(private val project: Project) :
   BoundCompositeSearchableConfigurable<SearchableConfigurable>(IdeBundle.message("title.general"), "preferences.general"),
   SearchableConfigurable,
-  BackedByPersistentState,
-  Configurable.NewOptions
+  BackedByPersistentState
 {
   @ApiStatus.Internal
   override fun getBackingComponents(): Collection<PersistentStateComponent<*>> =
@@ -163,7 +161,6 @@ internal class GeneralSettingsConfigurable(private val project: Project) :
           checkBox(myChkIndexing)
             .contextHelp(message("tooltip.indexing", productName))
           icon(Badge.rebasedSetting)
-          icon(Badge.new)
         }
       }.visible(showReopenLastProject || showOpenProjectInWindow || showDefaultProjectDirectory)
 
