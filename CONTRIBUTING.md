@@ -10,7 +10,7 @@ If you are interested in the motivation behind this decision, [see here](https:/
 
 ## Pull Requests
 
-You may have noticed that creating PRs in this repository is restricted to collaborators only. This is an intentional barrier to entry intended to to reduce the number of vibe-coded PRs I have to deal with (see the AI policy above.)
+You may have noticed that creating PRs in this repository is restricted to collaborators only. This is an intentional barrier to entry intended to reduce the number of vibe-coded PRs I have to deal with (see the AI policy above.)
 
 External contributions *are* still welcome! You just have to follow these steps:
 
