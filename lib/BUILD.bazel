@@ -11787,6 +11787,14 @@ jvm_import(
     source_jar = "@com_esotericsoftware_minlog-minlog-1_2-sources_http//file",
 )
 
+copy_file(
+    name = "org.objenesis/objenesis-3.4.jar_copy",
+    src = "@org_objenesis-objenesis-3_4_http//file",
+    out = "org.objenesis/objenesis-3.4.jar",
+    allow_symlink = True,
+    visibility = ["//visibility:public"],
+)
+
 jvm_import(
     name = "libraries-kryo2-_objenesis",
     jar = "@org_objenesis-objenesis-3_4_http//file",
@@ -12459,14 +12467,6 @@ jvm_import(
     name = "io_netty-netty-tcnative-boringssl-static-2_0_77_Final-windows-x86_64_http_import",
     jar = "@io_netty-netty-tcnative-boringssl-static-2_0_77_Final-windows-x86_64_http//file",
     source_jar = "@io_netty-netty-tcnative-boringssl-static-2_0_77_Final-sources_http//file",
-)
-
-copy_file(
-    name = "org.objenesis/objenesis-3.4.jar_copy",
-    src = "@org_objenesis-objenesis-3_4_http//file",
-    out = "org.objenesis/objenesis-3.4.jar",
-    allow_symlink = True,
-    visibility = ["//visibility:public"],
 )
 
 jvm_import(
