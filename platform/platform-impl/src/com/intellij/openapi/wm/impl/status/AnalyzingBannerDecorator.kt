@@ -102,7 +102,7 @@ internal class AnalyzingBannerDecorator(private val panel: JPanel, private val p
       // this way language packs will still work despite us having no way to support them properly, see https://github.com/DetachHead/rebased/issues/106
       addAction(ApplicationBundle.message("settings.editor.general.appearance"), null) {
         ShowSettingsUtil.getInstance().showSettingsDialog(project, GeneralSettingsConfigurable::class.java)
-      }
+      }.isFocusable = true
 
       if (ExperimentalUI.isNewUI()) {
         setOpaque(false)

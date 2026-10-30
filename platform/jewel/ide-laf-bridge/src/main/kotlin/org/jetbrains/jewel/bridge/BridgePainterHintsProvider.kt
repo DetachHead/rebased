@@ -80,9 +80,9 @@ private constructor(
         }
 
         if (adjustedKey != key) {
-            logger.warn(
-                "${if (isDark) "Dark" else "Light"} theme: color key $key is deprecated, use $adjustedKey instead"
-            )
+            // adjustedKey differs from key only when the ".Dark" suffix was stripped, which happens
+            // only when isDark is true, so this branch is dark-theme-only by construction.
+            logger.warn("Dark theme: color key $key is deprecated, use $adjustedKey instead")
         }
 
         val parsedValue = resolveColor(value)
@@ -102,9 +102,16 @@ private constructor(
         add(Dark(JewelTheme.isDark))
     }
 
+    /** Provides the [invoke] factory that creates a [PalettePainterHintsProvider] from the current IDE UI theme. */
     public companion object {
         private val logger = thisLogger()
 
+        /**
+         * Creates a [PalettePainterHintsProvider] from the current IDE UI theme. Falls back to a basic
+         * [BridgePainterHintsProvider] if no theme is active.
+         *
+         * @param isDark Whether the current theme is dark.
+         */
         @Suppress("UnstableApiUsage") // We need to call @Internal APIs
         public operator fun invoke(isDark: Boolean): PalettePainterHintsProvider {
             val uiTheme = currentUiThemeOrNull() ?: return BridgePainterHintsProvider(isDark)

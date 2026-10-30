@@ -90,7 +90,7 @@ fun condaEnvironment(condaVersion: String, block: CondaPyEnvironmentSpec.() -> U
 class CondaPyEnvironmentProvider : PyEnvironmentProvider<CondaPyEnvironmentSpec>("conda") {
 
   private companion object {
-    const val MINICONDA_BASE_URL = "https://repo.anaconda.com/miniconda"
+    const val MINICONDA_BASE_URL = "https://cache-redirector.jetbrains.com/repo.anaconda.com/miniconda"
   }
 
   override suspend fun setupEnvironment(context: Context, spec: CondaPyEnvironmentSpec): PyEnvironment {
@@ -307,6 +307,6 @@ class CondaPyEnvironment(
     return PyCondaEnv(
       envIdentity = PyCondaEnvIdentity.UnnamedEnv(envPath.pathString, isBase = true),
       fullCondaPathOnTarget = condaExecutable.toString(),
-    ).createSdkFromThisEnv(null, emptyList()).getOrThrow()
+    ).createSdkFromThisEnv(null, emptyList(), envPath).getOrThrow()
   }
 }

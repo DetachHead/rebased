@@ -24,7 +24,7 @@ enum class ABExperimentOption {
   FUZZY_FILE_SEARCH,
   SHOW_TRIAL_SURVEY,
   NEW_USERS_ONBOARDING,
-  SPLIT_SEARCH_EVERYWHERE,
+  //SPLIT_SEARCH_EVERYWHERE,
   CLION_WIZARD_REMOVAL,
 
   /**
@@ -63,22 +63,22 @@ internal val experimentsPartition: List<ExperimentAssignment> = listOf(
   //  controlBuckets = (128 until 256).toSet(),
   //  majorVersion = "2025.2"
   //),
-  ExperimentAssignment(
-    experiment = ABExperimentOption.SPLIT_SEARCH_EVERYWHERE,
-    experimentBuckets = (0 until 256).toSet(),
-    controlBuckets = (256 until 512).toSet(),
-    majorVersion = "2026.1 EAP",
-    products = EnumSet.of(IntelliJPlatformProduct.IDEA,
-                          IntelliJPlatformProduct.PYCHARM,
-                          IntelliJPlatformProduct.RIDER),
-  ),
+  //ExperimentAssignment(
+  //  experiment = ABExperimentOption.SPLIT_SEARCH_EVERYWHERE,
+  //  experimentBuckets = (0 until 256).toSet(),
+  //  controlBuckets = (256 until 512).toSet(),
+  //  majorVersion = "2026.1 EAP",
+  //  products = EnumSet.of(IntelliJPlatformProduct.IDEA,
+  //                        IntelliJPlatformProduct.PYCHARM,
+  //                        IntelliJPlatformProduct.RIDER),
+  //),
   ExperimentAssignment(
     experiment = ABExperimentOption.CLION_WIZARD_REMOVAL,
-    experimentBuckets = (512 until 768).toSet(),
-    controlBuckets = (768 until 1024).toSet(),
+    experimentBuckets = (256 until 768).toSet(),
+    controlBuckets = (0 until 256).toSet() + (768 until 1024).toSet(),
     majorVersion = "2026.2",
     products = EnumSet.of(IntelliJPlatformProduct.CLION),
-  ),
+  )
   // the rest belongs to the "unassigned" experiment
 )
 
@@ -86,7 +86,7 @@ internal val experimentsPartition: List<ExperimentAssignment> = listOf(
  * This method can be configured to allow options only in particular IDEs.
  */
 fun isAllowed(option: ABExperimentOption): Boolean = when (option) {
-  ABExperimentOption.SPLIT_SEARCH_EVERYWHERE -> IdeProductMode.isMonolith
+  //ABExperimentOption.SPLIT_SEARCH_EVERYWHERE -> IdeProductMode.isMonolith
   else -> true
 }
 
@@ -158,6 +158,7 @@ internal enum class IntelliJPlatformProduct {
         PlatformUtils.isIdeaCommunity() || PlatformUtils.isIdeaUltimate() -> IDEA
         PlatformUtils.isPyCharm() -> PYCHARM
         PlatformUtils.isRider() -> RIDER
+        PlatformUtils.isCLion() -> CLION
         else -> OTHER
       }
   }

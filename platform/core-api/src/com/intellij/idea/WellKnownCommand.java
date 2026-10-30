@@ -74,7 +74,6 @@ public final class WellKnownCommand {
     put("appcodeClangModulesPrinter", HEADLESS);
     put("buildAppcodeCache", HEADLESS);
     put("dataSources", HEADLESS);
-    put("ml-evaluate", HEADLESS);
     put("ml-process", HEADLESS);
     put("project-with-shared-caches", HEADLESS);
     put("qodanaExcludedPlugins", HEADLESS);
@@ -82,6 +81,7 @@ public final class WellKnownCommand {
     put("installCoursePlugins", HEADLESS);
     put("createCourse", HEADLESS);
     put("mcpServer", HEADLESS);
+    put("storybook-connect", HEADLESS);
 
     put("thinClient", GUI);
     put("thinClient-headless", HEADLESS);

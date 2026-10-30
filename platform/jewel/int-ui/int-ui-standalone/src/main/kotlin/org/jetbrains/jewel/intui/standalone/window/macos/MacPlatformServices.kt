@@ -3,99 +3,74 @@ package org.jetbrains.jewel.intui.standalone.window.macos
 
 import androidx.compose.runtime.ProvidableCompositionLocal
 import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.ui.awt.ComposeWindow
 import com.sun.jna.Callback
 import com.sun.jna.Pointer
-import java.awt.Component
 import java.awt.Window
-import java.lang.reflect.InvocationTargetException
 import javax.swing.SwingUtilities
 import org.jetbrains.annotations.ApiStatus
+import org.jetbrains.annotations.VisibleForTesting
 import org.jetbrains.jewel.foundation.InternalJewelApi
 import org.jetbrains.jewel.foundation.util.JewelLogger
 import org.jetbrains.jewel.intui.standalone.styling.default
 import org.jetbrains.jewel.intui.standalone.styling.macOs
-import org.jetbrains.jewel.intui.standalone.window.UnsafeAccessing
-import org.jetbrains.jewel.intui.standalone.window.accessible
 import org.jetbrains.jewel.ui.component.styling.ScrollbarVisibility
 import org.jetbrains.jewel.ui.component.styling.TrackClickBehavior
 import org.jetbrains.skiko.hostOs
 
+/**
+ * Provides macOS-specific platform services for window decoration and system preference observation.
+ *
+ * Implementations communicate with macOS APIs (via JNA/Objective-C) to apply native window chrome updates and read
+ * scrollbar settings from native sources such as NSUserDefaults (track-click behavior) and NSScroller (scroller style).
+ */
 @ApiStatus.Internal
 @InternalJewelApi
 public interface MacPlatformServices {
+    /** Updates the native window's color scheme to match the current Jewel theme. */
     public fun updateColors(w: Window)
 
+    /** Refreshes the full-screen button state in the native window title bar. */
     public fun updateFullScreenButtons(w: Window)
 
+    /** Hides the system cursor until the next mouse-move event (delegates to `NSCursor`). */
     public fun hideCursorUntilMoved()
 
+    /** Reads the current scrollbar track-click behavior from `NSUserDefaults`. */
     public fun readScrollbarTrackClickBehavior(): TrackClickBehavior
 
+    /** Reads the current scrollbar visibility style from the native `NSScroller` preference. */
     public fun readScrollbarVisibility(): ScrollbarVisibility
 
+    /**
+     * Registers [action] to be invoked whenever a scrollbar-related system preference changes.
+     *
+     * Observes both `NSPreferredScrollerStyleDidChangeNotification` (visibility) and
+     * `AppleNoRedisplayAppearancePreferenceChanged` (track-click behavior).
+     */
     public fun onPreferencesChanged(action: () -> Unit)
 }
 
+/** Default [MacPlatformServices] implementation that uses JNA to invoke native macOS (Objective-C) APIs. */
 @ApiStatus.Internal
 @InternalJewelApi
 public object MacPlatformServicesDefaultImpl : MacPlatformServices {
     private val logger = JewelLogger.getInstance(MacPlatformServicesDefaultImpl::class.java.simpleName)
     private var nativeCallbackReference: Callback? = null // Keep a strong reference here to prevent GC
 
-    init {
-        try {
-            UnsafeAccessing.assignAccessibility(
-                UnsafeAccessing.desktopModule,
-                listOf("sun.awt", "sun.lwawt", "sun.lwawt.macosx"),
-            )
-        } catch (@Suppress("TooGenericExceptionCaught") e: Exception) {
-            logger.warn("Assign access for jdk.desktop failed.", e)
-        }
-    }
-
-    internal fun getWindowFromJavaWindow(w: Window?): ID {
-        if (w == null) {
-            return ID.NIL
-        }
-        try {
-            val cPlatformWindow = getPlatformWindow(w)
-            if (cPlatformWindow != null) {
-                val ptr = cPlatformWindow.javaClass.superclass.getDeclaredField("ptr")
-                ptr.setAccessible(true)
-                return ID(ptr.getLong(cPlatformWindow))
-            }
-        } catch (e: IllegalAccessException) {
-            logger.warn("Fail to get cPlatformWindow from awt window.", e)
-        } catch (e: NoSuchFieldException) {
-            logger.warn("Fail to get cPlatformWindow from awt window.", e)
-        }
-        return ID.NIL
-    }
-
-    public fun getPlatformWindow(w: Window): Any? {
-        try {
-            val awtAccessor = Class.forName("sun.awt.AWTAccessor")
-            val componentAccessor = awtAccessor.getMethod("getComponentAccessor").invoke(null)
-            val getPeer = componentAccessor.javaClass.getMethod("getPeer", Component::class.java).accessible()
-            val peer = getPeer.invoke(componentAccessor, w)
-            if (peer != null) {
-                val cWindowPeerClass: Class<*> = peer.javaClass
-                val getPlatformWindowMethod = cWindowPeerClass.getDeclaredMethod("getPlatformWindow")
-                val cPlatformWindow = getPlatformWindowMethod.invoke(peer)
-                if (cPlatformWindow != null) {
-                    return cPlatformWindow
-                }
-            }
-        } catch (e: NoSuchMethodException) {
-            logger.warn("Fail to get cPlatformWindow from awt window.", e)
-        } catch (e: IllegalAccessException) {
-            logger.warn("Fail to get cPlatformWindow from awt window.", e)
-        } catch (e: InvocationTargetException) {
-            logger.warn("Fail to get cPlatformWindow from awt window.", e)
-        } catch (e: ClassNotFoundException) {
-            logger.warn("Fail to get cPlatformWindow from awt window.", e)
-        }
-        return null
+    /**
+     * Returns the native `NSWindow*` backing the given AWT [Window], or [ID.NIL] if [w] isn't a [ComposeWindow] or the
+     * native surface hasn't been realized yet.
+     *
+     * Uses [ComposeWindow.windowHandle], Compose's own supported accessor, instead of reflecting into JDK-internal
+     * `sun.awt`/`sun.lwawt.macosx` classes (see JEWEL-1388).
+     */
+    @VisibleForTesting
+    @ApiStatus.Internal
+    @InternalJewelApi
+    public fun getWindowFromJavaWindow(w: Window?): ID {
+        val handle = (w as? ComposeWindow)?.windowHandle ?: 0L
+        return if (handle == 0L) ID.NIL else ID(handle)
     }
 
     public override fun updateColors(w: Window) {
@@ -185,9 +160,9 @@ public object MacPlatformServicesDefaultImpl : MacPlatformServices {
                     /**
                      * Callback method invoked by macOS NSNotificationCenter when a system preference changes.
                      *
-                     * This method is called via Objective-C message dispatch when notifications are posted. It
-                     * refreshes both the track click behavior and scrollbar visibility from system preferences,
-                     * updating the corresponding state flows to notify observers of the changes.
+                     * This method is called via Objective-C message dispatch when notifications are posted. It invokes
+                     * the `action` registered by the caller; what to do in response to the change is the caller's
+                     * responsibility.
                      *
                      * @param self The Objective-C receiver object
                      * @param selector The selector that was invoked
@@ -235,6 +210,10 @@ public object MacPlatformServicesDefaultImpl : MacPlatformServices {
         }
     }
 
+    /**
+     * Executes [producer] inside a `NSAutoreleasePool` and returns its result, or `null` if the current OS is not macOS
+     * or if an exception is thrown (the exception is logged as a warning).
+     */
     @Suppress("TooGenericExceptionCaught")
     public fun <T : Any> callMac(producer: () -> T?): T? {
         if (!hostOs.isMacOS) return null
@@ -251,6 +230,7 @@ public object MacPlatformServicesDefaultImpl : MacPlatformServices {
     }
 }
 
+/** [ProvidableCompositionLocal] that provides the active [MacPlatformServices] instance for the current window. */
 @get:ApiStatus.Internal
 @InternalJewelApi
 public val LocalMacPlatformServices: ProvidableCompositionLocal<MacPlatformServices> = staticCompositionLocalOf {

@@ -108,6 +108,26 @@ class PyEnumTypeTest : PyCodeInsightTestCase() {
         """,
       "_enum_members.py" to "def func(x: int) -> None: ...",
     )
+
+    @Test
+    @TestFor(issues = ["PY-89968"])
+    fun `dunder is not member`() = test("""
+      from enum import Enum
+      
+      class E(Enum):
+        # test detail: ints are not members, strings are
+        __x__ = 1
+        __x = 2
+        # _x_ = 3  # this one is an error at runtime
+        _x = "a"
+        __ = "b"
+        _ = "c"
+      
+      def f(e: E):
+        expr = e.value, E.__x__
+      #  └ TYPE tuple[Literal["a", "b", "c"], int]
+      """)
+
   }
 
   @Nested
@@ -411,6 +431,103 @@ class PyEnumTypeTest : PyCodeInsightTestCase() {
       """)
 
     @Test
+    @TestFor(issues = ["PY-90694"])
+    fun `Self-returning method on an enum member widens to the enum class`() = test("""
+      from enum import Enum
+      from typing import Self
+
+      class E(Enum):
+          a = 1
+          def f(self) -> Self: ...
+
+      expr = E.a.f()
+      # └ TYPE E
+      """)
+
+    @Test
+    @TestFor(issues = ["PY-90694"])
+    fun `plain enum member access stays a literal`() = test("""
+      from enum import Enum
+
+      class E(Enum):
+          a = 1
+
+      expr = E.a
+      # └ TYPE Literal[E.a]
+      """)
+
+    @Test
+    @TestFor(issues = ["PY-90694"])
+    fun `combining Flag members with bitwise or yields the flag class`() = test("""
+      from enum import Flag, auto
+
+      class Color(Flag):
+          RED = auto()
+          GREEN = auto()
+          BLUE = auto()
+
+      expr = Color.RED | Color.BLUE  # ISSUES * FIXME
+      # └ TYPE Unknown FIXME Color
+      """)
+
+    @Test
+    @TestFor(issues = ["PY-90694"])
+    fun `combining Flag members with bitwise and and xor yields the flag class`() = test("""
+      from enum import Flag, auto
+
+      class Color(Flag):
+          RED = auto()
+          GREEN = auto()
+          BLUE = auto()
+
+      expr = (Color.RED & Color.BLUE, Color.RED ^ Color.BLUE)  # ISSUES * FIXME
+      # └ TYPE tuple[Unknown, Unknown] FIXME tuple[Color, Color]
+      """)
+
+    @Test
+    @TestFor(issues = ["PY-90694"])
+    fun `chained combination of Flag members yields the flag class`() = test("""
+      from enum import Flag, auto
+
+      class Color(Flag):
+          RED = auto()
+          GREEN = auto()
+          BLUE = auto()
+
+      expr = Color.RED | Color.GREEN | Color.BLUE  # ISSUES * FIXME
+      # └ TYPE Unknown FIXME Color
+      """)
+
+    @Test
+    @TestFor(issues = ["PY-90694"])
+    fun `combining IntFlag members yields the flag class`() = test("""
+      from enum import IntFlag, auto
+
+      class Perm(IntFlag):
+          READ = auto()
+          WRITE = auto()
+          EXECUTE = auto()
+
+      expr = Perm.READ | Perm.WRITE
+      # └ TYPE Perm
+      """)
+
+    @Test
+    @TestFor(issues = ["PY-90694"])
+    fun `union of flag classes remains a type union`() = test("""
+      from enum import Flag
+
+      class A(Flag):
+          X = 1
+
+      class B(Flag):
+          Y = 1
+
+      expr = A | B
+      # └ TYPE UnionType | type[A] | type[B]
+      """)
+
+    @Test
     @TestFor(issues = ["PY-87344"])
     fun `set of StrEnum class inferred from values classmethod`() = test(TestOptions(enablePyAnyType = false), """
       from enum import StrEnum
@@ -667,7 +784,7 @@ class PyEnumTypeTest : PyCodeInsightTestCase() {
 
       class MyEnum(Enum):
           OK = 1
-          BAD = "string" # WARNING Expected type 'int', got 'str' instead
+          ALSO_OK = "string"
       """)
 
     @Test

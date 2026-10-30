@@ -100,6 +100,8 @@
                     dynamic="true">
       <with attribute="implementationClass" implements="javax.imageio.spi.IIOServiceProvider"/>
     </extensionPoint>
+    <extensionPoint qualifiedName="com.intellij.editorMouseActionsOverrider"
+                    interface="com.intellij.openapi.editor.impl.EditorMouseActionsOverrider" dynamic="true"/>
   </extensionPoints>
   <extensions defaultExtensionNs="com.intellij">
     <ApplicationLoadListener implementation="com.intellij.util.imageio.ImageReaderWriterSpiRegistrar"/>
@@ -111,6 +113,11 @@
       key="universal.file.chooser.is.enabled"
       defaultValue="true"
       description="Enable the universal file chooser dialog"
+    />
+    <registryKey
+      key="ide.update.toolbar.widget"
+      defaultValue="true"
+      description="Show an available IDE update as a main toolbar button instead of an item in the Settings menu"
     />
     <registryKey
       key="ide.hide.default.project.directory.for.isolated.workspace"
@@ -183,5 +190,8 @@
     <applicationSettings service="com.intellij.toolWindow.xNext.toolbar.data.XNextPinnedService"/>
     <applicationSettings service="com.intellij.notification.impl.RemindLaterManager"/>
     <applicationSettings service="com.intellij.ide.plugins.org.PluginManagerConfigurableForOrgConfig"/>
+
+    <applicationService serviceInterface="com.intellij.ide.plugins.PluginPermissionService"
+                        serviceImplementation="com.intellij.openapi.updateSettings.impl.PluginPermissionServiceImpl"/>
   </extensions>
 </idea-plugin>

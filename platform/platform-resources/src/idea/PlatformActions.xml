@@ -1086,6 +1086,25 @@
       </group>
     </group>
 
+    <action id="IdeUpdateToolbarWidget" class="com.intellij.openapi.updateSettings.impl.IdeUpdateToolbarWidget">
+      <add-to-group group-id="MainToolbarRight" anchor="last"/>
+    </action>
+    <group id="IdeUpdateToolbarWidget.Popup" searchable="false">
+      <action id="IdeUpdateToolbarWidget.DownloadUpdate"
+              class="com.intellij.openapi.updateSettings.impl.DownloadUpdateAction"
+              icon="AllIcons.Ide.Notification.PluginUpdate"/>
+      <action id="IdeUpdateToolbarWidget.WhatsNew" class="com.intellij.openapi.updateSettings.impl.WhatsNewAction"/>
+      <group id="IdeUpdateToolbarWidget.Options" popup="true">
+        <action id="IdeUpdateToolbarWidget.SkipThisUpdate"
+                class="com.intellij.openapi.updateSettings.impl.SkipThisUpdateAction"/>
+        <separator/>
+        <action id="IdeUpdateToolbarWidget.ConfigureUpdates"
+                class="com.intellij.openapi.updateSettings.impl.ConfigureUpdatesAction"/>
+      </group>
+      <action id="IdeUpdateToolbarWidget.RemindMeLater"
+              class="com.intellij.openapi.updateSettings.impl.RemindMeLaterAction"/>
+    </group>
+
     <!-- in rebased this is moved from plugins/git4idea/shared/resources/intellij.vcs.git.shared.xml -->
     <group id="MainToolbarVCSGroup">
       <add-to-group group-id="MainToolbarLeft" relative-to-action="MainToolbarGeneralActionsGroup" anchor="before"/>
@@ -1960,6 +1979,8 @@
 
     <action class="com.intellij.openapi.updateSettings.impl.PluginUpdateSourcesResetAction" internal="true"
             id="PluginUpdateSourcesResetAction"/>
+    <action class="com.intellij.openapi.updateSettings.impl.ResetPluginPermissionsAction"
+            id="ResetPluginPermissions"/>
   </actions>
 
   <actions resource-bundle="messages.MinimapBundle">

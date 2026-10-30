@@ -11,6 +11,7 @@
     <module name="intellij.java.ui"/>
     <module name="intellij.java.xml.dom.impl"/>
     <module name="intellij.json.backend"/>
+    <module name="intellij.jvm.analysis.impl"/>
     <module name="intellij.libraries.xerces"/>
     <module name="intellij.platform.jps.build"/>
     <module name="intellij.platform.structureView"/>
@@ -159,17 +160,19 @@
     <registryKey key="devkit.split.mode.report.implicit.module.kind" defaultValue="true"
                  description="Enables reporting errors about modules that effectively work only on frontend or backend, but do not explicitly state that fact via platform dependency"/>
     <registryKey key="devkit.split.mode.custom.icons" defaultValue="false"
-                 description="Enables custom file and directory icons for split-mode frontend/backend/shared modules in DevKit."/>
+                 description="Enables deferred accurate split-mode icon resolution for DevKit descriptor and directory icons."/>
+    <registryKey key="devkit.split.mode.inlay.plugin.descriptor.kind" defaultValue="true"
+                 description="Shows inline split-mode compatibility hints for DevKit plugin descriptors."/>
     <registryKey key="devkit.split.mode.run.jps.to.bazel.in.quick.fix" defaultValue="false"
                  description="Automatically run JPS to Bazel conversion after applying a fix that touches runtime/compile dependencies"/>
 
-    <registryKey key="devkit.split.mode.analysis.api.restrictions.source" defaultValue="[bundled*|project|project-or-bundled]"
-                 description="Source of ApiRestrictions.json for DevKit split-mode inspections."
+    <registryKey key="devkit.split.mode.analysis.api.restrictions.source" defaultValue="[bundled|project|project-or-bundled*]"
+                 description="Source of ApiRestrictions.json5 for DevKit split-mode inspections."
                  restartRequired="true"/>
-    <registryKey key="devkit.split.mode.analysis.predefined.module.kinds.source" defaultValue="[bundled*|project|project-or-bundled]"
-                 description="Source of PredefinedModuleKinds.json for DevKit split-mode inspections."
+    <registryKey key="devkit.split.mode.analysis.predefined.module.kinds.source" defaultValue="[bundled|project|project-or-bundled*]"
+                 description="Source of PredefinedModuleKinds.json5 for DevKit split-mode inspections."
                  restartRequired="true"/>
-    <registryKey key="devkit.split.mode.qodana.analysis.scope.source" defaultValue="[bundled|project*|project-or-bundled]"
+    <registryKey key="devkit.split.mode.qodana.analysis.scope.source" defaultValue="[bundled|project|project-or-bundled*]"
                  description="Source of SplitModeQodanaAnalysisScope.json for DevKit split-mode inspections."
                  restartRequired="true"/>
 
@@ -227,6 +230,26 @@
                      enabledByDefault="true" level="WARNING"
                      implementationClass="org.jetbrains.idea.devkit.inspections.PluginXmlExtensionRegistrationInspection"
                      key="inspection.plugin.xml.extension.registration.display.name"/>
+    <localInspection language="XML" shortName="JetBrainsInternalExtensionsUsage" applyToDialects="false"
+                     projectType="INTELLIJ_PLUGIN"
+                     groupPathKey="inspections.group.path" groupKey="inspections.group.descriptor"
+                     enabledByDefault="true" level="ERROR"
+                     implementationClass="org.jetbrains.idea.devkit.inspections.JetBrainsInternalExtensionsUsageInspection"
+                     key="inspection.jetbrains.internal.extensions.usage.display.name"/>
+    <localInspection language="XML" shortName="UnstableExtensionsUsage" applyToDialects="false"
+                     projectType="INTELLIJ_PLUGIN"
+                     groupPathKey="inspections.group.path" groupKey="inspections.group.descriptor"
+                     enabledByDefault="true" level="WEAK WARNING"
+                     implementationClass="org.jetbrains.idea.devkit.inspections.UnstableExtensionsUsageInspection"
+                     key="inspection.jetbrains.unstable.extensions.usage.display.name"/>
+    <localInspection language="UAST" shortName="JetBrainsInternalApiUsage"
+                     projectType="INTELLIJ_PLUGIN"
+                     groupPathKey="inspections.group.path" groupKey="inspections.group.code"
+                     enabledByDefault="true" level="ERROR"
+                     implementationClass="org.jetbrains.idea.devkit.inspections.JetBrainsInternalApiUsageInspection"
+                     key="inspections.jetbrains.internal.api.usage.display.name"/>
+    <codeInsight.unstableApiUsageFilter
+      implementation="org.jetbrains.idea.devkit.inspections.JetBrainsInternalApiUsageFilter"/>
 
     <localInspection language="JVM" shortName="ComponentNotRegistered"
                      projectType="INTELLIJ_PLUGIN"
@@ -781,6 +804,15 @@
                                     implementationClass="org.jetbrains.idea.devkit.references.DevKitRelatedPropertiesProvider"/>
     <codeInsight.lineMarkerProvider language="XML"
                                     implementationClass="org.jetbrains.idea.devkit.navigation.DescriptorsIncludingContentModuleLineMarkerProvider"/>
+    <codeInsight.declarativeInlayProvider
+      providerId="devkit.plugin.descriptor.split.mode.kind"
+      bundle="messages.DevKitBundle"
+      nameKey="inlay.split.mode.module.kind.name"
+      descriptionKey="inlay.split.mode.module.kind.description"
+      group="OTHER_GROUP"
+      implementationClass="org.jetbrains.idea.devkit.navigation.DescriptorSplitModeInlayHintsProvider"
+      isEnabledByDefault="true"
+      language="XML"/>
     <psi.referenceContributor
       language="Properties"
       implementation="org.jetbrains.idea.devkit.references.MessageBundleReferenceContributor"/>
@@ -1063,6 +1095,8 @@
       <action id="DevKit.AnalyzePersistentSyntaxTreeOverhead" internal="true"
               class="org.jetbrains.idea.devkit.hprof.AnalyzePersistentSyntaxTreeOverheadAction"/>
       <action id="AnalyzeUnloadablePlugins" internal="true" class="org.jetbrains.idea.devkit.internal.AnalyzeUnloadablePluginsAction"/>
+      <action id="PluginPermissionServiceDemo" internal="true"
+              class="org.jetbrains.idea.devkit.plugins.PluginPermissionServiceDemoAction"/>
       <add-to-group group-id="Internal" anchor="last"/>
     </group>
 

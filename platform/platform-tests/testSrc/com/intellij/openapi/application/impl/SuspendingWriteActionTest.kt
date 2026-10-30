@@ -1,12 +1,16 @@
 // Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.openapi.application.impl
 
+import com.intellij.concurrency.currentThreadContext
+import com.intellij.concurrency.installThreadContext
 import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.application.EDT
 import com.intellij.openapi.application.WriteActionListener
 import com.intellij.openapi.application.backgroundWriteAction
 import com.intellij.openapi.application.edtWriteAction
 import com.intellij.openapi.application.ex.ApplicationManagerEx
 import com.intellij.openapi.application.readAction
+import com.intellij.openapi.application.runReadAction
 import com.intellij.openapi.application.runUndoTransparentWriteAction
 import com.intellij.openapi.application.runWriteAction
 import com.intellij.openapi.progress.Cancellation
@@ -22,6 +26,7 @@ import com.intellij.openapi.util.use
 import com.intellij.testFramework.common.timeoutRunBlocking
 import com.intellij.testFramework.junit5.TestApplication
 import com.intellij.util.ThrowableRunnable
+import com.intellij.util.application
 import com.intellij.util.ui.EDT
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -36,8 +41,13 @@ import org.junit.jupiter.api.Assertions
 import org.junit.jupiter.api.RepeatedTest
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
+import kotlin.test.assertFalse
+import kotlin.test.assertTrue
+import kotlin.time.Duration.Companion.seconds
 
 private const val repetitions: Int = 100
 
@@ -230,4 +240,83 @@ class SuspendingWriteActionTest {
     }
     checkpoint(3)
   }
+
+  @Test
+  fun `release of WI inside suspending write action does not lead to broken IDE state`(): Unit = timeoutRunBlocking {
+    readAction {  } // init internal structures
+    edtWriteAction {
+      assertTrue { application.isWriteAccessAllowed }
+      ApplicationManagerEx.getApplicationEx().threadingSupport!!.executeSuspendingWriteAction {
+        assertFalse { application.isWriteAccessAllowed }
+        assertTrue { application.isWriteIntentLockAcquired }
+        TestOnlyThreading.releaseTheAcquiredWriteIntentLockThenExecuteActionAndTakeWriteIntentLockBack {
+          assertFalse { application.isWriteAccessAllowed }
+          assertFalse { application.isWriteIntentLockAcquired }
+        }
+        assertFalse { application.isWriteAccessAllowed }
+        assertTrue { application.isWriteIntentLockAcquired }
+      }
+      assertTrue { application.isWriteAccessAllowed }
+      assertTrue { application.isWriteIntentLockAcquired }
+    }
+    withContext(Dispatchers.EDT) {} // check that WI can be acquired again
+  }
+
+  /**
+   * Regression test for a broken lock state after a suspending write action.
+   *
+   * [com.intellij.openapi.application.ThreadingSupport.executeSuspendingWriteAction] downgrades the write lock to a write-intent lock.
+   * When the action finishes, the lock takes the write permit back. This wait must not be cancellable.
+   * The wait used to run with the cancellable context job of the write action. A cancelled job aborted the wait
+   * and skipped the restore of the write-action stack base. After that, no later write action fired `beforeWriteActionStart`,
+   * so reads with write-action priority were never cancelled, and the next write action that waited for such a read froze the IDE.
+   *
+   * The read action below holds a read permit when the write permit is taken back, so the wait has to suspend.
+   */
+  @Suppress("DEPRECATION")
+  @Test
+  fun `cancelled context job does not break reacquisition of write lock after suspending write action`(): Unit =
+    timeoutRunBlocking(context = Dispatchers.Default, timeout = 30.seconds) {
+      val application = ApplicationManagerEx.getApplicationEx()
+      val readStarted = CountDownLatch(1)
+      // the write action runs with this job as its context job; the job gets cancelled while the write lock is downgraded
+      val writeActionJob = Job()
+      withContext(Dispatchers.EDT) {
+        installThreadContext(currentThreadContext() + writeActionJob, true) {
+          runWriteAction {
+            application.threadingSupport!!.executeSuspendingWriteAction {
+              launch(Dispatchers.Default) {
+                runReadAction {
+                  readStarted.countDown()
+                  // hold the read permit until the suspending write action starts to take the write lock back
+                  val deadlineNs = System.nanoTime() + 10.seconds.inWholeNanoseconds
+                  while (!application.isWriteActionPending && System.nanoTime() < deadlineNs) {
+                    Thread.sleep(1)
+                  }
+                  // keep the permit a bit longer, so that the write lock acquisition has to wait for this read action
+                  Thread.sleep(200)
+                }
+              }
+              readStarted.await()
+              writeActionJob.cancel()
+            }
+            assertTrue(application.isWriteAccessAllowed, "write access must be restored after the suspending write action")
+          }
+        }
+      }
+
+      // the next write action must still cancel reads with write-action priority, which relies on `beforeWriteActionStart`
+      val beforeWriteActionStartCalls = AtomicInteger()
+      val listener = object : WriteActionListener {
+        override fun beforeWriteActionStart(action: Class<*>) {
+          beforeWriteActionStartCalls.incrementAndGet()
+        }
+      }
+      Disposer.newDisposable().use { disposable ->
+        application.addWriteActionListener(listener, disposable)
+        edtWriteAction { }
+      }
+      Assertions.assertEquals(1, beforeWriteActionStartCalls.get(),
+                              "beforeWriteActionStart must fire for a write action that follows a suspending write action with a cancelled job")
+    }
 }

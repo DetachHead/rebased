@@ -326,13 +326,12 @@ internal fun ComboBoxImpl(
                         .onPreviewKeyEvent {
                             if (it.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
 
-                            when {
-                                it.key == Key.Spacebar -> {
+                            when (it.key) {
+                                Key.Spacebar -> {
                                     popupManager.setPopupVisible(!popupVisible)
                                     true
                                 }
-
-                                it.key == Key.DirectionDown -> {
+                                Key.DirectionDown -> {
                                     if (popupVisible) {
                                         onArrowDownPress()
                                     } else {
@@ -340,17 +339,14 @@ internal fun ComboBoxImpl(
                                     }
                                     true
                                 }
-
-                                it.key == Key.DirectionUp && popupVisible -> {
+                                Key.DirectionUp if popupVisible -> {
                                     onArrowUpPress()
                                     true
                                 }
-
-                                it.key == Key.Escape && popupVisible -> {
+                                Key.Escape if popupVisible -> {
                                     popupManager.setPopupVisible(false)
                                     true
                                 }
-
                                 else -> false
                             }
                         }
@@ -389,11 +385,7 @@ internal fun ComboBoxImpl(
                 val maxHeight = maxPopupHeight.takeOrElse { style.metrics.maxPopupHeight }
 
                 PopupContainer(
-                    onDismissRequest = {
-                        if (!chevronHovered) {
-                            popupManager.setPopupVisible(false)
-                        }
-                    },
+                    onDismissRequest = { popupManager.setPopupVisible(false) },
                     modifier =
                         Modifier.testTag("Jewel.ComboBox.Popup")
                             .heightIn(max = maxHeight)
@@ -401,7 +393,10 @@ internal fun ComboBoxImpl(
                             .then(popupModifier)
                             .onClick { popupManager.setPopupVisible(false) },
                     horizontalAlignment = horizontalPopupAlignment,
-                    popupProperties = PopupProperties(focusable = false),
+                    // Suppressing the pointer path while the ComboBox is hovered stops the click-outside
+                    // dismissal from firing on pointer down, before the chevron's own toggle handler runs and
+                    // reopens the popup it just closed. Escape is governed separately, and stays enabled.
+                    popupProperties = PopupProperties(focusable = false, dismissOnClickOutside = !chevronHovered),
                     style = popupStyle,
                     popupPositionProvider = popupPositionProvider,
                     content = popupContent,
@@ -491,6 +486,7 @@ internal fun ComboBoxLabelText(text: String, style: TextStyle, comboBoxStyle: Co
  *
  * @param style The visual styling configuration for the combo box
  * @param enabled Whether the combo box is enabled, affects the icon color
+ * @param modifier The [Modifier] to apply to the chevron.
  */
 @Composable
 private fun Chevron(style: ComboBoxStyle, enabled: Boolean, modifier: Modifier = Modifier) {

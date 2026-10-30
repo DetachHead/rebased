@@ -38,10 +38,12 @@ import com.jetbrains.python.psi.types.PyIntersectionType;
 import com.jetbrains.python.psi.types.PyLiteralType;
 import com.jetbrains.python.psi.types.PyNamedTupleType;
 import com.jetbrains.python.psi.types.PyNarrowedType;
+import com.jetbrains.python.psi.types.PyTypeFormType;
 import com.jetbrains.python.psi.types.PyNeverType;
 import com.jetbrains.python.psi.types.PyOverloadType;
 import com.jetbrains.python.psi.types.PyParamSpecType;
 import com.jetbrains.python.psi.types.PySelfType;
+import com.jetbrains.python.psi.types.PyTopType;
 import com.jetbrains.python.psi.types.PyTupleType;
 import com.jetbrains.python.psi.types.PyType;
 import com.jetbrains.python.psi.types.PyTypeParameterType;
@@ -403,8 +405,23 @@ public abstract class PyTypeRenderer extends PyTypeVisitorExt<@NotNull HtmlChunk
   }
 
   @Override
+  public HtmlChunk visitPyTypeFormType(@NotNull PyTypeFormType typeFormType) {
+    HtmlBuilder result = new HtmlBuilder();
+    result.append(styled(isRenderingFqn() ? "typing.TypeForm" : "TypeForm", PyHighlighter.PY_CLASS_DEFINITION));
+    result.append(styled("[", PyHighlighter.PY_BRACKETS));
+    result.append(render(typeFormType.getRepresentedType()));
+    result.append(styled("]", PyHighlighter.PY_BRACKETS));
+    return result.toFragment();
+  }
+
+  @Override
   public @NotNull HtmlChunk visitPyNeverType(@NotNull PyNeverType neverType) {
     return className(neverType.getName());
+  }
+
+  @Override
+  public @NotNull HtmlChunk visitPyTopType(@NotNull PyTopType topType) {
+    return className(isRenderingFqn() ? PyNames.FQN.OBJECT : topType.getName());
   }
 
   @Override

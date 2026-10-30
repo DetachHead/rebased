@@ -1,17 +1,18 @@
-// Copyright 2000-2023 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.plugins.javaFX.fxml.codeInsight.intentions;
 
 import com.intellij.codeInsight.FileModificationService;
+import com.intellij.codeInsight.hint.HintManager;
 import com.intellij.codeInsight.intention.PsiElementBaseIntentionAction;
+import com.intellij.codeInsight.intention.preview.IntentionPreviewInfo;
 import com.intellij.ide.highlighter.XmlFileType;
 import com.intellij.openapi.command.WriteCommandAction;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.roots.OrderEnumerator;
 import com.intellij.openapi.ui.popup.JBPopupFactory;
-import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.psi.PsiElement;
+import com.intellij.psi.PsiFile;
 import com.intellij.psi.PsiFileFactory;
 import com.intellij.psi.PsiParserFacade;
 import com.intellij.psi.util.PsiTreeUtil;
@@ -20,73 +21,39 @@ import com.intellij.psi.xml.XmlFile;
 import com.intellij.psi.xml.XmlProcessingInstruction;
 import com.intellij.psi.xml.XmlProlog;
 import com.intellij.util.IncorrectOperationException;
-import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 import org.jetbrains.plugins.javaFX.JavaFXBundle;
 
-import javax.script.ScriptEngine;
-import javax.script.ScriptEngineFactory;
-import javax.script.ScriptEngineManager;
-import java.io.File;
-import java.net.MalformedURLException;
-import java.net.URL;
-import java.net.URLClassLoader;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
-import java.util.Set;
-import java.util.TreeSet;
 
 public final class JavaFxInjectPageLanguageIntention extends PsiElementBaseIntentionAction {
   public static final Logger LOG = Logger.getInstance(JavaFxInjectPageLanguageIntention.class);
-
-  public static Set<String> getAvailableLanguages(Project project) {
-    final List<ScriptEngineFactory> engineFactories = new ScriptEngineManager(composeUserClassLoader(project)).getEngineFactories();
-
-    if (engineFactories != null) {
-      final Set<String> availableNames = new TreeSet<>();
-      for (ScriptEngineFactory factory : engineFactories) {
-        final String engineName = (String)factory.getParameter(ScriptEngine.NAME);
-        availableNames.add(engineName);
-      }
-      return availableNames;
-    }
-
-    return null;
-  }
-
-  private static ClassLoader composeUserClassLoader(Project project) {
-    final List<URL> urls = new ArrayList<>();
-    final List<String> list = OrderEnumerator.orderEntries(project).recursively().librariesOnly().runtimeOnly().getPathsList().getPathList();
-    for (String path : list) {
-      try {
-        urls.add(new File(FileUtil.toSystemIndependentName(path)).toURI().toURL());
-      }
-      catch (MalformedURLException e1) {
-        LOG.info(e1);
-      }
-    }
-    return new URLClassLoader(urls.toArray(new URL[0]));
-  }
 
   @Override
   public void invoke(final @NotNull Project project, Editor editor, @NotNull PsiElement element) throws IncorrectOperationException {
     if (!FileModificationService.getInstance().preparePsiElementsForWrite(element)) return;
     final XmlFile containingFile = (XmlFile)element.getContainingFile();
-    final Set<String> availableLanguages = getAvailableLanguages(project);
+    JavaFxScriptEngineService.getInstance(project).findEngineNames(availableLanguages -> {
+      if (editor.isDisposed() || !containingFile.isValid()) return;
+      if (availableLanguages.isEmpty()) {
+        HintManager.getInstance().showErrorHint(editor, JavaFXBundle.message("javafx.inject.page.language.intention.no.engines"));
+        return;
+      }
+      final List<String> list = new ArrayList<>(availableLanguages);
 
-    LOG.assertTrue(availableLanguages != null);
-    final List<String> list = new ArrayList<>(availableLanguages);
-
-    if (availableLanguages.size() == 1) {
-      registerPageLanguage(project, containingFile, availableLanguages.iterator().next());
-    } else {
-      JBPopupFactory.getInstance()
-        .createPopupChooserBuilder(list)
-        .setItemChosenCallback(
-          (selectedValue) -> registerPageLanguage(project, containingFile, selectedValue))
-        .createPopup().showInBestPositionFor(editor);
-    }
+      if (availableLanguages.size() == 1) {
+        registerPageLanguage(project, containingFile, availableLanguages.iterator().next());
+      } else {
+        JBPopupFactory.getInstance()
+          .createPopupChooserBuilder(list)
+          .setItemChosenCallback(
+            (selectedValue) -> registerPageLanguage(project, containingFile, selectedValue))
+          .createPopup().showInBestPositionFor(editor);
+      }
+    });
   }
 
   public void registerPageLanguage(final Project project, final XmlFile containingFile, final String languageName) {
@@ -103,21 +70,42 @@ public final class JavaFxInjectPageLanguageIntention extends PsiElementBaseInten
         if (xmlDocument != null) {
           final XmlProlog xmlProlog = xmlDocument.getProlog();
           if (xmlProlog != null) {
-            final PsiElement element = xmlProlog.addBefore(instructions.iterator().next(), xmlProlog.getFirstChild());
-            xmlProlog.addAfter(PsiParserFacade.getInstance(project).createWhiteSpaceFromText("\n\n"), element);
+            final PsiParserFacade parserFacade = PsiParserFacade.getInstance(project);
+            final XmlProcessingInstruction xmlDeclaration = findXmlDeclaration(xmlProlog);
+            if (xmlDeclaration != null) {
+              // the XML declaration must stay the first item of the file
+              final PsiElement element = xmlProlog.addAfter(instructions.iterator().next(), xmlDeclaration);
+              xmlProlog.addBefore(parserFacade.createWhiteSpaceFromText("\n"), element);
+            }
+            else {
+              final PsiElement element = xmlProlog.addBefore(instructions.iterator().next(), xmlProlog.getFirstChild());
+              xmlProlog.addAfter(parserFacade.createWhiteSpaceFromText("\n\n"), element);
+            }
           }
         }
       }
     });
   }
 
+  private static @Nullable XmlProcessingInstruction findXmlDeclaration(@NotNull XmlProlog prolog) {
+    final XmlProcessingInstruction first = PsiTreeUtil.getChildOfType(prolog, XmlProcessingInstruction.class);
+    if (first == null) return null;
+    final String text = first.getText();
+    if (!text.startsWith("<?xml") || text.length() <= 5) return null;
+    final char next = text.charAt(5);
+    return Character.isWhitespace(next) || next == '?' ? first : null;
+  }
+
   @Override
   public boolean isAvailable(@NotNull Project project, Editor editor, @NotNull PsiElement element) {
-    if (ContainerUtil.isEmpty(getAvailableLanguages(project))) {
-      return false;
-    }
     setText(getFamilyName());
     return element.isValid();
+  }
+
+  @Override
+  public @NotNull IntentionPreviewInfo generatePreview(@NotNull Project project, @NotNull Editor editor, @NotNull PsiFile psiFile) {
+    // the default preview calls invoke(), which shows a popup or a hint
+    return IntentionPreviewInfo.EMPTY;
   }
 
   @Override

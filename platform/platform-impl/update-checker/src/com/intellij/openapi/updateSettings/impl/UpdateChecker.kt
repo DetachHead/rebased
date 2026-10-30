@@ -589,23 +589,10 @@ object UpdateChecker {
 
     val currentBuild = ApplicationInfo.getInstance().build
     val productCode = currentBuild.productCode
-    val checkForUpdateResult = if (forceUpdate) {
-      val node = JDOMUtil.load(updateDataText)
-                   .getChild("product")
-                   ?.getChild("channel")
-                 ?: throw IllegalArgumentException("//channel missing")
-      val channel = UpdateChannel(node, productCode)
-      val newBuild = channel.builds.firstOrNull()
-                     ?: throw IllegalArgumentException("//build missing")
-      val patches = newBuild.patches.firstOrNull()
-        ?.let { UpdateChain(listOf(it.fromBuild, newBuild.number), it.size) }
-
-      PlatformUpdates.Loaded(newBuild, channel, patches)
-    }
-    else {
+    val checkForUpdateResult = if (forceUpdate) testLoadFromXml(updateDataText)
+    else
       UpdateStrategy(currentBuild, product = parseUpdateData(updateDataText, productCode), UpdateSettings.getInstance())
         .checkForUpdates()
-    }
 
     val dialog = when (checkForUpdateResult) {
       is PlatformUpdates.Loaded -> PlatformUpdateDialog.createTestDialog(project, checkForUpdateResult, patchFile)
@@ -613,6 +600,24 @@ object UpdateChecker {
     }
 
     dialog.show()
+  }
+
+  @ApiStatus.Internal
+  fun testLoadFromXml(updatesXml: String): PlatformUpdates.Loaded {
+    require(ApplicationManager.getApplication().isInternal)
+
+    val productCode = ApplicationInfo.getInstance().build.productCode
+    val node = JDOMUtil.load(updatesXml)
+                 .getChild("product")
+                 ?.getChild("channel")
+               ?: throw IllegalArgumentException("//channel missing")
+    val channel = UpdateChannel(node, productCode)
+    val newBuild = channel.builds.firstOrNull()
+                   ?: throw IllegalArgumentException("//build missing")
+    val patches = newBuild.patches.firstOrNull()
+      ?.let { UpdateChain(listOf(it.fromBuild, newBuild.number), it.size) }
+
+    return PlatformUpdates.Loaded(newBuild, channel, patches)
   }
 
   //<editor-fold desc="Deprecated stuff.">
@@ -744,7 +749,16 @@ private suspend fun doUpdateAndShowResult(
     return null
   }
 
-  val apiVersion = (platformUpdates as? PlatformUpdates.Loaded)?.newBuild?.apiVersion
+  // The check has completed and there is no platform update.
+  // Custom settings are a probe with another channel, and its answer is not about the real state
+  if (platformUpdates !is PlatformUpdates.Loaded && customSettings == null) {
+    UpdateSettingsEntryPointActionProvider.clearPlatformUpdateInfo()
+  }
+
+  // "Remind Me Later" mutes the IDE announcement
+  val announcedUpdate = if (userInitiated || !IdeUpdateWidgetState.isRemindLaterActive()) platformUpdates as? PlatformUpdates.Loaded
+                        else null
+  val apiVersion = announcedUpdate?.newBuild?.apiVersion
   val updatesModel = PluginUpdateHandler.getInstance().loadAndStorePluginUpdates(apiVersion?.asString(), indicator = indicator)
   val updatesForPlugins = updatesModel.pluginUpdates
   val incompatiblePluginNames = updatesModel.incompatiblePluginNames
@@ -783,7 +797,7 @@ private suspend fun doUpdateAndShowResult(
 
   // TODO revise this
   val pluginAutoUpdateService = service<PluginAutoUpdateService>()
-  if (platformUpdates !is PlatformUpdates.Loaded) {
+  if (announcedUpdate == null) {
     pluginAutoUpdateService.onPluginUpdatesChecked(notIgnoredDownloaders)
   }
   else {
@@ -794,11 +808,11 @@ private suspend fun doUpdateAndShowResult(
   }
 
   if (!showResults) {
-    if (platformUpdates is PlatformUpdates.Loaded) {
-      UpdateSettingsEntryPointActionProvider.newPlatformUpdate(platformUpdates, notIgnoredDownloaders, incompatiblePluginNames)
+    if (announcedUpdate != null) {
+      UpdateSettingsEntryPointActionProvider.newPlatformUpdate(announcedUpdate, updatesForPlugins, incompatiblePluginNames, notIgnoredDownloaders)
     }
     else {
-      UpdateSettingsEntryPointActionProvider.newPluginUpdates(notIgnoredDownloaders, customRepoPlugins)
+      UpdateSettingsEntryPointActionProvider.newPluginUpdates(updatesForPlugins, customRepoPlugins)
     }
     callback?.setDone()
     return null
@@ -806,10 +820,10 @@ private suspend fun doUpdateAndShowResult(
   return {
     val forceDialog = preferDialog || userInitiated && !notificationsEnabled()
 
-    if (platformUpdates is PlatformUpdates.Loaded) {
+    if (announcedUpdate != null) {
       showResults(
         project = project,
-        platformUpdates = platformUpdates,
+        platformUpdates = announcedUpdate,
         updatesForPlugins = notIgnoredDownloaders,
         incompatiblePluginNames = incompatiblePluginNames,
         showNotification = userInitiated || WelcomeFrame.getInstance() != null,
@@ -820,7 +834,6 @@ private suspend fun doUpdateAndShowResult(
     else {
       showResults(
         project = project,
-        sessionId = updatesModel.sessionId,
         downloaders = notIgnoredDownloaders,
         pluginUpdates = updatesForPlugins,
         customRepoPlugins = customRepoPlugins,
@@ -846,7 +859,6 @@ private fun showErrors(project: Project?, @NlsContexts.DialogMessage message: St
 @RequiresEdt
 private suspend fun showResults(
   project: Project?,
-  sessionId: String,
   downloaders: List<PluginDownloader>,
   pluginUpdates: List<PluginUiModel>,
   customRepoPlugins: Collection<PluginUiModel>,
@@ -869,7 +881,7 @@ private suspend fun showResults(
       if (dialog.showAndGet()) {
         val selectedPlugins = dialog.getSelectedPluginModels()
         service<CoreUiCoroutineScopeHolder>().coroutineScope.launch(Dispatchers.IO) {
-          PluginUpdateHandler.getInstance().installUpdates(sessionId, selectedPlugins, dialog.contentPanel, dialog.finishCallback)
+          PluginUpdateHandler.getInstance().installUpdates(selectedPlugins, dialog.contentPanel, dialog.finishCallback)
         }
       }
     }
@@ -878,11 +890,11 @@ private suspend fun showResults(
       showUpdateDialog()
     }
     else {
-      UpdateSettingsEntryPointActionProvider.newPluginUpdates(downloaders, customRepoPlugins)
+      UpdateSettingsEntryPointActionProvider.newPluginUpdates(pluginUpdates, customRepoPlugins)
 
       if (userInitiated) {
         // offer to update only enabled plugins
-        showUpdatePluginsNotification(sessionId, pluginUpdates, project, showUpdateDialog)
+        showUpdatePluginsNotification(pluginUpdates, project, showUpdateDialog)
       }
     }
   }
@@ -923,7 +935,6 @@ private suspend fun showResults(
 }
 
 private fun showUpdatePluginsNotification(
-  sessionId: String,
   updatesForPlugins: List<PluginUiModel>,
   project: Project?,
   showUpdateDialog: () -> Unit,
@@ -947,13 +958,13 @@ private fun showUpdatePluginsNotification(
           updatesForPlugins.forEach {
             PluginUpdateSourceService.getInstance().setPluginUpdateSourceId(it)
           }
-          PluginUpdateHandler.getInstance().installUpdates(sessionId, updatesForPlugins, component, null)
+          PluginUpdateHandler.getInstance().installUpdates(updatesForPlugins, component, null)
         }
       },
       NotificationAction.createSimpleExpiring(IdeBundle.message("updates.plugins.dialog.action"), showUpdateDialog),
       NotificationAction.createSimpleExpiring(IdeBundle.message("updates.ignore.updates.link", updatesForPlugins.size)) {
         coroutineScope.launch {
-          PluginUpdateHandler.getInstance().ignorePluginUpdates(sessionId)
+          PluginUpdateHandler.getInstance().ignorePluginUpdates()
         }
       },
     ),
@@ -988,9 +999,10 @@ private fun showResults(
     showUpdateDialog()
   }
   else {
-    UpdateSettingsEntryPointActionProvider.newPlatformUpdate(platformUpdates, updatesForPlugins, incompatiblePluginNames)
+    UpdateSettingsEntryPointActionProvider.newPlatformUpdate(platformUpdates, updatesForPlugins.map { it.uiModel }, incompatiblePluginNames, updatesForPlugins)
 
-    if (showNotification) {
+    // Disable notification when IdeUpdateWidgetState
+    if (showNotification && !IdeUpdateWidgetState.isWidgetShown()) {
       IdeUpdateUsageTriggerCollector.NOTIFICATION_SHOWN.log(project)
       val message = IdeBundle.message(
         "updates.new.build.notification.title",

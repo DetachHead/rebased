@@ -7,10 +7,17 @@ import com.intellij.remote.RemoteSdkPropertiesPaths
 import com.jetbrains.python.sdk.PySdkUtil
 import com.jetbrains.python.sdk.flavors.PyFlavorData
 import com.jetbrains.python.sdk.legacy.PythonSdkUtil
+import com.jetbrains.python.venvReader.VirtualEnvReader
 import org.jetbrains.annotations.ApiStatus
 import java.nio.file.Path
 
-// TODO PY-87712 Move to a separate storage
+/**
+ * TODO PY-91452 Should drop as a whole
+ * uvWorkingDirectory - workingDirectory in PythonSdkAdditionalData
+ * usePip - can be deduced based on requirementsFile in PythonSdkAdditionalData
+ * venvPath - sdkHome
+ * uvPath - stored as a setting for local EELs, for targets we can use detection only
+ */
 @ApiStatus.Internal
 data class UvSdkFlavorData(
   val uvWorkingDirectory: Path?,
@@ -25,7 +32,8 @@ data class UvSdkFlavorData(
       throw IllegalArgumentException("Sdk ${sdk} doesn't have interpreter path set")
     }
     targetCommandLineBuilder.setExePath(interpreterPath)
-    targetCommandLineBuilder.addEnvironmentVariable("UV_PROJECT_ENVIRONMENT", venvPath)
+    val envPath = VirtualEnvReader().resolvePythonHomeFromBinaryOrDir(interpreterPath, targetCommandLineBuilder.request.targetPlatform.platform)
+    targetCommandLineBuilder.addEnvironmentVariable("UV_PROJECT_ENVIRONMENT", envPath)
     if (!PythonSdkUtil.isRemote(sdk)) {
       PySdkUtil.activateVirtualEnv(sdk)
     }

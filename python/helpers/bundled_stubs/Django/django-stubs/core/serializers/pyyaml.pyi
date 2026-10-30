@@ -5,16 +5,16 @@ from django.core.serializers.python import Serializer as PythonSerializer
 from django.db.models.fields import Field
 from typing_extensions import override
 from yaml import CSafeDumper as SafeDumper
-from yaml import MappingNode, ScalarNode
+from yaml import ScalarNode
 
 class DjangoSafeDumper(SafeDumper):
     def represent_decimal(self, data: Any) -> ScalarNode: ...
-    def represent_ordered_dict(self, data: Any) -> MappingNode: ...
+    def represent_time(self, data: Any) -> ScalarNode: ...
 
 class Serializer(PythonSerializer):
     internal_use_only: bool
     @override
-    def handle_field(self, obj: Any, field: Field) -> None: ...
+    def handle_field(self, obj: Any, field: Field[Any, Any]) -> None: ...
     @override
     def end_serialization(self) -> None: ...
     @override

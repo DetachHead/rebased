@@ -16,8 +16,12 @@ import com.intellij.workspaceModel.core.fileIndex.WorkspaceFileIndex.Companion.g
 import com.intellij.workspaceModel.core.fileIndex.WorkspaceFileSetWithCustomData
 import com.intellij.workspaceModel.core.fileIndex.impl.ModuleRelatedRootData
 import com.intellij.workspaceModel.core.fileIndex.impl.WorkspaceFileIndexEx
+import org.jetbrains.annotations.ApiStatus
+import org.jetbrains.annotations.VisibleForTesting
 
-internal class ModuleFilesIteratorImpl(
+@ApiStatus.Internal
+@VisibleForTesting
+class ModuleFilesIteratorImpl(
   private val module: Module,
   private val root: VirtualFile,
   private val recursive: Boolean,
@@ -61,7 +65,8 @@ internal class ModuleFilesIteratorImpl(
     val myWorkspaceFileIndex = getInstance(project) as WorkspaceFileIndexEx
 
     return if (recursive) {
-      iterateContentUnderDirectory(root, processorEx, fileFilter, myWorkspaceFileIndex)
+      val fileSetFilter: (WorkspaceFileSetWithCustomData<*>) -> Boolean = { fileSet -> !isScopeDisposed() && isInContent(fileSet) }
+      myWorkspaceFileIndex.processIndexableContentUnderDirectory(root, processorEx, fileFilter, fileSetFilter)
     }
     else {
       fileFilter.accept(root) && processorEx.processFileEx(root) != TreeNodeProcessingResult.STOP

@@ -45,7 +45,7 @@ object PyNames {
     const val ENUM_MEMBER: String = "enum.member"
     const val ENUM_NONMEMBER: String = "enum.nonmember"
     const val NONE_TYPE: String = "_typeshed.NoneType"
-    val NONES: List<String> = listOf("_typeshed.NoneType", NONE_TYPE)
+    val NONES: List<String> = listOf("types.NoneType", NONE_TYPE)
     const val FUNCTION_TYPE: String = "types.FunctionType"
     const val COROUTINE_TYPE: String = "types.CoroutineType"
     const val METHOD_TYPE: String = "types.UnboundMethodType"
@@ -815,9 +815,11 @@ object PyNames {
   fun isPrivate(name: @NonNls String): Boolean =
     ProtectionLevel.forName(name) == ProtectionLevel.PRIVATE
 
+  @JvmStatic
   fun isSunder(name: @NonNls String): Boolean =
     name.length > 2 && name.startsWith("_") && name.endsWith("_") && name[1] != '_' && name[name.length - 2] != '_'
 
+  @JvmStatic
   fun isDunder(name: @NonNls String): Boolean =
     name.length > 4 && name.startsWith("__") && name.endsWith("__") && name[2] != '_' && name[name.length - 3] != '_'
 

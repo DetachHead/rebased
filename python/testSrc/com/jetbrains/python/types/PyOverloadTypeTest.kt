@@ -2,11 +2,9 @@
 package com.jetbrains.python.types
 
 import com.intellij.idea.TestFor
-import com.intellij.testFramework.TestLoggerFactory
 import com.intellij.testFramework.TestLoggerFactory.TestLoggerAssertionError
 import com.jetbrains.python.fixtures.PyCodeInsightTestCase
 import com.jetbrains.python.psi.LanguageLevel
-import org.junit.jupiter.api.Disabled
 import org.junit.jupiter.api.Nested
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
@@ -161,7 +159,7 @@ class PyOverloadTypeTest : PyCodeInsightTestCase() {
           def foo(self, value):
               return None
       expr = A().foo(object()) # WARNING No overload of 'foo' matches the arguments. Argument types: (object). Expected one of: (value: int), (value: str)
-      #└ TYPE Union[int, str]
+      #└ TYPE UnsafeUnion[int, str]
       """,
     )
 
@@ -180,7 +178,7 @@ class PyOverloadTypeTest : PyCodeInsightTestCase() {
       def foo(value):
           return None
       expr = foo(object()) # WARNING No overload of 'foo' matches the arguments. Argument types: (object). Expected one of: (value: int), (value: str)
-      #└ TYPE Union[int, str]
+      #└ TYPE UnsafeUnion[int, str]
       """,
     )
 
@@ -191,7 +189,7 @@ class PyOverloadTypeTest : PyCodeInsightTestCase() {
       """
       from b import A
       expr = A().foo(object()) # WARNING No overload of 'foo' matches the arguments. Argument types: (object). Expected one of: (value: int), (value: str)
-      #└ TYPE Union[int, str]
+      #└ TYPE UnsafeUnion[int, str]
       """,
       "b.py" to OVERLOAD_CLASS_MODULE,
     )
@@ -203,7 +201,7 @@ class PyOverloadTypeTest : PyCodeInsightTestCase() {
       """
       from b import foo
       expr = foo(object()) # WARNING No overload of 'foo' matches the arguments. Argument types: (object). Expected one of: (value: int), (value: str)
-      # └ TYPE Union[int, str]
+      # └ TYPE UnsafeUnion[int, str]
       """,
       "b.py" to OVERLOAD_TOPLEVEL_MODULE,
     )
@@ -992,4 +990,81 @@ class PyOverloadTypeTest : PyCodeInsightTestCase() {
       f = a.f
       """,
   )
+
+  @Test
+  @TestFor(issues=["PY-90419"])
+  fun `Any in overload becomes an unsafe union`() = test("""
+    from typing import overload, Any
+
+
+    @overload
+    def f(a: int) -> int: ...
+    @overload
+    def f(a: str) -> str: ...
+    def f(a): ...
+
+    def main(a: Any):
+        x = f(a)
+        x.as_integer_ratio()
+    #   └ TYPE UnsafeUnion[int, str]
+    """.trimIndent())
+
+  @Test
+  @TestFor(issues = ["PY-84657"])
+  fun `class overloaded function assigned to global function`() = test(
+    """
+    from mod import a, f
+
+    result1 = a.f(1)
+    # └ TYPE str
+    result2 = f(1)
+    # └ TYPE str
+    """,
+    "mod.py" to """
+    from typing import overload
+    
+    
+    class A:
+       @overload
+       def f(self) -> float:
+           pass
+    
+       @overload
+       def f(self, *args: int) -> str:
+           pass
+    
+    
+    a: A
+    f = a.f
+    """)
+
+  @Test
+  @TestFor(issues=["PY-90419"])
+  fun `combining CFG-induced unions and unsafe unions for ambiguous overloads`() = test("""
+    from typing import overload, Any
+
+    class A:
+        @overload
+        def f(self, a: int) -> int: ...
+        @overload
+        def f(self, a: str) -> str: ...
+        def f(self, a): ...
+        
+    class B:
+        @overload
+        def f(self, a: int) -> bool: ...
+        @overload
+        def f(self, a: str) -> str: ...
+        def f(self, a): ...
+
+    def main(cond: bool, a: Any):
+        if cond:
+            obj = A()
+        else:
+            obj = B()
+        x = obj.f(a)
+        x.as_integer_ratio()
+    #   └ TYPE UnsafeUnion[int, str] | UnsafeUnion[bool, str]
+    """.trimIndent())
+
 }

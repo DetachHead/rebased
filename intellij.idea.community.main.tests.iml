@@ -28,6 +28,7 @@
     <orderEntry type="module" module-name="intellij.platform.runtime.repository.tests" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.runtime.product.tests" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.util.progress.tests" scope="TEST" />
+    <orderEntry type="module" module-name="intellij.platform.util.nanoxml.tests" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.testFramework.junit5.jimfs" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.indexing.tests" scope="TEST" />
     <orderEntry type="module" module-name="intellij.textmate.tests" scope="TEST" />
@@ -67,6 +68,7 @@
     <orderEntry type="module" module-name="intellij.platform.jewel.ideLafBridge.tests" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.jewel.markdown.core.tests" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.jewel.markdown.extensions.autolink.tests" scope="TEST" />
+    <orderEntry type="module" module-name="intellij.platform.jewel.markdown.extensions.frontMatter.tests" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.jewel.markdown.extensions.gfmAlerts.tests" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.jewel.markdown.extensions.gfmTables.tests" scope="TEST" />
     <orderEntry type="module" module-name="intellij.platform.jewel.markdown.extensions.images.tests" scope="TEST" />

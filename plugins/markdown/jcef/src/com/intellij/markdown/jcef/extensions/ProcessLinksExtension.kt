@@ -2,15 +2,21 @@
 package com.intellij.markdown.jcef.extensions
 
 import com.intellij.ide.BrowserUtil
+import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.diagnostic.debug
 import com.intellij.openapi.diagnostic.getOrLogException
 import com.intellij.openapi.diagnostic.thisLogger
+import com.intellij.openapi.ui.MessageDialogBuilder
+import com.intellij.openapi.ui.Messages
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.util.registry.Registry
+import org.intellij.plugins.markdown.MarkdownBundle
 import org.intellij.plugins.markdown.extensions.MarkdownBrowserPreviewExtension
 import org.intellij.plugins.markdown.extensions.MarkdownBrowserPreviewExtension.Provider.Companion.OPEN_LINK_EVENT_NAME
 import org.intellij.plugins.markdown.ui.preview.BrowserPipe
 import org.intellij.plugins.markdown.ui.preview.MarkdownHtmlPanel
 import org.intellij.plugins.markdown.ui.preview.MarkdownHtmlPanelEx
+import org.intellij.plugins.markdown.ui.preview.PreviewClickConfirmation
 import org.intellij.plugins.markdown.ui.preview.ResourceProvider
 import org.intellij.plugins.markdown.ui.preview.accessor.MarkdownLinkOpener
 import org.intellij.plugins.markdown.ui.preview.accessor.MarkdownSourceLinkNavigator
@@ -29,23 +35,61 @@ internal class ProcessLinksExtension(private val panel: MarkdownHtmlPanel) : Mar
     }
   }
 
-  private fun openLink(panel: MarkdownHtmlPanel, link: String): Boolean {
+  private fun openLink(panel: MarkdownHtmlPanel, data: String): Boolean {
     if (!Registry.`is`("markdown.open.link.in.external.browser")) return true
-    if (MarkdownSourceLinkNavigator.navigate(panel.project, link, panel.virtualFile)) return true
+    val parsed = PreviewClickConfirmation.parseFlagPrefixed(data)
+    if (parsed == null) {
+      thisLogger().debug { "Markdown preview: dropped an openLink message in an unknown shape: <$data>" }
+      return true
+    }
+    val (needsConfirmation, link) = parsed
+    // http, https and `source://` all skip the confirmation MarkdownLinkOpener would otherwise show,
+    // so a link stretched invisibly over the preview has no other place left to be caught.
+    if (!needsConfirmation) {
+      return followLink(panel, link)
+    }
+    thisLogger().debug { "Markdown preview: asking before following $link, the click did not look genuine" }
+    ApplicationManager.getApplication().invokeLater {
+      if (confirmFollowLink(panel, link)) {
+        followLink(panel, link)
+      }
+    }
+    return false
+  }
 
+  private fun followLink(panel: MarkdownHtmlPanel, link: String): Boolean {
+    if (MarkdownSourceLinkNavigator.navigate(panel.project, link, panel.virtualFile)) {
+      return true
+    }
+    openExternalLink(panel, link)
+    return false
+  }
+
+  private fun confirmFollowLink(panel: MarkdownHtmlPanel, link: String): Boolean {
+    return MessageDialogBuilder
+      .yesNo(
+        MarkdownBundle.message("markdown.preview.follow.link.confirm.title"),
+        MarkdownBundle.message("markdown.preview.follow.link.confirm.message", link)
+      )
+      .icon(Messages.getWarningIcon())
+      .yesText(MarkdownBundle.message("markdown.preview.follow.link.confirm.follow"))
+      .noText(Messages.getCancelButton())
+      .ask(panel.project)
+  }
+
+  private fun openExternalLink(panel: MarkdownHtmlPanel, link: String) {
     if (panel is MarkdownHtmlPanelEx) {
       if (panel.getUserData(MarkdownHtmlPanelEx.DO_NOT_USE_LINK_OPENER) == true) {
         runCatching {
           BrowserUtil.browse(link)
         }.getOrLogException(thisLogger())
-        return false
+        return
       }
     }
     if (Registry.`is`("markdown.open.link.fallback"))
       MarkdownLinkOpener.getInstance().openLink(panel.project, link)
     else
       MarkdownLinkOpener.getInstance().openLink(panel.project, link, panel.virtualFile)
-    return false
   }
 
   override val scripts: List<String> = listOf("processLinks/processLinks.js")

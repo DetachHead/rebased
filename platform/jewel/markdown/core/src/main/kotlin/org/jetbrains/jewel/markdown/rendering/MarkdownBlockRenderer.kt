@@ -1,15 +1,12 @@
 package org.jetbrains.jewel.markdown.rendering
 
+import androidx.compose.foundation.text.InlineTextContent
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextLayoutResult
-import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.TextUnit
 import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.jewel.foundation.ExperimentalJewelApi
-import org.jetbrains.jewel.foundation.theme.LocalContentColor
 import org.jetbrains.jewel.markdown.MarkdownBlock
 import org.jetbrains.jewel.markdown.MarkdownBlock.BlockQuote
 import org.jetbrains.jewel.markdown.MarkdownBlock.CodeBlock
@@ -23,20 +20,18 @@ import org.jetbrains.jewel.markdown.MarkdownBlock.ListItem
 import org.jetbrains.jewel.markdown.MarkdownBlock.Paragraph
 import org.jetbrains.jewel.markdown.extensions.MarkdownRendererExtension
 
-/**
- * Renders one or more [MarkdownBlock]s into a Compose UI.
- *
- * @param rootStyling The [MarkdownStyling] to use to render the Markdown into composables.
- * @param rendererExtensions The [MarkdownRendererExtension]s used to render [MarkdownBlock.CustomBlock]s.
- * @param inlineRenderer The [InlineMarkdownRenderer] used to render
- *   [inline content][org.jetbrains.jewel.markdown.InlineMarkdown].
- */
+/** Renders one or more [MarkdownBlock]s into a Compose UI. */
 @Suppress("ComposableNaming")
 @ApiStatus.Experimental
 @ExperimentalJewelApi
 public interface MarkdownBlockRenderer {
+    /** The [MarkdownStyling] used to style the rendered Markdown composables. */
     public val rootStyling: MarkdownStyling
+
+    /** The list of [MarkdownRendererExtension]s used to render custom blocks. */
     public val rendererExtensions: List<MarkdownRendererExtension>
+
+    /** The [InlineMarkdownRenderer] used to render inline Markdown content. */
     public val inlineRenderer: InlineMarkdownRenderer
 
     /**
@@ -159,25 +154,16 @@ public interface MarkdownBlockRenderer {
      * @param styling The [`Paragraph`][MarkdownStyling.Paragraph] styling to use to render.
      * @param enabled True if the block should be enabled, false otherwise.
      * @param onUrlClick The callback invoked when the user clicks on a URL.
-     * @param modifier The modifier to be applied to the composable.
-     * @param color [Color] to apply to the text. If [Color.Unspecified], and [style] has no color set, this will be
-     *   [LocalContentColor].
-     * @param fontSize The size of glyphs to use when painting the text. See [TextStyle.fontSize].
-     * @param fontStyle The typeface variant to use when drawing the letters (e.g., italic). See [TextStyle.fontStyle].
-     * @param fontWeight The typeface thickness to use when painting the text (e.g., [FontWeight.Bold]).
-     * @param fontFamily The font family to be used when rendering the text. See [TextStyle.fontFamily].
-     * @param letterSpacing The amount of space to add between each letter. See [TextStyle.letterSpacing].
-     * @param textDecoration The decorations to paint on the text (e.g., an underline). See [TextStyle.textDecoration].
-     * @param textAlign The alignment of the text within the lines of the paragraph. See [TextStyle.textAlign].
-     * @param lineHeight Line height for the paragraph in [TextUnit] unit, e.g., SP or EM. See [TextStyle.lineHeight].
-     * @param overflow How visual overflow should be handled.
-     * @param softWrap Whether the text should break at soft line breaks. If false, the glyphs in the text will be
-     *   positioned as if there was unlimited horizontal space. If [softWrap] is false, [overflow] and [textAlign] may
-     *   have unexpected effects.
      * @param onTextLayout Callback that is executed when a new text layout is calculated. A [TextLayoutResult] object
      *   that callback provides contains paragraph information, size of the text, baselines and other details. The
      *   callback can be used to add additional decoration or functionality to the text. For example, to draw selection
      *   around the text.
+     * @param modifier The modifier to be applied to the composable.
+     * @param overflow How visual overflow should be handled.
+     * @param softWrap Whether the text should break at soft line breaks. If false, the glyphs in the text will be
+     *   positioned as if there was unlimited horizontal space. If [softWrap] is false, [overflow] and [textAlign] may
+     *   have unexpected effects.
+     * @param maxLines The maximum number of lines to display.
      */
     @Composable
     public fun RenderParagraph(
@@ -615,7 +601,7 @@ public interface MarkdownBlockRenderer {
 
     /**
      * Renders a [HtmlBlock] into a Compose UI. Since Compose can't render HTML out of the box, this might result in a
-     * no-op (e.g., in [DefaultMarkdownBlockRenderer.render]).
+     * no-op (e.g., in [DefaultMarkdownBlockRenderer.RenderBlocks]).
      *
      * @param block The HTML block to render.
      * @param styling The [`HtmlBlock`][MarkdownStyling.HtmlBlock] styling to use to render.
@@ -644,6 +630,38 @@ public interface MarkdownBlockRenderer {
         enabled: Boolean,
         modifier: Modifier,
     )
+
+    /**
+     * Renders a [MarkdownBlock.HtmlBlockWithAttributes] into a Compose UI. Raw HTML blocks may be exposed as
+     * [MarkdownBlock.HtmlBlockWithAttributes] wrapping a paragraph with raw HTML inline content. Supported parsed HTML
+     * is converted into Markdown blocks and wrapped with attributes when applicable.
+     *
+     * @param block The HTML block to render.
+     * @param enabled True if the block should be enabled, false otherwise.
+     * @param onUrlClick The callback invoked when a link is clicked.
+     * @param modifier The modifier to be applied to the composable.
+     */
+    @Composable
+    public fun RenderHtmlBlockWithAttributes(
+        block: MarkdownBlock.HtmlBlockWithAttributes,
+        enabled: Boolean,
+        onUrlClick: (String) -> Unit,
+        modifier: Modifier = Modifier,
+    ) {
+        // No-op by default
+    }
+
+    /**
+     * Renders a paragraph containing only images into a Compose UI. This is delegated to from [RenderParagraph] when it
+     * only contains images, and uses a more efficient path than inline images in a text run.
+     *
+     * @param images The images to render.
+     * @param modifier The modifier to be applied to the composable.
+     */
+    @Composable
+    public fun RenderImagesOnlyParagraph(images: Map<String, InlineTextContent>, modifier: Modifier = Modifier) {
+        // No-op by default
+    }
 
     /**
      * Creates a copy of this instance, using the provided non-null parameters, or the current values for the null ones.

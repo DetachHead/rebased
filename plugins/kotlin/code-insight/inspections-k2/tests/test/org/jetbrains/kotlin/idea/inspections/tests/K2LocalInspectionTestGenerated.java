@@ -16307,6 +16307,11 @@ public abstract class K2LocalInspectionTestGenerated extends AbstractK2LocalInsp
                     runTest("testData/inspectionsLocal/coroutines/ambiguousCoroutineScope/functionExtensionReceiver_suspendWrapper_suspendFunInterface.kt");
                 }
 
+                @TestMetadata("functionExtensionReceiver_suspendWrapper_suspendFunInterfaceJava.kt")
+                public void testFunctionExtensionReceiver_suspendWrapper_suspendFunInterfaceJava() throws Exception {
+                    runTest("testData/inspectionsLocal/coroutines/ambiguousCoroutineScope/functionExtensionReceiver_suspendWrapper_suspendFunInterfaceJava.kt");
+                }
+
                 @TestMetadata("functionExtensionReceiver_suspendWrapper_suspendFunInterface_explicitSamConstructor.kt")
                 public void testFunctionExtensionReceiver_suspendWrapper_suspendFunInterface_explicitSamConstructor() throws Exception {
                     runTest("testData/inspectionsLocal/coroutines/ambiguousCoroutineScope/functionExtensionReceiver_suspendWrapper_suspendFunInterface_explicitSamConstructor.kt");
@@ -16345,6 +16350,11 @@ public abstract class K2LocalInspectionTestGenerated extends AbstractK2LocalInsp
                 @TestMetadata("lambdaExtensionReceiver_withLabel_suspendWrapper.kt")
                 public void testLambdaExtensionReceiver_withLabel_suspendWrapper() throws Exception {
                     runTest("testData/inspectionsLocal/coroutines/ambiguousCoroutineScope/lambdaExtensionReceiver_withLabel_suspendWrapper.kt");
+                }
+
+                @TestMetadata("selectBuilderProperty.kt")
+                public void testSelectBuilderProperty() throws Exception {
+                    runTest("testData/inspectionsLocal/coroutines/ambiguousCoroutineScope/selectBuilderProperty.kt");
                 }
 
                 @TestMetadata("selectExpression.kt")

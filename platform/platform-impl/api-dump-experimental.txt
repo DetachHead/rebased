@@ -4,6 +4,9 @@
 - a:addDecorations(java.util.Collection):V
 - a:getHoveredHyperlink():com.intellij.execution.impl.HyperlinkDecoration
 - a:removeDecorations(java.util.Collection):V
+*:com.intellij.execution.impl.EditorTextDecorationApplierBuilder
+- a:getConsumeOnlyOnCtrlClick():Z
+- a:setConsumeOnlyOnCtrlClick(Z):V
 *f:com.intellij.execution.impl.EditorTextDecorationApplierKt
 - *sf:buildHighlighting(com.intellij.execution.impl.EditorTextDecorationId,I,I,com.intellij.openapi.editor.markup.TextAttributes,kotlin.jvm.functions.Function1):com.intellij.execution.impl.HighlightingDecoration
 - *bs:buildHighlighting$default(com.intellij.execution.impl.EditorTextDecorationId,I,I,com.intellij.openapi.editor.markup.TextAttributes,kotlin.jvm.functions.Function1,I,java.lang.Object):com.intellij.execution.impl.HighlightingDecoration
@@ -11,7 +14,8 @@
 - *bs:buildHyperlink$default(com.intellij.execution.impl.EditorTextDecorationId,I,I,kotlin.jvm.functions.Function1,kotlin.jvm.functions.Function1,I,java.lang.Object):com.intellij.execution.impl.HyperlinkDecoration
 - *sf:buildInlay(com.intellij.execution.impl.EditorTextDecorationId,I,com.intellij.execution.impl.InlayProvider,kotlin.jvm.functions.Function1):com.intellij.execution.impl.InlayDecoration
 - *bs:buildInlay$default(com.intellij.execution.impl.EditorTextDecorationId,I,com.intellij.execution.impl.InlayProvider,kotlin.jvm.functions.Function1,I,java.lang.Object):com.intellij.execution.impl.InlayDecoration
-- *sf:createEditorTextDecorationApplier(com.intellij.openapi.editor.ex.EditorEx,com.intellij.openapi.Disposable):com.intellij.execution.impl.EditorTextDecorationApplier
+- *sf:createEditorTextDecorationApplier(com.intellij.openapi.editor.ex.EditorEx,com.intellij.openapi.Disposable,kotlin.jvm.functions.Function1):com.intellij.execution.impl.EditorTextDecorationApplier
+- *bs:createEditorTextDecorationApplier$default(com.intellij.openapi.editor.ex.EditorEx,com.intellij.openapi.Disposable,kotlin.jvm.functions.Function1,I,java.lang.Object):com.intellij.execution.impl.EditorTextDecorationApplier
 - *sf:createTextDecorationId(J):com.intellij.execution.impl.EditorTextDecorationId
 *:com.intellij.execution.impl.EditorTextDecorationId
 - java.lang.Comparable
@@ -370,6 +374,29 @@ c:com.intellij.openapi.options.ex.ConfigurableWrapper
 - a:openInChildProcess(java.nio.file.Path,kotlin.coroutines.Continuation):java.lang.Object
 f:com.intellij.openapi.project.impl.P3SupportKt
 - *sf:processPerProjectSupport():com.intellij.openapi.project.impl.P3Support
+*f:com.intellij.openapi.updateSettings.AccessPluginClassLoadersRequest
+- com.intellij.ide.plugins.PluginPermissionRequest
+- <init>(java.lang.String):V
+- f:getMessage():java.lang.String
+*f:com.intellij.openapi.updateSettings.DisablePluginRequest
+- com.intellij.ide.plugins.PluginPermissionRequest
+- <init>(com.intellij.openapi.extensions.PluginId,java.lang.String):V
+- f:getMessage():java.lang.String
+- f:getPluginId():com.intellij.openapi.extensions.PluginId
+*f:com.intellij.openapi.updateSettings.EnablePluginRequest
+- com.intellij.ide.plugins.PluginPermissionRequest
+- <init>(com.intellij.openapi.extensions.PluginId,java.lang.String):V
+- f:getMessage():java.lang.String
+- f:getPluginId():com.intellij.openapi.extensions.PluginId
+*f:com.intellij.openapi.updateSettings.InstallPluginRequest
+- com.intellij.ide.plugins.PluginPermissionRequest
+- <init>(com.intellij.openapi.extensions.PluginId,java.lang.String):V
+- f:getMessage():java.lang.String
+- f:getPluginId():com.intellij.openapi.extensions.PluginId
+*:com.intellij.openapi.updateSettings.PluginManagementAction
+- a:apply():V
+*:com.intellij.openapi.updateSettings.ReadPluginDescriptorsAction
+- a:getPluginDescriptors():java.util.List
 *f:com.intellij.openapi.util.io.CancellableComputation
 - java.util.function.Function
 - *sf:Companion:com.intellij.openapi.util.io.CancellableComputation$Companion

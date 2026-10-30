@@ -44,9 +44,10 @@ internal fun createXBreakpointProxy(
   dto: XBreakpointDto,
   type: XBreakpointTypeProxy,
   manager: FrontendXBreakpointManager,
+  creationTrigger: XBreakpointCreationTrigger,
 ): FrontendXBreakpointProxy {
   return if (type is XLineBreakpointTypeProxy) {
-    FrontendXLineBreakpointProxy(project, parentCs, dto, type, manager)
+    FrontendXLineBreakpointProxy(project, parentCs, dto, type, manager, creationTrigger)
   }
   else {
     FrontendXBreakpointProxy(project, parentCs, dto, type, manager.breakpointRequestCounter)
@@ -63,7 +64,7 @@ internal open class FrontendXBreakpointProxy(
   override val id: XBreakpointId = dto.id
 
   protected val cs = parentCs.childScope("FrontendXBreakpointProxy#$id")
-  private val sequentialExecutor = SequentialRpcRequestsExecutor.create(cs)
+  protected val sequentialExecutor = SequentialRpcRequestsExecutor.create(cs)
 
   /**
    * Updates should be performed only via [updateStateIfNeeded].

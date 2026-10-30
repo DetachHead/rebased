@@ -31,6 +31,10 @@ internal class TerminalMouseEventsHandlerImpl(
   private var lastMotionReport: Point? = null
 
   override fun mousePressed(x: Int, y: Int, event: MouseEvent) {
+    // Some other handler may already consume this event, for example, hyperlinks logic.
+    // Do not send a mouse report to the process in this case.
+    if (event.isConsumed) return
+
     if (shouldSendMouseData(MouseMode.MOUSE_REPORTING_NORMAL, MouseMode.MOUSE_REPORTING_BUTTON_MOTION)) {
       var code = createButtonCode(event)
       if (code != MouseButtonCodes.NONE) {
@@ -42,11 +46,24 @@ internal class TerminalMouseEventsHandlerImpl(
         }
         code = applyModifierKeys(event, code)
         terminalInput.sendBytes(mouseReport(code, x + 1, y + 1))
+
+        // Editor selection can be active at this moment only if the user holds Shift.
+        // Support the case of removing the selection here, because editor logic won't be able to do it
+        // (we consume the event).
+        editor.selectionModel.removeSelection(true)
+
+        // Consume the mouse event to avoid double processing:
+        // by the terminal process and the editor logic (for example, text selection).
+        event.consume()
       }
     }
   }
 
   override fun mouseReleased(x: Int, y: Int, event: MouseEvent) {
+    // Some other handler may already consume this event, for example, hyperlinks logic.
+    // Do not send a mouse report to the process in this case.
+    if (event.isConsumed) return
+
     if (shouldSendMouseData(MouseMode.MOUSE_REPORTING_NORMAL, MouseMode.MOUSE_REPORTING_BUTTON_MOTION)) {
       var code = createButtonCode(event)
       if (code != MouseButtonCodes.NONE) {
@@ -60,12 +77,20 @@ internal class TerminalMouseEventsHandlerImpl(
         }
         code = applyModifierKeys(event, code)
         terminalInput.sendBytes(mouseReport(code, x + 1, y + 1))
+
+        // Consume the mouse event to avoid double processing:
+        // by the terminal process and the editor logic (for example, text selection).
+        event.consume()
       }
     }
     lastMotionReport = null
   }
 
   override fun mouseMoved(x: Int, y: Int, event: MouseEvent) {
+    // Some other handler may already consume this event, for example, hyperlinks logic.
+    // Do not send a mouse report to the process in this case.
+    if (event.isConsumed) return
+
     if (lastMotionReport == Point(x, y)) {
       return
     }
@@ -73,11 +98,19 @@ internal class TerminalMouseEventsHandlerImpl(
       terminalInput.sendBytes(
         mouseReport(MouseButtonCodes.RELEASE or MouseButtonModifierFlags.MOUSE_BUTTON_MOTION_FLAG, x + 1, y + 1)
       )
+
+      // Consume the mouse event to avoid double processing:
+      // by the terminal process and the editor logic (for example, text selection).
+      event.consume()
     }
     lastMotionReport = Point(x, y)
   }
 
   override fun mouseDragged(x: Int, y: Int, event: MouseEvent) {
+    // Some other handler may already consume this event, for example, hyperlinks logic.
+    // Do not send a mouse report to the process in this case.
+    if (event.isConsumed) return
+
     if (lastMotionReport == Point(x, y)) {
       return
     }
@@ -88,14 +121,22 @@ internal class TerminalMouseEventsHandlerImpl(
         code = code or MouseButtonModifierFlags.MOUSE_BUTTON_MOTION_FLAG
         code = applyModifierKeys(event, code)
         terminalInput.sendBytes(mouseReport(code, x + 1, y + 1))
+
+        // Consume the mouse event to avoid double processing:
+        // by the terminal process and the editor logic (for example, text selection).
+        event.consume()
       }
     }
     lastMotionReport = Point(x, y)
   }
 
   override fun mouseWheelMoved(x: Int, y: Int, event: MouseWheelEvent) {
+    // Some other handler may already consume this event, for example, hyperlinks logic.
+    // Do not send a mouse report to the process in this case.
+    if (event.isConsumed) return
+
     if (settings.enableMouseReporting() && terminalState.mouseMode != MouseMode.MOUSE_REPORTING_NONE && !event.isShiftDown) {
-      editor.selectionModel.removeSelection()
+      editor.selectionModel.removeSelection(true)
       // mousePressed() handles mouse wheel using SCROLLDOWN and SCROLLUP buttons
       mousePressed(x, y, event)
     }
@@ -112,6 +153,9 @@ internal class TerminalMouseEventsHandlerImpl(
         repeat(abs(event.unitsToScroll)) {
           terminalInput.sendBytes(arrowKeys)
         }
+
+        // Consume the mouse event to avoid double processing:
+        // by the terminal process and the editor logic (for example, text selection).
         event.consume()
       }
     }

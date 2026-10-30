@@ -3,8 +3,16 @@ package com.intellij.unscramble
 
 import com.intellij.threadDumpParser.ThreadDumpParser
 import com.intellij.threadDumpParser.ThreadState
+import kotlinx.serialization.KSerializer
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.descriptors.PrimitiveKind
+import kotlinx.serialization.descriptors.PrimitiveSerialDescriptor
+import kotlinx.serialization.descriptors.SerialDescriptor
+import kotlinx.serialization.encoding.Decoder
+import kotlinx.serialization.encoding.Encoder
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonDecoder
+import kotlinx.serialization.json.jsonPrimitive
 import org.jetbrains.annotations.ApiStatus
 
 private val jcmdJson = Json { ignoreUnknownKeys = true }
@@ -70,9 +78,10 @@ private fun JcmdThread.toThreadState(containerId: Long?): ThreadState {
   threadState.isVirtual = virtual ?: false
 
   val stackTrace = buildString {
-    append("\"$name\" tid=$tid")
+    append("\"$name\"")
+    tid?.let { append(" tid=$it") }
     if (threadState.isVirtual) {
-      val carrierInfo = if (carrier != null) "carrierId=$carrier" else "unmounted"
+      val carrierInfo = carrier?.let { "carrierId=$it" } ?: "unmounted"
       append(" virtual $carrierInfo")
     }
     append(" $state")
@@ -82,9 +91,8 @@ private fun JcmdThread.toThreadState(containerId: Long?): ThreadState {
 
   threadState.setStackTrace(stackTrace, rawStackTrace.isEmpty())
 
-  val tidLong = tid.toLongOrNull()
-  if (tidLong != null) {
-    threadState.uniqueId = tidLong
+  tid?.toLongOrNull()?.let {
+    threadState.uniqueId = it
   }
   threadState.threadContainerUniqueId = containerId
 
@@ -133,16 +141,16 @@ private data class JcmdThreadDump(
 private data class JcmdContainer(
   val container: String = "",
   val parent: String? = null,
-  val owner: String? = null,
+  val owner: @Serializable(with = IdSerializer::class) String? = null,
   val threads: List<JcmdThread> = emptyList(),
 )
 
 @Serializable
 private data class JcmdThread(
   val name: String = "",
-  val tid: String = "",
+  val tid: @Serializable(with = IdSerializer::class) String? = null,
   val virtual: Boolean? = null,
-  val carrier: String? = null,
+  val carrier: @Serializable(with = IdSerializer::class) String? = null,
   val stack: List<String> = emptyList(),
   val state: String = "unknown",
   val blockedOn: String? = null,
@@ -155,3 +163,18 @@ private data class JcmdMonitorInfo(
   val depth: Int = -1,
   val locks: List<String> = emptyList(),
 )
+
+/**
+ * Thread IDs used to be strings, but now they are integers. Serializer is used to parse them uniformly.
+ */
+private object IdSerializer : KSerializer<String> {
+  override val descriptor: SerialDescriptor = PrimitiveSerialDescriptor("ThreadID", PrimitiveKind.STRING)
+
+  override fun deserialize(decoder: Decoder): String {
+    return (decoder as JsonDecoder).decodeJsonElement().jsonPrimitive.content
+  }
+
+  override fun serialize(encoder: Encoder, value: String) {
+    encoder.encodeString(value)
+  }
+}

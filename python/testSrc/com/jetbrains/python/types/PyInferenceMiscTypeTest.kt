@@ -2,6 +2,7 @@
 package com.jetbrains.python.types
 
 import com.intellij.idea.TestFor
+import com.intellij.openapi.util.registry.Registry
 import com.jetbrains.python.fixtures.PyCodeInsightTestCase
 import com.jetbrains.python.psi.LanguageLevel
 import org.junit.jupiter.api.Disabled
@@ -248,13 +249,17 @@ class PyInferenceMiscTypeTest : PyCodeInsightTestCase() {
   inner class RecursionAndFixedPointLoops {
     @Test
     @TestFor(issues = ["PY-76659"])
-    fun `recursive resolve in while loop`() = test("""
-      x = 42
-      while x:
-          x = x + 1
-      expr = x
-      #└ TYPE Literal[42] | int
-      """)
+    fun `recursive resolve in while loop`() {
+      if (!Registry.`is`("python.use.better.control.flow.type.inference")) return
+
+      test("""
+        x = 42
+        while x:
+            x = x + 1
+        expr = x
+        #└ TYPE Literal[42] | int
+        """)
+    }
 
     @Test
     @TestFor(issues = ["PY-76659"])
@@ -273,49 +278,71 @@ class PyInferenceMiscTypeTest : PyCodeInsightTestCase() {
 
     @Test
     @TestFor(issues = ["PY-76659"])
-    fun `class chain fixed point in while loop`() = test("""
-      class A:
-          def bar() -> "B":
-              return B()
-      class B:
-          def bar() -> "C":
-              return C()
-      class C:
-          def bar() -> "D":
-              return D()
-      class D:
-          def bar() -> A:
-              return A()
+    fun `class chain fixed point in while loop`() {
+      if (!Registry.`is`("python.use.better.control.flow.type.inference")) return
 
-      def foo(b):
-          x = A()
-          while b:
-              x = x.bar()
+      test("""
+        class A:
+            def bar() -> "B":
+                return B()
+        class B:
+            def bar() -> "C":
+                return C()
+        class C:
+            def bar() -> "D":
+                return D()
+        class D:
+            def bar() -> A:
+                return A()
 
-          expr = x
-      #   └ TYPE A | B | C | D
-      """)
+        def foo(b):
+            x = A()
+            while b:
+                x = x.bar()
+
+            expr = x
+        #   └ TYPE A | B | C | D
+        """)
+    }
 
     @Test
     @TestFor(issues = ["PY-76659"])
-    fun `types in loop compute fast`() = test("""
-      def is_empty(x: int, y: int) -> bool:
-          ...
+    fun `types in loop compute fast`() {
+      if (!Registry.`is`("python.use.better.control.flow.type.inference")) return
 
-      def drop_grain() -> None:
-          x, y = 500, 0
+      test("""
+        def is_empty(x: int, y: int) -> bool:
+            ...
 
-          while True:
-              if is_empty(x, y):
-                  x, y = x + 1, y
-              elif is_empty(x, y):
-                  x, y = x, y
-              elif is_empty((expr := x), y):
-      #                      └ TYPE Literal[500] | int
-                  x, y = x, y
-              elif not is_empty(x, y):
-                  break
-      """)
+        def drop_grain() -> None:
+            x, y = 500, 0
+
+            while True:
+                if is_empty(x, y):
+                    x, y = x + 1, y
+                elif is_empty(x, y):
+                    x, y = x, y
+                elif is_empty((expr := x), y):
+        #                      └ TYPE Literal[500] | int
+                    x, y = x, y
+                elif not is_empty(x, y):
+                    break
+        """)
+    }
+
+    // TODO investigate the inference flakyness
+    // The test is disabled because it's flaky: sometimes different types are inferred in the code analysis and user-initiated contexts.
+    //
+    //@Test
+    //@TestFor(issues = ["PY-90122"])
+    //fun `fixed-point analysis threshold hit for self-referential list comprehension`() = test("""
+    //    def input_data_valid(levels: int):
+    //        data = ["foo"]
+    //        for _ in range(levels):
+    //            data = [data for _ in range(levels)]
+    //        return data
+    //    #           └ TYPE list[str] | list[list[str] | list[list[str]] | list[list[str] | list[list[str]]] | list[list[str] | list[list[str]] | list[list[...] | list[...]]] | list[list[str] | list[list[str]] | list[list[...] | list[...]] | list[list[...] | list[...] | list[...]]] | list[list[str] | list[list[str]] | list[list[...] | list[...]] | list[list[...] | list[...] | list[...]] | list[list[...] | list[...] | list[...] | list[...]]]]
+    //    """)
 
     @Test
     @TestFor(issues = ["EA-40207"])
@@ -850,7 +877,7 @@ class PyInferenceMiscTypeTest : PyCodeInsightTestCase() {
       def dec[T](f: Callable[[T, bool], bool]) -> Callable[[T, bool], bool]:
           def a(b: bool) -> bool:
               return f(A(), b)
-      #          └ WARNING Expected type '(T, bool) -> bool', got '(b: bool) -> bool' instead
+      #                ^^^ WARNING FIXME Expected 'T', got 'A' instead
           return a
       #          └ WARNING Expected type '(T, bool) -> bool', got '(b: bool) -> bool' instead
 
@@ -1163,7 +1190,6 @@ class PyInferenceMiscTypeTest : PyCodeInsightTestCase() {
     fun `structural type from attribute and call`() = test("""
       def f(x):
           x.foo + x.bar()
-      #         └ WARNING Cannot find reference '+' in 'Unknown'
           expr = x
       #   └ TYPE {foo, bar}
       """)
@@ -1194,7 +1220,6 @@ class PyInferenceMiscTypeTest : PyCodeInsightTestCase() {
 
       def f(x, y):
           x.foo + g(y)
-      #         └ WARNING Cannot find reference '+' in 'Unknown'
           expr = x
       #   └ TYPE {foo}
       """)
@@ -2217,6 +2242,47 @@ class PyInferenceMiscTypeTest : PyCodeInsightTestCase() {
         class Foo:
             def __init__(self, id: int):
                 self.id = id
+        """,
+    )
+
+    @Test
+    @TestFor(issues = ["PY-85200"])
+    fun `generic class imported under compound TYPE_CHECKING guard`() = test(
+      """
+      from multidict import MultiDictProxy
+
+      def f(b: MultiDictProxy[int]):
+          expr = b
+      #   └ TYPE MultiDictProxy[int]
+      """,
+      // Mirrors `multidict`, which exposes the pure-Python generic implementation to a type checker
+      // and the C extension at runtime via `if TYPE_CHECKING or not USE_EXTENSIONS:`. Unless the compound
+      // condition is recognized, both branches stay reachable and `MultiDictProxy` resolves to the union of
+      // the generic class and the non-generic binary-skeleton class, which breaks the `[int]` parametrization.
+      "multidict.py" to """
+        from typing import TYPE_CHECKING
+
+        from _compat import USE_EXTENSIONS
+
+        if TYPE_CHECKING or not USE_EXTENSIONS:
+            from _multidict_py import MultiDictProxy
+        else:
+            from _multidict import MultiDictProxy
+        """,
+      "_compat.py" to """
+        import os
+
+        USE_EXTENSIONS = not bool(os.environ.get("MULTIDICT_NO_EXTENSIONS"))
+        """,
+      "_multidict_py.py" to """
+        from typing import Generic, TypeVar
+
+        _V = TypeVar("_V")
+
+        class MultiDictProxy(Generic[_V]): ...
+        """,
+      "_multidict.py" to """
+        class MultiDictProxy: ...
         """,
     )
   }

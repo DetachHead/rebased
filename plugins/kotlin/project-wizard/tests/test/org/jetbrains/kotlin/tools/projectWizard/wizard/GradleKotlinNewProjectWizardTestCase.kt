@@ -81,7 +81,7 @@ abstract class GradleKotlinNewProjectWizardTestCase : GradleNewProjectWizardTest
     fun GradleProjectInfoBuilder.simpleKotlinRootModuleInfo(): Unit =
         rootModuleInfo { configureSimpleKotlinModuleInfo() }
 
-    private val defaultKotlinVersion = "2.4.10"
+    private val defaultKotlinVersion = "2.4.21"
 
     fun GradleProjectInfoBuilder.simpleKotlinModuleInfo(
         ideName: String,
