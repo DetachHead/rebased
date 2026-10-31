@@ -7,7 +7,6 @@
     </content>
     <orderEntry type="inheritedJdk" />
     <orderEntry type="sourceFolder" forTests="false" />
-    <orderEntry type="module" module-name="intellij.java.ide.resources" scope="RUNTIME" />
     <orderEntry type="module" module-name="intellij.platform.ide.impl" scope="RUNTIME" />
     <orderEntry type="module" module-name="intellij.platform.customization.min" scope="RUNTIME" />
     <orderEntry type="module" module-name="intellij.idea.customization.base" scope="RUNTIME" />
