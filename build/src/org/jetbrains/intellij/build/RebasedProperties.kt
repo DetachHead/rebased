@@ -89,7 +89,7 @@ open class RebasedProperties(private val communityHomeDir: Path) : JetBrainsProd
     mavenArtifacts.forIdeModules = true
     // from upstream:
     //mavenArtifacts.additionalModules += MAVEN_ARTIFACTS_ADDITIONAL_MODULES
-    mavenArtifacts.additionalModules += JewelMavenArtifacts.STANDALONE.keys
+    //mavenArtifacts.additionalModules += JewelMavenArtifacts.STANDALONE.keys
     mavenArtifacts.squashedModules += persistentListOf(
       "intellij.platform.util.base",
       "intellij.platform.util.base.multiplatform",
