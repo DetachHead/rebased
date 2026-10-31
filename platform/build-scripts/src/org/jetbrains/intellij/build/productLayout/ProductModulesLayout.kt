@@ -97,7 +97,7 @@ val DEFAULT_BUNDLED_PLUGINS: PersistentList<String> = persistentListOf(
   "intellij.grid.plugin",
   JNA_PLUGIN_MODULE,
   PTY4J_PLUGIN_MODULE,
-  COMPOSE_PLUGIN_MODULE,
+  //COMPOSE_PLUGIN_MODULE,
   "intellij.platform.bookmarks.plugin",
   "intellij.platform.navbar.plugin",
   //"intellij.platform.problemView.plugin",
