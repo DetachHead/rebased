@@ -25,8 +25,8 @@ import org.jetbrains.plugins.groovy.util.TestUtils;
  */
 public class GrPullUpTest extends LightGroovyTestCase {
   @Override
-  protected String getBasePath() {
-    return TestUtils.getTestDataPath() + "refactoring/pullUp";
+  protected String getTestDataPath() {
+    return TestUtils.getAbsoluteTestDataPath() + "refactoring/pullUp";
   }
 
   public void testQualifiedThis() {

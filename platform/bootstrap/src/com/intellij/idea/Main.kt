@@ -62,7 +62,7 @@ fun main(rawArgs: Array<String>) {
   val startupTimings = ArrayList<Any>(12)
   startupTimings.add("startup begin")
   startupTimings.add(startTimeNano)
-  mainImpl(rawArgs = rawArgs, startupTimings = startupTimings, startTimeUnixNano = startTimeUnixNano, changeClassPath = null)
+  mainImpl(rawArgs, startupTimings, startTimeUnixNano, changeClassPath = null)
 }
 
 internal fun mainImpl(
@@ -89,7 +89,7 @@ internal fun mainImpl(
         addBootstrapTiming("init scope creating", startupTimings)
         StartUpMeasurer.addTimings(startupTimings, "bootstrap", startTimeUnixNano)
 
-        startApp(args = args, mainScope = this@runBlocking, busyThread = busyThread, changeClassPath = changeClassPath)
+        startApp(args, mainScope = this@runBlocking, busyThread, changeClassPath)
       }
 
       awaitCancellation()
@@ -320,7 +320,7 @@ private fun preprocessArgs(rawArgs: Array<String>): List<String> {
 }
 
 private fun printBasicHelp() {
-  println(@Suppress("GrazieInspection") """
+  println("""
     Basic commands and options:
     --help           prints the short list of basic commands and options
     --list-commands  prints the full list of commands available in this installation

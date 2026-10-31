@@ -33,7 +33,7 @@ import com.jetbrains.python.psi.types.PyClassType;
 import com.jetbrains.python.psi.types.PyClassTypeImpl;
 import com.jetbrains.python.psi.types.PyTupleType;
 import com.jetbrains.python.psi.types.PyType;
-import com.jetbrains.python.psi.types.PyTypeParser;
+import com.jetbrains.python.psi.types.PyLegacyDocstringTypeParser;
 import com.jetbrains.python.psi.types.PyTypeRendererFeature;
 import com.jetbrains.python.psi.types.PyUnionType;
 import com.jetbrains.python.psi.types.TypeEvalContext;
@@ -71,7 +71,7 @@ public final class PyPsiFacadeImpl extends PyPsiFacade {
 
   @Override
   public @Nullable PyType createUnionType(@NotNull Collection<PyType> members) {
-    return PyUnionType.union(members);
+    return PyUnionType.unionOrUnknown(members);
   }
 
   @Override
@@ -81,7 +81,7 @@ public final class PyPsiFacadeImpl extends PyPsiFacade {
 
   @Override
   public @Nullable PyType parseTypeAnnotation(@NotNull String annotation, @NotNull PsiElement anchor) {
-    return PyTypeParser.getTypeByName(anchor, annotation);
+    return PyLegacyDocstringTypeParser.getTypeByName(anchor, annotation);
   }
 
   @Override

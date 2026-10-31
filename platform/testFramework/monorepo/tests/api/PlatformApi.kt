@@ -19,6 +19,7 @@ internal object PlatformApi {
     "intellij.platform.pluginGraph", // build scripts
     "intellij.platform.distributionContent", // build scripts
     "intellij.platform.images.build", // build scripts
+    "intellij.platform.bootstrap.dev.legacy", // dev build launcher
   )
 
   private val excludeModuleNamePrefixes = setOf(

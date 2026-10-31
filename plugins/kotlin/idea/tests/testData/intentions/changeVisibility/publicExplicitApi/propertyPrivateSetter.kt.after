@@ -1,4 +1,4 @@
-// INTENTION_TEXT: Remove 'private' modifier
+// INTENTION_TEXT: public
 // COMPILER_ARGUMENTS: -Xexplicit-api=strict
 public class Test {
     public var foo: String = ""

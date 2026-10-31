@@ -4,7 +4,7 @@ package com.intellij.platform.workspace.storage.tests.propertyBased
 import com.intellij.platform.workspace.storage.impl.EntityId
 import com.intellij.platform.workspace.storage.impl.createEntityId
 import com.intellij.platform.workspace.storage.impl.indices.VirtualFileIndex
-import com.intellij.platform.workspace.storage.impl.url.ConcurrentVirtualFileUrlManager
+import com.intellij.platform.workspace.storage.impl.url.VirtualFileUrlManagerImpl
 import com.intellij.platform.workspace.storage.impl.url.toVirtualFileUrl
 import com.intellij.platform.workspace.storage.url.VirtualFileUrl
 import com.intellij.testFramework.propertyBased.MadTestingUtil.assertNoErrorLoggedIn
@@ -19,7 +19,7 @@ class VirtualFileIndexTest {
   @TempDir
   lateinit var tempdir: Path
 
-  private val manager = ConcurrentVirtualFileUrlManager()
+  private val manager = VirtualFileUrlManagerImpl()
 
   @Test
   fun `property test`() {
@@ -112,11 +112,14 @@ class VirtualFileIndexTest {
       env.generate(Generator.sampledFrom(existingPaths))
     }
     else {
-      existingPaths.add(tempdir)
+      // Distinct paths, so that the index is exercised with more than one key: `vfu2EntityId` keeps a
+      // separate inner map per url and copies them on write independently.
+      val fresh = tempdir.resolve("file${env.generate(Generator.integers(0, 30))}.txt")
+      existingPaths.add(fresh)
       if (existingPaths.size > 30) {
         existingPaths.removeFirst()
       }
-      tempdir
+      fresh
     }
 
     file.toVirtualFileUrl(manager)

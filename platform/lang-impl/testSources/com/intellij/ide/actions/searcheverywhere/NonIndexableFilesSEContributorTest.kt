@@ -1,6 +1,10 @@
 // Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.ide.actions.searcheverywhere
 
+import com.intellij.find.DirectorySearchEngine
+import com.intellij.find.DirectorySearchEngine.FileSearchCandidate
+import com.intellij.find.FindModel
+import com.intellij.ide.util.gotoByName.DefaultChooseByNameItemProvider
 import com.intellij.ide.util.gotoByName.FileTypeRef
 import com.intellij.ide.util.scopeChooser.ScopeDescriptor
 import com.intellij.mock.MockProgressIndicator
@@ -10,13 +14,16 @@ import com.intellij.openapi.actionSystem.impl.SimpleDataContext
 import com.intellij.openapi.application.readAction
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Disposer
+import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.platform.backend.workspace.toVirtualFileUrl
 import com.intellij.platform.backend.workspace.workspaceModel
 import com.intellij.psi.PsiFileSystemItem
 import com.intellij.psi.search.GlobalSearchScope
 import com.intellij.psi.search.SearchScope
+import com.intellij.testFramework.ExtensionTestUtil
 import com.intellij.testFramework.TestActionEvent
 import com.intellij.testFramework.VfsTestUtil
+import com.intellij.testFramework.common.timeoutRunBlocking
 import com.intellij.testFramework.junit5.RegistryKey
 import com.intellij.testFramework.junit5.TestApplication
 import com.intellij.testFramework.junit5.TestDisposable
@@ -35,11 +42,15 @@ import com.intellij.workspaceModel.ide.toPath
 import kotlinx.coroutines.runBlocking
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.BeforeEach
+import org.junit.jupiter.api.Disabled
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.condition.DisabledOnOs
 import org.junit.jupiter.api.condition.OS
 import org.junit.jupiter.api.extension.RegisterExtension
+import java.io.IOException
 import java.nio.file.Files
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.function.Consumer
 
 
 @TestApplication
@@ -75,6 +86,314 @@ open class NonIndexableFilesSEContributorTest {
 
     assertThat(items).allSatisfy { it is PsiFileSystemItem }
     return items.filterIsInstance<PsiFileSystemItem>().toSet()
+  }
+
+  private fun registerNameSearchEngine(
+    getWeight: (VirtualFile) -> Int = { if (it.isDirectory) 1 else -1 },
+    searchNames: (VirtualFile, String, Consumer<FileSearchCandidate>) -> Unit,
+  ) {
+    val engine = TestDirectorySearchEngine(getWeight, searchNames)
+    ExtensionTestUtil.maskExtensions(DirectorySearchEngine.EP_NAME, listOf(engine), disposable)
+  }
+
+  @Test
+  fun `name search receives the path pattern`(): Unit = timeoutRunBlocking {
+    val root = baseDir.newVirtualDirectory("root")
+    val file = baseDir.newVirtualFile("root/sub/file.txt")
+    workspaceModel.update { storage ->
+      storage.addEntity(NonIndexableTestEntity(urlManager.storeAndGet(root.url), NonPersistentEntitySource))
+    }
+    VfsTestUtil.syncRefresh()
+    var receivedPattern: String? = null
+    registerNameSearchEngine { _, pathPattern, consumer ->
+      receivedPattern = pathPattern
+      consumer.accept(FileSearchCandidate.fromVirtualFile(file))
+    }
+
+    val names = searchNonIndexableFiles("sub\\fi*le").map { it.name }
+
+    assertThat(receivedPattern).isEqualTo("sub/fi*le")
+    assertThat(names).containsExactly("file.txt")
+  }
+
+  @Test
+  fun `name search receives the pattern without a line suffix`(): Unit = timeoutRunBlocking {
+    val root = baseDir.newVirtualDirectory("root")
+    val file = baseDir.newVirtualFile("root/file.txt")
+    workspaceModel.update { storage ->
+      storage.addEntity(NonIndexableTestEntity(urlManager.storeAndGet(root.url), NonPersistentEntitySource))
+    }
+    VfsTestUtil.syncRefresh()
+    var receivedPattern: String? = null
+    registerNameSearchEngine { _, pathPattern, consumer ->
+      receivedPattern = pathPattern
+      consumer.accept(FileSearchCandidate.fromVirtualFile(file))
+    }
+
+    val names = searchNonIndexableFiles("file.txt:12").map { it.name }
+
+    assertThat(receivedPattern).isEqualTo("file.txt")
+    assertThat(names).containsExactly("file.txt")
+  }
+
+  @Test
+  fun `name search accepts a path without a cached virtual file`(): Unit = timeoutRunBlocking {
+    val root = baseDir.newVirtualDirectory("root")
+    workspaceModel.update { storage ->
+      storage.addEntity(NonIndexableTestEntity(urlManager.storeAndGet(root.url), NonPersistentEntitySource))
+    }
+    VfsTestUtil.syncRefresh()
+    val path = Files.createFile(baseDir.rootPath.resolve("root/path-file.txt"))
+    registerNameSearchEngine { _, _, consumer -> consumer.accept(FileSearchCandidate.fromPath(path)) }
+
+    val names = searchNonIndexableFiles("path-file").map { it.name }
+
+    assertThat(names).containsExactly("path-file.txt")
+  }
+
+  @Test
+  fun `name search returns the root and its descendants`(): Unit = timeoutRunBlocking {
+    val root = baseDir.newVirtualDirectory("root")
+    val file = baseDir.newVirtualFile("root/root-file.txt")
+    workspaceModel.update { storage ->
+      storage.addEntity(NonIndexableTestEntity(urlManager.storeAndGet(root.url), NonPersistentEntitySource))
+    }
+    VfsTestUtil.syncRefresh()
+    var searchCalls = 0
+    registerNameSearchEngine { directory, _, consumer ->
+      searchCalls++
+      consumer.accept(FileSearchCandidate.fromVirtualFile(directory))
+      consumer.accept(FileSearchCandidate.fromVirtualFile(file))
+    }
+
+    val names = searchNonIndexableFiles("root").map { it.name }
+
+    assertThat(names).containsExactlyInAnyOrder("root", "root-file.txt")
+    assertThat(searchCalls).isEqualTo(1)
+  }
+
+  @Test
+  fun `name search returns a nested non-indexable root with its qualified path`(): Unit = timeoutRunBlocking {
+    val outer = baseDir.newVirtualDirectory("outer")
+    val excluded = baseDir.newVirtualDirectory("outer/excluded")
+    val nested = baseDir.newVirtualDirectory("outer/excluded/nested")
+    workspaceModel.update { storage ->
+      storage.addEntity(NonIndexableTestEntity(urlManager.storeAndGet(outer.url), NonPersistentEntitySource))
+      storage.addEntity(NonIndexableTestEntity(urlManager.storeAndGet(nested.url), NonPersistentEntitySource))
+      storage.addEntity(IndexingTestEntity(emptyList(), listOf(urlManager.storeAndGet(excluded.url)), NonPersistentEntitySource))
+    }
+    VfsTestUtil.syncRefresh()
+    registerNameSearchEngine { directory, _, consumer -> consumer.accept(FileSearchCandidate.fromVirtualFile(directory)) }
+
+    val names = searchNonIndexableFiles("outer/excluded/nested").map { it.name }
+
+    assertThat(names).containsExactly("nested")
+  }
+
+  @Test
+  fun `an unavailable name search engine falls back to the local walk`(): Unit = timeoutRunBlocking {
+    val root = baseDir.newVirtualDirectory("root")
+    baseDir.newVirtualFile("root/file.txt")
+    workspaceModel.update { storage ->
+      storage.addEntity(NonIndexableTestEntity(urlManager.storeAndGet(root.url), NonPersistentEntitySource))
+    }
+    VfsTestUtil.syncRefresh()
+    registerNameSearchEngine(getWeight = { -1 }) { _, _, _ -> error("The engine is unavailable") }
+
+    val names = searchNonIndexableFiles("file").map { it.name }
+
+    assertThat(names).containsExactly("file.txt")
+  }
+
+  @Test
+  fun `name search falls back to the local walk when its engine fails`(): Unit = timeoutRunBlocking {
+    val root = baseDir.newVirtualDirectory("root")
+    baseDir.newVirtualFile("root/file.txt")
+    workspaceModel.update { storage ->
+      storage.addEntity(NonIndexableTestEntity(urlManager.storeAndGet(root.url), NonPersistentEntitySource))
+    }
+    VfsTestUtil.syncRefresh()
+    val engineCalled = AtomicBoolean()
+    registerNameSearchEngine { _, _, _ ->
+      engineCalled.set(true)
+      throw IOException("Connection refused")
+    }
+
+    val names = searchNonIndexableFiles("file").map { it.name }
+
+    assertThat(engineCalled.get()).isTrue()
+    assertThat(names).containsExactly("file.txt")
+  }
+
+  @Test
+  fun `name search uses the engine for one root when another fails`(): Unit = timeoutRunBlocking {
+    val failedRoot = baseDir.newVirtualDirectory("dead")
+    val healthyRoot = baseDir.newVirtualDirectory("healthy")
+    val healthyFile = baseDir.newVirtualFile("healthy/healthy-file.txt")
+    workspaceModel.update { storage ->
+      storage.addEntity(NonIndexableTestEntity(urlManager.storeAndGet(failedRoot.url), NonPersistentEntitySource))
+      storage.addEntity(NonIndexableTestEntity(urlManager.storeAndGet(healthyRoot.url), NonPersistentEntitySource))
+    }
+    VfsTestUtil.syncRefresh()
+    val failedRootSearched = AtomicBoolean()
+    val healthyRootSearched = AtomicBoolean()
+    registerNameSearchEngine { directory, _, consumer ->
+      if (directory.path == failedRoot.path) {
+        failedRootSearched.set(true)
+        throw IOException("Connection refused")
+      }
+      if (directory.path == healthyRoot.path) {
+        healthyRootSearched.set(true)
+        consumer.accept(FileSearchCandidate.fromVirtualFile(healthyFile))
+      }
+    }
+
+    val names = searchNonIndexableFiles("file").map { it.name }
+
+    assertThat(failedRootSearched.get()).isTrue()
+    assertThat(healthyRootSearched.get()).isTrue()
+    assertThat(names).containsExactly("healthy-file.txt")
+  }
+
+  @Test
+  fun `consumer rejection stops name search result delivery`(): Unit = timeoutRunBlocking {
+    val root = baseDir.newVirtualDirectory("root")
+    val first = baseDir.newVirtualFile("root/first-file.txt")
+    val second = baseDir.newVirtualFile("root/second-file.txt")
+    workspaceModel.update { storage ->
+      storage.addEntity(NonIndexableTestEntity(urlManager.storeAndGet(root.url), NonPersistentEntitySource))
+    }
+    VfsTestUtil.syncRefresh()
+    registerNameSearchEngine { _, _, consumer ->
+      consumer.accept(FileSearchCandidate.fromVirtualFile(first))
+      consumer.accept(FileSearchCandidate.fromVirtualFile(second))
+    }
+    val contributor = NonIndexableFilesSEContributor(createEvent(project))
+    Disposer.register(disposable, contributor)
+    var consumerCalls = 0
+
+    contributor.fetchWeightedElements("file", MockProgressIndicator().apply { start() }) {
+      consumerCalls++
+      false
+    }
+
+    assertThat(consumerCalls).isEqualTo(1)
+  }
+
+  @Test
+  fun `absolute path pattern resolves the file as an exact match`(): Unit = timeoutRunBlocking {
+    val root = baseDir.newVirtualDirectory("root")
+    val file = baseDir.newVirtualFile("root/sub/file.txt")
+    workspaceModel.update { storage ->
+      storage.addEntity(NonIndexableTestEntity(urlManager.storeAndGet(root.url), NonPersistentEntitySource))
+    }
+    VfsTestUtil.syncRefresh()
+
+    val found = fetchDescriptors("${file.path}:12")
+
+    assertThat(found.map { (it.item as PsiFileSystemItem).virtualFile }).containsExactly(file)
+    assertThat(found.single().weight).isEqualTo(DefaultChooseByNameItemProvider.EXACT_MATCH_DEGREE)
+  }
+
+  @Test
+  fun `absolute path pattern resolves a file outside the non-indexable roots`(): Unit = timeoutRunBlocking {
+    baseDir.newVirtualDirectory("root").let { root ->
+      workspaceModel.update { storage ->
+        storage.addEntity(NonIndexableTestEntity(urlManager.storeAndGet(root.url), NonPersistentEntitySource))
+      }
+    }
+    val outside = baseDir.newVirtualFile("outside/other.txt")
+    VfsTestUtil.syncRefresh()
+
+    assertThat(searchNonIndexableFiles(outside.path).map { it.virtualFile }).containsExactly(outside)
+  }
+
+  @Test
+  fun `relative path pattern yields the file once`(): Unit = timeoutRunBlocking {
+    val root = baseDir.newVirtualDirectory("root")
+    val file = baseDir.newVirtualFile("root/sub/file.txt")
+    workspaceModel.update { storage ->
+      storage.addEntity(NonIndexableTestEntity(urlManager.storeAndGet(root.url), NonPersistentEntitySource))
+    }
+    VfsTestUtil.syncRefresh()
+
+    val found = fetchDescriptors("root/sub/file.txt")
+
+    assertThat(found.map { (it.item as PsiFileSystemItem).virtualFile }).containsExactly(file)
+  }
+
+  @Test
+  fun `consumer rejection of the path match stops the search`(): Unit = timeoutRunBlocking {
+    val root = baseDir.newVirtualDirectory("root")
+    val file = baseDir.newVirtualFile("root/file.txt")
+    workspaceModel.update { storage ->
+      storage.addEntity(NonIndexableTestEntity(urlManager.storeAndGet(root.url), NonPersistentEntitySource))
+    }
+    VfsTestUtil.syncRefresh()
+    val walkStarted = AtomicBoolean(false)
+    registerNameSearchEngine { _, _, _ -> walkStarted.set(true) }
+    val contributor = NonIndexableFilesSEContributor(createEvent(project))
+    Disposer.register(disposable, contributor)
+    var consumerCalls = 0
+
+    contributor.fetchWeightedElements(file.path, MockProgressIndicator().apply { start() }) {
+      consumerCalls++
+      false
+    }
+
+    assertThat(consumerCalls).isEqualTo(1)
+    assertThat(walkStarted.get()).isFalse()
+  }
+
+  private fun fetchDescriptors(pattern: String): List<FoundItemDescriptor<Any>> {
+    val contributor = NonIndexableFilesSEContributor(createEvent(project))
+    Disposer.register(disposable, contributor)
+    val found = mutableListOf<FoundItemDescriptor<Any>>()
+    contributor.fetchWeightedElements(pattern, MockProgressIndicator().apply { start() }) {
+      synchronized(found) { found.add(it) }
+      true
+    }
+    return found
+  }
+
+  @Test
+  @Disabled("DirectorySearchEngine name search does not receive excluded subtrees")
+  fun `name search excludes indexable subtrees`(): Unit = timeoutRunBlocking {
+    val root = baseDir.newVirtualDirectory("root")
+    val excluded = baseDir.newVirtualDirectory("root/excluded")
+    val hidden = baseDir.newVirtualFile("root/excluded/hidden-file.txt")
+    workspaceModel.update { storage ->
+      storage.addEntity(NonIndexableTestEntity(urlManager.storeAndGet(root.url), NonPersistentEntitySource))
+      storage.addEntity(IndexingTestEntity(emptyList(), listOf(urlManager.storeAndGet(excluded.url)), NonPersistentEntitySource))
+    }
+    VfsTestUtil.syncRefresh()
+    registerNameSearchEngine { _, _, consumer -> consumer.accept(FileSearchCandidate.fromVirtualFile(hidden)) }
+
+    assertThat(searchNonIndexableFiles("hidden-file")).isEmpty()
+  }
+
+  @Test
+  fun `consumer rejection stops optimal and suboptimal result delivery`(): Unit = timeoutRunBlocking {
+    val root = baseDir.newVirtualDirectory("a")
+    baseDir.newVirtualFile("a/b/c/abc-first.txt")
+    baseDir.newVirtualFile("a/b/c/abc-second.txt")
+    workspaceModel.update { storage ->
+      storage.addEntity(NonIndexableTestEntity(urlManager.storeAndGet(root.url), NonPersistentEntitySource))
+    }
+    VfsTestUtil.syncRefresh()
+    assertThat(searchNonIndexableFiles("abc").map { it.name })
+      .containsExactlyInAnyOrder("abc-first.txt", "abc-second.txt", "c")
+
+    val contributor = NonIndexableFilesSEContributor(createEvent(project))
+    Disposer.register(disposable, contributor)
+    val consumedNames = mutableListOf<String>()
+
+    contributor.fetchWeightedElements("abc", MockProgressIndicator().apply { start() }) {
+      consumedNames.add((it.item as PsiFileSystemItem).name)
+      false
+    }
+
+    assertThat(consumedNames).singleElement().isIn("abc-first.txt", "abc-second.txt")
   }
 
   @Test
@@ -324,9 +643,29 @@ open class NonIndexableFilesSEContributorTest {
   }
 }
 
+private class TestDirectorySearchEngine(
+  private val weight: (VirtualFile) -> Int,
+  private val nameSearch: (VirtualFile, String, Consumer<FileSearchCandidate>) -> Unit,
+) : DirectorySearchEngine {
+  override fun canSearch(findModel: FindModel): Boolean = false
+
+  override fun canSearchNames(): Boolean = true
+
+  override fun getWeight(directory: VirtualFile): Int = weight(directory)
+
+  override fun searchDirectory(
+    directory: VirtualFile,
+    findModel: FindModel,
+    consumer: Consumer<in Collection<VirtualFile>>,
+  ) = error("Content search is not supported")
+
+  override fun searchNames(directory: VirtualFile, pathPattern: String, consumer: Consumer<FileSearchCandidate>) {
+    nameSearch(directory, pathPattern, consumer)
+  }
+}
+
 
 private fun createEvent(project: Project): AnActionEvent {
   val projectContext = SimpleDataContext.getProjectContext(project)
   return TestActionEvent.createTestEvent(projectContext)
 }
-

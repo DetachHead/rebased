@@ -155,4 +155,38 @@ public class JsonSchemaQuickFixTest extends JsonSchemaQuickFixTestBase {
            "Replace with allowed value", """
              {"outer": "{\\"inner\\": 10}"}""");
   }
+
+  public void testAddMissingPropertyWithReformatting() {
+    doTest("""
+             {
+                 "properties": {
+                   "items": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id":   { "type": "string" },
+                          "name": { "type": "string" }
+                        },
+                        "required": ["id", "name"]
+                      }
+                   }
+                 }
+               }""", """
+             {
+                 "items": [
+                     <warning descr="Missing required property 'name'">{
+                       "id":     "1"<caret>
+                     }</warning>
+                 ]
+             }""", "Add missing property 'name'", """
+             {
+               "items": [
+                 {
+                   "id": "1",
+                   "name": ""
+                 }
+               ]
+             }""");
+  }
 }

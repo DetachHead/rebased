@@ -3,10 +3,13 @@ package com.intellij.sh.run;
 
 import com.intellij.execution.Executor;
 import com.intellij.execution.configuration.EnvironmentVariablesData;
+import com.intellij.execution.configurations.AsyncPathVerdictCache;
 import com.intellij.execution.configurations.ConfigurationFactory;
 import com.intellij.execution.configurations.LocatableConfigurationBase;
+import com.intellij.execution.configurations.PathVerdict;
 import com.intellij.execution.configurations.RefactoringListenerProvider;
 import com.intellij.execution.configurations.RunConfiguration;
+import com.intellij.execution.configurations.RunConfigurationWithTargetFile;
 import com.intellij.execution.configurations.RunProfileState;
 import com.intellij.execution.configurations.RuntimeConfigurationError;
 import com.intellij.execution.configurations.RuntimeConfigurationException;
@@ -17,6 +20,7 @@ import com.intellij.openapi.util.InvalidDataException;
 import com.intellij.openapi.util.JDOMExternalizerUtil;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.text.StringUtil;
+import com.intellij.openapi.vfs.LocalFileSystem;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.util.PsiUtilCore;
@@ -28,14 +32,15 @@ import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import java.nio.file.Files;
+import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
 
 import static com.intellij.openapi.util.io.FileUtil.toSystemDependentName;
 import static com.intellij.openapi.util.text.StringUtilRt.notNullize;
 import static com.intellij.sh.ShBundle.message;
 
-public final class ShRunConfiguration extends LocatableConfigurationBase implements RefactoringListenerProvider {
+public final class ShRunConfiguration extends LocatableConfigurationBase
+  implements RefactoringListenerProvider, RunConfigurationWithTargetFile {
   private static final @NonNls String TAG_PREFIX = "INDEPENDENT_";
   private static final @NonNls String SCRIPT_TEXT_TAG = "SCRIPT_TEXT";
   private static final @NonNls String SCRIPT_PATH_TAG = "SCRIPT_PATH";
@@ -65,25 +70,50 @@ public final class ShRunConfiguration extends LocatableConfigurationBase impleme
     return new ShRunConfigurationEditor(getProject());
   }
 
+  /**
+   * Keeps only the cheap checks on the calling thread. The method can run after each typed character, so it must not touch the
+   * file system. {@link AsyncPathVerdictCache} answers the existence question and the executable question, and it reports a problem
+   * only for a verdict it already knows.
+   */
   @Override
   public void checkConfiguration() throws RuntimeConfigurationException {
-    final var scriptPath = Path.of(myScriptPath);
+    AsyncPathVerdictCache cache = AsyncPathVerdictCache.getInstance();
     if (myExecuteScriptFile) {
-      if (!Files.exists(scriptPath)) {
+      Path scriptPath = toPathOrNull(myScriptPath);
+      if (scriptPath == null) {
         throw new RuntimeConfigurationError(message("sh.run.script.not.found"));
       }
-      if (StringUtil.isNotEmpty(myInterpreterPath) || !Files.isExecutable(scriptPath)) {
-        final var interpreterPath = Path.of(myInterpreterPath);
-        if (!Files.exists(interpreterPath)) {
+      PathVerdict script = cache.getVerdict(scriptPath);
+      if (Boolean.FALSE.equals(script.getExists())) {
+        throw new RuntimeConfigurationError(message("sh.run.script.not.found"));
+      }
+      if (StringUtil.isNotEmpty(myInterpreterPath) || Boolean.FALSE.equals(script.getExecutable())) {
+        Path interpreterPath = toPathOrNull(myInterpreterPath);
+        if (interpreterPath == null) {
           throw new RuntimeConfigurationError(message("sh.run.interpreter.not.found"));
         }
-        if (!Files.isExecutable(interpreterPath)) {
+        PathVerdict interpreter = cache.getVerdict(interpreterPath);
+        if (Boolean.FALSE.equals(interpreter.getExists())) {
+          throw new RuntimeConfigurationError(message("sh.run.interpreter.not.found"));
+        }
+        if (Boolean.FALSE.equals(interpreter.getExecutable())) {
           throw new RuntimeConfigurationError(message("sh.run.interpreter.should.be.executable"));
         }
       }
     }
-    if (!Files.exists(Path.of(myScriptWorkingDirectory))) {
+    Path workingDirectory = toPathOrNull(myScriptWorkingDirectory);
+    if (workingDirectory == null || Boolean.FALSE.equals(cache.getVerdict(workingDirectory).getExists())) {
       throw new RuntimeConfigurationError(message("sh.run.working.dir.not.found"));
+    }
+  }
+
+  private static @Nullable Path toPathOrNull(@NotNull String path) {
+    if (path.isBlank()) return null;
+    try {
+      return Path.of(path);
+    }
+    catch (InvalidPathException e) {
+      return null;
     }
   }
 
@@ -199,6 +229,15 @@ public final class ShRunConfiguration extends LocatableConfigurationBase impleme
 
   public void setExecuteInTerminal(boolean executeInTerminal) {
     myExecuteInTerminal = executeInTerminal;
+  }
+
+  /** A configuration that runs the inline script text instead of a file has no file of its own. */
+  @Override
+  public @Nullable VirtualFile getTargetFile() {
+    if (!myExecuteScriptFile || myScriptPath.isBlank()) {
+      return null;
+    }
+    return LocalFileSystem.getInstance().findFileByPath(FileUtil.toSystemIndependentName(myScriptPath));
   }
 
   public boolean isExecuteScriptFile() {

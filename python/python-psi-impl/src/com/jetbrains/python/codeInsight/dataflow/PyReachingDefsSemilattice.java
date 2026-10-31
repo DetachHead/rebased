@@ -4,6 +4,7 @@ package com.jetbrains.python.codeInsight.dataflow;
 import com.intellij.codeInsight.dataflow.map.DFAMap;
 import com.intellij.codeInsight.dataflow.map.MapSemilattice;
 import com.intellij.psi.PsiElement;
+import com.intellij.util.containers.ContainerUtil;
 import com.jetbrains.python.codeInsight.dataflow.scope.ScopeVariable;
 import com.jetbrains.python.codeInsight.dataflow.scope.impl.ScopeVariableImpl;
 import org.jetbrains.annotations.NotNull;
@@ -33,7 +34,7 @@ public class PyReachingDefsSemilattice implements MapSemilattice<ScopeVariable> 
       return ins.get(0);
     }
 
-    ins = ins.stream().filter(e -> e != PyReachingDefsDfaInstance.UNREACHABLE_MARKER).toList();
+    ins = ContainerUtil.filter(ins, e -> e != PyReachingDefsDfaInstance.UNREACHABLE_MARKER);
 
     final Set<String> resultNames = getResultNames(ins);
     if (resultNames == null || resultNames.isEmpty()) {

@@ -108,9 +108,9 @@ public class RemoveUnnecessaryParenthesesTest extends LightJavaCodeInsightFixtur
   }
 
   @Override
-  public final String getBasePath() {
+  public final String getTestDataPath() {
     return basePath;
   }
 
-  private final String basePath = TestUtils.getTestDataPath() + "intentions/removeParenth/";
+  private final String basePath = TestUtils.getAbsoluteTestDataPath() + "intentions/removeParenth/";
 }

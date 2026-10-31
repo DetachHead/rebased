@@ -27,6 +27,7 @@ import com.intellij.openapi.util.NlsSafe
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.psi.PsiElement
 import com.intellij.util.containers.JBIterable
+import org.jetbrains.annotations.ApiStatus
 import java.util.function.Consumer
 import javax.swing.Icon
 
@@ -51,12 +52,18 @@ interface GridHelper : CoreGridHelper {
 
   fun getColumnIcon(grid: CoreGrid<GridRow, GridColumn>, column: GridColumn, forDisplay: Boolean): Icon?
 
+  /** The type text that the column list shows after the name, or null when the source reports no type. */
+  @ApiStatus.Experimental
+  fun getColumnTypeText(grid: CoreGrid<GridRow, GridColumn>, column: GridColumn): @NlsSafe String? = column.typeName
+
   fun getVirtualFile(grid: CoreGrid<GridRow, GridColumn>): VirtualFile?
 
+  /** Returns entries for a column structure view. */
   fun getChildrenFromModel(grid: CoreGrid<GridRow, GridColumn>): JBIterable<TreeElement> {
     return JBIterable.empty()
   }
 
+  /** Returns the location text for a structure entry. */
   fun getLocationString(element: PsiElement?): String? {
     return null
   }

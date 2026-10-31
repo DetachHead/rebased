@@ -16,11 +16,8 @@ internal object UnusedEmbeddedLibraryModuleValidator : PipelineNode {
   override val id get() = NodeIds.UNUSED_EMBEDDED_LIBRARY_MODULE_VALIDATION
   override val requires: Set<DataSlot<*>> get() = setOf(Slots.CONTENT_MODULE_PLAN)
 
-  override suspend fun execute(ctx: ComputeContext) {
-    val productSpecsByName = ctx.model.discovery.products.mapNotNull { product ->
-      product.spec?.let { product.name to it }
-    }.toMap()
-    val result = analyzeUnusedEmbeddedLibraryModules(ctx.model.pluginGraph, productSpecsByName)
+  override fun execute(ctx: ComputeContext) {
+    val result = analyzeUnusedEmbeddedLibraryModules(ctx.model.pluginGraph)
     if (result.violations.isNotEmpty()) {
       ctx.emitError(UnusedEmbeddedLibraryModuleError(
         context = "module sets",

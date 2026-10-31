@@ -14,7 +14,7 @@ import com.intellij.platform.eel.EelApi
 import com.intellij.platform.eel.EelDescriptor
 import com.intellij.platform.eel.EelMachine
 import com.intellij.platform.eel.EelPlatform
-import com.intellij.platform.eel.annotations.MultiRoutingFileSystemPath
+import com.intellij.platform.util.annotations.paths.NioPath
 import com.intellij.platform.eel.fs.createTemporaryDirectory
 import com.intellij.platform.eel.getOrThrow
 import com.intellij.platform.eel.impl.provider.EelMachineResolverEpBridge
@@ -92,7 +92,7 @@ internal fun eelInitializer(os: EelPlatform): TestFixtureInitializer<IsolatedFil
         else
           null
 
-      override fun getCustomRoots(): Collection<@MultiRoutingFileSystemPath String> =
+      override fun getCustomRoots(): Collection<@NioPath String> =
         fakeLocalFileSystem.rootDirectories.map { it.toString() }
 
       override fun getCustomFileStores(localFS: FileSystem): Collection<FileStore> =

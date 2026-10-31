@@ -53,6 +53,7 @@ const val NUL = "\u0000"
  * -------------------------------------------------
  */
 
+@JvmOverloads
 @Throws(VcsException::class)
 fun getStatus(
   project: Project,
@@ -61,11 +62,13 @@ fun getStatus(
   withRenames: Boolean,
   withUntracked: Boolean,
   withIgnored: Boolean,
+  expandIgnoredDirectories: Boolean = false,
 ): List<GitFileStatus> {
-  return getFileStatus(project, root, files, withRenames, withUntracked, withIgnored)
+  return getFileStatus(project, root, files, withRenames, withUntracked, withIgnored, expandIgnoredDirectories)
     .map { GitFileStatus(root, it) }
 }
 
+@JvmOverloads
 @Throws(VcsException::class)
 fun getFileStatus(
   project: Project,
@@ -74,12 +77,14 @@ fun getFileStatus(
   withRenames: Boolean,
   withUntracked: Boolean,
   withIgnored: Boolean,
+  expandIgnoredDirectories: Boolean = false,
 ): List<LightFileStatus.StatusRecord> {
   val h = GitUtil.createHandlerWithPaths(files) {
     val h = GitLineHandler(project, root, GitCommand.STATUS)
     h.setSilent(true)
     h.appendParameters(GitExecutableManager.getInstance().tryGetVersion(project) ?: GitVersion.NULL,
-                       withRenames = withRenames, withUntracked = withUntracked, withIgnored = withIgnored)
+                       withRenames = withRenames, withUntracked = withUntracked, withIgnored = withIgnored,
+                       expandIgnoredDirectories = expandIgnoredDirectories)
     h
   }
 
@@ -109,6 +114,7 @@ fun getFileStatus(root: VirtualFile, filePath: FilePath, executable: GitExecutab
 private fun GitLineHandler.appendParameters(
   gitVersion: GitVersion,
   withRenames: Boolean = true, withUntracked: Boolean = true, withIgnored: Boolean = false,
+  expandIgnoredDirectories: Boolean = false,
 ) {
   addParameters("--porcelain", "-z")
   if (!withRenames) {
@@ -117,13 +123,13 @@ private fun GitLineHandler.appendParameters(
     }
   }
   addParameters("--untracked-files=${if (withUntracked) "all" else "no"}")
-  if (GitVersionSpecialty.STATUS_SUPPORTS_IGNORED_MODES.existsIn(gitVersion)) {
-    if (withIgnored) {
-      addParameters("--ignored=matching")
-    }
-    else {
-      addParameters("--ignored=no")
-    }
+  if (withIgnored && expandIgnoredDirectories) {
+    // The traditional mode lists each file under an ignored directory. The "matching" mode used below collapses
+    // the directory into one entry instead, even for a file requested explicitly by path.
+    addParameters("--ignored")
+  }
+  else if (GitVersionSpecialty.STATUS_SUPPORTS_IGNORED_MODES.existsIn(gitVersion)) {
+    addParameters(if (withIgnored) "--ignored=matching" else "--ignored=no")
   }
   else if (withIgnored) {
     addParameters("--ignored")

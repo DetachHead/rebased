@@ -1,6 +1,29 @@
-load("@community//platform/build-scripts/bazel-rules:dev_dist_plugin.bzl", "dev_dist_plugin")
+load("@jps_dynamic_deps_community//:targets.bzl", "dev_dist_plugin")
 load("@rules_jvm//:jvm.bzl", "jvm_library")
-load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "dev_dist_plugin_jar")
+
+### auto-generated section `dev intellij.java.jshell` start
+dev_dist_plugin(
+    content_modules = [
+        # do not sort,
+        "intellij.java.jshell.console",
+        "intellij.java.jshell.execution",
+        "intellij.java.jshell.protocol",
+    ],
+    descriptor = "resources/META-INF/plugin.xml",
+    jars = {
+        "lib/intellij.java.jshell.execution.jar": [
+            "intellij.java.jshell.execution",
+            "//plugins/jshell/execution:java-jshell-execution-jshell-frontend",
+        ],
+        "lib/java-jshell.jar": ["intellij.java.jshell"],
+        "lib/jshell-protocol.jar": ["intellij.java.jshell.protocol"],
+    },
+    main_module = "intellij.java.jshell",
+    mode_refused_content_modules = {
+        "frontend": ["intellij.java.jshell.console"],
+    },
+)
+### auto-generated section `dev intellij.java.jshell` end
 
 ### auto-generated section `build intellij.java.jshell` start
 jvm_library(
@@ -39,19 +62,3 @@ exports_files(
     visibility = ["//visibility:public"],
 )
 ### auto-generated section `iml intellij.java.jshell` end
-
-### auto-generated section `dev intellij.java.jshell` start
-dev_dist_plugin(
-    content_modules = ["//plugins/jshell/execution"],
-    descriptor_module = ":jshell",
-    libraries = ["//plugins/jshell/execution:java-jshell-execution-jshell-frontend"],
-    prepacked_content_modules = ["//plugins/jshell/console:console_content_module_jar"],
-    prepacked_layout_jars = [":jshell-protocol_dev_dist_plugin_jar"],
-)
-
-dev_dist_plugin_jar(
-    modules = ["//plugins/jshell/protocol"],
-    plugin_main_module = "intellij.java.jshell",
-    relative_output_file = "jshell-protocol.jar",
-)
-### auto-generated section `dev intellij.java.jshell` end

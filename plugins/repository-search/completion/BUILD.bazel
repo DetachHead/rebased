@@ -11,6 +11,10 @@ jps_test(
 )
 ### skip generation section `test intellij.repository.search.completion.tests`
 
+### auto-generated section `dev intellij.repository.search.completion` start
+content_module_jar(module = ":completion")
+### auto-generated section `dev intellij.repository.search.completion` end
+
 ### auto-generated section `build intellij.repository.search.completion` start
 jvm_library(
     name = "completion",
@@ -44,8 +48,6 @@ jvm_library(
         "//platform/util/text-matching",
     ],
 )
-
-content_module_jar(module = ":completion")
 
 jvm_library(
     name = "completion_test_lib",
@@ -148,8 +150,8 @@ jvm_library(
         "//aether-dependency-resolver/plugin:plugin_test_lib",
         "//libraries/assertj-core",
         "//libraries/assertj-core:assertj-core_test_lib",
-        "//libraries/junit5",
-        "//libraries/junit5:junit5_test_lib",
+        "//libraries/junit6",
+        "//libraries/junit6:junit6_test_lib",
         "//platform/analysis-api:analysis",
         "//platform/analysis-api:analysis_test_lib",
         "//platform/lang-impl",

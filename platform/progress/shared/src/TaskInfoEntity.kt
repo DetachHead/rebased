@@ -26,9 +26,14 @@ data class TaskInfoEntity(override val eid: EID) : Entity {
    * Tasks of an unregistered project are cleaned up explicitly instead, see
    * `TaskStorage.removeTasksForProject`.
    *
-   * The id can be null for a default project.
+   * The id is null for a default project, and for an [ownerKind] other than [BackgroundTaskOwnerKind.PROJECT].
    */
   val projectId: ProjectId? by ProjectIdType
+
+  /**
+   * Specifies the frames that show the task.
+   */
+  val ownerKind: BackgroundTaskOwnerKind by OwnerKindType
 
   /**
    * Human-readable title of a task, which is used to display the task in UI
@@ -105,5 +110,6 @@ data class TaskInfoEntity(override val eid: EID) : Entity {
     val TaskStatusType: Required<TaskStatus> = requiredValue("taskStatus", TaskStatus.serializer())
     val ProjectIdType: Optional<ProjectId> = optionalValue("projectId", ProjectId.serializer(), Indexing.INDEXED)
     val ProgressBarVisibilityType: Required<Boolean> = requiredValue("visibleInStatusBar", Boolean.serializer())
+    val OwnerKindType: Required<BackgroundTaskOwnerKind> = requiredValue("ownerKind", BackgroundTaskOwnerKind.serializer())
   }
 }

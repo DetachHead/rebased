@@ -9,6 +9,7 @@ import com.intellij.platform.searchEverywhere.presentations.SeItemPresentation
 import com.intellij.platform.searchEverywhere.providers.SeLog
 import com.intellij.platform.searchEverywhere.providers.computeCatchingOrNull
 import com.intellij.platform.searchEverywhere.providers.target.SeTargetItem
+import com.intellij.platform.searchEverywhere.providers.target.SeTargetPresentableItem
 import com.jetbrains.rhizomedb.DbContext
 import fleet.kernel.DurableRef
 import kotlinx.serialization.Serializable
@@ -25,7 +26,7 @@ import kotlin.coroutines.cancellation.CancellationException
 sealed interface SeItemData {
   val uuid: String
   val providerId: SeProviderId
-  val weight: Int
+  val weight: SeComposedWeight
   val presentation: SeItemPresentation
   val uuidsToReplace: List<String>
   val additionalInfo: Map<String, String>
@@ -48,17 +49,20 @@ class SeItemDataFactory {
     val entityRef = SeItemEntity.createWith(session, item) ?: return null
     val additionalInfo = additionalInfo.toMutableMap()
 
+    // The language holds for every item, because it comes out of the raw object.
+    computeCatchingOrNull(true, { e -> "Couldn't add language info (${providerId.value}): $e" }) {
+      readAction {
+        PSIPresentationBgRendererWrapper.toPsi(item.rawObject)?.let {
+          additionalInfo[SeItemDataKeys.PSI_LANGUAGE_ID] = it.language.id
+        }
+      }
+    }
+
     if (item is SeLegacyItem) {
       additionalInfo[SeItemDataKeys.PROVIDER_SORT_WEIGHT] = item.contributor.sortWeight.toString()
 
-      computeCatchingOrNull(true, { e -> "Couldn't add language info (${providerId.value}): $e" }) {
-        PSIPresentationBgRendererWrapper.toPsi(item.rawObject)?.let {
-          readAction {
-            additionalInfo[SeItemDataKeys.PSI_LANGUAGE_ID] = it.language.id
-          }
-        }
-      }
-
+      // A target provider runs a goto model, so it never returns a semantic element. Only a legacy
+      // item needs this key, and it needs the contributor to answer.
       computeCatchingOrNull(true, { e -> "Couldn't add isSemantic info (${providerId.value}): $e" }) {
         val element = (item.rawObject as? PSIPresentationBgRendererWrapper.ItemWithPresentation<*>)?.item
                       ?: item.rawObject
@@ -67,12 +71,13 @@ class SeItemDataFactory {
         additionalInfo[SeItemDataKeys.IS_SEMANTIC] = isSemanticElement.toString()
       }
 
-      if (item is SeTargetItem && item.isExactMatch) {
-        additionalInfo[SeItemDataKeys.IS_EXACT_MATCH] = true.toString()
-      }
     }
 
-    return SeItemDataImpl(uuid, providerId, item.weight(), item.presentation(), emptyList(), additionalInfo, entityRef)
+    if ((item as? SeTargetItem)?.isExactMatch == true || (item as? SeTargetPresentableItem)?.isExactMatch == true) {
+      additionalInfo[SeItemDataKeys.IS_EXACT_MATCH] = true.toString()
+    }
+
+    return SeItemDataImpl(uuid, providerId, SeComposedWeight.from(item), item.presentation(), emptyList(), additionalInfo, entityRef)
   }
 }
 
@@ -81,7 +86,7 @@ class SeItemDataFactory {
 class SeItemDataImpl internal constructor(
   override val uuid: String,
   override val providerId: SeProviderId,
-  override val weight: Int,
+  override val weight: SeComposedWeight,
   override val presentation: SeItemPresentation,
   override val uuidsToReplace: List<String>,
   override val additionalInfo: Map<String, String>,
@@ -113,6 +118,10 @@ class SeItemDataImpl internal constructor(
   }
 
   fun withWeight(weight: Int): SeItemDataImpl {
+    return SeItemDataImpl(uuid, providerId, SeComposedWeight(weight), presentation, uuidsToReplace, additionalInfo, itemRef)
+  }
+
+  fun withWeight(weight: SeComposedWeight): SeItemDataImpl {
     return SeItemDataImpl(uuid, providerId, weight, presentation, uuidsToReplace, additionalInfo, itemRef)
   }
 
@@ -144,3 +153,6 @@ fun SeItemData.withPresentation(presentation: SeItemPresentation): SeItemData = 
 
 @ApiStatus.Internal
 fun SeItemData.withWeight(weight: Int): SeItemData = (this as SeItemDataImpl).withWeight(weight)
+
+@ApiStatus.Internal
+fun SeItemData.withWeight(weight: SeComposedWeight): SeItemData = (this as SeItemDataImpl).withWeight(weight)

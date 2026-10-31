@@ -1,6 +1,10 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
 load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
+### auto-generated section `dev intellij.java.vcs` start
+content_module_jar(module = ":vcs")
+### auto-generated section `dev intellij.java.vcs` end
+
 ### auto-generated section `build intellij.java.vcs` start
 jvm_library(
     name = "vcs",
@@ -51,6 +55,7 @@ jvm_library(
         "//platform/platform-util-io:ide-util-io",
         "//platform/platform-impl:ide-impl",
         "//platform/execution-impl",
+        "//platform/consoleView",
         "//platform/indexing-api:indexing",
         "//platform/testRunner",
         "//platform/usageView",
@@ -63,8 +68,6 @@ jvm_library(
         "//libraries/test-discovery",
     ],
 )
-
-content_module_jar(module = ":vcs")
 
 jvm_library(
     name = "vcs_test_lib",
@@ -109,6 +112,7 @@ jvm_library(
         "//platform/platform-util-io:ide-util-io_test_lib",
         "//platform/platform-impl:ide-impl_test_lib",
         "//platform/execution-impl:execution-impl_test_lib",
+        "//platform/consoleView:consoleView_test_lib",
         "//platform/indexing-api:indexing_test_lib",
         "//platform/testRunner:testRunner_test_lib",
         "//platform/usageView:usageView_test_lib",

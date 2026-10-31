@@ -1,8 +1,8 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.openapi.fileEditor.impl
 
+import com.intellij.ide.TrustedFiles
 import com.intellij.ide.trustedProjects.ExternallyOpenedFiles
-import com.intellij.ide.trustedProjects.TrustedFiles
 import com.intellij.ide.trustedProjects.TrustedProjects
 import com.intellij.openapi.fileEditor.FileEditor
 import com.intellij.openapi.fileEditor.FileEditorPolicy
@@ -11,8 +11,8 @@ import com.intellij.openapi.fileEditor.ex.FileEditorProviderManager
 import com.intellij.openapi.project.DumbAware
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.registry.Registry
-import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.openapi.vfs.VirtualFile
+import com.intellij.openapi.vfs.VirtualFileManager
 import com.intellij.testFramework.common.timeoutRunBlocking
 import com.intellij.testFramework.junit5.SystemProperty
 import com.intellij.testFramework.junit5.TestApplication
@@ -44,7 +44,7 @@ class UntrustedFileEditorProvidersTest {
 
     val outsideFile = tempPath.resolve("outside.txt")
     Files.writeString(outsideFile, "text")
-    val file = requireNotNull(LocalFileSystem.getInstance().refreshAndFindFileByNioFile(outsideFile))
+    val file = requireNotNull(VirtualFileManager.getInstance().refreshAndFindFileByNioPath(outsideFile))
 
     // a dynamically registered provider has no `allowedInUntrustedFiles` attribute and must be filtered out
     val dummy = object : FileEditorProvider, DumbAware {

@@ -26,9 +26,9 @@ import com.intellij.util.concurrency.annotations.RequiresEdt
 import com.intellij.util.runIf
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.withContext
 import org.jetbrains.annotations.ApiStatus
+import java.util.concurrent.CompletableFuture
 
 private val isNavigationRequestsEnabled: Boolean
   get() = Registry.`is`("ide.navigation.requests")
@@ -36,10 +36,12 @@ private val isNavigationRequestsEnabled: Boolean
 /**
  * Submits navigation to [navigatable] without waiting for it to finish.
  *
- * When `ide.navigation.requests` is enabled, the navigation is launched asynchronously in [coroutineScope]
- * or, when none is given, in the project navigation service scope.
- * Otherwise, a blocking modal navigation is scheduled on a later EDT event.
- * In both modes the function returns before the navigation completes.
+ * Use this function to start navigation from an action or another UI handler.
+ * [NavigationService] computes [Navigatable.navigationRequest] on a background thread under a read action.
+ * Pass a navigatable that resolves its target lazily when the resolution needs PSI access.
+ * Existing [Navigatable.navigate] implementations remain supported through raw navigation requests.
+ *
+ * Call this function outside a write action.
  * UI context is captured immediately for EDT callers and asynchronously for callers on other threads.
  *
  * Tests which depend on navigation started outside those fixtures (e.g., via `EditorTestUtil.executeAction`)
@@ -47,8 +49,10 @@ private val isNavigationRequestsEnabled: Boolean
  * outside a write action.
  * NB: prefer passing a lifecycle-bound [coroutineScope] when possible.
  *
- * @return [Job] which completes when the navigation task settles: finishes, is canceled
- * by a newer navigation request, or fails. This is an observation handle only
+ * Cancelling the returned future cancels the navigation task.
+ *
+ * @return a future containing `true` if at least one request was handled
+ * Failure or cancellation completes the future exceptionally.
  */
 @ApiStatus.Internal
 @JvmOverloads
@@ -58,7 +62,7 @@ fun requestNavigate(
   options: NavigationOptions = NavigationOptions.defaultOptions(),
   dataContext: DataContext? = null,
   coroutineScope: CoroutineScope? = null,
-): Job {
+): CompletableFuture<Boolean> {
   return dispatchNavigateRequest(project, options, dataContext, coroutineScope) { ctx ->
     navigate(navigatable, ctx.navigationOptions)
   }
@@ -76,7 +80,7 @@ fun requestNavigate(
   options: NavigationOptions = NavigationOptions.defaultOptions(),
   dataContext: DataContext? = null,
   coroutineScope: CoroutineScope? = null,
-): Job {
+): CompletableFuture<Boolean> {
   return dispatchNavigateRequest(project, options, dataContext, coroutineScope) { ctx ->
     navigate(navigatables, ctx.navigationOptions)
   }
@@ -94,7 +98,7 @@ fun requestNavigate(
   options: NavigationOptions = NavigationOptions.defaultOptions(),
   dataContext: DataContext? = null,
   coroutineScope: CoroutineScope? = null,
-): Job {
+): CompletableFuture<Boolean> {
   return dispatchNavigateRequest(
     project,
     options,
@@ -108,8 +112,9 @@ fun requestNavigate(
 /**
  * Submits navigation to the requests resolved by [supplier] without waiting for it to finish.
  *
- * The supplier runs inside the navigation task, off the EDT, so it may resolve the targets with `ReadAction`s.
- * Use it whenever building the requests is too expensive for the EDT, which is where an action is dispatched from.
+ * The supplier runs on a background thread inside the navigation task, without an implicit read action.
+ * Use [readAction] inside the supplier when resolving targets needs PSI access.
+ * The supplier must return requests without starting another navigation.
  *
  * @see [requestNavigate] for the dispatch and completion semantics.
  * @see [NavigationService.navigateRequests]
@@ -121,7 +126,7 @@ fun requestNavigate(
   dataContext: DataContext? = null,
   coroutineScope: CoroutineScope? = null,
   supplier: suspend () -> Collection<NavigationRequest>,
-): Job {
+): CompletableFuture<Boolean> {
   return dispatchNavigateRequest(
     project,
     options,
@@ -132,6 +137,10 @@ fun requestNavigate(
   }
 }
 
+/**
+ * Submits navigation to the targets from [dataContext] without waiting for it to finish.
+ * @see [requestNavigate] for the dispatch and completion semantics.
+ */
 @ApiStatus.Internal
 @JvmOverloads
 fun requestNavigate(
@@ -139,14 +148,35 @@ fun requestNavigate(
   dataContext: DataContext,
   options: NavigationOptions = NavigationOptions.defaultOptions(),
   coroutineScope: CoroutineScope? = null,
-): Job {
+): CompletableFuture<Boolean> {
+  return requestNavigate(project, dataContext, options, whenPerformed = null, coroutineScope = coroutineScope)
+}
+
+/**
+ * Submits navigation from [dataContext] and runs [whenPerformed] on the EDT after normal completion, including a `false` result.
+ * The callback runs inside the navigation task, before the future completes and the task leaves navigation tracking.
+ */
+@ApiStatus.Internal
+fun requestNavigate(
+  project: Project,
+  dataContext: DataContext,
+  options: NavigationOptions,
+  whenPerformed: Runnable?,
+  coroutineScope: CoroutineScope? = null,
+): CompletableFuture<Boolean> {
   return dispatchNavigateRequest(
     project,
     options,
     dataContext,
     coroutineScope
   ) { ctx ->
-    navigate(project, ctx.dataContext, ctx.navigationOptions)
+    val handled = navigate(project, ctx.dataContext, ctx.navigationOptions)
+    if (whenPerformed != null) {
+      withContext(Dispatchers.EDT) {
+        whenPerformed.run()
+      }
+    }
+    handled
   }
 }
 
@@ -154,7 +184,7 @@ fun requestNavigate(
  * The targets are resolved from async [dataContext] inside the navigation task, so a navigation which is still resolving them
  * is canceled by a newer one instead of outliving it.
  */
-internal suspend fun navigate(project: Project, dataContext: DataContext?, options: NavigationOptions): Boolean {
+private suspend fun navigate(project: Project, dataContext: DataContext?, options: NavigationOptions): Boolean {
   return project.serviceAsync<NavigationService>().navigate(options) {
     readAction {
       dataContext?.getData(CommonDataKeys.NAVIGATABLE_ARRAY)?.toList()
@@ -167,14 +197,14 @@ private inline fun dispatchNavigateRequest(
   options: NavigationOptions,
   dataContext: DataContext?,
   coroutineScope: CoroutineScope?,
-  crossinline navigate: suspend NavigationService.(NavigationTaskContext) -> Unit,
-): Job {
+  crossinline navigate: suspend NavigationService.(NavigationTaskContext) -> Boolean,
+): CompletableFuture<Boolean> {
   val coordinator = NavigationTaskCoordinator.getInstance(project)
   val precomputedContext = runIf(ApplicationManager.getApplication().isDispatchThread) {
     createNavigationContext(project, options, dataContext)
   }
 
-  return coordinator.dispatchNavigation(coroutineScope) {
+  return coordinator.dispatchNavigation(coroutineScope, precomputedContext) {
     val context = precomputedContext ?: withContext(Dispatchers.EDT) {
       createNavigationContext(project, options, dataContext)
     }
@@ -198,7 +228,7 @@ private inline fun dispatchNavigateRequest(
  * Captures EDT-only navigation inputs (focus/[DataContext], [ModalityState], [ClientId]).
  * [ClientId] is captured only for context propagation into the async navigation, not for lifetime.
  */
-@RequiresEdt
+@RequiresEdt(generateAssertion = false /* IJPL-115548 */)
 @ApiStatus.Internal
 private fun createNavigationContext(
   project: Project,
@@ -214,14 +244,14 @@ private fun createNavigationContext(
   )
 }
 
-@RequiresEdt
+@RequiresEdt(generateAssertion = false /* IJPL-115548 */)
 private fun getOrCreateAsyncDataContext(project: Project, dataContext: DataContext?): DataContext? {
   ThreadingAssertions.assertEventDispatchThread()
   val context = dataContext ?: fetchDataContext(project) ?: return null
   return IdeUiService.getInstance().createAsyncDataContext(context)
 }
 
-@RequiresEdt
+@RequiresEdt(generateAssertion = false /* IJPL-115548 */)
 private fun fetchDataContext(project: Project): DataContext? {
   ThreadingAssertions.assertEventDispatchThread()
   val component = IdeFocusManager.getInstance(project).getFocusOwner()
@@ -230,12 +260,15 @@ private fun fetchDataContext(project: Project): DataContext? {
 
 /**
  * Maps navigation inputs from this context into [options].
+ * Uses [NavigationOptions.KEY] when [options] is omitted, or the default options when the context has no options.
  *
  * A decision the caller already made about [NavigationOptions.requestedEditor] wins over
  * [OpenFileDescriptor.NAVIGATE_IN_EDITOR] from the context.
  */
 @ApiStatus.Internal
-fun DataContext?.toNavigationOptions(options: NavigationOptions = NavigationOptions.requestFocus()): NavigationOptions {
+fun DataContext?.toNavigationOptions(
+  options: NavigationOptions = this?.let { NavigationOptions.fromContext(it) } ?: NavigationOptions.defaultOptions(),
+): NavigationOptions {
   if ((options as NavigationOptions.Impl).requestedEditor != RequestedEditor.Unspecified) {
     return options
   }

@@ -5,10 +5,10 @@ import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.diagnostic.debug
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.platform.eel.EelDescriptor
-import com.intellij.platform.eel.annotations.NativePath
 import com.intellij.platform.eel.path.EelPath
 import com.intellij.platform.eel.pathSeparator
 import com.intellij.platform.eel.provider.LocalEelDescriptor
+import com.intellij.platform.util.annotations.paths.OsPath
 import org.jetbrains.annotations.ApiStatus
 import java.nio.file.Path
 import java.util.Collections
@@ -96,7 +96,7 @@ class MutableShellExecOptionsImpl(
     LOG.debug { "$requester: prependEntryToPathLikeEnv('$envName', '$remotePath')" }
   }
 
-  private fun joinWithPathLikeEnv(remotePath: @NativePath String, envName: String, prepend: Boolean): String {
+  private fun joinWithPathLikeEnv(remotePath: @OsPath String, envName: String, prepend: Boolean): String {
     var value = if (prepend) {
       translator.joinEntries(remotePath, envs[envName].orEmpty())
     }
@@ -131,7 +131,7 @@ class MutableShellExecOptionsImpl(
 
   override val envs: Map<String, String> = Collections.unmodifiableMap(mutableEnvs)
 
-  private fun translatePathToRemote(path: Path): @NativePath String? {
+  private fun translatePathToRemote(path: Path): @OsPath String? {
     if (!path.isAbsolute) {
       LOG.debug { "$requester: Relative path '$path' will be added as-is" }
       return path.toString()

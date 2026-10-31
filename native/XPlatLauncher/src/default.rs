@@ -73,6 +73,7 @@ impl LaunchConfiguration for DefaultLaunchConfiguration {
                 .replace(IDE_CACHE_DIR_MACRO, &ide_caches_path);
         }
 
+        vm_options.push(jvm_property!("idea.home.path", ide_home_path));
         vm_options.push(jvm_property!("ide.native.launcher", "true"));
 
         Ok(vm_options)
@@ -251,7 +252,7 @@ impl DefaultLaunchConfiguration {
         debug!("[1] Reading main VM options file: {:?}", self.vm_options_path);
         let (dist_vm_options, corrupted) = read_vm_options(&self.vm_options_path)?;
         if corrupted {
-            bail!("Invalid character ('\\0') found in VM options file: {}", &self.vm_options_path.display());
+            bail!("Invalid character ('\\0') found in VM options file: {}", self.vm_options_path.display());
         }
 
         debug!("[2] Looking for user VM options file");

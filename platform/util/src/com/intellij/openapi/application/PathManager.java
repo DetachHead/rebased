@@ -477,6 +477,7 @@ public final class PathManager {
     Path path = ourConfigPath;
     if (path == null) {
       Path explicit = getExplicitPath(PROPERTY_CONFIG_PATH);
+      //noinspection SSBasedInspection
       ourConfigPath = path = (
         explicit != null ? explicit :
         ourPathSelector != null ? Paths.get(getDefaultConfigPathFor(ourPathSelector)) :
@@ -511,6 +512,7 @@ public final class PathManager {
     Path path = ourScratchPath;
     if (path == null) {
       Path explicit = getExplicitPath(PROPERTY_SCRATCH_PATH);
+      //noinspection SSBasedInspection
       ourScratchPath = path = explicit == null ? getConfigDir() : explicit;
     }
     return path;
@@ -561,6 +563,7 @@ public final class PathManager {
     Path path = ourPluginPath;
     if (path == null) {
       Path explicit = getExplicitPath(PROPERTY_PLUGINS_PATH);
+      //noinspection SSBasedInspection
       ourPluginPath = path = (
         explicit != null ? explicit :
         ourPathSelector != null && System.getProperty(PROPERTY_CONFIG_PATH) == null ? Paths.get(getDefaultPluginPathFor(ourPathSelector)) :
@@ -596,6 +599,7 @@ public final class PathManager {
     Path path = ourSystemPath;
     if (path == null) {
       Path explicit = getExplicitPath(PROPERTY_SYSTEM_PATH);
+      //noinspection SSBasedInspection
       ourSystemPath = path = (
         explicit != null ? explicit :
         ourPathSelector != null ? Paths.get(getDefaultSystemPathFor(ourPathSelector)) :
@@ -658,6 +662,7 @@ public final class PathManager {
     Path path = ourLogPath;
     if (path == null) {
       Path explicit = getExplicitPath(PROPERTY_LOG_PATH);
+      //noinspection SSBasedInspection
       ourLogPath = path =
         explicit != null ? explicit :
         ourPathSelector != null && System.getProperty(PROPERTY_SYSTEM_PATH) == null ? Paths.get(getDefaultLogPathFor(ourPathSelector)) :
@@ -773,7 +778,6 @@ public final class PathManager {
     }
 
     if (resultPath == null) {
-      //noinspection GrazieInspection
       log("cannot extract '" + resourcePath + "' from '" + resourceURL + "'");
       return null;
     }

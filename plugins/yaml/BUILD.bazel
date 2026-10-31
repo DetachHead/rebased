@@ -1,5 +1,5 @@
 load("@community//build:tests-options.bzl", "jps_test")
-load("@community//platform/build-scripts/bazel-rules:dev_dist_plugin.bzl", "dev_dist_plugin")
+load("@jps_dynamic_deps_community//:targets.bzl", "dev_dist_plugin")
 load("@rules_jvm//:jvm.bzl", "jvm_library")
 load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
@@ -14,6 +14,19 @@ jps_test(
     ],
 )
 ### skip generation section `test intellij.yaml.tests`
+
+### auto-generated section `dev intellij.yaml` start
+content_module_jar(module = ":yaml")
+
+dev_dist_plugin(
+    content_modules = [
+        # do not sort,
+        "intellij.yaml.backend",
+        "intellij.yaml.syntax",
+    ],
+    main_module = "intellij.yaml",
+)
+### auto-generated section `dev intellij.yaml` end
 
 ### auto-generated section `build intellij.yaml` start
 jvm_library(
@@ -64,8 +77,6 @@ jvm_library(
     ],
 )
 
-content_module_jar(module = ":yaml")
-
 jvm_library(
     name = "yaml_test_lib",
     testonly = True,
@@ -98,8 +109,6 @@ jvm_library(
         "//platform/util:util-ui_test_lib",
         "//platform/refactoring:refactoring_test_lib",
         "//platform/core-ui:core-ui_test_lib",
-        "//platform/testFramework",
-        "//platform/testFramework:testFramework_test_lib",
         "//libraries/kotlinx/serialization/core:core_test_lib",
         "//platform/util/jdom:jdom_test_lib",
         "//libraries/fastutil:fastutil_test_lib",
@@ -124,16 +133,6 @@ exports_files(
     visibility = ["//visibility:public"],
 )
 ### auto-generated section `iml intellij.yaml` end
-
-### auto-generated section `dev intellij.yaml` start
-dev_dist_plugin(
-    descriptor_module = ":yaml",
-    prepacked_content_modules = ["//plugins/yaml/backend:backend_content_module_jar"],
-    prepacked_jars = {
-        "//plugins/yaml/syntax:syntax_content_module_jar": "intellij.yaml.syntax.jar",
-    },
-)
-### auto-generated section `dev intellij.yaml` end
 
 ### auto-generated section `build intellij.yaml.tests` start
 jvm_library(

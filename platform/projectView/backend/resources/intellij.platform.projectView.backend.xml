@@ -4,6 +4,7 @@
     <module name="fleet.rpc"/>
     <module name="intellij.libraries.kotlinx.coroutines.core"/>
     <module name="intellij.platform.analysis"/>
+    <module name="intellij.platform.concurrency"/>
     <module name="intellij.platform.core"/>
     <module name="intellij.platform.core.ui"/>
     <module name="intellij.platform.editor.ui"/>
@@ -11,6 +12,7 @@
     <module name="intellij.platform.ide.concurrency"/>
     <module name="intellij.platform.ide.core"/>
     <module name="intellij.platform.ide.impl"/>
+    <module name="intellij.platform.ide.rpc"/>
     <module name="intellij.platform.lang"/>
     <module name="intellij.platform.lang.core"/>
     <module name="intellij.platform.lang.impl"/>
@@ -30,10 +32,12 @@
     />
   </extensionPoints>
   <extensions defaultExtensionNs="com.intellij">
-    <platform.rpc.backend.remoteApiProvider implementation="com.intellij.platform.projectView.backend.rpc.ProjectViewRpcProvider"/>
+    <platform.rpc.backend.remoteApiProvider implementation="com.intellij.platform.projectView.backend.rpc.ProjectViewRpcProvider"
+                                            apiInterfaces="com.intellij.platform.projectView.rpc.ProjectViewRpc"/>
     <project.view.pane.model.backend implementation="com.intellij.platform.projectView.backend.impl.project.BackendProjectPaneProvider"/>
     <project.view.pane.model.backend implementation="com.intellij.platform.projectView.backend.impl.scope.ScopePaneProvider"/>
     <project.view.pane.model.backend implementation="com.intellij.platform.projectView.backend.impl.legacy.LegacyBackendProjectViewPaneProvider"/>
     <uiDataRule implementation="com.intellij.platform.projectView.backend.pane.BackendProjectViewPaneUiDataRule"/>
+    <projectViewSelectInTargetProvider implementation="com.intellij.platform.projectView.backend.actions.BackendProjectViewSelectInTargetProvider"/>
   </extensions>
 </idea-plugin>

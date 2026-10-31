@@ -37,8 +37,8 @@ internal class NonModalWelcomeScreenProjectFrameCapabilitiesProvider : ProjectFr
     }
     if (project.getUserData(ProjectFrameCapabilitiesService.TOOL_WINDOW_INIT) == true) {
       val properties = PropertiesComponent.getInstance(project)
-      if (properties.getValue("NON_MODAL_WELCOME_SCREEN_FIRST_RUN") == null) {
-        properties.setValue("NON_MODAL_WELCOME_SCREEN_FIRST_RUN", true)
+      if (properties.getValue(FIRST_RUN_PROPERTY) == null) {
+        properties.setValue(FIRST_RUN_PROPERTY, true)
         return NON_MODAL_WELCOME_SCREEN_FIRST_RUN_UI_POLICY
       }
     }
@@ -46,7 +46,13 @@ internal class NonModalWelcomeScreenProjectFrameCapabilitiesProvider : ProjectFr
   }
 }
 
-private val NON_MODAL_WELCOME_SCREEN_UI_POLICY = ProjectFrameUiPolicy(
+/**
+ * Marks a welcome project that got [NON_MODAL_WELCOME_SCREEN_FIRST_RUN_UI_POLICY] once.
+ * Increment the suffix when the exclusive tool window set changes, so that existing welcome projects get the new set once.
+ */
+private const val FIRST_RUN_PROPERTY = "NON_MODAL_WELCOME_SCREEN_FIRST_RUN_V2"
+
+private val NON_MODAL_WELCOME_SCREEN_UI_POLICY =ProjectFrameUiPolicy(
   projectPaneToActivateId = WelcomeScreenProjectProvider.getProjectPaneToActivateId() ?: WelcomeScreenLeftPanel.ID,
   startupToolWindowIdToActivate = WelcomeScreenProjectProvider.getStartupToolWindowIdToActivate() ?: ToolWindowId.PROJECT_VIEW,
 )

@@ -14,13 +14,13 @@ jps_test(
 
 ### auto-generated section `build intellij.java.testFramework` start
 jvm_provided_library(
-    name = "libraries_junit5_provided",
-    lib = "//libraries/junit5",
+    name = "libraries_junit6_provided",
+    lib = "//libraries/junit6",
 )
 
 jvm_provided_library(
-    name = "libraries_junit5-params_provided",
-    lib = "//libraries/junit5-params",
+    name = "libraries_junit6-params_provided",
+    lib = "//libraries/junit6-params",
 )
 
 jvm_library(
@@ -61,6 +61,7 @@ jvm_library(
         "//platform/editor-ui-api:editor-ui",
         "//platform/indexing-api:indexing",
         "//jps/model-api:model",
+        "//jps/model-serialization",
         "//platform/lang-core",
         "//platform/projectModel-api:projectModel",
         "//platform/refactoring",
@@ -70,6 +71,7 @@ jvm_library(
         "//platform/util/jdom",
         "//platform/util:util-ui",
         "//platform/lang-api:lang",
+        "//platform/bazel-runfiles",
         "//platform/backend/workspace",
         "//platform/lang-impl",
         "//platform/problemsView/backend",
@@ -107,6 +109,7 @@ jvm_library(
         "//platform/eel",
         "//java/java-psi-api:psi",
         "//platform/execution",
+        "//platform/consoleView",
         "//platform/testFramework/junit5",
         "//platform/testFramework/junit5/codeInsight",
         "//java/java-frontback-psi-impl:frontback-psi-impl",
@@ -116,8 +119,8 @@ jvm_library(
         "//libraries/kotlinx/collections-immutable:libraries-kotlinx-collections-immutable",
         "//platform/util/concurrency",
         "//java/java-indexing-api:indexing",
-        ":libraries_junit5_provided",
-        ":libraries_junit5-params_provided",
+        ":libraries_junit6_provided",
+        ":libraries_junit6-params_provided",
     ],
 )
 
@@ -152,6 +155,7 @@ jvm_library(
         "//platform/editor-ui-api:editor-ui_test_lib",
         "//platform/indexing-api:indexing_test_lib",
         "//jps/model-api:model_test_lib",
+        "//jps/model-serialization:model-serialization_test_lib",
         "//platform/lang-core:lang-core_test_lib",
         "//platform/projectModel-api:projectModel_test_lib",
         "//platform/refactoring:refactoring_test_lib",
@@ -161,6 +165,7 @@ jvm_library(
         "//platform/util/jdom:jdom_test_lib",
         "//platform/util:util-ui_test_lib",
         "//platform/lang-api:lang_test_lib",
+        "//platform/bazel-runfiles:bazel-runfiles_test_lib",
         "//platform/backend/workspace:workspace_test_lib",
         "//platform/lang-impl:lang-impl_test_lib",
         "//platform/problemsView/backend:backend_test_lib",
@@ -175,8 +180,6 @@ jvm_library(
         "//platform/editor-ui-ex:editor-ex_test_lib",
         "//platform/testFramework:testFramework_test_lib",
         "//platform/workspace/storage:storage_test_lib",
-        "//xml/relaxng",
-        "//xml/relaxng:relaxng_test_lib",
         "//java/idea-ui:ui_test_lib",
         "//java/debugger/impl:impl_test_lib",
         "//java/execution/openapi:java-execution_test_lib",
@@ -202,6 +205,7 @@ jvm_library(
         "//platform/eel:eel_test_lib",
         "//java/java-psi-api:psi_test_lib",
         "//platform/execution:execution_test_lib",
+        "//platform/consoleView:consoleView_test_lib",
         "//platform/testFramework/junit5:junit5_test_lib",
         "//platform/testFramework/junit5/codeInsight:codeInsight_test_lib",
         "//java/java-frontback-psi-impl:frontback-psi-impl_test_lib",
@@ -211,10 +215,10 @@ jvm_library(
         "//libraries/kotlinx/collections-immutable:libraries-kotlinx-collections-immutable_test_lib",
         "//platform/util/concurrency:concurrency_test_lib",
         "//java/java-indexing-api:indexing_test_lib",
-        "//libraries/junit5",
-        "//libraries/junit5:junit5_test_lib",
-        "//libraries/junit5-params",
-        "//libraries/junit5-params:junit5-params_test_lib",
+        "//libraries/junit6",
+        "//libraries/junit6:junit6_test_lib",
+        "//libraries/junit6-params",
+        "//libraries/junit6-params:junit6-params_test_lib",
     ],
 )
 ### auto-generated section `build intellij.java.testFramework` end
@@ -251,6 +255,7 @@ jvm_library(
         # do not sort,
         "//java/plugin",
         "//platform/external-system-impl:externalSystem-impl",
+        "//xml/plugin",
     ],
 )
 
@@ -292,6 +297,7 @@ jvm_library(
         "//java/plugin:plugin_test_lib",
         "//platform/external-system-impl:externalSystem-impl_test_lib",
         "//platform/platform-util-io:ide-util-io_test_lib",
+        "//xml/plugin:plugin_test_lib",
     ],
     deps = [
         # do not sort,
@@ -329,8 +335,6 @@ jvm_library(
         "//aether-dependency-resolver/plugin:plugin_test_lib",
         "//libraries/junit4",
         "//libraries/junit4:junit4_test_lib",
-        "//libraries/misc/plugin",
-        "//libraries/misc/plugin:plugin_test_lib",
         "//platform/util/jdom",
         "//platform/util/jdom:jdom_test_lib",
         "//platform/lang-api:lang",

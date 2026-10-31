@@ -1,7 +1,7 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.terminal.frontend.toolwindow
 
-import com.intellij.platform.eel.annotations.MultiRoutingFileSystemPath
+import com.intellij.platform.util.annotations.paths.NioPath
 import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.plugins.terminal.TerminalEmulatorType
 import org.jetbrains.plugins.terminal.startup.TerminalProcessType
@@ -10,7 +10,7 @@ import org.jetbrains.plugins.terminal.startup.TerminalProcessType
 @ApiStatus.NonExtendable
 interface TerminalRequestedProcessOptions {
   val shellCommand: List<String>?
-  val workingDirectory: @MultiRoutingFileSystemPath String?
+  val workingDirectory: @NioPath String?
   val envVariables: Map<String, String>
   val processType: TerminalProcessType
 

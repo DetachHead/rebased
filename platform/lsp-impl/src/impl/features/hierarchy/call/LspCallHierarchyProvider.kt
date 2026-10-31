@@ -10,6 +10,7 @@ import com.intellij.platform.lsp.api.customization.LspCallHierarchySupport
 import com.intellij.platform.lsp.impl.LspClientImpl
 import com.intellij.platform.lsp.impl.features.hierarchy.findSupportingClient
 import com.intellij.platform.lsp.impl.features.hierarchy.getTargetFromEditor
+import com.intellij.platform.lsp.impl.supportsCallHierarchy
 import com.intellij.psi.PsiElement
 
 private val LSP_CALL_HIERARCHY_CLIENT_KEY = Key.create<LspClientImpl>("lsp.call.hierarchy.client")

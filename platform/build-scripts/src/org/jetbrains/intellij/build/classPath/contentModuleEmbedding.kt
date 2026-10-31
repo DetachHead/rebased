@@ -32,6 +32,8 @@ import org.jetbrains.intellij.build.FrontendModuleFilter
 import org.jetbrains.intellij.build.JarPackagerDependencyHelper
 import org.jetbrains.intellij.build.ModuleOutputProvider
 import org.jetbrains.intellij.build.PLUGIN_XML_RELATIVE_PATH
+import org.jetbrains.intellij.build.dev.ClassicDevRun
+import org.jetbrains.intellij.build.dev.DevPluginLayoutAssetSpec
 import org.jetbrains.intellij.build.findFileInModuleDependenciesRecursive
 import org.jetbrains.intellij.build.findFileInModuleLibraryDependencies
 import org.jetbrains.intellij.build.findUnprocessedDescriptorContent
@@ -92,7 +94,7 @@ internal data class DescriptorSearchScope(
  * @param xIncludeResolver The resolver for xi:include elements
  * @param context The build context
  */
-internal suspend fun embedContentModules(
+internal fun embedContentModules(
   rootElement: Element,
   pluginLayout: PluginLayout,
   pluginDescriptorContainer: ScopedCachedDescriptorContainer,
@@ -118,6 +120,9 @@ internal suspend fun embedContentModules(
   }
 }
 
+/** The dev distribution states the embedded product descriptor patch as an omitted slot. The classic dev build runs the patch. */
+private val EMBEDDED_PRODUCT_DESCRIPTOR_DEV_SPEC: DevPluginLayoutAssetSpec = DevPluginLayoutAssetSpec.OMITTED.copy(classicDev = ClassicDevRun.RUN)
+
 /**
  * Instructs the build scripts to resolve xi:include tags and inline content modules for the core plugin descriptor of a separate product embedded in an IDE.
  * This is used only for embedded variants of JetBrains Client and Gateway.
@@ -126,7 +131,7 @@ fun deprecatedResolveDescriptorForEmbeddedProduct(
   spec: PluginLayout.PluginLayoutSpec,
   clientModuleName: String,
   relativePath: String,
-  embeddedProductSpecEvaluator: suspend (BuildContext) -> ProductModulesContentSpec?,
+  embeddedProductSpecEvaluator: (BuildContext) -> ProductModulesContentSpec?,
   additionalSearchModules: Collection<String> = emptyList(),
 ) {
   val layoutPatcherIfNoScrambling: LayoutPatcher = { moduleOutputPatcher, platformLayout, context ->
@@ -165,7 +170,7 @@ fun deprecatedResolveDescriptorForEmbeddedProduct(
     moduleOutputPatcher.patchModuleOutput(moduleName = clientModuleName, path = relativePath, content = patchedXmlContent)
   }
 
-  spec.withDeprecatedPostProcessor(layoutPatcherIfNoScrambling) { zipFileName, data, pluginLayout, platformLayout, pluginDescriptorContainer, context ->
+  spec.withDeprecatedPostProcessor(EMBEDDED_PRODUCT_DESCRIPTOR_DEV_SPEC, layoutPatcherIfNoScrambling) { zipFileName, data, pluginLayout, platformLayout, pluginDescriptorContainer, context ->
     if (zipFileName != relativePath) {
       return@withDeprecatedPostProcessor null
     }
@@ -210,7 +215,7 @@ private fun loadXmlFromEmbeddedProductSpec(
   return JDOMUtil.load(buildResult.xml)
 }
 
-internal suspend fun resolveAndCacheDescriptorForEmbeddedProduct(
+internal fun resolveAndCacheDescriptorForEmbeddedProduct(
   xml: Element,
   clientModuleName: String,
   additionalSearchModules: Collection<String>,
@@ -333,17 +338,18 @@ internal fun resolveAndEmbedContentModuleDescriptor(
   outputProvider: ModuleOutputProvider,
   descriptorModifier: ((Element) -> Unit)? = null,
 ) {
-  if (!moduleElement.content.isEmpty()) {
-    return
-  }
-
   val moduleName = moduleElement.getAttributeValue("name") ?: return
+  // The resolve also caches the descriptor, and the runtime module repository reads that cache for every module of
+  // the published `<content>` list. So a module that already holds a body still resolves, and only keeps its body.
   val descriptor = resolveContentModuleDescriptor(
     moduleName = moduleName,
     descriptorCache = descriptorCache,
     xIncludeResolver = xIncludeResolver.copyWithExtraSearchPath(moduleName, descriptorCache),
     outputProvider = outputProvider,
   )
+  if (!moduleElement.content.isEmpty()) {
+    return
+  }
 
   descriptorModifier?.invoke(descriptor)
   moduleElement.setContent(CDATA(JDOMUtil.write(descriptor)))
@@ -359,19 +365,30 @@ internal fun resolveAndEmbedContentModuleDescriptor(
 internal interface DescriptorResolveContext {
   val outputProvider: ModuleOutputProvider
 
+  /** Controls module lookup. Library descriptors remain available after the source lookup. */
+  val searchPasses: List<DescriptorSearchPass>
+    get() = DescriptorSearchPass.entries
+
   /** The simple name of the product-properties class. */
   val productPropertiesName: String
 }
 
 /** Reads the two facts of [DescriptorResolveContext] out of a build context. */
-internal fun descriptorResolveContext(context: BuildContext): DescriptorResolveContext = BuildContextDescriptorResolveContext(context)
+internal fun descriptorResolveContext(context: BuildContext): DescriptorResolveContext {
+  return descriptorResolveContext(context.outputProvider, context.productProperties::class.java.simpleName)
+}
 
-private class BuildContextDescriptorResolveContext(private val context: BuildContext) : DescriptorResolveContext {
-  override val outputProvider: ModuleOutputProvider
-    get() = context.outputProvider
-
-  override val productPropertiesName: String
-    get() = context.productProperties::class.java.simpleName
+internal fun descriptorResolveContext(
+  outputProvider: ModuleOutputProvider,
+  productPropertiesName: String,
+  sourceOnly: Boolean = false,
+): DescriptorResolveContext {
+  return object : DescriptorResolveContext {
+    override val outputProvider: ModuleOutputProvider = outputProvider
+    override val productPropertiesName: String = productPropertiesName
+    override val searchPasses: List<DescriptorSearchPass> =
+      if (sourceOnly) listOf(DescriptorSearchPass.PRODUCTION_SOURCES) else DescriptorSearchPass.entries
+  }
 }
 
 internal class XIncludeElementResolverImpl(
@@ -412,7 +429,7 @@ internal class XIncludeElementResolverImpl(
     // The whole search runs in the checkout first and only then in module output. A scope here can name every module
     // of the platform layout, and in `MODULE_OUTPUT` a *miss* still resolves that module's Bazel output - which is
     // what declares it as an input of a dev-distribution fragment. See `DescriptorSearchPass`.
-    for (pass in DescriptorSearchPass.entries) {
+    for (pass in context.searchPasses) {
       for (searchPath in searchPath) {
         val descriptorCache = searchPath.descriptorCache
         descriptorCache.getCachedFileData(loadPath)?.let {
@@ -479,7 +496,7 @@ internal class XIncludeElementResolverImpl(
         // fragment keys.
         val outputProvider = context.outputProvider
         val alreadySearched = searchPath.flatMapTo(HashSet(), DescriptorSearchScope::modules)
-        for (module in outputProvider.getAllModules().sortedBy { it.name }) {
+        for (module in outputProvider.findModulesWithSourceFile(loadPath).sortedBy { it.name }) {
           if (!alreadySearched.add(module.name)) continue
           readDescriptor(
             module = module,
@@ -490,6 +507,19 @@ internal class XIncludeElementResolverImpl(
             searchPath.first().descriptorCache.putIfAbsent(loadPath, data)
             return JDOMUtil.load(data)
           }
+        }
+      }
+    }
+
+    if (DescriptorSearchPass.MODULE_OUTPUT !in context.searchPasses) {
+      for ((modules, descriptorCache, searchInDependencies) in searchPath) {
+        if (searchInDependencies == DescriptorSearchScope.SearchMode.WITHOUT_DEPENDENCIES) {
+          continue
+        }
+        for (module in modules) {
+          val data = findFileInModuleLibraryDependencies(context.outputProvider.findRequiredModule(module), loadPath, context.outputProvider) ?: continue
+          descriptorCache.putIfAbsent(loadPath, data)
+          return JDOMUtil.load(data)
         }
       }
     }

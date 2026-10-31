@@ -1,47 +1,33 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.python.junit5Tests.env.tests.interpreters.lspTools
 
-import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.edtWriteAction
 import com.intellij.openapi.application.readAction
 import com.intellij.openapi.fileEditor.ex.FileEditorManagerEx
 import com.intellij.openapi.fileEditor.impl.EditorHistoryManager
-import com.intellij.openapi.module.Module
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.platform.lsp.api.LspClient
 import com.intellij.platform.lsp.api.LspClientManager
-import com.intellij.platform.lsp.api.LspClientManagerListener
 import com.intellij.platform.lsp.api.LspIntegrationProvider
 import com.intellij.platform.lsp.api.LspServerState
 import com.intellij.platform.lsp.impl.LspClientImpl
+import com.intellij.platform.lsp.testFramework.awaitDiagnosticsFromLspServer
+import com.intellij.platform.lsp.testFramework.awaitFileOpenedByLspServer
 import com.intellij.platform.lsp.util.messageIfStringOrEmpty
-import com.intellij.platform.testFramework.junit5.codeInsight.fixture.codeInsightFixture
-import com.intellij.python.junit5Tests.framework.env.pySdkFixture
-import com.intellij.python.pytools.PyTool
-import com.intellij.python.pytools.PyToolsState
+import com.intellij.python.pytools.backend.PyTool
+import com.intellij.python.pytools.backend.PyToolsState
 import com.intellij.python.test.env.junit5.LspToolVersions
-import com.intellij.python.test.env.junit5.pyVenvFixture
-import com.intellij.testFramework.fixtures.impl.CodeInsightTestFixtureImpl
-import com.intellij.python.junit5Tests.framework.pyModuleFixture
-import com.intellij.testFramework.junit5.fixture.projectFixture
-import com.intellij.testFramework.junit5.fixture.tempPathFixture
-import com.jetbrains.python.isSuccess
-import com.intellij.python.requirements.parser.PyRequirementParser
-import com.jetbrains.python.packaging.common.PythonRepositoryPackageSpecification
-import com.jetbrains.python.packaging.management.PythonPackageInstallRequest
-import com.jetbrains.python.packaging.management.PythonPackageManager
-import com.jetbrains.python.packaging.repository.PyPiPackageRepository
-import com.jetbrains.python.sdk.pythonSdk
-import kotlinx.coroutines.CancellationException
+import com.intellij.python.test.env.junit5.installToolPackage
+import com.intellij.testFramework.common.DEFAULT_TEST_TIMEOUT
+import com.jetbrains.python.project.PyProject
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
 import org.eclipse.lsp4j.Diagnostic
 import org.eclipse.lsp4j.DiagnosticSeverity
 import org.junit.jupiter.api.Assertions.assertTrue
 import java.util.concurrent.atomic.AtomicBoolean
-import kotlin.coroutines.resume
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
@@ -55,63 +41,91 @@ import kotlin.time.Duration.Companion.seconds
  */
 
 /**
- * Install [requirement] (a PEP 508 requirement string, e.g. `ruff==0.15.18`) into the module's venv
- * via the real package manager. Retried with a short backoff to tolerate flaky network access on CI.
+ * The time limit for one call of a platform LSP await function.
+ * It must be shorter than [DEFAULT_TEST_TIMEOUT], because the platform function fails when its own limit expires.
  */
-internal suspend fun Module.installToolPackage(requirement: String) {
-  val packageManager = PythonPackageManager.forSdk(project, pythonSdk!!)
-  val spec = PythonRepositoryPackageSpecification(PyPiPackageRepository, PyRequirementParser.fromLine(requirement)!!)
-  val installRequest = PythonPackageInstallRequest.ByRepositoryPythonPackageSpecifications(listOf(spec))
-
-  var lastError: Throwable? = null
-  repeat(3) { attempt ->
-    try {
-      val result = packageManager.installPackage(installRequest)
-      assertTrue(result.isSuccess) { "Failed to install '$requirement': ${result.errorOrNull}" }
-      CodeInsightTestFixtureImpl.ensureIndexesUpToDate(project)
-      return
-    }
-    catch (e: CancellationException) {
-      throw e
-    }
-    catch (e: Throwable) {
-      // Either the install reported failure (AssertionError) or the package manager threw (e.g. a
-      // network error); both are worth retrying.
-      lastError = e
-      if (attempt < 2) delay(2.seconds * (attempt + 1))
-    }
-  }
-  throw lastError!!
-}
+private val LSP_EVENT_WAIT_LIMIT = 5.seconds
 
 /**
- * Poll the LSP client of [providerClass] until it has published at least one diagnostic of
- * [DiagnosticSeverity.Error] severity for [file], then return all such error diagnostics.
+ * Wait until the error diagnostics of the LSP client of [providerClass] for [file] satisfy [until], then
+ * return all diagnostics of [DiagnosticSeverity.Error] severity. By default, one error is enough.
  *
- * The diagnostics are read straight from the LSP client's `publishDiagnostics` cache rather than
- * through the IDE daemon, so the assertion is deterministic and unaffected by asynchronous daemon
- * restarts that some servers trigger (e.g. via `workspace/inlayHint/refresh`). Polling (instead of
- * listening for events) also avoids races with the server opening the file before we subscribe.
+ * The diagnostics come straight from the LSP client cache, not from the IDE daemon.
+ * Thus a daemon restart, for example after `workspace/inlayHint/refresh`, has no effect on the check.
+ * The cache can be empty or incomplete, because a server can send diagnostics several times for one file.
+ * So the function checks the cache again after each [awaitDiagnosticsFromLspServer] event.
+ * A notification can arrive between the cache check and the subscription.
+ * In that case, [LSP_EVENT_WAIT_LIMIT] makes the function check the cache again.
+ *
+ * [awaitDiagnosticsFromLspServer] fails when any LSP server of the project shuts down.
+ * A restart after a package install is normal, so the function continues to wait for the new client.
+ * It fails only when the client of [providerClass] shuts down unexpectedly.
  */
 internal suspend fun awaitLspErrorDiagnostics(
   project: Project,
   file: VirtualFile,
   providerClass: Class<out LspIntegrationProvider>,
+  until: (List<Diagnostic>) -> Boolean = { it.isNotEmpty() },
 ): List<Diagnostic> =
   withTimeout(2.minutes) {
-    while (true) {
-      val client = LspClientManager.getInstance(project).getClients(providerClass).firstOrNull()
-      if (client is LspClientImpl) {
-        val errors = readAction { client.getDiagnosticsAndQuickFixes(file) }
-          .map { it.diagnostic }
-          .filter { it.severity == DiagnosticSeverity.Error }
-        if (errors.isNotEmpty()) return@withTimeout errors
+    var errors = readLspErrorDiagnostics(project, file, providerClass)
+    while (!until(errors)) {
+      try {
+        withTimeoutOrNull(LSP_EVENT_WAIT_LIMIT) { awaitDiagnosticsFromLspServer(project, file) }
       }
-      delay(200.milliseconds)
+      catch (e: AssertionError) {
+        assertNoUnexpectedShutdown(project, providerClass, e)
+        delay(LSP_EVENT_WAIT_LIMIT)
+      }
+      errors = readLspErrorDiagnostics(project, file, providerClass)
     }
-    @Suppress("UNREACHABLE_CODE")
-    emptyList()
+    errors
   }
+
+private fun assertNoUnexpectedShutdown(project: Project, providerClass: Class<out LspIntegrationProvider>, cause: AssertionError) {
+  val crashed = LspClientManager.getInstance(project).getClients(providerClass).any { it.state == LspServerState.ShutdownUnexpectedly }
+  if (crashed) {
+    throw AssertionError("The LSP server of ${providerClass.simpleName} shut down unexpectedly", cause)
+  }
+}
+
+private suspend fun readLspErrorDiagnostics(
+  project: Project,
+  file: VirtualFile,
+  providerClass: Class<out LspIntegrationProvider>,
+): List<Diagnostic> {
+  val client = LspClientManager.getInstance(project).getClients(providerClass).firstOrNull() as? LspClientImpl ?: return emptyList()
+  return readAction { client.getDiagnosticsAndQuickFixes(file) }
+    .map { it.diagnostic }
+    .filter { it.severity == DiagnosticSeverity.Error }
+}
+
+/**
+ * Waits until [client] holds a diagnostic for [file] that matches [predicate], and returns every matching one.
+ *
+ * It waits for the events the way [awaitLspErrorDiagnostics] does. Use it when the project runs more than one
+ * client of a tool, because [awaitLspErrorDiagnostics] reads only the first one.
+ */
+internal suspend fun awaitLspDiagnostics(client: LspClient, file: VirtualFile, predicate: (Diagnostic) -> Boolean): List<Diagnostic> {
+  val clientImpl = client as LspClientImpl
+  return withTimeout(2.minutes) {
+    var matching = clientImpl.diagnosticsOf(file).filter(predicate)
+    while (matching.isEmpty()) {
+      try {
+        withTimeoutOrNull(LSP_EVENT_WAIT_LIMIT) { awaitDiagnosticsFromLspServer(client.descriptor.project, file) }
+      }
+      catch (_: AssertionError) {
+        // Another server of the project shut down. This client can still publish.
+        delay(LSP_EVENT_WAIT_LIMIT)
+      }
+      matching = clientImpl.diagnosticsOf(file).filter(predicate)
+    }
+    matching
+  }
+}
+
+private suspend fun LspClientImpl.diagnosticsOf(file: VirtualFile): List<Diagnostic> =
+  readAction { getDiagnosticsAndQuickFixes(file) }.map { it.diagnostic }
 
 /**
  * Assert that [errors] contains a diagnostic that is actually about the `int = "..."` type mismatch
@@ -130,36 +144,18 @@ internal fun assertReportsIntAssignmentError(errors: List<Diagnostic>, tool: Str
 }
 
 /**
- * Suspend until the LSP server reports that it has opened [targetFile].
+ * Wait until an LSP server opens [file], for at most 90 seconds.
  *
- * Reimplemented here (rather than reusing `com.intellij.platform.lsp.testFramework`, which this
- * module does not depend on) on top of the [LspClientManager] listener API.
+ * [awaitFileOpenedByLspServer] fails after [DEFAULT_TEST_TIMEOUT]. A cold tool start on CI can take longer.
+ * So this function calls it again until the 90 seconds expire.
+ * A repeated call is safe, because each call also sees the files that a server opened before the call.
  */
-internal suspend fun awaitFileOpenedByLspServer(
-  project: Project,
-  targetFile: VirtualFile,
-  testRootDisposable: Disposable,
-): Unit =
+internal suspend fun awaitFileOpenedByLspTool(project: Project, file: VirtualFile): Unit =
   withTimeout(90.seconds) {
-    suspendCancellableCoroutine { cont ->
-      LspClientManager.getInstance(project).addListener(
-        object : LspClientManagerListener {
-          override fun serverStateChanged(lspClient: LspClient) {
-            if (lspClient.state in arrayOf(LspServerState.ShutdownNormally, LspServerState.ShutdownUnexpectedly) && cont.isActive) {
-              cont.resumeWith(Result.failure(AssertionError("LSP server initialization failed")))
-            }
-          }
-
-          override fun fileOpened(lspClient: LspClient, file: VirtualFile) {
-            if (file == targetFile && cont.isActive) {
-              cont.resume(Unit)
-            }
-          }
-        },
-        testRootDisposable,
-        sendEventsForExistingClients = true,
-      )
+    do {
+      val opened = withTimeoutOrNull(LSP_EVENT_WAIT_LIMIT) { awaitFileOpenedByLspServer(project, file) } != null
     }
+    while (!opened)
   }
 
 /**
@@ -178,35 +174,12 @@ internal suspend fun stopLspClientsAndWait(project: Project, providerClass: Clas
 }
 
 /**
- * Per-test-class fixtures shared by the LSP-tool env tests: a project with a Python module backed by a
- * real venv, plus a [com.intellij.testFramework.fixtures.CodeInsightTestFixture]. Bundling them here
- * keeps each test's `companion object` down to the delegated accessors it actually uses.
- *
- * Store it in a `companion object` (static) field so the project / module / venv are created once per
- * class and reused across the class's test methods, matching [toolInstalled]'s install-once semantics.
- */
-internal class PyLspToolEnvFixtures {
-  /** Guards the one-time tool install per test class; see [enableLspToolAndInstall]. */
-  val toolInstalled: AtomicBoolean = AtomicBoolean(false)
-
-  private val tempPathFixture = tempPathFixture()
-  val projectFixture = projectFixture(openAfterCreation = true)
-  val moduleFixture = projectFixture.pyModuleFixture(tempPathFixture, addPathToSourceRoot = true)
-  val venvFixture = pySdkFixture().pyVenvFixture(
-    where = tempPathFixture,
-    addToSdkTable = true,
-    moduleFixture = moduleFixture,
-  )
-  val codeInsightFixture = codeInsightFixture(projectFixture, tempPathFixture)
-}
-
-/**
- * Enable [pyTool] for [project] and install its pinned version (see [LspToolVersions]) into this
- * module's venv exactly once per test class (guarded by [toolInstalled]). Tool-specific settings are
+ * Enable [pyTool] for [project] and install its pinned version (see [LspToolVersions]) into the
+ * interpreter of this project exactly once per test class (guarded by [toolInstalled]). Tool-specific settings are
  * applied via [configure], which the caller owns because the configuration services share no common
  * writable surface.
  */
-internal suspend fun Module.enableLspToolAndInstall(
+internal suspend fun PyProject.enableLspToolAndInstall(
   project: Project,
   pyTool: PyTool,
   toolInstalled: AtomicBoolean,

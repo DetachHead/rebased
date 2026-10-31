@@ -111,7 +111,7 @@ internal class BytecodeToolWindowPanel(
    * If the editor in which `psiClass` is edited is selected, returns it. Otherwise returns null.
    */
   private val selectedMatchingEditor: Editor?
-    get() = FileEditorManager.getInstance(project).getSelectedTextEditor()?.takeIf { editor ->
+    get() = FileEditorManager.getInstance(project).selectedTextEditor?.takeIf { editor ->
       val document = editor.getDocument()
       val virtualFile = FileDocumentManager.getInstance().getFile(document)
       virtualFile == psiClass?.containingFile?.virtualFile

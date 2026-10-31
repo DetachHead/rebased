@@ -1,6 +1,7 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.jetbrains.python.hatch.sdk.configuration
 
+import com.jetbrains.python.sdk.ModuleOrProject
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.Dispatchers
 import com.intellij.python.sdk.backend.getPythonInfo
@@ -8,9 +9,6 @@ import com.intellij.python.sdk.backend.detectPythonEnvironment
 import com.intellij.python.sdk.backend.resolvePythonBinary
 import com.jetbrains.python.PythonInfo
 import com.intellij.openapi.diagnostic.Logger
-import com.intellij.openapi.module.Module
-import com.intellij.openapi.projectRoots.Sdk
-import com.intellij.platform.eel.provider.localEel
 import com.intellij.platform.util.progress.reportRawProgress
 import com.intellij.python.community.common.tools.ToolId
 import com.intellij.python.hatch.HATCH_TOML
@@ -24,20 +22,22 @@ import com.intellij.python.hatch.cli.HatchEnvironment
 import com.intellij.python.hatch.getHatchService
 import com.intellij.python.hatch.impl.HATCH_TOOL_ID
 import com.intellij.python.pyproject.PY_PROJECT_TOML
+import com.intellij.python.sdk.backend.PythonInterpreter
 import com.jetbrains.python.PyBundle
 import com.jetbrains.python.PythonBinary
 import com.jetbrains.python.errorProcessing.PyResult
 import com.jetbrains.python.hatch.sdk.createSdk
-import com.jetbrains.python.onSuccess
 import com.jetbrains.python.orLogException
+import com.jetbrains.python.project.PyProject
+import com.jetbrains.python.project.getEel
+import com.jetbrains.python.project.project
 import com.jetbrains.python.sdk.add.v2.toFileSystem
 import com.jetbrains.python.sdk.configuration.CheckToml
-import com.jetbrains.python.sdk.configuration.CreateSdkInfo
+import com.jetbrains.python.sdk.configuration.CreateInterpreterInfo
 import com.jetbrains.python.sdk.configuration.EnvCheckerResult
 import com.jetbrains.python.sdk.configuration.EnvExists
 import com.jetbrains.python.sdk.configuration.PyProjectTomlConfigurationExtension
 import com.jetbrains.python.sdk.configuration.prepareSdkCreator
-import com.jetbrains.python.sdk.setAssociationToModule
 import com.jetbrains.python.util.runWithModalBlockingOrInBackground
 
 internal class PyHatchSdkConfiguration : PyProjectTomlConfigurationExtension {
@@ -49,23 +49,24 @@ internal class PyHatchSdkConfiguration : PyProjectTomlConfigurationExtension {
 
   override val potentialDependencyFiles: Set<String> = setOf(PY_PROJECT_TOML, HATCH_TOML)
 
-  override suspend fun checkEnvironmentAndPrepareSdkCreator(module: Module, venvsInModule: List<PythonBinary>): CreateSdkInfo? =
+  override suspend fun checkEnvironmentAndPrepareSdkCreator(pyProject: PyProject, venvs: List<PythonBinary>): CreateInterpreterInfo? =
     prepareSdkCreator(
-      { checkManageableEnv(module, true) },
-    ) { envExists -> { createSdk(module, envExists) } }
+      { checkManageableEnv(pyProject, true) },
+    ) { envExists -> { createSdk(pyProject, envExists) } }
 
-  override suspend fun createSdkWithoutPyProjectTomlChecks(module: Module, venvsInModule: List<PythonBinary>): CreateSdkInfo? =
+  override suspend fun createSdkWithoutPyProjectTomlChecks(pyProject: PyProject, venvs: List<PythonBinary>): CreateInterpreterInfo? =
     prepareSdkCreator(
-      { checkManageableEnv(module, false) },
-    ) { envExists -> { createSdk(module, envExists) } }
+      { checkManageableEnv(pyProject, false) },
+    ) { envExists -> { createSdk(pyProject, envExists) } }
 
   override fun asPyProjectTomlSdkConfigurationExtension(): PyProjectTomlConfigurationExtension = this
 
   private suspend fun checkManageableEnv(
-    module: Module, checkToml: CheckToml,
+    pyProject: PyProject, checkToml: CheckToml,
   ): EnvCheckerResult = reportRawProgress {
     it.text(PyBundle.message("sdk.set.up.hatch.project.analysis"))
-    val hatchService = module.getHatchService(localEel.toFileSystem()).getOr { return EnvCheckerResult.CannotConfigure }
+    val eel = pyProject.getEel()
+    val hatchService = pyProject.baseDir.getHatchService(eel.toFileSystem()).getOr { return EnvCheckerResult.CannotConfigure }
     val canManage = if (checkToml) hatchService.isHatchManagedProject() else true
     val intentionName = PyBundle.message("sdk.set.up.hatch.environment")
     val envNotFound = EnvCheckerResult.EnvNotFound(intentionName)
@@ -89,17 +90,17 @@ internal class PyHatchSdkConfiguration : PyProjectTomlConfigurationExtension {
   /**
    * Creates SDK for Hatch, it will also create a new Hatch environment and use an existing one.
    *
-   * @param module module used to create SDK
+   * @param pyProject project used to create SDK
    * @param envExists shows whether the environment already exists or a new one should be created
    */
-  private fun createSdk(module: Module, envExists: EnvExists): PyResult<Sdk> = runWithModalBlockingOrInBackground(
-    project = module.project,
+  private fun createSdk(pyProject: PyProject, envExists: EnvExists): PyResult<PythonInterpreter> = runWithModalBlockingOrInBackground(
+    project = pyProject.project,
     msg = PyBundle.message("sdk.set.up.hatch.environment")
   ) {
-    val fileSystem = localEel.toFileSystem()
+    val fileSystem = pyProject.getEel().toFileSystem()
     val hatchExecutablePath = HatchPyTool.getInstance().resolveExecutable(fileSystem)
                               ?: return@runWithModalBlockingOrInBackground Result.failure(HatchExecutableNotFoundHatchError(null))
-    val hatchService = module.getHatchService(fileSystem, hatchExecutablePath.path).getOr { return@runWithModalBlockingOrInBackground it }
+    val hatchService = pyProject.baseDir.getHatchService(fileSystem, hatchExecutablePath).getOr { return@runWithModalBlockingOrInBackground it }
 
     val environment = if (envExists) {
       val defaultEnv = hatchService.findDefaultVirtualEnvironmentOrNull()
@@ -117,13 +118,11 @@ internal class PyHatchSdkConfiguration : PyProjectTomlConfigurationExtension {
     }
 
     val hatchVenv = HatchVirtualEnvironment(HatchEnvironment.DEFAULT, environment)
-    val sdk = hatchVenv.createSdk(
+    hatchVenv.createSdk(
+      moduleOrProject = ModuleOrProject.ModuleAndProject(pyProject),
       workingDirectoryPath = hatchService.getWorkingDirectoryPath(),
       fileSystem = fileSystem,
-    ).onSuccess { sdk ->
-      sdk.setAssociationToModule(module)
-    }
-    sdk
+    )
   }
 
 }

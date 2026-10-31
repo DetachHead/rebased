@@ -2,12 +2,13 @@
 package com.jetbrains.python.sdk.add.v2.hatch
 
 import com.intellij.openapi.observable.properties.ObservableProperty
-import com.intellij.openapi.projectRoots.Sdk
 import com.intellij.openapi.ui.validation.DialogValidationRequestor
 import com.intellij.platform.util.progress.withProgressText
 import com.intellij.python.hatch.HatchPyTool
 import com.intellij.python.hatch.PythonVirtualEnvironment
 import com.intellij.python.hatch.resolveHatchWorkingDirectory
+import com.intellij.python.sdk.backend.PythonInterpreter
+import com.intellij.python.sdk.backend.pythonInterpreterAsync
 import com.intellij.ui.dsl.builder.Panel
 import com.jetbrains.python.PyBundle.message
 import com.jetbrains.python.Result
@@ -15,14 +16,12 @@ import com.jetbrains.python.errorProcessing.PyResult
 import com.jetbrains.python.hatch.sdk.createSdk
 import com.jetbrains.python.isSuccess
 import com.jetbrains.python.newProject.collector.InterpreterStatisticsInfo
-import com.jetbrains.python.onSuccess
 import com.jetbrains.python.sdk.ModuleOrProject
 import com.jetbrains.python.sdk.add.v2.PathHolder
 import com.jetbrains.python.sdk.add.v2.PythonExistingEnvironmentConfigurator
 import com.jetbrains.python.sdk.add.v2.PythonInterpreterCreationTargets
 import com.jetbrains.python.sdk.add.v2.PythonMutableTargetAddInterpreterModel
 import com.jetbrains.python.sdk.add.v2.ValidatedPath
-import com.jetbrains.python.sdk.add.v2.persistCustomToolPath
 import com.jetbrains.python.sdk.add.v2.toStatisticsField
 import com.jetbrains.python.sdk.destructured
 import com.jetbrains.python.sdk.legacy.PythonSdkUtil
@@ -55,25 +54,28 @@ internal class HatchExistingEnvironmentSelector<P : PathHolder>(
     hatchFormFields.onShown(scope, model, isFilterOnlyExisting = true)
   }
 
-  override suspend fun getOrCreateSdk(moduleOrProject: ModuleOrProject): PyResult<Sdk> {
+  override suspend fun getOrCreateSdk(moduleOrProject: ModuleOrProject): PyResult<PythonInterpreter> {
     val environment = model.hatchViewModel.selectedEnvFromExisting.get()
-    val existingHatchVenv = environment?.pythonVirtualEnvironment as? PythonVirtualEnvironment.Existing<P>
-                            ?: return Result.failure(HatchUIError.HatchEnvironmentIsNotSelected())
+    val existingHatchVenv = when (val r = environment?.pythonVirtualEnvironment) {
+      is PythonVirtualEnvironment.Existing -> r
+      is PythonVirtualEnvironment.NotExisting, null -> return Result.failure(HatchUIError.HatchEnvironmentIsNotSelected())
+    }
 
     val venvPythonBinaryPathString = withContext(Dispatchers.IO) {
       model.fileSystem.resolvePythonBinary(existingHatchVenv.pythonHomePath)
         ?.takeIf { model.fileSystem.validateExecutable(it).isSuccess }
-        ?.toString()
+        ?.toStringForUI()
     } ?: return Result.failure(HatchUIError.HatchEnvironmentIsNotSelected())
 
-    val existingSdk = PythonSdkUtil.getAllSdks().find { it.homePath == venvPythonBinaryPathString }
+    val existingInterpreter = PythonSdkUtil.getAllSdks().find { it.homePath == venvPythonBinaryPathString }?.pythonInterpreterAsync()
     val result = when {
-      existingSdk != null -> Result.success(existingSdk)
+      existingInterpreter != null -> Result.success(existingInterpreter)
       else -> {
         val (project, module) = moduleOrProject.destructured
         val workingDirectory = resolveHatchWorkingDirectory(project, module).getOr { return it }
         withProgressText(message("python.sdk.progress.hatch.configuring")) {
           environment.createSdk(
+            moduleOrProject = moduleOrProject,
             workingDirectoryPath = workingDirectory,
             fileSystem = model.fileSystem,
             targetPanelExtension = model.state.targetPanelExtension.get(),

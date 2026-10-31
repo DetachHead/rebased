@@ -1,4 +1,4 @@
-// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.psi.impl;
 
 import com.intellij.diagnostic.ThreadDumper;
@@ -47,7 +47,7 @@ import com.intellij.openapi.util.ThrowableComputable;
 import com.intellij.openapi.util.io.FileTooBigException;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.text.StringUtil;
-import com.intellij.openapi.vfs.LocalFileSystem;
+import com.intellij.openapi.vfs.StandardFileSystems;
 import com.intellij.openapi.vfs.VfsUtilCore;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.openapi.vfs.encoding.EncodingProjectManager;
@@ -65,6 +65,7 @@ import com.intellij.psi.PsiManager;
 import com.intellij.psi.SyntaxTraverser;
 import com.intellij.psi.impl.source.PsiFileImpl;
 import com.intellij.testFramework.HeavyPlatformTestCase;
+import com.intellij.testFramework.JUnit38AssumeSupportRunner;
 import com.intellij.testFramework.LeakHunter;
 import com.intellij.testFramework.LightVirtualFile;
 import com.intellij.testFramework.LoggedErrorProcessor;
@@ -85,6 +86,7 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.concurrency.CancellablePromise;
 import org.junit.Assume;
+import org.junit.runner.RunWith;
 
 import javax.swing.JComponent;
 import java.io.File;
@@ -108,6 +110,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.IntStream;
 
+@RunWith(JUnit38AssumeSupportRunner.class)
 public class PsiDocumentManagerImplTest extends HeavyPlatformTestCase {
   private static final int TIMEOUT_MS = 30_000;
 
@@ -944,6 +947,28 @@ public class PsiDocumentManagerImplTest extends HeavyPlatformTestCase {
     PlatformTestUtil.waitForFuture(f, 10_000);
   }
 
+  public void testPerformForCommittedDocumentWithoutReadAccessSchedulesActionOnEdt() {
+    PsiFile psiFile = findFile(createFile());
+    Document document = getDocument(psiFile);
+    assertTrue(getPsiDocumentManager().isCommitted(document));
+
+    AtomicInteger runCount = new AtomicInteger();
+    AtomicBoolean ranOnEdt = new AtomicBoolean();
+    Future<?> future = ApplicationManager.getApplication().executeOnPooledThread(() -> {
+      assertFalse(ApplicationManager.getApplication().isReadAccessAllowed());
+      getPsiDocumentManager().performForCommittedDocument(document, () -> {
+        ranOnEdt.set(ApplicationManager.getApplication().isDispatchThread());
+        runCount.incrementAndGet();
+      });
+      assertEquals("the action must not run on a thread without read access", 0, runCount.get());
+    });
+    PlatformTestUtil.waitForFuture(future, 10_000);
+
+    PlatformTestUtil.dispatchAllInvocationEventsInIdeEventQueue();
+    assertEquals("the action must run one time only", 1, runCount.get());
+    assertTrue("the action must run on the EDT", ranOnEdt.get());
+  }
+
   public void testPerformWhenAllCommittedDoesNotRaceWithBackgroundLightCommitsResultingInExceptions(){
     ExecutorService executor = AppExecutorUtil.createBoundedApplicationPoolExecutor(getTestName(false), 10);
 
@@ -1274,7 +1299,7 @@ public class PsiDocumentManagerImplTest extends HeavyPlatformTestCase {
     for (int i = 0; i < N; i++) {
       FileUtil.writeToFile(new File(dir, i + "x.java"), randomText);
     }
-    VirtualFile vDir = LocalFileSystem.getInstance().refreshAndFindFileByIoFile(dir);
+    VirtualFile vDir = StandardFileSystems.local().refreshAndFindFileByPath(dir.getAbsolutePath());
     assertEquals(N, vDir.getChildren().length);
     List<PsiFile> psiFiles = new ArrayList<>();
     ProgressManager.getInstance().runProcessWithProgressSynchronously(() -> {

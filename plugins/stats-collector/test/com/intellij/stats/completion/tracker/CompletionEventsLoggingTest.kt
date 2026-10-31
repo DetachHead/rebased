@@ -2,6 +2,7 @@
 package com.intellij.stats.completion.tracker
 
 import com.intellij.codeInsight.lookup.LookupElement
+import com.intellij.codeInsight.lookup.impl.LookupImpl
 import com.intellij.openapi.actionSystem.IdeActions
 import com.intellij.stats.completion.Action.BACKSPACE
 import com.intellij.stats.completion.Action.COMPLETION_CANCELED
@@ -15,11 +16,13 @@ import com.intellij.stats.completion.events.ExplicitSelectEvent
 import com.intellij.stats.completion.events.LogEvent
 import com.intellij.stats.completion.events.TypedSelectEvent
 import org.assertj.core.api.Assertions.assertThat
+import org.junit.jupiter.api.Test
 
 
 class CompletionEventsLoggingTest : CompletionLoggingTestBase() {
 
-    fun `test item selected on just typing`() {
+    @Test
+    fun `test item selected on just typing`(): Unit = onEdt {
         myFixture.type('.')
         myFixture.completeBasic()
         val itemsOnStart = lookup.items
@@ -63,7 +66,8 @@ class CompletionEventsLoggingTest : CompletionLoggingTestBase() {
         }
     }
 
-    fun `test wrong typing`() {
+    @Test
+    fun `test wrong typing`(): Unit = onEdt {
         myFixture.type('.')
         myFixture.completeBasic()
 
@@ -71,7 +75,7 @@ class CompletionEventsLoggingTest : CompletionLoggingTestBase() {
         myFixture.type('u')
         myFixture.type('x')
 
-        lookup?.hide()  //figure out why needed here
+        (myFixture.lookup as LookupImpl?)?.hide()  //figure out why needed here
 
         trackedEvents.assertOrder(
           COMPLETION_STARTED,
@@ -82,7 +86,8 @@ class CompletionEventsLoggingTest : CompletionLoggingTestBase() {
         )
     }
     
-    fun `test down up buttons`() {
+    @Test
+    fun `test down up buttons`(): Unit = onEdt {
         myFixture.type('.')
         myFixture.completeBasic()
         val elementsOnStart = lookup.items
@@ -114,7 +119,8 @@ class CompletionEventsLoggingTest : CompletionLoggingTestBase() {
     }
 
 
-    fun `test backspace`() {
+    @Test
+    fun `test backspace`(): Unit = onEdt {
         myFixture.type('.')
         myFixture.completeBasic()
         val elementsOnStart = lookup.items
@@ -137,7 +143,8 @@ class CompletionEventsLoggingTest : CompletionLoggingTestBase() {
         checkLoggedAllElements(elementsOnStart)
     }
 
-    fun `test if typed prefix is correct completion variant, pressing dot will select it`() {
+    @Test
+    fun `test if typed prefix is correct completion variant, pressing dot will select it`(): Unit = onEdt {
         myFixture.completeBasic()
         val elementsOnStart = lookup.items
         myFixture.type('.')
@@ -151,7 +158,8 @@ class CompletionEventsLoggingTest : CompletionLoggingTestBase() {
         checkLoggedAllElements(elementsOnStart)
     }
 
-    fun `test dot selection logs as explicit select`() {
+    @Test
+    fun `test dot selection logs as explicit select`(): Unit = onEdt {
         myFixture.completeBasic()
         val elementsOnStart = lookup.items
         myFixture.type('u')

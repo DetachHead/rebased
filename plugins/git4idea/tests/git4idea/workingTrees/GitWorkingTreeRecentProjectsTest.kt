@@ -3,7 +3,7 @@ package git4idea.workingTrees
 
 import com.intellij.ide.RecentProjectMetaInfo
 import com.intellij.ide.RecentProjectsManagerBase
-import com.intellij.openapi.vfs.LocalFileSystem
+import com.intellij.openapi.vfs.VirtualFileManager
 import com.intellij.testFramework.junit5.TestApplication
 import com.intellij.vcs.git.repo.GitRepositoriesHolder
 import git4idea.repo.expectEvent
@@ -31,21 +31,31 @@ internal class GitWorkingTreeRecentProjectsTest {
     val workingTree = repo.workingTreeHolder.getWorkingTrees().first { it.path.path.endsWith(treeRoot) }
 
     val recentProjectsManager = RecentProjectsManagerBase.getInstanceEx()
-    recentProjectsManager.addRecentPath(workingTree.path.path, RecentProjectMetaInfo())
-    assertThat(recentProjectsManager.hasPath(workingTree.path.path)).isTrue()
+    val worktreeProjectPaths = listOf(
+      workingTree.path.path,
+      "${workingTree.path.path}/MODULE.bazel",
+      "${workingTree.path.path}/toolbox/toolbox.bazelproject",
+    )
+    val siblingProjectPath = "${workingTree.path.path}-other/MODULE.bazel"
+    val recentPaths = worktreeProjectPaths + siblingProjectPath
 
     try {
+      recentPaths.forEach { recentProjectsManager.addRecentPath(it, RecentProjectMetaInfo()) }
+      assertThat(recentProjectsManager.getRecentPaths()).containsAll(recentPaths)
+
       val holder = GitRepositoriesHolder.getAndInit(project)
       holder.expectEvent(
         { GitWorkingTreesService.getInstance(project).deleteWorkingTree(project, workingTree, repo) },
         { event, _ -> event == GitRepositoriesHolder.UpdateType.WORKING_TREES_LOADED }
       )
 
-      assertThat(LocalFileSystem.getInstance().refreshAndFindFileByNioFile(newWorkingTreeRootPath)).isNull()
-      assertThat(recentProjectsManager.hasPath(workingTree.path.path)).isFalse()
+      assertThat(VirtualFileManager.getInstance().refreshAndFindFileByNioPath(newWorkingTreeRootPath)).isNull()
+      assertThat(recentProjectsManager.getRecentPaths())
+        .doesNotContainAnyElementsOf(worktreeProjectPaths)
+        .contains(siblingProjectPath)
     }
     finally {
-      recentProjectsManager.removePath(workingTree.path.path)
+      recentPaths.forEach(recentProjectsManager::removePath)
     }
   }
 }

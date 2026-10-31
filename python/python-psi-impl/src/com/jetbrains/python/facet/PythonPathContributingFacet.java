@@ -18,6 +18,9 @@ package com.jetbrains.python.facet;
 import java.util.List;
 
 
+/**
+ * @deprecated No replacement exists.
+ */
 @Deprecated
 public interface PythonPathContributingFacet {
   List<String> getAdditionalPythonPath();

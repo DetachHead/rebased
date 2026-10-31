@@ -60,7 +60,7 @@ internal object PluginContentDependencyValidator : PipelineNode {
   // Validation queries deps from the graph (EDGE_CONTENT_MODULE_DEPENDS_ON / EDGE_CONTENT_MODULE_DEPENDS_ON_TEST).
   override val requires: Set<DataSlot<*>> get() = setOf(Slots.CONTENT_MODULE)
 
-  override suspend fun execute(ctx: ComputeContext) {
+  override fun execute(ctx: ComputeContext) {
     val model = ctx.model
 
     val contentModuleResults = ctx.get(Slots.CONTENT_MODULE).files
@@ -81,10 +81,7 @@ internal object PluginContentDependencyValidator : PipelineNode {
       dslTestPluginAdditionalBundles.put(key, merged)
     }
 
-    val allowedLibraryModulesByContentModule = buildAllowedLibraryModulesByContentModule(
-      testLibraryAllowedInModule = model.config.testLibraryAllowedInModule,
-      projectLibraryToModuleMap = model.config.projectLibraryToModuleMap,
-    )
+    val allowedLibraryModulesByContentModule = buildAllowedLibraryModulesByContentModule(model.config.testLibraryAllowedInModule)
 
     val pluginDepErrors = validatePluginDependencies(
       pluginGraph = model.pluginGraph,
@@ -386,12 +383,8 @@ private fun validateSinglePlugin(
   for (dep in allProblematic) {
     for (contentModuleName in contentModules) {
       val deps = contentModuleDeps.get(contentModuleName) ?: emptySet()
-      val testDeps = contentModuleDeps.get(ContentModuleName("${contentModuleName.value}._test")) ?: emptySet()
       if (dep in deps) {
         missingDeps.computeIfAbsent(dep) { HashSet() }.add(contentModuleName)
-      }
-      if (dep in testDeps) {
-        missingDeps.computeIfAbsent(dep) { HashSet() }.add(ContentModuleName("${contentModuleName.value}._test"))
       }
     }
     if (dep in pluginModuleDependencies) {
@@ -668,9 +661,9 @@ private fun findProductModulesLineIndex(lines: List<String>): Int {
 // region Structural Violation Auto-Fix
 
 // Map allowed test libraries to their library module content names for dependency filtering.
+// Only an entry that names a wrapper module (`intellij.libraries.*`) takes part; a plain library name has no module here.
 private fun buildAllowedLibraryModulesByContentModule(
   testLibraryAllowedInModule: Map<ContentModuleName, Set<String>>,
-  projectLibraryToModuleMap: Map<String, String>,
 ): Map<ContentModuleName, Set<ContentModuleName>> {
   if (testLibraryAllowedInModule.isEmpty()) return emptyMap()
 
@@ -678,12 +671,8 @@ private fun buildAllowedLibraryModulesByContentModule(
   for ((moduleName, allowedLibraries) in testLibraryAllowedInModule) {
     val allowedModules = LinkedHashSet<ContentModuleName>()
     for (libraryName in allowedLibraries) {
-      val libraryModuleName = when {
-        libraryName.startsWith(LIB_MODULE_PREFIX) -> libraryName
-        else -> projectLibraryToModuleMap[libraryName]
-      }
-      if (libraryModuleName != null && libraryModuleName.startsWith(LIB_MODULE_PREFIX)) {
-        allowedModules.add(ContentModuleName(libraryModuleName))
+      if (libraryName.startsWith(LIB_MODULE_PREFIX)) {
+        allowedModules.add(ContentModuleName(libraryName))
       }
     }
     if (allowedModules.isNotEmpty()) {

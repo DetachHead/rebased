@@ -35,6 +35,9 @@
     </inspection_tool>
     <inspection_tool class="6825bee2-fd98-3b9b-9d79-0a40c7fe55c0" enabled="false" level="WARNING" enabled_by_default="false" />
     <inspection_tool class="722cb6a3-860d-3bb9-bfa3-d5ef834939d5" enabled="true" level="Strong Warning" enabled_by_default="true" editorAttributes="Strong Warning" />
+    <inspection_tool class="7694896a-42bd-3ba7-8a82-9abf6d86d92d" enabled="true" level="WARNING" enabled_by_default="false">
+      <scope name="Python" level="WARNING" enabled="true" />
+    </inspection_tool>
     <inspection_tool class="7707f5d4-ccb9-3cbc-83e5-4e893e49804f" enabled="true" level="WARNING" enabled_by_default="false">
       <scope name="AA_fleet" level="WARNING" enabled="true" />
     </inspection_tool>
@@ -345,6 +348,23 @@
                   <option name="_fileType" value="Properties" />
                   <option name="searchContext" value="ANY" />
                   <option name="replacement" value="…" />
+                </InspectionPattern>
+              </list>
+            </option>
+          </RegExpInspectionConfiguration>
+          <RegExpInspectionConfiguration>
+            <option name="description" value="Do not assume that the project is on the local system.&#10;Always get the eel from the `Path` or from the `Project`." />
+            <option name="name" value="Do not use localEel" />
+            <option name="problemDescriptor" value="Use the eel of the project or of the path, not localEel" />
+            <option name="suppressId" value="LocalEelUsage" />
+            <option name="uuid" value="7694896a-42bd-3ba7-8a82-9abf6d86d92d" />
+            <option name="patterns">
+              <list>
+                <InspectionPattern>
+                  <option name="regExp" value="\blocalEel\b" />
+                  <option name="_fileType" value="Kotlin" />
+                  <option name="searchContext" value="ANY" />
+                  <option name="flags" value="64" />
                 </InspectionPattern>
               </list>
             </option>
@@ -1146,6 +1166,9 @@
     <inspection_tool class="ParameterCanBeLocal" enabled="true" level="Strong Warning" enabled_by_default="true" />
     <inspection_tool class="PatternValidation" enabled="true" level="Strong Warning" enabled_by_default="true">
       <option name="CHECK_NON_CONSTANT_VALUES" value="true" />
+    </inspection_tool>
+    <inspection_tool class="PatternVariableCanBeUsed" enabled="true" level="WARNING" enabled_by_default="true">
+      <option name="reportAlsoCastWithIntroducingNewVariable" value="true" />
     </inspection_tool>
     <inspection_tool class="PatternVariableHidesField" enabled="true" level="Strong Warning" enabled_by_default="true" editorAttributes="Strong Warning" />
     <inspection_tool class="PluginXmlPluginLogo" enabled="true" level="WARNING" enabled_by_default="true" editorAttributes="WARNING_ATTRIBUTES" />
@@ -2066,6 +2089,12 @@
         <constraint name="Field" within="" contains="" />
         <constraint name="elements" maxCount="2147483647" within="" contains="" />
       </replaceConfiguration>
+      <searchConfiguration name="Avoid LocalFileSystem.getInstance()" description="Avoid LocalFileSystem.getInstance(): use StandardFileSystems.local() or VfsUtil.findFile to find files, RefreshQueue to refresh, WatchRoots to watch roots, VirtualFile.isInLocalFileSystem() as the predicate." suppressId="LOCAL_FILE_SYSTEM_USAGE" text="com.intellij.openapi.vfs.LocalFileSystem.getInstance()" recursive="true" caseInsensitive="true" type="JAVA" pattern_context="default">
+        <constraint name="__context__" within="" contains="" />
+      </searchConfiguration>
+      <searchConfiguration name="Avoid LocalFileSystem.getInstance()" description="Avoid LocalFileSystem.getInstance(): use StandardFileSystems.local() or VfsUtil.findFile to find files, RefreshQueue to refresh, WatchRoots to watch roots, VirtualFile.isInLocalFileSystem() as the predicate." suppressId="LOCAL_FILE_SYSTEM_USAGE" text="com.intellij.openapi.vfs.LocalFileSystem.getInstance()" recursive="true" caseInsensitive="true" type="Kotlin" pattern_context="default">
+        <constraint name="__context__" within="" contains="" />
+      </searchConfiguration>
       <searchConfiguration name="Avoid setting null border to a Swing component" description="Null border can be overridden on look-and-feel update. For the permanent effect, use empty border instead, e.g. JBUI.Borders.empty()." suppressId="SwingNullBorder" problemDescriptor="Use empty border (e.g. JBUI.Borders.empty()) instead of null border to avoid re-setting on LaF update." text="$component$.setBorder(null)" recursive="true" caseInsensitive="true" type="JAVA" pattern_context="default">
         <constraint name="__context__" within="" contains="" />
         <constraint name="component" nameOfExprType="javax\.swing\.JComponent" exprTypeWithinHierarchy="true" minCount="0" within="" contains="" />
@@ -3115,23 +3144,23 @@
         <constraint name="__context__" within="" contains="" />
         <constraint name="foo" within="" contains="" />
       </replaceConfiguration>
-      <replaceConfiguration name="Rethrow ControlFlowException using platform utility function" description="Replaces if (e instanceOf ControlFlowException) throw e with a convenient helper utility call" suppressId="RethrowControlFlowExceptionWithUtil" text="if ($Expr$ instanceof ControlFlowException) {&#10;  throw $Expr$;&#10;}" recursive="false" caseInsensitive="false" type="JAVA" pattern_context="default" search_injected="false" reformatAccordingToStyle="true" shortenFQN="true" useStaticImport="true" replacement="com.intellij.openapi.diagnostic.LoggerKt.rethrowControlFlowException($Expr$);">
+      <replaceConfiguration name="Rethrow ControlFlowException using platform utility function" description="Replaces if (e instanceOf ControlFlowException) throw e with a convenient helper utility call" suppressId="RethrowControlFlowExceptionWithUtil" text="if ($Expr$ instanceof ControlFlowException) {&#10;  throw $Expr$;&#10;}" recursive="false" caseInsensitive="false" type="JAVA" pattern_context="default" search_injected="false" reformatAccordingToStyle="true" shortenFQN="true" useStaticImport="true" replacement="com.intellij.diagnostic.ControlFlowExceptionsKt.rethrowControlFlowException($Expr$);">
         <constraint name="__context__" within="" contains="" />
         <constraint name="Expr" within="" contains="" />
       </replaceConfiguration>
-      <replaceConfiguration name="Rethrow ControlFlowException using platform utility function" text="if ($Expr$ is ControlFlowException) {&#10;  throw $Expr$&#10;}" recursive="false" caseInsensitive="false" type="Kotlin" pattern_context="default" search_injected="false" reformatAccordingToStyle="true" shortenFQN="true" replacement="com.intellij.openapi.diagnostic.rethrowControlFlowException($Expr$)">
+      <replaceConfiguration name="Rethrow ControlFlowException using platform utility function" text="if ($Expr$ is ControlFlowException) {&#10;  throw $Expr$&#10;}" recursive="false" caseInsensitive="false" type="Kotlin" pattern_context="default" search_injected="false" reformatAccordingToStyle="true" shortenFQN="true" replacement="com.intellij.diagnostic.rethrowControlFlowException($Expr$)">
         <constraint name="__context__" within="" contains="" />
         <constraint name="Expr" within="" contains="" />
       </replaceConfiguration>
-      <replaceConfiguration name="Rethrow ControlFlowException using platform utility function" text="if (Logger.shouldRethrow($Expr$)) {&#10;  throw $Expr$;&#10;}" recursive="false" caseInsensitive="false" type="JAVA" pattern_context="default" search_injected="false" reformatAccordingToStyle="true" shortenFQN="true" useStaticImport="true" replacement="com.intellij.openapi.diagnostic.LoggerKt.rethrowControlFlowException($Expr$);">
+      <replaceConfiguration name="Rethrow ControlFlowException using platform utility function" text="if (Logger.shouldRethrow($Expr$)) {&#10;  throw $Expr$;&#10;}" recursive="false" caseInsensitive="false" type="JAVA" pattern_context="default" search_injected="false" reformatAccordingToStyle="true" shortenFQN="true" useStaticImport="true" replacement="com.intellij.diagnostic.ControlFlowExceptionsKt.rethrowControlFlowException($Expr$);">
         <constraint name="__context__" within="" contains="" />
         <constraint name="Expr" within="" contains="" />
       </replaceConfiguration>
-      <replaceConfiguration name="Rethrow ControlFlowException using platform utility function" text="if (Logger.shouldRethrow($Expr$)) {&#10;  throw $Expr$&#10;}" recursive="false" caseInsensitive="false" type="Kotlin" pattern_context="default" search_injected="false" reformatAccordingToStyle="true" shortenFQN="true" useStaticImport="true" replacement="com.intellij.openapi.diagnostic.rethrowControlFlowException($Expr$)">
+      <replaceConfiguration name="Rethrow ControlFlowException using platform utility function" text="if (Logger.shouldRethrow($Expr$)) {&#10;  throw $Expr$&#10;}" recursive="false" caseInsensitive="false" type="Kotlin" pattern_context="default" search_injected="false" reformatAccordingToStyle="true" shortenFQN="true" useStaticImport="true" replacement="com.intellij.diagnostic.rethrowControlFlowException($Expr$)">
         <constraint name="__context__" within="" contains="" />
         <constraint name="Expr" within="" contains="" />
       </replaceConfiguration>
-      <replaceConfiguration name="Rethrow ControlFlowException using platform utility function" text="if ($Expr$ is CancellationException) {&#10;  throw $Expr$&#10;}" recursive="false" caseInsensitive="false" type="Kotlin" pattern_context="default" search_injected="false" reformatAccordingToStyle="true" shortenFQN="true" replacement="com.intellij.openapi.diagnostic.rethrowControlFlowException($Expr$)">
+      <replaceConfiguration name="Rethrow ControlFlowException using platform utility function" text="if ($Expr$ is CancellationException) {&#10;  throw $Expr$&#10;}" recursive="false" caseInsensitive="false" type="Kotlin" pattern_context="default" search_injected="false" reformatAccordingToStyle="true" shortenFQN="true" replacement="com.intellij.diagnostic.rethrowControlFlowException($Expr$)">
         <constraint name="__context__" within="" contains="" />
         <constraint name="Expr" within="" contains="" />
       </replaceConfiguration>

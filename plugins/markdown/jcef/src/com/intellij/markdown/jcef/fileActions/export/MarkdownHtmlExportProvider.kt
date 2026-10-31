@@ -8,7 +8,7 @@ import com.intellij.markdown.jcef.preview.JCEFHtmlPanelProvider
 import com.intellij.markdown.jcef.preview.MarkdownJCEFHtmlPanel
 import com.intellij.openapi.application.readAction
 import com.intellij.openapi.components.service
-import com.intellij.openapi.diagnostic.rethrowControlFlowException
+import com.intellij.diagnostic.rethrowControlFlowException
 import com.intellij.openapi.fileChooser.FileChooserDescriptorFactory
 import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.project.Project
@@ -39,6 +39,7 @@ import java.awt.event.FocusListener
 import java.io.File
 import java.util.function.BiConsumer
 import javax.swing.JTextField
+import kotlin.time.Duration.Companion.seconds
 
 internal class MarkdownHtmlExportProvider : MarkdownExportProvider {
   private data class DialogState(val saveImages: Boolean = true, val resourcesDir: String = "")
@@ -180,9 +181,12 @@ internal class MarkdownHtmlExportProvider : MarkdownExportProvider {
   }
 }
 
+private val IMAGE_LOAD_TIMEOUT = 30.seconds
+
 internal fun withMarkdownPreview(
   project: Project,
   mdFile: VirtualFile,
+  waitForImages: Boolean = false,
   action: (MarkdownJCEFHtmlPanel, () -> Unit) -> Unit,
 ) {
   val panel = MarkdownJCEFHtmlPanel(project, mdFile)
@@ -191,8 +195,10 @@ internal fun withMarkdownPreview(
     try {
       val document = readAction { FileDocumentManager.getInstance().getDocument(mdFile) } ?: error("Cannot load the Markdown document")
       val content = readAction { HtmlSourceTextPreprocessor().preprocessText(project, document, mdFile) }
-      val imageResourceProvider = panel.createImageResourceProvider()
-      panel.setHtmlAndWait(content, mdFile, imageResourceProvider)
+      panel.setHtmlAndWait(content, mdFile, panel.imageResourceProvider)
+      if (waitForImages) {
+        panel.waitForImages(IMAGE_LOAD_TIMEOUT)
+      }
       action(panel) { Disposer.dispose(panel)}
     }
     catch (e: Exception) {

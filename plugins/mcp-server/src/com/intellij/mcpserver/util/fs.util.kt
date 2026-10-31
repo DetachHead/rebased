@@ -11,7 +11,6 @@ import com.intellij.openapi.project.ProjectManager
 import com.intellij.openapi.util.io.FileUtilRt
 import com.intellij.openapi.util.io.toNioPathOrNull
 import com.intellij.openapi.vfs.JarFileSystem
-import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.openapi.vfs.StandardFileSystems
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.openapi.vfs.VirtualFileManager
@@ -226,7 +225,7 @@ fun Path.relativizeIfPossible(virtualFile: VirtualFile): String {
 }
 
 // TODO: this must be unified with resolveInProject and made more flexible to support multiple source roots, also MCP client roots and so on
-@RequiresBackgroundThread
+@RequiresBackgroundThread(generateAssertion = false /* IJPL-115548 */)
 fun resolveReadFile(project: Project, filePath: String): VirtualFile {
   val normalizedPath = normalizeReadFilePath(filePath)
   val virtualFileManager = VirtualFileManager.getInstance()
@@ -240,7 +239,7 @@ fun resolveReadFile(project: Project, filePath: String): VirtualFile {
     }
     else -> {
       val resolvedPath = resolveReadFilePath(project, normalizedPath)
-      LocalFileSystem.getInstance().refreshAndFindFileByPath(FileUtilRt.toSystemIndependentName(resolvedPath))
+      StandardFileSystems.local().refreshAndFindFileByPath(FileUtilRt.toSystemIndependentName(resolvedPath))
     }
   } ?: mcpFail("File $filePath doesn't exist or can't be opened")
 
@@ -279,7 +278,7 @@ private fun resolveArchiveEntryFile(archiveEntryPath: String): VirtualFile? {
 
   val localRootPath = archiveEntryPath.substring(0, separatorIndex)
   val entryPath = archiveEntryPath.substring(separatorIndex + JarFileSystem.JAR_SEPARATOR.length).trimStart('/')
-  val localRoot = LocalFileSystem.getInstance().refreshAndFindFileByPath(localRootPath) ?: return null
+  val localRoot = StandardFileSystems.local().refreshAndFindFileByPath(localRootPath) ?: return null
   val virtualFileManager = VirtualFileManager.getInstance()
 
   val archiveRoot = listOf(StandardFileSystems.JAR_PROTOCOL, StandardFileSystems.JRT_PROTOCOL)

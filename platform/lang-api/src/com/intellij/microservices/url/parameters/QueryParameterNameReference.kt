@@ -5,7 +5,7 @@ import com.intellij.microservices.url.references.UrlPathContext
 import com.intellij.microservices.url.references.UrlSegmentReference
 import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.RuntimeExceptionWithAttachments
-import com.intellij.openapi.diagnostic.rethrowControlFlowException
+import com.intellij.diagnostic.rethrowControlFlowException
 import com.intellij.openapi.util.TextRange
 import com.intellij.pom.PomRenameableTarget
 import com.intellij.psi.ElementManipulators

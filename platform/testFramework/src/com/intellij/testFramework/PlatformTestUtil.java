@@ -7,11 +7,8 @@ import com.intellij.diagnostic.ThreadDumper;
 import com.intellij.execution.ExecutionException;
 import com.intellij.execution.Executor;
 import com.intellij.execution.ExecutorRegistry;
-import com.intellij.execution.Location;
 import com.intellij.execution.ProgramRunnerUtil;
-import com.intellij.execution.PsiLocation;
 import com.intellij.execution.RunManager;
-import com.intellij.execution.actions.ConfigurationContext;
 import com.intellij.execution.actions.RunConfigurationProducer;
 import com.intellij.execution.configurations.GeneralCommandLine;
 import com.intellij.execution.configurations.RunConfiguration;
@@ -33,15 +30,12 @@ import com.intellij.ide.util.treeView.AbstractTreeStructure;
 import com.intellij.model.psi.PsiSymbolReferenceService;
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.actionSystem.ActionManager;
-import com.intellij.openapi.actionSystem.ActionPlaces;
 import com.intellij.openapi.actionSystem.ActionUiKind;
 import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.actionSystem.CommonDataKeys;
 import com.intellij.openapi.actionSystem.IdeActions;
 import com.intellij.openapi.actionSystem.PerformWithDocumentsCommitted;
-import com.intellij.openapi.actionSystem.PlatformCoreDataKeys;
 import com.intellij.openapi.actionSystem.ex.ActionUtil;
-import com.intellij.openapi.actionSystem.impl.SimpleDataContext;
 import com.intellij.openapi.application.Application;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.ModalityState;
@@ -59,7 +53,6 @@ import com.intellij.openapi.fileTypes.BinaryFileTypeDecompilers;
 import com.intellij.openapi.fileTypes.FileTypeManager;
 import com.intellij.openapi.fileTypes.FileTypeRegistry;
 import com.intellij.openapi.fileTypes.FileTypes;
-import com.intellij.openapi.module.ModuleUtilCore;
 import com.intellij.openapi.paths.UrlReference;
 import com.intellij.openapi.paths.WebReference;
 import com.intellij.openapi.progress.ProgressManager;
@@ -77,9 +70,9 @@ import com.intellij.openapi.util.ThrowableComputable;
 import com.intellij.openapi.util.io.FileUtilRt;
 import com.intellij.openapi.util.io.NioFiles;
 import com.intellij.openapi.util.text.StringUtil;
-import com.intellij.openapi.vfs.LocalFileSystem;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.openapi.vfs.VirtualFileFilter;
+import com.intellij.openapi.vfs.VirtualFileManager;
 import com.intellij.openapi.vfs.ex.temp.TempFileSystem;
 import com.intellij.openapi.vfs.newvfs.ManagingFS;
 import com.intellij.platform.testFramework.core.FileComparisonFailedError;
@@ -311,6 +304,7 @@ public final class PlatformTestUtil {
 
     var expanded = tree.isExpanded(path);
     var childCount = tree.getModel().getChildCount(pathComponent);
+    var isLeaf = tree.getModel().isLeaf(pathComponent);
 
     PrintChildrenResult printChildrenResult = null;
     PrintChildrenResult.ChildrenAction childrenAction = PrintChildrenResult.ChildrenAction.VISIT;
@@ -319,7 +313,7 @@ public final class PlatformTestUtil {
       childrenAction = requireNonNull(printChildrenResult).Action;
     }
 
-    if (childCount > 0 && childrenAction != PrintChildrenResult.ChildrenAction.REMOVE) {
+    if (!isLeaf && childrenAction != PrintChildrenResult.ChildrenAction.REMOVE) {
       buff.append(expanded ? '-' : '+');
     }
 
@@ -848,7 +842,7 @@ public final class PlatformTestUtil {
     ActionUtil.performAction(action, event);
     var project = event.getData(CommonDataKeys.PROJECT);
     if (project != null) {
-      NavigationTestUtil.awaitPendingNavigationIfEnabled(project);
+      EditorOpenTestUtil.awaitPendingNavigationAndEditorOpenIfEnabled(project);
     }
   }
 
@@ -1140,9 +1134,9 @@ public final class PlatformTestUtil {
       new Decompressor.Zip(file1).extract(tempDirectory1);
       new Decompressor.Zip(file2).extract(tempDirectory2);
 
-      var dirAfter = LocalFileSystem.getInstance().refreshAndFindFileByNioFile(tempDirectory1);
+      var dirAfter = VirtualFileManager.getInstance().refreshAndFindFileByNioPath(tempDirectory1);
       assertNotNull(tempDirectory1.toString(), dirAfter);
-      var dirBefore = LocalFileSystem.getInstance().refreshAndFindFileByNioFile(tempDirectory2);
+      var dirBefore = VirtualFileManager.getInstance().refreshAndFindFileByNioPath(tempDirectory2);
       assertNotNull(tempDirectory2.toString(), dirBefore);
       ApplicationManager.getApplication().runWriteAction(() -> {
         dirAfter.refresh(false, true);
@@ -1345,17 +1339,15 @@ public final class PlatformTestUtil {
     return HeavyTestHelper.getOrCreateProjectBaseDir(project);
   }
 
-  public static @Nullable RunConfiguration getRunConfiguration(@NotNull PsiElement element, @NotNull RunConfigurationProducer<?> producer) {
-    var dataContext = SimpleDataContext.builder()
-      .add(CommonDataKeys.PROJECT, element.getProject())
-      .add(PlatformCoreDataKeys.MODULE, ModuleUtilCore.findModuleForPsiElement(element))
-      .add(Location.DATA_KEY, PsiLocation.fromPsiElement(element))
-      .build();
-
-    var cc = ConfigurationContext.getFromContext(dataContext, ActionPlaces.UNKNOWN);
-
-    var configuration = producer.createConfigurationFromContext(cc);
-    return configuration != null ? configuration.getConfiguration() : null;
+  /**
+   * @deprecated use {@link ExecutionTestUtil#getRunConfiguration(PsiElement, RunConfigurationProducer)} instead
+   */
+  /* RunConfigurationProducer is intentionally used as a raw type here to avoid adding a dependency on `intellij.platform.execution` in
+     every module that uses this class due to JDK-8370800 */
+  @SuppressWarnings("rawtypes")
+  @Deprecated
+  public static @Nullable RunConfiguration getRunConfiguration(@NotNull PsiElement element, @NotNull RunConfigurationProducer producer) {
+    return ExecutionTestUtil.getRunConfiguration(element, producer);
   }
 
   /**
@@ -1608,7 +1600,7 @@ public final class PlatformTestUtil {
 
   public static PsiElement findElementBySignature(@NotNull String signature, @NotNull String fileRelativePath, @NotNull Project project) {
     var filePath = Path.of(requireNonNull(project.getBasePath(), () -> project.toString()), fileRelativePath);
-    var virtualFile = LocalFileSystem.getInstance().findFileByNioFile(filePath);
+    var virtualFile = VirtualFileManager.getInstance().findFileByNioPath(filePath);
     if (virtualFile == null || !virtualFile.exists()) {
       throw new IllegalArgumentException(String.format("File '%s' doesn't exist", filePath));
     }

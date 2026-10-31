@@ -2,6 +2,7 @@
 package org.jetbrains.plugins.github.pullrequest.data.service
 
 import com.intellij.collaboration.util.RefComparisonChange
+import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.progress.coroutineToIndicator
 import com.intellij.openapi.vcs.changes.Change
 import com.intellij.openapi.vcs.history.ShortVcsRevisionNumber
@@ -22,10 +23,12 @@ import org.jetbrains.plugins.github.api.GHRepositoryPath
 import org.jetbrains.plugins.github.api.GithubApiRequestExecutor
 import org.jetbrains.plugins.github.api.GithubApiRequests
 import org.jetbrains.plugins.github.api.data.GithubIssueState
+import org.jetbrains.plugins.github.api.data.pullrequest.GHPullRequestBranchMatch
+import org.jetbrains.plugins.github.api.data.pullrequest.GHPullRequestRestIdOnly
 import org.jetbrains.plugins.github.api.data.pullrequest.GHPullRequestShort
 import org.jetbrains.plugins.github.api.data.pullrequest.toPRIdentifier
 import org.jetbrains.plugins.github.api.data.request.GithubRequestPagination
-import org.jetbrains.plugins.github.api.executeSuspend
+import org.jetbrains.plugins.github.exceptions.GithubConfusingException
 import org.jetbrains.plugins.github.pullrequest.data.GHPRIdentifier
 import org.jetbrains.plugins.github.util.GHGitRepositoryMapping
 
@@ -46,24 +49,44 @@ internal class GHPRCreationServiceImpl(private val requestExecutor: GithubApiReq
     val actualTitle = title.takeIf(String::isNotBlank) ?: headBranch.nameForRemoteOperations
     val body = description.nullize(true)
 
-    return requestExecutor.executeSuspend(GHGQLRequests.PullRequest.create(baseRepo.repository, repositoryId,
-                                                                           baseBranch.nameForRemoteOperations,
-                                                                           headRepositoryPrefix + headBranch.nameForRemoteOperations,
-                                                                           actualTitle, body, draft
+    return requestExecutor.execute(GHGQLRequests.PullRequest.create(baseRepo.repository, repositoryId,
+                                                                    baseBranch.nameForRemoteOperations,
+                                                                    headRepositoryPrefix + headBranch.nameForRemoteOperations,
+                                                                    actualTitle, body, draft
     ))
   }
 
   override suspend fun findOpenPullRequest(baseBranch: GitRemoteBranch?,
                                            headRepo: GHRepositoryPath,
                                            headBranch: GitRemoteBranch): GHPRIdentifier? =
-    requestExecutor.executeSuspend(
+    findOpenPullRequestDetails(baseBranch, headRepo, headBranch)?.toPRIdentifier()
+
+  override suspend fun findOpenPullRequestDetails(baseBranch: GitRemoteBranch?,
+                                                  headRepo: GHRepositoryPath,
+                                                  headBranch: GitRemoteBranch): GHPullRequestRestIdOnly? =
+    requestExecutor.execute(
       GithubApiRequests.Repos.PullRequests.find(baseRepo.repository,
                                                 GithubIssueState.open,
                                                 baseBranch?.nameForRemoteOperations,
                                                 headRepo.owner + ":" + headBranch.nameForRemoteOperations,
         // only the first match is used, so fetch a single result
                                                 GithubRequestPagination(pageSize = 1)
-      )).items.firstOrNull()?.toPRIdentifier()
+      )).items.firstOrNull()
+
+  // The advanced search syntax this query needs works starting from GitHub Enterprise Server 3.17.
+  override suspend fun findOpenPullRequestsByHeadBranches(headBranches: Collection<GitRemoteBranch>): List<GHPullRequestBranchMatch> {
+    if (headBranches.isEmpty()) return emptyList()
+    // The "head" search qualifier takes a bare branch name, unlike the REST "head" parameter, which takes "owner:branch-name".
+    val headBranchRefs = headBranches.map { it.nameForRemoteOperations }
+    return try {
+      requestExecutor.execute(GHGQLRequests.PullRequest.searchByHeadBranches(baseRepo.repository, headBranchRefs)).nodes
+    }
+    catch (e: GithubConfusingException) {
+      // The server doesn't support the advanced search syntax the query needs (e.g. an older GHE version). Show no reviews.
+      LOG.info("Batched pull request search is not supported by the server", e)
+      emptyList()
+    }
+  }
 
   private fun getHeadRepoPrefix(headRepo: GHGitRepositoryMapping) =
     if (baseRepo.repository == headRepo.repository) "" else headRepo.repository.repositoryPath.owner + ":"
@@ -106,3 +129,5 @@ internal class GHPRCreationServiceImpl(private val requestExecutor: GithubApiReq
     )
   }
 }
+
+private val LOG = logger<GHPRCreationServiceImpl>()

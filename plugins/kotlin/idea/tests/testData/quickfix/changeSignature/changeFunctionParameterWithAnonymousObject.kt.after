@@ -1,5 +1,5 @@
 // "Change parameter 'param' type of function 'handle' to 'Callback'" "true"
-// K2_ERROR: Argument type mismatch: actual type is '<anonymous>', but 'Int' was expected.
+// K2_ERROR: ARGUMENT_TYPE_MISMATCH
 interface Callback {
     fun onEvent()
 }
@@ -11,5 +11,4 @@ fun test() {
         override fun onEvent() {}
     })
 }
-// FUS_QUICKFIX_NAME: org.jetbrains.kotlin.idea.quickfix.ChangeParameterTypeFix
-// FUS_K2_QUICKFIX_NAME: org.jetbrains.kotlin.idea.k2.refactoring.changeSignature.quickFix.ChangeParameterTypeFix
+// FUS_QUICKFIX_NAME: org.jetbrains.kotlin.idea.k2.refactoring.changeSignature.quickFix.ChangeParameterTypeFix

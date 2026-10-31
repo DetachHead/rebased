@@ -26,7 +26,7 @@ import com.intellij.python.hatch.runtime.HatchConstants
 import com.intellij.python.hatch.runtime.createHatchRuntime
 import com.intellij.python.hatch.runtime.hatchCli
 import com.intellij.python.pyproject.PY_PROJECT_TOML
-import com.intellij.python.pytools.runtime.PyToolRuntime
+import com.intellij.python.pytools.backend.runtime.PyToolRuntime
 import com.jetbrains.python.Result
 import com.jetbrains.python.errorProcessing.PyResult
 import com.jetbrains.python.isSuccess
@@ -163,7 +163,7 @@ internal class CliBasedHatchService<P : PathHolder> private constructor(
     envName: String?,
   ): PyResult<PythonVirtualEnvironment.Existing<P>> {
     val pythonBasedRuntime = basePythonBinaryPath?.let { path ->
-      hatchRuntime.withEnv(HatchConstants.AppEnvVars.PYTHON to path.toString())
+      hatchRuntime.withEnv(HatchConstants.AppEnvVars.PYTHON to path.toStringForExecution())
     } ?: hatchRuntime
 
     val hatchEnv = pythonBasedRuntime.hatchCli<P>().env()

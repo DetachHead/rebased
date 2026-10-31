@@ -100,11 +100,11 @@ internal object NodeIds {
   /** Product module set validation */
   @JvmField val PRODUCT_MODULE_SET_VALIDATION = NodeId("productModuleSetValidation", NodeCategory.VALIDATION)
 
-  /** Library module validation (auto-fixes .iml files) */
-  @JvmField val LIBRARY_MODULE_VALIDATION = NodeId("libraryModuleValidation", NodeCategory.VALIDATION)
-
   /** Plugin content module JPS dependency validation */
   @JvmField val PLUGIN_CONTENT_MODULE_VALIDATION = NodeId("pluginContentModuleValidation", NodeCategory.VALIDATION)
+
+  /** Restricted module activation in products, compatible plugin sets, and opted-in test plugins. */
+  @JvmField val RESTRICTED_MODULE_ACTIVATION_VALIDATION = NodeId("restrictedModuleActivationValidation", NodeCategory.VALIDATION)
 
   /** Duplicate content modules across bundled plugins */
   @JvmField val PLUGIN_CONTENT_DUPLICATE_VALIDATION = NodeId("pluginContentDuplicateValidation", NodeCategory.VALIDATION)
@@ -117,9 +117,6 @@ internal object NodeIds {
 
   /** Test library scope validation */
   @JvmField val TEST_LIBRARY_SCOPE_VALIDATION = NodeId("testLibraryScopeValidation", NodeCategory.VALIDATION)
-
-  /** Implicit embedded-module content-module inclusion validation */
-  @JvmField val IMPLICIT_EMBEDDED_CONTENT_MODULE_VALIDATION = NodeId("implicitEmbeddedContentModuleValidation", NodeCategory.VALIDATION)
 
   /** Product/module-set embedded content modules must not depend on non-embedded content modules */
   @JvmField val EMBEDDED_CONTENT_MODULE_DEPENDENCY_VALIDATION = NodeId("embeddedContentModuleDependencyValidation", NodeCategory.VALIDATION)

@@ -29,4 +29,12 @@ class BazelLabelTest {
     Assertions.assertEquals("", label.packageName)
     Assertions.assertEquals("kotlin-stdlib.jar", label.target)
   }
+
+  @Test
+  fun targetWithPlusVersion() {
+    val label = BazelLabel.fromString("@repo//:foundation-desktop-1.13.0-alpha02+dev10.jar")
+    Assertions.assertEquals("repo", label.repo)
+    Assertions.assertEquals("", label.packageName)
+    Assertions.assertEquals("foundation-desktop-1.13.0-alpha02+dev10.jar", label.target)
+  }
 }

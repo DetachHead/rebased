@@ -3343,12 +3343,12 @@ class PyTypeAnnotationTest : PyCodeInsightTestCase() {
     class Base(Generic[T, T1, DefaultStrT]): ...
     class Foo(Base[int, float]): ...
     foo = Foo[int]()
-    #         ^^^ WARNING Class 'Foo' is already parameterized
+    #         ^^^ WARNING Class 'Foo' is not generic
 
     class Bar(Generic[T]): ...
     class Baz(Bar[int]): ...
     baz = Baz[int]()
-    #         ^^^ WARNING Class 'Baz' is already parameterized
+    #         ^^^ WARNING Class 'Baz' is not generic
 
     class NoErr(Bar[int]):
          def __class_getitem__(cls, item) -> str:
@@ -3356,6 +3356,44 @@ class PyTypeAnnotationTest : PyCodeInsightTestCase() {
 
     n = NoErr[int]()
     """.trimIndent())
+
+  @Test
+  @TestFor(issues = ["PY-81560"])
+  fun `class that never declared type parameters is not generic`() = test("""
+    class MyList(list): ...
+    x = MyList[int]()
+    #          ^^^ WARNING Class 'MyList' is not generic
+    """)
+
+  @Test
+  @TestFor(issues = ["PY-81560"])
+  // A base is parameterized by what its type carries, not by how it is spelled: an alias standing for `Base[int, float]`
+  // binds the parameters just as the subscription does.
+  fun `class parameterized through an alias is already parameterized`() = test("""
+    from typing import Generic, TypeVar
+
+    T = TypeVar("T")
+    T1 = TypeVar("T1")
+
+    class Base(Generic[T, T1]): ...
+    Alias = Base[int, float]
+    class Foo(Alias): ...
+    foo = Foo[int]()
+    #         ^^^ WARNING Class 'Foo' is not generic
+    """)
+
+  @Test
+  @TestFor(issues = ["PY-81560"])
+  fun `class whose base parameter is left to its default is not generic`() = test("""
+    from typing import Generic, TypeVar
+
+    DefaultStrT = TypeVar("DefaultStrT", default=str)
+
+    class Base(Generic[DefaultStrT]): ...
+    class Foo(Base): ...
+    foo = Foo[int]()
+    #         ^^^ WARNING Class 'Foo' is not generic
+    """)
 
   @Test
   @TestFor(issues = ["PY-76894"])
@@ -4802,6 +4840,59 @@ class PyTypeAnnotationTest : PyCodeInsightTestCase() {
     _: Literal[(1, "a")]
     #          ^^^^^^^^ WARNING 'Literal' may be parameterized with literal ints, byte and unicode strings, bools, Enum values, None, other literal types, or type aliases to other literal types
     """.trimIndent())
+
+  @Test
+  @TestFor(issues = ["PY-54527", "PY-91274"])
+  fun `parameter annotation that names the parameter resolves outside of the function`() = test(
+    """
+    from lib import f, C
+
+    f("", 1)
+    # │   └ WARNING Expected type 'str', got 'Literal[1]' instead
+    # ^^ WARNING Expected type 'int', got 'Literal[""]' instead
+    C().m(type=1) # WARNING Expected type 'type | None', got 'Literal[1]' instead
+    """.trimIndent(),
+    "lib.py" to """
+      def f(str: int, int: str) -> None: ...
+
+      class C:
+          def m(self, *, type: type | None = None) -> None: ...
+      """.trimIndent(),
+  )
+
+  @Test
+  @TestFor(issues = ["PY-83181"])
+  fun `return annotation that names a parameter resolves outside of the function`() = test(
+    """
+    from lib import f
+
+    expr = f("")
+    # └ TYPE int
+    """.trimIndent(),
+    "lib.py" to """
+    def f(int) -> int: ...
+    """.trimIndent(),
+  )
+
+  @Test
+  @TestFor(issues = ["PY-83181"])
+  fun `Literal enum annotation that names the parameter resolves outside of the function`() = test("""
+    from lib import f, Color
+
+    f(Color.RED)
+    f(Color.GREEN) # WARNING Expected type 'Literal[Color.RED]', got 'Literal[Color.GREEN]' instead
+    """.trimIndent(),
+    "lib.py" to """
+      from enum import Enum
+      from typing import Literal
+
+      class Color(Enum):
+          RED = 1
+          GREEN = 2
+
+      def f(Color: Literal[Color.RED]) -> None: ...
+      """.trimIndent(),
+  )
 
   companion object {
     private const val TRIPLE_QUOTE = "\"\"\""

@@ -11,6 +11,7 @@ fun test() {
                         continue@loop
                     }
                 }
+
                 else -> {
                     if (i == 0) {
                         i.hashCode()

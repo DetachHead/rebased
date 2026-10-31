@@ -1,6 +1,7 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.intellij.build.productLayout.validator
 
+import com.intellij.platform.buildScripts.concurrency.SharedTaskOwner
 import com.intellij.platform.pluginSystem.parser.impl.elements.ModuleLoadingRuleValue.EMBEDDED
 import com.intellij.platform.pluginSystem.parser.impl.elements.ModuleLoadingRuleValue.OPTIONAL
 import com.intellij.platform.pluginSystem.parser.impl.elements.ModuleLoadingRuleValue.REQUIRED
@@ -11,15 +12,20 @@ import org.jetbrains.intellij.build.productLayout.TestFailureLogger
 import org.jetbrains.intellij.build.productLayout.dependency.pluginGraph
 import org.jetbrains.intellij.build.productLayout.dependency.runValidationRule
 import org.jetbrains.intellij.build.productLayout.dependency.testGenerationModel
-import org.jetbrains.intellij.build.productLayout.moduleSet
 import org.jetbrains.intellij.build.productLayout.model.error.UnusedEmbeddedLibraryModuleError
-import org.jetbrains.intellij.build.productLayout.productModules
 import org.jetbrains.intellij.build.productLayout.traversal.analyzeUnusedEmbeddedLibraryModules
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.extension.ExtendWith
 
 @ExtendWith(TestFailureLogger::class)
 class UnusedEmbeddedLibraryModuleValidatorTest {
+  private val owner = SharedTaskOwner("UnusedEmbeddedLibraryModuleValidatorTest")
+
+  @org.junit.jupiter.api.AfterEach
+  fun closeSharedTasks() {
+    owner.close()
+  }
+
   @Test
   fun `keeps library chain reachable from embedded platform content`() {
     val graph = pluginGraph {
@@ -53,7 +59,7 @@ class UnusedEmbeddedLibraryModuleValidatorTest {
       linkContentModuleDeps("second.plugin.impl", "first.plugin.impl")
     }
 
-    val errors = runValidationRule(UnusedEmbeddedLibraryModuleValidator, testGenerationModel(graph))
+    val errors = runValidationRule(UnusedEmbeddedLibraryModuleValidator, testGenerationModel(graph, owner = owner))
 
     assertThat(errors).hasSize(1)
     val violation = (errors.single() as UnusedEmbeddedLibraryModuleError).violations.single()
@@ -74,7 +80,7 @@ class UnusedEmbeddedLibraryModuleValidatorTest {
       }
     }
 
-    val errors = runValidationRule(UnusedEmbeddedLibraryModuleValidator, testGenerationModel(graph))
+    val errors = runValidationRule(UnusedEmbeddedLibraryModuleValidator, testGenerationModel(graph, owner = owner))
 
     val violation = (errors.single() as UnusedEmbeddedLibraryModuleError).violations.single()
     assertThat(violation.productionPluginConsumers).containsExactly("consumer.plugin")
@@ -82,10 +88,6 @@ class UnusedEmbeddedLibraryModuleValidatorTest {
 
   @Test
   fun `keeps library reached through embedded JPS runtime closure`() {
-    val core = moduleSet("core", includeDependencies = true) {
-      embeddedModule("intellij.platform.core")
-      embeddedModule("intellij.libraries.implicit")
-    }
     val graph = pluginGraph {
       product("IDEA") { includesModuleSet("core") }
       moduleSet("core") {
@@ -96,13 +98,7 @@ class UnusedEmbeddedLibraryModuleValidatorTest {
       moduleWithDeps("intellij.libraries.implicit")
     }
 
-    val spec = productModules { moduleSet(core) }
-    val result = analyzeUnusedEmbeddedLibraryModules(
-      graph = graph,
-      productSpecsByName = mapOf("IDEA" to spec),
-    )
-
-    assertThat(result.violations).isEmpty()
+    assertThat(analyzeUnusedEmbeddedLibraryModules(graph).violations).isEmpty()
   }
 
   @Test
@@ -136,6 +132,34 @@ class UnusedEmbeddedLibraryModuleValidatorTest {
 
     assertThat(analyzeUnusedEmbeddedLibraryModules(graph).violations.map { it.module })
       .containsExactly("intellij.libraries.plugin.only")
+  }
+
+  @Test
+  fun `product implementation target justifies embedding`() {
+    val graph = pluginGraph {
+      product("IDEA") {
+        includesModuleSet("core")
+        implementationTarget("intellij.idea.customization")
+      }
+      moduleSet("core") { module("intellij.libraries.core.only", EMBEDDED) }
+      target("intellij.idea.customization") { dependsOn("intellij.libraries.core.only") }
+      moduleWithDeps("intellij.libraries.core.only")
+    }
+
+    assertThat(analyzeUnusedEmbeddedLibraryModules(graph).violations).isEmpty()
+  }
+
+  @Test
+  fun `same graph without the implementation target reports the library`() {
+    val graph = pluginGraph {
+      product("IDEA") { includesModuleSet("core") }
+      moduleSet("core") { module("intellij.libraries.core.only", EMBEDDED) }
+      target("intellij.idea.customization") { dependsOn("intellij.libraries.core.only") }
+      moduleWithDeps("intellij.libraries.core.only")
+    }
+
+    assertThat(analyzeUnusedEmbeddedLibraryModules(graph).violations.map { it.module })
+      .containsExactly("intellij.libraries.core.only")
   }
 
   @Test

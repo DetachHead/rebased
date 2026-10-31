@@ -349,6 +349,10 @@ public class NullableStuffInspectionTest extends LightJavaCodeInsightFixtureTest
     doTestWithFix("Remove annotation");
   }
 
+  public void testNullabilityAnnotationInPattern() { doTest(); }
+
+  public void testRemovePatternNullabilityAnnotation() { doTestWithFix("Remove annotation"); }
+
   public void testTypeUseArrayAnnotation() {
     myInspection.REPORT_ANNOTATION_NOT_PROPAGATED_TO_OVERRIDERS = true;
     setupTypeUseAnnotations("typeUse", myFixture);
@@ -621,36 +625,9 @@ public class NullableStuffInspectionTest extends LightJavaCodeInsightFixtureTest
     doTest();
   }
 
-  public void testJSpecifySameInstanceGenericUnspecified() {
-    addJSpecifyNullMarked(myFixture);
-    setupTypeUseAnnotations("org.jspecify.annotations", myFixture);
-    addNullnessUnspecified();
-    doTest();
-  }
-
-  public void testJSpecifySameInstanceGenericShadow() {
-    addJSpecifyNullMarked(myFixture);
-    setupTypeUseAnnotations("org.jspecify.annotations", myFixture);
-    addNullnessUnspecified();
-    doTest();
-  }
-
   public void testJSpecifySameInstanceGenericInheritedBound() {
     addJSpecifyNullMarked(myFixture);
     setupTypeUseAnnotations("org.jspecify.annotations", myFixture);
-    doTest();
-  }
-
-  public void testJSpecifyUnspecifiedBoundTypeArgument() {
-    addJSpecifyNullMarked(myFixture);
-    setupTypeUseAnnotations("org.jspecify.annotations", myFixture);
-    addNullnessUnspecified();
-    doTest();
-  }
-
-  public void testJSpecifyUnspecifiedParameterOverridesNullable() {
-    setupTypeUseAnnotations("org.jspecify.annotations", myFixture);
-    addNullnessUnspecified();
     doTest();
   }
 
@@ -728,6 +705,12 @@ public class NullableStuffInspectionTest extends LightJavaCodeInsightFixtureTest
   }
   
   public void testJSpecifyNullMarkedDiamond() {
+    addJSpecifyNullMarked(myFixture);
+    setupTypeUseAnnotations("org.jspecify.annotations", myFixture);
+    doTest();
+  }
+
+  public void testJSpecifyStreamConcatOfNullable() {
     addJSpecifyNullMarked(myFixture);
     setupTypeUseAnnotations("org.jspecify.annotations", myFixture);
     doTest();

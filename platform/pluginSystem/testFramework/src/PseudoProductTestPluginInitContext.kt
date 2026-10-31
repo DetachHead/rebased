@@ -7,7 +7,7 @@ import com.intellij.ide.plugins.PluginInitializationContext
 import com.intellij.ide.plugins.PluginMainDescriptor
 import com.intellij.ide.plugins.PluginModuleDescriptor
 import com.intellij.ide.plugins.PluginModuleId
-import com.intellij.ide.plugins.ProductPluginInitContext.Companion.configureProductModeModules
+import com.intellij.ide.plugins.ProductModeCapabilities.configureProductModeModules
 import com.intellij.ide.plugins.ProductPluginInitContext.Companion.defaultProductCompatibilityDependenciesForRemainingCandidatesProvider
 import com.intellij.ide.plugins.ProductPluginInitContext.Companion.defaultProductCompatibilityDependenciesProvider
 import com.intellij.ide.plugins.ProductPluginInitContext.Companion.defaultProductRulesImposedExclusions
@@ -15,20 +15,27 @@ import com.intellij.ide.plugins.ProductPluginInitContext.Companion.defaultShould
 import com.intellij.ide.plugins.ProductRulesImposedExclusion
 import com.intellij.ide.plugins.UnambiguousPluginSet
 import com.intellij.openapi.extensions.PluginId
+import com.intellij.platform.productMode.ProductMode
 
 abstract class PseudoProductTestPluginInitContext : EmptyTestPluginInitContext() {
   abstract val expiredPlugins: Set<PluginId>
 
+  /** The AI flag that the test sets, without the backing file. */
+  open val aiEnabled: Boolean get() = true
+
+  /** Re-abstracted on purpose: this context derives its module map from the mode, so a subclass must state it. */
+  abstract override val productMode: ProductMode
+
   override val environmentConfiguredModules: Map<PluginModuleId, PluginInitializationContext.EnvironmentConfiguredModuleData> by lazy {
     buildMap {
-      configureProductModeModules(currentProductModeId)
+      configureProductModeModules(productMode)
     }
   }
 
   override fun provideModuleExclusionsImposedByProductRules(
     pluginSet: UnambiguousPluginSet
   ): Sequence<Pair<PluginModuleDescriptor, ProductRulesImposedExclusion.ProductRulesImposedExclusionReason>> =
-    defaultProductRulesImposedExclusions(pluginSet, expiredPlugins, thirdPartyPluginsWithoutConsentCheckResult = null)
+    defaultProductRulesImposedExclusions(pluginSet, expiredPlugins, thirdPartyPluginsWithoutConsentCheckResult = null, aiEnabled = aiEnabled)
 
   override fun provideCompatibilityDependencies(
     descriptor: IdeaPluginDescriptorImpl,

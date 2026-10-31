@@ -13,8 +13,8 @@ import com.intellij.openapi.roots.ModuleRootManager
 import com.intellij.openapi.roots.ProjectFileIndex
 import com.intellij.openapi.util.NlsSafe
 import com.intellij.openapi.util.TextRange
-import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.openapi.vfs.VirtualFile
+import com.intellij.openapi.vfs.VirtualFileManager
 import java.net.URI
 import java.net.URISyntaxException
 import java.nio.file.FileSystemNotFoundException
@@ -24,13 +24,13 @@ import com.intellij.patterns.PlatformPatterns.psiElement
 import com.intellij.patterns.StandardPatterns.or
 import com.intellij.platform.ide.progress.withBackgroundProgress
 import com.intellij.psi.PsiElement
+import com.intellij.python.pyproject.model.evolution.findPythonInterpreter
 import com.intellij.psi.PsiReference
 import com.intellij.psi.PsiReferenceBase
 import com.intellij.psi.PsiReferenceContributor
 import com.intellij.psi.PsiReferenceProvider
 import com.intellij.psi.PsiReferenceRegistrar
 import com.intellij.psi.impl.FakePsiElement
-import com.intellij.ui.jcef.JBCefApp
 import com.intellij.util.ProcessingContext
 import com.jetbrains.python.PyBundle
 import com.jetbrains.python.packaging.PyPackageName
@@ -42,6 +42,7 @@ import com.jetbrains.python.packaging.management.PythonPackageManager
 import com.jetbrains.python.packaging.management.findPackageSpecification
 import com.jetbrains.python.packaging.repository.PyPiPackageRepository
 import com.jetbrains.python.packaging.utils.PyPackageCoroutine
+import com.jetbrains.python.ui.PyEmbeddedBrowserProvider
 import com.intellij.python.requirements.parser.psi.NameReq
 import com.intellij.python.requirements.parser.psi.PackageName
 import com.intellij.python.requirements.parser.psi.Path
@@ -129,7 +130,7 @@ private fun resolveLocalFile(urlReference: String?): VirtualFile? {
   catch (_: FileSystemNotFoundException) { // no provider for the URI scheme
     return null
   }
-  return LocalFileSystem.getInstance().findFileByNioFile(path)
+  return VirtualFileManager.getInstance().findFileByNioPath(path)
 }
 
 /**
@@ -146,8 +147,8 @@ private fun resolveLocalPath(pathElement: PsiElement): VirtualFile? {
   catch (_: InvalidPathException) {
     return null
   }
-  val lfs = LocalFileSystem.getInstance()
-  if (nioPath.isAbsolute) return lfs.findFileByNioFile(nioPath)
+  val fileManager = VirtualFileManager.getInstance()
+  if (nioPath.isAbsolute) return fileManager.findFileByNioPath(nioPath)
 
   val baseDir = InjectedLanguageManager.getInstance(pathElement.project)
                   .getTopLevelFile(pathElement)?.virtualFile?.parent ?: return null
@@ -157,7 +158,7 @@ private fun resolveLocalPath(pathElement: PsiElement): VirtualFile? {
   catch (_: UnsupportedOperationException) { // base file has no local nio path
     return null
   }
-  return lfs.findFileByNioFile(resolved)
+  return fileManager.findFileByNioPath(resolved)
 }
 
 private class LocalRequirementReference(
@@ -227,17 +228,19 @@ private class RemoteRequirementNavTarget(
   override fun navigate(requestFocus: Boolean) {
     val project = anchor.project
 
-    val sdk = getPythonSdk(anchor.containingFile)
-    val packageManager = sdk?.let { PythonPackageManager.forSdk(project, it) }
+    val file = anchor.containingFile.virtualFile
 
     val newJob = PyPackageCoroutine.launch(project) {
+      val packageManager = file
+        ?.let { project.findPythonInterpreter(it, mainForOrphans = false) }
+        ?.let { PythonPackageManager.forPythonInterpreter(project, it) }
       // Background progress so the user sees that the click did register; cancellable so a
       // long wait on init can be aborted from the status bar.
       withBackgroundProgress(project, PyBundle.message("python.requirements.resolve.package.page", packageName), cancellable = true) {
         val url = packageManager.resolvePackageUrl(packageName)
 
         // JCEF tab when available, system browser as a fallback (headless / JCEF-stripped runtimes).
-        if (JBCefApp.isSupported()) {
+        if (PyEmbeddedBrowserProvider.isSupported()) {
           withContext(Dispatchers.EDT) {
             HTMLEditorProvider.openEditor(project, packageName, HTMLEditorProvider.Request.url(url))
           }

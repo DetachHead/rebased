@@ -23,6 +23,7 @@ import com.jetbrains.python.psi.PyStringLiteralExpression;
 import com.jetbrains.python.psi.PySubscriptionExpression;
 import com.jetbrains.python.psi.PyTypedElement;
 import com.jetbrains.python.psi.PyUtil;
+import com.jetbrains.python.psi.impl.PyCallExpressionHelper;
 import com.jetbrains.python.psi.impl.PyKeywordArgumentProvider;
 import com.jetbrains.python.psi.resolve.PyResolveContext;
 import com.jetbrains.python.psi.resolve.QualifiedResolveResult;
@@ -55,7 +56,7 @@ public final class KeywordArgumentCompletionUtil {
     if (callExpr != null) {
       PyExpression callee = callExpr.getCallee();
       if (callee instanceof PyReferenceExpression && element.getParent() == callExpr.getArgumentList()) {
-        PyType calleeType = context.getType(callee);
+        PyType calleeType = PyCallExpressionHelper.getCalleeType(callee, PyResolveContext.defaultContext(context));
         if (isUnknown(calleeType)) {
           final PyTypedElement implicit = as(getElementByChain((PyReferenceExpression)callee, context), PyTypedElement.class);
           if (implicit != null) {

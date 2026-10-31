@@ -35,6 +35,7 @@ import com.intellij.ide.plugins.loadPluginSubDescriptors
 import com.intellij.ide.plugins.sequenceAllDescriptors
 import com.intellij.ide.plugins.sequenceDescriptorExclusionChain
 import com.intellij.openapi.diagnostic.logger
+import com.intellij.platform.buildScripts.concurrency.withLockInterruptibly
 import com.intellij.platform.ide.bootstrap.ZipFilePoolImpl
 import com.intellij.platform.pluginSystem.parser.impl.LoadPathUtil
 import com.intellij.platform.pluginSystem.parser.impl.LoadedXIncludeReference
@@ -49,13 +50,14 @@ import com.intellij.platform.pluginSystem.testFramework.isModuleSetPath
 import com.intellij.platform.pluginSystem.testFramework.loadRawPluginDescriptorInTest
 import com.intellij.platform.pluginSystem.testFramework.loadXIncludeReferenceFromResolvedRoots
 import com.intellij.platform.pluginSystem.testFramework.resolveModuleSetPath
-import com.intellij.platform.runtime.product.ProductMode
+import com.intellij.platform.productMode.ProductMode
 import com.intellij.util.SmartList
 import com.intellij.util.SystemProperties
 import com.intellij.util.lang.UrlClassLoader
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
+import java.util.concurrent.locks.ReentrantLock
 import org.jetbrains.intellij.build.BuildPaths
+import org.jetbrains.intellij.build.impl.moduleBased.JpsProductModeMatcher
+import org.jetbrains.intellij.build.productLayout.util.getProductionModuleDependencies
 import org.jetbrains.jps.model.JpsProject
 import org.jetbrains.jps.model.java.JavaSourceRootType
 import org.jetbrains.jps.model.java.JpsJavaDependencyScope
@@ -78,13 +80,15 @@ class PluginDependenciesValidator private constructor(
   private val tempDir: Path,
   private val project: JpsProject,
   private val productMode: ProductMode,
-  pluginLayoutProvider: PluginLayoutProvider,
+  private val pluginLayoutProvider: PluginLayoutProvider,
   private val options: PluginDependenciesValidationOptions,
 ) {
-  companion object {
-    private val pluginSetBuildMutex = Mutex()
+  private val productModeMatcher = JpsProductModeMatcher(productMode)
 
-    suspend fun validatePluginDependencies(
+  companion object {
+    private val pluginSetBuildLock = ReentrantLock()
+
+    fun validatePluginDependencies(
       project: JpsProject,
       productMode: ProductMode,
       pluginLayoutProvider: PluginLayoutProvider,
@@ -93,9 +97,10 @@ class PluginDependenciesValidator private constructor(
     ): List<PluginModuleConfigurationError> {
       val validator = PluginDependenciesValidator(tempDir = tempDir, project = project, productMode = productMode, pluginLayoutProvider = pluginLayoutProvider, options = options)
       val pluginSetTestBuilder = validator.createPluginSet()
-      val pluginSet = pluginSetBuildMutex.withLock { pluginSetTestBuilder.build() }
+      val pluginSet = pluginSetBuildLock.withLockInterruptibly { pluginSetTestBuilder.build() }
       validator.reportPluginLoadingErrors(pluginSet)
       validator.checkPluginSet(pluginSet)
+      validator.checkModeRefusalAgreement(pluginSet)
       return validator.errors
     }
   }
@@ -165,13 +170,31 @@ class PluginDependenciesValidator private constructor(
     for (plugin in pluginSet.resolvedPluginSet.candidateSet.plugins) {
       pluginSet.resolvedPluginSet.getExclusionReason(plugin)?.let(::report)
       for (descriptor in plugin.sequenceAllDescriptors()) {
-        val reason = pluginSet.resolvedPluginSet.getExclusionReason(descriptor)
-        if (reason is PackagePrefixConflictWithAnotherModule) {
+        val reason = pluginSet.resolvedPluginSet.getExclusionReason(descriptor) ?: continue
+        if (reason is PackagePrefixConflictWithAnotherModule || isUnexplainedExclusionOfModuleThatMustLoad(descriptor, pluginSet.resolvedPluginSet)) {
           report(reason)
         }
       }
     }
   }
+
+  /**
+   * True for a content module that [PluginDependenciesValidationOptions.contentModulesThatMustLoad] names and that no earlier link of its
+   * exclusion chain explains. An excluded plugin is always reported. An excluded module that must load too is reported here.
+   * A chain root from [PluginDependenciesValidationOptions.toleratedExclusionRoots] explains the exclusion.
+   */
+  private fun isUnexplainedExclusionOfModuleThatMustLoad(descriptor: IdeaPluginDescriptorImpl, resolvedPluginSet: ResolvedPluginSet): Boolean {
+    if (!descriptor.mustLoad()) {
+      return false
+    }
+    val precedingLinks = descriptor.sequenceDescriptorExclusionChain(resolvedPluginSet::getExclusionReason).drop(1).toList()
+    if (precedingLinks.any { it is PluginMainDescriptor || it.mustLoad() }) {
+      return false
+    }
+    return precedingLinks.lastOrNull()?.contentModuleName !in options.toleratedExclusionRoots
+  }
+
+  private fun IdeaPluginDescriptorImpl.mustLoad(): Boolean = contentModuleName?.let(options.contentModulesThatMustLoad) == true
 
   private fun DescriptorExclusionReason.isIgnoredByBuildValidation(): Boolean = when (this) {
     is ExcludedByEnvironmentConfiguration,
@@ -191,6 +214,33 @@ class PluginDependenciesValidator private constructor(
     this is PluginIsIncompatibleWithProduct &&
     (incompatibilityReason is PluginIncompatibilityReason.IncompatibleWithHostPlatform ||
      incompatibilityReason is PluginIncompatibilityReason.IncompatibleWithCpuArch)
+
+  /**
+   * An optional content module of a bundled plugin that the JPS walk of the product mode refuses must be excluded by the
+   * run time too. A distribution of that mode places no jar of such a module, so an enabled one would load with no
+   * classes. The two walks agree when the module's descriptor states the dependency that reaches the refused root.
+   */
+  private fun checkModeRefusalAgreement(pluginSet: PluginSet) {
+    if (productMode == ProductMode.MONOLITH) {
+      return
+    }
+    for (descriptor in pluginSet.getEnabledModules()) {
+      if (descriptor !is ContentModuleDescriptor || descriptor.moduleLoadingRule.required || !descriptor.parent.isBundled) {
+        continue
+      }
+      val moduleName = descriptor.moduleId.name.substringBeforeLast('/')
+      val jpsModule = project.findModuleByName(moduleName) ?: continue
+      if (productModeMatcher.matches(jpsModule)) {
+        continue
+      }
+      errors.add(PluginModuleConfigurationError(
+        pluginModelModuleName = moduleName,
+        errorMessage = "'$moduleName' of plugin '${descriptor.parent.pluginId}' reaches a module the '${productMode.id}' mode refuses, " +
+                       "yet the run time enables it. A distribution of that mode places no jar of it (ADR 0021 in build/decisions). " +
+                       "Its descriptor must state the dependency that reaches the refused module.",
+      ))
+    }
+  }
 
   private fun checkPluginSet(pluginSet: PluginSet) {
     val jpsModuleToRuntimeDescriptors = LinkedHashMap<String, MutableList<IdeaPluginDescriptorImpl>>()
@@ -595,6 +645,14 @@ class PluginDependenciesValidator private constructor(
     override fun toString(): String {
       return "PluginMainModuleFromSourceXIncludeLoader(plugin=${layout.mainJpsModule})"
     }
+
+    fun loadXIncludeReferenceFromLibraries(path: String, moduleName: String): LoadedXIncludeReference? {
+      val roots = pluginLayoutProvider.findModuleLibraryRoots(moduleName)
+      return loadXIncludeReferenceFromResolvedRoots(
+        path = path,
+        roots = roots.asSequence(),
+      )
+    }
   }
   
   private inner class PluginContentModuleFromSourceXIncludeLoader(
@@ -606,6 +664,25 @@ class PluginDependenciesValidator private constructor(
       if (file != null) {
         return LoadedXIncludeReference(Files.readAllBytes(file), file.pathString)
       }
+
+      val moduleName = jpsModule.name
+      if (moduleName.startsWith("intellij.libraries.kotlinc.")) {
+        val selfAndDependentLibraries = buildList {
+          add(moduleName)
+          addAll(jpsModule.getProductionModuleDependencies().mapNotNull { dependency -> dependency.module?.name?.takeIf { it.startsWith("intellij.libraries.kotlinc.") } })
+        }
+        val xIncludeReference = selfAndDependentLibraries.firstNotNullOfOrNull {
+          parentXIncludeLoader.loadXIncludeReferenceFromLibraries(path, it)
+        }
+        if (xIncludeReference != null) {
+          return xIncludeReference
+        }
+
+        if (!productModeMatcher.matches(jpsModule)) {
+          return LoadedXIncludeReference("<idea-plugin/>".encodeToByteArray(), "ignored include from incompatible module '$moduleName'")
+        }
+      }
+
       return parentXIncludeLoader.loadXIncludeReference(path)
     }
 

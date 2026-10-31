@@ -6,7 +6,15 @@ parse_iml() and _parse_library_element(), using a minimal fake ctx.
 
 load("@bazel_skylib//lib:unittest.bzl", "asserts", "unittest")
 load(":jps_library_derivation.bzl", "derive_library_targets")
-load(":jps_target_derivation.bzl", "parse_iml")
+load(":jps_model.bzl", "read_project_model")
+load(
+    ":jps_target_derivation.bzl",
+    "compute_module_descriptor_target",
+    "format_dev_dist_plugin_load",
+    "format_dev_dist_plugin_wrapper",
+    "module_rule_label",
+    "parse_iml",
+)
 
 # --- Harness helpers ---
 
@@ -412,10 +420,112 @@ ultimate_mode_local_path_routing_test = unittest.make(_ultimate_mode_local_path_
 
 # --- Suite ---
 
+def _descriptor_path(path, files):
+    return struct(
+        path = path,
+        exists = path in files,
+        get_child = lambda child: _descriptor_path(path + "/" + child if path else child, files),
+        readdir = lambda watch: [],
+    )
+
+def _module_descriptor_index_test_impl(ctx):
+    env = unittest.begin(ctx)
+    module_name = "intellij.test.content"
+    iml_path = "community/plugins/test/content/" + module_name + ".iml"
+    files = {
+        ".idea/modules.xml": '<project><component><modules><module filepath="$PROJECT_DIR$/%s" /></modules></component></project>' % iml_path,
+        iml_path: """<module><component name="NewModuleRootManager"><content url="file://$MODULE_DIR$">
+          <sourceFolder url="file://$MODULE_DIR$/remapped" type="java-resource" relativeOutputPath="META-INF" />
+          <sourceFolder url="file://$MODULE_DIR$/../outside" type="java-resource" />
+          <sourceFolder url="file://$MODULE_DIR$/first" type="java-resource" />
+          <sourceFolder url="file://$MODULE_DIR$/second" type="java-resource" />
+          <sourceFolder url="file://$MODULE_DIR$/tests" type="java-test-resource" />
+        </content></component></module>""",
+    }
+    for directory in ["content/remapped", "outside", "content/first", "content/second", "content/tests"]:
+        files["community/plugins/test/" + directory + "/" + module_name + ".xml"] = "<idea-plugin/>"
+    model = read_project_model(
+        struct(read = lambda path, watch: files[path.path]),
+        _descriptor_path("", files),
+    )
+    module = model.modules[0]
+    asserts.equals(env, ["META-INF", "", "", ""], [root.relative_output_path for root in module.resource_roots])
+    asserts.equals(env, ["remapped", "outside", "first", "second"], [root.path.rsplit("/", 1)[1] for root in module.resource_roots])
+    arguments = dict(
+        module_name = module_name,
+        build_dir_parts = ["community", "plugins", "test", "content"],
+        resource_roots = module.resource_roots,
+        descriptor_rel_paths = module.descriptor_rel_paths,
+        is_community = True,
+        community_root_parts = ["community"],
+    )
+    asserts.equals(env, "@community//plugins/test/content:first/" + module_name + ".xml", compute_module_descriptor_target(**arguments))
+    arguments["descriptor_rel_paths"] = [path for path in module.descriptor_rel_paths if "/first/" not in path]
+    asserts.equals(env, "@community//plugins/test/content:second/" + module_name + ".xml", compute_module_descriptor_target(**arguments))
+    arguments["descriptor_rel_paths"] = []
+    asserts.equals(env, None, compute_module_descriptor_target(**arguments))
+    arguments["descriptor_rel_paths"] = module.descriptor_rel_paths
+    arguments["build_dir_parts"] = []
+    arguments["is_community"] = False
+    asserts.equals(env, None, compute_module_descriptor_target(**arguments))
+    return unittest.end(env)
+
+_module_descriptor_index_test = unittest.make(_module_descriptor_index_test_impl)
+
+def _dev_dist_plugin_wrapper_test_impl(ctx):
+    env = unittest.begin(ctx)
+    asserts.equals(env, "".join([
+        'load("@community//platform/build-scripts/bazel-rules:dev_dist_plugin.bzl", _dev_dist_plugin = "dev_dist_plugin")\n',
+        'load("@community//platform/build-scripts/bazel-rules:dev_dist_plugin_descriptor.bzl", _dev_dist_plugin_descriptor = "dev_dist_plugin_descriptor")\n',
+        'load("@community//platform/build-scripts/bazel-rules:dev_dist_product_descriptor.bzl", _dev_dist_product_descriptor = "dev_dist_product_descriptor")\n',
+        'load("@community//platform/build-scripts/bazel-rules:dev_dist_embedded_product_descriptor.bzl", _dev_dist_embedded_product_descriptor = "dev_dist_embedded_product_descriptor")\n',
+    ]), format_dev_dist_plugin_load())
+    asserts.equals(env, "\n".join([
+        "def dev_dist_plugin(module_targets = MODULE_TARGETS, descriptor_index = MODULE_DESCRIPTORS, **kwargs):",
+        '    """`dev_dist_plugin` bound to this bridge\'s module map and descriptor index."""',
+        "    _dev_dist_plugin(module_targets = module_targets, descriptor_index = descriptor_index, **kwargs)",
+        "",
+        "def dev_dist_plugin_descriptor(descriptor_index = MODULE_DESCRIPTORS, **kwargs):",
+        '    """`dev_dist_plugin_descriptor` bound to this bridge\'s descriptor index."""',
+        "    _dev_dist_plugin_descriptor(descriptor_index = descriptor_index, **kwargs)",
+        "",
+        "def dev_dist_product_descriptor(descriptor_index = MODULE_DESCRIPTORS, **kwargs):",
+        '    """`dev_dist_product_descriptor` bound to this bridge\'s descriptor index."""',
+        "    _dev_dist_product_descriptor(descriptor_index = descriptor_index, **kwargs)",
+        "",
+        "def dev_dist_embedded_product_descriptor(descriptor_index = MODULE_DESCRIPTORS, **kwargs):",
+        '    """`dev_dist_embedded_product_descriptor` bound to this bridge\'s descriptor index."""',
+        "    _dev_dist_embedded_product_descriptor(descriptor_index = descriptor_index, **kwargs)",
+        "",
+    ]), format_dev_dist_plugin_wrapper())
+    return unittest.end(env)
+
+_dev_dist_plugin_wrapper_test = unittest.make(_dev_dist_plugin_wrapper_test_impl)
+
+def _module_rule_label_test_impl(ctx):
+    env = unittest.begin(ctx)
+    modules = {
+        "community": ["@community//plugins/example:example.jar"],
+        "ultimate": ["//plugins/example:example.jar"],
+        "local": [":example.jar"],
+        "root": ["//:root-module.jar"],
+    }
+    asserts.equals(env, "@community//plugins/example:example", module_rule_label("community", modules))
+    asserts.equals(env, "//plugins/example:example", module_rule_label("ultimate", modules))
+    asserts.equals(env, ":example", module_rule_label("local", modules))
+    asserts.equals(env, "//:root-module", module_rule_label("root", modules))
+    asserts.equals(env, None, module_rule_label("removed", modules))
+    return unittest.end(env)
+
+_module_rule_label_test = unittest.make(_module_rule_label_test_impl)
+
 def jps_library_derivation_pipeline_test_suite(name):
     """Test suite for derive_library_targets() end-to-end pipeline."""
     unittest.suite(
         name,
+        _module_descriptor_index_test,
+        _dev_dist_plugin_wrapper_test,
+        _module_rule_label_test,
         project_libraries_only_include_referenced_test,
         project_library_repo_selection_test,
         project_library_mixed_snapshot_test,

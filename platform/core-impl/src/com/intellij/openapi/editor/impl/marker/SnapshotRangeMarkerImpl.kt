@@ -2,10 +2,8 @@
 package com.intellij.openapi.editor.impl.marker
 
 import com.intellij.openapi.editor.Document
-import com.intellij.openapi.editor.ex.DocumentSnapshot
 import com.intellij.openapi.editor.ex.RangeMarkerEx
 import com.intellij.openapi.editor.impl.DocumentImpl
-import com.intellij.openapi.editor.impl.DocumentSnapshotImpl
 import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.util.TextRange
 import com.intellij.openapi.util.UserDataHolderBase
@@ -20,31 +18,40 @@ import java.util.concurrent.atomic.AtomicReference
 open class SnapshotRangeMarkerImpl private constructor(
   private val documentOrFile: Any,
   internal val fileRoot: FileMarkerRoot?,
+  private val rootStorage: MarkerRootUpdater,
   internal val markerId: Long,
   initialSpec: MarkerSpec,
   internal val initialRange: TextRange,
-) : UserDataHolderBase(), PMarker, RangeMarkerEx {
+) : UserDataHolderBase(), SnapshotMarker, RangeMarkerEx {
+  /**
+   * Creates a marker in the range marker store for [document]. A non-null [fileRoot] stores it in that root instead.
+   */
   internal constructor(
-    document: Document,
+    document: DocumentImpl,
     fileRoot: FileMarkerRoot?,
     markerId: Long,
     initialSpec: MarkerSpec,
     initialRange: TextRange,
-  ) : this(fileRoot?.file ?: document, fileRoot, markerId, initialSpec, initialRange)
+  ) : this(fileRoot?.file ?: document, fileRoot, fileRoot ?: document.rangeMarkers.rootStore(), markerId, initialSpec, initialRange)
 
+  /** Creates a marker in [fileRoot] before the document is available. */
   internal constructor(
     fileRoot: FileMarkerRoot,
     markerId: Long,
     initialSpec: MarkerSpec,
     initialRange: TextRange,
-  ) : this(fileRoot.file, fileRoot, markerId, initialSpec, initialRange)
+  ) : this(fileRoot.file, fileRoot, fileRoot, markerId, initialSpec, initialRange)
 
+  /**
+   * Creates a marker in the supplied [rootStore]. Use this constructor for markers that an editor or a markup model owns.
+   */
   protected constructor(
     document: Document,
+    rootStore: SnapshotMarkerRootStore,
     markerId: Long,
     initialSpec: MarkerSpec,
     initialRange: TextRange,
-  ) : this(document, null, markerId, initialSpec, initialRange)
+  ) : this(document, null, rootStore, markerId, initialSpec, initialRange)
 
   @Volatile
   internal var disposed: Boolean = false
@@ -55,14 +62,10 @@ open class SnapshotRangeMarkerImpl private constructor(
   }
 
   @Volatile
-  private var spec = initialSpec
+  private var spec: MarkerSpec = initialSpec
 
   override fun getId(): Long {
     return markerId
-  }
-
-  override fun resolve(snapshot: DocumentSnapshot): PMarkerResolution {
-    return SnapshotMarkerEngineImpl.resolveRangeMarker(this, rootReference(snapshot).get())
   }
 
   override fun getDocument(): Document {
@@ -83,22 +86,24 @@ open class SnapshotRangeMarkerImpl private constructor(
 
   override fun getTextRange(): TextRange = currentResolution()
 
-  override fun isValid(): Boolean = !disposed && currentResolution().isValid && (documentOrFile is Document || (documentOrFile as VirtualFile).isValid)
+  override fun isValid(): Boolean {
+    return !disposed && currentResolution().isValid && (documentOrFile is Document || (documentOrFile as VirtualFile).isValid)
+  }
 
   override fun isGreedyToLeft(): Boolean = spec.isGreedyToLeft
 
   override fun isGreedyToRight(): Boolean = spec.isGreedyToRight
 
   override fun setGreedyToLeft(greedy: Boolean) {
-    updateSpec { it.copy(isGreedyToLeft = greedy) }
+    updateSpec { it.withGreedyToLeft(greedy) }
   }
 
   override fun setGreedyToRight(greedy: Boolean) {
-    updateSpec { it.copy(isGreedyToRight = greedy) }
+    updateSpec { it.withGreedyToRight(greedy) }
   }
 
   override fun setStickingToRight(value: Boolean) {
-    updateSpec { it.copy(isStickingToRight = value) }
+    updateSpec { it.withStickyToRight(value) }
   }
 
   fun isStickingToRight(): Boolean = spec.isStickingToRight
@@ -128,50 +133,40 @@ open class SnapshotRangeMarkerImpl private constructor(
       val newSpec = transform(oldSpec)
       if (newSpec == oldSpec) return
 
-      val rootReference = currentRootReference()
-      while (!disposed) {
-        val oldRoot = rootReference.get()
-        val newRoot = oldRoot.updateSpec(markerId, newSpec)
-        if (newRoot === oldRoot) return
-        if (rootReference.compareAndSet(oldRoot, newRoot)) {
-          spec = newSpec
-          return
-        }
-      }
+      if (!updateCurrentRoot { root -> if (disposed) root else root.updateSpec(markerId, newSpec) }) return
+      spec = newSpec
     }
   }
 
-  private data class CachedResolution(val root: PMarkerRoot, val resolution: PMarkerResolution)
+  private data class CachedResolution(val cacheIdentity: Any, val resolution: PMarkerResolution)
 
   private var cachedResolution: CachedResolution? = null
 
+  internal fun cacheResolution(root: PMarkerRoot, resolution: PMarkerResolution) {
+    cachedResolution = CachedResolution(cacheIdentity(root), resolution)
+  }
+
   private fun currentResolution(): PMarkerResolution {
     val root = currentRootReference().get()
+    val cacheIdentity = cacheIdentity(root)
     val cached = cachedResolution
-    if (cached != null && cached.root === root) {
+    if (cached != null && cached.cacheIdentity === cacheIdentity) {
       return cached.resolution
     }
     val resolution = SnapshotMarkerEngineImpl.resolveRangeMarker(this, root)
-    this.cachedResolution = CachedResolution(root, resolution)
+    cachedResolution = CachedResolution(cacheIdentity, resolution)
     return resolution
   }
 
-  @ApiStatus.Internal
-  open fun currentRootReference(): AtomicReference<PMarkerRoot> {
-    val documentOrFile = documentOrFile
-    if (documentOrFile is VirtualFile) {
-      return checkNotNull(fileRoot).rootReference()
-    }
-    val document = documentOrFile as DocumentImpl
-    return (document.core.snapshot() as DocumentSnapshotImpl).markerRoot
+  private fun cacheIdentity(root: PMarkerRoot): Any = (root as? PMarkerRootImpl)?.resolutionCacheIdentity ?: root
+
+  internal fun updateCurrentRoot(update: (PMarkerRoot) -> PMarkerRoot): Boolean {
+    return rootStorage.updateCurrentRoot(update)
   }
 
-  protected open fun rootReference(snapshot: DocumentSnapshot): AtomicReference<PMarkerRoot> {
-    return (snapshot as DocumentSnapshotImpl).markerRoot
-  }
-
+  fun currentRootReference(): AtomicReference<PMarkerRoot> = rootStorage.currentRootReference()
 
   override fun toString(): String = "SnapshotRangeMarker(id=$markerId" +
                                     (if (disposed) ", disposed" else "") +
-                                                   ")"
+                                    ")"
 }

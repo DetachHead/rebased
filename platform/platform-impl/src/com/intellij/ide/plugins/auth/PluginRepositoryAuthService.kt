@@ -3,7 +3,7 @@ package com.intellij.ide.plugins.auth
 
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.diagnostic.ControlFlowException
-import com.intellij.openapi.diagnostic.rethrowControlFlowException
+import com.intellij.diagnostic.rethrowControlFlowException
 import com.intellij.openapi.diagnostic.thisLogger
 import com.intellij.util.io.HttpRequests
 import org.jetbrains.annotations.ApiStatus

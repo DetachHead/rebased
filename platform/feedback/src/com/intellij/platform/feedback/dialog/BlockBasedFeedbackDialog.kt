@@ -26,7 +26,6 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
-import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
@@ -214,12 +213,10 @@ internal class SystemInfoDataComputation<T : SystemDataJsonSerializable>(
   fun compute(coroutineScope: CoroutineScope, owner: JComponent) {
     computationJob.set(
       ComputationJob(
-        job = coroutineScope.async {
-          withContext(Dispatchers.Default) {
-            val result = computeSystemInfoData()
-            computedResult.set(result)
-            result
-          }
+        job = coroutineScope.async(Dispatchers.Default) {
+          val result = computeSystemInfoData()
+          computedResult.set(result)
+          result
         },
         owner = owner,
       )

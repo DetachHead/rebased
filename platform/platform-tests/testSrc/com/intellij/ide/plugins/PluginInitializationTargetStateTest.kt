@@ -7,7 +7,7 @@ import com.intellij.openapi.util.BuildNumber
 import com.intellij.platform.pluginSystem.parser.impl.elements.ModuleLoadingRuleValue
 import com.intellij.platform.pluginSystem.testFramework.PluginSetTestBuilder
 import com.intellij.platform.pluginSystem.testFramework.PseudoProductTestPluginInitContext
-import com.intellij.platform.runtime.product.ProductMode
+import com.intellij.platform.productMode.ProductMode
 import com.intellij.platform.testFramework.plugins.content
 import com.intellij.platform.testFramework.plugins.dependencies
 import com.intellij.platform.testFramework.plugins.depends
@@ -71,7 +71,7 @@ class PluginInitializationTargetStateTest {
       override val explicitPluginSubsetToLoad: Set<PluginId>? = explicitPluginSubsetToLoad
       override val disablePluginLoadingCompletely: Boolean = disablePluginLoadingCompletely
       override val checkEssentialPlugins: Boolean = checkEssentialPlugins
-      override val currentProductModeId: String = ProductMode.MONOLITH.id
+      override val productMode: ProductMode = ProductMode.MONOLITH
       override val environmentConfiguredModules: Map<PluginModuleId, PluginInitializationContext.EnvironmentConfiguredModuleData> =
         emptyMap()
       override val expiredPlugins: Set<PluginId> = emptySet()

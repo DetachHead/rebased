@@ -41,6 +41,8 @@ import it.unimi.dsi.fastutil.ints.IntSet
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.supervisorScope
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -66,7 +68,7 @@ object FUSProjectHotStartUpMeasurer {
   private val counter = AtomicInteger(0)
   private val handlingStarted = AtomicBoolean(false)
 
-  private data class ProjectId(val projectOrder: Int) {
+  internal data class ProjectId(val projectOrder: Int) {
     constructor() : this(counter.incrementAndGet())
   }
 
@@ -174,7 +176,7 @@ object FUSProjectHotStartUpMeasurer {
     channel.trySend(Event.SplashBecameVisibleEvent())
   }
 
-  fun isReopenStatEnabled(): Boolean {
+  fun isReopenAndWelcomeScreenStatEnabled(): Boolean {
     if (AppMode.isMonolith()) return true
     if (isRemDevTestWorkaround()) return true
     return false
@@ -188,9 +190,11 @@ object FUSProjectHotStartUpMeasurer {
   private fun isRemDevTestWorkaround(): Boolean = PlatformUtils.isJetBrainsClient() && ApplicationManagerEx.isInIntegrationTest()
 
   fun getStartUpContextElementIntoIdeStarter(close: Boolean): CoroutineContext.Element? {
-    if (close || !isReopenStatEnabled()) {
+    val close = close || !isReopenAndWelcomeScreenStatEnabled()
+    if (close) {
       statsIsWritten = true
       channel.close()
+      WelcomeScreenCollector.shouldNotStart()
       return null
     }
     channel.trySend(Event.IdeStarterStartedEvent)
@@ -250,8 +254,23 @@ object FUSProjectHotStartUpMeasurer {
     }
   }
 
-  fun reportWelcomeScreenShown() {
+  /**
+   * This event just reports that the scenario `single project without Welcome Screen` is violated.
+   * There is no guarantee the Welcome screen is visible to user.
+   * This event shouldn't be used for performance investigations for (non-)modal Welcome Screen.
+   */
+  fun reportWelcomeScreenIsGoingToBeShown() {
     channel.trySend(Event.WelcomeScreenEvent())
+  }
+
+  fun reportModalWelcomeScreenBecameVisible() {
+    WelcomeScreenCollector.modalWelcomeScreenBecameVisible()
+  }
+
+  fun reportNonModalWelcomeScreenShown() {
+    withRequiredProjectMarker { projectId ->
+      WelcomeScreenCollector.nonModalWelcomeScreenBecameVisible(projectId)
+    }
   }
 
   fun reportReopeningProjects(openPaths: List<Path>) {
@@ -260,7 +279,7 @@ object FUSProjectHotStartUpMeasurer {
     when {
       size == 0 -> reportViolation(Violation.NoProjectFound)
       size > 1 -> openingMultipleProjects(true, size, false)
-      openPaths[0] == WelcomeScreenProjectProvider.getWelcomeScreenProjectPath() -> reportWelcomeScreenShown()
+      openPaths[0] == WelcomeScreenProjectProvider.getWelcomeScreenProjectPath() -> reportWelcomeScreenIsGoingToBeShown()
       else -> reportProjectType(ProjectsType.Reopened)
       // light edit files are not reopened
     }
@@ -288,8 +307,9 @@ object FUSProjectHotStartUpMeasurer {
       return block.invoke()
     }
 
-    if (projectFile == WelcomeScreenProjectProvider.getWelcomeScreenProjectPath()) {
-      reportWelcomeScreenShown()
+    val isWelcomeScreenProject = projectFile == WelcomeScreenProjectProvider.getWelcomeScreenProjectPath()
+    if (isWelcomeScreenProject) {
+      reportWelcomeScreenIsGoingToBeShown()
     }
 
     val projectId = if (IdeProductMode.isFrontend) {
@@ -301,6 +321,7 @@ object FUSProjectHotStartUpMeasurer {
 
     val hasSettings = ProjectUtil.isValidProjectPath(projectFile)
     channel.trySend(Event.ProjectPathReportEvent(projectId, hasSettings))
+    WelcomeScreenCollector.projectIsOpening(projectId, isWelcomeScreenProject)
     return withContext(MyProjectMarker(projectId)) {
       block.invoke()
     }
@@ -344,17 +365,20 @@ object FUSProjectHotStartUpMeasurer {
 
   fun reportStarterUsed() {
     reportViolation(Violation.ApplicationStarter)
+    WelcomeScreenCollector.shouldNotStart()
   }
 
   fun frameBecameVisible() {
     withRequiredProjectMarker { projectId ->
       channel.trySend(Event.FrameBecameVisibleEvent(projectId))
+      WelcomeScreenCollector.frameBecameVisible(projectId)
     }
   }
 
   fun reportFrameBecameInteractive() {
     withRequiredProjectMarker { projectId ->
       channel.trySend(Event.FrameBecameInteractiveEvent(projectId))
+      WelcomeScreenCollector.frameBecameInteractive(projectId)
     }
   }
 
@@ -456,16 +480,27 @@ object FUSProjectHotStartUpMeasurer {
     if (!handlingStarted.compareAndSet(false, true)) return
 
     withContext(Dispatchers.IO) {
-      try {
-        //ensures non-thread-safe structures work correctly on different threads
-        Mutex().withLock {
-          doHandleStatisticEvents()
+      supervisorScope {
+        launch {
+          startWritingReopenProjectStatistics()
+        }
+        launch {
+          WelcomeScreenCollector.startWritingStatistics()
         }
       }
-      finally {
-        statsIsWritten = true
-        channel.close()
+    }
+  }
+
+  private suspend fun startWritingReopenProjectStatistics() {
+    try {
+      //ensures non-thread-safe structures work correctly on different threads
+      Mutex().withLock {
+        doHandleStatisticEvents()
       }
+    }
+    finally {
+      statsIsWritten = true
+      channel.close()
     }
   }
 
@@ -521,12 +556,11 @@ object FUSProjectHotStartUpMeasurer {
         is Event.WelcomeScreenEvent -> {
           val welcomeScreedDurationForFUS = getDurationFromStart(event.time, reportedFirstUiShownEvent)
           if (splashBecameVisibleEvent == null) {
-            WELCOME_SCREEN_EVENT.log(DURATION.with(welcomeScreedDurationForFUS), SPLASH_SCREEN_WAS_SHOWN.with(false))
+            WelcomeScreenCollector.reportOldWelcomeScreenEvent(welcomeScreedDurationForFUS, null)
           }
           else {
             val splashScreenFUSDuration = getDurationFromStart(splashBecameVisibleEvent.time, reportedFirstUiShownEvent)
-            WELCOME_SCREEN_EVENT.log(DURATION.with(welcomeScreedDurationForFUS), SPLASH_SCREEN_WAS_SHOWN.with(true),
-                                     SPLASH_SCREEN_VISIBLE_DURATION.with(splashScreenFUSDuration))
+            WelcomeScreenCollector.reportOldWelcomeScreenEvent(welcomeScreedDurationForFUS, splashScreenFUSDuration)
           }
           reportViolation(Violation.WelcomeScreenShown, event.time, ideStarterStartedEvent, reportedFirstUiShownEvent)
           throw CancellationException()
@@ -730,20 +764,6 @@ object FUSProjectHotStartUpMeasurer {
   }
 }
 
-private val WELCOME_SCREEN_GROUP = EventLogGroup("welcome.screen.startup.performance", 1)
-
-private val SPLASH_SCREEN_WAS_SHOWN = EventFields.Boolean("splash_screen_was_shown")
-private val SPLASH_SCREEN_VISIBLE_DURATION = createDurationField(DurationUnit.MILLISECONDS, "splash_screen_became_visible_duration_ms")
-private val DURATION = createDurationField(DurationUnit.MILLISECONDS, "duration_ms")
-private val WELCOME_SCREEN_EVENT = WELCOME_SCREEN_GROUP.registerVarargEvent(
-  "welcome.screen.shown",
-  DURATION, SPLASH_SCREEN_WAS_SHOWN, SPLASH_SCREEN_VISIBLE_DURATION,
-)
-
-internal class WelcomeScreenPerformanceCollector : CounterUsagesCollector() {
-  override fun getGroup(): EventLogGroup = WELCOME_SCREEN_GROUP
-}
-
 private val GROUP = EventLogGroup("reopen.project.startup.performance", 3)
 
 private enum class UIResponseType {
@@ -751,6 +771,7 @@ private enum class UIResponseType {
   Frame,
 }
 
+private val DURATION = createDurationField(DurationUnit.MILLISECONDS, "duration_ms")
 private val UI_RESPONSE_TYPE = EventFields.Enum("type", UIResponseType::class.java)
 private val FIRST_UI_SHOWN_EVENT: EventId2<Duration, UIResponseType> = GROUP.registerEvent(
   "first.ui.shown",

@@ -35,7 +35,7 @@ internal class InputEventsRobot(
 
   init {
     settings().apply {
-      delayBetweenEvents(400) // slow down input events so the UI can keep up (reduces test flakiness)
+      delayBetweenEvents(500) // slow down input events so the UI can keep up (reduces test flakiness)
       simpleWaitForIdle(true)
       timeoutToFindPopup(1000)
     }
@@ -91,13 +91,19 @@ internal class InputEventsRobot(
   }
 
   override fun pressKey(keyCode: Int) {
-    postInputEvent(KeyEvent(waitForFocusOwner(), KeyEvent.KEY_PRESSED, System.currentTimeMillis(), currentModifiers(), keyCode, KeyEvent.CHAR_UNDEFINED))
     pressedModifiers.add(keyCode)
+    postInputEvent(KeyEvent(waitForFocusOwner(), KeyEvent.KEY_PRESSED, System.currentTimeMillis(), currentModifiers(), keyCode, KeyEvent.CHAR_UNDEFINED))
   }
 
   override fun releaseKey(keyCode: Int) {
-    postInputEvent(KeyEvent(waitForFocusOwner(), KeyEvent.KEY_RELEASED, System.currentTimeMillis(), currentModifiers(), keyCode, KeyEvent.CHAR_UNDEFINED))
     pressedModifiers.remove(keyCode)
+    postInputEvent(KeyEvent(waitForFocusOwner(), KeyEvent.KEY_RELEASED, System.currentTimeMillis(), currentModifiers(), keyCode, KeyEvent.CHAR_UNDEFINED))
+  }
+
+  override fun doublePressKeyAndHold(key: Int) {
+    pressKey(key)
+    releaseKey(key)
+    pressKey(key)
   }
 
   /**
@@ -145,9 +151,9 @@ internal class InputEventsRobot(
     val toScreenPos = if (toWindow === fromWindow) fromScreenPos else performOnEdt { toWindow.locationOnScreen }!!
 
     @Suppress("DEPRECATION")
-    val pressModifiers = currentModifiers() or InputEvent.BUTTON1_DOWN_MASK or InputEvent.BUTTON1_MASK
+    val pressModifiers = currentModifiers() or InputEvent.BUTTON1_DOWN_MASK
     @Suppress("DEPRECATION")
-    val releaseModifiers = currentModifiers() or InputEvent.BUTTON1_MASK
+    val releaseModifiers = currentModifiers()
 
     postInputEvent(MouseEvent(fromWindow, MouseEvent.MOUSE_MOVED, System.currentTimeMillis(), currentModifiers(), fromRel.x, fromRel.y, fromScreenPos.x + fromRel.x, fromScreenPos.y + fromRel.y, 0, false, MouseEvent.NOBUTTON))
     postInputEvent(MouseEvent(fromWindow, MouseEvent.MOUSE_PRESSED, System.currentTimeMillis(), pressModifiers, fromRel.x, fromRel.y, fromScreenPos.x + fromRel.x, fromScreenPos.y + fromRel.y, 1, false, MouseEvent.BUTTON1))

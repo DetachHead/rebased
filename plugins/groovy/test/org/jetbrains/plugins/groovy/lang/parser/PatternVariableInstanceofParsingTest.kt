@@ -2,7 +2,7 @@
 package org.jetbrains.plugins.groovy.lang.parser
 
 class PatternVariableInstanceofParsingTest : GroovyParsingTestCase() {
-  override fun getBasePath() = super.getBasePath() + "expressions/instanceof"
+  override fun getTestDataPath() = super.getTestDataPath() + "expressions/instanceof"
 
   fun testNoPatternVariable() = doTest()
 

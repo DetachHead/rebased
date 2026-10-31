@@ -56,7 +56,7 @@ class TerminalShellIntegrationImpl(
 
   private val shellHistoryManager = ShellCommandHistoryManager(coroutineScope.childScope("ShellCommandHistoryManager"))
 
-  @RequiresEdt
+  @RequiresEdt(generateAssertion = false /* IJPL-115548 */)
   override fun commandHistory(): List<String> {
     return shellHistoryManager.getHistory()
   }
@@ -104,13 +104,13 @@ class TerminalShellIntegrationImpl(
     commandAliases = aliases.toMap()
   }
 
-  @RequiresEdt
+  @RequiresEdt(generateAssertion = false /* IJPL-115548 */)
   fun onCommandHistoryFilePathReceived(path: String?) {
     shellHistoryManager.loadHistoryFile(path, eelDescriptor, shellName)
   }
 
   fun onCompletionFinished(result: String) {
-    fireListenersAndLogAllExceptions(completionListeners, LOG, "Exception during handling completion finished event") {
+    fireListenersAndLogAllExceptions(completionListeners, LOG, { "Exception during handling completion finished event" }) {
       it.completionFinished(result)
     }
   }
@@ -132,7 +132,7 @@ class TerminalShellIntegrationImpl(
   }
 
   private fun fireCommandExecutionListeners(event: TerminalCommandExecutionEvent) {
-    fireListenersAndLogAllExceptions(commandExecutionListeners, LOG, "Exception during handling $event") {
+    fireListenersAndLogAllExceptions(commandExecutionListeners, LOG, { "Exception during handling $event" }) {
       when (event) {
         is TerminalCommandStartedEvent -> it.commandStarted(event)
         is TerminalCommandFinishedEvent -> it.commandFinished(event)

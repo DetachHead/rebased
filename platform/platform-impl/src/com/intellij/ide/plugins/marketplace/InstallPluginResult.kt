@@ -2,8 +2,9 @@
 package com.intellij.ide.plugins.marketplace
 
 import com.intellij.ide.plugins.api.PluginDto
+import com.intellij.ide.plugins.newui.PluginUiModel
 import com.intellij.openapi.extensions.PluginId
-import com.intellij.openapi.updateSettings.impl.PluginUpdateSourceId
+import com.intellij.openapi.updateSettings.impl.PluginUpdateSource
 import kotlinx.serialization.Serializable
 import org.jetbrains.annotations.ApiStatus
 
@@ -23,8 +24,20 @@ class InstallPluginResult {
   var disabledDependants: List<String> = emptyList()
   var allowInstallWithoutRestart: Boolean = true
   var dynamicUiPlugin: Boolean = false
-  internal var dependentPluginUpdateSourceIds: Map<PluginId, PluginUpdateSourceId> = emptyMap()
+  internal var installedDependencyDescriptors: List<PluginDto> = emptyList()
+  internal var dependentPluginUpdateSources: Map<PluginId, PluginUpdateSource> = emptyMap()
   companion object {
     val FAILED = InstallPluginResult().apply { success = false }
   }
+}
+
+internal fun collectInstalledDependencyDescriptors(
+  displayPluginId: PluginId,
+  installedPlugins: Iterable<PluginUiModel>,
+): List<PluginDto> {
+  return installedPlugins.asSequence()
+    .filter { it.pluginId != displayPluginId }
+    .distinctBy(PluginUiModel::pluginId)
+    .map(PluginDto::fromModel)
+    .toList()
 }

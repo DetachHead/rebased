@@ -4,7 +4,6 @@
 package com.intellij.codeInsight.daemon.impl
 
 import com.intellij.openapi.Disposable
-import com.intellij.openapi.application.WriteIntentReadAction
 import com.intellij.openapi.diagnostic.debug
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.editor.Editor
@@ -19,7 +18,6 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.wm.WindowManager
 import com.intellij.openapi.wm.impl.IdeFrameImpl
 import com.intellij.openapi.wm.impl.ProjectFrameHelper
-import com.intellij.psi.PsiDocumentManager
 import com.intellij.util.application
 import org.jetbrains.annotations.ApiStatus.Internal
 import java.awt.Window
@@ -174,18 +172,8 @@ open class EditorTrackerImpl(@JvmField protected val project: Project) : EditorT
 
     localActiveEditors = editors
     if (!project.isDisposed) {
-      if (LOG.isDebugEnabled) {
-        LOG.debug("active editors changed: " + editors.joinToString(separator = "\n    ") {
-          WriteIntentReadAction.compute<String> {
-            PsiDocumentManager.getInstance(project).getPsiFile(it.document).toString()
-          }
-        })
-
-      }
-      //maybe readaction
-      WriteIntentReadAction.run {
-        project.messageBus.syncPublisher(EditorTrackerListener.TOPIC).activeEditorsChanged(editors)
-      }
+      LOG.debug { "active editors changed: " + editors.joinToString(separator = "\n    ") }
+      project.messageBus.syncPublisher(EditorTrackerListener.TOPIC).activeEditorsChanged(editors)
     }
   }
 

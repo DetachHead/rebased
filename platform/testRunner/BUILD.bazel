@@ -11,6 +11,10 @@ jps_test(
 
 ### skip generation section `test intellij.platform.testRunner.tests`
 
+### auto-generated section `dev intellij.platform.testRunner` start
+content_module_jar(module = ":testRunner")
+### auto-generated section `dev intellij.platform.testRunner` end
+
 ### auto-generated section `build intellij.platform.testRunner` start
 jvm_library(
     name = "testRunner",
@@ -53,12 +57,12 @@ jvm_library(
         "//platform/analysis-impl",
         "//platform/core-impl",
         "//platform/execution",
+        "//platform/consoleView",
+        "//platform/consoleView/impl",
         "//libraries/kotlinx/collections-immutable:libraries-kotlinx-collections-immutable",
         "//platform/util/concurrency",
     ],
 )
-
-content_module_jar(module = ":testRunner")
 
 jvm_library(
     name = "testRunner_test_lib",
@@ -95,10 +99,10 @@ jvm_library(
         "//platform/util/jdom:jdom_test_lib",
         "//platform/util:util-ui_test_lib",
         "//platform/analysis-impl:analysis-impl_test_lib",
-        "//platform/testFramework",
-        "//platform/testFramework:testFramework_test_lib",
         "//platform/core-impl:core-impl_test_lib",
         "//platform/execution:execution_test_lib",
+        "//platform/consoleView:consoleView_test_lib",
+        "//platform/consoleView/impl:impl_test_lib",
         "//libraries/kotlinx/collections-immutable:libraries-kotlinx-collections-immutable_test_lib",
         "//platform/util/concurrency:concurrency_test_lib",
     ],
@@ -110,7 +114,6 @@ exports_files(
     [
         "intellij.platform.testRunner.iml",
         "resources/intellij.platform.testRunner.xml",
-        "module-content.yaml",
     ],
     visibility = ["//visibility:public"],
 )

@@ -1,0 +1,34 @@
+Keep the default clang-cl warning flags in order with the user copts.
+
+clang-cl appends every `/clang:` argument after all its other arguments. The default warning flags use
+`/clang:-Wall`, so `-Wall` lands after a user `--copt=-Wno-...` or `--per_file_copt=...@-Wno-...` and turns the
+warning back on. With `-Werror`, a third-party file then fails on a warning the build disables.
+
+`/W3` is the clang-cl spelling of the generic Clang `-Wall`. A plain `-Wall` means `-Weverything` in clang-cl.
+clang-cl reads the other `-W` flags directly and in order.
+--- a/toolchain/features/legacy/BUILD.bazel
++++ b/toolchain/features/legacy/BUILD.bazel
+@@ -101,14 +101,16 @@
+ cc_args(
+     name = "clang_cl_legacy_default_warning_flags",
+     actions = _CLANG_CL_FRONTEND_ACTIONS,
+-    # Preserve the generic Clang diagnostic policy through explicit Clang
+-    # passthrough instead of approximating it with a /W level.
++    # clang-cl appends every /clang: argument after all other arguments, so a
++    # /clang:-W flag would override the -Wno- flags of a user copt. /W3 is the
++    # clang-cl spelling of the generic Clang -Wall, and clang-cl reads the
++    # other -W flags directly and in order.
+     args = [
+-        "/clang:-Wall",
+-        "/clang:-Wthread-safety",
+-        "/clang:-Wself-assign",
+-        "/clang:-Wunused-but-set-parameter",
+-        "/clang:-Wno-free-nonheap-object",
++        "/W3",
++        "-Wthread-safety",
++        "-Wself-assign",
++        "-Wunused-but-set-parameter",
++        "-Wno-free-nonheap-object",
+     ],
+ )
+ 

@@ -9,6 +9,11 @@ import org.jetbrains.annotations.ApiStatus
 interface MarkdownHtmlPanelEx: MarkdownHtmlPanel, UserDataHolder {
   fun scrollBy(horizontalUnits: Int, verticalUnits: Int)
 
+  val canScrollToSourceOffset: Boolean
+    get() = false
+
+  fun scrollToSourceOffset(offset: Double) {}
+
   companion object {
     @ApiStatus.Internal
     val DO_NOT_USE_LINK_OPENER = Key<Boolean>("DO_NOT_USE_LINK_OPENER")

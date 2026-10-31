@@ -16,24 +16,24 @@ import org.jetbrains.intellij.build.BuildContext
 import java.lang.StackWalker.Option
 import kotlin.streams.asSequence
 
-typealias LayoutPatcher = suspend (ModuleOutputPatcher, PlatformLayout, BuildContext) -> Unit
+typealias LayoutPatcher = (ModuleOutputPatcher, PlatformLayout, BuildContext) -> Unit
 
 /**
  * Describes layout of a plugin or the platform JARs in the product distribution
  */
 sealed class BaseLayout {
   // one module can be packed into several JARs; that's why we have map "jar to modules" and not "module to jar"
-  private val _includedModules = LinkedHashSet<ModuleItem>()
-
   val includedModules: Collection<ModuleItem>
-    get() = _includedModules
+    field = LinkedHashSet<ModuleItem>()
 
   /** list of additional resources which should be included in the distribution */
-  @JvmField
-  internal var resourcePaths: PersistentList<ModuleResourceData> = persistentListOf()
+  @ApiStatus.Internal
+  var resourcePaths: PersistentList<ModuleResourceData> = persistentListOf()
+    internal set
 
   /** module name to entries which should be excluded from its output */
-  internal var moduleExcludes: PersistentMap<String, MutableList<String>> = persistentMapOf()
+  @ApiStatus.Internal
+  var moduleExcludes: PersistentMap<String, MutableList<String>> = persistentMapOf()
     private set
 
   @ApiStatus.Internal
@@ -45,14 +45,18 @@ sealed class BaseLayout {
   internal var includedModuleLibraries = persistentSetOf<ModuleLibraryData>()
     private set
 
-  internal var patchers: PersistentList<LayoutPatcher> = persistentListOf()
+  @ApiStatus.Internal
+  var patchers: PersistentList<LayoutPatcher> = persistentListOf()
     private set
+
+  /** The layout patchers that a build runs. [classicDev] is true for the classic dev build, see [selectForBuild]. */
+  internal fun patchersFor(classicDev: Boolean): List<LayoutPatcher> = selectForBuild(patchers, classicDev)
 
   fun withPatch(patcher: LayoutPatcher) {
     patchers += patcher
   }
 
-  fun withPatch(patcher: suspend (ModuleOutputPatcher, BuildContext) -> Unit) {
+  fun withPatch(patcher: (ModuleOutputPatcher, BuildContext) -> Unit) {
     patchers += { moduleOutputPatcher, _, buildContext -> patcher(moduleOutputPatcher, buildContext) }
   }
 
@@ -75,8 +79,21 @@ sealed class BaseLayout {
   @ApiStatus.Internal
   fun getIncludedModuleLibraryNames(): List<Pair<String, String>> = includedModuleLibraries.map { it.libraryName to it.moduleName }
 
+  /**
+   * The project libraries this layout declares, with the out path a `withProjectLibrary(name, jarName)` call states.
+   *
+   * The dev-distribution layout tables need the path and not only the name: a library packed into a jar of its own
+   * leaves every member jar that declares it, and the derivation has to know which jar the layout named.
+   */
+  @ApiStatus.Internal
+  fun getIncludedProjectLibraries(): List<ProjectLibraryData> = includedProjectLibraries.toList()
+
+  /** The module libraries this layout declares, with the relative output path each `withModuleLibrary` call states. */
+  @ApiStatus.Internal
+  fun getIncludedModuleLibraries(): List<ModuleLibraryData> = includedModuleLibraries.toList()
+
   fun filteredIncludedModuleNames(excludedRelativeJarPath: String, includeFromSubdirectories: Boolean = true): Sequence<String> {
-    return _includedModules.asSequence().filter {
+    return includedModules.asSequence().filter {
       it.relativeOutputFile != excludedRelativeJarPath && (includeFromSubdirectories || !it.relativeOutputFile.contains('/')) 
     }.map { it.moduleName }
   }
@@ -84,12 +101,12 @@ sealed class BaseLayout {
   fun withModules(items: Sequence<ModuleItem>) {
     for (item in items) {
       checkNotExists(item)
-      _includedModules.add(item)
+      includedModules.add(item)
     }
   }
 
   private fun checkNotExists(item: ModuleItem) {
-    val existing = _includedModules.firstOrNull { it.moduleName == item.moduleName } ?: return
+    val existing = includedModules.firstOrNull { it.moduleName == item.moduleName } ?: return
     // allow putting module to several JARs if JAR located in another dir
     // (e.g. intellij.spring.customNs packed into main JAR and customNs/customNs.jar)
     if (existing.relativeOutputFile != item.relativeOutputFile &&
@@ -133,7 +150,7 @@ sealed class BaseLayout {
 
     val item = ModuleItem(moduleName = moduleName, relativeOutputFile = relativeJarPath, reason = "withModule at \n    $reason")
     checkNotExists(item)
-    _includedModules.add(item)
+    includedModules.add(item)
   }
 
   private fun getStacktrace(): String? {
@@ -205,13 +222,16 @@ sealed class BaseLayout {
   /**
    * @param resourcePath path to resource file or directory relative to `moduleName` module content root
    * @param relativeOutputPath target path relative to the plugin root directory
+   *
+   * The path stays inside the Bazel package of the module, the directory that holds its `BUILD.bazel`. It uses no `..`
+   * and crosses no nested package. The dev-distribution generator derives `//<package>:dev_dist_resources` from the
+   * declaration and refuses a layout that breaks the rule. Declare a resource against the module whose package holds it.
    */
   fun withResourceFromModule(moduleName: String, resourcePath: String, relativeOutputPath: String) {
     resourcePaths += ModuleResourceData(
       moduleName = moduleName,
       resourcePath = resourcePath,
       relativeOutputPath = relativeOutputPath,
-      packToZip = false
     )
   }
 }
@@ -230,7 +250,6 @@ class ModuleItem(
   @JvmField val relativeOutputFile: String,
   @JvmField val reason: String?,
   @JvmField val moduleSet: List<String>? = null,
-  @JvmField val includeDependencies: Boolean = false,
 ) {
   init {
     require(!moduleName.isEmpty()) {
@@ -238,7 +257,8 @@ class ModuleItem(
     }
   }
 
-  internal fun isProductModule(): Boolean = ModuleIncludeReasons.isProductModule(reason)
+  @ApiStatus.Internal
+  fun isProductModule(): Boolean = ModuleIncludeReasons.isProductModule(reason)
 
   override fun equals(other: Any?): Boolean {
     return this === other || other is ModuleItem && moduleName == other.moduleName && relativeOutputFile == other.relativeOutputFile
@@ -246,5 +266,5 @@ class ModuleItem(
 
   override fun hashCode(): Int = 31 * moduleName.hashCode() + relativeOutputFile.hashCode()
 
-  override fun toString(): String = "ModuleItem(moduleName=$moduleName, relativeOutputFile=$relativeOutputFile, reason=$reason, moduleSet=$moduleSet, includeDependencies=$includeDependencies)"
+  override fun toString(): String = "ModuleItem(moduleName=$moduleName, relativeOutputFile=$relativeOutputFile, reason=$reason, moduleSet=$moduleSet)"
 }

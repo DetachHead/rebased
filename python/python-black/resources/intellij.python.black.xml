@@ -13,6 +13,7 @@
     <module name="intellij.platform.ide.core"/>
     <module name="intellij.platform.ide.core.impl"/>
     <module name="intellij.platform.ide.impl"/>
+    <module name="intellij.platform.ide.observable"/>
     <module name="intellij.platform.ide.progress"/>
     <module name="intellij.platform.lang"/>
     <module name="intellij.platform.lang.core"/>
@@ -21,10 +22,11 @@
     <module name="intellij.platform.projectModel.impl"/>
     <module name="intellij.platform.util.ui"/>
     <module name="intellij.platform.vcs.impl"/>
+    <module name="intellij.python.black.common"/>
     <module name="intellij.python.community"/>
     <module name="intellij.python.community.execService"/>
-    <module name="intellij.python.pytools"/>
-    <module name="intellij.python.pytools.ui"/>
+    <module name="intellij.python.pytools.backend"/>
+    <module name="intellij.python.pytools.common"/>
     <module name="intellij.python.sdk.backend"/>
   </dependencies>
   <!-- endregion -->

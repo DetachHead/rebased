@@ -2,55 +2,65 @@
 package com.jetbrains.python.sdk.add.v2.conda
 
 import com.intellij.openapi.projectRoots.ProjectJdkTable
-import com.intellij.openapi.projectRoots.Sdk
 import com.intellij.python.community.execService.BinaryToExec
-import com.intellij.python.pytools.Version
-import com.intellij.python.pytools.VersionFormatException
-import com.intellij.python.pytools.getToolVersion
+import com.intellij.python.pytools.backend.Version
+import com.intellij.python.pytools.backend.getToolVersion
+import com.intellij.python.sdk.backend.PythonInterpreter
+import com.intellij.python.sdk.backend.pythonInterpreterAsync
 import com.intellij.util.concurrency.annotations.RequiresEdt
 import com.jetbrains.python.PyBundle.message
+import com.jetbrains.python.conda.savePythonCondaPath
 import com.jetbrains.python.errorProcessing.PyResult
 import com.jetbrains.python.isCondaVirtualEnv
-import com.jetbrains.python.onSuccess
 import com.jetbrains.python.sdk.ModuleOrProject
-import com.jetbrains.python.sdk.add.v2.PyProjectCreateHelpers
+import com.jetbrains.python.sdk.add.v2.PathHolder
 import com.jetbrains.python.sdk.add.v2.PythonAddInterpreterModel
-import com.jetbrains.python.sdk.add.v2.TargetFileSystem
 import com.jetbrains.python.sdk.add.v2.existingSdks
+import com.jetbrains.python.sdk.add.v2.pathHolder
+import com.jetbrains.python.sdk.add.v2.targetEnvironmentConfiguration
+import com.jetbrains.python.sdk.add.v2.validationResult
 import com.jetbrains.python.sdk.conda.createCondaSdkAlongWithNewEnv
 import com.jetbrains.python.sdk.conda.createCondaSdkFromExistingEnvironment
 import com.jetbrains.python.sdk.flavors.conda.NewCondaEnvRequest
 import com.jetbrains.python.sdk.flavors.conda.PyCondaCommand
 import com.jetbrains.python.sdk.flavors.conda.PyCondaEnv
-import com.jetbrains.python.sdk.setAssociationToModule
 import com.jetbrains.python.sdk.workingDirectory
 import kotlinx.coroutines.flow.takeWhile
 
-@RequiresEdt
+@RequiresEdt(generateAssertion = false /* IJPL-115548 */)
 internal fun PythonAddInterpreterModel<*>.createCondaCommand(): PyResult<PyCondaCommand> {
-  val targetEnvironmentConfiguration = (fileSystem as? TargetFileSystem)?.targetEnvironmentConfiguration
+  val targetEnvironmentConfiguration = fileSystem.targetEnvironmentConfiguration
   val executable = condaViewModel.condaExecutable.get() ?: return PyResult.localizedError(message("python.sdk.select.conda.path.title"))
-  return PyCondaCommand(
-    fullCondaPathOnTarget = executable.pathHolder.toString(),
-    targetConfig = targetEnvironmentConfiguration
-  ).let { PyResult.success(it) }
+  val path = executable.pathHolder.getOr { return it }
+  return PyCondaCommand(fullCondaPathOnTarget = path.toStringForExecution(),
+                        targetConfig = targetEnvironmentConfiguration).let { PyResult.success(it) }
 }
 
-internal suspend fun PythonAddInterpreterModel<*>.createCondaEnvironment(moduleOrProject: ModuleOrProject, request: NewCondaEnvRequest): PyResult<Sdk> {
+internal suspend fun PythonAddInterpreterModel<*>.createCondaEnvironment(
+  moduleOrProject: ModuleOrProject,
+  request: NewCondaEnvRequest,
+): PyResult<PythonInterpreter> {
 
-  val result = createCondaCommand().getOr { return it }.createCondaSdkAlongWithNewEnv(
+  return createCondaCommand().getOr { return it }.createCondaSdkAlongWithNewEnv(
+    moduleOrProject,
     newCondaEnvInfo = request,
     existingSdks = existingSdks,
     moduleOrProject.workingDirectory ?: return PyResult.localizedError(message("python.sdk.project.working.directory.not.found")),
   )
-    .onSuccess { sdk ->
-      val module = PyProjectCreateHelpers.getModule(moduleOrProject, null)
-      if (module != null) {
-        sdk.setAssociationToModule(module)
+}
+
+/**
+ * Saves [pathHolder] as the custom conda path. Does this only for an EEL path on a local file system.
+ */
+internal fun PythonAddInterpreterModel<*>.saveCondaPathIfLocal(pathHolder: PathHolder) {
+  when (pathHolder) {
+    is PathHolder.Eel -> {
+      if (fileSystem.isLocal) {
+        savePythonCondaPath(pathHolder.path)
       }
     }
-
-  return result
+    is PathHolder.Target -> Unit
+  }
 }
 
 internal fun PythonAddInterpreterModel<*>.getBaseCondaOrError(): PyResult<PyCondaEnv> {
@@ -59,44 +69,44 @@ internal fun PythonAddInterpreterModel<*>.getBaseCondaOrError(): PyResult<PyCond
 }
 
 /**
- * [base] or selected
+ * Waits until the environments are loaded. Then returns the base environment if [base] is `true`,
+ * or the selected environment if [base] is `false`.
  */
-internal suspend fun PythonAddInterpreterModel<*>.selectCondaEnvironment(moduleOrProject: ModuleOrProject, base: Boolean): PyResult<Sdk> {
+internal suspend fun PythonAddInterpreterModel<*>.getCondaEnvOrError(base: Boolean): PyResult<PyCondaEnv> {
   condaViewModel.condaEnvironmentsLoading.takeWhile { it }.collect { }
-  val pyCondaEnv = if (base) {
+  return if (base) {
     getBaseCondaOrError()
   }
   else {
     condaViewModel.selectedCondaEnv.get()?.let { PyResult.success(it) }
     ?: PyResult.localizedError(message("python.sdk.conda.no.env.selected.error"))
   }
-    .getOr { return it }
-  val existingSdk = ProjectJdkTable.getInstance().findJdk(pyCondaEnv.envIdentity.userReadableName)
-  if (existingSdk != null && existingSdk.isCondaVirtualEnv) return PyResult.success(existingSdk)
-  val executable = condaViewModel.condaExecutable.get() ?: return PyResult.localizedError(message("python.sdk.select.conda.path.title"))
-  executable.validationResult.getOr { return it }
+}
 
-  val workingDirectory = moduleOrProject.workingDirectory
-                         ?: return PyResult.localizedError(message("python.sdk.project.working.directory.not.found"))
-  val sdk = PyCondaCommand(
-    fullCondaPathOnTarget = executable.pathHolder.toString(),
-    targetConfig = (fileSystem as? TargetFileSystem)?.targetEnvironmentConfiguration
-  ).createCondaSdkFromExistingEnvironment(
+/**
+ * Returns the interpreter for [pyCondaEnv]. Uses an existing SDK if there is one, else creates a new SDK.
+ */
+internal suspend fun PythonAddInterpreterModel<*>.createSdkFromCondaEnv(
+  moduleOrProject: ModuleOrProject,
+  pyCondaEnv: PyCondaEnv,
+): PyResult<PythonInterpreter> {
+  val existingSdk = ProjectJdkTable.getInstance().findJdk(pyCondaEnv.envIdentity.userReadableName)
+  if (existingSdk != null && existingSdk.isCondaVirtualEnv) return PyResult.success(existingSdk.pythonInterpreterAsync())
+  val executable = condaViewModel.condaExecutable.get() ?: return PyResult.localizedError(message("python.sdk.select.conda.path.title"))
+  // We only take pathHolder if everything is valid
+  val pathHolder = executable.validationResult.getOr { return it }.pathHolder
+
+  val workingDirectory =
+    moduleOrProject.workingDirectory ?: return PyResult.localizedError(message("python.sdk.project.working.directory.not.found"))
+  val pythonInterpreter = PyCondaCommand(fullCondaPathOnTarget = pathHolder.toStringForExecution(),
+                           targetConfig = fileSystem.targetEnvironmentConfiguration).createCondaSdkFromExistingEnvironment(
+    moduleOrProject = moduleOrProject,
     condaIdentity = pyCondaEnv.envIdentity,
-    existingSdks = this@selectCondaEnvironment.existingSdks,
+    existingSdks = this@createSdkFromCondaEnv.existingSdks,
     workingDirectory = workingDirectory,
   ).getOr { return it }
 
-  PyProjectCreateHelpers.getModule(moduleOrProject, null)?.let { sdk.setAssociationToModule(it) }
-  return PyResult.success(sdk)
+  return PyResult.success(pythonInterpreter)
 }
 
-suspend fun BinaryToExec.getCondaVersion(): PyResult<Version> {
-  val version = getToolVersion("conda").getOr { return it }
-  return try {
-    PyResult.success(version)
-  }
-  catch (ex: VersionFormatException) {
-    PyResult.localizedError(ex.localizedMessage)
-  }
-}
+suspend fun BinaryToExec.getCondaVersion(): PyResult<Version> = getToolVersion("conda")

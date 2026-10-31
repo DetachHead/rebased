@@ -7,12 +7,12 @@ import com.intellij.openapi.actionSystem.PlatformDataKeys
 import com.intellij.openapi.vfs.VirtualFile
 import com.jetbrains.python.PyBundle
 import com.intellij.python.requirements.RequirementsFileType
+import com.intellij.python.sdk.backend.pythonInterpreterAsync
 import com.jetbrains.python.errorProcessing.PyResult
 import com.jetbrains.python.packaging.management.PythonPackageManagerAction
 import com.jetbrains.python.packaging.management.getPythonPackageManager
 import com.jetbrains.python.packaging.pip.PipPythonPackageManager
 import com.jetbrains.python.packaging.requirementsTxt.PythonRequirementTxtSdkUtils
-import com.jetbrains.python.sdk.isReadOnly
 
 internal sealed class PipPackageManagerAction : PythonPackageManagerAction<PipPythonPackageManager, String>() {
   override fun isWatchedFile(virtualFile: VirtualFile?): Boolean {
@@ -24,12 +24,15 @@ internal sealed class PipPackageManagerAction : PythonPackageManagerAction<PipPy
 
 
 internal class PipSetDefaultRequirementsAction() : PipPackageManagerAction() {
+  /** Stores a path on the SDK and leaves the environment alone. A read-only SDK keeps this action. */
+  override val modifiesEnvironment: Boolean = false
+
   override suspend fun execute(e: AnActionEvent, manager: PipPythonPackageManager): PyResult<Unit> {
     val envFile = e.getData(PlatformDataKeys.VIRTUAL_FILE) ?: return PyResult.success(Unit)
     val project = e.project ?: return PyResult.success(Unit)
 
     val newFilePath = envFile.toNioPath()
-    PythonRequirementTxtSdkUtils.saveRequirementsTxtPath(project, manager.sdk, newFilePath)
+    PythonRequirementTxtSdkUtils.saveRequirementsTxtPath(project, manager.interpreter, newFilePath)
     return PyResult.success(Unit)
   }
 
@@ -38,7 +41,7 @@ internal class PipSetDefaultRequirementsAction() : PipPackageManagerAction() {
     if (!e.presentation.isEnabledAndVisible)
       return
     val manager = e.getPythonPackageManager<PipPythonPackageManager>() ?: return
-    val savedFile = PythonRequirementTxtSdkUtils.resolvePersistedRequirementsFile(manager.sdk)
+    val savedFile = PythonRequirementTxtSdkUtils.resolvePersistedRequirementsFile(manager.interpreter)
     val currentFile = e.getData(PlatformDataKeys.VIRTUAL_FILE) ?: return
 
     if (savedFile == currentFile) {
@@ -59,11 +62,7 @@ internal class PipUpdateEnvAction() : PipPackageManagerAction() {
     super.update(e)
     if (!e.presentation.isEnabledAndVisible)
       return
-    val manager = e.getPythonPackageManager<PipPythonPackageManager>() ?: return
-    if (manager.sdk.isReadOnly) {
-      e.presentation.isEnabledAndVisible = false
-    }
-  if (e.place == ActionPlaces.CONTEXT_TOOLBAR) {
+    if (e.place == ActionPlaces.CONTEXT_TOOLBAR) {
       e.presentation.text = PyBundle.message("action.PipUpdateEnvAction.FloatingToolbar.text")
     } else {
       val currentFile = e.getData(PlatformDataKeys.VIRTUAL_FILE)

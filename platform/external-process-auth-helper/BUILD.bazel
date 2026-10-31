@@ -11,6 +11,10 @@ jps_test(
 
 ### skip generation section `test intellij.platform.externalProcessAuthHelper.tests`
 
+### auto-generated section `dev intellij.platform.externalProcessAuthHelper` start
+content_module_jar(module = ":external-process-auth-helper")
+### auto-generated section `dev intellij.platform.externalProcessAuthHelper` end
+
 ### auto-generated section `build intellij.platform.externalProcessAuthHelper` start
 jvm_library(
     name = "external-process-auth-helper",
@@ -50,8 +54,6 @@ jvm_library(
     ],
 )
 
-content_module_jar(module = ":external-process-auth-helper")
-
 jvm_library(
     name = "external-process-auth-helper_test_lib",
     testonly = True,
@@ -80,8 +82,6 @@ jvm_library(
         "//platform/platform-util-netty:ide-util-netty_test_lib",
         "//libraries/netty/codec-http:libraries-netty-codec-http_test_lib",
         "//libraries/netty/buffer:buffer_test_lib",
-        "//libraries/junit5",
-        "//libraries/junit5:junit5_test_lib",
         "//platform/eel:eel_test_lib",
         "//platform/eel-provider:eel-provider_test_lib",
         "//platform/eel-impl:eel-impl_test_lib",
@@ -95,7 +95,6 @@ exports_files(
     [
         "intellij.platform.externalProcessAuthHelper.iml",
         "resources/intellij.platform.externalProcessAuthHelper.xml",
-        "module-content.yaml",
     ],
     visibility = ["//visibility:public"],
 )
@@ -163,8 +162,8 @@ jvm_library(
         "//libraries/netty/codec-http:libraries-netty-codec-http_test_lib",
         "//libraries/netty/buffer",
         "//libraries/netty/buffer:buffer_test_lib",
-        "//libraries/junit5",
-        "//libraries/junit5:junit5_test_lib",
+        "//libraries/junit6",
+        "//libraries/junit6:junit6_test_lib",
         "//platform/eel",
         "//platform/eel:eel_test_lib",
         "//platform/eel-provider",

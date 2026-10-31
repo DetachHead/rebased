@@ -3,6 +3,7 @@ package com.intellij.psi.impl.search;
 
 import com.intellij.compiler.CompilerDirectHierarchyInfo;
 import com.intellij.compiler.CompilerReferenceService;
+import com.intellij.concurrency.ConcurrencyUtils;
 import com.intellij.concurrency.ConcurrentCollectionFactory;
 import com.intellij.concurrency.JobLauncher;
 import com.intellij.ide.highlighter.JavaFileType;
@@ -213,9 +214,11 @@ public final class JavaFunctionalExpressionSearcher extends QueryExecutorBase<Ps
       }
       return true;
     };
-    if (!JobLauncher.getInstance().invokeConcurrentlyUnderContextProgress(new ArrayList<>(filesFirst), vFileProcessor)) return;
+    if (!ConcurrencyUtils.runWithIndicatorOrContextCancellation(_->JobLauncher.getInstance().invokeConcurrentlyUnderContextProgress(new ArrayList<>(filesFirst), vFileProcessor))) {
+      return;
+    }
     allFiles.removeAll(filesFirst);
-    JobLauncher.getInstance().invokeConcurrentlyUnderContextProgress(new ArrayList<>(allFiles), vFileProcessor);
+    ConcurrencyUtils.runWithIndicatorOrContextCancellation(_->JobLauncher.getInstance().invokeConcurrentlyUnderContextProgress(new ArrayList<>(allFiles), vFileProcessor));
   }
 
   private static @NotNull Map<FunExprOccurrence, Confidence> filterInapplicable(@NotNull List<? extends PsiClass> samClasses,

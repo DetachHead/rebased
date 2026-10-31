@@ -1,0 +1,12 @@
+<html>
+<body>
+<p>Reports unindented blockquote continuation lines that rely on lazy continuation without an explicit <code>&gt;</code> marker.</p>
+<p>Lazy continuation reduces plain-text readability, makes refactoring prone to syntax errors (such as breaking blockquotes on blank lines), and can lead to inconsistent rendering in Markdown parsers.</p>
+<p><b>Example:</b></p>
+<pre><code>&gt; Line 1 of blockquote
+Line 2 of sample text</code></pre>
+<p>After applying the quick fix:</p>
+<pre><code>&gt; Line 1 of blockquote
+&gt; Line 2 of sample text</code></pre>
+</body>
+</html>

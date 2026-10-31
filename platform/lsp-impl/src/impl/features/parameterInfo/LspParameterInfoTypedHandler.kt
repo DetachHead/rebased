@@ -8,6 +8,7 @@ import com.intellij.openapi.project.DumbAware
 import com.intellij.openapi.project.Project
 import com.intellij.platform.lsp.api.customization.LspSignatureHelpSupport
 import com.intellij.platform.lsp.impl.LspClientManagerImpl
+import com.intellij.platform.lsp.impl.getSignatureHelpTriggerCharacters
 import com.intellij.psi.PsiFile
 
 internal class LspParameterInfoTypedHandler : TypedHandlerDelegate(), DumbAware {

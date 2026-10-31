@@ -3,7 +3,10 @@ package com.intellij.python.uv.backend.cli.uv
 
 import com.intellij.openapi.util.NlsSafe
 import com.intellij.python.community.execService.ZeroCodeStdoutTransformer
-import com.intellij.python.pytools.runtime.PyToolRuntime
+import com.intellij.python.pytools.backend.runtime.PyToolRuntime
+import com.intellij.python.pytools.backend.runtime.cliArg
+import com.intellij.python.pytools.backend.runtime.cliArgs
+import com.intellij.python.pytools.backend.runtime.cliOption
 import com.intellij.python.uv.backend.PyUvBundle
 import com.jetbrains.python.errorProcessing.PyResult
 import kotlinx.serialization.SerialName
@@ -97,13 +100,13 @@ class UvPython(runtime: PyToolRuntime) : UvCommand("python", runtime) {
     onlyInstalled: Boolean? = null,
     allVersions: Boolean? = null,
   ): PyResult<List<UvPythonEntry>> {
-    val arguments = buildList {
-      add("list")
-      request?.let { add(it) }
-      addAll(listOf(onlyInstalled to "--only-installed", allVersions to "--all-versions").makeOptions())
-      addAll(listOf("--output-format", "json"))
-    }
-    val stdout = executeAndHandleErrors(*arguments.toTypedArray(), transformer = ZeroCodeStdoutTransformer)
+    val arguments = cliArgs(
+      cliArg(request),
+      cliArg("--only-installed".takeIf { onlyInstalled == true }),
+      cliArg("--all-versions".takeIf { allVersions == true }),
+      cliOption("--output-format", "json"),
+    )
+    val stdout = executeAndHandleErrors("list", *arguments, transformer = ZeroCodeStdoutTransformer)
       .getOr { return it }
     return parseUvPythonList(stdout)
   }
@@ -116,11 +119,11 @@ class UvPython(runtime: PyToolRuntime) : UvCommand("python", runtime) {
    * @param reinstall install the version again even where uv already has it.
    */
   suspend fun install(vararg targets: String, reinstall: Boolean? = null): PyResult<Unit> {
-    val arguments = buildList {
-      addAll(targets)
-      addAll(listOf(reinstall to "--reinstall").makeOptions())
-    }
-    executeAndHandleErrors("install", *arguments.toTypedArray(), transformer = ZeroCodeStdoutTransformer).getOr { return it }
+    val arguments = cliArgs(
+      targets.asList(),
+      cliArg("--reinstall".takeIf { reinstall == true }),
+    )
+    executeAndHandleErrors("install", *arguments, transformer = ZeroCodeStdoutTransformer).getOr { return it }
     return PyResult.success(Unit)
   }
 
@@ -130,9 +133,27 @@ class UvPython(runtime: PyToolRuntime) : UvCommand("python", runtime) {
   suspend fun upgrade(): PyResult<Unit> = TODO()
 
   /**
-   * Search for a Python installation
+   * Search for a Python installation, reporting the interpreter uv would use — its path, or with [showVersion] the
+   * version instead.
+   *
+   * uv answers from the working directory: it walks up for `.python-version` and for a `pyproject.toml` whose
+   * `requires-python` narrows the choice, so the directory this runs in is part of the question.
+   *
+   * @param request uv's own version request (`3.12`, `>=3.10,<3.13`, `pypy@3.11`). uv reports whichever interpreter it
+   *   defaults to when none is named.
+   * @param showVersion report the version rather than the path to the binary.
+   * @param system ignore the virtual environment of the working directory and answer from the interpreters uv installs
+   *   from. Needed to predict a *new* environment: uv would otherwise report the Python of the `.venv` already there,
+   *   while `uv venv --clear` builds the replacement on uv's default.
    */
-  suspend fun find(): PyResult<String> = TODO()
+  suspend fun find(request: String? = null, showVersion: Boolean? = null, system: Boolean? = null): PyResult<String> {
+    val arguments = cliArgs(
+      cliArg(request),
+      cliArg("--show-version".takeIf { showVersion == true }),
+      cliArg("--system".takeIf { system == true }),
+    )
+    return executeAndHandleErrors("find", *arguments, transformer = ZeroCodeStdoutTransformer)
+  }
 
   /**
    * Pin to a specific Python version

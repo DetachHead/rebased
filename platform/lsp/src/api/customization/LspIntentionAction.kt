@@ -86,27 +86,25 @@ open class LspIntentionAction(protected val lspClient: LspClient, private val in
    * The side effect of this function is that it resolves the [initialCodeAction] if needed,
    * and also fills the auxiliary [uriToDocumentMap] that is used later in the [invoke] function.
    */
-  @RequiresReadLock
-  fun isAvailable(): Boolean = isAvailable { true }
-
-  @RequiresReadLock
-  fun isAvailable(codeActionValidator: (CodeAction) -> Boolean): Boolean {
+  @RequiresReadLock(generateAssertion = false /* IJPL-115548 */)
+  fun isAvailable(): Boolean {
     codeAction.disabled?.let { return false }
 
     resolveCodeAction()
 
     val workspaceEdit = codeAction.edit
+    if (workspaceEdit?.changes?.isNotEmpty() == true && workspaceEdit.documentChanges?.isNotEmpty() == true) return false
+
     if (!uriToDocumentMapInitialized) {
       uriToDocumentMap = if (workspaceEdit != null) getUriToDocumentMap(workspaceEdit) else emptyMap()
       uriToDocumentMapInitialized = true
     }
 
     return uriToDocumentMap != null &&
-           (workspaceEdit != null || codeAction.command != null) &&
-           codeActionValidator(codeAction)
+           (workspaceEdit != null || codeAction.command != null)
   }
 
-  @RequiresBackgroundThread
+  @RequiresBackgroundThread(generateAssertion = false /* IJPL-115548 */)
   private fun resolveCodeAction() {
     if (resolvedCodeAction != null) return
 
@@ -120,7 +118,7 @@ open class LspIntentionAction(protected val lspClient: LspClient, private val in
    * Make sure to call [isAvailable] before calling [invoke],
    * otherwise the auxiliary [uriToDocumentMap] will be not ready and the `CodeAction` will not be applied.
    */
-  @RequiresEdt
+  @RequiresEdt(generateAssertion = false /* IJPL-115548 */)
   fun invoke(contextFile: VirtualFile?) {
     val uriToDocumentMap = this.uriToDocumentMap ?: return
     val files = uriToDocumentMap.map { FileDocumentManager.getInstance().getFile(it.value) }
@@ -143,7 +141,7 @@ open class LspIntentionAction(protected val lspClient: LspClient, private val in
   /**
    * @param uriToDocumentMap it's guaranteed that it contains `Document` objects for URIs from this [workspaceEdit]
    */
-  @RequiresWriteLock
+  @RequiresWriteLock(generateAssertion = false /* IJPL-115548 */)
   protected open fun applyWorkspaceEdit(workspaceEdit: WorkspaceEdit, uriToDocumentMap: Map<String, Document>) {
     workspaceEdit.changes?.let { changes ->
       changes.entries.forEach { entry ->

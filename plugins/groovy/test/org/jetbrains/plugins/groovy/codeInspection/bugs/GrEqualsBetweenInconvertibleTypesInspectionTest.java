@@ -8,8 +8,8 @@ import org.jetbrains.plugins.groovy.lang.highlighting.GrHighlightingTestBase;
 
 public class GrEqualsBetweenInconvertibleTypesInspectionTest extends GrHighlightingTestBase {
   @Override
-  public final String getBasePath() {
-    return super.getBasePath() + "bugs/";
+  public final String getTestDataPath() {
+    return super.getTestDataPath() + "bugs/";
   }
 
   @Override

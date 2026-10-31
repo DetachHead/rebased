@@ -22,8 +22,8 @@ import java.io.IOException;
 
 public class ParameterToMapEntryTest extends GroovyFormatterTestCase {
   @Override
-  protected String getBasePath() {
-    return TestUtils.getTestDataPath() + "paramToMap/" + getTestName(true) + "/";
+  protected String getTestDataPath() {
+    return TestUtils.getAbsoluteTestDataPath() + "paramToMap/" + getTestName(true) + "/";
   }
 
   @NotNull

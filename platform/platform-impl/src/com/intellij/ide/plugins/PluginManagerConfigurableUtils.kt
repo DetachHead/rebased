@@ -3,8 +3,6 @@ package com.intellij.ide.plugins
 
 import com.intellij.ide.plugins.marketplace.statistics.enums.PluginManagerOpenSourceEnum
 import com.intellij.ide.plugins.newui.TabbedPaneHeaderComponent
-import com.intellij.openapi.application.ApplicationManager
-import com.intellij.openapi.options.ShowSettingsUtil
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.DialogBuilder
 import com.intellij.openapi.util.NlsSafe
@@ -19,7 +17,7 @@ object PluginManagerConfigurableUtils {
   fun showInstallPluginDialog(component: Component, filter: @NlsSafe String) {
     val configurable = PluginManagerConfigurable()
     AutoCloseable(configurable::disposeUIResources).use {
-      configurable.openMarketplaceTab(filter)
+      configurable.navigateToMarketplace(filter)
       val dialogBuilder = DialogBuilder(component)
       dialogBuilder.title(UIBundle.message("newProjectWizard.ProjectTypeStep.InstallPluginAction.title"))
       dialogBuilder.centerPanel(
@@ -45,17 +43,8 @@ object PluginManagerConfigurableUtils {
     searchQuery: @NlsSafe String,
     openSource: PluginManagerOpenSourceEnum? = null,
   ) {
-    val configurable = PluginManagerConfigurable().apply {
-      if (openSource != null) {
-        setOpenSource(openSource)
-      }
+    PluginManagerConfigurable.showPluginManagerDialog(project, openSource ?: PluginManagerOpenSourceEnum.OTHER) { configurable ->
+      configurable.navigateToInstalled(searchQuery)
     }
-    ShowSettingsUtil.getInstance().editConfigurable(project, configurable, Runnable {
-      configurable.openInstalledTab("")
-      val search = configurable.enableSearch(searchQuery, true)
-      if (search != null) {
-        ApplicationManager.getApplication().invokeLater(search)
-      }
-    })
   }
 }

@@ -31,7 +31,7 @@ object NativeBinaryDownloader {
    * Returns a tuple of paths `(executable, license, extra-file?)` for the given platform.
    * The `extra-file` is specific to the platform – e.g., a Windows console executable.
    */
-  suspend fun getLauncher(context: BuildContext, os: OsFamily, arch: JvmArchitecture): Triple<Path, Path, Path?> {
+  fun getLauncher(context: BuildContext, os: OsFamily, arch: JvmArchitecture): Triple<Path, Path, Path?> {
     if (context.options.isInDevelopmentMode && context.options.useLocalLauncher) {
       val localLauncher = findLocalLauncher(context, os)
       if (localLauncher != null) return localLauncher
@@ -71,15 +71,18 @@ object NativeBinaryDownloader {
   /**
    * Downloads and unpacks the restart helper tarball and returns a path to an executable for the given platform.
    */
-  suspend fun getRestarter(context: BuildContext, os: OsFamily, arch: JvmArchitecture): Path {
+  fun getRestarter(context: BuildContext, os: OsFamily, arch: JvmArchitecture): Path {
     val (archiveFile, unpackedDir) = downloadAndUnpack(context, "restarterBuild", RESTARTER_ID)
-    return findFile(archiveFile, unpackedDir, binName(os, arch, "restarter"))
+    return findFile(archiveFile, unpackedDir, restarterArchivePath(os, arch))
   }
+
+  /** The path of the restart helper inside its archive, `<os>-<arch>/restarter[.exe]`, at the archive root. */
+  fun restarterArchivePath(os: OsFamily, arch: JvmArchitecture): String = binName(os, arch, "restarter")
 
   /**
    * Downloads and unpacks the WebP tarball and returns a path to a library for the given platform.
    */
-  suspend fun getLibWebp(context: BuildContext, os: OsFamily, arch: JvmArchitecture): Path {
+  fun getLibWebp(context: BuildContext, os: OsFamily, arch: JvmArchitecture): Path {
     val (archiveFile, unpackedDir) = downloadAndUnpack(context, "libwebpVersion", LIBWEBP_ID)
     return findFile(archiveFile, unpackedDir, libName(os, arch, "webp_jni"))
   }
@@ -88,7 +91,7 @@ object NativeBinaryDownloader {
    * Downloads and unpacks the libghostty-vt archive and returns a path to a library for the given platform.
    */
   fun getLibGhosttyVt(context: BuildContext, os: OsFamily, arch: JvmArchitecture): Path {
-    val unpackedDir = TerminalLibGhosttyVtDownloader.getOrDownloadLibRoot(context.paths.communityHomeDirRoot)
+    val unpackedDir = TerminalLibGhosttyVtDownloader.getOrDownloadLibRoot(context.paths.communityHomeDirRoot, context.httpSession)
     // match `LibGhosttyVtLocator.libraryPath` with lowercase directory names
     val relativePath = "${os.osName.lowercase()}-${arch.archName.lowercase()}/${os.libraryName("ghostty-vt")}"
     val file = unpackedDir.resolve(relativePath)
@@ -98,11 +101,11 @@ object NativeBinaryDownloader {
     return file
   }
 
-  private suspend fun downloadAndUnpack(context: BuildContext, propertyName: String, artifactId: String): Pair<Path, Path> {
+  private fun downloadAndUnpack(context: BuildContext, propertyName: String, artifactId: String): Pair<Path, Path> {
     val communityRoot = context.paths.communityHomeDirRoot
     val version = context.dependenciesProperties.property(propertyName)
     val uri = BuildDependenciesDownloader.getUriForMavenArtifact(INTELLIJ_DEPENDENCIES_URL, GROUP_ID, artifactId, version, PACKAGING)
-    val resolved = resolveFileForReading(uri.toString(), communityRoot)
+    val resolved = resolveFileForReading(uri.toString(), communityRoot, context.httpSession)
     val unpackedDir = extractToCacheLocation(
       archiveFile = resolved.file,
       communityRoot = communityRoot,

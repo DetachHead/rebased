@@ -17,11 +17,13 @@ import org.jetbrains.annotations.ApiStatus
 //                            (+ StyleRange, HyperlinkRange)
 //   TerminalCursor.kt        Cursor, CursorShape
 //   TerminalMouseModes.kt    MouseProtocol, MouseEncoding
+//   TerminalKeyboardModes.kt KittyKeyboardFlag — the Kitty keyboard protocol flags
 //   TerminalKeyEvents.kt     TerminalKeyEvent (+ TerminalKey, TerminalKeyAction) — key events to
 //                            encode into PTY bytes
 //   TerminalMouseEvents.kt   TerminalMouseEvent (+ TerminalMouseAction, TerminalMouseButton)
 //   TerminalInputModifier.kt TerminalInputModifier — modifier state shared by both event types
 //   TerminalProgress.kt      TerminalProgress, TerminalProgressState (OSC 9;4)
+//   TerminalColorScheme.kt   ColorScheme — dark or light, for the color scheme query (CSI ? 996 n)
 //   TerminalChangeTracking.kt ScreenChange, HistoryMark — what to repaint / append
 //   TerminalListener.kt      TerminalListener, TerminalCustomCommandListener — the push callbacks
 //
@@ -56,21 +58,58 @@ interface TerminalEmulator : AutoCloseable {
   /** Change the screen size; the primary screen reflows if wraparound is enabled. */
   fun resize(size: TerminalSize)
 
+  /**
+   * Sets whether [resize] may pull rows from scrollback back onto the screen. The default is `true`.
+   *
+   * With `true`, a row growth pulls rows back when the cursor is on the bottom row.
+   * A column reflow that needs fewer rows also pulls rows back.
+   *
+   * With `false`, a row growth adds blank rows at the bottom, and the cursor keeps its row.
+   * A column reflow keeps the same content on the top screen row.
+   * A soft-wrapped line that still has a row on the screen can still unwrap back into view.
+   *
+   * Use `false` when the PTY keeps its own screen buffer without scrollback.
+   * Windows ConPTY is the motivating case.
+   * A full reset (RIS) keeps this setting.
+   */
+  fun setResizePullScrollback(pull: Boolean)
+
   // screen state (always current)
   val cursor: Cursor
 
-  /** Current cursor drawing shape, as selected by the program via DECSCUSR (`CSI Ps SP q`). */
+  /**
+   *  Current cursor drawing shape, as selected by the program via DECSCUSR (`CSI Ps SP q`)
+   *  or the default value provided by [setDefaultCursorShape].
+   */
   val cursorShape: CursorShape
+
+  /**
+   * Sets the shape the cursor gets until the program selects one itself via DECSCUSR (`CSI Ps SP q`),
+   * or after DECSCUSR `0` or a full reset (RIS) restores the default. Never overrides a shape requested by a program.
+   */
+  fun setDefaultCursorShape(shape: CursorShape)
 
   /**
    * Whether the cursor should currently blink. Orthogonal to [cursorShape]: it reflects the effective
    * blink state the program requested, folding in both the DECSCUSR (`CSI Ps SP q`) odd/even parity
    * (`1`/`3`/`5` blink, `2`/`4`/`6` steady) and DEC private mode 12 (`CSI ?12 h` blink / `CSI ?12 l`
    * steady). The embedder decides how (and whether) to actually animate the caret.
+   * The value from [setDefaultCursorBlinking] is used as the default.
    */
   val cursorBlinking: Boolean
 
+  /** Same non-clobbering semantics as [setDefaultCursorShape], for the default blink state. */
+  fun setDefaultCursorBlinking(blinking: Boolean)
+
   val title: String
+
+  /**
+   * Sets the name of the terminfo entry that the terminal runs as, for example `xterm-256color`.
+   * The reply to the `XTGETTCAP` query `TN` reports it. Until the first call, the query gets no reply.
+   *
+   * @throws IllegalArgumentException if the backend rejects [name], for example a name longer than 128 bytes.
+   */
+  fun setTerminfoName(name: String)
 
   /**
    * Progress the running program reports via `OSC 9;4` (`ESC ] 9 ; 4 ; <state> [; <percent>] <terminator>`),
@@ -91,6 +130,25 @@ interface TerminalEmulator : AutoCloseable {
   val backgroundColor: TerminalColor.Rgb?
 
   /**
+   * Sets the embedder default foreground color. [foregroundColor] and the reply to `OSC 10 ; ?` report it.
+   * A program override (`OSC 10`) has priority until the program resets it (`OSC 110`).
+   */
+  fun setDefaultForegroundColor(color: TerminalColor.Rgb)
+
+  /** Same semantics as [setDefaultForegroundColor], for [backgroundColor] and `OSC 11`. */
+  fun setDefaultBackgroundColor(color: TerminalColor.Rgb)
+
+  /**
+   * Sets whether the embedder colors are dark or light. The reply to the color scheme query (`CSI ? 996 n`) reports it.
+   * Until the first call, the query gets no reply.
+   *
+   * While the program enables the color scheme reports (mode 2031), each call also sends a report (`CSI ? 997 ; Ps n`)
+   * through [TerminalListener.onRespondToHost]. The report tells the program to query the embedder colors again.
+   * So call this function for each change of the embedder colors, after the calls that set them.
+   */
+  fun setColorScheme(scheme: ColorScheme)
+
+  /**
    * The current RGB of palette slot [index] (`0..255`), reflecting any program `OSC 4` overrides (and
    * `OSC 104` resets). Slots `0..15` are the ANSI colors; `16..255` the xterm cube + grayscale ramp.
    *
@@ -103,6 +161,15 @@ interface TerminalEmulator : AutoCloseable {
    */
   fun paletteColor(index: Int): TerminalColor.Rgb
 
+  /**
+   * Sets the embedder default colors of the ANSI palette slots `0..15`, in slot order. Slots `16..255` keep their defaults.
+   * [paletteColor] and the reply to `OSC 4 ; n ; ?` report them.
+   * A program override (`OSC 4`) has priority until the program resets it (`OSC 104`).
+   *
+   * @throws IllegalArgumentException if [colors] does not have exactly 16 entries.
+   */
+  fun setDefaultAnsiColors(colors: List<TerminalColor.Rgb>)
+
   /** True when the alternate screen buffer is active (e.g. a full-screen TUI). */
   val usingAlternateScreen: Boolean
 
@@ -113,6 +180,13 @@ interface TerminalEmulator : AutoCloseable {
   val mouseProtocol: MouseProtocol
   val mouseEncoding: MouseEncoding
 
+  /**
+   * The flags of the Kitty keyboard protocol the program has enabled; empty while the
+   * protocol is off. While any flag is set, [encodeKeyEvent] encodes every key as the
+   * protocol prescribes.
+   */
+  val kittyKeyboardFlags: Set<KittyKeyboardFlag>
+
   // encoding input into PTY bytes
   /**
    * Encodes [event] into the bytes the embedder should write to the PTY, honoring the terminal's
@@ -121,6 +195,15 @@ interface TerminalEmulator : AutoCloseable {
    * outside the Kitty protocol, an event mid-IME-composition.
    */
   fun encodeKeyEvent(event: TerminalKeyEvent): ByteArray
+
+  /**
+   * Sets whether the macOS Option key acts as Alt in [encodeKeyEvent]. With `false`, the
+   * default, Option composes text ("ƒ" for Option+F) and the text is sent. With `true`,
+   * Option is the Alt modifier: an ESC prefix in legacy mode, and the Alt bit in the
+   * `modifyOtherKeys` and Kitty encodings, which then carry no text. Has no effect on the
+   * other platforms, where Alt is a modifier in any case.
+   */
+  fun setOptionAsAlt(enabled: Boolean)
 
   /**
    * Encodes [event] into the bytes the embedder should write to the PTY, honoring the terminal's
@@ -148,10 +231,19 @@ interface TerminalEmulator : AutoCloseable {
   fun screenLine(row: Int): TerminalRow
 
   /**
+   * Whether row [row] of the active screen soft-wraps into the next one: the [TerminalRow.wrapped] of
+   * [screenLine], but without reading the cells. Out-of-range indices yield `false`.
+   */
+  fun isScreenLineWrapped(row: Int): Boolean
+
+  /**
    * Row [row] of scrollback, 0-based from the oldest retained line (valid range:
    * `0 until scrollbackRows`). Out-of-range indices yield a row of empty cells rather than throwing.
    */
   fun scrollbackLine(row: Int): TerminalRow
+
+  /** The same as [isScreenLineWrapped], for row [row] of [scrollbackLine]. */
+  fun isScrollbackLineWrapped(row: Int): Boolean
 
   // change tracking (pull); resets the pending set
   fun takeChanges(): ScreenChange

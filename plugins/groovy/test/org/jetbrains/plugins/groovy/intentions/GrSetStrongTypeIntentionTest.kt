@@ -6,8 +6,8 @@ import org.jetbrains.plugins.groovy.GroovyProjectDescriptors
 import org.jetbrains.plugins.groovy.util.TestUtils
 
 class GrSetStrongTypeIntentionTest: GrIntentionTestCase("Declare explicit type") {
-  override fun getBasePath(): String {
-    return TestUtils.getTestDataPath() + "intentions/setStrongType/"
+  override fun getTestDataPath(): String {
+    return TestUtils.getAbsoluteTestDataPath() + "intentions/setStrongType/"
   }
 
   fun testUnsupportedWithTupleDeclaration() {

@@ -2,7 +2,7 @@ package com.intellij.filePrediction.features
 
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.guessProjectDir
-import com.intellij.testFramework.fixtures.CodeInsightFixtureTestCase
+import org.junit.jupiter.api.Assertions.assertNotNull
 
 internal interface FileFeaturesProducer {
   fun produce(project: Project): Map<String, FilePredictionFeature>
@@ -28,7 +28,7 @@ internal class FileFeaturesByProjectPathProducer(vararg included: Pair<String, F
 
   override fun produce(project: Project): Map<String, FilePredictionFeature> {
     val dir = project.guessProjectDir()?.path
-    CodeInsightFixtureTestCase.assertNotNull(dir)
+    assertNotNull(dir)
 
     val prefixLength = dir!!.length + 1
 

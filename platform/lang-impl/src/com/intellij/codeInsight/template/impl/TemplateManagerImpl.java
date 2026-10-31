@@ -6,6 +6,7 @@ import com.intellij.codeInsight.completion.CompletionUtil;
 import com.intellij.codeInsight.completion.OffsetKey;
 import com.intellij.codeInsight.completion.OffsetsInFile;
 import com.intellij.codeInsight.intention.impl.preview.IntentionPreviewEditor;
+import com.intellij.codeInsight.multiverse.EditorContextManager;
 import com.intellij.codeInsight.template.CustomLiveTemplate;
 import com.intellij.codeInsight.template.CustomLiveTemplateBase;
 import com.intellij.codeInsight.template.CustomTemplateCallback;
@@ -21,13 +22,13 @@ import com.intellij.modcommand.ModCommand;
 import com.intellij.modcommand.ModPsiUpdater;
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.application.ApplicationManager;
-import com.intellij.openapi.editor.elf.ElfFeatureFlag;
 import com.intellij.openapi.command.CommandProcessor;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.editor.EditorFactory;
 import com.intellij.openapi.editor.EditorModificationUtilEx;
 import com.intellij.openapi.editor.ScrollType;
+import com.intellij.openapi.editor.elf.ElfFeatureFlag;
 import com.intellij.openapi.editor.event.EditorFactoryEvent;
 import com.intellij.openapi.editor.event.EditorFactoryListener;
 import com.intellij.openapi.project.Project;
@@ -432,12 +433,24 @@ public final class TemplateManagerImpl extends TemplateManager implements Dispos
   }
 
   private @NotNull TemplateImpl substituteTemplate(@NotNull TemplateImpl template, @NotNull Editor editor) {
-    PsiFile psiFile = PsiDocumentManager.getInstance(myProject).getPsiFile(editor.getDocument());
+    PsiFile psiFile = EditorContextManager.getPsiFileForEditor(editor, myProject);
     if (psiFile == null) {
       return template;
     }
+    return substituteTemplate(template, new TemplateSubstitutionContext(myProject, editor.asModNavigator()));
+  }
+
+  /**
+   * Applies all the {@link TemplateSubstitutor} extensions to the template.
+   *
+   * @param template template to substitute
+   * @param context context of the template insertion
+   * @return the substituted template, or the original template if no substitutor changed it
+   */
+  @ApiStatus.Internal
+  public static @NotNull TemplateImpl substituteTemplate(@NotNull TemplateImpl template, @NotNull TemplateSubstitutionContext context) {
     for (TemplateSubstitutor substitutor : TemplateSubstitutor.EP_NAME.getExtensionList()) {
-      TemplateImpl substituted = substitutor.substituteTemplate(new TemplateSubstitutionContext(myProject, editor), template);
+      TemplateImpl substituted = substitutor.substituteTemplate(context, template);
       if (substituted != null) {
         template = substituted;
       }

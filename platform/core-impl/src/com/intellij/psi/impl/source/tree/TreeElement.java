@@ -21,6 +21,7 @@ import com.intellij.psi.impl.source.PsiFileImpl;
 import com.intellij.psi.impl.source.tree.mvcc.InternalPsiVersioning;
 import com.intellij.psi.impl.source.tree.mvcc.InternalPsiVersioning.PsiVersionRegistry;
 import com.intellij.psi.impl.source.tree.mvcc.VersionedPayloadMap;
+import com.intellij.psi.impl.source.tree.mvcc.VersionedPayloadMapKt;
 import com.intellij.psi.impl.source.tree.mvcc.VersionedPsiConsistencyException;
 import com.intellij.psi.tree.IElementType;
 import com.intellij.testFramework.ReadOnlyLightVirtualFile;
@@ -150,13 +151,8 @@ public abstract class TreeElement extends ElementBase implements ASTNode, Repars
    * This makes the cleanup procedure wait-free.
    */
   private void runGarbageCollection(@NotNull VarHandleWrapper wrapper, @NotNull VersionedPayloadMap versionedMap) {
-    PsiVersionRegistry service = PsiVersionRegistry.getInstance();
-    long minVersion = Long.MAX_VALUE;
-    for (long l : service.getFrozenKeys()) {
-      minVersion = Long.min(minVersion, l);
-    }
-    long finalMinVersion = minVersion;
-    VersionedPayloadMap newMap = versionedMap.cleanupStaleVersions(finalMinVersion);
+    long minVersionForCleaning = PsiVersionRegistry.getInstance().minVersionForCleaning();
+    VersionedPayloadMap newMap = versionedMap.cleanupStaleVersions(minVersionForCleaning);
     if (newMap != null) {
       wrapper.compareAndSet(this, versionedMap, newMap);
     }
@@ -174,7 +170,7 @@ public abstract class TreeElement extends ElementBase implements ASTNode, Repars
     }
     else {
       // this is directly stored field, so we can return it right away.
-      if (version >= creationVersion) {
+      if (VersionedPayloadMapKt.isReachable(creationVersion, version)) {
         return currentlyStoredValue;
       }
       else {

@@ -2,9 +2,11 @@
 package com.jetbrains.python.psi.impl;
 
 import com.intellij.lang.ASTNode;
+import com.jetbrains.python.PyNames;
 import com.jetbrains.python.psi.PyBoolLiteralExpression;
 import com.jetbrains.python.psi.PyElementVisitor;
 import com.jetbrains.python.psi.PyInstantTypeProvider;
+import com.jetbrains.python.psi.types.PyAnyType;
 import com.jetbrains.python.psi.types.PyLiteralType;
 import com.jetbrains.python.psi.types.PyType;
 import com.jetbrains.python.psi.types.TypeEvalContext;
@@ -18,10 +20,12 @@ public class PyBoolLiteralExpressionImpl extends PyElementImpl implements PyBool
 
   @Override
   public PyType getType(@NotNull TypeEvalContext context, @NotNull TypeEvalContext.Key key) {
-    if (!PyLiteralType.inferLiteralTypeForLiteralExpressions()) {
-      return PyBuiltinCache.getInstance(this).getBoolType();
-    }
-    return PyLiteralType.boolLiteral(this, getValue());
+    // `__debug__` depends on the `-O` flag, so it has no literal value.
+    final PyType type = PyLiteralType.inferLiteralTypeForLiteralExpressions() && !PyNames.DEBUG.equals(getText())
+                        ? PyLiteralType.boolLiteral(this, getValue())
+                        : PyBuiltinCache.getInstance(this).getBoolType();
+    // Both give null only when the project has no builtins.
+    return type != null ? type : PyAnyType.getUnknown();
   }
 
   @Override

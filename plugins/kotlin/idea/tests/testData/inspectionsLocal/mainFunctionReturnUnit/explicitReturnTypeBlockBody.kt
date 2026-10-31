@@ -1,7 +1,6 @@
 // DISABLE_ERRORS
-fun <caret>main(args: Array<String>): Int {
+fun main(args: Array<String>): <caret>Int {
     return 1
 }
 
-// For K2, the return type is highlighted instead of the main name
-// IGNORE_K2
+// For K1, the function name is highlighted instead of the return type

@@ -46,7 +46,7 @@ public final class JavaLanguageCodeStyleSettingsProvider extends LanguageCodeSty
   public @NotNull CodeStyleConfigurable createConfigurable(@NotNull CodeStyleSettings settings, @NotNull CodeStyleSettings modelSettings) {
     return new CodeStyleAbstractConfigurable(settings, modelSettings, JavaLanguage.INSTANCE.getDisplayName()) {
       @Override
-      protected @NotNull CodeStyleAbstractPanel createPanel(final @NotNull CodeStyleSettings settings) {
+      protected @NotNull CodeStyleAbstractPanel createPanel(@NotNull CodeStyleSettings settings) {
         return new JavaCodeStyleMainPanel(getCurrentSettings(), settings);
       }
       @Override
@@ -57,7 +57,7 @@ public final class JavaLanguageCodeStyleSettingsProvider extends LanguageCodeSty
   }
 
   @Override
-  public @Nullable CustomCodeStyleSettings createCustomSettings(@NotNull CodeStyleSettings settings) {
+  public @NotNull CustomCodeStyleSettings createCustomSettings(@NotNull CodeStyleSettings settings) {
     return new JavaCodeStyleSettings(settings);
   }
 
@@ -113,8 +113,6 @@ public final class JavaLanguageCodeStyleSettingsProvider extends LanguageCodeSty
         "checkbox.strip.whitespace.from.blank.lines.in.text.blocks"), groupName);
       consumer.showCustomOption(JavaCodeStyleSettings.class, "SPACE_INSIDE_ONE_LINE_ENUM_BRACES", JavaFrontbackBundle.message(
         "checkbox.spaces.inside.one.line.enum"), groupName);
-
-
       consumer.showCustomOption(JavaCodeStyleSettings.class, "SPACE_BEFORE_DECONSTRUCTION_LIST", JavaFrontbackBundle.message(
         "checkbox.spaces.before.deconstruction.list"), getInstance().SPACES_BEFORE_PARENTHESES);
     }
@@ -426,7 +424,7 @@ public final class JavaLanguageCodeStyleSettingsProvider extends LanguageCodeSty
   }
 
   @Override
-  public PsiFile createFileFromText(final @NotNull Project project, final @NotNull String text) {
+  public PsiFile createFileFromText(@NotNull Project project, @NotNull String text) {
     final PsiFile file = PsiFileFactory.getInstance(project).createFileFromText(
       "sample.java", JavaFileType.INSTANCE, text, LocalTimeCounter.currentTime(), false, false
     );
@@ -434,12 +432,10 @@ public final class JavaLanguageCodeStyleSettingsProvider extends LanguageCodeSty
     return file;
   }
 
-
   @Override
   public IndentOptionsEditor getIndentOptionsEditor() {
     return new JavaIndentOptionsEditor();
   }
-
 
   @Override
   public @NotNull DocCommentSettings getDocCommentSettings(@NotNull CodeStyleSettings rootSettings) {
@@ -492,8 +488,8 @@ public final class JavaLanguageCodeStyleSettingsProvider extends LanguageCodeSty
 
   @Override
   public List<CodeStylePropertyAccessor> getAdditionalAccessors(@NotNull Object codeStyleObject) {
-    if (codeStyleObject instanceof JavaCodeStyleSettings) {
-      return Collections.singletonList(new RepeatAnnotationsAccessor((JavaCodeStyleSettings)codeStyleObject));
+    if (codeStyleObject instanceof JavaCodeStyleSettings settings) {
+      return Collections.singletonList(new RepeatAnnotationsAccessor(settings));
     }
     return super.getAdditionalAccessors(codeStyleObject);
   }
@@ -654,6 +650,11 @@ public final class JavaLanguageCodeStyleSettingsProvider extends LanguageCodeSty
       public class Foo<T extends Bar & Abba, U> {
         int[] X = new int[]{1, 3, 5, 6, 7, 87, 1213, 2};
         int[] empty = new int[]{};
+        String s = ""\"
+                text
+                \s
+                block
+                ""\";
         public void foo(int x, int y) {
           Runnable r = () -> {};
           Runnable r1 = this :: bar;
@@ -700,6 +701,7 @@ public final class JavaLanguageCodeStyleSettingsProvider extends LanguageCodeSty
           }
       }
       interface Abba {}
+      enum E {E1, E2}
       public record Rec(String s, int i) {}
       
       class SimpleClass {
@@ -727,16 +729,17 @@ public final class JavaLanguageCodeStyleSettingsProvider extends LanguageCodeSty
       /*
        * This is a sample file.
        */
-
       public class ThisIsASampleClass extends C1 implements I1, I2, I3, I4, I5 {
         private int f1 = 1;
-        private String field2 = "";
+        private String field2 = ""\"
+                text
+                block
+                ""\";
         public void foo1(int i1, int i2, int i3, int i4, int i5, int i6, int i7) {}
         public void fooNonEmptyBody() {int x = 1;}
         public static void longerMethod() throws Exception1, Exception2, Exception3 {
       // todo something
-          int
-      i = 0;
+          int i = 0;
           int[] a = new int[] {1, 2, 0x0052, 0x0053, 0x0054};
           int[] empty = new int[] {};
           int var1 = 1; int var2 = 2;
@@ -744,7 +747,8 @@ public final class JavaLanguageCodeStyleSettingsProvider extends LanguageCodeSty
           int x = (3 + 4 + 5 + 6) * (7 + 8 + 9 + 10) * (11 + 12 + 13 + 14 + 0xFFFFFFFF);
           String s1, s2, s3;
           s1 = s2 = s3 = "012345678901456";
-          assert i + j + k + l + n+ m <= 2 : "assert description";    int y = 2 > 3 ? 7 + 8 + 9 : 11 + 12 + 13;
+          assert i + j + k + l + n+ m <= 2 : "assert description";
+          int y = 2 > 3 ? 7 + 8 + 9 : 11 + 12 + 13;
           super.getFoo().foo().getBar().bar();
 
           label:     if (2 < 3) {return;} else if (2 > 3) return; else return;
@@ -752,10 +756,11 @@ public final class JavaLanguageCodeStyleSettingsProvider extends LanguageCodeSty
           while (x < 50000) x++;
           do x++; while (x < 10000);
           switch (a) {
-          case 0: case 1:
-      doCase0(); break;
-      case 2: case 3: return;    default:
-            doDefault();
+            case 0: case 1:
+              doCase0(); break;
+            case 2: case 3: return;
+            default:
+              doDefault();
           }
           try (MyResource r1 = getResource(); MyResource r2 = null) {
             doSomething();
@@ -773,11 +778,11 @@ public final class JavaLanguageCodeStyleSettingsProvider extends LanguageCodeSty
           }
           Runnable r = () -> {};
         }
-          public static void test()\s
-              throws Exception {\s
-              foo.foo().bar("arg1",\s
-                            "arg2");\s
-              new Object() {};    }\s
+          public static void test()
+              throws Exception {
+              foo.foo().bar("arg1",
+                            "arg2");
+              new Object() {};    }
           class TestInnerClass {}
           interface TestInnerInterface {}
       }

@@ -2,7 +2,6 @@
 package com.intellij.ui;
 
 import com.intellij.icons.AllIcons;
-import com.intellij.jna.JnaLoader;
 import com.intellij.openapi.application.Application;
 import com.intellij.openapi.application.ApplicationActivationListener;
 import com.intellij.openapi.application.ApplicationManager;
@@ -16,6 +15,7 @@ import com.intellij.openapi.wm.IdeFrame;
 import com.intellij.openapi.wm.WindowManager;
 import com.intellij.openapi.wm.impl.ProjectFrameHelper;
 import com.intellij.openapi.wm.impl.X11UiUtil;
+import com.intellij.ui.paint.PaintUtil;
 import com.intellij.util.IconUtil;
 import com.intellij.util.SystemProperties;
 import com.intellij.util.ui.EDT;
@@ -24,7 +24,6 @@ import com.intellij.util.ui.ImageUtil;
 import com.intellij.util.ui.MultiResolutionImageProvider;
 import com.intellij.util.ui.StartupUiUtil;
 import com.intellij.util.ui.UIUtil;
-import com.sun.jna.platform.win32.WinDef;
 import org.apache.commons.imaging.common.BinaryOutputStream;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
@@ -79,7 +78,7 @@ public abstract class AppIcon {
       else if (StartupUiUtil.isWaylandToolkit()) {
         ourIcon = new WLAppIcon();
       }
-      else if (SystemInfoRt.isWindows && JnaLoader.isLoaded()) {
+      else if (SystemInfoRt.isWindows && Win7TaskBar.isAvailable()) {
         ourIcon = new Win7AppIcon();
       }
       else {
@@ -590,35 +589,35 @@ public abstract class AppIcon {
         return;
       }
 
-      WinDef.HICON icon = null;
+      long icon = 0;
 
       if (text != null) {
         try {
           int size = 16;
           BufferedImage image = UIUtil.createImage(frame.getRootPane(), size, size, BufferedImage.TYPE_INT_ARGB);
-          Graphics2D g = image.createGraphics();
+          PaintUtil.use(image.createGraphics(), g -> {
+            int shadowRadius = 16;
+            g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+            g.setPaint(errorBadgeShadowColor);
+            g.fillRoundRect(0, 0, shadowRadius, shadowRadius, size, size);
 
-          int shadowRadius = 16;
-          g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-          g.setPaint(errorBadgeShadowColor);
-          g.fillRoundRect(0, 0, shadowRadius, shadowRadius, size, size);
+            int mainRadius = 14;
+            g.setPaint(errorBadgeMainColor);
+            g.fillRoundRect(size / 2 - mainRadius / 2, size / 2 - mainRadius / 2, mainRadius, mainRadius, size, size);
 
-          int mainRadius = 14;
-          g.setPaint(errorBadgeMainColor);
-          g.fillRoundRect(size / 2 - mainRadius / 2, size / 2 - mainRadius / 2, mainRadius, mainRadius, size, size);
+            Font font = g.getFont();
+            g.setFont(new Font(font.getName(), Font.BOLD, 9));
+            FontMetrics fontMetrics = g.getFontMetrics();
 
-          Font font = g.getFont();
-          g.setFont(new Font(font.getName(), Font.BOLD, 9));
-          FontMetrics fontMetrics = g.getFontMetrics();
+            int textWidth = fontMetrics.stringWidth(text);
+            int textHeight = UIUtil.getHighestGlyphHeight(text, font, g);
 
-          int textWidth = fontMetrics.stringWidth(text);
-          int textHeight = UIUtil.getHighestGlyphHeight(text, font, g);
+            g.setPaint(errorBadgeTextBackgroundColor);
+            g.fillOval(size / 2 - textWidth / 2, size / 2 - textHeight / 2, textWidth, textHeight);
 
-          g.setPaint(errorBadgeTextBackgroundColor);
-          g.fillOval(size / 2 - textWidth / 2, size / 2 - textHeight / 2, textWidth, textHeight);
-
-          g.setColor(Color.white);
-          g.drawString(text, size / 2 - textWidth / 2, size / 2 - fontMetrics.getHeight() / 2 + fontMetrics.getAscent());
+            g.setColor(Color.white);
+            g.drawString(text, size / 2 - textWidth / 2, size / 2 - fontMetrics.getHeight() / 2 + fontMetrics.getAscent());
+          });
 
           byte[] bytes = writeTransparentIco(image);
           icon = Win7TaskBar.createIcon(bytes);
@@ -629,14 +628,14 @@ public abstract class AppIcon {
       }
 
       try {
-        Win7TaskBar.setOverlayIcon(frame, icon, icon != null);
+        Win7TaskBar.setOverlayIcon(frame, icon, icon != 0);
       }
       catch (Throwable e) {
         LOG.error(e);
       }
     }
 
-    private WinDef.HICON myOkIcon;
+    private long myOkIcon;
 
     @Override
     public void _setOkBadge(@Nullable JFrame frame, boolean visible) {
@@ -645,11 +644,11 @@ public abstract class AppIcon {
         return;
       }
 
-      WinDef.HICON icon = null;
+      long icon = 0;
 
       if (visible) {
         synchronized (Win7AppIcon.class) {
-          if (myOkIcon == null) {
+          if (myOkIcon == 0) {
             try {
               BufferedImage image = ImageIO.read(Objects.requireNonNull(AppIcon.class.getResourceAsStream("/mac/appIconOk512.png")));
               byte[] bytes = writeTransparentIco(image);
@@ -657,7 +656,7 @@ public abstract class AppIcon {
             }
             catch (Throwable e) {
               LOG.error(e);
-              myOkIcon = null;
+              myOkIcon = 0;
             }
           }
 

@@ -46,6 +46,7 @@ internal class PersistentLongMapTest {
     }
 
     for ((versionIndex, version) in versions.withIndex()) {
+      assertEquals(versionIndex, version.size(), "$implementation, version $versionIndex")
       for ((keyIndex, key) in KEYS.withIndex()) {
         val expected = if (keyIndex < versionIndex) value(keyIndex) else null
         assertEquals(expected, version[key], "$implementation, version $versionIndex, key $key")
@@ -66,6 +67,26 @@ internal class PersistentLongMapTest {
     assertEquals("untouched", original[84])
     assertEquals("new", updated[42])
     assertEquals("untouched", updated[84])
+    assertEquals(2, original.size())
+    assertEquals(2, updated.size())
+  }
+
+  @ParameterizedTest
+  @EnumSource(PersistentLongMapImplementation::class)
+  fun `toString lists entries in key order`(implementation: PersistentLongMapImplementation) {
+    val empty = PersistentLongMap.empty<String>(implementation)
+    val map = empty
+      .put(Long.MAX_VALUE, "max")
+      .put(64, "sixty-four")
+      .put(0, "zero")
+      .put(4096, "four thousand ninety-six")
+      .put(63, "sixty-three")
+
+    assertEquals("{}", empty.toString())
+    assertEquals(
+      "{0=zero, 63=sixty-three, 64=sixty-four, 4096=four thousand ninety-six, 9223372036854775807=max}",
+      map.toString(),
+    )
   }
 
   @ParameterizedTest
@@ -92,6 +113,8 @@ internal class PersistentLongMapTest {
       val previous = map
       map = map.remove(removedKey)
 
+      assertEquals(KEYS.size - removedIndex, previous.size(), "$implementation, previous version")
+      assertEquals(KEYS.size - removedIndex - 1, map.size(), "$implementation, removed key $removedKey")
       assertEquals(value(removedIndex), previous[removedKey], "$implementation, previous version, key $removedKey")
       assertNull(map[removedKey], "$implementation, removed key $removedKey")
       for (remainingIndex in removedIndex + 1 until KEYS.size) {
@@ -139,6 +162,8 @@ internal class PersistentLongMapTest {
     assertEquals("two", updated[2])
     assertNull(updated[128])
     assertEquals("two hundred fifty six", updated[256])
+    assertEquals(2, original.size())
+    assertEquals(3, updated.size())
 
     val nextBuilder = updated.builder()
     nextBuilder.put(1, "next one")
@@ -149,6 +174,7 @@ internal class PersistentLongMapTest {
     assertEquals("two", updated[2])
     assertEquals("next one", next[1])
     assertNull(next[2])
+    assertEquals(2, next.size())
   }
 
   @ParameterizedTest
@@ -194,6 +220,7 @@ internal class PersistentLongMapTest {
         }
       }
       actual = builder.build()
+      assertEquals(expected.size, actual.size(), "$implementation, batch $batch")
 
       repeat(8) {
         val probe = keys[random.nextInt(keys.size)]
@@ -254,6 +281,7 @@ internal class PersistentLongMapTest {
         actual = actual.put(key, operation)
       }
 
+      assertEquals(expected.size, actual.size(), "$implementation, operation $operation")
       repeat(8) {
         val probe = keys[random.nextInt(keys.size)]
         assertEquals(expected[probe], actual[probe], "$implementation, operation $operation, key $probe")

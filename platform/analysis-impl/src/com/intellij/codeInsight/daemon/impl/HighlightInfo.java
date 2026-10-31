@@ -64,6 +64,7 @@ import com.intellij.profile.codeInspection.InspectionProjectProfileManager;
 import com.intellij.psi.PsiDocumentManager;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiManager;
+import com.intellij.psi.impl.source.tree.injected.InjectedLanguageManagerImpl;
 import com.intellij.util.BitUtil;
 import com.intellij.util.concurrency.ThreadingAssertions;
 import com.intellij.util.concurrency.annotations.RequiresBackgroundThread;
@@ -1117,6 +1118,11 @@ public class HighlightInfo implements Segment {
       return obj instanceof IntentionActionDescriptor descriptor && myAction.equals(descriptor.myAction);
     }
 
+    @Override
+    public int hashCode() {
+      return myAction.hashCode();
+    }
+
     public @Nullable String getToolId() {
       return myKey != null ? myKey.getID() : null;
     }
@@ -1256,7 +1262,35 @@ public class HighlightInfo implements Segment {
   }
 
   public final void unregisterQuickFix(@NotNull Condition<? super IntentionAction> condition) {
-    updateOffsetStore(oldStore -> oldStore.withIntentionDescriptorsAndFixMarker(List.copyOf(ContainerUtil.filter(oldStore.intentionActionDescriptors(), descriptor -> !condition.value(descriptor.getAction()))), oldStore.fixMarker()));
+    updateOffsetStore(oldStore -> {
+      List<IntentionActionDescriptor> descriptors =
+        List.copyOf(ContainerUtil.filter(oldStore.intentionActionDescriptors(), descriptor -> !condition.value(descriptor.getAction())));
+      List<LazyFixDescription> lazyFixes = ContainerUtil.mapNotNull(oldStore.lazyQuickFixes(), description -> {
+        Future<@NotNull List<IntentionActionDescriptor>> future = description.future();
+        if (future == null || !future.isDone()) {
+          return description;
+        }
+        try {
+          List<IntentionActionDescriptor> fixes = future.get();
+          List<IntentionActionDescriptor> filteredFixes = ContainerUtil.filter(fixes, descriptor -> !condition.value(descriptor.getAction()));
+          if (filteredFixes.isEmpty()) {
+            return null;
+          }
+          return fixes.size() == filteredFixes.size()
+                 ? description
+                 : new LazyFixDescription(description.fixesComputer(), description.psiModificationStamp(),
+                                          CompletableFuture.completedFuture(List.copyOf(filteredFixes)));
+        }
+        catch (InterruptedException e) {
+          Thread.currentThread().interrupt();
+          return description;
+        }
+        catch (ExecutionException e) {
+          return description;
+        }
+      });
+      return oldStore.withIntentionDescriptorsAndFixMarker(descriptors, oldStore.fixMarker()).withLazyQuickFixes(lazyFixes);
+    });
   }
 
   public final IntentionAction getSameFamilyFix(@NotNull IntentionActionWithFixAllOption action) {
@@ -1363,7 +1397,11 @@ public class HighlightInfo implements Segment {
   }
   @ApiStatus.Internal
   final boolean isInjectionRelated() {
-    return HighlightInfoUpdaterImpl.isInjectionRelated(toolId);
+    return InjectedLanguageManagerImpl.isInjectionRelated(toolId);
+  }
+
+  final boolean isFromChameleonSyntax() {
+    return HighlightInfoUpdaterImpl.isChameleonSyntaxToolId(toolId);
   }
 
   @ApiStatus.Internal
@@ -1387,7 +1425,10 @@ public class HighlightInfo implements Segment {
       OffsetStore oldStore = newInfo.offsetStore;
       List<? extends IntentionActionDescriptor> newDescriptors =
         ContainerUtil.concat(ContainerUtil.map(infos, i -> ((HighlightInfo)i).offsetStore.intentionActionDescriptors()));
-      OffsetStore newStore = oldStore.withIntentionDescriptorsAndFixMarker(newDescriptors, oldStore.fixMarker());
+      List<? extends LazyFixDescription> newLazyFixes =
+        ContainerUtil.concat(ContainerUtil.map(infos, i -> ((HighlightInfo)i).offsetStore.lazyQuickFixes()));
+      OffsetStore newStore = oldStore.withIntentionDescriptorsAndFixMarker(newDescriptors, oldStore.fixMarker())
+        .withLazyQuickFixes(newLazyFixes);
       if (anchorInfo.getHighlighter() != null) {
         newStore = newStore.withHighlighter(anchorInfo.getHighlighter());
       }
@@ -1547,22 +1588,13 @@ public class HighlightInfo implements Segment {
         Future<List<IntentionActionDescriptor>> future = description.future();
         if (future == null) {
           Consumer<? super QuickFixActionRegistrar> computer = description.fixesComputer();
-          future = ReadAction.nonBlocking(() -> doComputeLazyQuickFixes(document, project, description.psiModificationStamp(), computer)).wrapProgress(progressIndicator.get()).submit(ForkJoinPool.commonPool())
-            .onSuccess(descriptors -> fireQuickFixesAvailable(descriptors, project, document));
+          future = ReadAction.nonBlocking(() -> doComputeLazyQuickFixes(document, project, description.psiModificationStamp(), computer)).wrapProgress(progressIndicator.get()).submit(ForkJoinPool.commonPool());
           return new LazyFixDescription(computer, PsiManager.getInstance(project).getModificationTracker().getModificationCount(), future);
         }
         return description;
       });
       return oldStore.withLazyQuickFixes(newLazyFixes);
     });
-  }
-
-  private void fireQuickFixesAvailable(@NotNull List<IntentionActionDescriptor> descriptors,
-                                       @NotNull Project project,
-                                       @NotNull Document document) {
-    if (!descriptors.isEmpty() && !project.isDisposed()) {
-      project.getMessageBus().syncPublisher(LazyQuickFixUpdater.TOPIC).quickFixesAvailable(this, document);
-    }
   }
 
   final void copyComputedLazyFixesTo(@NotNull HighlightInfo newInfo, @NotNull Document document) {

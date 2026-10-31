@@ -19,7 +19,7 @@ import java.util.concurrent.TimeUnit;
 
 final class ProblemsViewStatsCollector extends CounterUsagesCollector {
   private static final String UNKNOWN = "unknown";
-  private static final List<String> TABS = List.of("CurrentFile", "ProjectErrors", "ServerSide", "Vulnerabilities", UNKNOWN);
+  private static final List<String> TABS = List.of("CurrentFile", "ProjectErrors", "ServerSide", "Vulnerabilities", "Security", UNKNOWN);
 
   private static final EventField<String> TAB_NAME = EventFields.String("scope_tab", TABS);
   private static final EventField<Integer> PROBLEMS_COUNT = EventFields.Int("problems_count");
@@ -27,7 +27,7 @@ final class ProblemsViewStatsCollector extends CounterUsagesCollector {
   private static final EventField<Long> DURATION = EventFields.Long("duration_seconds");
   private static final EventField<Integer> PROBLEM_SEVERITY = EventFields.Int("severity");
 
-  private static final EventLogGroup PROBLEMS_VIEW_GROUP = new EventLogGroup("problems.view.sessions", 3);
+  private static final EventLogGroup PROBLEMS_VIEW_GROUP = new EventLogGroup("problems.view.sessions", 5);
   private static final VarargEventId TAB_SHOWN = PROBLEMS_VIEW_GROUP.registerVarargEvent(
     "problems.tab.shown", TAB_NAME, PROBLEMS_COUNT, PREVIEW_ENABLED);
   private static final VarargEventId TAB_HIDDEN = PROBLEMS_VIEW_GROUP.registerVarargEvent(

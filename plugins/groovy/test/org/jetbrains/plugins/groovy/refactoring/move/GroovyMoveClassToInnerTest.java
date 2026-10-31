@@ -20,8 +20,8 @@ public class GroovyMoveClassToInnerTest extends GroovyMoveTestBase {
   private String[] myConflicts = null;
 
   @Override
-  protected String getBasePath() {
-    return TestUtils.getTestDataPath() + "refactoring/move/moveClassToInner/";
+  protected String getTestDataPath() {
+    return TestUtils.getAbsoluteTestDataPath() + "refactoring/move/moveClassToInner/";
   }
 
   public void testContextChange1() {

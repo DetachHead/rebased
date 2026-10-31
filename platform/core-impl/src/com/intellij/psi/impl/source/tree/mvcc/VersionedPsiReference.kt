@@ -36,10 +36,6 @@ class VersionedPsiReference<T: Any> : PsiVersionCleanable {
   @Volatile
   private var payloadMap: VersionedPayloadMap = VersionedPayloadMap.empty()
 
-  init {
-    InternalPsiVersioning.PsiVersionRegistry.instance.registerCleanable(this)
-  }
-
   /**
    * Update the existing value with [element] for the current version and returns the previously stored value.
    */
@@ -52,6 +48,7 @@ class VersionedPsiReference<T: Any> : PsiVersionCleanable {
         return element
       }
       if (ACCESSOR.compareAndSet(this, originalMap, newMap)) {
+        recordCleanupIfNeeded(newMap)
         return originalMap.getValue(version)
       }
     }
@@ -80,6 +77,7 @@ class VersionedPsiReference<T: Any> : PsiVersionCleanable {
         return newValue
       }
       if (ACCESSOR.compareAndSet(this, map, newMap)) {
+        recordCleanupIfNeeded(newMap)
         return newValue
       }
     }
@@ -98,6 +96,7 @@ class VersionedPsiReference<T: Any> : PsiVersionCleanable {
   fun fork(): VersionedPsiReference<T> {
     val newReference = VersionedPsiReference<T>()
     newReference.payloadMap = payloadMap
+    newReference.recordCleanupIfNeeded(payloadMap)
     return newReference
   }
 
@@ -125,8 +124,17 @@ class VersionedPsiReference<T: Any> : PsiVersionCleanable {
     return getMap().getValue(version)
   }
 
-  override fun liveVersionChanged(minVersion: Long, liveVersions: Set<Long>) {
+  private fun recordCleanupIfNeeded(map: VersionedPayloadMap) {
+    if (map.size() > 1) {
+      InternalPsiVersioning.recordVersionedChange(this)
+    }
+  }
+
+  override fun liveVersionChanged(minVersion: Long) {
     val map = getMap()
+    require(minVersion % 2 == 0L) {
+      "Version for cleanup must be even"
+    }
     val newMap = map.cleanupStaleVersions(minVersion) ?: return
     ACCESSOR.compareAndSet(this, map, newMap)
   }

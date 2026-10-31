@@ -213,6 +213,12 @@ public class DataFlowInspection21Test extends DataFlowInspectionTestCase {
     doTest();
   }
 
+  public void testJSpecifyIntersectionTernary() {
+    addJSpecifyNullMarked(myFixture);
+    setupTypeUseAnnotations("org.jspecify.annotations", myFixture);
+    doTest();
+  }
+
   public void testJSpecifyIntersectionBound() {
     addJSpecifyNullMarked(myFixture);
     setupTypeUseAnnotations("org.jspecify.annotations", myFixture);
@@ -405,6 +411,7 @@ public class DataFlowInspection21Test extends DataFlowInspectionTestCase {
 
   public void testJSpecifyDeconstructionTypeArgument() {
     addJSpecifyNullMarked(myFixture);
+    addJSpecifyNonNull(myFixture);
     setupTypeUseAnnotations("org.jspecify.annotations", myFixture);
     doTest();
   }

@@ -10,8 +10,12 @@ import com.intellij.ide.RecentProject
 import com.intellij.ide.RecentProjectListActionProvider
 import com.intellij.ide.RecentProjectsManager
 import com.intellij.ide.RecentProjectsManagerBase
+import com.intellij.ide.ReopenProjectAction
 import com.intellij.ide.impl.OpenProjectTask
 import com.intellij.ide.lightEdit.LightEdit
+import com.intellij.internal.statistic.collectors.fus.actions.persistence.ActionsCollectorImpl
+import com.intellij.internal.statistic.collectors.fus.actions.persistence.ActionsEventLogGroup
+import com.intellij.internal.statistic.eventLog.events.ObjectEventData
 import com.intellij.openapi.actionSystem.ActionPlaces
 import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.AnActionEvent
@@ -26,6 +30,7 @@ import com.intellij.openapi.wm.impl.welcomeScreen.ProjectDetector
 import com.intellij.openapi.wm.impl.welcomeScreen.cloneableProjects.CloneableProjectsService
 import com.intellij.openapi.wm.impl.welcomeScreen.cloneableProjects.CloneableProjectsService.CloneableProject
 import com.intellij.openapi.wm.impl.welcomeScreen.projectActions.RemoveSelectedProjectsAction
+import com.intellij.openapi.wm.impl.welcomeScreen.statistics.RecentProjectsFusEventFields
 import com.intellij.platform.eel.provider.EelInitialization
 import com.intellij.platform.eel.EelUnavailableException
 import com.intellij.platform.eel.provider.getEelDescriptor
@@ -64,11 +69,19 @@ sealed interface RecentProjectTreeItem {
   }
 }
 
+/** The item's stored path, or null when it is not a valid path. Stored paths come from disk and outlive the projects they point at. */
+internal fun RecentProjectItem.projectNioPath(): Path? = runCatching { Path.of(projectPath) }.getOrNull()
+
 internal data class RecentProjectItem(
   @JvmField val projectPath: @SystemIndependent String,
   @NlsSafe val projectName: String,
   @NlsSafe val displayName: String,
   @NlsSafe val branchName: String? = null,
+  /**
+   * Whether the welcome screen offers VCS actions for this project: the feature is enabled and the project is under version control.
+   * Not the same as having a [branchName], which a display setting or a detached HEAD hides for a project under version control all the same.
+   */
+  val vcsActionsEnabled: Boolean = false,
   val projectGroup: ProjectGroup?,
   val activationTimestamp: Long?,
 ) : RecentProjectTreeItem {
@@ -79,6 +92,9 @@ internal data class RecentProjectItem(
   companion object {
     fun openProjectAndLogRecent(file: Path, options: OpenProjectTask, projectGroup: ProjectGroup?) {
       service<CoreUiCoroutineScopeHolder>().coroutineScope.launch(ClientId.coroutineContext()) {
+        // Dispose the frameless projects the welcome screen holds before opening the real project, so a held instance does not collide with it
+        // (for example on the VCS log). Disposing during or after the open is too late.
+        RecentProjectsService.getInstance().disposeHeldProjects()
         RecentProjectsManagerBase.getInstanceEx().openProject(file, options)
         for (extension in ProjectDetector.EXTENSION_POINT_NAME.extensions) {
           extension.logRecentProjectOpened(projectGroup)
@@ -102,6 +118,15 @@ internal data class RecentProjectItem(
   }
 
   fun openProject(event: AnActionEvent) {
+    ActionsCollectorImpl.record(ActionsEventLogGroup.ACTION_FINISHED, event.project) {
+      add(ActionsEventLogGroup.ACTION_ID.with(ReopenProjectAction::class.java.name))
+      add(ActionsEventLogGroup.ACTION_CLASS.with(ReopenProjectAction::class.java))
+      addAll(ActionsCollectorImpl.actionEventData(event))
+      event.getData(RecentProjectsFusEventFields.ROW_KEY)?.let {
+        add(ActionsEventLogGroup.ADDITIONAL.with(ObjectEventData(RecentProjectsFusEventFields.INDEX.with(it))))
+      }
+    }
+
     // Force move focus to IdeFrame
     IdeEventQueue.getInstance().popupManager.closeAllPopups()
 
@@ -203,11 +228,26 @@ data class CloneableProjectItem(
   override fun children(): List<RecentProjectTreeItem> = emptyList()
 }
 
-// The root node is required for the filtering tree
+/**
+ * The root item of [RecentProjectFilteringTree]. The filtering tree requires a root node.
+ *
+ * The item keeps the result of the last collection. The first [children] call, and the first call after [invalidate], runs the collectors.
+ * The tree asks for the children many times in one structure update and on each filter change, so the collectors do not run each time.
+ * Use the item only on the EDT.
+ */
 internal class RootItem(private val collectors: List<() -> List<RecentProjectTreeItem>>) : RecentProjectTreeItem {
+  private var children: List<RecentProjectTreeItem>? = null
+
   override fun displayName(): String = "" // Not visible in tree
 
-  override fun children(): List<RecentProjectTreeItem> = collectors.flatMap { collector -> collector() }
+  override fun children(): List<RecentProjectTreeItem> {
+    return children ?: collectors.flatMap { collector -> collector() }.also { children = it }
+  }
+
+  /** Makes the next [children] call run the collectors again. */
+  fun invalidate() {
+    children = null
+  }
 }
 
 @Internal

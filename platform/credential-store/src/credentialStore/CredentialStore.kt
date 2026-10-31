@@ -1,4 +1,4 @@
-// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.credentialStore
 
 import com.intellij.util.Ephemeral
@@ -12,23 +12,20 @@ import org.jetbrains.concurrency.runAsync
  * Please see [Storing Sensitive Data](https://plugins.jetbrains.com/docs/intellij/persisting-sensitive-data.html).
  */
 interface CredentialStore {
-  @RequiresBackgroundThread
-  @RequiresReadLockAbsence
+  @RequiresBackgroundThread(generateAssertion = false /* IJPL-115548 */)
+  @RequiresReadLockAbsence(generateAssertion = false /* IJPL-115548 */)
   operator fun get(attributes: CredentialAttributes): Credentials?
 
-  @RequiresBackgroundThread
-  @RequiresReadLockAbsence
+  @RequiresBackgroundThread(generateAssertion = false /* IJPL-115548 */)
+  @RequiresReadLockAbsence(generateAssertion = false /* IJPL-115548 */)
   operator fun set(attributes: CredentialAttributes, credentials: Credentials?)
 
-  @RequiresBackgroundThread
-  @RequiresReadLockAbsence
-  fun getPassword(attributes: CredentialAttributes): String? {
-    val credentials = get(attributes)
-    return credentials?.getPasswordAsString()
-  }
+  @RequiresBackgroundThread(generateAssertion = false /* IJPL-115548 */)
+  @RequiresReadLockAbsence(generateAssertion = false /* IJPL-115548 */)
+  fun getPassword(attributes: CredentialAttributes): String? = get(attributes)?.getPasswordAsString()
 
-  @RequiresBackgroundThread
-  @RequiresReadLockAbsence
+  @RequiresBackgroundThread(generateAssertion = false /* IJPL-115548 */)
+  @RequiresReadLockAbsence(generateAssertion = false /* IJPL-115548 */)
   fun setPassword(attributes: CredentialAttributes, password: String?) {
     set(attributes, password?.let { Credentials(attributes.userName, it) })
   }
@@ -36,6 +33,5 @@ interface CredentialStore {
   suspend fun getAsync(attributes: CredentialAttributes): Ephemeral<Credentials> =
     ephemeral(runAsync { get(attributes) }.await() )
 
-  suspend fun <T : Any> ephemeral(value: T?): Ephemeral<T> =
-    StaticEphemeral(value)
+  suspend fun <T : Any> ephemeral(value: T?): Ephemeral<T> = StaticEphemeral(value)
 }

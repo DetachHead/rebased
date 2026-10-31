@@ -6,7 +6,7 @@ import com.intellij.ide.util.treeView.smartTree.TreeElement
 import com.intellij.openapi.application.ReadAction
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.io.FileUtil
-import com.intellij.openapi.vfs.LocalFileSystem
+import com.intellij.openapi.vfs.StandardFileSystems
 import com.intellij.platform.backend.workspace.workspaceModel
 import com.intellij.psi.PsiFile
 import com.intellij.testFramework.registerExtension
@@ -14,14 +14,14 @@ import com.intellij.testFramework.runInEdtAndWait
 import com.intellij.ui.tree.LeafState
 import kotlinx.coroutines.runBlocking
 import org.jetbrains.kotlin.idea.KotlinIcons
-import org.jetbrains.kotlin.idea.core.script.k2.configurations.KotlinScriptEntitySource
-import org.jetbrains.kotlin.idea.core.script.k2.configurations.KotlinScriptService
-import org.jetbrains.kotlin.idea.core.script.k2.definitions.ScriptDefinitionsModificationTracker
-import org.jetbrains.kotlin.idea.core.script.k2.getOrCreateScriptConfigurationId
-import org.jetbrains.kotlin.idea.core.script.k2.modules.KotlinScriptEntityProvider
-import org.jetbrains.kotlin.idea.core.script.k2.modules.modifyKotlinScriptEntity
-import org.jetbrains.kotlin.idea.core.script.shared.definition.kotlinScriptTemplate
-import org.jetbrains.kotlin.idea.core.script.v1.ScriptDependenciesModificationTracker
+import org.jetbrains.kotlin.idea.core.script.configurations.KotlinScriptEntitySource
+import org.jetbrains.kotlin.idea.core.script.configurations.KotlinScriptService
+import org.jetbrains.kotlin.idea.core.script.definitions.ScriptDefinitionsModificationTracker
+import org.jetbrains.kotlin.idea.core.script.getOrCreateScriptConfigurationId
+import org.jetbrains.kotlin.idea.core.script.modules.KotlinScriptEntityProvider
+import org.jetbrains.kotlin.idea.core.script.modules.modifyKotlinScriptEntity
+import org.jetbrains.kotlin.idea.core.script.definition.kotlinScriptTemplate
+import org.jetbrains.kotlin.idea.core.script.ScriptDependenciesModificationTracker
 import org.jetbrains.kotlin.idea.test.KotlinLightCodeInsightFixtureTestCase
 import org.jetbrains.kotlin.scripting.definitions.findScriptDefinition
 import java.io.File
@@ -255,7 +255,7 @@ class KotlinFirScriptStructureViewTest : KotlinLightCodeInsightFixtureTestCase()
                 """.trimIndent()
             )
         }
-        requireNotNull(LocalFileSystem.getInstance().refreshAndFindFileByIoFile(importedIoFile))
+        requireNotNull(StandardFileSystems.local().refreshAndFindFileByPath(importedIoFile.absolutePath))
 
         val file = configureScript("sample.context.kts")
 

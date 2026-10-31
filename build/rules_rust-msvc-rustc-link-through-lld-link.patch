@@ -1,0 +1,86 @@
+Let rustc drive an MSVC link through `lld-link` when the cc link tool is `clang-cl`.
+
+rustc links a proc-macro itself, because `rust_proc_macro` has no `experimental_use_cc_common_link`. For an
+MSVC target it passes link.exe flags such as `/NOLOGO` and `/PDBALTPATH:%_PDB%`. The hermetic `llvm` toolchain
+links through `clang-cl`, which rejects them, so every proc-macro fails to link on a Windows exec platform.
+
+`lld-link` takes link.exe flags, and a `clang-cl` link tool keeps it in the same directory. Pass it as the
+linker, and translate the cc link arguments: keep each `/clang:-Xlinker /clang:<flag>` as `<flag>`, keep the
+library search paths and the input files, and drop the `clang-cl` driver flags.
+--- a/rust/private/rustc.bzl
++++ b/rust/private/rustc.bzl
+@@ -412,6 +412,7 @@
+     "action_name",
+     "feature_configuration",
+     "is_direct_driver",
++    "msvc_lld_link",
+     "rpaths",
+     "rust_linker",
+     "target_arch",
+@@ -460,6 +461,14 @@
+     use_rust_linker = not cc_linker or toolchain.linker_preference == "rust" or use_bpf_linker
+     if use_rust_linker and not toolchain.linker:
+         fail("No linker available for rustc. Either `rust_toolchain.linker` must be set or a `cc_toolchain` configured for the current configuration.")
++
++    # rustc drives an MSVC link with link.exe flags, which `clang-cl` rejects. `lld-link` takes them, and a
++    # `clang-cl` link tool keeps it next to itself.
++    msvc_lld_link = (
++        not use_rust_linker and
++        toolchain.target_abi == "msvc" and
++        cc_linker.split("/")[-1].split("\\")[-1].lower() in ("clang-cl", "clang-cl.exe")
++    )
+ 
+     # Keep CcToolchainVariables and the Rust linker File until map_each runs so
+     # cc_common and File.path use the Rustc action's path mapper.
+@@ -467,6 +476,7 @@
+         feature_configuration = feature_configuration,
+         action_name = action_name,
+         variables = link_variables,
++        msvc_lld_link = msvc_lld_link,
+         rust_linker = toolchain.linker if use_rust_linker else None,
+         is_direct_driver = use_rust_linker and toolchain.linker_type == "direct",
+         target_arch = toolchain.target_arch,
+@@ -476,11 +486,33 @@
+ def _get_linker_path(linker_config):
+     if linker_config.rust_linker:
+         return linker_config.rust_linker.path
+-    return cc_common.get_tool_for_action(
++    path = cc_common.get_tool_for_action(
+         feature_configuration = linker_config.feature_configuration,
+         action_name = linker_config.action_name,
+     )
++    if linker_config.msvc_lld_link:
++        separator = max(path.rfind("/"), path.rfind("\\"))
++        return path[:separator + 1] + ("lld-link.exe" if path.lower().endswith(".exe") else "lld-link")
++    return path
++
++def _clang_cl_link_args_to_lld_link(args):
++    """The link arguments of a `clang-cl` link tool, in the form that `lld-link` takes.
+ 
++    `clang-cl` wraps each linker flag as `/clang:-Xlinker /clang:<flag>`, so keep `<flag>`. Keep the library search
++    paths and the input files too. Drop every other argument: it is a `clang-cl` driver flag, such as `/MT`.
++    """
++    lld_link_args = []
++    forward_next = False
++    for arg in args:
++        if forward_next:
++            lld_link_args.append(arg.removeprefix("/clang:"))
++            forward_next = False
++        elif arg in ("/clang:-Xlinker", "-Xlinker"):
++            forward_next = True
++        elif arg.upper().startswith(("/LIBPATH:", "-LIBPATH:")) or arg.lower().endswith((".lib", ".obj", ".res")):
++            lld_link_args.append(arg)
++    return lld_link_args
++
+ def _get_linker_env(linker_config):
+     if linker_config.variables == None:
+         return {}
+@@ -498,6 +530,8 @@
+             action_name = linker_config.action_name,
+             variables = linker_config.variables,
+         ))
++    if linker_config.msvc_lld_link:
++        link_args = _clang_cl_link_args_to_lld_link(link_args)
+ 
+     if linker_config.rust_linker:
+         # Make sure we include RPATHs for Rust ABI dylibs even when no cc_toolchain.

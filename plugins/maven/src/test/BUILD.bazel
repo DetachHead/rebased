@@ -1,9 +1,19 @@
+load("@community//build:bazel_targets_json.bzl", "current_bazel_targets_json")
 load("@community//build:tests-options.bzl", "jps_test")
 load("@rules_jvm//:jvm.bzl", "jvm_library")
+
+BAZEL_TARGETS_JSON = current_bazel_targets_json()
 
 jps_test(
     name = "maven-tests_test",
     timeout = "short",
+    data = [
+        BAZEL_TARGETS_JSON,
+        "@community//java/java-tests:testData",
+    ],
+    jvm_flags = [
+        "-Dintellij.build.bazel.targets.json.file=$(rlocationpath %s)" % BAZEL_TARGETS_JSON,
+    ],
     tags = ["community-aggregator"],
     runtime_deps = [":maven-tests_test_lib"],
 )
@@ -52,6 +62,18 @@ jvm_library(
         # do not sort,
         "//plugins/maven",
         "//plugins/maven:maven_test_lib",
+        "//plugins/maven/delegation/junit",
+        "//plugins/maven/delegation/junit:junit_test_lib",
+        "//plugins/maven/delegation/testng",
+        "//plugins/maven/delegation/testng:testng_test_lib",
+        "//plugins/testng",
+        "//plugins/testng:testng_test_lib",
+        "//plugins/junit",
+        "//plugins/junit:junit_test_lib",
+        "//platform/testRunner",
+        "//platform/testRunner:testRunner_test_lib",
+        "//platform/smRunner",
+        "//platform/smRunner:smRunner_test_lib",
         "//plugins/maven/plugin",
         "//plugins/maven/plugin:plugin_test_lib",
         "//java/plugin",
@@ -180,8 +202,6 @@ jvm_library(
         "//xml/xml-ui-common:ui-common_test_lib",
         "//platform/execution",
         "//platform/execution:execution_test_lib",
-        "//plugins/repository-search/common",
-        "//plugins/repository-search/common:common_test_lib",
         "//plugins/repository-search/completion",
         "//plugins/repository-search/completion:completion_test_lib",
         "//plugins/maven/completion",
@@ -194,12 +214,10 @@ jvm_library(
         "//platform/testFramework/junit5/codeInsight:codeInsight_test_lib",
         "//platform/usageView",
         "//platform/usageView:usageView_test_lib",
-        "//libraries/junit4",
-        "//libraries/junit4:junit4_test_lib",
-        "//libraries/junit5",
-        "//libraries/junit5:junit5_test_lib",
-        "//libraries/junit5-params",
-        "//libraries/junit5-params:junit5-params_test_lib",
+        "//libraries/junit6",
+        "//libraries/junit6:junit6_test_lib",
+        "//libraries/junit6-params",
+        "//libraries/junit6-params:junit6-params_test_lib",
     ],
 )
 ### auto-generated section `build intellij.maven.tests` end

@@ -1,9 +1,8 @@
 // "Create secondary constructor" "true"
 // K2_ACTION: "Add primary constructor to 'A'" "true"
-// K2_ERROR: Too many arguments for 'constructor(): A'.
+// K2_ERROR: TOO_MANY_ARGUMENTS
 
-open class A {
-    constructor(i: Int)
+open class A(i: Int) {
 
 }
 
@@ -12,5 +11,4 @@ class B: A {
 
     }
 }
-// FUS_QUICKFIX_NAME: org.jetbrains.kotlin.idea.quickfix.createFromUsage.createCallable.CreateCallableFromUsageFix
-// FUS_K2_QUICKFIX_NAME: org.jetbrains.kotlin.idea.k2.codeinsight.quickFixes.createFromUsage.AddConstructorFix
+// FUS_QUICKFIX_NAME: org.jetbrains.kotlin.idea.k2.codeinsight.quickFixes.createFromUsage.AddConstructorFix

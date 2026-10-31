@@ -15,6 +15,9 @@
  */
 package com.jetbrains.python.pyi;
 
+import com.intellij.openapi.projectRoots.Sdk;
+import com.intellij.openapi.vfs.VfsUtilCore;
+import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiFile;
 import com.intellij.psi.util.PsiTreeUtil;
@@ -42,6 +45,7 @@ import com.jetbrains.python.psi.resolve.RatedResolveResult;
 import com.jetbrains.python.psi.types.PyClassLikeType;
 import com.jetbrains.python.psi.types.PyType;
 import com.jetbrains.python.psi.types.TypeEvalContext;
+import com.jetbrains.python.sdk.PythonSdkUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -112,6 +116,28 @@ public final class PyiUtil {
     }
 
     return result;
+  }
+
+  /**
+   * Finds the element that navigation from {@code source} to {@code target} must open.
+   * <p>
+   * A stub target maps to its implementation when {@code source} is outside of a stub.
+   * The stub target stays when it has no implementation, or when the implementation is in a generated skeleton.
+   */
+  public static @NotNull PsiElement getNavigationTarget(@NotNull PsiElement target, @NotNull PsiElement source) {
+    if (!(target instanceof PyElement pyTarget) || !isInsideStub(target) || isInsideStub(source)) return target;
+    final PsiElement original = getOriginalElement(pyTarget);
+    return original == null || isInSkeleton(original) ? target : original;
+  }
+
+  private static boolean isInSkeleton(@NotNull PsiElement element) {
+    if (!(element.getContainingFile() instanceof PyFile file) || file instanceof PyiFile) return false;
+    final VirtualFile virtualFile = file.getVirtualFile();
+    if (virtualFile == null) return false;
+    final Sdk sdk = PythonSdkUtil.findPythonSdk(file);
+    if (sdk == null) return false;
+    final VirtualFile skeletonsDir = PythonSdkUtil.findSkeletonsDir(sdk);
+    return skeletonsDir != null && VfsUtilCore.isAncestor(skeletonsDir, virtualFile, false);
   }
 
   /**

@@ -6,11 +6,16 @@ import com.intellij.codeInsight.multiverse.CodeInsightContextManager
 import com.intellij.codeInsight.multiverse.anyContext
 import com.intellij.codeInsight.multiverse.isSharedSourceSupportEnabled
 import com.intellij.codeInsight.navigation.shouldOpenAsNative
+import com.intellij.ide.ui.UISettings
 import com.intellij.ide.util.EditSourceUtil
 import com.intellij.openapi.editor.LazyRangeMarkerFactory
 import com.intellij.openapi.fileEditor.FileDocumentManager
+import com.intellij.openapi.fileEditor.FileEditorManager
+import com.intellij.openapi.fileEditor.impl.withProgressReport
+import com.intellij.openapi.fileTypes.BinaryFileTypeDecompilers
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.TextRange
+import com.intellij.openapi.util.registry.Registry
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.platform.backend.navigation.NavigationRequest
 import com.intellij.platform.backend.navigation.NavigationRequests
@@ -19,6 +24,8 @@ import com.intellij.pom.PomTargetPsiElement
 import com.intellij.psi.PsiDirectory
 import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiFile
+import com.intellij.psi.SmartPointerManager
+import com.intellij.psi.SmartPsiElementPointer
 import com.intellij.psi.util.PsiUtilCore
 import com.intellij.util.concurrency.ThreadingAssertions
 
@@ -28,6 +35,19 @@ internal class NavigationRequestsImpl : NavigationRequests {
   }
 
   override fun sharedSourceNavigationRequest(project: Project, file: VirtualFile, context: CodeInsightContext, offset: Int, elementRange: TextRange?): NavigationRequest? {
+    return createSourceRequest(project, file, context, offset, elementRange)
+  }
+
+  private fun createSourceRequest(
+    project: Project,
+    file: VirtualFile,
+    context: CodeInsightContext,
+    offset: Int,
+    elementRange: TextRange?,
+    lazyDecompilerElement: SmartPsiElementPointer<PsiElement>? = null,
+    useCurrentWindow: Boolean = false,
+    usePreviewTab: Boolean = false,
+  ): NavigationRequest? {
     ThreadingAssertions.assertReadAccess()
     ThreadingAssertions.assertBackgroundThread()
     if (!file.isValid) {
@@ -49,7 +69,18 @@ internal class NavigationRequestsImpl : NavigationRequests {
       null
     }
 
-    return SharedSourceNavigationRequest(file, context, offsetMarker, elementRangeMarker)
+    return SharedSourceNavigationRequest(
+      file = file,
+      context = context,
+      offsetMarker = offsetMarker,
+      elementRangeMarker = elementRangeMarker,
+      initialOffset = offset.takeIf { it >= 0 },
+      initialFileStamp = file.modificationStamp,
+      initialDocumentStamp = FileDocumentManager.getInstance().getCachedDocument(file)?.modificationStamp,
+      lazyDecompilerElement = lazyDecompilerElement,
+      useCurrentWindow = useCurrentWindow,
+      usePreviewTab = usePreviewTab,
+    )
   }
 
   override fun directoryNavigationRequest(directory: PsiDirectory): NavigationRequest? {
@@ -91,34 +122,47 @@ internal class NavigationRequestsImpl : NavigationRequests {
       }
       else -> {
         val project = element.project
-        if (isSharedSourceSupportEnabled(project)) {
-          val navigationFileViewProvider = navigationElement.containingFile?.viewProvider
-
-          val context = if (isSharedSourceSupportEnabled(project) && navigationFileViewProvider != null) {
-            val contextManager = CodeInsightContextManager.getInstance(navigationElement.project)
-            contextManager.getCodeInsightContext(navigationFileViewProvider)
-          }
-          else anyContext()
-
-          sharedSourceNavigationRequest(
+        val useCurrentWindow = FileEditorManager.USE_CURRENT_WINDOW.isIn(navigationElement)
+        val usePreviewTab = UISettings.getInstance().openInPreviewTabIfPossible && Registry.`is`("editor.preview.tab.navigation")
+        val deferDecompilerOffset = BinaryFileTypeDecompilers.getInstance().hasDecompiler(virtualFile) &&
+                                     FileDocumentManager.getInstance().getCachedDocument(virtualFile) == null &&
+                                     Registry.`is`("hyperlink.ide.decompiler.open.file")
+        if (deferDecompilerOffset) {
+          return createSourceRequest(
             project = project,
             file = virtualFile,
-            context = context,
-            // this triggers decompiler if [virtualFile] corresponds to a .class file,
-            // usually it is expected, because it should be run under progress bar
-            // see, for example, com.intellij.codeInsight.navigation.actions.IdeKt.navigateRequestLazy
-            offset = navigationElement.textOffset,
-            elementRange = navigationElement.textRange,
+            context = anyContext(),
+            offset = -1,
+            elementRange = null,
+            lazyDecompilerElement = SmartPointerManager.getInstance(project).createSmartPsiElementPointer(navigationElement),
+            useCurrentWindow = useCurrentWindow,
+            usePreviewTab = usePreviewTab,
           )
+        }
+        val (offset, elementRange) = withProgressReport {
+          navigationElement.textOffset to navigationElement.textRange
+        }
+        val context = if (isSharedSourceSupportEnabled(project)) {
+          val navigationFileViewProvider = navigationElement.containingFile?.viewProvider
+          if (navigationFileViewProvider != null) {
+            CodeInsightContextManager.getInstance(navigationElement.project).getCodeInsightContext(navigationFileViewProvider)
+          }
+          else {
+            anyContext()
+          }
         }
         else {
-          sourceNavigationRequest(
-            project = project,
-            file = virtualFile,
-            offset = navigationElement.textOffset, // this triggers decompiler if [virtualFile] corresponds to a .class file
-            elementRange = navigationElement.textRange,
-          )
+          anyContext()
         }
+        createSourceRequest(
+          project = project,
+          file = virtualFile,
+          context = context,
+          offset = offset,
+          elementRange = elementRange,
+          useCurrentWindow = useCurrentWindow,
+          usePreviewTab = usePreviewTab,
+        )
       }
     }
   }

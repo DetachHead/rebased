@@ -18,6 +18,7 @@ import com.intellij.platform.eel.EelArchiveApi
 import com.intellij.platform.eel.EelDescriptor
 import com.intellij.platform.eel.EelExecApi
 import com.intellij.platform.eel.EelExecApi.ExternalCliEntrypoint
+import com.intellij.platform.eel.EelHttpApi
 import com.intellij.platform.eel.EelOsFamily
 import com.intellij.platform.eel.EelPlatform
 import com.intellij.platform.eel.EelPosixProcess
@@ -25,12 +26,16 @@ import com.intellij.platform.eel.EelProcessManagementPosixApi
 import com.intellij.platform.eel.EelUserPosixInfo
 import com.intellij.platform.eel.ExecuteProcessException
 import com.intellij.platform.eel.LoginShellSpawner
+import com.intellij.platform.eel.SafeDeferred
 import com.intellij.platform.eel.channels.EelReceiveChannel
 import com.intellij.platform.eel.channels.EelSendChannel
 import com.intellij.platform.eel.path.EelPath
 import com.intellij.platform.ijent.IjentPosixApi
 import com.intellij.platform.ijent.IjentProcessInfo
+import com.intellij.platform.ijent.IjentSession
+import com.intellij.platform.ijent.IjentSessionState
 import com.intellij.platform.ijent.IjentTunnelsPosixApi
+import com.intellij.platform.ijent.ParentOfIjentScopes
 import com.intellij.platform.ijent.fs.IjentExecPosixApi
 import com.intellij.platform.ijent.fs.IjentFileSystemPosixApi
 import com.intellij.testFramework.junit5.TestApplication
@@ -44,6 +49,8 @@ import kotlinx.coroutines.CoroutineName
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.DelicateCoroutinesApi
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import org.assertj.core.api.Assertions.assertThat
 import org.assertj.core.api.Assertions.assertThatThrownBy
 import org.assertj.core.api.SoftAssertions.assertSoftly
@@ -499,12 +506,27 @@ class WSLDistributionTest {
       ApplicationManager.getApplication().replaceService(
         WslIjentManager::class.java,
         object : WslIjentManager {
+          private val ijentSessionState = MutableStateFlow<IjentSessionState>(IjentSessionState.NotDeployed)
+
           @DelicateCoroutinesApi
           override val processAdapterScope: CoroutineScope = scope
 
           override suspend fun getIjentApi(descriptor: EelDescriptor?, wslDistribution: WSLDistribution, project: Project?, rootUser: Boolean): IjentPosixApi {
             require(wslDistribution == mockWslDistribution) { "$wslDistribution != $mockWslDistribution" }
             return MockIjentApi(adapter, rootUser)
+          }
+
+          override fun getIjentSessionState(wslDistribution: WSLDistribution, rootUser: Boolean): StateFlow<IjentSessionState> {
+            return ijentSessionState
+          }
+
+          override suspend fun getIjentSession(
+            wslDistribution: WSLDistribution,
+            project: Project?,
+            rootUser: Boolean,
+            sessionScope: ParentOfIjentScopes,
+          ): IjentSession.Posix {
+            error("The mock does not expose its IJent session")
           }
 
           override val isIjentAvailable: Boolean = true
@@ -544,6 +566,8 @@ private class MockIjentApi(private val adapter: GeneralCommandLine, val rootUser
     }
 
   override val archive: EelArchiveApi get() = throw UnsupportedOperationException()
+
+  override val http: EelHttpApi get() = throw UnsupportedOperationException()
 
   override val isRunning: Boolean get() = true
 
@@ -589,7 +613,7 @@ private class MockIjentExecApi(private val adapter: GeneralCommandLine, private 
 
   override suspend fun fetchLoginShellEnvVariables(): Map<String, String> = mapOf("SHELL" to TEST_SHELL)
   override fun environmentVariables(opts: EelExecApi.EnvironmentVariablesOptions): EelExecApi.EnvironmentVariablesDeferred =
-    EelExecApi.EnvironmentVariablesDeferred(CompletableDeferred(mapOf("SHELL" to TEST_SHELL)))
+    EelExecApi.EnvironmentVariablesDeferred(SafeDeferred(CompletableDeferred(mapOf("SHELL" to TEST_SHELL))))
   override suspend fun getUserLoginShell(): EelPath = EelPath.parse("/bin/sh", descriptor)
   override suspend fun spawnLoginShell(opts: LoginShellSpawner.LoginShellOptions): LoginShellSpawner.LoginShellHandle = throw UnsupportedOperationException()
   override suspend fun findExeFilesInPath(binaryName: String): List<EelPath> = listOf(EelPath.parse("/bin/$binaryName", descriptor))

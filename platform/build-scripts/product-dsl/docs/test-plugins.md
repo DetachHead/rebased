@@ -96,11 +96,11 @@ The following modules mark a plugin as a test plugin when declared as content:
 ```kotlin
 testFrameworkContentModules = setOf(
   "intellij.libraries.junit4",
-  "intellij.libraries.junit5",
-  "intellij.libraries.junit5.jupiter",
-  "intellij.libraries.junit5.launcher",
-  "intellij.libraries.junit5.params",
-  "intellij.libraries.junit5.vintage",
+  "intellij.libraries.junit6",
+  "intellij.libraries.junit6.jupiter",
+  "intellij.libraries.junit6.launcher",
+  "intellij.libraries.junit6.params",
+  "intellij.libraries.junit6.vintage",
   "intellij.platform.testFramework",
   "intellij.platform.testFramework.common",
   "intellij.platform.testFramework.core",
@@ -167,8 +167,6 @@ When a test plugin's content modules have JPS module dependencies with descripto
 - **Resolvable** = available in the same product: module sets + bundled production plugin content + `additionalBundledPluginTargetNames` (target names; other test plugins excluded)
 - **Unresolvable** = not found anywhere
 
-For DSL test plugins, JPS dependency targets also support a test-descriptor fallback: if target `X` has no descriptor `X.xml` but has `X._test.xml`, auto-add treats the dependency as `X._test`.
-
 Only **unresolvable** modules are auto-added to the test plugin content.
 
 **Note:** Content modules that belong to a plugin are **not** auto-added when their owning plugin or another graph source is resolvable for the test plugin scope (the module is already available). If neither the owning plugin nor another graph source is resolvable, descriptor-backed modules are auto-added only when they have a single production owner and that owner embeds them; non-embedded or ambiguously owned plugin-owned modules still report an error and skip auto-add unless the plugin ID is listed in `allowedMissingPluginIds` (either on the test plugin or on the module that triggered the dependency). **Exception:** library wrapper modules (`intellij.libraries.*`) are always auto-added as module dependencies, even if owned by a plugin.
@@ -177,25 +175,24 @@ For dependencies declared directly on the DSL test plugin main target, `RUNTIME`
 
 ### Test-Only Content Modules Never Add a New `<plugin>` Dependency
 
-Content modules whose name ends with `.tests` are **test-only**: their JPS dependencies are test-runtime-only. When such
-a module is the *sole* reason a plugin would be pulled in, the generator drops that plugin from the generated test plugin
-descriptor instead of writing `<plugin id="..."/>` — otherwise a single test module drags in a whole plugin and duplicates
-its test roots (IJPL-241684). A `<plugin>` dependency already declared in the descriptor is always kept, and a plugin
-required by at least one non-`.tests` content module is written as usual.
+Content modules whose JPS module has a test source root or a test resource root are **test-only**: their JPS
+dependencies are test-runtime-only. When such a module is the *sole* reason a plugin would be pulled in, the generator
+drops that plugin from the generated test plugin descriptor instead of writing `<plugin id="..."/>` — otherwise a single
+test module drags in a whole plugin and duplicates its test roots (IJPL-241684). A `<plugin>` dependency already declared
+in the descriptor is always kept, and a plugin required by at least one content module with production roots is written
+as usual.
 
-This suffix check (`isTestOnlyContentModule` in `TestPluginDependencyPlanner`) is the only place where the `.tests`
-*name* matters. The same *policy* — never introduce a new `<plugin>` gate — also applies to a `*.tests.xml` module
-descriptor's own `<dependencies>`, but there it is keyed on the descriptor being generated with test scope (its location
-under a test source root), not on the name suffix — see
-[dependency_generation.md](dependency_generation.md#testsxml-is-not-_testxml).
+This check (`isTestOnlyContentModule` in `TestPluginDependencyPlanner`) reads the module roots through `isTestModule`;
+the module name plays no part. The same *policy* — never introduce a new `<plugin>` gate — also applies to a `*.tests.xml`
+module descriptor's own `<dependencies>`, but there it is keyed on the descriptor being generated with test scope (its
+location under a test source root) — see
+[dependency_generation.md](dependency_generation.md#testsxml-is-an-ordinary-descriptor).
 
 ### Source of Truth and Transitive Closure
 
-Auto-add uses **PluginGraph** as the single source of truth for module descriptors and resolvable modules, but reads JPS dependencies from the declared content modules. Project library dependencies are mapped to library modules via `ModuleSetGenerationConfig.projectLibraryToModuleMap` (built from JPS library modules, not the graph), so library modules don't need to be present in module sets to be discovered.
+Auto-add uses **PluginGraph** as the single source of truth for module descriptors and resolvable modules, but reads JPS dependencies from the declared content modules. A JPS library dependency adds nothing to the closure: a library reaches a module only through its wrapper module (`intellij.libraries.*`), which is a module dependency.
 
 - Walk **transitive** dependencies (A -> B -> C) for test plugin content.
-- For JPS **library** dependencies, map library name -> library module via `projectLibraryToModuleMap` and include those library modules in the closure.
-- For DSL test plugins, ignore `libraryModuleFilter`: the test plugin is a container for all required modules in dev mode, so needed library modules must be included even if products filter them elsewhere.
 - Auto-added modules are merged into the generated test plugin content (written under the `<!-- region additional -->` block), so a second generator run stays clean.
 
 ### Why Module Sets Don't Need Special Handling
@@ -247,8 +244,8 @@ See [dependency_generation.md](dependency_generation.md) for implementation deta
 
     <!-- region additional -->
     <module name="intellij.tools.testsBootstrap"/>
-    <module name="intellij.libraries.junit5"/>
-    <module name="intellij.libraries.junit5.jupiter"/>
+    <module name="intellij.libraries.junit6"/>
+    <module name="intellij.libraries.junit6.jupiter"/>
     <!-- endregion -->
   </content>
 </idea-plugin>

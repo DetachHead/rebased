@@ -8,8 +8,8 @@ import org.junit.jupiter.api.Test
  * [TerminalEmulator.write] copies its input into one fixed-size native buffer and streams anything longer
  * through it a chunk at a time.
  *
- * That buffer is deliberately never resized: the engine's memory comes from a shared `Arena` that frees
- * nothing before `close()`, so both allocating per write and growing on demand would strand native memory
+ * That buffer is deliberately never resized: the engine's memory comes from an `Arena` that frees
+ * nothing while the emulator lives, so both allocating per write and growing on demand would strand native memory
  * for the emulator's whole life. Chunking is safe because `ghostty_terminal_vt_write` drives a stream parser
  * that carries state across calls — but it does mean the split must be invisible, which is what these tests
  * pin down.

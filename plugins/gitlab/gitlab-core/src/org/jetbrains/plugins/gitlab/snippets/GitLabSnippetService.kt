@@ -1,7 +1,7 @@
 // Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.plugins.gitlab.snippets
 
-import com.intellij.collaboration.async.cancelAndJoinSilently
+import com.intellij.collaboration.async.cancelAndJoin
 import com.intellij.collaboration.async.childScope
 import com.intellij.collaboration.snippets.PathHandlingMode
 import com.intellij.collaboration.snippets.PathHandlingMode.Companion.getFileNameExtractor
@@ -11,7 +11,7 @@ import com.intellij.openapi.application.EDT
 import com.intellij.openapi.application.readAction
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
-import com.intellij.openapi.diagnostic.rethrowControlFlowException
+import com.intellij.diagnostic.rethrowControlFlowException
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.ide.CopyPasteManager
 import com.intellij.openapi.project.Project
@@ -291,7 +291,7 @@ internal class GitLabSnippetService(private val project: Project, private val se
       }
 
       val result = vm.toResult()
-      vmCs.cancelAndJoinSilently()
+      vmCs.cancelAndJoin()
 
       result
     }

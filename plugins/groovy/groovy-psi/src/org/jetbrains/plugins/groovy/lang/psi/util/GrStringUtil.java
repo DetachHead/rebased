@@ -1,4 +1,4 @@
-// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.plugins.groovy.lang.psi.util;
 
 import com.intellij.lang.ASTNode;
@@ -170,7 +170,10 @@ public final class GrStringUtil {
     final int length = str.length();
     for (int idx = 0; idx < length; idx++) {
       char ch = str.charAt(idx);
-      if (ch == '/') {
+      if (ch == '\\' && idx == length - 1) {
+        buffer.append("${'\\\\'}");
+      }
+      else if (ch == '/') {
         buffer.append("\\/");
       }
       else if (Character.isISOControl(ch) && ch != '\n' || ch == '$') {
@@ -577,6 +580,15 @@ public final class GrStringUtil {
     if (text.endsWith(SLASH)) return SLASH;
     if (text.endsWith(SLASH_DOLLAR)) return SLASH_DOLLAR;
     return "";
+  }
+
+  public static boolean endsWithUnescaped(CharSequence cs, char c) {
+    if (cs.isEmpty() || cs.charAt(cs.length() - 1) != c) return false;
+    boolean escaped = false;
+    for (int i = cs.length() - 2; i >= 0; i--) {
+      if (cs.charAt(i) == '\\') escaped = !escaped;
+    }
+    return !escaped;
   }
 
   @Contract("null -> null")

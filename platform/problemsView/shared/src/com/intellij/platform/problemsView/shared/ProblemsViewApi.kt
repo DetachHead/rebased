@@ -2,6 +2,7 @@
 package com.intellij.platform.problemsView.shared
 
 import com.intellij.analysis.problemsView.toolWindow.splitApi.ProblemEventDto
+import com.intellij.analysis.problemsView.toolWindow.splitApi.actions.QuickFixModelDto
 import com.intellij.ide.vfs.VirtualFileId
 import com.intellij.platform.project.ProjectId
 import com.intellij.platform.rpc.RemoteApiProviderService
@@ -15,9 +16,15 @@ import org.jetbrains.annotations.ApiStatus
 @Rpc
 interface ProblemsViewApi : RemoteApi<Unit> {
 
-  suspend fun getFileProblemsFlow(projectId: ProjectId, fileId: VirtualFileId) : Flow<List<ProblemEventDto>>
+  suspend fun loadQuickFixes(
+    projectId: ProjectId,
+    fileId: VirtualFileId,
+    highlighterId: Long,
+  ): QuickFixModelDto?
 
-  suspend fun executeQuickFix(projectId: ProjectId, fileId: VirtualFileId, problemId: String, intentionId: String)
+  suspend fun discardQuickFixModel(projectId: ProjectId, quickFixModelId: String)
+
+  suspend fun executeQuickFix(projectId: ProjectId, quickFixModelId: String, intentionId: String)
 
   suspend fun getProjectErrorsFlow(projectId: ProjectId): Flow<List<ProblemEventDto>>
 

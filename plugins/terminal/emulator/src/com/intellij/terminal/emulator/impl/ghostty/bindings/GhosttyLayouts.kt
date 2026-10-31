@@ -43,6 +43,12 @@ internal object GhosttyLayouts {
     C_INT.withName("y"))
   const val POINT_COORD_OFF_Y = 4L
 
+  /** `GhosttyString`: `const uint8_t* ptr; size_t len;` (16 bytes, align 8). */
+  val STRING: MemoryLayout = MemoryLayout.structLayout(
+    C_PTR.withName("ptr"),
+    C_LONG.withName("len"))
+  const val STRING_OFF_LEN = 8L
+
   /** `GhosttyGridRef`: `size_t size; void* node; uint16 x; uint16 y;` (24 bytes, align 8). */
   val GRID_REF: MemoryLayout = MemoryLayout.structLayout(
     C_LONG.withName("size"),
@@ -59,6 +65,12 @@ internal object GhosttyLayouts {
 
   /** Smallest `GhosttyTerminalProgressReport.size` that still covers every field the bridge reads. */
   const val PROGRESS_REPORT_MIN_SIZE = PROGRESS_REPORT_OFF_PROGRESS + 1L
+
+  /**
+   * `GhosttyTerminalModeConfig` (terminal.h, frozen layout, 4 bytes, align 2): `GhosttyMode mode; bool value;`.
+   * Used both ways: `mode` is set before `ghostty_terminal_get`/`ghostty_terminal_set` and `value` is read back (get) or set (set).
+   */
+  const val MODE_CONFIG_OFF_VALUE = 2L
 
   /** `GhosttyMousePosition` (mouse/event.h): `struct { float x; float y; }`, passed by value. */
   val MOUSE_POSITION: MemoryLayout = MemoryLayout.structLayout(

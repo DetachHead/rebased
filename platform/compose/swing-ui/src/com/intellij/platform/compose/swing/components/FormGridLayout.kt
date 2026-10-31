@@ -15,17 +15,23 @@ import com.intellij.ui.dsl.builder.impl.GridFormRow
 import com.intellij.ui.dsl.builder.impl.buildGridForm
 import com.intellij.ui.dsl.builder.impl.checkJComponent
 import com.intellij.ui.dsl.builder.impl.errorInInternalOrLogWarn
+import com.intellij.ui.dsl.builder.impl.labelComponent
 import com.intellij.ui.dsl.gridLayout.Constraints
 import com.intellij.ui.dsl.gridLayout.GridLayout
 import com.intellij.ui.dsl.gridLayout.HorizontalAlign
 import com.intellij.ui.dsl.gridLayout.UnscaledGapsY
 import com.intellij.ui.dsl.gridLayout.VerticalAlign
 import com.intellij.ui.dsl.gridLayout.builders.RowsGridBuilder
+import org.jetbrains.annotations.Nls
+import org.jetbrains.compose.swing.layout.MeasurementLayoutManager
+import org.jetbrains.compose.swing.layout.ParentLayoutElement
 import java.awt.Component
 import java.awt.Container
 import java.awt.Dimension
 import java.util.IdentityHashMap
 import javax.swing.JComponent
+import javax.swing.JLabel
+import javax.swing.text.BadLocationException
 
 /**
  * The layout of a [FormPanel]: a platform grid worked out from what the panel's children say they are.
@@ -43,10 +49,10 @@ import javax.swing.JComponent
  * The components are untouched by a rebuild - they are never taken out of the panel and never recreated - so
  * what they hold, and the focus and the selection in them, survives a row appearing or disappearing above.
  */
-internal class FormGridLayout : GridLayout() {
+internal class FormGridLayout : GridLayout(), MeasurementLayoutManager {
 
   /** What each component was added with, and whether the grid has yet to be built from them. */
-  private val marks = IdentityHashMap<JComponent, Any?>()
+  private val marks = IdentityHashMap<JComponent, FormChildMarks>()
   private var gridOutOfDate = false
 
   override fun addLayoutComponent(comp: Component?, constraints: Any?) {
@@ -54,10 +60,22 @@ internal class FormGridLayout : GridLayout() {
     // two apart is the constraints themselves rather than who is adding the component.
     if (constraints is Constraints) {
       super.addLayoutComponent(comp, constraints)
-      return
     }
+  }
 
-    marks[checkJComponent(comp)] = constraints
+  override fun declareComponentLayout(component: Component, parentData: Any?, elements: List<ParentLayoutElement>) {
+    val mark = parentData as? FormMark
+    val row = elements.firstNotNullOfOrNull { (it as? FormRowElement)?.row }
+      ?: when (mark) {
+        is FormRowMark -> mark
+        is FormCommentMark -> mark.row
+        else -> null
+      }
+    // Updated in place: the entry lives as long as its component, as a CellImpl lives as long as its cell.
+    marks.getOrPut(checkJComponent(component)) { FormChildMarks() }.also {
+      it.row = row
+      it.mark = mark
+    }
     gridOutOfDate = true
   }
 
@@ -132,6 +150,8 @@ internal class FormGridLayout : GridLayout() {
    */
   private fun toRow(row: FormRowContent, spacing: SpacingConfiguration): GridFormRow {
     val comment = row.comment
+    // As `cell(c).comment(...)` does, the comment describes the control it stands under.
+    row.cells.firstOrNull()?.component?.let { marks.getValue(it).updateAccessibleContextDescription(it, comment) }
     val controls = row.cells.mapIndexed { index, cell ->
       GridFormComponentCell(
         component = cell.component,
@@ -152,6 +172,10 @@ internal class FormGridLayout : GridLayout() {
         bottomGap = row.bottomGap?.toBottomGap(),
       )
 
+    // As `row("Label:") { }` does, the label is given to the first control, when that control can take it.
+    // The label outlives a rebuild, and the control it was given to may be gone.
+    label.labelFor = null
+    row.cells.firstOrNull()?.let { labelComponent(label, it.component) }
     // A row that holds nothing but a label still has somewhere to put its comment.
     val labelCell = GridFormComponentCell(component = label, comment = if (controls.isEmpty()) comment else null)
     return GridFormRow(
@@ -221,10 +245,9 @@ internal class FormGridLayout : GridLayout() {
   /**
    * Reads the form's declared structure off the children of [parent], in the order they were composed in.
    *
-   * A component the form itself emitted carries a [FormMark] saying what it is: [FormRowMark] opens a row -
-   * as its label, or as a boundary standing in for a row that has none - [FormCommentMark] is that row's
-   * comment, and [FormRowEndMark] closes it. Everything between the two boundaries is a control of that row,
-   * taking a column of it and asking of its cell whatever [FormCellMark] says.
+   * Every component of a form knows its row: the row's label and comment from the [FormMark] the form gives
+   * them, and a control from the [FormRowElement] its row provides to it. A row's components stand together,
+   * so the rows come out in the order their first components do.
    *
    * A component standing outside every row belongs nowhere, and is reported rather than shown in a place it
    * was not declared in.
@@ -232,38 +255,27 @@ internal class FormGridLayout : GridLayout() {
   private fun readItems(parent: Container): List<FormItem> {
     val root = mutableListOf<FormItem>()
     val groups = IdentityHashMap<FormGroupToken, FormGroupContent>()
-    var open: FormRowContent? = null
+    val rows = IdentityHashMap<FormRowToken, FormRowContent>()
 
     for (component in parent.components) {
       val child = component as? JComponent
-      if (child == null) {
+      val childMarks = child?.let { marks[it] }
+      val rowMark = childMarks?.row
+      if (child == null || childMarks == null || rowMark == null) {
         reportOrphan(component)
         continue
       }
-
-      val mark = marks[child]
-      if (mark is FormRowMark) {
-        val row = FormRowContent(mark.indent, mark.resizable, mark.topGap, mark.bottomGap)
-        if (mark.labeled) row.label = child
-        itemsOf(mark.group, root, groups) += row
-        open = row
-        continue
+      val row = rows.getOrPut(rowMark.token) {
+        FormRowContent(rowMark.indent, rowMark.resizable, rowMark.topGap, rowMark.bottomGap)
+          .also { itemsOf(rowMark.group, root, groups) += it }
       }
-      if (mark == FormRowEndMark) {
-        open = null
-        continue
-      }
-
-      val row = open
-      if (row == null) {
-        reportOrphan(child)
-        continue
-      }
-      when (mark) {
+      when (val mark = childMarks.mark) {
+        // The only label a form makes is the one FormRow asks for, and that is a JLabel.
+        is FormRowMark -> row.label = child as JLabel
         // The only comment a form makes is the one FormRow asks for, and that is a DslLabel.
-        FormCommentMark -> row.comment = child as DslLabel
+        is FormCommentMark -> row.comment = child as DslLabel
         is FormCellMark -> row.cells += FormCellContent(child, mark.fillWidth, mark.smallGapAfter)
-        else -> row.cells += FormCellContent(child, fill = false, smallGapAfter = false)
+        null -> row.cells += FormCellContent(child, fill = false, smallGapAfter = false)
       }
     }
 
@@ -300,6 +312,49 @@ internal class FormGridLayout : GridLayout() {
   }
 }
 
+/**
+ * Extract text without html tags
+ */
+// Copied from com.intellij.ui.dsl.builder.impl.CellImpl.getPlainText.
+@Suppress("HardCodedStringLiteral")
+private fun DslLabel.getPlainText(): @Nls String? {
+  val document = document ?: return null
+  try {
+    val result = document.getText(0, document.length) ?: return null
+    return result.trim().takeIf { it.isNotEmpty() }
+  }
+  catch (_: BadLocationException) {
+    return null
+  }
+}
+
+/** The row a component stands in, if any, and its own mark. */
+private class FormChildMarks {
+  var row: FormRowMark? = null
+  var mark: FormMark? = null
+
+  private var lastAutoCalculatedAccessibleDescription: @Nls String? = null
+
+  /**
+   * Gives [component] the text of [comment] as its accessible description, by `CellImpl`'s rule: a description
+   * set from another place is kept.
+   */
+  // Matches com.intellij.ui.dsl.builder.impl.CellImpl.updateAccessibleContextDescription.
+  fun updateAccessibleContextDescription(component: JComponent, comment: DslLabel?) {
+    val accessibleContext = component.accessibleContext ?: return
+    val currentDescription = accessibleContext.accessibleDescription
+
+    if (currentDescription != null && currentDescription != lastAutoCalculatedAccessibleDescription) {
+      // Description is set from another place, don't change it
+      return
+    }
+
+    lastAutoCalculatedAccessibleDescription = comment?.getPlainText()
+
+    accessibleContext.accessibleDescription = lastAutoCalculatedAccessibleDescription
+  }
+}
+
 /** One item of a form or of a group: a row, or a group taking a row of its own. */
 internal sealed interface FormItem
 
@@ -309,7 +364,7 @@ internal class FormRowContent(
   val topGap: FormGap?,
   val bottomGap: FormGap?,
 ) : FormItem {
-  var label: JComponent? = null
+  var label: JLabel? = null
   var comment: DslLabel? = null
   val cells: MutableList<FormCellContent> = mutableListOf()
 }

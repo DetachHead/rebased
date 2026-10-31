@@ -4,7 +4,7 @@
 package com.intellij.terminal.backend.rpc
 
 import com.intellij.openapi.diagnostic.logger
-import com.intellij.openapi.diagnostic.rethrowControlFlowException
+import com.intellij.diagnostic.rethrowControlFlowException
 import com.intellij.openapi.diagnostic.thisLogger
 import com.intellij.openapi.project.Project
 import com.intellij.platform.eel.EelDescriptor
@@ -69,8 +69,8 @@ internal class TerminalExecOptionsCustomizationRemoteApiImpl : TerminalExecOptio
  * Must be called on a background thread without a read action: the customizers may perform blocking operations
  * (see [ShellExecOptionsCustomizer.customizeExecOptions]).
  */
-@RequiresReadLockAbsence
-@RequiresBackgroundThread
+@RequiresReadLockAbsence(generateAssertion = false /* IJPL-115548 */)
+@RequiresBackgroundThread(generateAssertion = false /* IJPL-115548 */)
 private fun customizeShellExecOptions(
   project: Project,
   originalShellCommand: List<String>,

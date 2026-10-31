@@ -15,6 +15,7 @@
   </dependencies>
 
   <module value="com.intellij.modules.java"/>
+  <module value="com.intellij.modules.jsp.base"/>
 
   <content namespace="jetbrains">
     <module name="intellij.java.syntax" loading="embedded"/>
@@ -34,6 +35,7 @@
     <module name="intellij.java.execution" required-if-available="intellij.platform.backend"/>
     <module name="intellij.java.remoteServers" loading="optional"/>
     <module name="intellij.jvm.analysis" required-if-available="intellij.platform.backend"/>
+    <module name="intellij.jsp.base"/>
     <module name="intellij.jsp" required-if-available="intellij.platform.backend"/>
     <module name="intellij.java.debugger" required-if-available="intellij.platform.backend"/>
     <module name="intellij.java.codeserver.core" required-if-available="intellij.platform.backend"/>
@@ -48,9 +50,10 @@
     <module name="intellij.java.impl" required-if-available="intellij.platform.backend"/>
     <module name="intellij.java.xml.dom.impl"/>
     <module name="intellij.java.bookmarks" loading="optional"/>
+    <module name="intellij.java.todo" loading="optional"/>
     <module name="intellij.java.impl.refactorings" required-if-available="intellij.platform.backend"/>
     <module name="intellij.java.compiler.impl" required-if-available="intellij.platform.backend"/>
-    <module name="intellij.java.typeMigration" required-if-available="intellij.platform.backend"/>
+    <module name="intellij.java.typeMigration" loading="optional"/>
     <module name="intellij.java.impl.inspections" required-if-available="intellij.platform.backend"/>
     <module name="intellij.jvm.analysis.refactoring" required-if-available="intellij.platform.backend"/>
     <module name="intellij.jvm.analysis.quickFix" required-if-available="intellij.platform.backend"/>
@@ -96,6 +99,7 @@
     <module name="intellij.java.debugger.impl.backend"/>
     <module name="intellij.java.execution.impl.frontend"/>
     <module name="intellij.java.execution.impl.backend"/>
+    <module name="intellij.java.execution.impl.dashboard"/>
     <module name="intellij.java.ultimate.icons" loading="optional"/>
     <module name="intellij.java.langInjection"/>
     <module name="intellij.java.langInjection.jps"/>

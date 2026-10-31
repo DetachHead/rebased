@@ -2,22 +2,27 @@
 package com.intellij.platform.todo.backend.rpc
 
 import com.intellij.ide.todo.TodoConfiguration
+import com.intellij.ide.todo.TodoConfigurationPropertyChangeListener
 import com.intellij.ide.todo.TodoFilter
 import com.intellij.ide.todo.model.TodoScope
+import com.intellij.ide.todo.model.toSearchScope
 import com.intellij.ide.todo.rpc.TodoEvent
 import com.intellij.ide.todo.rpc.TodoFilesWatchRequest
 import com.intellij.ide.todo.rpc.TodoRemoteApi
-import com.intellij.ide.todo.model.toSearchScope
 import com.intellij.ide.todo.rpc.toTodoFilter
+import com.intellij.ide.vfs.VirtualFileId
 import com.intellij.ide.vfs.rpcId
 import com.intellij.ide.vfs.virtualFile
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.readAction
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.diagnostic.logger
+import com.intellij.openapi.progress.ProgressManager
 import com.intellij.openapi.progress.blockingContextToIndicator
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Disposer
+import com.intellij.openapi.vcs.FileStatusListener
+import com.intellij.openapi.vcs.FileStatusManager
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.platform.project.ProjectId
 import com.intellij.platform.project.findProjectOrNull
@@ -35,7 +40,6 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.buffer
 import kotlinx.coroutines.flow.channelFlow
 import kotlinx.coroutines.launch
-import java.beans.PropertyChangeListener
 
 private val LOG: Logger = logger<TodoRemoteApiImpl>()
 
@@ -47,7 +51,7 @@ internal class TodoRemoteApiImpl : TodoRemoteApi {
   ): Flow<TodoEvent> = channelFlow {
     val project = projectId.findProjectOrNull() ?: return@channelFlow
     val filter = request.filter?.toTodoFilter()
-    val searchScope = request.scope.toSearchScope(project)
+    val searchScope = readAction { request.scope.toSearchScope(project) }
 
     val flowDisposable = this@channelFlow.asDisposable()
     var scanDisposable: Disposable? = null
@@ -59,31 +63,36 @@ internal class TodoRemoteApiImpl : TodoRemoteApi {
       initialScanJob?.cancel()
       scanDisposable?.let(Disposer::dispose)
 
-      val currentScanDisposable = Disposer.newDisposable(flowDisposable);
+      val currentScanDisposable = Disposer.newDisposable(flowDisposable)
       scanDisposable = currentScanDisposable
 
       initialScanJob = launch {
         readAction {
           blockingContextToIndicator {
-            buildInitialScanEvents(project, request.scope, searchScope, filter)
+            sendInitialScanEvents(project, request.scope, searchScope, filter)
           }
           PsiManager.getInstance(project).addPsiTreeChangeListener(
-            TodoBackendPsiListener { file -> if (searchScope?.contains(file) != false) fileChangesQueue.trySend(file) },
+            TodoBackendPsiListener(::scheduleInitialScan) { file -> fileChangesQueue.trySend(file) },
             currentScanDisposable
           )
         }
       }
     }
 
+    FileStatusManager.getInstance(project).addFileStatusListener(object : FileStatusListener {
+      override fun fileStatusesChanged() = scheduleInitialScan()
+      override fun fileStatusChanged(virtualFile: VirtualFile) { fileChangesQueue.trySend(virtualFile) }
+    }, flowDisposable)
+
     launch {
       for (file in fileChangesQueue) {
-        scheduleFileChanges(project, file, filter)
+        scheduleFileChanges(project, file, searchScope, filter)
       }
     }
 
     project.messageBus.connect(flowDisposable).subscribe(
-      TodoConfiguration.PROPERTY_CHANGE,
-      PropertyChangeListener { event ->
+      TodoConfigurationPropertyChangeListener.TOPIC,
+      TodoConfigurationPropertyChangeListener { event ->
         if (event.propertyName == TodoConfiguration.PROP_TODO_PATTERNS ||
             event.propertyName == TodoConfiguration.PROP_TODO_FILTERS ||
             event.propertyName == TodoConfiguration.PROP_MULTILINE) {
@@ -97,25 +106,26 @@ internal class TodoRemoteApiImpl : TodoRemoteApi {
     awaitCancellation()
   }.buffer(Channel.UNLIMITED)
 
-  private fun ProducerScope<TodoEvent>.buildInitialScanEvents(project: Project, scope: TodoScope, searchScope: SearchScope?, filter: TodoFilter?) {
+  private fun ProducerScope<TodoEvent>.sendInitialScanEvents(
+    project: Project,
+    scope: TodoScope,
+    searchScope: SearchScope?,
+    filter: TodoFilter?,
+  ) {
+    ProgressManager.checkCanceled()
     val psiManager = PsiManager.getInstance(project)
     trySend(TodoEvent.AllItemsRemoved)
     when (scope) {
-      is TodoScope.CurrentFile -> {
-        val virtualFile = scope.fileId.virtualFile()
-        if (virtualFile != null && virtualFile.isValid) {
-          val psiFile = psiManager.findFile(virtualFile)
-          if (psiFile != null) {
-            val result = buildTodoFileResult(project, psiFile, virtualFile, filter)
-            if (result != null) trySend(TodoEvent.ItemUpserted(result))
-          }
-        }
-      }
+      is TodoScope.CurrentFile -> sendTodoFileResult(project, psiManager, scope.fileId, filter)
+      is TodoScope.ChangeList -> scope.fileIds.forEach { sendTodoFileResult(project, psiManager, it, filter) }
       is TodoScope.Project -> {
         PsiTodoSearchHelper.getInstance(project).processFilesWithTodoItems { psiFile ->
+          ProgressManager.checkCanceled()
           val virtualFile = psiFile.virtualFile ?: return@processFilesWithTodoItems true
           val result = buildTodoFileResult(project, psiFile, virtualFile, filter)
-          if (result != null) trySend(TodoEvent.ItemUpserted(result))
+          if (result != null) {
+            trySend(TodoEvent.FileUpserted(result))
+          }
           true
         }
       }
@@ -125,10 +135,13 @@ internal class TodoRemoteApiImpl : TodoRemoteApi {
           return
         }
         PsiTodoSearchHelper.getInstance(project).processFilesWithTodoItems { psiFile ->
+          ProgressManager.checkCanceled()
           val virtualFile = psiFile.virtualFile ?: return@processFilesWithTodoItems true
           if (!searchScope.contains(virtualFile)) return@processFilesWithTodoItems true
           val result = buildTodoFileResult(project, psiFile, virtualFile, filter)
-          if (result != null) trySend(TodoEvent.ItemUpserted(result))
+          if (result != null) {
+            trySend(TodoEvent.FileUpserted(result))
+          }
           true
         }
       }
@@ -136,24 +149,48 @@ internal class TodoRemoteApiImpl : TodoRemoteApi {
     trySend(TodoEvent.ScanFinished)
   }
 
-  private suspend fun ProducerScope<TodoEvent>.scheduleFileChanges(project: Project, file: VirtualFile, filter: TodoFilter?) {
+  private fun ProducerScope<TodoEvent>.sendTodoFileResult(
+    project: Project,
+    psiManager: PsiManager,
+    fileId: VirtualFileId,
+    filter: TodoFilter?,
+  ) {
+    ProgressManager.checkCanceled()
+    val virtualFile = fileId.virtualFile() ?: return
+    if (!virtualFile.isValid) return
+    val psiFile = psiManager.findFile(virtualFile) ?: return
+    val result = buildTodoFileResult(project, psiFile, virtualFile, filter) ?: return
+    trySend(TodoEvent.FileUpserted(result))
+  }
+
+  private suspend fun ProducerScope<TodoEvent>.scheduleFileChanges(
+    project: Project,
+    file: VirtualFile,
+    searchScope: SearchScope?,
+    filter: TodoFilter?,
+  ) {
     readAction {
       val psiManager = PsiManager.getInstance(project)
       val helper = PsiTodoSearchHelper.getInstance(project)
 
-      if (!file.isValid) {
-        trySend(TodoEvent.ItemRemoved(file.rpcId()))
+      if (!file.isValid || searchScope?.contains(file) == false) {
+        trySend(TodoEvent.FileRemoved(file.rpcId()))
         return@readAction
       }
 
       val psiFile = psiManager.findFile(file)
       if (psiFile == null || helper.getTodoItemsCount(psiFile) == 0) {
-        trySend(TodoEvent.ItemRemoved(file.rpcId()))
+        trySend(TodoEvent.FileRemoved(file.rpcId()))
         return@readAction
       }
+      ProgressManager.checkCanceled()
       val result = buildTodoFileResult(project, psiFile, file, filter)
-      if (result != null) trySend(TodoEvent.ItemUpserted(result))
-      else trySend(TodoEvent.ItemRemoved(file.rpcId()))
+      if (result != null) {
+        trySend(TodoEvent.FileUpserted(result))
+      }
+      else {
+        trySend(TodoEvent.FileRemoved(file.rpcId()))
+      }
     }
   }
 }

@@ -1,5 +1,30 @@
-load("@community//platform/build-scripts/bazel-rules:dev_dist_plugin.bzl", "dev_dist_plugin")
+load("@community//platform/build-scripts/bazel-rules:ij_plugin.bzl", "ij_plugin")
+load("@jps_dynamic_deps_community//:targets.bzl", "dev_dist_plugin")
 load("@rules_jvm//:jvm.bzl", "jvm_library")
+
+### auto-generated section `dev intellij.platform.problemView.plugin` start
+dev_dist_plugin(
+    content_modules = [
+        # do not sort,
+        "intellij.platform.problemView.core",
+        "intellij.platform.problemView.collector",
+        "intellij.platform.problemView.shared",
+        "intellij.platform.problemView.ui",
+        "intellij.platform.problemView.backend",
+        "intellij.platform.problemView.frontend",
+        "intellij.platform.problemView.security",
+        "intellij.platform.problemView.security.frontend",
+    ],
+    descriptor = "resources/META-INF/plugin.xml",
+    jars = {
+        "lib/platform-problemView-plugin.jar": ["intellij.platform.problemView.plugin"],
+    },
+    main_module = "intellij.platform.problemView.plugin",
+    mode_refused_content_modules = {
+        "frontend": ["intellij.platform.problemView.backend"],
+    },
+)
+### auto-generated section `dev intellij.platform.problemView.plugin` end
 
 ### auto-generated section `build intellij.platform.problemView.plugin` start
 jvm_library(
@@ -27,6 +52,23 @@ jvm_library(
     visibility = ["//visibility:public"],
     runtime_deps = [":plugin"],
 )
+
+ij_plugin(
+    name = "plugin_plugin",
+    descriptor_module = ":plugin",
+    content_modules = [
+        # do not sort,
+        "//platform/problemsView/core",
+        "//platform/problemsView/collector",
+        "//platform/problemsView/shared",
+        "//platform/problemsView/ui",
+        "//platform/problemsView/backend",
+        "//platform/problemsView/frontend",
+        "//platform/problemsView/security",
+        "//platform/problemsView/security/frontend",
+    ],
+    visibility = ["//visibility:public"],
+)
 ### auto-generated section `build intellij.platform.problemView.plugin` end
 
 ### auto-generated section `iml intellij.platform.problemView.plugin` start
@@ -38,29 +80,3 @@ exports_files(
     visibility = ["//visibility:public"],
 )
 ### auto-generated section `iml intellij.platform.problemView.plugin` end
-
-### auto-generated section `dev intellij.platform.problemView.plugin` start
-dev_dist_plugin(
-    content_modules = [
-        "//platform/problemsView/collector",
-        "//platform/problemsView/core",
-        "//platform/problemsView/ui",
-    ],
-    descriptor = "resources/META-INF/plugin.xml",
-    descriptor_module = ":plugin",
-    descriptors = {
-        "@community//platform/problemsView/backend:resources/intellij.platform.problemView.backend.xml": "intellij.platform.problemView.backend.xml",
-        "@community//platform/problemsView/collector:resources/intellij.platform.problemView.collector.xml": "intellij.platform.problemView.collector.xml",
-        "@community//platform/problemsView/core:resources/intellij.platform.problemView.core.xml": "intellij.platform.problemView.core.xml",
-        "@community//platform/problemsView/frontend:resources/intellij.platform.problemView.frontend.xml": "intellij.platform.problemView.frontend.xml",
-        "@community//platform/problemsView/shared:resources/intellij.platform.problemView.shared.xml": "intellij.platform.problemView.shared.xml",
-        "@community//platform/problemsView/ui:resources/intellij.platform.problemView.ui.xml": "intellij.platform.problemView.ui.xml",
-    },
-    main_module = "intellij.platform.problemView.plugin",
-    prepacked_content_modules = [
-        "//platform/problemsView/backend:backend_content_module_jar",
-        "//platform/problemsView/frontend:frontend_content_module_jar",
-        "//platform/problemsView/shared:shared_content_module_jar",
-    ],
-)
-### auto-generated section `dev intellij.platform.problemView.plugin` end

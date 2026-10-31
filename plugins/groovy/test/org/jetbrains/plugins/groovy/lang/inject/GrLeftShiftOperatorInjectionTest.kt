@@ -17,8 +17,8 @@ class GrLeftShiftOperatorInjectionTest : LightGroovyTestCase() {
 
   private lateinit var injectionTestFixture: InjectionTestFixture
 
-  override fun getBasePath(): String {
-    return "${TestUtils.getTestDataPath()}/groovy/inject/"
+  override fun getTestDataPath(): String {
+    return "${TestUtils.getAbsoluteTestDataPath()}/groovy/inject/"
   }
 
   fun testMethodCallWithLiteral() = doTest()

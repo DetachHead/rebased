@@ -291,6 +291,8 @@
 
     "toggle-on-bg": "accent-brand-bg",
     "toggle-off-bg": "transparent-black-40",
+    "toggle-off-border": "transparent",
+    "toggle-on-border": "accent-brand-bg",
     "toggle-on-disabled-bg": "control-bg-disabled",
     "toggle-off-disabled-bg": "control-bg-disabled",
     "toggle-on-disabled-border": "control-border-disabled",
@@ -476,6 +478,10 @@
       "successBorderColor": "feedback-success-border",
       "infoBackground": "feedback-brand-bg",
       "infoBorderColor": "feedback-brand-border",
+      "infoMutedBackground": "blue-160",
+      "infoMutedBorderColor": "blue-140",
+      "neutralMutedBackground": "gray-160",
+      "neutralMutedBorderColor": "gray-150",
       "aiBackground": "feedback-ai-bg",
       "aiBorderColor": "feedback-ai-border",
       "arc": 12,
@@ -1115,20 +1121,6 @@
       "warningForeground": "text-default"
     },
 
-    "ToggleButton": {
-      "onBackground": "toggle-on-bg",
-      "offBackground": "toggle-off-bg",
-      "onDisabledBackground": "toggle-on-disabled-bg",
-      "onDisabledBorderColor": "toggle-on-disabled-border",
-      "offDisabledBackground": "toggle-off-disabled-bg",
-      "offDisabledBorderColor": "toggle-off-disabled-border",
-      "focusBorderColor": "toggle-focus-border",
-      "onNotchColor": "toggle-on-notch",
-      "offNotchColor": "toggle-off-notch",
-      "onDisabledNotchColor": "toggle-on-disabled-notch",
-      "offDisabledNotchColor": "toggle-off-disabled-notch"
-    },
-
     "ToolWindow": {
       "background": "tool-window-bg",
       "borderColor": "transparent",
@@ -1160,7 +1152,8 @@
         }
       },
       "DragAndDrop": {
-        "areaBackground": "#A0BDF84D"
+        "areaBackground": "#A0BDF84D",
+        "hintBackground": "#A0BDF81A"
       }
     },
 
@@ -1206,7 +1199,6 @@
     "Window.undecorated.border" : "1,1,1,1,#5A5D6B",
 
     "OnePixelDivider.background": "dialog-border",
-    "OnOffButtonUI": "com.intellij.ide.ui.laf.darcula.ui.IslandsOnOffButtonUI",
 
     "TitlePane": {
       "background": "dialog-bg",

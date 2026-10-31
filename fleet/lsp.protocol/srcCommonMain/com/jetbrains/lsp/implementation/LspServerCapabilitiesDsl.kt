@@ -71,6 +71,7 @@ import com.jetbrains.lsp.protocol.InlayHints
 import com.jetbrains.lsp.protocol.InlineValueOptions
 import com.jetbrains.lsp.protocol.LinkedEditingRangeOptions
 import com.jetbrains.lsp.protocol.Location
+import com.jetbrains.lsp.protocol.LocationOrLink
 import com.jetbrains.lsp.protocol.Locations
 import com.jetbrains.lsp.protocol.MonikerOptions
 import com.jetbrains.lsp.protocol.NotebookDocumentSyncOptions
@@ -98,6 +99,9 @@ import com.jetbrains.lsp.protocol.SignatureHelp
 import com.jetbrains.lsp.protocol.SignatureHelpParams
 import com.jetbrains.lsp.protocol.SignatureHelpRegistrationOptions
 import com.jetbrains.lsp.protocol.SignatureHelpRequest
+import com.jetbrains.lsp.protocol.TextDocumentContentOptions
+import com.jetbrains.lsp.protocol.TextDocumentContentParams
+import com.jetbrains.lsp.protocol.TextDocumentContentResult
 import com.jetbrains.lsp.protocol.TextDocumentSync
 import com.jetbrains.lsp.protocol.TextEdit
 import com.jetbrains.lsp.protocol.TypeDefinitionParams
@@ -178,7 +182,7 @@ fun LspServerCapabilitiesBuilder.declarationProvider(
 
 fun LspServerCapabilitiesBuilder.definitionProvider(
     value: OrBoolean<DefinitionRegistrationOptions> = OrBoolean(true),
-    handler: suspend context(LspHandlerContext) CoroutineScope.(DefinitionParams) -> List<Location>,
+    handler: suspend context(LspHandlerContext) CoroutineScope.(DefinitionParams) -> List<LocationOrLink>,
 ): Unit = capability(update = { copy(definitionProvider = value) }, register = {
     request(DefinitionRequestType, handler)
 })
@@ -424,9 +428,28 @@ fun LspServerCapabilitiesBuilder.diagnosticProvider(
 
 fun LspServerCapabilitiesBuilder.workspaceSymbolProvider(
     value: OrBoolean<WorkspaceSymbolRegistrationOptions> = OrBoolean(true),
+    /** Handles `workspaceSymbol/resolve`; the caller sets `resolveProvider = true` in [value]. */
+    resolveHandler: (suspend context(LspHandlerContext) CoroutineScope.(WorkspaceSymbol) -> WorkspaceSymbol)? = null,
     handler: suspend context(LspHandlerContext) CoroutineScope.(WorkspaceSymbolParams) -> List<WorkspaceSymbol>,
 ): Unit = capability(update = { copy(workspaceSymbolProvider = value) }, register = {
     request(WorkspaceSymbolRequests.WorkspaceSymbolRequest, handler)
+    if (resolveHandler != null) {
+        request(Workspace.ResolveSymbol, resolveHandler)
+    }
+})
+
+/**
+ * `workspace.textDocumentContent`. Merges into [ServerWorkspaceCapabilities] rather than replacing it,
+ * so it composes with the other `workspace` capabilities.
+ */
+fun LspServerCapabilitiesBuilder.textDocumentContentProvider(
+    options: TextDocumentContentOptions,
+    handler: suspend context(LspHandlerContext) CoroutineScope.(TextDocumentContentParams) -> TextDocumentContentResult,
+): Unit = capability(update = {
+    val workspace = workspace ?: ServerWorkspaceCapabilities()
+    copy(workspace = workspace.copy(textDocumentContent = options))
+}, register = {
+    request(Workspace.TextDocumentContent, handler)
 })
 
 /**

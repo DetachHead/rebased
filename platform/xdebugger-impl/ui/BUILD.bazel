@@ -12,6 +12,10 @@ jps_test(
 
 ### skip generation section `test intellij.platform.debugger.impl.ui.tests`
 
+### auto-generated section `dev intellij.platform.debugger.impl.ui` start
+content_module_jar(module = ":ui")
+### auto-generated section `dev intellij.platform.debugger.impl.ui` end
+
 ### auto-generated section `build intellij.platform.debugger.impl.ui` start
 create_kotlinc_options(
     name = "custom_ui",
@@ -41,10 +45,9 @@ jvm_library(
         "@lib//:kotlin-stdlib",
         "//fleet/rpc",
         "//fleet/util/core",
-        "//libraries/jackson/jackson",
-        "//libraries/jackson/databind",
+        "//libraries/jackson3/jackson:libraries-jackson3",
+        "//libraries/jackson3/databind",
         "//libraries/kotlinx/coroutines/core",
-        "//libraries/stream",
         "//platform/analysis-api:analysis",
         "//platform/code-style-api:codeStyle",
         "//platform/util/concurrency",
@@ -58,6 +61,8 @@ jvm_library(
         "//platform/editor-ui-ex:editor-ex",
         "//platform/execution",
         "//platform/execution-impl",
+        "//platform/consoleView",
+        "//platform/consoleView/impl",
         "//platform/foldings",
         "//platform/platform-impl/codeinsight-inline:ide-codeinsight-inline",
         "//platform/ide-core",
@@ -86,8 +91,6 @@ jvm_library(
     ],
 )
 
-content_module_jar(module = ":ui")
-
 jvm_library(
     name = "ui_test_lib",
     testonly = True,
@@ -104,10 +107,9 @@ jvm_library(
         "//libraries/jetbrains/annotations:annotations_test_lib",
         "//fleet/rpc:rpc_test_lib",
         "//fleet/util/core:core_test_lib",
-        "//libraries/jackson/jackson:jackson_test_lib",
-        "//libraries/jackson/databind:databind_test_lib",
+        "//libraries/jackson3/jackson:libraries-jackson3_test_lib",
+        "//libraries/jackson3/databind:databind_test_lib",
         "//libraries/kotlinx/coroutines/core:core_test_lib",
-        "//libraries/stream:stream_test_lib",
         "//platform/analysis-api:analysis_test_lib",
         "//platform/code-style-api:codeStyle_test_lib",
         "//platform/util/concurrency:concurrency_test_lib",
@@ -121,6 +123,8 @@ jvm_library(
         "//platform/editor-ui-ex:editor-ex_test_lib",
         "//platform/execution:execution_test_lib",
         "//platform/execution-impl:execution-impl_test_lib",
+        "//platform/consoleView:consoleView_test_lib",
+        "//platform/consoleView/impl:impl_test_lib",
         "//platform/foldings:foldings_test_lib",
         "//platform/platform-impl/codeinsight-inline:ide-codeinsight-inline_test_lib",
         "//platform/ide-core:ide-core_test_lib",
@@ -156,7 +160,6 @@ exports_files(
         "intellij.platform.debugger.impl.ui.iml",
         "resources/intellij.platform.debugger.impl.ui.actions.xml",
         "resources/intellij.platform.debugger.impl.ui.xml",
-        "module-content.yaml",
     ],
     visibility = ["//visibility:public"],
 )
@@ -214,14 +217,8 @@ jvm_library(
         "//fleet/rpc:rpc_test_lib",
         "//fleet/util/core",
         "//fleet/util/core:core_test_lib",
-        "//libraries/jackson/jackson",
-        "//libraries/jackson/jackson:jackson_test_lib",
-        "//libraries/jackson/databind",
-        "//libraries/jackson/databind:databind_test_lib",
         "//libraries/kotlinx/coroutines/core",
         "//libraries/kotlinx/coroutines/core:core_test_lib",
-        "//libraries/stream",
-        "//libraries/stream:stream_test_lib",
         "//platform/analysis-api:analysis",
         "//platform/analysis-api:analysis_test_lib",
         "//platform/code-style-api:codeStyle",

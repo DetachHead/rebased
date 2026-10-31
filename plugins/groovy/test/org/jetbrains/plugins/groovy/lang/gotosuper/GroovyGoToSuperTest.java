@@ -28,8 +28,8 @@ import java.util.List;
 public class GroovyGoToSuperTest extends LightJavaCodeInsightFixtureTestCase {
 
   @Override
-  protected String getBasePath() {
-    return TestUtils.getTestDataPath() + "groovy/gotoSuper/";
+  protected String getTestDataPath() {
+    return TestUtils.getAbsoluteTestDataPath() + "groovy/gotoSuper/";
   }
 
   public void testGts1() { doTest(); }

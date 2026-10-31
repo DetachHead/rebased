@@ -1,6 +1,9 @@
 // Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.jetbrains.python.packaging.requirementsTxt
 
+import com.intellij.python.sdk.backend.associatedModuleDir
+import com.intellij.python.sdk.backend.requirementsPath
+import com.intellij.util.concurrency.annotations.RequiresWriteLock
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.edtWriteAction
 import com.intellij.openapi.application.runWriteAction
@@ -14,6 +17,8 @@ import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.openapi.vfs.VirtualFileManager
 import com.intellij.openapi.vfs.findOrCreateFile
 import com.intellij.openapi.vfs.toNioPathOrNull
+import com.intellij.python.sdk.backend.PythonInterpreter
+import com.intellij.python.sdk.backend.getSdkAPI
 import com.jetbrains.python.packaging.PyPackageRequirementsSettings
 import com.jetbrains.python.packaging.utils.PyPackageCoroutine
 import com.jetbrains.python.sdk.PythonSdkAdditionalData
@@ -43,6 +48,18 @@ object PythonRequirementTxtSdkUtils {
     return VirtualFileManager.getInstance().findFileByNioPath(requirementsPath)
   }
 
+  /** [resolvePersistedRequirementsFile] for [interpreter]. */
+  fun resolvePersistedRequirementsFile(interpreter: PythonInterpreter): VirtualFile? {
+    val requirementsPath = interpreter.requirementsPath ?: return null
+    return VirtualFileManager.getInstance().findFileByNioPath(requirementsPath)
+  }
+
+  /** [saveRequirementsTxtPath] for [interpreter]. It writes to the SDK additional data, so it reads the SDK. */
+  fun saveRequirementsTxtPath(project: Project, interpreter: PythonInterpreter, path: Path?) {
+    @Suppress("DEPRECATION")
+    saveRequirementsTxtPath(project, interpreter.getSdkAPI(), path)
+  }
+
   @JvmStatic
   fun saveRequirementsTxtPath(project: Project, sdk: Sdk, path: Path?) {
     val sdkModificator = sdk.sdkModificator
@@ -70,13 +87,14 @@ object PythonRequirementTxtSdkUtils {
     }
   }
 
-  fun createRequirementsTxtPath(module: Module, sdk: Sdk): VirtualFile? {
-    val basePath = sdk.associatedModuleDir ?: module.baseDir ?: return null
+  @RequiresWriteLock
+  fun createRequirementsTxtPath(module: Module, interpreter: PythonInterpreter): VirtualFile? {
+    val basePath = interpreter.associatedModuleDir ?: module.baseDir ?: return null
     val requirementsFile = basePath.findOrCreateFile(PythonSdkAdditionalData.REQUIREMENT_TXT_DEFAULT.toString())
 
     //Need to pass test, because TempFS doesn't support getNioPath()
     val requirementFilePath = requirementsFile.toNioPathOrNull() ?: Path.of(requirementsFile.path)
-    saveRequirementsTxtPath(module.project, sdk, requirementFilePath)
+    saveRequirementsTxtPath(module.project, interpreter, requirementFilePath)
 
     return requirementsFile
   }

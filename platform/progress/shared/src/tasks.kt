@@ -14,6 +14,7 @@ import com.intellij.util.concurrency.annotations.RequiresBlockingContext
 import com.intellij.util.concurrency.annotations.RequiresEdt
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import org.jetbrains.annotations.ApiStatus
 
 suspend fun <T> withBackgroundProgress(
   project: Project,
@@ -51,8 +52,28 @@ suspend fun <T> withBackgroundProgress(
   return withBackgroundProgress(project, title, TaskCancellation.nonCancellable(), suspender, visibleInStatusBar = true, action)
 }
 
+suspend fun <T> withBackgroundProgress(
+  project: Project,
+  title: @ProgressTitle String,
+  cancellation: TaskCancellation,
+  suspender: TaskSuspender?,
+  visibleInStatusBar: Boolean = true,
+  action: suspend CoroutineScope.() -> T,
+): T {
+  return withBackgroundProgress(BackgroundTaskOwner.project(project), title, cancellation, suspender, visibleInStatusBar, action)
+}
+
+@ApiStatus.Experimental
+suspend fun <T> withBackgroundProgress(
+  owner: BackgroundTaskOwner,
+  title: @ProgressTitle String,
+  action: suspend CoroutineScope.() -> T,
+): T {
+  return withBackgroundProgress(owner, title, TaskCancellation.cancellable(), suspender = null, visibleInStatusBar = true, action)
+}
+
 /**
- * Shows a background progress indicator, and runs the specified [action].
+ * Shows a background progress indicator in the frames of [owner], and runs the specified [action].
  * The action receives [a fresh progress step][com.intellij.platform.util.progress.currentProgressStep] in the coroutine context,
  * which can be used via [reportProgress], [reportSequentialProgress], [reportRawProgress].
  * Corresponding reporter updates are reflected in the UI during the execution.
@@ -63,7 +84,7 @@ suspend fun <T> withBackgroundProgress(
  *
  * The [action] is run with the calling coroutine dispatcher.
  *
- * @param project in which frame the progress should be shown
+ * @param owner in which frames the progress should be shown
  * @param cancellation controls the UI appearance, e.g. [TaskCancellation.nonCancellable] or [TaskCancellation.cancellable]
  * @param suspender provides an ability to pause running coroutine and displays suspension status in UI
  * If null, the suspender is going to be retrieved from the coroutine context.
@@ -72,15 +93,16 @@ suspend fun <T> withBackgroundProgress(
  * and popup with the full list of tasks
  * @throws CancellationException if the calling coroutine was canceled, or if the indicator was canceled by the user in the UI
  */
+@ApiStatus.Experimental
 suspend fun <T> withBackgroundProgress(
-  project: Project,
+  owner: BackgroundTaskOwner,
   title: @ProgressTitle String,
   cancellation: TaskCancellation,
-  suspender: TaskSuspender?,
+  suspender: TaskSuspender? = null,
   visibleInStatusBar: Boolean = true,
   action: suspend CoroutineScope.() -> T,
 ): T {
-  return taskSupport().withBackgroundProgressInternal(project, title, cancellation, suspender, visibleInStatusBar, action)
+  return taskSupport().withBackgroundProgressInternal(owner, title, cancellation, suspender, visibleInStatusBar, action)
 }
 
 suspend fun <T> withModalProgress(
@@ -121,7 +143,7 @@ suspend fun <T> withModalProgress(
 }
 
 @RequiresBlockingContext
-@RequiresEdt
+@RequiresEdt(generateAssertion = false /* IJPL-115548 */)
 fun <T> runWithModalProgressBlocking(
   project: Project,
   title: @ModalProgressTitle String,
@@ -195,7 +217,7 @@ fun <T> runWithModalProgressBlocking(
  * or if the indicator was canceled by the user in the UI
  */
 @RequiresBlockingContext
-@RequiresEdt
+@RequiresEdt(generateAssertion = false /* IJPL-115548 */)
 fun <T> runWithModalProgressBlocking(
   owner: ModalTaskOwner,
   title: @ModalProgressTitle String,

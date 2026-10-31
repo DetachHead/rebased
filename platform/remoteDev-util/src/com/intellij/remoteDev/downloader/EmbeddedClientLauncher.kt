@@ -22,7 +22,7 @@ import com.intellij.openapi.util.NlsSafe
 import com.intellij.openapi.util.SystemInfo
 import com.intellij.openapi.util.registry.Registry
 import com.intellij.platform.bootstrap.RuntimeModuleIntrospection
-import com.intellij.platform.runtime.product.ProductMode
+import com.intellij.platform.productMode.ProductMode
 import com.intellij.platform.runtime.repository.RuntimeModuleId
 import com.intellij.platform.runtime.repository.RuntimeModuleRepository
 import com.intellij.remoteDev.util.ProductInfo
@@ -291,7 +291,6 @@ class EmbeddedClientLauncher private constructor(private val moduleRepository: R
       "-Dintellij.platform.root.module=${getRootFrontendModule().name}",
       "-Dintellij.platform.product.mode=${ProductMode.FRONTEND.id}",
       "-Dintellij.platform.full.ide.product.code=${build.productCode}",
-      "-Dintellij.platform.load.app.info.from.resources=true",
       "-Dsplash=true",
     )
     vmParametersList.addAll(jetBrainsClientOptions)

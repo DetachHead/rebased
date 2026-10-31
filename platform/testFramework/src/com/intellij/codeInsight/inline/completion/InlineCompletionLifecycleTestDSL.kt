@@ -31,7 +31,6 @@ import kotlinx.coroutines.withContext
 import org.assertj.core.api.Assertions.assertThat
 import org.jetbrains.annotations.ApiStatus
 import java.awt.event.FocusEvent
-import java.awt.event.FocusListener
 import java.awt.event.KeyEvent
 import kotlin.reflect.KClass
 import kotlin.time.Duration
@@ -127,7 +126,9 @@ class InlineCompletionLifecycleTestDSL(val fixture: CodeInsightTestFixture) {
     withContext(Dispatchers.EDT) {
       writeIntentReadAction {
         val ev = FocusEvent(fixture.editor.component, 0, false, null, cause)
-        (fixture.editor as FocusListener).focusLost(ev)
+        for (listener in fixture.editor.contentComponent.focusListeners) {
+          listener.focusLost(ev)
+        }
       }
     }
   }
@@ -279,7 +280,7 @@ class InlineCompletionLifecycleTestDSL(val fixture: CodeInsightTestFixture) {
     }
   }
 
-  @RequiresEdt
+  @RequiresEdt(generateAssertion = false /* IJPL-115548 */)
   @ICAssert
   suspend fun assertContextExists(): InlineCompletionContext = withContext(Dispatchers.EDT) {
     val contextOrNull = InlineCompletionContext.getOrNull(fixture.editor)
@@ -296,14 +297,14 @@ class InlineCompletionLifecycleTestDSL(val fixture: CodeInsightTestFixture) {
   }
 
   //TODO: also check for fixture.file.text
-  @RequiresReadLock
+  @RequiresReadLock(generateAssertion = false /* IJPL-115548 */)
   private fun compareContents(expectedLine: String) {
     assertThat(fixture.editor.document.text.removeCaret()).describedAs {
       "Expected and actual contents are different."
     }.isEqualTo(expectedLine.removeCaret())
   }
 
-  @RequiresReadLock
+  @RequiresReadLock(generateAssertion = false /* IJPL-115548 */)
   private fun compareCaretPosition(expectedLine: String) {
     val actualLineWithCaret = StringBuilder(fixture.editor.document.text).insert(fixture.caretOffset, "<caret>").toString()
     assertThat(actualLineWithCaret).describedAs {

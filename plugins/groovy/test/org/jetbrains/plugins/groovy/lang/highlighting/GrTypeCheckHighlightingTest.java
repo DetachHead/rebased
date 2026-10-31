@@ -6,7 +6,7 @@ import org.jetbrains.plugins.groovy.codeInspection.assignment.GroovyAssignabilit
 
 public class GrTypeCheckHighlightingTest extends GrHighlightingTestBase {
   @Override
-  public String getBasePath() { return super.getBasePath() + "typecheck/"; }
+  public String getTestDataPath() { return super.getTestDataPath() + "typecheck/"; }
 
   @Override
   public InspectionProfileEntry[] getCustomInspections() {

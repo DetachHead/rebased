@@ -6,6 +6,7 @@ import com.jetbrains.python.allure.Layers
 import com.jetbrains.python.allure.Components
 import com.intellij.idea.TestFor
 import com.jetbrains.python.fixtures.PyCodeInsightTestCase
+import com.jetbrains.python.inspections.PyUnreachableCodeInspection
 
 import org.junit.jupiter.api.Nested
 import org.junit.jupiter.api.Test
@@ -741,24 +742,6 @@ class PyNarrowingTypeTest : PyCodeInsightTestCase() {
       """.trimIndent())
 
     @Test
-    fun `is not None narrows (py3)`() = test("""
-      def test_1(self, c):
-          x = 1 if c else None
-          if x is not None:
-              expr = x
-      #       └ TYPE Literal[1]
-      """.trimIndent())
-
-    @Test
-    fun `is None narrows to None (py3)`() = test("""
-      def test_1(self, c):
-          x = 1 if c else None
-          if x is None:
-              expr = x
-      #       └ TYPE None
-      """.trimIndent())
-
-    @Test
     fun `issubclass inside list comprehension`() = test("""
       class A: pass
       expr = [e for e in [] if issubclass(e, A)]
@@ -1463,11 +1446,9 @@ class PyNarrowingTypeTest : PyCodeInsightTestCase() {
       from typing import List
       from typing_extensions import TypeIs
 
-
       def is_str_list(val: List[object]) -> TypeIs[List[str]]: 
-      # WARNING FIXME Return type of TypeIs 'list[str]' is not consistent with the type of the first parameter 'list[object]' # PY-89564
+      #   ^^^^^^^^^^^ WARNING Return type of TypeIs 'list[str]' is not consistent with the type of the first parameter 'list[object]'
           return all(isinstance(x, str) for x in val)
-
 
       def func1(val: List[object]):
           expr = is_str_list(val)
@@ -1480,7 +1461,7 @@ class PyNarrowingTypeTest : PyCodeInsightTestCase() {
       from typing_extensions import TypeIs
 
       def is_str_list(val: List[object]) -> TypeIs[List[str]]: 
-      # WARNING FIXME Return type of TypeIs 'list[str]' is not consistent with the type of the first parameter 'list[object]' # PY-89564
+      #   ^^^^^^^^^^^ WARNING Return type of TypeIs 'list[str]' is not consistent with the type of the first parameter 'list[object]'
           return all(isinstance(x, str) for x in val)
 
       def func1(val: List[object]):
@@ -1498,13 +1479,13 @@ class PyNarrowingTypeTest : PyCodeInsightTestCase() {
       MyTypeIs = TypeIs[List[str]]
 
       def is_str_list(val: List[object]) -> MyTypeIs: 
-      # WARNING FIXME Return type of TypeIs 'list[str]' is not consistent with the type of the first parameter 'list[object]' # PY-89564
+      #   ^^^^^^^^^^^ WARNING Return type of TypeIs 'list[str]' is not consistent with the type of the first parameter 'list[object]'
           return all(isinstance(x, str) for x in val)
 
       def func1(val: List[object]):
           if is_str_list(val):
               expr = val
-      #       └ TYPE list[str] FIXME list[object] & list[str] # PY-89564
+      #       └ TYPE list[object] & list[str]
       """.trimIndent())
 
     @Test
@@ -1515,13 +1496,13 @@ class PyNarrowingTypeTest : PyCodeInsightTestCase() {
       type MyTypeIs[T] = TypeIs[T]
 
       def is_str_list(val: List[object]) -> MyTypeIs[List[str]]: 
-      # WARNING FIXME Return type of TypeIs 'list[str]' is not consistent with the type of the first parameter 'list[object]' # PY-89564
+      #   ^^^^^^^^^^^ WARNING Return type of TypeIs 'list[str]' is not consistent with the type of the first parameter 'list[object]'
           return all(isinstance(x, str) for x in val)
 
       def func1(val: List[object]):
           if is_str_list(val):
               expr = val
-      #       └ TYPE list[str] FIXME list[object] & list[str] # PY-89564
+      #       └ TYPE list[object] & list[str]
       """.trimIndent())
 
     @Test
@@ -1681,7 +1662,7 @@ class PyNarrowingTypeTest : PyCodeInsightTestCase() {
 
       def func1(val: List[int] | List[str]):
           if not is_str_list(val):
-      # WARNING FIXME Expected type 'list[object]', got 'list[int] | list[str]' instead # PY-89564
+      #                      ^^^ WARNING Expected type 'list[object]', got 'list[int] | list[str]' instead
               expr = val
       #       └ TYPE list[int] | list[str]
           else:
@@ -1694,12 +1675,12 @@ class PyNarrowingTypeTest : PyCodeInsightTestCase() {
       from typing_extensions import TypeIs
 
       def is_str_list(val: List[object]) -> TypeIs[List[str]]: 
-      # WARNING FIXME Return type of TypeIs 'list[str]' is not consistent with the type of the first parameter 'list[object]' # PY-89564
+      #   ^^^^^^^^^^^ WARNING Return type of TypeIs 'list[str]' is not consistent with the type of the first parameter 'list[object]'
           return all(isinstance(x, str) for x in val)
 
       def func1(val: List[int] | List[str]):
           if not is_str_list(val):
-      # WARNING FIXME Expected type 'list[object]', got 'list[int] | list[str]' instead # PY-89564
+      #                      ^^^ WARNING Expected type 'list[object]', got 'list[int] | list[str]' instead
               expr = val
       #       └ TYPE list[int]
           else:
@@ -1771,6 +1752,104 @@ class PyNarrowingTypeTest : PyCodeInsightTestCase() {
     fun `comprehension if clause narrows produces no warning`() = test("""
       messages = ["a", None, "b"]
       "".join(msg for msg in messages if msg)
+      """.trimIndent())
+  }
+
+  @Nested
+  @TestInspections(enableInspections = [PyUnreachableCodeInspection::class])
+  inner class TruthinessReachability {
+    @Test
+    @TestFor(issues = ["PY-79184"])
+    fun `always falsy bool dunder makes then branch unreachable`() = test("""
+      from typing import Literal
+      class A:
+          def __bool__(self) -> Literal[False]: ...
+      if A():
+          print(1)
+      #   ^^^^^^^^ WARNING This code is unreachable
+      else:
+          print(2)
+      """.trimIndent())
+
+    @Test
+    @TestFor(issues = ["PY-79184"])
+    fun `always truthy bool dunder makes else branch unreachable`() = test("""
+      from typing import Literal
+      class A:
+          def __bool__(self) -> Literal[True]: ...
+      if A():
+          print(1)
+      else:
+          print(2)
+      #   ^^^^^^^^ WARNING This code is unreachable
+      """.trimIndent())
+
+    @Test
+    @TestFor(issues = ["PY-79184"])
+    fun `always falsy len dunder makes then branch unreachable`() = test("""
+      from typing import Literal
+      class A:
+          def __len__(self) -> Literal[0]: ...
+      if A():
+          print(1)
+      #   ^^^^^^^^ WARNING This code is unreachable
+      """.trimIndent())
+
+    @Test
+    @TestFor(issues = ["PY-79184"])
+    fun `runtime bool dunder takes precedence over falsy len dunder`() = test("""
+      from typing import Literal
+      class A:
+          def __bool__(self) -> bool: ...
+          def __len__(self) -> Literal[0]: ...
+      if A():
+          print(1)
+      """.trimIndent())
+
+    @Test
+    @TestFor(issues = ["PY-79184"])
+    fun `runtime bool dunder keeps branch reachable`() = test("""
+      class A:
+          def __bool__(self) -> bool: ...
+      if A():
+          print(1)
+      else:
+          print(2)
+      """.trimIndent())
+
+    @Test
+    @TestFor(issues = ["PY-79184"])
+    fun `always falsy bool dunder makes while body unreachable`() = test("""
+      from typing import Literal
+      class A:
+          def __bool__(self) -> Literal[False]: ...
+      while A():
+          print(1)
+      #   ^^^^^^^^ WARNING This code is unreachable
+      """.trimIndent())
+
+    // The class object is always truthy regardless of the instance `__bool__`, so neither branch is unreachable.
+    @Test
+    @TestFor(issues = ["PY-79184"])
+    fun `always falsy bool dunder on class object keeps branches reachable`() = test("""
+      from typing import Literal
+      class A:
+          def __bool__(self) -> Literal[False]: ...
+      if A:
+          print(1)
+      else:
+          print(2)
+      """.trimIndent())
+
+    @Test
+    @TestFor(issues = ["PY-54916"])
+    fun `false literal value makes if unreachable`() = test("""
+      from typing import Literal
+
+      a: Literal[False] = False
+      if a:
+          print(1)
+      #   ^^^^^^^^ WARNING This code is unreachable
       """.trimIndent())
   }
 }

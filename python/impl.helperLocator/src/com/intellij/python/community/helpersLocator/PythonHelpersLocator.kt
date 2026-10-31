@@ -49,30 +49,26 @@ interface PythonHelpersLocator {
      * Retrieves Path of a helper file given its resource name.
      *
      * @param resourceName The name of the helper resource file.
-     * @return Path of the helper file, or null if the file does not exist.
+     * @return Path of the helper file.
+     * @throws IllegalStateException if the file does not exist. The helpers are part of the installation,
+     * so a missing file is a bug.
      */
     @JvmStatic
-    @RequiresBackgroundThread
+    @RequiresBackgroundThread(generateAssertion = false /* IJPL-115548 */)
     fun findPathInHelpers(resourceName: String): Path {
-      return findPathInHelpersPossibleNull(resourceName) ?: error("File $resourceName does not exist in helpers root. Installation broken?")
-    }
-
-    @JvmStatic
-    @RequiresBackgroundThread
-    fun findPathInHelpersPossibleNull(resourceName: String): Path? {
       for (helperRoot in getHelpersRoots()) {
         val path = Path.of(helperRoot.pathString, resourceName)
         if (path.exists())
           return path
       }
-      return null
+      error("File $resourceName does not exist in helpers root. Installation broken?")
     }
 
 
     @ApiStatus.Internal
     @TestOnly
     @JvmStatic
-    @RequiresBackgroundThread
+    @RequiresBackgroundThread(generateAssertion = false /* IJPL-115548 */)
     fun getPythonCommunityPath(): Path {
       val pathFromUltimate = Path.of(PathManager.getHomePath(), "community/python")
       if (pathFromUltimate.exists()) {
@@ -85,13 +81,13 @@ interface PythonHelpersLocator {
      * Retrieves the absolute path of a helper file given its resource name.
      *
      * @param resourceName The name of the helper resource file (for example, `pydev` or `jupyter_debug`).
-     * @return The absolute path of the helper file, or null if the file does not exist.
+     * @return The absolute path of the helper file.
+     * @throws IllegalStateException if the file does not exist. See [findPathInHelpers].
      */
     @ApiStatus.Internal
     @JvmStatic
-    @RequiresBackgroundThread
-    fun findPathStringInHelpers(@NonNls resourceName: String): String = findPathInHelpersPossibleNull(resourceName)?.absolutePathString()
-                                                                        ?: ""
+    @RequiresBackgroundThread(generateAssertion = false /* IJPL-115548 */)
+    fun findPathStringInHelpers(@NonNls resourceName: String): String = findPathInHelpers(resourceName).absolutePathString()
   }
 
   @ApiStatus.Internal
@@ -110,7 +106,7 @@ interface PythonHelpersLocator {
   }
 
   @ApiStatus.Internal
-  @RequiresBackgroundThread
+  @RequiresBackgroundThread(generateAssertion = false /* IJPL-115548 */)
   fun getHelpersRoot(moduleName: String, relativePath: String): Path {
     return findRootByJarPath(
       aClass = PythonHelpersLocator::class.java,
@@ -148,7 +144,7 @@ interface PythonHelpersLocator {
     return null
   }
 
-  @RequiresBackgroundThread
+  @RequiresBackgroundThread(generateAssertion = false /* IJPL-115548 */)
   private fun assertHelpersLayout(root: Path): Path {
     if (!root.exists()) {
       LOG.info("Helpers root does not exist: $root")

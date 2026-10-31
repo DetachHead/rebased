@@ -34,6 +34,8 @@ import com.intellij.util.concurrency.annotations.RequiresReadLock
 import com.intellij.util.ui.AnimatedIcon
 import com.intellij.util.ui.AsyncProcessIcon
 import kotlinx.coroutines.CoroutineName
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
@@ -70,6 +72,7 @@ class AsyncEditorLoader internal constructor(
    */
   private val delayedActions: AtomicReference<Array<Runnable>> = AtomicReference(ArrayUtil.EMPTY_RUNNABLE_ARRAY)
   private val delayedScrollState = AtomicReference<DelayedScrollState?>()
+  private val loaded = CompletableDeferred<Unit>(coroutineScope.coroutineContext.job)
 
   companion object {
     @JvmField
@@ -78,14 +81,14 @@ class AsyncEditorLoader internal constructor(
     /**
      * Invoke callback when the editor is successfully loaded. The callback will not be called if the loading was canceled.
      */
-    @RequiresEdt
+    @RequiresEdt(generateAssertion = false /* IJPL-115548 */)
     fun performWhenLoaded(editor: Editor, runnable: Runnable) {
       val asyncLoader = editor.getUserData(ASYNC_LOADER)
       performWhenLoaded(asyncLoader, runnable)
     }
 
     @Internal
-    @RequiresEdt
+    @RequiresEdt(generateAssertion = false /* IJPL-115548 */)
     fun performWhenLoaded(asyncLoader: AsyncEditorLoader?, runnable: Runnable) {
       if (asyncLoader == null || asyncLoader.isLoaded()) {
         runnable.run()
@@ -121,9 +124,20 @@ class AsyncEditorLoader internal constructor(
       val asyncLoader = editor.getUserData(ASYNC_LOADER)
       return asyncLoader == null || asyncLoader.isLoaded()
     }
+
+    suspend fun awaitLoaded(editor: Editor) {
+      val loader = withContext(Dispatchers.EDT) {
+        if (editor.isDisposed) throw CancellationException("The editor is disposed")
+        editor.getUserData(ASYNC_LOADER)
+      }
+      loader?.loaded?.await()
+      withContext(Dispatchers.EDT) {
+        if (editor.isDisposed) throw CancellationException("The editor is disposed")
+      }
+    }
   }
 
-  @RequiresEdt
+  @RequiresEdt(generateAssertion = false /* IJPL-115548 */)
   private fun performWhenLoaded(runnable: Runnable) {
     val toRunLater = captureThreadContext(runnable)
     val newActions = delayedActions.updateAndGet { oldActions ->
@@ -136,7 +150,7 @@ class AsyncEditorLoader internal constructor(
 
   // executed in the same EDT task where TextEditorImpl is created
   @Internal
-  @RequiresEdt
+  @RequiresEdt(generateAssertion = false /* IJPL-115548 */)
   fun start(textEditor: TextEditorImpl, task: Deferred<*>) {
     if (ApplicationManager.getApplication().isUnitTestMode) {
       startInTests(task = task)
@@ -176,12 +190,16 @@ class AsyncEditorLoader internal constructor(
         finally {
           scrollingModel.enableAnimation()
         }
+        loaded.complete(Unit)
       }
       span("editor notifications schedule") {
         project.serviceAsync<EditorNotifications>().scheduleUpdateNotifications(textEditor)
       }
     }
-      .invokeOnCompletion {
+      .invokeOnCompletion { cause ->
+        if (cause != null) {
+          loaded.completeExceptionally(cause)
+        }
         // make sure that async loaded marked as completed
         delayedActions.set(null)
 
@@ -204,14 +222,15 @@ class AsyncEditorLoader internal constructor(
       task.await()
     }
     executeDelayedActions(delayedActions.getAndSet(null))
+    loaded.complete(Unit)
   }
 
-  @RequiresReadLock
+  @RequiresReadLock(generateAssertion = false /* IJPL-115548 */)
   fun getEditorState(level: FileEditorStateLevel, editor: Editor): TextEditorState {
     return provider.getStateImpl(project, editor, level)
   }
 
-  @RequiresEdt
+  @RequiresEdt(generateAssertion = false /* IJPL-115548 */)
   fun setEditorState(state: TextEditorState, exactState: Boolean, editor: EditorEx) {
     provider.setStateImpl(project = project, editor = editor, state = state, exactState = exactState)
 
@@ -233,7 +252,7 @@ class AsyncEditorLoader internal constructor(
 
 private class DelayedScrollState(@JvmField val relativeCaretPosition: Int, @JvmField val exactState: Boolean)
 
-@RequiresEdt
+@RequiresEdt(generateAssertion = false /* IJPL-115548 */)
 private fun restoreCaretPosition(editor: EditorEx, delayedScrollState: DelayedScrollState, coroutineScope: CoroutineScope) {
   EditorUtil.runWhenViewportReady(editor, coroutineScope) {
     scrollToCaret(

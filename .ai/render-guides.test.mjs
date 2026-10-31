@@ -15,7 +15,6 @@ import {
   loadToolPermissions,
   renderAgentPermissionOutputs,
   renderGuideOutputs,
-  renderOpenCodeSkills,
   renderSkills,
   resolveCommunityDir,
   resolveToolsDir,
@@ -48,14 +47,12 @@ function createFixture() {
   const communitySourceDir = join(rootDir, 'community', '.agents', 'skills')
   const agentsDir = join(rootDir, '.agents', 'skills')
   const claudeDir = join(rootDir, '.claude', 'skills')
-  const junieDir = join(rootDir, '.junie', 'skills')
   const communityClaudeDir = join(rootDir, 'community', '.claude', 'skills')
-  const opencodeDir = join(rootDir, '.opencode', 'skill')
 
   writeSkill(join(communitySourceDir, 'testing'), 'testing', '# Testing\n')
   writeSkill(join(agentsDir, 'platform-deep-dives'), 'platform-deep-dives', '# Platform Deep Dives\n')
 
-  return {rootDir, communitySourceDir, agentsDir, claudeDir, junieDir, communityClaudeDir, opencodeDir}
+  return {rootDir, communitySourceDir, agentsDir, claudeDir, communityClaudeDir}
 }
 
 describe('render-guides skills', () => {
@@ -139,7 +136,6 @@ describe('render-guides skills', () => {
       '`build/eap/*.py`',
       '`<path-to-iml>/nope`',
       '`.ai/local.md`',
-      '`.claude/CLAUDE.md`',
     ].join(' ')
 
     await assertReferencesResolve(text, 'probe', 'ULTIMATE')
@@ -183,12 +179,6 @@ describe('render-guides skills', () => {
     ok(
       !communityOutput.includes('./.ai/community/.agents'),
       'community guide should not include a spurious .ai segment in rewritten skill links',
-    )
-
-    const junieOutput = rewriteMarkdownLinks(guideTemplate, guidePath, join(__dirname, '..', '..', '.junie', 'AGENTS.md'))
-    ok(
-      junieOutput.includes('[TESTING](../community/.agents/skills/testing/SKILL.md)'),
-      'Junie guide should link to the testing skill relative to .junie/AGENTS.md',
     )
   })
 
@@ -271,35 +261,30 @@ describe('render-guides skills', () => {
   // invariant. The tests below still exercise the generator's rendering behavior directly.
 
   it('in ULTIMATE, emits ultimate-only stubs and cleans stale generated dirs', async () => {
-    const {rootDir, communitySourceDir, agentsDir, claudeDir, junieDir, communityClaudeDir} = createFixture()
+    const {rootDir, communitySourceDir, agentsDir, claudeDir, communityClaudeDir} = createFixture()
 
     const staleAgentsDir = join(agentsDir, 'stale-generated-in-agents')
     const staleClaudeDir = join(claudeDir, 'stale-generated-in-claude')
-    const staleJunieDir = join(junieDir, 'stale-generated-in-junie')
     const staleCommunityClaudeDir = join(communityClaudeDir, 'stale-generated-in-community-claude')
     try {
       writeSkill(staleAgentsDir, 'stale-agents', 'stale\n', 'community/.agents/skills/testing/SKILL.md')
       writeSkill(staleClaudeDir, 'stale-claude', 'stale\n', 'community/.agents/skills/testing/SKILL.md')
-      writeSkill(staleJunieDir, 'stale-junie', 'stale\n', 'community/.agents/skills/testing/SKILL.md')
       writeSkill(staleCommunityClaudeDir, 'stale-community-claude', 'stale\n', 'community/.agents/skills/testing/SKILL.md')
 
       ok(existsSync(staleAgentsDir))
       ok(existsSync(staleClaudeDir))
-      ok(existsSync(staleJunieDir))
       ok(existsSync(staleCommunityClaudeDir))
 
       await renderSkills({
         communitySourceDir,
         agentsDir,
         claudeDir,
-        junieDir,
         communityClaudeDir,
         edition: 'ULTIMATE',
       })
 
       ok(!existsSync(staleAgentsDir), 'stale generated stub in .agents/skills was not removed')
       ok(!existsSync(staleClaudeDir), 'stale generated stub in .claude/skills was not removed')
-      ok(!existsSync(staleJunieDir), 'stale generated stub in .junie/skills was not removed')
       ok(!existsSync(staleCommunityClaudeDir), 'stale generated stub in community/.claude/skills was not removed')
 
       const ultimateSkillPath = join(agentsDir, 'platform-deep-dives', 'SKILL.md')
@@ -312,14 +297,6 @@ describe('render-guides skills', () => {
       ok(
         claudeUltimateStubContent.includes(generatedSkillMarker),
         'ultimate-only stub in .claude/skills does not point to the source skill',
-      )
-
-      const junieUltimateStubPath = join(junieDir, 'platform-deep-dives', 'SKILL.md')
-      ok(existsSync(junieUltimateStubPath), 'ultimate-only stub is missing in .junie/skills')
-      const junieUltimateStubContent = readFileSync(junieUltimateStubPath, 'utf8')
-      ok(
-        junieUltimateStubContent.includes(generatedSkillMarker),
-        'ultimate-only stub in .junie/skills does not point to the source skill',
       )
 
       const communityClaudeUltimateStubPath = join(communityClaudeDir, 'platform-deep-dives', 'SKILL.md')
@@ -336,14 +313,6 @@ describe('render-guides skills', () => {
         'community skill stub in .claude/skills does not point to community source',
       )
 
-      const junieCommunityStubPath = join(junieDir, 'testing', 'SKILL.md')
-      ok(existsSync(junieCommunityStubPath), 'community skill stub is missing in .junie/skills')
-      const junieCommunityStubContent = readFileSync(junieCommunityStubPath, 'utf8')
-      ok(
-        junieCommunityStubContent.includes(generatedSkillMarker),
-        'community skill stub in .junie/skills does not point to community source',
-      )
-
       const communityClaudeTestingStubPath = join(communityClaudeDir, 'testing', 'SKILL.md')
       ok(existsSync(communityClaudeTestingStubPath), 'community skill stub is missing in community/.claude/skills')
     } finally {
@@ -352,32 +321,25 @@ describe('render-guides skills', () => {
   })
 
   it('in COMMUNITY, skips ultimate-only stubs and removes stale generated ultimate stubs', async () => {
-    const {rootDir, communitySourceDir, agentsDir, claudeDir, junieDir, communityClaudeDir} = createFixture()
+    const {rootDir, communitySourceDir, agentsDir, claudeDir, communityClaudeDir} = createFixture()
 
     const staleUltimateStubDir = join(claudeDir, 'platform-deep-dives')
-    const staleJunieUltimateStubDir = join(junieDir, 'platform-deep-dives')
     try {
       writeSkill(staleUltimateStubDir, 'platform-deep-dives', 'stale\n', 'community/.agents/skills/testing/SKILL.md')
-      writeSkill(staleJunieUltimateStubDir, 'platform-deep-dives', 'stale\n', 'community/.agents/skills/testing/SKILL.md')
       ok(existsSync(staleUltimateStubDir), 'expected stale ultimate stub before render')
-      ok(existsSync(staleJunieUltimateStubDir), 'expected stale Junie ultimate stub before render')
 
       await renderSkills({
         communitySourceDir,
         agentsDir,
         claudeDir,
-        junieDir,
         communityClaudeDir,
         edition: 'COMMUNITY',
       })
 
       ok(!existsSync(staleUltimateStubDir), 'community render should remove stale generated ultimate stub')
-      ok(!existsSync(staleJunieUltimateStubDir), 'community render should remove stale generated Junie ultimate stub')
 
       const claudeUltimateStubPath = join(claudeDir, 'platform-deep-dives', 'SKILL.md')
       ok(!existsSync(claudeUltimateStubPath), 'community render should not emit ultimate-only stub')
-      const junieUltimateStubPath = join(junieDir, 'platform-deep-dives', 'SKILL.md')
-      ok(!existsSync(junieUltimateStubPath), 'community render should not emit Junie ultimate-only stub')
 
       const agentsUltimateSourcePath = join(agentsDir, 'platform-deep-dives', 'SKILL.md')
       const agentsUltimateSourceContent = readFileSync(agentsUltimateSourcePath, 'utf8')
@@ -388,9 +350,6 @@ describe('render-guides skills', () => {
 
       const claudeCommunityStubPath = join(claudeDir, 'testing', 'SKILL.md')
       ok(existsSync(claudeCommunityStubPath), 'community skill stub is missing in .claude/skills')
-
-      const junieCommunityStubPath = join(junieDir, 'testing', 'SKILL.md')
-      ok(existsSync(junieCommunityStubPath), 'community skill stub is missing in .junie/skills')
 
       const communityClaudeTestingStubPath = join(communityClaudeDir, 'testing', 'SKILL.md')
       ok(existsSync(communityClaudeTestingStubPath), 'community skill stub is missing in community/.claude/skills')
@@ -403,7 +362,7 @@ describe('render-guides skills', () => {
   })
 
   it('removes bundled files the source skill no longer has', async () => {
-    const {rootDir, communitySourceDir, agentsDir, claudeDir, junieDir, communityClaudeDir} = createFixture()
+    const {rootDir, communitySourceDir, agentsDir, claudeDir, communityClaudeDir} = createFixture()
 
     try {
       // A skill whose bundle has been renamed: `new.ts` replaced `old.ts`, and a whole directory went away.
@@ -412,7 +371,7 @@ describe('render-guides skills', () => {
       writeFileSync(join(sourceSkillDir, 'scripts', 'new.ts'), 'export const kept = 1\n', 'utf8')
 
       // Seed the harness copies with the previous shape, as an earlier render would have left them.
-      for (const targetDir of [claudeDir, junieDir]) {
+      for (const targetDir of [claudeDir, communityClaudeDir]) {
         mkdirSync(join(targetDir, 'testing', 'scripts'), {recursive: true})
         writeFileSync(join(targetDir, 'testing', 'scripts', 'old.ts'), 'export const stale = 1\n', 'utf8')
         mkdirSync(join(targetDir, 'testing', 'cache'), {recursive: true})
@@ -423,12 +382,11 @@ describe('render-guides skills', () => {
         communitySourceDir,
         agentsDir,
         claudeDir,
-        junieDir,
         communityClaudeDir,
         edition: 'COMMUNITY',
       })
 
-      for (const targetDir of [claudeDir, junieDir]) {
+      for (const targetDir of [claudeDir, communityClaudeDir]) {
         ok(
           existsSync(join(targetDir, 'testing', 'scripts', 'new.ts')),
           `render should copy the current bundle into ${targetDir}`,
@@ -451,7 +409,7 @@ describe('render-guides skills', () => {
   })
 
   it('writes a name → description index beside each canonical source tree', async () => {
-    const {rootDir, communitySourceDir, agentsDir, claudeDir, junieDir, communityClaudeDir} = createFixture()
+    const {rootDir, communitySourceDir, agentsDir, claudeDir, communityClaudeDir} = createFixture()
 
     try {
       writeSkill(join(communitySourceDir, 'piped'), 'piped', '# Piped\n', undefined, '"Handles a | pipe."')
@@ -460,7 +418,6 @@ describe('render-guides skills', () => {
         communitySourceDir,
         agentsDir,
         claudeDir,
-        junieDir,
         communityClaudeDir,
         edition: 'ULTIMATE',
       })
@@ -487,7 +444,6 @@ describe('render-guides skills', () => {
       ok(!communityIndex.includes('platform-deep-dives'), 'community index should not list an ultimate-only skill')
 
       ok(!existsSync(join(claudeDir, 'INDEX.md')), 'the index belongs beside canonical sources, not in generated trees')
-      ok(!existsSync(join(junieDir, 'INDEX.md')), 'the index belongs beside canonical sources, not in generated trees')
 
       const agentsIndexWithoutCatalogue = readFileSync(agentsIndexPath, 'utf8')
       ok(
@@ -500,13 +456,13 @@ describe('render-guides skills', () => {
   })
 
   it('points at the optional-skill catalogue beside the index', async () => {
-    const {rootDir, communitySourceDir, agentsDir, claudeDir, junieDir, communityClaudeDir} = createFixture()
+    const {rootDir, communitySourceDir, agentsDir, claudeDir, communityClaudeDir} = createFixture()
 
     try {
       writeSkill(join(communitySourceDir, 'testing'), 'testing', 'body')
       writeFileSync(join(agentsDir, 'OPTIONAL.md'), '# Optional skills\n', 'utf8')
 
-      await renderSkills({communitySourceDir, agentsDir, claudeDir, junieDir, communityClaudeDir, edition: 'ULTIMATE'})
+      await renderSkills({communitySourceDir, agentsDir, claudeDir, communityClaudeDir, edition: 'ULTIMATE'})
 
       const agentsIndex = readFileSync(join(agentsDir, 'INDEX.md'), 'utf8')
       ok(agentsIndex.includes('[OPTIONAL.md](OPTIONAL.md)'), 'the index should point at the catalogue beside it')
@@ -518,83 +474,8 @@ describe('render-guides skills', () => {
     }
   })
 
-  it('emits OpenCode skills from canonical sources and cleans stale dirs', async () => {
-    const {rootDir, communitySourceDir, agentsDir, opencodeDir} = createFixture()
-
-    try {
-      const communityReferenceDir = join(communitySourceDir, 'testing', 'references')
-      mkdirSync(communityReferenceDir, {recursive: true})
-      writeFileSync(join(communityReferenceDir, 'source.md'), '# Community Reference\n', 'utf8')
-
-      const ultimateReferenceDir = join(agentsDir, 'platform-deep-dives', 'references')
-      mkdirSync(ultimateReferenceDir, {recursive: true})
-      writeFileSync(join(ultimateReferenceDir, 'source.md'), '# Ultimate Reference\n', 'utf8')
-
-      const staleOpenCodeDir = join(opencodeDir, 'stale-opencode')
-      writeSkill(staleOpenCodeDir, 'stale-opencode', '# Stale\n')
-
-      await renderOpenCodeSkills({
-        communitySourceDir,
-        agentsDir,
-        opencodeDir,
-        edition: 'ULTIMATE',
-      })
-
-      ok(!existsSync(staleOpenCodeDir), 'stale OpenCode skill dir was not removed')
-
-      const opencodeCommunitySkillPath = join(opencodeDir, 'testing', 'SKILL.md')
-      ok(existsSync(opencodeCommunitySkillPath), 'community OpenCode skill is missing')
-      const opencodeCommunitySkillContent = readFileSync(opencodeCommunitySkillPath, 'utf8')
-      ok(
-        opencodeCommunitySkillContent.includes(generatedSkillMarker),
-        'community OpenCode skill does not point to the source skill',
-      )
-      ok(
-        existsSync(join(opencodeDir, 'testing', 'references', 'source.md')),
-        'community OpenCode skill support file is missing',
-      )
-
-      const opencodeUltimateSkillPath = join(opencodeDir, 'platform-deep-dives', 'SKILL.md')
-      ok(existsSync(opencodeUltimateSkillPath), 'ultimate OpenCode skill is missing')
-      const opencodeUltimateSkillContent = readFileSync(opencodeUltimateSkillPath, 'utf8')
-      ok(
-        opencodeUltimateSkillContent.includes(generatedSkillMarker),
-        'ultimate OpenCode skill does not point to the source skill',
-      )
-      ok(
-        existsSync(join(opencodeDir, 'platform-deep-dives', 'references', 'source.md')),
-        'ultimate OpenCode skill support file is missing',
-      )
-    } finally {
-      rmSync(rootDir, {recursive: true, force: true})
-    }
-  })
-
-  it('in COMMUNITY, skips ultimate-only OpenCode skills', async () => {
-    const {rootDir, communitySourceDir, agentsDir, opencodeDir} = createFixture()
-
-    try {
-      writeSkill(join(opencodeDir, 'platform-deep-dives'), 'platform-deep-dives', '# Stale\n')
-
-      await renderOpenCodeSkills({
-        communitySourceDir,
-        agentsDir,
-        opencodeDir,
-        edition: 'COMMUNITY',
-      })
-
-      ok(existsSync(join(opencodeDir, 'testing', 'SKILL.md')), 'community OpenCode skill is missing')
-      ok(
-        !existsSync(join(opencodeDir, 'platform-deep-dives', 'SKILL.md')),
-        'community render should not emit ultimate-only OpenCode skill',
-      )
-    } finally {
-      rmSync(rootDir, {recursive: true, force: true})
-    }
-  })
-
   it('fails fast when community and manual ultimate skill names collide', async () => {
-    const {rootDir, communitySourceDir, agentsDir, claudeDir, junieDir, communityClaudeDir} = createFixture()
+    const {rootDir, communitySourceDir, agentsDir, claudeDir, communityClaudeDir} = createFixture()
 
     try {
       writeSkill(join(communitySourceDir, 'platform-deep-dives'), 'platform-deep-dives', '# Community Platform Deep Dives\n')
@@ -604,7 +485,6 @@ describe('render-guides skills', () => {
           communitySourceDir,
           agentsDir,
           claudeDir,
-          junieDir,
           communityClaudeDir,
           edition: 'ULTIMATE',
         }),
@@ -623,7 +503,7 @@ describe('render-guides skills', () => {
   })
 
   it('fails fast when a community source skill has no YAML frontmatter', async () => {
-    const {rootDir, communitySourceDir, agentsDir, claudeDir, junieDir, communityClaudeDir} = createFixture()
+    const {rootDir, communitySourceDir, agentsDir, claudeDir, communityClaudeDir} = createFixture()
 
     const staleGeneratedTestingDir = join(agentsDir, 'testing')
     try {
@@ -635,7 +515,6 @@ describe('render-guides skills', () => {
           communitySourceDir,
           agentsDir,
           claudeDir,
-          junieDir,
           communityClaudeDir,
           edition: 'COMMUNITY',
         }),
@@ -651,7 +530,7 @@ describe('render-guides skills', () => {
   })
 
   it('fails fast when a manual ultimate source skill has no YAML frontmatter', async () => {
-    const {rootDir, communitySourceDir, agentsDir, claudeDir, junieDir, communityClaudeDir} = createFixture()
+    const {rootDir, communitySourceDir, agentsDir, claudeDir, communityClaudeDir} = createFixture()
 
     try {
       writeFileSync(join(agentsDir, 'platform-deep-dives', 'SKILL.md'), '# Missing frontmatter\n', 'utf8')
@@ -661,7 +540,6 @@ describe('render-guides skills', () => {
           communitySourceDir,
           agentsDir,
           claudeDir,
-          junieDir,
           communityClaudeDir,
           edition: 'ULTIMATE',
         }),
@@ -673,7 +551,7 @@ describe('render-guides skills', () => {
   })
 
   it('rejects an oversized description before pruning generated stubs', async () => {
-    const {rootDir, communitySourceDir, agentsDir, claudeDir, junieDir, communityClaudeDir} = createFixture()
+    const {rootDir, communitySourceDir, agentsDir, claudeDir, communityClaudeDir} = createFixture()
     const staleGeneratedDir = join(agentsDir, 'stale-generated')
     try {
       writeSkill(join(communitySourceDir, 'testing'), 'testing', '# Testing\n', undefined, 'x'.repeat(161))
@@ -684,7 +562,6 @@ describe('render-guides skills', () => {
           communitySourceDir,
           agentsDir,
           claudeDir,
-          junieDir,
           communityClaudeDir,
           edition: 'COMMUNITY',
         }),
@@ -698,7 +575,7 @@ describe('render-guides skills', () => {
   })
 
   it('rejects descriptions whose combined size exceeds the edition budget', async () => {
-    const {rootDir, communitySourceDir, agentsDir, claudeDir, junieDir, communityClaudeDir} = createFixture()
+    const {rootDir, communitySourceDir, agentsDir, claudeDir, communityClaudeDir} = createFixture()
     try {
       for (let index = 0; index < 39; index++) {
         const name = `budget-${index}`
@@ -710,7 +587,6 @@ describe('render-guides skills', () => {
           communitySourceDir,
           agentsDir,
           claudeDir,
-          junieDir,
           communityClaudeDir,
           edition: 'COMMUNITY',
         }),
@@ -722,13 +598,12 @@ describe('render-guides skills', () => {
   })
 
   it('reports the description bytes spent by the rendered edition', async () => {
-    const {rootDir, communitySourceDir, agentsDir, claudeDir, junieDir, communityClaudeDir} = createFixture()
+    const {rootDir, communitySourceDir, agentsDir, claudeDir, communityClaudeDir} = createFixture()
     try {
       const render = edition => renderSkills({
         communitySourceDir,
         agentsDir,
         claudeDir,
-        junieDir,
         communityClaudeDir,
         edition,
       })
@@ -744,7 +619,7 @@ describe('render-guides skills', () => {
   })
 
   it('rejects multiline descriptions', async () => {
-    const {rootDir, communitySourceDir, agentsDir, claudeDir, junieDir, communityClaudeDir} = createFixture()
+    const {rootDir, communitySourceDir, agentsDir, claudeDir, communityClaudeDir} = createFixture()
     try {
       writeFileSync(
         join(communitySourceDir, 'testing', 'SKILL.md'),
@@ -757,7 +632,6 @@ describe('render-guides skills', () => {
           communitySourceDir,
           agentsDir,
           claudeDir,
-          junieDir,
           communityClaudeDir,
           edition: 'COMMUNITY',
         }),
@@ -769,7 +643,7 @@ describe('render-guides skills', () => {
   })
 
   it('rejects continued plain-scalar descriptions', async () => {
-    const {rootDir, communitySourceDir, agentsDir, claudeDir, junieDir, communityClaudeDir} = createFixture()
+    const {rootDir, communitySourceDir, agentsDir, claudeDir, communityClaudeDir} = createFixture()
     try {
       writeFileSync(
         join(communitySourceDir, 'testing', 'SKILL.md'),
@@ -782,7 +656,6 @@ describe('render-guides skills', () => {
           communitySourceDir,
           agentsDir,
           claudeDir,
-          junieDir,
           communityClaudeDir,
           edition: 'COMMUNITY',
         }),
@@ -795,7 +668,7 @@ describe('render-guides skills', () => {
 
   it('rejects empty and YAML-null descriptions', async () => {
     for (const description of ['""', "''", '"   "', 'null', 'NULL', '~', '# no value', '"" # note', 'null # note']) {
-      const {rootDir, communitySourceDir, agentsDir, claudeDir, junieDir, communityClaudeDir} = createFixture()
+      const {rootDir, communitySourceDir, agentsDir, claudeDir, communityClaudeDir} = createFixture()
       try {
         writeSkill(join(communitySourceDir, 'testing'), 'testing', '# Testing\n', undefined, description)
 
@@ -804,7 +677,6 @@ describe('render-guides skills', () => {
             communitySourceDir,
             agentsDir,
             claudeDir,
-            junieDir,
             communityClaudeDir,
             edition: 'COMMUNITY',
           }),
@@ -851,7 +723,7 @@ describe('render-guides skills', () => {
   })
 
   it('accepts CRLF frontmatter in community source skills', async () => {
-    const {rootDir, communitySourceDir, agentsDir, claudeDir, junieDir, communityClaudeDir} = createFixture()
+    const {rootDir, communitySourceDir, agentsDir, claudeDir, communityClaudeDir} = createFixture()
 
     const crlfSkillDir = join(communitySourceDir, 'crlf-frontmatter')
     try {
@@ -866,7 +738,6 @@ describe('render-guides skills', () => {
         communitySourceDir,
         agentsDir,
         claudeDir,
-        junieDir,
         communityClaudeDir,
         edition: 'COMMUNITY',
       })
@@ -884,7 +755,7 @@ describe('render-guides skills', () => {
   })
 
   it('accepts BOM frontmatter with closing delimiter at EOF', async () => {
-    const {rootDir, communitySourceDir, agentsDir, claudeDir, junieDir, communityClaudeDir} = createFixture()
+    const {rootDir, communitySourceDir, agentsDir, claudeDir, communityClaudeDir} = createFixture()
 
     const eofSkillDir = join(communitySourceDir, 'bom-eof-frontmatter')
     try {
@@ -899,7 +770,6 @@ describe('render-guides skills', () => {
         communitySourceDir,
         agentsDir,
         claudeDir,
-        junieDir,
         communityClaudeDir,
         edition: 'COMMUNITY',
       })

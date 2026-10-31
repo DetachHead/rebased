@@ -12,6 +12,10 @@ jps_test(
 
 ### skip generation section `test intellij.python.processOutput.frontend.tests`
 
+### auto-generated section `dev intellij.python.processOutput.frontend` start
+content_module_jar(module = ":frontend")
+### auto-generated section `dev intellij.python.processOutput.frontend` end
+
 ### auto-generated section `build intellij.python.processOutput.frontend` start
 create_kotlinc_options(
     name = "custom_frontend",
@@ -59,8 +63,6 @@ jvm_library(
     ],
 )
 
-content_module_jar(module = ":frontend")
-
 jvm_library(
     name = "frontend_test_lib",
     testonly = True,
@@ -79,43 +81,15 @@ jvm_library(
         "//platform/ide-core:ide-core_test_lib",
         "//platform/core-api:core_test_lib",
         "//platform/core-ui:core-ui_test_lib",
-        "//python/python-exec-service:community-execService",
-        "//python/python-exec-service:community-execService_test_lib",
-        "//python/openapi:community",
-        "//python/openapi:community_test_lib",
         "//platform/util:util-ui_test_lib",
         "//platform/editor-ui-api:editor-ui_test_lib",
-        "//libraries/kotlin/test:libraries-kotlinTest",
-        "//libraries/kotlin/test:libraries-kotlinTest_test_lib",
-        "//libraries/kotlin/test-assertions-core-jvm:libraries-kotlinTestAssertionsCoreJvm",
-        "//libraries/kotlin/test-assertions-core-jvm:libraries-kotlinTestAssertionsCoreJvm_test_lib",
         "//libraries/kotlin/test-junit:libraries-kotlin-test-junit",
         "//libraries/kotlin/test-junit:libraries-kotlin-test-junit_test_lib",
         "//platform/projectModel-api:projectModel_test_lib",
         "//platform/execution-impl:execution-impl_test_lib",
-        "//libraries/mockk",
-        "//libraries/mockk:mockk_test_lib",
-        "//libraries/mockk/jvm",
-        "//libraries/mockk/jvm:jvm_test_lib",
-        "//platform/testFramework/junit5",
-        "//platform/testFramework/junit5:junit5_test_lib",
-        "//platform/testFramework/common",
-        "//platform/testFramework/common:common_test_lib",
         "//platform/statistics:statistics_test_lib",
         "//python/python-process-output/common:common_test_lib",
-        "//python/junit5Tests-framework:community-junit5Tests-framework",
-        "//python/junit5Tests-framework:community-junit5Tests-framework_test_lib",
-        "//libraries/kotlinx/coroutines/debug",
-        "//libraries/kotlinx/coroutines/debug:debug_test_lib",
-        "//libraries/junit5",
-        "//libraries/junit5:junit5_test_lib",
-        "//libraries/junit4",
-        "//libraries/junit4:junit4_test_lib",
-        "//libraries/kotlinx/coroutines/test",
-        "//libraries/kotlinx/coroutines/test:test_test_lib",
         "//libraries/kotlin/reflect:reflect_test_lib",
-        "//python/python-test-env/junit5",
-        "//python/python-test-env/junit5:junit5_test_lib",
         "//python/common:common_test_lib",
         "//platform/util/coroutines:coroutines_test_lib",
         "//platform/core-impl:core-impl_test_lib",
@@ -153,6 +127,7 @@ jvm_library(
     ),
     module_name = "intellij.python.processOutput.frontend.tests",
     visibility = ["//visibility:public"],
+    runtime_deps = ["//xml/plugin"],
 )
 
 jvm_library(
@@ -176,7 +151,11 @@ jvm_library(
         ["testResources/**/*"],
     ),
     visibility = ["//visibility:public"],
-    runtime_deps = [":python-processOutput-frontend-tests"],
+    runtime_deps = [
+        # do not sort,
+        ":python-processOutput-frontend-tests",
+        "//xml/plugin:plugin_test_lib",
+    ],
     deps = [
         # do not sort,
         "//platform/platform-frontend:frontend",
@@ -222,8 +201,8 @@ jvm_library(
         "//python/junit5Tests-framework:community-junit5Tests-framework_test_lib",
         "//libraries/kotlinx/coroutines/debug",
         "//libraries/kotlinx/coroutines/debug:debug_test_lib",
-        "//libraries/junit5",
-        "//libraries/junit5:junit5_test_lib",
+        "//libraries/junit6",
+        "//libraries/junit6:junit6_test_lib",
         "//libraries/junit4",
         "//libraries/junit4:junit4_test_lib",
         "//libraries/kotlinx/coroutines/test",
@@ -232,6 +211,12 @@ jvm_library(
         "//libraries/kotlin/reflect:reflect_test_lib",
         "//python/python-test-env/junit5",
         "//python/python-test-env/junit5:junit5_test_lib",
+        "//platform/util/coroutines",
+        "//platform/util/coroutines:coroutines_test_lib",
+        "//platform/eel",
+        "//platform/eel:eel_test_lib",
+        "//platform/eel-nioFs",
+        "//platform/eel-nioFs:eel-nioFs_test_lib",
     ],
 )
 ### auto-generated section `build intellij.python.processOutput.frontend.tests` end

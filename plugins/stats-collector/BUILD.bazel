@@ -1,5 +1,5 @@
 load("@community//build:tests-options.bzl", "jps_test")
-load("@community//platform/build-scripts/bazel-rules:dev_dist_plugin.bzl", "dev_dist_plugin")
+load("@jps_dynamic_deps_community//:targets.bzl", "dev_dist_plugin")
 load("@rules_jvm//:jvm.bzl", "jvm_library")
 
 jps_test(
@@ -9,6 +9,17 @@ jps_test(
     runtime_deps = [":statsCollector-tests_test_lib"],
 )
 ### skip generation section `test intellij.statsCollector.tests`
+
+### auto-generated section `dev intellij.statsCollector` start
+dev_dist_plugin(
+    descriptor = "resources/META-INF/plugin.xml",
+    jars = {
+        "lib/statsCollector.jar": ["intellij.statsCollector"],
+        "lib/completion-log-events.jar": ["@lib//:stats_collector-completion-log-events"],
+    },
+    main_module = "intellij.statsCollector",
+)
+### auto-generated section `dev intellij.statsCollector` end
 
 ### auto-generated section `build intellij.statsCollector` start
 jvm_library(
@@ -90,13 +101,6 @@ exports_files(
 )
 ### auto-generated section `iml intellij.statsCollector` end
 
-### auto-generated section `dev intellij.statsCollector` start
-dev_dist_plugin(
-    descriptor_module = ":stats-collector",
-    libraries = ["@lib//:stats_collector-completion-log-events"],
-)
-### auto-generated section `dev intellij.statsCollector` end
-
 ### auto-generated section `build intellij.statsCollector.tests` start
 jvm_library(
     name = "statsCollector-tests",
@@ -106,7 +110,11 @@ jvm_library(
     ),
     module_name = "intellij.statsCollector.tests",
     visibility = ["//visibility:public"],
-    runtime_deps = ["//platform/core-ui"],
+    runtime_deps = [
+        # do not sort,
+        "//platform/core-ui",
+        "//xml/plugin",
+    ],
 )
 
 jvm_library(
@@ -126,6 +134,7 @@ jvm_library(
         # do not sort,
         ":statsCollector-tests",
         "//platform/ide-core:ide-core_test_lib",
+        "//xml/plugin:plugin_test_lib",
     ],
     deps = [
         # do not sort,
@@ -135,6 +144,8 @@ jvm_library(
         "//java/java-psi-api:psi_test_lib",
         "//java/java-frontback-psi-api:frontback-psi",
         "//java/java-frontback-psi-api:frontback-psi_test_lib",
+        "//java/java-syntax:syntax",
+        "//java/java-syntax:syntax_test_lib",
         "//libraries/mockito",
         "//libraries/mockito:mockito_test_lib",
         "//libraries/assertj-core",
@@ -159,16 +170,16 @@ jvm_library(
         "//platform/core-impl",
         "//platform/core-impl:core-impl_test_lib",
         "//platform/ide-core",
-        "//libraries/junit4",
-        "//libraries/junit4:junit4_test_lib",
-        "//libraries/junit5",
-        "//libraries/junit5:junit5_test_lib",
+        "//libraries/junit6",
+        "//libraries/junit6:junit6_test_lib",
+        "//platform/testFramework/junit5",
+        "//platform/testFramework/junit5:junit5_test_lib",
+        "//libraries/kotlinx/coroutines/core",
+        "//libraries/kotlinx/coroutines/core:core_test_lib",
         "//java/plugin",
         "//java/plugin:plugin_test_lib",
         "//aether-dependency-resolver/plugin",
         "//aether-dependency-resolver/plugin:plugin_test_lib",
-        "//libraries/misc/plugin",
-        "//libraries/misc/plugin:plugin_test_lib",
         "//platform/structure-view-impl/plugin",
         "//platform/structure-view-impl/plugin:plugin_test_lib",
         "//platform/todo/plugin",

@@ -6,6 +6,7 @@ import com.jetbrains.python.allure.Components
 import com.jetbrains.python.allure.Layers
 import com.jetbrains.python.allure.Subsystems
 import com.jetbrains.python.fixtures.PyCodeInsightTestCase
+import com.jetbrains.python.psi.impl.PyParenthesizedExpressionImpl
 import org.junit.jupiter.api.Nested
 import org.junit.jupiter.api.Test
 
@@ -31,7 +32,7 @@ class PyTupleTypeTest : PyCodeInsightTestCase() {
     @Test
     fun `large heterogeneous tuple literal`() = test("""
       expr = ('1', 1, 1, 1, 1, 1, 1, 1, 1, 1, 1)
-      #└ TYPE tuple[Literal['1'], Literal[1], Literal[1], Literal[1], Literal[1], Literal[1], Literal[1], Literal[1], Literal[1], Literal[1], Literal[1]]
+      #└ TYPE tuple[Literal['1'], Literal[1], Literal[1], Literal[1], Literal[1], Literal[1], Literal[1], Literal[1], Literal[1], Literal[1], Literal['1']]
       """.trimIndent())
 
     @Test
@@ -45,35 +46,35 @@ class PyTupleTypeTest : PyCodeInsightTestCase() {
     @TestFor(issues = ["PY-91999"])
     fun `tuple literal splicing a list literal`() = test("""
       expr = (*[1, "s"], )
-      # └ TYPE tuple[int, str]
+      # └ TYPE tuple[Literal[1], Literal["s"]]
       """.trimIndent())
 
     @Test
     @TestFor(issues = ["PY-91999"])
     fun `tuple with spliced list literal and surrounding elements`() = test("""
       expr = (True, *[1, "s"], None)
-      # └ TYPE tuple[Literal[True], int, str, None]
+      # └ TYPE tuple[Literal[True], Literal[1], Literal["s"], None]
       """.trimIndent())
 
     @Test
     @TestFor(issues = ["PY-91999"])
     fun `tuple literal splicing a parenthesized list literal`() = test("""
       expr = (*([1, "s"]), )
-      # └ TYPE tuple[int, str]
+      # └ TYPE tuple[Literal[1], Literal["s"]]
       """.trimIndent())
 
     @Test
     @TestFor(issues = ["PY-91999"])
     fun `tuple literal splicing multiple list literals`() = test("""
       expr = (*[1], *["s"], *[True])
-      # └ TYPE tuple[int, str, bool]
+      # └ TYPE tuple[Literal[1], Literal["s"], Literal[True]]
       """.trimIndent())
 
     @Test
     @TestFor(issues = ["PY-91999"])
     fun `tuple literal mixing tuple splice and list splice`() = test("""
       expr = (*(1, "s"), *[2])
-      # └ TYPE tuple[Literal[1], Literal["s"], int]
+      # └ TYPE tuple[Literal[1], Literal["s"], Literal[2]]
       """.trimIndent())
 
     @Test
@@ -88,7 +89,7 @@ class PyTupleTypeTest : PyCodeInsightTestCase() {
     fun `tuple literal splicing a list literal with nested star falls back to variadic`() = test("""
       def f(xs: list[int]):
           expr = (*[1, *xs], )
-      #   └ TYPE tuple[*tuple[int, ...]]
+      #   └ TYPE tuple[Literal[1], *tuple[int, ...]]
       """.trimIndent())
 
     @Test
@@ -270,7 +271,7 @@ class PyTupleTypeTest : PyCodeInsightTestCase() {
     @Test
     fun `tuple from list`() = test("""
       expr = tuple(['1', 2, 3])
-      #└ TYPE tuple[str | int, ...]
+      #└ TYPE tuple[Literal['1', 2, 3], ...]
       """.trimIndent())
 
     @Test
@@ -282,7 +283,7 @@ class PyTupleTypeTest : PyCodeInsightTestCase() {
     @Test
     fun `tuple from set`() = test("""
       expr = tuple({'1', 2, 3})
-      #└ TYPE tuple[str | int, ...]
+      #└ TYPE tuple[Literal['1', 2, 3], ...]
       """.trimIndent())
   }
 
@@ -734,7 +735,7 @@ class PyTupleTypeTest : PyCodeInsightTestCase() {
     fun `tuple as generic in tuple narrows`() = test("""
       def f[T](t: T) -> tuple[list[T], T] | T: ...
       expr = f((1, 'hello'))
-      #└ TYPE tuple[list[tuple[int, str]], tuple[Literal[1], Literal['hello']]] | tuple[Literal[1], Literal['hello']]
+      #└ TYPE tuple[list[tuple[int, str]], tuple[int, str]] | tuple[int, str]
       """.trimIndent())
 
     @Test
@@ -1155,6 +1156,17 @@ class PyTupleTypeTest : PyCodeInsightTestCase() {
       """.trimIndent())
 
     @Test
+    fun `starred subscription index does not produce unpacked tuple mismatch`() = test("""
+      class A:
+          def __getitem__(self, key: tuple[int, ...]) -> str: ...
+
+      def f(xs: list[int]):
+          A()[*xs]
+          A()[(*xs)]
+      #        ^^^ ERROR Cannot use starred expression here
+      """.trimIndent())
+
+    @Test
     @TestFor(issues = ["PY-12592"])
     fun `star unpack in type context`() = test("""
       def f(*a: *tuple[int, str]): ...
@@ -1193,5 +1205,13 @@ class PyTupleTypeTest : PyCodeInsightTestCase() {
     A = tuple(sorted([1, 4, 2]))
 
     B = A + (4, 6, 7, 8)
+    """.trimIndent())
+
+  @Test
+  @TestFor(classes = [PyParenthesizedExpressionImpl::class])
+  fun `parentheses around a missing expression`() = test("""
+    expr = not (
+    #          │└ ERROR ')' expected
+    #          └ TYPE Unknown
     """.trimIndent())
 }

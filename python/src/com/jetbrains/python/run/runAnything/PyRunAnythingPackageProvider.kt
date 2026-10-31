@@ -7,7 +7,8 @@ import com.intellij.ide.actions.runAnything.activity.RunAnythingCommandProvider
 import com.intellij.openapi.actionSystem.CommonDataKeys
 import com.intellij.openapi.actionSystem.DataContext
 import com.intellij.openapi.progress.runBlockingCancellable
-import com.intellij.openapi.projectRoots.Sdk
+import com.intellij.python.pyproject.model.evolution.findMainEvoPyProjectIfReady
+import com.intellij.python.sdk.backend.PythonInterpreter
 import com.intellij.util.concurrency.annotations.RequiresBackgroundThread
 import com.jetbrains.python.getOrThrow
 import com.jetbrains.python.packaging.cache.firstPageOrEmpty
@@ -15,25 +16,25 @@ import com.jetbrains.python.packaging.management.PythonPackageManager
 import com.intellij.python.requirements.pyRequirement
 import com.jetbrains.python.packaging.repository.PyPackageRepository
 import com.jetbrains.python.packaging.repository.PythonRepositoryManagerBase
-import com.jetbrains.python.sdk.isTargetBased
-import com.jetbrains.python.sdk.pythonSdk
-import com.jetbrains.python.statistics.modules
+import com.intellij.python.sdk.backend.isTargetBased
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import org.jetbrains.annotations.ApiStatus
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * Install packages on Python interpreter using Run Anything.
  */
+@ApiStatus.Internal
 abstract class PyRunAnythingPackageProvider : RunAnythingCommandLineProvider() {
   private var cacheInitialized = AtomicBoolean(false)
 
-  @RequiresBackgroundThread
+  @RequiresBackgroundThread(generateAssertion = false /* IJPL-115548 */)
   override fun suggestCompletionVariants(
     dataContext: DataContext,
     commandLine: CommandLine,
   ): Sequence<String> {
-    if (getSdk(dataContext)?.isTargetBased() == true) return emptySequence()
+    if (isTargetBased(dataContext)) return emptySequence()
     if (commandLine.parameters.isEmpty() || (commandLine.parameters.size == 1 && !commandLine.toComplete.isEmpty())) {
       return getDefaultCommands()
     }
@@ -92,7 +93,11 @@ abstract class PyRunAnythingPackageProvider : RunAnythingCommandLineProvider() {
 
   private fun compOperator(): Sequence<String> = listOf("==", ">=", "<=", ">", "<").asSequence()
 
-  protected fun getSdk(dataContext: DataContext): Sdk? = dataContext.project.modules.firstOrNull()?.pythonSdk
+  /** The interpreter of the main Python project, or `null` while the model has no snapshot yet. */
+  protected fun getInterpreter(dataContext: DataContext): PythonInterpreter? =
+    dataContext.project.findMainEvoPyProjectIfReady()?.interpreter
+
+  private fun isTargetBased(dataContext: DataContext): Boolean = getInterpreter(dataContext)?.isTargetBased == true
 
   /**
    * Complete package name if it's not a command flag or a package version
@@ -108,7 +113,7 @@ abstract class PyRunAnythingPackageProvider : RunAnythingCommandLineProvider() {
   override fun run(dataContext: DataContext, commandLine: CommandLine): Boolean {
     val workDirectory = dataContext.getData(CommonDataKeys.VIRTUAL_FILE) ?: return false
     val executor = dataContext.getData(RunAnythingAction.EXECUTOR_KEY) ?: return false
-    if (getSdk(dataContext)?.isTargetBased() == true) {
+    if (isTargetBased(dataContext)) {
       return false
     }
     PyRunAnythingCollector.logEvent(getLogCommandType())

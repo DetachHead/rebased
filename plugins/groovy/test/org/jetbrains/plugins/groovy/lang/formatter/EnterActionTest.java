@@ -23,8 +23,8 @@ import java.util.List;
 
 public class EnterActionTest extends GroovyFormatterTestCase {
   @Override
-  public final String getBasePath() {
-    return TestUtils.getTestDataPath() + "groovy/enterAction/";
+  public final String getTestDataPath() {
+    return TestUtils.getAbsoluteTestDataPath() + "groovy/enterAction/";
   }
 
   public void doTest() throws Throwable {

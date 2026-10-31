@@ -173,7 +173,7 @@ fun buildDecoratorDataclassStubAndMapping(
 }
 
 private fun parseDataclassParametersFromAST(cls: PyClass, context: TypeEvalContext?): Pair<PyDataclassStub, DataclassParameterArgumentMapping>? =
-  PyDataclassParametersProvider.EP_NAME.extensionList.firstNotNullOfOrNull { it.buildDataclassStub(cls, context) }
+  PyDataclassParametersProvider.EP_NAME.computeSafeIfAny { it.buildDataclassStub(cls, context) }
 
 /**
  * Combine immediate properties from a dataclass stub with those from its ancestors and other sources.
@@ -184,11 +184,10 @@ private fun resolveDataclassParameters(
   argumentMapping: DataclassParameterArgumentMapping?,
   context: TypeEvalContext,
 ): PyDataclassParameters? {
-  return PyDataclassParametersProvider.EP_NAME.extensionList
-    .firstNotNullOfOrNull {
-      val type = it.getType()
-      type.resolver?.resolveClassParameters(pyClass, stub, type, argumentMapping, context)
-    }
+  return PyDataclassParametersProvider.EP_NAME.computeSafeIfAny {
+    val type = it.getType()
+    type.resolver?.resolveClassParameters(pyClass, stub, type, argumentMapping, context)
+  }
 }
 
 fun resolveDataclassFieldParameters(

@@ -1,4 +1,4 @@
-// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.jetbrains.python.tools.sdkTools;
 
 import com.intellij.execution.ExecutionException;
@@ -7,7 +7,6 @@ import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.PathManager;
 import com.intellij.openapi.application.WriteAction;
 import com.intellij.openapi.module.Module;
-import com.intellij.openapi.progress.EmptyProgressIndicator;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.project.ProjectManager;
 import com.intellij.openapi.projectRoots.ProjectJdkTable;
@@ -17,14 +16,15 @@ import com.intellij.openapi.projectRoots.impl.SdkConfigurationUtil;
 import com.intellij.openapi.roots.OrderRootType;
 import com.intellij.openapi.util.Disposer;
 import com.intellij.openapi.util.Ref;
-import com.intellij.openapi.vfs.LocalFileSystem;
+import com.intellij.openapi.vfs.StandardFileSystems;
 import com.intellij.openapi.vfs.VirtualFile;
+import com.intellij.util.concurrency.annotations.RequiresBackgroundThread;
 import com.jetbrains.python.sdk.InvalidSdkException;
 import com.jetbrains.python.sdk.PySdkExtKt;
-import com.jetbrains.python.sdk.PyTargetsIntrospectionFacade;
 import com.jetbrains.python.sdk.PythonSdkType;
 import com.jetbrains.python.sdk.legacy.PythonSdkUtil;
 import com.jetbrains.python.sdk.skeletons.PySkeletonRefresher;
+import com.jetbrains.python.sdk.targetsFacade.PyTargetsIntrospectionFacade;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.junit.Assert;
@@ -101,9 +101,10 @@ public final class PySdkTools {
    * @param module       module to associate with (if provided)
    * @throws InvalidSdkException bas sdk
    */
-  public static void generateTempSkeletonsOrPackages(final @NotNull Sdk sdk,
-                                                     final boolean addSkeletons,
-                                                     final @Nullable Module module)
+  @RequiresBackgroundThread(generateAssertion = false)
+  static void generateTempSkeletonsOrPackages(final @NotNull Sdk sdk,
+                                              final boolean addSkeletons,
+                                              final @Nullable Module module)
     throws InvalidSdkException, ExecutionException {
     Project project = null;
 
@@ -120,7 +121,7 @@ public final class PySdkTools {
 
     final SdkModificator modificator = sdk.getSdkModificator();
 
-    for (final String path : new PyTargetsIntrospectionFacade(sdk, project).getInterpreterPaths(new EmptyProgressIndicator())) {
+    for (final String path : PyTargetsIntrospectionFacade.create(sdk, project).getInterpreterPaths()) {
       addTestSdkRoot(modificator, path);
     }
     if (!addSkeletons) {
@@ -155,7 +156,7 @@ public final class PySdkTools {
   }
 
   public static void addTestSdkRoot(@NotNull SdkModificator sdkModificator, @NotNull String path) {
-    final VirtualFile file = LocalFileSystem.getInstance().refreshAndFindFileByPath(path);
+    final VirtualFile file = StandardFileSystems.local().refreshAndFindFileByPath(path);
     if (file != null) {
       sdkModificator.addRoot(PythonSdkType.getSdkRootVirtualFile(file), OrderRootType.CLASSES);
     }

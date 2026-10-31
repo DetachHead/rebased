@@ -19,8 +19,8 @@ public class GroovyIdenticalBranchesInspectionTest extends GrHighlightingTestBas
   }
 
   @Override
-  public String getBasePath() {
-    return TestUtils.getTestDataPath() + "inspections/identicalBranches/";
+  public String getTestDataPath() {
+    return TestUtils.getAbsoluteTestDataPath() + "inspections/identicalBranches/";
   }
 
   @Override

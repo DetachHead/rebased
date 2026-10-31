@@ -1,13 +1,30 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.intellij.build
 
+import com.intellij.platform.buildScripts.pluginModelTool.discoverCommunityModuleSetSources
+import com.intellij.platform.buildScripts.pluginModelTool.parseGeneratorOptions
+import com.intellij.platform.buildScripts.pluginModelTool.parseJsonArgument
 import org.assertj.core.api.Assertions.assertThat
 import org.assertj.core.api.Assertions.assertThatThrownBy
-import org.jetbrains.intellij.build.productLayout.parseJsonArgument
+import org.jetbrains.intellij.build.productLayout.discovery.ModuleSetSourceLabels
 import org.junit.jupiter.api.Test
 import java.nio.file.Path
 
 class ModuleSetRunnerTest {
+  @Test
+  fun `community discovery includes the library module sets`() {
+    val sources = discoverCommunityModuleSetSources()
+    assertThat(sources.keys).containsExactlyInAnyOrder(ModuleSetSourceLabels.COMMUNITY, ModuleSetSourceLabels.CORE, ModuleSetSourceLabels.LIBRARIES)
+
+    val librarySource = sources.getValue(ModuleSetSourceLabels.LIBRARIES)
+    assertThat(librarySource.sourceFile).endsWith("/LibraryModuleSets.kt")
+    val libraries = librarySource.moduleSets.single { it.name == "libraries.platform" }
+    assertThat(libraries.modules.map { it.moduleId.name }).contains("intellij.libraries.guava")
+
+    val moduleSetNames = sources.values.flatMap { source -> source.moduleSets.map { it.name } }
+    assertThat(moduleSetNames).doesNotHaveDuplicates()
+  }
+
   @Test
   fun `plain json argument requests full export`() {
     assertThat(parseJsonArgument("--json")).isNull()
@@ -61,5 +78,48 @@ class ModuleSetRunnerTest {
     val filter = parseJsonArgument("""--json={"filter":"summary","operation":"old-mcp-shape","ignored":true}""")
 
     assertThat(filter?.filter).isEqualTo("summary")
+  }
+
+  @Test
+  fun `a run without the trace argument writes no trace`() {
+    assertThat(parseGeneratorOptions(arrayOf("--check")).traceFile).isNull()
+  }
+
+  @Test
+  fun `the trace argument becomes an absolute path`() {
+    val options = parseGeneratorOptions(arrayOf("--check", "--trace=trace.json"))
+
+    assertThat(options.traceFile).isAbsolute()
+    assertThat(options.traceFile?.fileName).isEqualTo(Path.of("trace.json"))
+    assertThat(options.commitChanges).isFalse()
+  }
+
+  @Test
+  fun `an empty trace argument throws`() {
+    assertThatThrownBy { parseGeneratorOptions(arrayOf("--trace=")) }
+      .isInstanceOf(IllegalArgumentException::class.java)
+      .hasMessageContaining("--trace needs a file")
+  }
+
+  @Test
+  fun `a run without the unused inputs argument has no unused inputs file`() {
+    assertThat(parseGeneratorOptions(arrayOf("--check", "--trace=trace.json")).unusedInputsFile).isNull()
+  }
+
+  @Test
+  fun `the unused inputs argument becomes an absolute path`() {
+    val options = parseGeneratorOptions(arrayOf("--unused-inputs=out/unused.txt", "--trace=trace.json"))
+
+    assertThat(options.unusedInputsFile).isAbsolute()
+    assertThat(options.unusedInputsFile).endsWithRaw(Path.of("out", "unused.txt"))
+    assertThat(options.traceFile?.fileName).isEqualTo(Path.of("trace.json"))
+    assertThat(options.commitChanges).isTrue()
+  }
+
+  @Test
+  fun `an empty unused inputs argument throws`() {
+    assertThatThrownBy { parseGeneratorOptions(arrayOf("--unused-inputs=")) }
+      .isInstanceOf(IllegalArgumentException::class.java)
+      .hasMessageContaining("--unused-inputs needs a file")
   }
 }

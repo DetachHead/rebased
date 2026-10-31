@@ -1,18 +1,21 @@
-// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.jetbrains.python.sdk.add.v2.hatch
 
+import com.jetbrains.python.sdk.ModuleOrProject
 import com.intellij.openapi.module.Module
 import com.intellij.openapi.observable.properties.ObservableProperty
 import com.intellij.openapi.projectRoots.Sdk
 import com.intellij.openapi.roots.ModuleRootModificationUtil
 import com.intellij.openapi.ui.validation.DialogValidationRequestor
 import com.intellij.openapi.vfs.VfsUtilCore
-import com.intellij.platform.eel.provider.localEel
+import com.intellij.platform.eel.provider.getEelDescriptor
+import com.intellij.platform.eel.provider.toEelApi
 import com.intellij.platform.util.progress.withProgressText
 import com.intellij.python.hatch.HatchPyTool
-import com.intellij.python.pytools.PyTool
 import com.intellij.python.hatch.HatchVirtualEnvironment
 import com.intellij.python.hatch.getHatchService
+import com.intellij.python.pytools.backend.PyTool
+import com.intellij.python.sdk.backend.PythonInterpreter
 import com.intellij.ui.dsl.builder.Panel
 import com.jetbrains.python.PyBundle.message
 import com.jetbrains.python.Result
@@ -26,7 +29,7 @@ import com.jetbrains.python.sdk.add.v2.PythonMutableTargetAddInterpreterModel
 import com.jetbrains.python.sdk.add.v2.ToolValidator
 import com.jetbrains.python.sdk.add.v2.ValidatedPath
 import com.jetbrains.python.sdk.add.v2.getOrInstallBasePython
-import com.jetbrains.python.sdk.add.v2.persistCustomToolPath
+import com.jetbrains.python.sdk.add.v2.pathHolder
 import com.jetbrains.python.sdk.add.v2.toFileSystem
 import com.jetbrains.python.statistics.InterpreterType
 import kotlinx.coroutines.CoroutineScope
@@ -38,6 +41,7 @@ internal class HatchNewEnvironmentCreator<P : PathHolder>(
 ) : CustomNewEnvironmentCreator<P>(model, errorSink) {
   override val interpreterType: InterpreterType = InterpreterType.HATCH
   override val pyTool: PyTool = HatchPyTool.getInstance()
+  override val pyToolPresentableName: String = "Hatch"
   override val toolValidator: ToolValidator<P> = model.hatchViewModel.toolValidator
   private lateinit var hatchFormFields: HatchFormFields<P>
   override val toolExecutable: ObservableProperty<ValidatedPath.Executable<P>?> = model.hatchViewModel.hatchExecutable
@@ -61,15 +65,16 @@ internal class HatchNewEnvironmentCreator<P : PathHolder>(
     hatchFormFields.onShown(scope, model, isFilterOnlyExisting = false)
   }
 
-  override suspend fun createPythonModuleStructure(module: Module): PyResult<Unit> {
-    val hatchExecutablePath = when (val pathHolder = model.hatchViewModel.hatchExecutable.get()?.pathHolder) {
+  // `hatch new` initializes no repository, so the wizard's own initializer is left to act on `createGitRepository`.
+  override suspend fun createPythonModuleStructure(module: Module, createGitRepository: Boolean): PyResult<Unit> {
+    val hatchExecutablePath = when (val pathHolder = model.hatchViewModel.hatchExecutable.get()?.pathHolder?.successOrNull) {
       is PathHolder.Eel -> pathHolder.path
-      is PathHolder.Target -> return PyResult.localizedError(message("target.is.not.supported", pathHolder))
+      is PathHolder.Target -> return PyResult.localizedError(message("target.is.not.supported", pathHolder.toStringForUI()))
       null -> return Result.failure(HatchUIError.HatchExecutablePathIsNotValid(null))
     }
 
     val hatchService = module.getHatchService(
-      fileSystem = localEel.toFileSystem(),
+      fileSystem = hatchExecutablePath.getEelDescriptor().toEelApi().toFileSystem(),
       hatchExecutablePath = hatchExecutablePath,
     ).getOr { return it }
 
@@ -87,13 +92,13 @@ internal class HatchNewEnvironmentCreator<P : PathHolder>(
     return Result.success(Unit)
   }
 
-  override suspend fun setupEnvSdk(moduleBasePath: Path): PyResult<Sdk> {
+  override suspend fun setupEnvSdk(moduleOrProject: ModuleOrProject, moduleBasePath: Path): PyResult<PythonInterpreter> {
     val basePythonBinaryPath = model.getOrInstallBasePython()
                                ?: return Result.failure(HatchUIError.BasePythonExecutableIsNotAvailable())
 
     val hatchEnv = model.hatchViewModel.selectedEnvFromAvailable.get()?.hatchEnvironment
                    ?: return Result.failure(HatchUIError.HatchEnvironmentIsNotSelected())
-    val hatchExecutablePath = model.hatchViewModel.hatchExecutable.get()?.pathHolder
+    val hatchExecutablePath = model.hatchViewModel.hatchExecutable.get()?.pathHolder?.getOr { return it }
                               ?: return Result.failure(HatchUIError.HatchExecutablePathIsNotValid(null))
     val hatchService =
       moduleBasePath.getHatchService(fileSystem = model.fileSystem, hatchExecutablePath = hatchExecutablePath).getOr { return it }
@@ -107,6 +112,7 @@ internal class HatchNewEnvironmentCreator<P : PathHolder>(
 
     val hatchVirtualEnv = HatchVirtualEnvironment(hatchEnv, virtualEnvironment)
     return hatchVirtualEnv.createSdk(
+      moduleOrProject = moduleOrProject,
       workingDirectoryPath = hatchService.getWorkingDirectoryPath(),
       fileSystem = model.fileSystem,
       targetPanelExtension = model.state.targetPanelExtension.get(),

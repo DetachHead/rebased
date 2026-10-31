@@ -7,12 +7,10 @@ import com.intellij.application.options.colors.SchemesPanelFactory
 import com.intellij.application.options.editor.CheckboxDescriptor
 import com.intellij.application.options.editor.checkBox
 import com.intellij.ide.DataManager
-import com.intellij.ide.GeneralSettings
 import com.intellij.ide.IdeBundle.message
 import com.intellij.ide.ProjectWindowCustomizerService
 import com.intellij.ide.actions.IdeScaleTransformer
 import com.intellij.ide.actions.QuickChangeLookAndFeel
-import com.intellij.ide.isSupportScreenReadersOverridden
 import com.intellij.ide.plugins.PluginManagerConfigurable
 import com.intellij.ide.ui.laf.LafManagerImpl
 import com.intellij.ide.ui.search.OptionDescription
@@ -20,23 +18,12 @@ import com.intellij.internal.statistic.service.fus.collectors.IdeZoomEventFields
 import com.intellij.internal.statistic.service.fus.collectors.UIEventLogger.IdeZoomChanged
 import com.intellij.internal.statistic.service.fus.collectors.UIEventLogger.ThemeAutodetectSelector
 import com.intellij.openapi.actionSystem.ActionManager
-import com.intellij.openapi.application.ApplicationInfo
 import com.intellij.openapi.application.ApplicationManager
-import com.intellij.openapi.application.PathManager
-import com.intellij.openapi.application.impl.ApplicationInfoImpl.SIMPLIFIED_SPLASH_MARKER_FILE_NAME
-import com.intellij.openapi.application.impl.islands.IslandsFeedback
-import com.intellij.openapi.application.invokeLater
+import com.intellij.openapi.application.impl.islands.IslandsTheme
 import com.intellij.openapi.components.PersistentStateComponent
-import com.intellij.openapi.diagnostic.thisLogger
 import com.intellij.openapi.editor.EditorFactory
-import com.intellij.openapi.editor.PlatformEditorBundle
-import com.intellij.openapi.editor.colors.EditorColorsManager
 import com.intellij.openapi.editor.colors.EditorFontType
-import com.intellij.openapi.editor.colors.ex.DefaultColorSchemesManager
-import com.intellij.openapi.editor.colors.impl.EditorColorsManagerImpl
-import com.intellij.openapi.help.HelpManager
 import com.intellij.openapi.keymap.KeyMapBundle
-import com.intellij.openapi.keymap.KeymapUtil
 import com.intellij.openapi.observable.properties.AtomicBooleanProperty
 import com.intellij.openapi.observable.properties.PropertyGraph
 import com.intellij.openapi.observable.util.whenDisposed
@@ -56,8 +43,6 @@ import com.intellij.ui.CollectionComboBoxModel
 import com.intellij.ui.ExperimentalUI
 import com.intellij.ui.FontComboBox
 import com.intellij.ui.MacCustomAppIcon
-import com.intellij.ui.UIBundle
-import com.intellij.ui.components.ActionLink
 import com.intellij.ui.components.JBCheckBox
 import com.intellij.ui.dsl.builder.Align
 import com.intellij.ui.dsl.builder.BottomGap
@@ -78,7 +63,6 @@ import com.intellij.ui.dsl.builder.selected
 import com.intellij.ui.dsl.builder.showValueHint
 import com.intellij.ui.dsl.builder.toNullableProperty
 import com.intellij.ui.dsl.listCellRenderer.listCellRenderer
-import com.intellij.ui.dsl.listCellRenderer.textListCellRenderer
 import com.intellij.ui.layout.ComponentPredicate
 import com.intellij.ui.layout.and
 import com.intellij.ui.layout.not
@@ -93,24 +77,16 @@ import org.jetbrains.annotations.Nls
 import java.awt.Font
 import java.awt.RenderingHints
 import java.awt.Window
-import java.awt.event.InputEvent
-import java.awt.event.KeyEvent
-import java.nio.file.Path
 import javax.swing.ComboBoxModel
 import javax.swing.DefaultComboBoxModel
 import javax.swing.JComponent
 import javax.swing.JLabel
-import javax.swing.KeyStroke
 import javax.swing.ListCellRenderer
 import javax.swing.event.ListDataEvent
 import javax.swing.event.ListDataListener
-import kotlin.io.path.deleteIfExists
-import kotlin.io.path.writeText
 
 private val settings: UISettings
   get() = UISettings.getInstance()
-private val generalSettings: GeneralSettings
-  get() = GeneralSettings.getInstance()
 private val lafManager: LafManager
   get() = LafManager.getInstance()
 
@@ -164,8 +140,6 @@ private val cdDnDWithAlt
   get() = CheckboxDescriptor(message("dnd.with.alt.pressed.only"), settings::dndWithPressedAltOnly, groupName = uiOptionGroupName)
 private val cdUseTransparentMode
   get() = CheckboxDescriptor(message("checkbox.use.transparent.mode.for.floating.windows"), settings.state::enableAlphaMode)
-private val cdUseContrastToolbars
-  get() = CheckboxDescriptor(message("checkbox.accessibility.contrast.scrollbars"), settings::useContrastScrollbars)
 private val cdFullPathsInTitleBar
   get() = CheckboxDescriptor(message("checkbox.full.paths.in.window.header"), settings::fullPathsInWindowHeader)
 private val cdShowMenuIcons
@@ -175,9 +149,6 @@ private val cdKeepPopupsForToggles
 private val cdDifferentiateProjects
   get() = CheckboxDescriptor(message("checkbox.use.solution.colors.in.main.toolbar"), settings::differentiateProjects,
                              message("text.use.solution.colors.in.main.toolbar"), groupName = uiOptionGroupName)
-
-private val cdUseSimplifiedSplashImage
-  get() = CheckboxDescriptor(message("checkbox.use.simplified.splash.image"), settings::useSimplifiedSplashImage)
 
 internal fun getAppearanceOptionDescriptors(): Sequence<OptionDescription> {
   return sequenceOf(
@@ -202,17 +173,16 @@ internal fun getAppearanceOptionDescriptors(): Sequence<OptionDescription> {
 internal class AppearanceConfigurable : BoundSearchableConfigurable(message("title.appearance"), "preferences.lookFeel"), BackedByPersistentState {
   @Internal
   override fun getBackingComponents(): Collection<PersistentStateComponent<*>> =
-    listOf(UISettings.getInstance(), GeneralSettings.getInstance())
+    listOf(UISettings.getInstance())
 
   private val propertyGraph = PropertyGraph()
   private val lafProperty = propertyGraph.lazyProperty { lafManager.lookAndFeelReference }
   private val syncThemeProperty = propertyGraph.lazyProperty { lafManager.autodetect }
-  private val islandLafProperty = propertyGraph.lazyProperty { IslandsFeedback.isIslandTheme() }
-  private val simplifiedSplashMarkerFile: Path by lazy { PathManager.getConfigDir().resolve(SIMPLIFIED_SPLASH_MARKER_FILE_NAME) }
+  private val islandLafProperty = propertyGraph.lazyProperty { IslandsTheme.isIslandTheme() }
 
   override fun createPanel(): DialogPanel {
     lafProperty.afterChange(disposable!!) {
-      islandLafProperty.set(IslandsFeedback.isIslandTheme(it.themeId))
+      islandLafProperty.set(IslandsTheme.isIslandTheme(it.themeId))
       ApplicationManager.getApplication().invokeLater {
         QuickChangeLookAndFeel.switchLafAndUpdateUI(lafManager, lafManager.findLaf(it.themeId), true)
         LafManager.getInstance().checkRestart()
@@ -294,155 +264,48 @@ internal class AppearanceConfigurable : BoundSearchableConfigurable(message("tit
         }
       }
 
-      group(message("title.accessibility")) {
-        row(message("combobox.ide.scale.percent")) {
-          val defaultScale = UISettingsUtils.defaultScale(false)
-          lateinit var resetZoom: Cell<ActionLink>
+      row {
+        lateinit var resetCustomFont: (() -> Unit)
 
-          val model = IdeScaleTransformer.Settings.createIdeScaleComboboxModel()
-          comboBox(model)
-            .bindItem({ settings.ideScale.percentStringValue }, { })
-            .onChanged {
-              if (IdeScaleTransformer.Settings.validatePercentScaleInput(it.item, false) != null) return@onChanged
-
-              IdeScaleTransformer.Settings.scaleFromPercentStringValue(it.item, false)?.let { scale ->
-                logIdeZoomChanged(scale, false)
-                resetZoom.visible(scale.percentValue != defaultScale.percentValue)
-                settings.ideScale = scale
-                invokeLater {
-                  // Invoke later to avoid NPE in JComboBox.repaint()
-                  settings.fireUISettingsChanged()
-                }
+        val useCustomCheckbox = checkBox(message("checkbox.override.default.laf.fonts"))
+          .gap(RightGap.SMALL)
+          .bindSelected(settings::overrideLafFonts) {
+            NotRoamableUiSettings.getInstance().overrideLafFonts = it
+            if (!it) {
+              getDefaultFont().let { defaultFont ->
+                settings.fontFace = defaultFont.family
+                settings.fontSize = defaultFont.size
               }
             }
-            .applyToComponent {
-              isEditable = true
-            }
-            .commentRight(getScaleComment())
-            .validationOnInput {
-              IdeScaleTransformer.Settings.validatePercentScaleInput(this, it, false)
-            }
-            .gap(RightGap.SMALL)
-
-          resetZoom = link(message("ide.scale.reset.link")) {
-            model.selectedItem = defaultScale.percentStringValue
-          }.apply { visible(settings.ideScale.percentValue != defaultScale.percentValue) }
-        }
-
-        row {
-          lateinit var resetCustomFont: (() -> Unit)
-
-          val useCustomCheckbox = checkBox(message("checkbox.override.default.laf.fonts"))
-            .gap(RightGap.SMALL)
-            .bindSelected(settings::overrideLafFonts) {
-              NotRoamableUiSettings.getInstance().overrideLafFonts = it
-              if (!it) {
-                getDefaultFont().let { defaultFont ->
-                  settings.fontFace = defaultFont.family
-                  settings.fontSize = defaultFont.size
-                }
-              }
-            }
-            .onChanged { checkbox ->
-              if (!checkbox.isSelected) resetCustomFont.invoke()
-            }
-
-          val fontFace = cell(FontComboBox())
-            .bind({ it.fontName }, { it, value -> it.fontName = value },
-                  MutableProperty({ if (settings.overrideLafFonts) getFontFamily(settings.fontFace) else getDefaultFont().family },
-                                  { settings.fontFace = it }))
-            .enabledIf(useCustomCheckbox.selected)
-            .accessibleName(message("label.font.name"))
-            .component
-
-          val fontSize = fontSizeComboBox({ if (settings.overrideLafFonts) settings.fontSize else getDefaultFont().size },
-                                          { settings.fontSize = it },
-                                          settings.fontSize)
-            .label(message("label.font.size"))
-            .enabledIf(useCustomCheckbox.selected)
-            .accessibleName(message("label.font.size"))
-            .component
-
-          resetCustomFont = {
-            val defaultFont = getDefaultFont()
-            fontFace.fontName = defaultFont.family
-            val fontSizeValue = defaultFont.size.toString()
-            fontSize.selectedItem = fontSizeValue
-            fontSize.editor.item = fontSizeValue
           }
-        }.topGap(TopGap.SMALL)
-
-        row {
-          val isOverridden = isSupportScreenReadersOverridden()
-          val ctrlTab = KeymapUtil.getKeystrokeText(KeyStroke.getKeyStroke(KeyEvent.VK_TAB, InputEvent.CTRL_DOWN_MASK))
-          val ctrlShiftTab = KeymapUtil.getKeystrokeText(
-            KeyStroke.getKeyStroke(KeyEvent.VK_TAB, InputEvent.CTRL_DOWN_MASK + InputEvent.SHIFT_DOWN_MASK))
-          checkBox(message("checkbox.support.screen.readers"))
-            .bindSelected(generalSettings::isSupportScreenReaders) { generalSettings.isSupportScreenReaders = it }
-            .comment(message("support.screen.readers.tab", ctrlTab, ctrlShiftTab))
-            .commentRight(if (isOverridden) message("overridden.by.jvm.property", GeneralSettings.SUPPORT_SCREEN_READERS)
-                          else message("ide.restart.required.comment"))
-            .enabled(!isOverridden)
-        }
-
-        row {
-          checkBox(cdUseContrastToolbars)
-        }
-
-        val supportedValues = ColorBlindness.entries.filter { ColorBlindnessSupport.get(it) != null }
-        if (supportedValues.isNotEmpty()) {
-          val colorBlindnessProperty = MutableProperty({ settings.colorBlindness }, { settings.colorBlindness = it })
-          val onApply = {
-            // callback executed not when all changes are applied, but one component by one, so, reload later when everything was applied
-            ApplicationManager.getApplication().invokeLater(Runnable {
-              DefaultColorSchemesManager.getInstance().reload()
-              (EditorColorsManager.getInstance() as EditorColorsManagerImpl).schemeChangedOrSwitched(null)
-            })
+          .onChanged { checkbox ->
+            if (!checkbox.isSelected) resetCustomFont.invoke()
           }
 
-          row {
-            if (supportedValues.size == 1) {
-              checkBox(UIBundle.message("color.blindness.checkbox.text"))
-                .comment(UIBundle.message("color.blindness.checkbox.comment"))
-                .bind({ if (it.isSelected) supportedValues.first() else null },
-                      { it, value -> it.isSelected = value != null },
-                      colorBlindnessProperty)
-                .onApply(onApply)
-            }
-            else {
-              val enableColorBlindness = checkBox(UIBundle.message("color.blindness.combobox.text"))
-                .selected(colorBlindnessProperty.get() != null)
-              comboBox(supportedValues, renderer = textListCellRenderer("") { PlatformEditorBundle.message(it.key) })
-                .enabledIf(enableColorBlindness.selected)
-                .comment(UIBundle.message("color.blindness.combobox.comment"))
-                .bind({ if (enableColorBlindness.component.isSelected) it.selectedItem as? ColorBlindness else null },
-                      { it, value -> it.selectedItem = value ?: supportedValues.first() },
-                      colorBlindnessProperty)
-                .onApply(onApply)
-                .accessibleName(UIBundle.message("color.blindness.checkbox.text"))
-            }
+        val fontFace = cell(FontComboBox())
+          .bind({ it.fontName }, { it, value -> it.fontName = value },
+                MutableProperty({ if (settings.overrideLafFonts) getFontFamily(settings.fontFace) else getDefaultFont().family },
+                                { settings.fontFace = it }))
+          .enabledIf(useCustomCheckbox.selected)
+          .accessibleName(message("label.font.name"))
+          .component
 
-            link(UIBundle.message("color.blindness.link.to.help")) {
-              HelpManager.getInstance().invokeHelp("Colorblind_Settings")
-            }.applyToComponent {
-              setExternalLinkIcon()
-            }
-          }
-        }
+        val fontSize = fontSizeComboBox({ if (settings.overrideLafFonts) settings.fontSize else getDefaultFont().size },
+                                        { settings.fontSize = it },
+                                        settings.fontSize)
+          .label(message("label.font.size"))
+          .enabledIf(useCustomCheckbox.selected)
+          .accessibleName(message("label.font.size"))
+          .component
 
-        row {
-          checkBox(cdUseSimplifiedSplashImage)
-            .visible(ApplicationInfo.getInstance().isSimplifiedSplashSupported)
-            .onApply {
-              runCatching {
-                if (settings.useSimplifiedSplashImage) simplifiedSplashMarkerFile.writeText("")
-                else simplifiedSplashMarkerFile.deleteIfExists()
-              }.onFailure {
-                thisLogger().warn("Failed to update marker file for simplified splash image", it)
-              }
-            }
+        resetCustomFont = {
+          val defaultFont = getDefaultFont()
+          fontFace.fontName = defaultFont.family
+          val fontSizeValue = defaultFont.size.toString()
+          fontSize.selectedItem = fontSizeValue
+          fontSize.editor.item = fontSizeValue
         }
-      }
+      }.topGap(TopGap.SMALL)
 
       groupRowsRange(message("group.ui.options")) {
         val leftColumnControls = sequence<Row.() -> Unit> {
@@ -564,14 +427,10 @@ internal class AppearanceConfigurable : BoundSearchableConfigurable(message("tit
           {
             panel {
               row {
-                checkBox(cdShowToolWindowBars).apply {
-                  enabled(!NotRoamableUiSettings.getInstance().xNextStripe)
-                  if (NotRoamableUiSettings.getInstance().xNextStripe) {
-                    comment(message("xnext.comment.unavailable"))
+                checkBox(cdShowToolWindowBars)
+                  .onChanged { cb ->
+                    findDiagramPanel(cb)?.showToolWindowBars = cb.isSelected
                   }
-                }.onChanged { cb ->
-                  findDiagramPanel(cb)?.showToolWindowBars = cb.isSelected
-                }
               }
               if (ExperimentalUI.isNewUI()) {
                 val extension = ToolWindowStripeExtension.getInstance()
@@ -721,7 +580,6 @@ internal class AppearanceConfigurable : BoundSearchableConfigurable(message("tit
   }
 
   override fun apply() {
-    val oldIsSupportScreenReaders = generalSettings.isSupportScreenReaders
     val oldMainMenuDisplayMode = settings.mainMenuDisplayMode
     val oldMergeMainMenuWithWindowTitle = settings.mergeMainMenuWithWindowTitle
 
@@ -732,24 +590,11 @@ internal class AppearanceConfigurable : BoundSearchableConfigurable(message("tit
       EditorFactory.getInstance().refreshAllEditors()
     }
 
-    if (oldIsSupportScreenReaders != generalSettings.isSupportScreenReaders ||
-        (!SystemInfo.isWindows && oldMainMenuDisplayMode != settings.mainMenuDisplayMode && listOf(oldMainMenuDisplayMode,  settings.mainMenuDisplayMode).contains(MainMenuDisplayMode.SEPARATE_TOOLBAR)) ||
+    if (!SystemInfo.isWindows && oldMainMenuDisplayMode != settings.mainMenuDisplayMode && listOf(oldMainMenuDisplayMode,  settings.mainMenuDisplayMode).contains(MainMenuDisplayMode.SEPARATE_TOOLBAR) ||
         oldMergeMainMenuWithWindowTitle != settings.mergeMainMenuWithWindowTitle) {
       ApplicationManager.getApplication().invokeLater { RestartDialogImpl.showRestartRequired() }
     }
   }
-}
-
-private fun getScaleComment(): @Nls String? {
-  val zoomInString = KeymapUtil.getShortcutTextOrNull("ZoomInIdeAction")
-  val zoomOutString = KeymapUtil.getShortcutTextOrNull("ZoomOutIdeAction")
-  val resetScaleString = KeymapUtil.getShortcutTextOrNull("ResetIdeScaleAction")
-
-  if (zoomInString != null && zoomOutString != null && resetScaleString != null) {
-    return message("combobox.ide.scale.comment.format", zoomInString, zoomOutString, resetScaleString)
-  }
-
-  return null
 }
 
 private fun getFontFamily(fontFace: String?): String {
@@ -813,7 +658,7 @@ private fun createAAListCellRenderer(myUseEditorFont: Boolean): ListCellRenderer
   }
 }
 
-private fun logIdeZoomChanged(value: Float, isPresentation: Boolean) {
+internal fun logIdeZoomChanged(value: Float, isPresentation: Boolean) {
   val oldScale = if (isPresentation) settings.presentationModeIdeScale else settings.ideScale
 
   IdeZoomChanged.log(
@@ -908,7 +753,7 @@ class LafComboBoxModelWrapper(private val lafComboBoxModelProvider: () -> Collec
       if (settings == null) {
         ShowSettingsUtil.getInstance().showSettingsDialog(ProjectManager.getInstance().defaultProject,
                                                           PluginManagerConfigurable::class.java) { c: PluginManagerConfigurable ->
-          c.enableSearch(themeTag)
+          c.navigateToMarketplace(themeTag)
         }
       }
       else {

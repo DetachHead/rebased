@@ -13,7 +13,6 @@ import com.intellij.openapi.fileChooser.PathChooserDialog
 import com.intellij.openapi.help.HelpManager
 import com.intellij.openapi.options.BackedByPersistentState
 import com.intellij.openapi.options.BoundCompositeSearchableConfigurable
-import com.intellij.openapi.options.Configurable
 import com.intellij.openapi.options.SearchableConfigurable
 import com.intellij.openapi.options.ex.ConfigurableWrapper
 import com.intellij.openapi.project.Project
@@ -95,8 +94,7 @@ internal val allOptionDescriptors: List<BooleanOptionDescription>
 internal class GeneralSettingsConfigurable(private val project: Project) :
   BoundCompositeSearchableConfigurable<SearchableConfigurable>(IdeBundle.message("title.general"), "preferences.general"),
   SearchableConfigurable,
-  BackedByPersistentState,
-  Configurable.NewOptions
+  BackedByPersistentState
 {
   @ApiStatus.Internal
   override fun getBackingComponents(): Collection<PersistentStateComponent<*>> =
@@ -120,13 +118,17 @@ internal class GeneralSettingsConfigurable(private val project: Project) :
         }
       }.bind(model::processCloseConfirmation) { model.processCloseConfirmation = it }
 
+      val projectLifecycle = ProjectLifecycleUiCustomization.getInstance()
+      val showReopenLastProject = projectLifecycle.reopenProjectsOnStartupMode == ReopenProjectsOnStartupMode.USER_CONTROLLABLE
+      val showOpenProjectInWindow = !projectLifecycle.alwaysOpenProjectInNewWindow
+      val showDefaultProjectDirectory = isDefaultProjectDirectoryRowVisible()
       group(IdeUICustomization.getInstance().projectMessage("tab.title.project")) {
-        if (ProjectLifecycleUiCustomization.getInstance().reopenProjectsOnStartupMode == ReopenProjectsOnStartupMode.USER_CONTROLLABLE) {
+        if (showReopenLastProject) {
           row {
             checkBox(myChkReopenLastProject)
           }
         }
-        if (!ProjectLifecycleUiCustomization.getInstance().alwaysOpenProjectInNewWindow) {
+        if (showOpenProjectInWindow) {
           buttonsGroup {
             row(IdeUICustomization.getInstance().projectMessage("label.open.project.in")) {
               radioButton(IdeUICustomization.getInstance().projectMessage("radio.button.open.project.in.the.new.window"),
@@ -139,7 +141,7 @@ internal class GeneralSettingsConfigurable(private val project: Project) :
           }.bind(getter = {  model.confirmOpenNewProject2 ?: GeneralSettings.defaultConfirmNewProject()  }, setter = { model.confirmOpenNewProject2 = it })
         }
 
-        if (isDefaultProjectDirectoryRowVisible()) {
+        if (showDefaultProjectDirectory) {
           row(IdeUICustomization.getInstance().projectMessage("settings.general.default.directory")) {
             textFieldWithBrowseButton(project = project, fileChooserDescriptor = FileChooserDescriptorFactory.createSingleFolderDescriptor()
                                         .also { it.putUserData(PathChooserDialog.PREFER_LAST_OVER_EXPLICIT, false) })
@@ -159,9 +161,8 @@ internal class GeneralSettingsConfigurable(private val project: Project) :
           checkBox(myChkIndexing)
             .contextHelp(message("tooltip.indexing", productName))
           icon(Badge.rebasedSetting)
-          icon(Badge.new)
         }
-      }
+      }.visible(showReopenLastProject || showOpenProjectInWindow || showDefaultProjectDirectory)
 
       group(IdeBundle.message("settings.general.files")) {
         if (TrashBin.isSupported()) {

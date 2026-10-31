@@ -11,6 +11,10 @@ jps_test(
 )
 ### skip generation section `test intellij.python.pyproject.tests`
 
+### auto-generated section `dev intellij.python.pyproject` start
+content_module_jar(module = ":pyproject")
+### auto-generated section `dev intellij.python.pyproject` end
+
 ### auto-generated section `build intellij.python.pyproject` start
 create_kotlinc_options(
     name = "custom_pyproject",
@@ -43,10 +47,10 @@ jvm_library(
         # do not sort,
         "@lib//:kotlin-stdlib",
         "//python/openapi:community",
-        "//python/python-psi-impl:psi-impl",
         "//platform/core-api:core",
         "//python/python-sdk/backend",
         "//platform/util",
+        "//platform/util/coroutines",
         "//plugins/toml/core",
         "//libraries/tuweni/toml",
         "//platform/external-system-api:externalSystem",
@@ -54,7 +58,6 @@ jvm_library(
         "//platform/progress/shared:ide-progress",
         "//platform/backend/workspace",
         "//platform/workspace/storage",
-        "//platform/external-system-impl:externalSystem-impl",
         "//platform/platform-impl:ide-impl",
         "//platform/workspace/jps",
         "//platform/projectModel-impl",
@@ -71,10 +74,10 @@ jvm_library(
         "//jps/model-api:model",
         "//platform/util:util-ui",
         "//python/python-requirements/backend",
+        "//python/python-sdk/common",
+        "//python/python-external-index:externalIndex",
     ],
 )
-
-content_module_jar(module = ":pyproject")
 
 jvm_library(
     name = "pyproject_test_lib",
@@ -95,10 +98,10 @@ jvm_library(
         # do not sort,
         ":pyproject",
         "//python/openapi:community_test_lib",
-        "//python/python-psi-impl:psi-impl_test_lib",
         "//platform/core-api:core_test_lib",
         "//python/python-sdk/backend:backend_test_lib",
         "//platform/util:util_test_lib",
+        "//platform/util/coroutines:coroutines_test_lib",
         "//plugins/toml/core:core_test_lib",
         "//libraries/tuweni/toml:toml_test_lib",
         "//platform/external-system-api:externalSystem_test_lib",
@@ -106,7 +109,6 @@ jvm_library(
         "//platform/progress/shared:ide-progress_test_lib",
         "//platform/backend/workspace:workspace_test_lib",
         "//platform/workspace/storage:storage_test_lib",
-        "//platform/external-system-impl:externalSystem-impl_test_lib",
         "//platform/platform-impl:ide-impl_test_lib",
         "//platform/workspace/jps:jps_test_lib",
         "//platform/projectModel-impl:projectModel-impl_test_lib",
@@ -123,6 +125,8 @@ jvm_library(
         "//jps/model-api:model_test_lib",
         "//platform/util:util-ui_test_lib",
         "//python/python-requirements/backend:backend_test_lib",
+        "//python/python-sdk/common:common_test_lib",
+        "//python/python-external-index:externalIndex_test_lib",
     ],
 )
 ### auto-generated section `build intellij.python.pyproject` end
@@ -152,6 +156,7 @@ jvm_library(
     ),
     module_name = "intellij.python.pyproject.tests",
     visibility = ["//visibility:public"],
+    runtime_deps = ["//xml/plugin"],
 )
 
 jvm_library(
@@ -181,6 +186,7 @@ jvm_library(
         "//platform/ide-core:ide-core_test_lib",
         "//platform/progress/shared:ide-progress_test_lib",
         "//platform/platform-impl:ide-impl_test_lib",
+        "//xml/plugin:plugin_test_lib",
     ],
     deps = [
         # do not sort,
@@ -195,6 +201,10 @@ jvm_library(
         "//python/python-psi-impl:psi-impl_test_lib",
         "//platform/core-api:core",
         "//platform/core-api:core_test_lib",
+        "//platform/core-impl",
+        "//platform/core-impl:core-impl_test_lib",
+        "//platform/analysis-api:analysis",
+        "//platform/analysis-api:analysis_test_lib",
         "//python/python-sdk/backend",
         "//python/python-sdk/backend:backend_test_lib",
         "//platform/util",
@@ -203,10 +213,10 @@ jvm_library(
         "//platform/util-ex:util-ex_test_lib",
         "//plugins/toml/core",
         "//plugins/toml/core:core_test_lib",
-        "//libraries/junit5",
-        "//libraries/junit5:junit5_test_lib",
-        "//libraries/junit5-params",
-        "//libraries/junit5-params:junit5-params_test_lib",
+        "//libraries/junit6",
+        "//libraries/junit6:junit6_test_lib",
+        "//libraries/junit6-params",
+        "//libraries/junit6-params:junit6-params_test_lib",
         "//platform/external-system-api:externalSystem",
         "//platform/external-system-api:externalSystem_test_lib",
         "//platform/ide-core",
@@ -215,8 +225,6 @@ jvm_library(
         "//platform/backend/workspace:workspace_test_lib",
         "//platform/workspace/storage",
         "//platform/workspace/storage:storage_test_lib",
-        "//platform/external-system-impl:externalSystem-impl",
-        "//platform/external-system-impl:externalSystem-impl_test_lib",
         "//platform/platform-impl:ide-impl",
         "//platform/workspace/jps",
         "//platform/workspace/jps:jps_test_lib",
@@ -240,6 +248,8 @@ jvm_library(
         "//python/junit5Tests-framework:community-junit5Tests-framework_test_lib",
         "//platform/testFramework",
         "//platform/testFramework:testFramework_test_lib",
+        "//tools/intellij.tools.ide.metrics.benchmark:ide-metrics-benchmark",
+        "//tools/intellij.tools.ide.metrics.benchmark:ide-metrics-benchmark_test_lib",
         "//platform/statistics",
         "//platform/statistics:statistics_test_lib",
         "//platform/indexing-api:indexing",

@@ -1,0 +1,37 @@
+# BT, the Cargo workspace in this directory. `community/MODULE.bazel` reads `Cargo.toml`, `Cargo.lock` and
+# `.cargo/config.toml` of this package to generate `@bt`. `defs.bzl` declares each crate.
+# The crate map is `README.md`.
+
+load("//build/rust-tools:defs.bzl", "optimized_binary", "rust_lints_as_errors", "windows_clippy_tests")
+
+# The lint policy of every crate: `[workspace.lints]` of `Cargo.toml` as `@bt` renders it, with every clippy warning
+# an error. `bt_rust_crate` passes it to each target.
+rust_lints_as_errors(
+    name = "lints",
+    cargo = "@bt//:workspace_cargo_lints",
+    visibility = ["//visibility:public"],
+)
+
+# The cargo workspace, which `community/MODULE.bazel` reads.
+exports_files([
+    ".cargo/config.toml",
+    "Cargo.lock",
+    "Cargo.toml",
+])
+
+# `bt`, one file, always optimized. `community/tools/bt.cmd` runs it: `//tools/bt:bt` from a community root and
+# `@community//tools/bt:bt` from an ultimate root.
+optimized_binary(
+    name = "bt",
+    binary = "//tools/bt/bins/bt",
+    visibility = ["//visibility:public"],
+)
+
+# Compile checks and Windows clippy. `:bt-windows-x86_64` and `:bt-windows-arm64` are `bt` built for each Windows
+# host by hand (`manual`), so a macOS or Linux host checks that it builds. `:clippy-windows-x86_64` and
+# `:clippy-windows-arm64` lint the `cfg(windows)` code a Unix host never compiles. Like every clippy test of this
+# workspace they run from the community root only.
+windows_clippy_tests(
+    compile_checks = {"bt": "//tools/bt/bins/bt"},
+    targets = ["//tools/bt/bins/bt"],
+)

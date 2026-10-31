@@ -12,7 +12,7 @@ import com.intellij.ide.plugins.marketplace.PluginSearchResult
 import com.intellij.ide.plugins.marketplace.SetEnabledStateResult
 import com.intellij.ide.plugins.newui.PluginInstallationState
 import com.intellij.openapi.extensions.PluginId
-import com.intellij.openapi.updateSettings.impl.PluginUpdateSourceId
+import com.intellij.openapi.updateSettings.impl.PluginUpdateSource
 import com.intellij.platform.project.ProjectId
 import com.intellij.platform.rpc.RemoteApiProviderService
 import fleet.rpc.RemoteApi
@@ -23,6 +23,7 @@ import org.jetbrains.annotations.ApiStatus
 @Rpc
 @ApiStatus.Internal
 interface PluginManagerApi : RemoteApi<Unit> {
+  suspend fun getPluginInventory(): PluginInventoryDto
   suspend fun getPlugins(): List<PluginDto>
   suspend fun getPluginById(pluginId: PluginId): PluginDto?
   suspend fun getVisiblePlugins(showImplementationDetails: Boolean): List<PluginDto>
@@ -36,6 +37,7 @@ interface PluginManagerApi : RemoteApi<Unit> {
   suspend fun loadPluginReviews(pluginId: PluginId, page: Int): List<PluginReviewComment>?
   suspend fun loadPluginMetadata(externalPluginId: String): IntellijPluginMetadata?
   suspend fun getAllPluginsTags(): Set<String>
+  suspend fun getMarketplaceTagCounts(): Map<String, Int>
   suspend fun getAllVendors(): Set<String>
   suspend fun updateDescriptorsForInstalledPlugins()
   suspend fun closeSession(sessionId: String)
@@ -48,6 +50,8 @@ interface PluginManagerApi : RemoteApi<Unit> {
   suspend fun hasPluginRequiresUltimateButItsDisabled(ids: List<PluginId>): Boolean
   suspend fun enableRequiredPlugins(sessionId: String, pluginId: PluginId): Set<PluginId>
   suspend fun getCustomRepositoryPluginMap(): Map<String, List<PluginDto>>
+  suspend fun getCustomPluginRepositoryIds(): List<String>
+  suspend fun loadCustomPluginRepository(repositoryId: String): CustomPluginRepositoryLoadResultDto
   suspend fun isDisabledInDiff(sessionId: String, pluginId: PluginId): Boolean
   suspend fun isPluginInstalled(pluginId: PluginId): Boolean
   suspend fun getPluginsRequiresUltimateMap(pluginIds: List<PluginId>): Map<PluginId, Boolean>
@@ -65,10 +69,13 @@ interface PluginManagerApi : RemoteApi<Unit> {
   suspend fun getCustomRepoTags(): Set<String>
   suspend fun updateCustomRepositories(addedRepositoryUrls: List<String>, removedRepositoryUrls: List<String>, ): List<String>
   suspend fun setPluginsAutoUpdateEnabled(enabled: Boolean)
-  suspend fun getPluginUpdateSource(sessionId: String, pluginId: PluginId): PluginUpdateSourceId?
-  suspend fun setPendingPluginUpdateSourceInSession(sessionId: String, pluginId: PluginId, pluginUpdateSource: PluginUpdateSourceId?)
-  suspend fun persistPluginUpdateSource(sessionId: String, pluginId: PluginId, pluginUpdateSource: PluginUpdateSourceId?)
+  suspend fun getPendingPluginUpdateSource(sessionId: String, pluginId: PluginId): PluginUpdateSource?
+  suspend fun getPendingPluginUpdateSources(sessionId: String, pluginIds: List<PluginId>): Map<PluginId, PluginUpdateSource>
+  suspend fun setPendingPluginUpdateSourceInSession(sessionId: String, pluginId: PluginId, pluginUpdateSource: PluginUpdateSource?)
+  suspend fun persistPluginUpdateSource(sessionId: String, pluginId: PluginId, pluginUpdateSource: PluginUpdateSource?)
   suspend fun isPluginUpdateSourceVisibleInUI(): Boolean
+  suspend fun isMissingUpdateSourceWarningEnabled(): Boolean
+  suspend fun getAllPluginUpdateSources(): List<PluginUpdateSource>
 
   companion object {
     suspend fun getInstance(): PluginManagerApi {

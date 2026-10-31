@@ -10,6 +10,10 @@ jps_test(
 )
 ### skip generation section `test intellij.platform.configurationStore.tests`
 
+### auto-generated section `dev intellij.platform.configurationStore.impl` start
+content_module_jar(module = ":configurationStore-impl")
+### auto-generated section `dev intellij.platform.configurationStore.impl` end
+
 ### auto-generated section `build intellij.platform.configurationStore.impl` start
 jvm_library(
     name = "configurationStore-impl",
@@ -74,8 +78,6 @@ jvm_library(
     ],
 )
 
-content_module_jar(module = ":configurationStore-impl")
-
 jvm_library(
     name = "configurationStore-impl_test_lib",
     testonly = True,
@@ -139,7 +141,6 @@ exports_files(
         "intellij.platform.configurationStore.impl.iml",
         "resources/intellij.platform.configurationStore.impl.actions.xml",
         "resources/intellij.platform.configurationStore.impl.xml",
-        "module-content.yaml",
     ],
     visibility = ["//visibility:public"],
 )
@@ -208,6 +209,8 @@ jvm_library(
         "//platform/testFramework/extensions:testExtensions_test_lib",
         "//platform/testFramework",
         "//platform/testFramework:testFramework_test_lib",
+        "//platform/backend/observation",
+        "//platform/backend/observation:observation_test_lib",
         "//platform/object-serializer",
         "//platform/object-serializer:object-serializer_test_lib",
         "//platform/service-container",
@@ -254,8 +257,16 @@ jvm_library(
         "//platform/vcs/plugin:plugin_test_lib",
         "//libraries/junit4",
         "//libraries/junit4:junit4_test_lib",
-        "//libraries/junit5",
-        "//libraries/junit5:junit5_test_lib",
+        "//libraries/junit6",
+        "//libraries/junit6:junit6_test_lib",
+        "//platform/structure-view-impl/plugin",
+        "//platform/structure-view-impl/plugin:plugin_test_lib",
+        "//xml/plugin",
+        "//xml/plugin:plugin_test_lib",
+        "//aether-dependency-resolver/plugin",
+        "//aether-dependency-resolver/plugin:plugin_test_lib",
+        "//platform/testRunner/plugin",
+        "//platform/testRunner/plugin:plugin_test_lib",
     ],
 )
 ### auto-generated section `build intellij.platform.configurationStore.tests` end

@@ -24,20 +24,24 @@ enum class ABExperimentOption {
   FUZZY_FILE_SEARCH,
   SHOW_TRIAL_SURVEY,
   NEW_USERS_ONBOARDING,
-  //SPLIT_SEARCH_EVERYWHERE,
   CLION_WIZARD_REMOVAL,
-  RIDER_REPO_VIEW,
 
   /**
    * A group for users which are not assigned to any experiment.
    */
   UNASSIGNED;
 
-  fun isEnabled(): Boolean {
+  fun isEnabled(): Boolean = isEnabled(experimentsPartition, ::getCurrentUserDecision)
+
+  @VisibleForTesting
+  internal fun isEnabled(partition: List<ExperimentAssignment>, getUserDecision: () -> ABExperimentDecision): Boolean {
     require(this != UNASSIGNED) {
       "UNASSIGNED experiment option is not supposed to be used in the isEnabled() method"
     }
-    val decision = getCurrentUserDecision()
+    if (partition.none { it.experiment == this }) {
+      return false
+    }
+    val decision = getUserDecision()
     if (decision.option != UNASSIGNED) {
       ABExperimentCountCollector.logABExperimentOptionUsed(decision)
     }
@@ -66,15 +70,6 @@ val experimentsPartition: List<ExperimentAssignment> = listOf(
   //  controlBuckets = (128 until 256).toSet(),
   //  majorVersion = "2025.2"
   //),
-  //ExperimentAssignment(
-  //  experiment = ABExperimentOption.SPLIT_SEARCH_EVERYWHERE,
-  //  experimentBuckets = (0 until 256).toSet(),
-  //  controlBuckets = (256 until 512).toSet(),
-  //  majorVersion = "2026.1 EAP",
-  //  products = EnumSet.of(IntelliJPlatformProduct.IDEA,
-  //                        IntelliJPlatformProduct.PYCHARM,
-  //                        IntelliJPlatformProduct.RIDER),
-  //),
   ExperimentAssignment(
     experiment = ABExperimentOption.CLION_WIZARD_REMOVAL,
     experimentBuckets = (256 until 768).toSet(),
@@ -82,24 +77,13 @@ val experimentsPartition: List<ExperimentAssignment> = listOf(
     majorVersion = "2026.2",
     products = EnumSet.of(IntelliJPlatformProduct.CLION),
   ),
-  // Do NOT delete -- will be activated for 2026.2.2
-  //ExperimentAssignment(
-  //  experiment = ABExperimentOption.RIDER_REPO_VIEW,
-  //  experimentBuckets = (0 until 256).toSet(),
-  //  controlBuckets = (256 until 512).toSet(),
-  //  majorVersion = "2026.2.2",
-  //  products = EnumSet.of(IntelliJPlatformProduct.RIDER)
-  //)
   // the rest belongs to the "unassigned" experiment
 )
 
 /**
  * This method can be configured to allow options only in particular IDEs.
  */
-fun isAllowed(option: ABExperimentOption): Boolean = when (option) {
-  //ABExperimentOption.SPLIT_SEARCH_EVERYWHERE -> IdeProductMode.isMonolith
-  else -> true
-}
+fun isAllowed(option: ABExperimentOption): Boolean = true
 
 // ================= IMPLEMENTATION ====================
 

@@ -4,12 +4,12 @@ package com.intellij.openapi.editor.impl;
 import com.intellij.openapi.editor.RangeMarker;
 import com.intellij.openapi.editor.event.DocumentEvent;
 import com.intellij.openapi.editor.ex.DocumentEx;
+import com.intellij.openapi.editor.ex.DocumentOp;
 import com.intellij.openapi.editor.ex.DocumentSnapshot;
-import com.intellij.openapi.editor.ex.DocumentTextPatch;
+import com.intellij.openapi.editor.ex.DocumentText;
 import com.intellij.openapi.editor.ex.EditReadOnlyListener;
 import com.intellij.openapi.editor.ex.LineIterator;
 import com.intellij.openapi.editor.ex.RangeMarkerEx;
-import com.intellij.openapi.editor.impl.event.DocumentEventImpl;
 import com.intellij.openapi.util.Key;
 import com.intellij.openapi.util.TextRange;
 import com.intellij.util.Processor;
@@ -26,19 +26,11 @@ public class FrozenDocument implements DocumentEx {
   }
 
   public @NotNull FrozenDocument applyEvent(@NotNull DocumentEvent event, int newStamp) {
-    int originStartOffset = event instanceof DocumentEventImpl ? ((DocumentEventImpl)event).getInitialStartOffset() : event.getOffset();
-    int originOldLength = event instanceof DocumentEventImpl ? ((DocumentEventImpl)event).getInitialOldLength() : event.getOldLength();
-    DocumentSnapshot newSnapshot = mySnapshot.applyOp(DocumentTextPatch.complex(
-      event.getOffset(),
-      event.getOffset() + event.getOldLength(),
-      event.getNewFragment(),
-      newStamp,
-      event.isWholeTextReplaced(),
-      originStartOffset,
-      originStartOffset + originOldLength,
-      event.getMoveOffset()
-    ));
-    return new FrozenDocument(newSnapshot);
+    DocumentSnapshot snapshot = mySnapshot
+      .applyOp(DocumentOp.deleteOp(event.getOffset(), event.getOldLength()))
+      .applyOp(DocumentOp.insertOp(event.getOffset(), event.getNewFragment()))
+      .applyOp(DocumentOp.modStampOp(newStamp, false));
+    return new FrozenDocument(snapshot);
   }
 
   @NotNull DocumentSnapshot getSnapshot() {
@@ -223,5 +215,11 @@ public class FrozenDocument implements DocumentEx {
   @Override
   public void removeEditReadOnlyListener(@NotNull EditReadOnlyListener listener) {
     throw new UnsupportedOperationException();
+  }
+
+  @ApiStatus.Internal
+  @Override
+  public @NotNull DocumentText getDocText() {
+    return mySnapshot.text();
   }
 }

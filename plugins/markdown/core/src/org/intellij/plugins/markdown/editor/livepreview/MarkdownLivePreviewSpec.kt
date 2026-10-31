@@ -1,15 +1,48 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.intellij.plugins.markdown.editor.livepreview
 
-import com.intellij.ide.vfs.VirtualFileId
 import com.intellij.ide.rpc.DocumentPatchVersion
-import com.intellij.ide.rpc.DocumentPatchVersionAccessor
+import com.intellij.ide.rpc.patchVersion
 import com.intellij.openapi.editor.Document
+import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.util.Key
 import com.intellij.openapi.util.TextRange
+import com.intellij.openapi.util.UserDataHolderEx
+import com.intellij.openapi.util.getOrCreateUserData
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.Transient
 import org.jetbrains.annotations.ApiStatus
+
+/** Holds the live-preview state of an editor. Live preview is off until [setLivePreviewEnabledness] turns it on. */
+private val LIVE_PREVIEW_KEY: Key<MutableStateFlow<Boolean>> = Key.create("markdown.live.preview")
+
+private fun Editor.livePreviewState(): MutableStateFlow<Boolean> {
+  return (this as UserDataHolderEx).getOrCreateUserData(LIVE_PREVIEW_KEY) { MutableStateFlow(false) }
+}
+
+@ApiStatus.Experimental
+fun Editor.enableLivePreview() {
+  setLivePreviewEnabledness(true)
+}
+
+/** Turns Markdown live preview on or off for this editor. */
+@ApiStatus.Experimental
+fun Editor.setLivePreviewEnabledness(enabled: Boolean) {
+  livePreviewState().value = enabled
+}
+
+@ApiStatus.Experimental
+fun Editor.isLivePreviewEnabled(): Boolean {
+  return getUserData(LIVE_PREVIEW_KEY)?.value == true
+}
+
+/** Emits the live-preview state of this editor each time [setLivePreviewEnabledness] changes it. */
+@ApiStatus.Internal
+fun Editor.livePreviewEnablednessFlow(): StateFlow<Boolean> {
+  return livePreviewState()
+}
 
 /** A serializable text range. */
 @ApiStatus.Internal
@@ -41,7 +74,6 @@ fun MarkdownLivePreviewRange.toTextRange(): TextRange {
 data class MarkdownLivePreviewDocumentVersion(
   @JvmField val patchVersion: DocumentPatchVersion?,
   @JvmField val localModificationStamp: Long,
-  @JvmField val elementsHash: Int = 0,
 ) {
   fun matchesDocument(other: MarkdownLivePreviewDocumentVersion): Boolean {
     if (patchVersion != null || other.patchVersion != null) {
@@ -54,15 +86,11 @@ data class MarkdownLivePreviewDocumentVersion(
     return matchesDocument(capture(document, project))
   }
 
-  fun withElements(elements: List<MarkdownLivePreviewSpec>, sourceHash: Int = 0): MarkdownLivePreviewDocumentVersion {
-    return copy(elementsHash = 31 * elements.hashCode() + sourceHash)
-  }
-
   companion object {
     @JvmStatic
     fun capture(document: Document, project: Project): MarkdownLivePreviewDocumentVersion {
       return MarkdownLivePreviewDocumentVersion(
-        DocumentPatchVersionAccessor.getDocumentVersion(document, project),
+        document.patchVersion(project),
         document.modificationStamp,
       )
     }
@@ -82,24 +110,79 @@ sealed interface MarkdownLivePreviewSpec {
     val conceals: List<MarkdownLivePreviewRange>,
   ) : MarkdownLivePreviewSpec
 
+  /**
+   * Replaces a blockquote marker with [placeholderText] until a caret touches [range].
+   * The [range] covers the run of markers on the marker line. Only spaces and tabs separate the markers of a run.
+   * Thus one touch reveals all markers of the run.
+   * While the marker is concealed, it paints a vertical rule over [ruleRange].
+   */
+  @Serializable
+  data class BlockQuote(
+    override val range: MarkdownLivePreviewRange,
+    /** The `>` character that the placeholder replaces. */
+    val markerRange: MarkdownLivePreviewRange,
+    /** Starts at the marker. Ends at the start of the next marker line of the blockquote, or at the end of the marker line. */
+    val ruleRange: MarkdownLivePreviewRange,
+    /** Keeps each quote level two spaces wide. A space or a tab after the marker stays source text and gives the second space. */
+    val placeholderText: String,
+    /** The rule takes the title color of this alert type. A regular blockquote has no alert type. */
+    val alertType: AlertType? = null,
+  ) : MarkdownLivePreviewSpec
+
+  @Serializable
+  enum class AlertType { NOTE, TIP, IMPORTANT, WARNING, CAUTION }
+
   /** Conceals a full logical line and paints it as a horizontal rule. */
   @Serializable
   data class HorizontalRule(override val range: MarkdownLivePreviewRange) : MarkdownLivePreviewSpec
 
-  /** Conceals complete logical lines and paints a local image. */
+  /**
+   * Renders a top-level ATX heading over its full logical line.
+   * The frontend uses [level] to select the HTML heading element.
+   * [html] is inline HTML. Each text run in it is a span with its `md-src-pos` source range.
+   * The source ranges are relative to the start of [range].
+   */
+  @Serializable
+  data class Heading(
+    override val range: MarkdownLivePreviewRange,
+    val level: Int,
+    val html: String,
+  ) : MarkdownLivePreviewSpec
+
+  /**
+   * The loaded file behind an [Image]: its modification [stamp] and its intrinsic size in logical pixels.
+   * A new [stamp] means new pixels behind the same destination.
+   */
+  @Serializable
+  data class ImageSource(
+    val stamp: Long,
+    val width: Int,
+    val height: Int,
+  )
+
+  /**
+   * Replaces the source of a local image with [placeholderText] and paints the image below its line.
+   */
   @Serializable
   data class Image(
     override val range: MarkdownLivePreviewRange,
     val destination: String,
-    val source: VirtualFileId? = null,
+    val placeholderText: String,
+    val source: ImageSource? = null,
   ) : MarkdownLivePreviewSpec
 
-  /** Replaces a list marker with a depth-aware bullet placeholder. */
+  /** Replaces a list marker with a depth-aware bullet placeholder until a caret touches the marker. */
   @Serializable
   data class Bullet(
     override val range: MarkdownLivePreviewRange,
-    val concealRange: MarkdownLivePreviewRange,
     val placeholderText: String,
+  ) : MarkdownLivePreviewSpec
+
+  /** Replaces a task marker with a checkbox until a caret touches the marker. */
+  @Serializable
+  data class TaskCheckbox(
+    override val range: MarkdownLivePreviewRange,
+    val checked: Boolean,
   ) : MarkdownLivePreviewSpec
 }
 
@@ -109,34 +192,4 @@ sealed interface MarkdownLivePreviewSpec {
 data class MarkdownLivePreviewSpecSet(
   @JvmField val documentVersion: MarkdownLivePreviewDocumentVersion,
   @JvmField val elements: List<MarkdownLivePreviewSpec>,
-) {
-  @Transient
-  @JvmField
-  val maxElementLength: Int = elements.maxOfOrNull { it.range.length } ?: 0
-
-  /** Indices of specs whose ranges intersect the closed interval [[start], [end]]. */
-  fun intersecting(start: Int, end: Int, into: MutableSet<Int>) {
-    // `elements` is sorted by start offset, so every element that intersects [start, end] starts at or
-    // before `end`, and - since it also has to reach `start` - no earlier than `start - maxElementLength`.
-    var index = firstElementAfter(end)
-    val lowestStart = start - maxElementLength
-    while (index-- > 0) {
-      val element = elements[index]
-      if (element.range.startOffset < lowestStart) break
-      if (element.range.endOffset >= start) {
-        into.add(index)
-      }
-    }
-  }
-
-  /** Index of the first element starting strictly after [offset], i.e., the exclusive upper bound. */
-  private fun firstElementAfter(offset: Int): Int {
-    var low = 0
-    var high = elements.size
-    while (low < high) {
-      val mid = (low + high) ushr 1
-      if (elements[mid].range.startOffset > offset) high = mid else low = mid + 1
-    }
-    return low
-  }
-}
+)

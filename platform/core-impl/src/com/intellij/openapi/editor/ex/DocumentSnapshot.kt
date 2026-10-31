@@ -1,7 +1,6 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.openapi.editor.ex
 
-import com.intellij.openapi.util.Key
 import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.annotations.Contract
 
@@ -18,7 +17,6 @@ import org.jetbrains.annotations.Contract
  * characters survive it yields the newest snapshot, which is the other one rather than `this`.
  *
  * @see DocumentCore.snapshot
- * @see DocumentSputnik
  */
 @ApiStatus.Internal
 interface DocumentSnapshot {
@@ -35,20 +33,6 @@ interface DocumentSnapshot {
   @Contract(pure = true)
   fun modState(): DocumentModState
 
-  /**
-   * Returns the sputnik associated with [key], or `null` if there is none.
-   *
-   * @see DocumentSputnik
-   */
-  @Contract(pure = true)
-  fun <S : DocumentSputnik> sputnik(key: Key<S>): S?
-
-  /**
-   * Returns this snapshot with [op] applied: text and mod state reflect the operation, and sputniks are rebuilt
-   * once against the final snapshot for a text-changing [DocumentTextPatch].
-   *
-   * @see DocumentSputnik.applyOp
-   */
   @Contract(pure = true)
   fun applyOp(op: DocumentOp): DocumentSnapshot
 
@@ -67,6 +51,9 @@ interface DocumentSnapshot {
    */
   @Contract(pure = true)
   fun withMetadata(metadata: DocumentSnapshot): DocumentSnapshot
+
+  @Contract(pure = true)
+  fun copyWithNewIdentity(): DocumentSnapshot
 
   /**
    * Returns a human-readable dump of the snapshot state, used for diagnostics only

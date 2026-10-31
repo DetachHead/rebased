@@ -1,16 +1,20 @@
 // Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package org.jetbrains.plugins.groovy.dsl;
 
+import com.intellij.openapi.application.PathManager;
 import com.intellij.openapi.vfs.VirtualFile;
+import com.intellij.platform.bazel.runfiles.BazelLabel;
 import com.intellij.psi.PsiFile;
 import com.intellij.psi.PsiMethod;
 import com.intellij.psi.util.PsiTreeUtil;
-import com.intellij.util.ResourceUtil;
+import com.intellij.testFramework.common.BazelTestUtil;
 import org.jetbrains.plugins.groovy.LightGroovyTestCase;
 import org.jetbrains.plugins.groovy.codeInspection.untypedUnresolvedAccess.GrUnresolvedAccessInspection;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.expressions.GrNewExpression;
 
 import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 
 public class DsldTest extends LightGroovyTestCase {
   public void testUnknownPointcut() {
@@ -171,7 +175,11 @@ public class DsldTest extends LightGroovyTestCase {
   }
 
   public void testMeta() throws IOException {
-    String content = ResourceUtil.loadText(GdslScriptProvider.class.getClassLoader().getResourceAsStream("standardDsls/metaDsl.gdsl"));
+    var path = BazelTestUtil.isUnderBazelTest()
+               ? BazelTestUtil.getFileFromBazelRuntime(
+                 BazelLabel.Companion.fromString("@community//plugins/groovy/groovy-psi:standardDsls/metaDsl.gdsl"))
+               : Path.of(PathManager.getCommunityHomePath(), "plugins/groovy/groovy-psi/standardDsls/metaDsl.gdsl");
+    String content = Files.readString(path);
     VirtualFile dslVirtualFile = myFixture.createFile("metaDsl.gdsl", content);
     myFixture.configureFromExistingVirtualFile(dslVirtualFile);
     GroovyDslFileIndex.activate(dslVirtualFile);

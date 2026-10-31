@@ -14,7 +14,7 @@
     <action id="FileChooser.LightEditGotoOpenedFile"
             class="com.intellij.ide.lightEdit.actions.LightEditGotoOpenedFileAction"
             icon="AllIcons.General.Locate"/>
-    <action id="DumpCodeStyleCache" class="com.intellij.ide.actions.DumpCodeStyleCacheAction" internal="true"/>
+    <action id="DumpPluginDescriptorsAction" class="com.intellij.internal.DumpPluginDescriptorsAction" internal="true"/>
     <action id="List-selectFirstRow" class="com.intellij.ui.ListActions$Home" use-shortcut-of="EditorTextStart"/>
     <action id="List-selectFirstRowExtendSelection" class="com.intellij.ui.ListActions$ShiftHome"
             use-shortcut-of="EditorTextStartWithSelection"/>
@@ -385,8 +385,6 @@
     <action id="SwitchIdeScaleAction" class="com.intellij.ide.actions.SwitchIdeScaleAction">
       <synonym key="action.SwitchIdeScaleAction.text"/>
     </action>
-    <action id="TogglePresentationAssistantAction"
-            class="com.intellij.platform.ide.impl.presentationAssistant.TogglePresentationAssistantAction"/>
     <action id="ViewMainMenu" class="com.intellij.ide.actions.ViewMainMenuAction"/>
     <group id="ChangeMainMenuModeActionGroup"
            class="com.intellij.ide.actions.ChangeMainMenuModeActionGroup" searchable="false" popup="true"/>
@@ -504,22 +502,6 @@
       <synonym key="action.SplitHorizontally.synonym"/>
     </action>
     <action id="MoveTabDown" class="com.intellij.ide.actions.MoveTabDownAction"/>
-    <action id="SplitChooser" class="com.intellij.ide.actions.InteractiveSplitAction"/>
-    <action id="SplitChooser.NextWindow" class="com.intellij.ide.actions.InteractiveSplitAction$Key$NextWindow"/>
-    <action id="SplitChooser.PreviousWindow" class="com.intellij.ide.actions.InteractiveSplitAction$Key$PreviousWindow"/>
-    <action id="SplitChooser.Exit" class="com.intellij.ide.actions.InteractiveSplitAction$Key$Exit" use-shortcut-of="EditorEscape"/>
-    <action id="SplitChooser.Split" class="com.intellij.ide.actions.InteractiveSplitAction$Key$Split"/>
-    <action id="SplitChooser.Duplicate" class="com.intellij.ide.actions.InteractiveSplitAction$Key$Duplicate"/>
-    <action id="SplitChooser.SplitCenter" class="com.intellij.ide.actions.InteractiveSplitAction$Key$SplitCenter"/>
-    <action id="SplitChooser.SplitTop" class="com.intellij.ide.actions.InteractiveSplitAction$Key$SplitTop"
-            use-shortcut-of="EditorUp"/>
-    <action id="SplitChooser.SplitLeft" class="com.intellij.ide.actions.InteractiveSplitAction$Key$SplitLeft"
-            use-shortcut-of="EditorLeft"/>
-    <!--suppress PluginXmlCapitalization -->
-    <action id="SplitChooser.SplitDown" class="com.intellij.ide.actions.InteractiveSplitAction$Key$SplitDown"
-            use-shortcut-of="EditorDown"/>
-    <action id="SplitChooser.SplitRight" class="com.intellij.ide.actions.InteractiveSplitAction$Key$SplitRight"
-            use-shortcut-of="EditorRight"/>
     <action id="StretchSplitToTop" class="com.intellij.ide.actions.StretchSplitAction$StretchToTop"/>
     <action id="StretchSplitToLeft" class="com.intellij.ide.actions.StretchSplitAction$StretchToLeft"/>
     <action id="StretchSplitToBottom" class="com.intellij.ide.actions.StretchSplitAction$StretchToBottom"/>
@@ -549,7 +531,6 @@
     <action id="CollectZippedLogs" class="com.intellij.ide.actions.CollectZippedLogsAction"/>
     <action id="Performance.ActivityMonitor" class="com.intellij.ide.actions.ActivityMonitorAction"/>
     <action id="Performance.DumpThreads" class="com.intellij.ide.actions.DumpThreadsAction"/>
-    <action id="Performance.MemTester" class="com.intellij.ide.actions.MemTestAction"/>
     <action id="LogDebugConfigure" class="com.intellij.ide.actions.DebugLogConfigureAction"/>
     <action id="BrowseSpecialPaths" class="com.intellij.diagnostic.specialPaths.BrowseSpecialPathsAction"/>
     <action id="CollectTroubleshootingInformation" class="com.intellij.troubleshooting.ui.CollectTroubleshootingInformationAction"
@@ -561,6 +542,7 @@
     <action id="CheckForUpdate" class="com.intellij.openapi.updateSettings.impl.CheckForUpdateAction">
       <override-text place="WelcomeScreen"/>
     </action>
+    <action id="ResetPluginPermissions" class="com.intellij.openapi.updateSettings.impl.ResetPluginPermissionsAction"/>
     <action id="About" class="com.intellij.ide.actions.AboutAction"/>
     <!--suppress PluginXmlCapitalization -->
     <action id="ZoomInIdeAction" class="com.intellij.ide.actions.ZoomInIdeAction">
@@ -587,6 +569,11 @@
     <action id="OpenEditorInOppositeTabGroup" class="com.intellij.openapi.fileEditor.impl.OpenEditorInOppositeTabGroupAction"/>
     <action id="WelcomeScreen.OpenDirectoryProject" class="com.intellij.ide.actions.OpenFileAction$OnWelcomeScreen"/>
     <action id="WelcomeScreen.OpenSelected" class="com.intellij.openapi.wm.impl.welcomeScreen.projectActions.OpenSelectedProjectsAction"/>
+    <action id="WelcomeScreen.CancelRecentProjectTask"
+            class="com.intellij.openapi.wm.impl.welcomeScreen.projectActions.CancelRecentProjectTaskAction"
+            icon="AllIcons.Actions.DeleteTag"/>
+    <action id="WelcomeScreen.Branches" class="com.intellij.openapi.wm.impl.welcomeScreen.projectActions.BranchesRecentProjectAction"
+            icon="AllIcons.Vcs.Branch"/>
     <action id="WelcomeScreen.RevealIn" class="com.intellij.openapi.wm.impl.welcomeScreen.projectActions.RevealProjectDirAction"/>
     <action id="WelcomeScreen.CopyProjectPath" class="com.intellij.openapi.wm.impl.welcomeScreen.projectActions.CopyProjectPathAction"
             use-shortcut-of="CopyPaths"/>
@@ -639,7 +626,6 @@
     <action id="ChangeIdeScale" class="com.intellij.ide.actions.QuickChangeIdeScaleAction">
       <override-text place="GoToAction"/>
     </action>
-    <action id="ShowExperiments" class="com.intellij.application.ShowExperimentsAction"/>
     <action id="MoveFileToAnotherModule" internal="true" class="com.intellij.ide.actions.MoveFileToAnotherModuleAction"/>
     <action id="CreateAllServicesAndExtensions" internal="true"
             class="com.intellij.ide.plugins.CreateAllServicesAndExtensionsAction"/>
@@ -650,20 +636,7 @@
     <action id="DropAnErrorWithAttachments" internal="true" class="com.intellij.diagnostic.DropAnErrorWithAttachmentsAction"/>
     <action id="DropPluginError" internal="true" class="com.intellij.diagnostic.DropPluginErrorAction"/>
     <action id="DropAnOutOfMemoryError" internal="true" class="com.intellij.diagnostic.DropAnOutOfMemoryErrorAction"/>
-    <action id="EditorAddCustomWrap" internal="true" class="com.intellij.openapi.editor.actions.AddCustomWrapAction"/>
-    <action id="EditorRemoveCustomWrapsAtCaret" internal="true"
-            class="com.intellij.openapi.editor.actions.RemoveCustomWrapsAtCaretAction"/>
-    <action id="ShowNotificationIconsDialogAction" internal="true"
-            class="com.intellij.notification.impl.ShowNotificationIconsDialogAction"/>
-    <action id="NotificationTestAction" internal="true" class="com.intellij.notification.impl.actions.NotificationTestAction"/>
-    <action id="TestMessageBoxAction" internal="true" class="com.intellij.diagnostic.TestMessageBoxAction"/>
-    <action id="ShowCountdownDialog" internal="true" class="com.intellij.openapi.updateSettings.impl.ShowCountdownDialogAction"/>
-    <action id="PlayTestSoundAction" internal="true" class="com.intellij.ide.audioCues.PlayTestSoundAction"/>
     <action id="ShowSplash" internal="true" class="com.intellij.ui.ShowSplashAction"/>
-    <action id="ColorBlindnessTest" internal="true" class="com.intellij.ide.ui.ColorBlindnessInternalAction"/>
-    <action id="UIDefaults" internal="true" class="com.intellij.ui.ShowUIDefaultsAction">
-      <abbreviation value="laf"/>
-    </action>
     <action id="EnableMetalRendering" internal="true" class="com.intellij.ui.EnableMetalRenderingAction">
       <abbreviation value="metal"/>
     </action>
@@ -671,24 +644,10 @@
       <abbreviation value="wayland"/>
     </action>
     <action id="ShowHideDebugInfoInUi" internal="true" class="com.intellij.ide.actions.ShowHideDebugInfoInUiAction"/>
-    <action id="AddTestProcessAction" internal="true" class="com.intellij.openapi.wm.impl.status.AddTestProcessAction"/>
-    <action id="AddRandomNamesTestProcessAction" internal="true"
-            class="com.intellij.openapi.wm.impl.status.AddRandomNamesTestProcessAction"/>
-    <action id="AddManyTestProcesses" internal="true" class="com.intellij.openapi.wm.impl.status.AddManyTestProcesses"/>
     <action id="ShowBundleLocalizationDialogAction" internal="true"
             class="com.intellij.openapi.wm.impl.status.ShowBundleMessagesDialogAction"/>
-    <action id="ShowCompressibleToolbarAction" internal="true"
-            class="com.intellij.openapi.wm.impl.status.ShowCompressibleToolbarAction"/>
-    <action id="TestGestureAction" class="com.intellij.openapi.keymap.impl.ui.TestGestureAction" internal="true"/>
-    <action id="ShowProgressTestDialogAction" internal="true" class="com.intellij.openapi.wm.impl.status.ShowProgressTestDialogAction"/>
-    <action id="ShowSouthPanelTestDialogAction" internal="true"
-            class="com.intellij.openapi.wm.impl.status.ShowSouthPanelTestDialogAction"/>
-    <action id="TestTextFieldAction" internal="true" class="com.intellij.ui.components.TestTextFieldAction"/>
     <action id="DataSharingOptions" class="com.intellij.ide.actions.DataSharingOptionsAction" internal="true"/>
-    <action id="ShowEditorHighlighterTokens" internal="true"
-            class="com.intellij.openapi.editor.actions.ShowEditorHighlighterTokensAction"/>
-    <action id="DumpFocusableComponentHierarchyAction" internal="false"
-            class="com.intellij.ui.DumpFocusableComponentHierarchyAction"/>
+
     <action id="EditorToggleUseSoftWrapsInPreview" class="com.intellij.openapi.editor.actions.ToggleUseSoftWrapsInPreviewAction"
             icon="AllIcons.Actions.ToggleSoftWrap"/>
     <action id="RestoreFontPreviewTextAction" class="com.intellij.application.options.colors.FontEditorPreview$RestorePreviewTextAction"
@@ -755,9 +714,6 @@
            popup="false"/>
     <group id="ChangeProjectColorActionGroup"
            class="com.intellij.openapi.wm.impl.welcomeScreen.projectActions.ChangeProjectColorActionGroup" searchable="false" popup="true"/>
-    <group id="PresentationAssistantQuickSettingsGroup"
-           class="com.intellij.platform.ide.impl.presentationAssistant.PresentationAssistantQuickSettingsGroup" searchable="false"
-           popup="true"/>
     <action id="ColoredHeaderAction" class="com.intellij.ide.ui.customization.UseProjectColorsCheckboxAction"/>
     <action id="MergeMenuWithWindowTitleAction" class="com.intellij.ide.actions.MergeMenuWithWindowTitleAction"/>
     <action id="FocusMainToolbar" class="com.intellij.openapi.wm.impl.headertoolbar.FocusMainToolbarAction">
@@ -803,6 +759,8 @@
             id="PluginUpdateSourcesResetAction"/>
     <action class="com.intellij.openapi.updateSettings.impl.PluginUpdateSourcesReinitializeAction" internal="true"
             id="PluginUpdateSourcesReinitializeAction"/>
+    <action class="com.intellij.openapi.updateSettings.impl.InitializeMissingPluginUpdateSourcesAction"
+            id="InitializeMissingPluginUpdateSourcesAction"/>
     <group id="SettingsEntryPointGroup" class="com.intellij.ide.actions.SettingsEntryPointGroup" overrides="true" keep-content="true"/>
     <group id="Floating.CodeToolbar.Surround" class="com.intellij.ui.codeFloatingToolbar.RefactorDropdownActionGroup" overrides="true" keep-content="true"/>
     <group id="ChangeLineSeparators" class="com.intellij.ide.actions.NonTrivialActionGroup" overrides="true" keep-content="true"/>

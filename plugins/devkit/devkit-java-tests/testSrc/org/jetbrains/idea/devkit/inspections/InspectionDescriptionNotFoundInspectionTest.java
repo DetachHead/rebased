@@ -4,6 +4,10 @@ package org.jetbrains.idea.devkit.inspections;
 import com.intellij.codeInsight.intention.IntentionAction;
 import com.intellij.codeInspection.LocalInspectionEP;
 import com.intellij.lang.LanguageExtensionPoint;
+import com.intellij.openapi.application.ReadAction;
+import com.intellij.openapi.application.WriteAction;
+import com.intellij.openapi.module.ModifiableModuleModel;
+import com.intellij.openapi.module.ModuleManager;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.testFramework.TestDataPath;
 import com.intellij.testFramework.builders.JavaModuleFixtureBuilder;
@@ -70,6 +74,16 @@ public class InspectionDescriptionNotFoundInspectionTest extends JavaCodeInsight
     myFixture.copyDirectoryToProject("inspectionDescriptions", "inspectionDescriptions");
     myFixture.copyDirectoryToProject("resources", "resources");
     myFixture.testHighlighting("MyRegisteredCorrectlyInspection.java");
+  }
+
+  public void testWithDescriptionXmlRegisteredInIntelliJModule() throws Exception {
+    ModifiableModuleModel model = ReadAction.computeBlocking(() -> ModuleManager.getInstance(getProject()).getModifiableModel());
+    model.renameModule(getModule(), "intellij.java.analysis.impl");
+    WriteAction.run(model::commit);
+
+    myFixture.copyDirectoryToProject("inspectionDescriptions", "inspectionDescriptions");
+    myFixture.copyDirectoryToProject("intellijModuleResources", "resources");
+    myFixture.testHighlighting("MyIntelliJModuleInspection.java");
   }
 
   public void testQuickFix() {

@@ -14,6 +14,8 @@ import com.jetbrains.python.ProtectionLevel
 import com.jetbrains.python.PyNames
 import com.jetbrains.python.PythonRuntimeService
 import com.jetbrains.python.ast.PyAstFunction
+import com.jetbrains.python.codeInsight.PyCodeInsightCounters
+import com.jetbrains.python.codeInsight.PyCodeInsightCounters.Counter
 import com.jetbrains.python.codeInsight.dataflow.scope.ScopeUtil
 import com.jetbrains.python.codeInsight.typing.PyTypedDictTypeProvider.Helper.isTypingTypedDictInheritor
 import com.jetbrains.python.codeInsight.typing.PyTypingTypeProvider
@@ -152,7 +154,7 @@ object PyCallExpressionHelper {
   @JvmStatic
   fun getCalleeType(callee: PyExpression, resolveContext: PyResolveContext): PyType? {
     return PyUtil.getNullableParameterizedCachedValue(callee, resolveContext) {
-      PyUnionType.union(
+      PyUnionType.unionOrUnknown(
         buildList {
           add(getExplicitCalleeType(callee, it))
           addIfNotNull(getImplicitCalleeType(callee, it))
@@ -266,7 +268,7 @@ object PyCallExpressionHelper {
             .flatMap { it.toStream() }
             .filterIsInstance<PyCallableType>()
             .toList()
-        return if (callables.isEmpty()) null else PyUnionType.union(callables)
+        return if (callables.isEmpty()) null else PyUnionType.unionOrUnknown(callables)
       }
     }
 
@@ -281,7 +283,7 @@ object PyCallExpressionHelper {
     val context = resolveContext.typeEvalContext
     if (callee !is PyReferenceExpression) {
       val callables = context.getType(callee).compositeComponents.filterIsInstance<PyCallableType>()
-      return if (callables.isEmpty()) null else PyUnionType.union(callables)
+      return if (callables.isEmpty()) null else PyUnionType.unionOrUnknown(callables)
     }
 
     val expression = PyCallExpressionNavigator.getPyCallExpressionByCallee(callee) ?: return null
@@ -307,8 +309,8 @@ object PyCallExpressionHelper {
           callableTypes.add(adjustCallableType(it, expression, clarified, context))
         }
     }
-    val callables = PyUnionType.union(callableTypes).compositeComponents.filterIsInstance<PyCallableType>()
-    return if (callables.isEmpty()) null else PyUnionType.union(callables)
+    val callables = PyUnionType.unionOrUnknown(callableTypes).compositeComponents.filterIsInstance<PyCallableType>()
+    return if (callables.isEmpty()) null else PyUnionType.unionOrUnknown(callables)
   }
 
   private fun clarifyResolveResult(result: QualifiedRatedResolveResult, context: TypeEvalContext): ClarifiedResolveResult? {
@@ -581,7 +583,7 @@ object PyCallExpressionHelper {
           sameScopeTypes.map { it.getCallType(context, callSite, callSite.getCallableArguments(it.callable)) }
         }
       }
-      .let(PyUnionType::union)
+      .let(PyUnionType::unionOrUnknown)
   }
 
   /**
@@ -593,8 +595,8 @@ object PyCallExpressionHelper {
    */
   @JvmStatic
   fun getCallType(expression: PyBinaryExpression, context: TypeEvalContext, @Suppress("unused") key: TypeEvalContext.Key): PyType? {
-    val leftExpr = expression.leftExpression ?: return null
-    val rightExpr = expression.rightExpression ?: return null
+    val leftExpr = expression.leftExpression ?: return PyAnyType.unknown
+    val rightExpr = expression.rightExpression ?: return PyAnyType.unknown
 
     val resolveContext = PyResolveContext.defaultContext(context)
     val callableTypes = multiResolveOperator(expression, resolveContext)
@@ -716,7 +718,7 @@ object PyCallExpressionHelper {
         val allMembers = type.members.map { doGetCallType(it, callSite, arguments, context) }
         val members = allMembers.filter { it.matched }.ifEmpty { allMembers }
         CallType(
-          PyIntersectionType.intersection(members.map { it.type }),
+          PyIntersectionType.intersectionOrTop(members.map { it.type }),
           members.isNotEmpty()
         )
       }
@@ -730,7 +732,7 @@ object PyCallExpressionHelper {
       is PyUnionType -> {
         val members = type.members.map { doGetCallType(it, callSite, arguments, context) }
         CallType(
-          PyUnionType.union(members.map { it.type }),
+          PyUnionType.unionOrUnknown(members.map { it.type }),
           members.all { it.matched }
         )
       }
@@ -827,7 +829,8 @@ object PyCallExpressionHelper {
         }
       }
     }
-    return null
+    // The arguments do not describe a class in the MRO, so `super` gives no class here.
+    return PyAnyType.unknown
   }
 
   private fun getSuperClassUnionType(klass: PyClass, context: TypeEvalContext?): PyType? {
@@ -1051,7 +1054,8 @@ object PyCallExpressionHelper {
                               classType.toInstance(), null, null)
   }
 
-  private fun stripDefaultTypeArguments(classType: PyClassType, context: TypeEvalContext): PyClassType {
+  // TODO: PY-90204
+  internal fun stripDefaultTypeArguments(classType: PyClassType, context: TypeEvalContext): PyClassType {
     val genericDef = PyTypeChecker.findGenericDefinitionType(classType.pyClass, context) ?: return classType
     if (!classType.isParameterized) return genericDef.toClass()
 
@@ -1443,6 +1447,7 @@ object PyCallExpressionHelper {
   }
 
   private fun matchesByArgumentTypes(function: PyCallableType, arguments: List<PyCallableArgument>, context: TypeEvalContext): Boolean {
+    PyCodeInsightCounters.inc(Counter.OVERLOAD_CANDIDATES_CHECKED)
     val parameters = function.getParameters(context)?.let { unpackParameters(it, arguments, context) } ?: return true
     val mapping = analyzeArguments(arguments, parameters, context)
     return mapping.unmappedParameters.isEmpty() &&

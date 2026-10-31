@@ -1,0 +1,62 @@
+<idea-plugin xmlns:xi="http://www.w3.org/2001/XInclude">
+  <id>com.intellij</id>
+  <module value="com.intellij.modules.lang" />
+  <module value="com.intellij.modules.pycharm" />
+  <extensions defaultExtensionNs="com.intellij">
+    <projectViewPane implementation="com.intellij.ide.projectView.impl.ProjectViewPane" />
+    <projectAttachProcessor implementation="com.intellij.platform.WorkspaceModelCacheAttachProcessor" order="first" id="WorkspaceModelCacheAttachProcessor" />
+    <projectAttachProcessor implementation="com.intellij.platform.ModuleAttachProcessor" order="after WorkspaceModelCacheAttachProcessor" />
+    <projectAttachProcessor implementation="com.intellij.platform.ImportNewProjectAttachProcessor" order="last" />
+    <renameHandler implementation="com.intellij.platform.renameProject.RenameProjectHandler" />
+    <renameHandler implementation="com.intellij.platform.renameProject.ProjectFolderRenameHandler" />
+  </extensions>
+  <content namespace="jetbrains">
+    <module name="intellij.platform.debugger"><![CDATA[<idea-plugin xmlns:xi="http://www.w3.org/2001/XInclude" visibility="public">
+  <dependencies>
+    <module name="intellij.libraries.kotlinx.collections.immutable" />
+    <module name="intellij.libraries.kotlinx.serialization.core" />
+    <module name="intellij.libraries.kotlinx.serialization.json" />
+    <module name="intellij.platform.analysis" />
+    <module name="intellij.platform.concurrency" />
+    <module name="intellij.platform.core" />
+    <module name="intellij.platform.core.ui" />
+    <module name="intellij.platform.editor.ui" />
+    <module name="intellij.platform.execution" />
+    <module name="intellij.platform.ide.core" />
+    <module name="intellij.platform.lang" />
+    <module name="intellij.platform.projectModel" />
+    <module name="intellij.platform.util.ui" />
+  </dependencies>
+  <extensionPoints>
+    <extensionPoint qualifiedName="com.intellij.xdebugger.settings" interface="com.intellij.xdebugger.settings.XDebuggerSettings" dynamic="true" />
+    <extensionPoint qualifiedName="com.intellij.xdebugger.breakpointType" interface="com.intellij.xdebugger.breakpoints.XBreakpointType" dynamic="true" />
+    <extensionPoint qualifiedName="com.intellij.xdebugger.breakpointGroupingRule" interface="com.intellij.xdebugger.breakpoints.ui.XBreakpointGroupingRule" dynamic="true" />
+    <extensionPoint qualifiedName="com.intellij.xdebugger.configurableProvider" interface="com.intellij.xdebugger.settings.DebuggerConfigurableProvider" dynamic="true" />
+    <extensionPoint qualifiedName="com.intellij.xdebugger.inlineBreakpointsDisabler" interface="com.intellij.xdebugger.breakpoints.InlineBreakpointsDisabler" dynamic="true" />
+    <extensionPoint qualifiedName="com.intellij.xdebugger.breakpointFileProhibitionPolicy" interface="com.intellij.xdebugger.breakpoints.BreakpointFileProhibitionPolicy" dynamic="true" />
+    <extensionPoint qualifiedName="com.intellij.xdebugger.textValueVisualizer" interface="com.intellij.xdebugger.ui.TextValueVisualizer" dynamic="true" />
+    <extensionPoint qualifiedName="com.intellij.xdebugger.controlExceptionBreakpointSupport" interface="com.intellij.xdebugger.codeinsight.ControlExceptionBreakpointSupport" dynamic="true" />
+    <extensionPoint qualifiedName="com.intellij.xdebugger.hotSwapInDebugSessionEnabler" interface="com.intellij.xdebugger.hotswap.HotSwapInDebugSessionEnabler" dynamic="true" />
+    <extensionPoint qualifiedName="com.intellij.xdebugger.customXDescriptorSerializerProvider" interface="com.intellij.xdebugger.frame.CustomXDescriptorSerializerProvider" dynamic="true" />
+    <extensionPoint qualifiedName="com.intellij.xdebugger.xTextValueModificationPreparatorProvider" interface="com.intellij.xdebugger.frame.XValueTextModificationPreparatorProvider" dynamic="true" />
+    <extensionPoint qualifiedName="com.intellij.xdebugger.breakpointBehaviorPolicy" interface="com.intellij.xdebugger.XBreakpointBehaviorPolicy" dynamic="true" />
+  </extensionPoints>
+</idea-plugin>]]></module>
+    <module name="intellij.libraries.blockmap" loading="embedded"><![CDATA[<idea-plugin />]]></module>
+    <module name="intellij.platform.ide.osCertificates" loading="required"><![CDATA[<idea-plugin visibility="internal">
+  <dependencies>
+    <module name="intellij.libraries.jetbrains.annotations" />
+    <module name="intellij.libraries.jvm.native.trusted.roots" />
+    <module name="intellij.platform.ide" />
+    <module name="intellij.platform.ide.impl" />
+    <module name="intellij.platform.projectModel" />
+  </dependencies>
+  <extensions defaultExtensionNs="com.intellij">
+    <applicationService serviceInterface="com.intellij.util.net.ssl.OsCertificatesService" serviceImplementation="com.intellij.util.net.ssl.OsCertificatesServiceImpl" />
+  </extensions>
+</idea-plugin>]]></module>
+  </content>
+  <content>
+    <module name="intellij.libraries.sqlite"><![CDATA[<idea-plugin visibility="private" />]]></module>
+  </content>
+</idea-plugin>

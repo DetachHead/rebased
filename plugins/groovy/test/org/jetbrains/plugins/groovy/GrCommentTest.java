@@ -12,8 +12,8 @@ import org.jetbrains.plugins.groovy.util.TestUtils;
  */
 public class GrCommentTest extends GroovyFormatterTestCase {
   @Override
-  protected String getBasePath() {
-    return TestUtils.getTestDataPath() + "grComment/";
+  protected String getTestDataPath() {
+    return TestUtils.getAbsoluteTestDataPath() + "grComment/";
   }
 
   public void testUncommentLine() {

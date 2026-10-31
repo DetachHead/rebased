@@ -2,7 +2,7 @@
 package org.jetbrains.kotlin.idea.k2.refactoring.move.processor.conflict
 
 import com.intellij.openapi.diagnostic.fileLogger
-import com.intellij.openapi.diagnostic.rethrowControlFlowException
+import com.intellij.diagnostic.rethrowControlFlowException
 import com.intellij.psi.PsiDirectory
 import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiMember
@@ -20,7 +20,10 @@ import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.kotlin.analysis.api.KaSession
 import org.jetbrains.kotlin.analysis.api.projectStructure.KaModule
 import org.jetbrains.kotlin.analysis.api.projectStructure.KaSourceModule
+import org.jetbrains.kotlin.analysis.api.resolution.KaCallableMemberCall
 import org.jetbrains.kotlin.analysis.api.resolution.resolveSuccessfulSymbol
+import org.jetbrains.kotlin.analysis.api.resolution.successfulCallOrNull
+import org.jetbrains.kotlin.analysis.api.resolution.symbol
 import org.jetbrains.kotlin.analysis.api.session.analyze
 import org.jetbrains.kotlin.analysis.api.symbols.KaClassSymbol
 import org.jetbrains.kotlin.analysis.api.symbols.KaConstructorSymbol
@@ -121,6 +124,11 @@ private fun isPrivateVisibleAt(referencingElement: PsiElement, target: K2MoveTar
             // For top level declarations, private members will be visible within the entire file
             referencingElement.containingFile == target.getTarget()
         }
+
+        is K2MoveTargetDescriptor.CompanionExtension -> {
+            referencingElement.containingFile == target.getTarget()
+        }
+
         is K2MoveTargetDescriptor.ClassBody<*> -> {
             val targetClass = target.getTarget() ?: return false
             // Companion objects can access private members in its parent and vice versa
@@ -131,6 +139,10 @@ private fun isPrivateVisibleAt(referencingElement: PsiElement, target: K2MoveTar
             }
             // Private members are visible anywhere inside its hierarchy
             visibilityTarget.isAncestor(referencingElement)
+        }
+
+        is K2MoveTargetDescriptor.CompanionBlock -> {
+            target.containingClass.isAncestor(referencingElement)
         }
     }
 }
@@ -261,7 +273,6 @@ fun checkVisibilityConflictsForInternalUsages(
                                 true // if a constructor is protected, it's accessible outside the package
                             } else {
                                 val declFqn = (referencedDeclaration as PsiModifierListOwner).containingFile.getFqNameByDirectory()
-                                declFqn == targetPkg
                                 if (declFqn == targetPkg) true
                                 else if (accessLevel == PsiUtil.ACCESS_LEVEL_PROTECTED) {
                                     analyze(usageElement) {

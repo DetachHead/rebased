@@ -33,9 +33,9 @@ public class GrBreakStringOnLineBreaksTest extends GrIntentionTestCase {
   }
 
   @Override
-  public final String getBasePath() {
+  public final String getTestDataPath() {
     return basePath;
   }
 
-  private final String basePath = TestUtils.getTestDataPath() + "intentions/breakStringOnLineBreaks/";
+  private final String basePath = TestUtils.getAbsoluteTestDataPath() + "intentions/breakStringOnLineBreaks/";
 }

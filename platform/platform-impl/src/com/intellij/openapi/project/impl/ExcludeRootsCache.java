@@ -11,6 +11,7 @@ import com.intellij.openapi.roots.impl.DirectoryIndexExcludePolicy;
 import com.intellij.openapi.util.io.OSAgnosticPathUtil;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.openapi.vfs.pointers.VirtualFilePointer;
+import com.intellij.platform.backend.workspace.VirtualFileUrls;
 import com.intellij.platform.backend.workspace.WorkspaceModel;
 import com.intellij.platform.backend.workspace.impl.WorkspaceModelInternal;
 import com.intellij.platform.workspace.storage.EntityStorage;
@@ -155,6 +156,21 @@ final class ExcludeRootsCache {
     @Override
     public void registerExclusionCondition(@NotNull VirtualFileUrl root, @NotNull WorkspaceFileSetExclusionCondition condition, @NotNull WorkspaceEntity entity) {
       // Exclusion conditions are not URLs themselves
+    }
+
+    @Override
+    public void registerUnscopedExclusionCondition(@NotNull VirtualFileUrl root, @NotNull WorkspaceFileSetExclusionCondition condition, @NotNull WorkspaceEntity entity) {
+      // Exclusion conditions are not URLs themselves
+    }
+
+    @Override
+    public void registerUnscopedExcludedRoot(@NotNull VirtualFileUrl excludedRoot, boolean directoryOnly, @NotNull WorkspaceEntity entity) {
+      if (directoryOnly) {
+        VirtualFile file = VirtualFileUrls.getVirtualFile(excludedRoot);
+        // A directory-only rule leaves a file at its path in the project
+        if (file != null && !file.isDirectory()) return;
+      }
+      excludedUrls.add(excludedRoot.getUrl());
     }
 
     @Override

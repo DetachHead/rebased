@@ -10,7 +10,7 @@ import com.intellij.openapi.module.Module
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.modules
 import com.intellij.openapi.projectRoots.ProjectJdkTable
-import com.intellij.openapi.vfs.LocalFileSystem
+import com.intellij.openapi.vfs.StandardFileSystems
 import com.intellij.python.community.helpersLocator.PythonHelpersLocator
 import com.intellij.python.junit5Tests.framework.env.PyEnvTestCase
 import com.intellij.python.junit5Tests.framework.env.pySdkFixture
@@ -18,6 +18,9 @@ import com.intellij.python.junit5Tests.framework.metaInfo.Repository
 import com.intellij.python.junit5Tests.framework.metaInfo.TestClassInfo
 import com.intellij.python.junit5Tests.framework.metaInfo.TestClassInfoData
 import com.intellij.python.junit5Tests.framework.metaInfo.TestMethodInfoData
+import com.intellij.python.junit5Tests.framework.pyModuleFixture
+import com.intellij.python.sdk.backend.getSdkAPI
+import com.intellij.python.sdk.backend.pythonInterpreterAsync
 import com.intellij.python.venv.createVenv
 import com.intellij.python.venv.createVenvAdditionalData
 import com.intellij.testFramework.ExtensionTestUtil
@@ -32,7 +35,6 @@ import com.intellij.testFramework.fixtures.IdeaProjectTestFixture
 import com.intellij.testFramework.fixtures.impl.CodeInsightTestFixtureImpl
 import com.intellij.testFramework.fixtures.impl.TempDirTestFixtureImpl
 import com.intellij.testFramework.junit5.fixture.TestFixture
-import com.intellij.python.junit5Tests.framework.pyModuleFixture
 import com.intellij.testFramework.junit5.fixture.projectFixture
 import com.intellij.testFramework.junit5.fixture.tempPathFixture
 import com.intellij.testFramework.junit5.fixture.testFixture
@@ -98,7 +100,7 @@ internal class DependenciesPsiProviderTest {
     testDataDir = classInfo.testDataPath!!.resolve(methodInfo.testCaseRelativePath!!)
     val targetPath = tempPathFixture.get()
     testDataDir.copyToRecursively(targetPath, followLinks = false, overwrite = true)
-    LocalFileSystem.getInstance().refresh(false)
+    StandardFileSystems.local().refresh(false)
     IndexingTestUtil.waitUntilIndexesAreReady(project)
 
     InspectionProfileImpl.INIT_INSPECTIONS = true
@@ -244,8 +246,9 @@ internal class DependenciesPsiProviderTest {
         val module = moduleFixture.get()
         val venvDir = tempPathFixture.get().resolve(".venv")
         val venvPython = createVenv(env.pythonPath, venvDir).getOrThrow()
-        createSdk(PathHolder.Eel(venvPython), additionalData(module))
+        createSdk(module.project, PathHolder.Eel(venvPython), additionalData(module))
           .orThrow()
+          .getSdkAPI()
           .also {
             module.pythonSdk = it
             it.setAssociationToModule(module)
@@ -254,7 +257,7 @@ internal class DependenciesPsiProviderTest {
       }
 
       sdk.putUserData(TestPythonPackageManager.REQUIREMENTS_PROVIDER_KEY, requirementsProviderType)
-      PythonPackageManager.forSdk(project, sdk).waitForInit()
+      PythonPackageManager.forPythonInterpreter(project, sdk.pythonInterpreterAsync()).waitForInit()
 
       fixture.configureFromTempProjectFile(requirementsProviderType.filename)
 

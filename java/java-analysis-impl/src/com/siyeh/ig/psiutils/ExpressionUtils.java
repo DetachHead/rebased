@@ -18,6 +18,7 @@ import com.intellij.psi.JavaPsiFacade;
 import com.intellij.psi.JavaRecursiveElementWalkingVisitor;
 import com.intellij.psi.JavaTokenType;
 import com.intellij.psi.LambdaUtil;
+import com.intellij.psi.PsiAnonymousClass;
 import com.intellij.psi.PsiArrayAccessExpression;
 import com.intellij.psi.PsiArrayInitializerExpression;
 import com.intellij.psi.PsiArrayType;
@@ -122,6 +123,8 @@ import java.util.stream.Stream;
 
 import static com.intellij.psi.CommonClassNames.JAVA_IO_PRINT_STREAM;
 import static com.intellij.psi.CommonClassNames.JAVA_IO_PRINT_WRITER;
+import static com.intellij.psi.CommonClassNames.JAVA_IO_WRITER;
+import static com.intellij.psi.CommonClassNames.JAVA_LANG_ABSTRACT_STRING_BUILDER;
 import static com.intellij.psi.CommonClassNames.JAVA_LANG_BYTE;
 import static com.intellij.psi.CommonClassNames.JAVA_LANG_CHARACTER;
 import static com.intellij.psi.CommonClassNames.JAVA_LANG_CHAR_SEQUENCE;
@@ -601,18 +604,24 @@ public final class ExpressionUtils {
         if (expressions.length < 2 || !expression.equals(PsiUtil.skipParenthesizedExprDown(expressions[1]))) {
           return true;
         }
-        return !isCallToMethodIn(methodCallExpression, JAVA_LANG_STRING_BUILDER, JAVA_LANG_STRING_BUFFER);
+        return !isCallToMethodIn(methodCallExpression, JAVA_LANG_ABSTRACT_STRING_BUILDER);
       } else if ("append".equals(name)) {
-        if (expression.equals(PsiUtil.skipParenthesizedExprDown(expressions[0])) &&
-            isCallToMethodIn(methodCallExpression, JAVA_LANG_STRING_BUILDER, JAVA_LANG_STRING_BUFFER)) {
-          if (expressions.length == 1) {
-            return false;
-          }
-          if (expressions.length == 3) {
-            return !InheritanceUtil.isInheritor(type, JAVA_LANG_CHAR_SEQUENCE);
+        if (expression.equals(PsiUtil.skipParenthesizedExprDown(expressions[0]))) {
+          if (isCallToMethodIn(methodCallExpression, JAVA_LANG_ABSTRACT_STRING_BUILDER) ||
+              (isCallToMethodIn(methodCallExpression, JAVA_IO_WRITER) && PsiTypes.charType().equals(type))) {
+            if (expressions.length == 1) {
+              return false;
+            }
+            if (expressions.length == 3) {
+              return !InheritanceUtil.isInheritor(type, JAVA_LANG_CHAR_SEQUENCE);
+            }
           }
         }
         return true;
+      } else if ("write".equals(name)) {
+        if (isCallToMethodIn(methodCallExpression, JAVA_IO_WRITER) && PsiTypes.charType().equals(type)) {
+          return expressions.length != 1;
+        }
       } else if ("print".equals(name) || "println".equals(name)) {
         return !isCallToMethodIn(methodCallExpression, JAVA_IO_PRINT_STREAM, JAVA_IO_PRINT_WRITER);
       } else if ("trace".equals(name) || "debug".equals(name) || "info".equals(name) || "warn".equals(name) || "error".equals(name)) {
@@ -684,7 +693,10 @@ public final class ExpressionUtils {
     if (containingClass == null) {
       return false;
     }
-    return ArrayUtil.contains(containingClass.getQualifiedName(), classNames);
+    for (String className : classNames) {
+      if (InheritanceUtil.isInheritor(containingClass, className)) return true;
+    }
+    return false;
   }
 
   public static boolean isNegative(@NotNull PsiExpression expression) {
@@ -1037,6 +1049,7 @@ public final class ExpressionUtils {
         }
         while (containingClass != null && !InheritanceUtil.isInheritorOrSelf(containingClass, memberClass, true));
         if (containingClass != null) {
+          if (containingClass instanceof PsiImplicitClass) return null;
           String thisQualifier = containingClass.getQualifiedName();
           if (thisQualifier == null) {
             if (PsiUtil.isLocalClass(containingClass)) {
@@ -1533,9 +1546,20 @@ public final class ExpressionUtils {
       PsiElement parent = expression.getParent();
       if (parent instanceof PsiExpression e && !(parent instanceof PsiLambdaExpression)) {
         expression = e;
-      } else if (parent instanceof PsiExpressionList && parent.getParent() instanceof PsiExpression e) {
-        expression = e;
-      } else {
+      }
+      else if (parent instanceof PsiExpressionList) {
+        PsiElement grandParent = parent.getParent();
+        if (grandParent instanceof PsiExpression e) {
+          expression = e;
+        }
+        else if (grandParent instanceof PsiAnonymousClass c && c.getParent() instanceof PsiExpression e) {
+          expression = e;
+        }
+        else {
+          return expression;
+        }
+      }
+      else {
         return expression;
       }
     }

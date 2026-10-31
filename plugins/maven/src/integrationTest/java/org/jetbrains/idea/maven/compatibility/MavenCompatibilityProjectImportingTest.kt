@@ -39,8 +39,8 @@ import org.junit.jupiter.params.support.ParameterDeclarations
 import java.util.stream.Stream
 
 private val MAVEN_VERSIONS = listOf(
+  "4.0.0-rc-7",
   "4.0.0-rc-6",
-  "4.0.0-rc-5",
   "3.10.0-rc-1",
   "3.9.16",
   "3.8.8",
@@ -51,7 +51,7 @@ private val MAVEN_VERSIONS = listOf(
 )
 
 internal class MavenCompatibilityVersions : ArgumentsProvider {
-  override fun provideArguments(parameters: ParameterDeclarations?, context: ExtensionContext?): Stream<out Arguments?> {
+  override fun provideArguments(parameters: ParameterDeclarations, context: ExtensionContext): Stream<out Arguments> {
     return MAVEN_VERSIONS.flatMap { version ->
       if (version.startsWith("4.")) {
         listOf(

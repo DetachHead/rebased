@@ -8,9 +8,9 @@ import com.intellij.openapi.diagnostic.trace
 import com.intellij.openapi.editor.Document
 import com.intellij.openapi.editor.impl.DocumentImpl
 import com.intellij.openapi.editor.impl.FrozenDocument
+import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.util.registry.Registry
 import com.intellij.terminal.TerminalColorPalette
-import com.intellij.util.containers.DisposableWrapperList
 import com.intellij.util.diff.Diff
 import com.intellij.util.diff.FilesTooBigForDiffException
 import org.jetbrains.annotations.ApiStatus
@@ -30,6 +30,7 @@ import org.jetbrains.plugins.terminal.view.TerminalOffset
 import org.jetbrains.plugins.terminal.view.TerminalOutputModelListener
 import org.jetbrains.plugins.terminal.view.TerminalOutputModelSnapshot
 import org.jetbrains.plugins.terminal.view.TerminalOutputOsc8Hyperlink
+import java.util.concurrent.CopyOnWriteArrayList
 
 /**
  * [maxOutputLength] limits the length of the document. Zero means unlimited length.
@@ -42,11 +43,14 @@ class MutableTerminalOutputModelImpl(
 
   override var cursorOffset: TerminalOffset = TerminalOffset.ZERO
 
+  override var screenTopOffset: TerminalOffset = TerminalOffset.ZERO
+    private set
+
   private val highlightingsModel = HighlightingsModel()
 
   private val osc8HyperlinksModel = Osc8HyperlinksModel()
 
-  private val listeners = DisposableWrapperList<TerminalOutputModelListener>()
+  private val listeners = CopyOnWriteArrayList<TerminalOutputModelListener>()
 
   @VisibleForTesting
   var trimmedLinesCount: Long = 0
@@ -169,9 +173,35 @@ class MutableTerminalOutputModelImpl(
     this.cursorOffset = offset
 
     val event = TerminalCursorOffsetChangeEventImpl(this, oldValue, offset)
-    fireListenersAndLogAllExceptions(listeners, LOG, "Exception during handling $event") {
+    fireListenersAndLogAllExceptions(listeners, LOG, { "Exception during handling $event" }) {
       it.cursorOffsetChanged(event)
     }
+  }
+
+  override fun updateScreenTopPosition(absoluteLineIndex: Long, columnIndex: Int) {
+    val lineIndex = TerminalLineIndex.of(absoluteLineIndex)
+    // The same update can trim away the line the screen starts on when maxOutputLength is smaller than a
+    // screen. Then the oldest text still available is the closest the screen top can get.
+    if (lineIndex < firstLineIndex) {
+      LOG.debug { "The screen top line $absoluteLineIndex is already trimmed, using the output start instead" }
+      updateScreenTopPosition(startOffset)
+      return
+    }
+    ensureDocumentHasLine(lineIndex)
+    val lineStartOffset = getStartOfLine(lineIndex)
+    val lineEndOffset = getEndOfLine(lineIndex)
+    // columnIndex comes from the session, which doesn't know about trimming,
+    // so for the first line the index may be off, we need to apply correction
+    val trimmedCharsInLine = if (lineIndex == firstLineIndex) firstLineTrimmedCharsCount else 0
+    // The screen top is only an anchor to read, so clamp a column past the line end instead of padding
+    // the line with spaces the way the cursor does.
+    val offset = (lineStartOffset + (columnIndex - trimmedCharsInLine).toLong()).coerceIn(lineStartOffset, lineEndOffset)
+    LOG.debug { "Updating the screen top to absolute line = $absoluteLineIndex, column = $columnIndex, offset = $offset" }
+    updateScreenTopPosition(offset)
+  }
+
+  override fun updateScreenTopPosition(offset: TerminalOffset) {
+    screenTopOffset = offset.coerceIn(startOffset, endOffset)
   }
 
   private fun ensureDocumentHasLine(lineIndex: TerminalLineIndex) {
@@ -190,6 +220,7 @@ class MutableTerminalOutputModelImpl(
     trimmedLinesCount = 0
     trimmedCharsCount = 0
     firstLineTrimmedCharsCount = 0
+    screenTopOffset = TerminalOffset.ZERO
     document.replaceString(0, textLength, "")
     highlightingsModel.clear()
     osc8HyperlinksModel.clear()
@@ -332,9 +363,14 @@ class MutableTerminalOutputModelImpl(
     return ModelChange(startOffset + prefix.toLong(), oldCore, newCore)
   }
 
-  private fun ensureCorrectCursorOffset() {
-    // If the document became shorter or was trimmed, immediately ensure that the cursor is still within the document.
-    // It'll update itself later to the correct position anyway, but having the incorrect value can cause exceptions before that.
+  private fun ensureCorrectOffsets() {
+    // If the document became shorter or was trimmed, immediately ensure that the cursor and the screen top are
+    // still within the document.
+    // They'll update themselves later to the correct position anyway, but having the incorrect value can cause exceptions before that.
+    // The screen top is re-clamped first: unlike the cursor, it fires no listener event, so doing it first is free.
+    // And it guarantees screenTopOffset is already correct by the time a cursor clamp below fires synchronous listeners
+    // that may observe screenTopOffset as well.
+    updateScreenTopPosition(screenTopOffset)
     if (cursorOffset < startOffset) {
       updateCursorPosition(startOffset)
     }
@@ -413,7 +449,7 @@ class MutableTerminalOutputModelImpl(
   }
 
   private inline fun doSingleDocumentChange(isTypeAhead: Boolean, block: () -> TerminalContentChangeEventImpl): TerminalContentChangeEventImpl {
-    fireListenersAndLogAllExceptions(listeners, LOG, "Exception during handling beforeContentChanged event") {
+    fireListenersAndLogAllExceptions(listeners, LOG, { "Exception during handling beforeContentChanged event" }) {
       it.beforeContentChanged(this)
     }
 
@@ -425,9 +461,9 @@ class MutableTerminalOutputModelImpl(
     finally {
       contentUpdateInProgress = false
     }
-    ensureCorrectCursorOffset()
+    ensureCorrectOffsets()
 
-    fireListenersAndLogAllExceptions(listeners, LOG, "Exception during handling $event") {
+    fireListenersAndLogAllExceptions(listeners, LOG, { "Exception during handling $event" }) {
       it.afterContentChanged(event)
     }
     return event
@@ -453,7 +489,13 @@ class MutableTerminalOutputModelImpl(
   }
 
   override fun addListener(parentDisposable: Disposable, listener: TerminalOutputModelListener) {
-    listeners.add(listener, parentDisposable)
+    listeners.add(listener)
+    val registered = Disposer.tryRegister(parentDisposable) {
+      listeners.remove(listener)
+    }
+    if (!registered) {
+      listeners.remove(listener)
+    }
   }
 
   override fun withTypeAhead(block: () -> Unit) {
@@ -474,6 +516,7 @@ class MutableTerminalOutputModelImpl(
       trimmedCharsCount = trimmedCharsCount,
       firstLineTrimmedCharsCount = firstLineTrimmedCharsCount,
       cursorOffset = cursorOffset.toRelative(),
+      screenTopOffset = screenTopOffset.toRelative(),
       highlightings = highlightingsModel.dumpState(),
       osc8Hyperlinks = osc8HyperlinksModel.dumpState(),
     )
@@ -489,6 +532,7 @@ class MutableTerminalOutputModelImpl(
       highlightingsModel.restoreFromState(state.highlightings)
       osc8HyperlinksModel.restoreFromState(state.osc8Hyperlinks)
       updateCursorPosition(relativeOffset(state.cursorOffset))
+      updateScreenTopPosition(relativeOffset(state.screenTopOffset))
 
       ModelChange(startOffset, oldText, state.text)  // the document is changed from right from the start
     }

@@ -13,8 +13,8 @@ import org.jetbrains.plugins.groovy.util.TestUtils;
 
 public class ResolveLabelTest extends GroovyResolveTestCase {
   @Override
-  protected String getBasePath() {
-    return TestUtils.getTestDataPath()+"resolve/label";
+  protected String getTestDataPath() {
+    return TestUtils.getAbsoluteTestDataPath()+"resolve/label";
   }
 
   public void testLabelResolve() {

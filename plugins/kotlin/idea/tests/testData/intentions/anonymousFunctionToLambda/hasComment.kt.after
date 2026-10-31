@@ -4,5 +4,5 @@ fun foo(f: () -> Unit) {
 }
 
 fun main() {
-    foo /* comment */ { val p = 1 }
+    foo /* comment */{ val p = 1 }
 }

@@ -46,6 +46,7 @@ import com.intellij.platform.eel.provider.utils.awaitProcessResult
 import com.intellij.platform.eel.provider.utils.stderrString
 import com.intellij.platform.eel.provider.utils.stdoutString
 import com.intellij.platform.eel.spawnProcess
+import com.intellij.platform.eel.terminate
 import com.intellij.util.Urls
 import com.intellij.util.io.HttpRequests
 import com.intellij.util.io.delete
@@ -196,7 +197,7 @@ class JdkInstaller : JdkInstallerBase() {
     val userHome = eel.fs.user.home
 
     val relativePath = when (eel.platform) {
-      is EelPlatform.Windows, is EelPlatform.Linux, is EelPlatform.FreeBSD, is EelPlatform.HarmonyOS -> ".jdks"
+      is EelPlatform.Windows, is EelPlatform.Linux, is EelPlatform.FreeBSD, is EelPlatform.OHOS -> ".jdks"
       is EelPlatform.Darwin -> "Library/Java/JavaVirtualMachines"
     }
 

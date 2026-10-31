@@ -21,7 +21,7 @@ import com.intellij.ide.plugins.withCustomFactoryInUnitTests
 import com.intellij.openapi.extensions.PluginId
 import com.intellij.openapi.util.BuildNumber
 import com.intellij.platform.ide.bootstrap.ZipFilePoolImpl
-import com.intellij.platform.runtime.product.ProductMode
+import com.intellij.platform.productMode.ProductMode
 import com.intellij.util.io.directoryStreamIfExists
 import com.intellij.util.lang.UrlClassLoader
 import java.nio.file.Path
@@ -36,7 +36,9 @@ class PluginSetTestBuilder private constructor(
   private var customCoreLoader: UrlClassLoader? = null
   private var productMode: ProductMode = ProductMode.MONOLITH
   private var explicitPluginSubsetToLoad: Set<PluginId>? = null
+  private var disableRequiredIfAvailable: Boolean = false
   private var customEnvironmentConfiguredModules: Map<PluginModuleId, EnvironmentConfiguredModuleData>? = null
+  private var aiEnabled: Boolean = true
   private var compatibilityDependenciesForRemainingCandidatesProvider:
     ((IdeaPluginDescriptorImpl, RemainingCandidatesView) -> Sequence<DependencyRef>)? = null
 
@@ -82,10 +84,19 @@ class PluginSetTestBuilder private constructor(
     this.explicitPluginSubsetToLoad = pluginsToLoad
   }
 
+  fun withRequiredIfAvailableDisabled(disabled: Boolean): PluginSetTestBuilder = apply {
+    disableRequiredIfAvailable = disabled
+  }
+
   fun withEnvironmentConfiguredModules(
     environmentConfiguredModules: Map<PluginModuleId, EnvironmentConfiguredModuleData>,
   ): PluginSetTestBuilder = apply {
     customEnvironmentConfiguredModules = environmentConfiguredModules
+  }
+
+  /** Sets the AI flag, as [com.intellij.ide.plugins.AiEnabledState] does at run time. */
+  fun withAiEnabled(enabled: Boolean): PluginSetTestBuilder = apply {
+    aiEnabled = enabled
   }
 
   fun withCompatibilityDependenciesForRemainingCandidatesProvider(
@@ -103,6 +114,7 @@ class PluginSetTestBuilder private constructor(
   fun buildInitContext(): PluginInitializationContext {
     return object : PseudoProductTestPluginInitContext() {
       override val expiredPlugins: Set<PluginId> = this@PluginSetTestBuilder.expiredPluginIds
+      override val aiEnabled: Boolean = this@PluginSetTestBuilder.aiEnabled
       override val productBuildNumber: BuildNumber = this@PluginSetTestBuilder.productBuildNumber
       override fun isPluginDisabled(id: PluginId): Boolean = id in disabledPluginIds
       override fun isPluginBroken(id: PluginId, version: String?): Boolean {
@@ -110,7 +122,8 @@ class PluginSetTestBuilder private constructor(
         return false
       }
       override val explicitPluginSubsetToLoad: Set<PluginId>? = this@PluginSetTestBuilder.explicitPluginSubsetToLoad
-      override val currentProductModeId: String = productMode.id
+      override val disableRequiredIfAvailable: Boolean = this@PluginSetTestBuilder.disableRequiredIfAvailable
+      override val productMode: ProductMode = this@PluginSetTestBuilder.productMode
       override val environmentConfiguredModules: Map<PluginModuleId, EnvironmentConfiguredModuleData>
         get() = customEnvironmentConfiguredModules ?: super.environmentConfiguredModules
       override fun provideCompatibilityDependenciesForRemainingCandidates(

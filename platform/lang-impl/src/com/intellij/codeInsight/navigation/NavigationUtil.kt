@@ -55,6 +55,8 @@ import com.intellij.openapi.util.TextRange
 import com.intellij.openapi.util.registry.Registry
 import com.intellij.openapi.util.text.Strings
 import com.intellij.openapi.vfs.VirtualFile
+import com.intellij.platform.ide.navigation.NavigationOptions
+import com.intellij.platform.ide.navigation.requestNavigate
 import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiFile
 import com.intellij.psi.search.PsiElementProcessor
@@ -358,8 +360,6 @@ private suspend fun activatePsiElementIfOpenAsync(element: PsiElement, searchFor
   val wasAlreadyOpen = fileEditorManager.isFileOpen(vFile)
   val openOptions = FileEditorOpenOptions(requestFocus = requestFocus, reuseOpen = searchForOpen)
   if (!wasAlreadyOpen) {
-    // suspend overload — releases EDT while composite.waitForAvailable() suspends,
-    // so the readAction { getDocument } inside the composite is cancellable.
     fileEditorManager.openFile(file = vFile, options = openOptions)
   }
 
@@ -497,6 +497,42 @@ fun getRelatedItemsPopup(items: List<GotoRelatedItem>, title: @NlsContexts.Popup
  * `false` by default
  */
 fun getRelatedItemsPopup(items: List<GotoRelatedItem>, title: @NlsContexts.PopupTitle String?, showContainingModules: Boolean): JBPopup {
+  return createRelatedItemsPopup(items, title, showContainingModules, items.firstNotNullOfOrNull { it.project }) { item ->
+    item.project?.let { navigateToRelatedItem(it, item, NavigationOptions.defaultOptions()) }
+  }
+}
+
+/**
+ * Creates a popup that submits navigation requests with [options].
+ */
+@ApiStatus.Experimental
+fun getRelatedItemsPopup(
+  items: List<GotoRelatedItem>,
+  title: @NlsContexts.PopupTitle String?,
+  showContainingModules: Boolean,
+  project: Project,
+  options: NavigationOptions,
+): JBPopup {
+  return createRelatedItemsPopup(items, title, showContainingModules, project) { navigateToRelatedItem(project, it, options) }
+}
+
+/**
+ * Submits the item's navigation request with [options]. A null request ends navigation.
+ */
+@ApiStatus.Experimental
+@RequiresEdt
+fun navigateToRelatedItem(project: Project, item: GotoRelatedItem, options: NavigationOptions) {
+  item.onChosen()
+  requestNavigate(project, item, options)
+}
+
+private fun createRelatedItemsPopup(
+  items: List<GotoRelatedItem>,
+  title: @NlsContexts.PopupTitle String?,
+  showContainingModules: Boolean,
+  project: Project?,
+  navigate: (GotoRelatedItem) -> Unit,
+): JBPopup {
   val elements = ArrayList<Any?>(items.size)
   //todo move presentation logic to GotoRelatedItem class
   val itemMap = HashMap<PsiElement, GotoRelatedItem>()
@@ -509,21 +545,23 @@ fun getRelatedItemsPopup(items: List<GotoRelatedItem>, title: @NlsContexts.Popup
       elements.add(element)
     }
   }
-  return getPsiElementPopup(elements = elements,
+  return getPsiElementPopup(project = project,
+                            elements = elements,
                             itemMap = itemMap,
                             title = title,
                             showContainingModules = showContainingModules) { element ->
     if (element is PsiElement) {
-      itemMap.get(element)!!.navigate()
+      navigate(itemMap.get(element)!!)
     }
     else {
-      (element as GotoRelatedItem).navigate()
+      navigate(element as GotoRelatedItem)
     }
     true
   }
 }
 
-private fun getPsiElementPopup(elements: List<Any?>,
+private fun getPsiElementPopup(project: Project?,
+                               elements: List<Any?>,
                                itemMap: Map<PsiElement, GotoRelatedItem>,
                                title: @NlsContexts.PopupTitle String?,
                                showContainingModules: Boolean,
@@ -601,8 +639,7 @@ private fun getPsiElementPopup(elements: List<Any?>,
     }
   }
 
-  @Suppress("DEPRECATION")
-  val popup = ListPopupImpl(object : BaseListPopupStep<Any>(title, elements) {
+  val popup = ListPopupImpl(project, object : BaseListPopupStep<Any>(title, elements) {
     private val separators = HashMap<Any?, ListSeparator>()
 
     init {
@@ -727,7 +764,7 @@ private data class NavigationSnapshot(
   }
 
   companion object {
-    @RequiresEdt
+    @RequiresEdt(generateAssertion = false /* IJPL-115548 */)
     fun capture(project: Project): NavigationSnapshot {
       val fem = FileEditorManager.getInstance(project)
       val editor = fem.selectedTextEditor

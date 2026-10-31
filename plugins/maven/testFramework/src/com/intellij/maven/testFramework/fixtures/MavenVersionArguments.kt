@@ -15,7 +15,7 @@ import java.util.stream.Stream
  * `version[/model]` entries) for CI; defaults to [MAVEN_VERSIONS] otherwise.
  */
 object MavenTestVersions {
-  const val MAVEN_4_VERSION: String = "4.0.0-rc-6"
+  const val MAVEN_4_VERSION: String = "4.0.0-rc-7"
 
   val MAVEN_VERSIONS: Array<String> = arrayOf(
     "bundled",
@@ -65,7 +65,7 @@ object MavenTestVersions {
  * ```
  */
 class MavenVersionArguments : ArgumentsProvider {
-  override fun provideArguments(parameters: ParameterDeclarations?, context: ExtensionContext?): Stream<out Arguments?> {
+  override fun provideArguments(parameters: ParameterDeclarations, context: ExtensionContext): Stream<out Arguments> {
     return MavenTestVersions.versionsToRun().map { Arguments.of(it.first, it.second) }.stream()
   }
 }

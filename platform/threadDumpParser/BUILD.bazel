@@ -11,6 +11,10 @@ jps_test(
 
 ### skip generation section `test intellij.platform.threadDumpParser.tests`
 
+### auto-generated section `dev intellij.platform.threadDumpParser` start
+content_module_jar(module = ":threadDumpParser")
+### auto-generated section `dev intellij.platform.threadDumpParser` end
+
 ### auto-generated section `build intellij.platform.threadDumpParser` start
 jvm_library(
     name = "threadDumpParser",
@@ -42,8 +46,6 @@ jvm_library(
     ],
 )
 
-content_module_jar(module = ":threadDumpParser")
-
 jvm_library(
     name = "threadDumpParser_test_lib",
     testonly = True,
@@ -60,16 +62,10 @@ jvm_library(
         "//platform/util/base/multiplatform:multiplatform_test_lib",
         "//platform/util/base:base_test_lib",
         "//platform/platform-impl:ide-impl_test_lib",
-        "//tools/intellij.tools.ide.metrics.benchmark:ide-metrics-benchmark",
-        "//tools/intellij.tools.ide.metrics.benchmark:ide-metrics-benchmark_test_lib",
-        "//platform/testFramework",
-        "//platform/testFramework:testFramework_test_lib",
         "//libraries/jackson3/jackson:libraries-jackson3_test_lib",
         "//libraries/jackson3/databind:databind_test_lib",
         "//libraries/kotlinx/serialization/core:core_test_lib",
         "//libraries/kotlinx/serialization/json:json_test_lib",
-        "//libraries/junit4",
-        "//libraries/junit4:junit4_test_lib",
     ],
 )
 ### auto-generated section `build intellij.platform.threadDumpParser` end
@@ -79,7 +75,6 @@ exports_files(
     [
         "intellij.platform.threadDumpParser.iml",
         "resources/intellij.platform.threadDumpParser.xml",
-        "module-content.yaml",
     ],
     visibility = ["//visibility:public"],
 )

@@ -36,7 +36,8 @@ internal abstract class KotlinIntroduceVariablePostfixTemplate(
                     project = expression.project,
                     editor = editor,
                     expressionToExtract = expression as KtExpression,
-                    isVar = isVar
+                    isVar = isVar,
+                    showVarOption = false,
                 )
             }
         }

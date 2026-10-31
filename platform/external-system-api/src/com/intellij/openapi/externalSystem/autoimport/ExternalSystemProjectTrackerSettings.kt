@@ -21,7 +21,8 @@ interface ExternalSystemProjectTrackerSettings {
     SELECTIVE,
 
     /**
-     * Reloads a project only if cached data is corrupted, invalid or missing
+     * Turns off all auto-reloads, except those explicitly requested by [ExternalSystemProjectTracker.scheduleProjectRefresh]
+     * or by the build tool's internal API.
      */
     NONE
   }

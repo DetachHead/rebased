@@ -6,9 +6,9 @@ import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.fileEditor.FileEditor
 import com.intellij.openapi.fileEditor.FileEditorManager
+import com.intellij.openapi.fileEditor.FileEditorOpenRequest
 import com.intellij.openapi.fileEditor.FileEditorPolicy
 import com.intellij.openapi.fileEditor.FileEditorProvider
-import com.intellij.openapi.fileEditor.ex.FileEditorManagerEx
 import com.intellij.openapi.fileTypes.FileType
 import com.intellij.openapi.project.DumbAware
 import com.intellij.openapi.project.Project
@@ -21,6 +21,7 @@ import org.jetbrains.annotations.TestOnly
 import java.io.InputStream
 import java.net.URI
 
+@Suppress("DEPRECATION")
 class HTMLEditorProvider : FileEditorProvider, DumbAware {
   @Suppress("CompanionObjectInExtension")
   companion object {
@@ -54,15 +55,19 @@ class HTMLEditorProvider : FileEditorProvider, DumbAware {
     }
 
     /**
-     * Opens an HTML page in the editor in a suspending way
+     * Opens an HTML page in the editor in a suspending way.
+     *
+     * The call waits for the editor composite, because it returns an editor from it.
+     * The wait suspends the caller and does not block the EDT.
+     *
+     * @return the HTML editor, or `null` when the file gave none
      */
     @ApiStatus.Experimental
     suspend fun openEditorAsync(project: Project, @DialogTitle title: String, request: Request): FileEditor? {
       val file = HTMLVirtualFile.createFile(project, title, request, WebPreviewFileType.INSTANCE, ignoreJcef = false)
-      val fileEditors = FileEditorManagerEx.getInstanceEx(project)
-        .openFile(file, FileEditorOpenOptions(requestFocus = true, waitForCompositeOpen = false))
-        .allEditorsWithProviders
-        .map { it.fileEditor }
+      val fileEditors = FileEditorManager.getInstance(project)
+        .openFile(file, FileEditorOpenRequest.withFocus(true))
+        .allEditors
       return fileEditors.find { it is HTMLFileEditor }
     }
 

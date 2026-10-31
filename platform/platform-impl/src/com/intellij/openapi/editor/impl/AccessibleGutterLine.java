@@ -10,6 +10,7 @@ import com.intellij.openapi.actionSystem.CustomShortcutSet;
 import com.intellij.openapi.actionSystem.DataContext;
 import com.intellij.openapi.actionSystem.KeyboardShortcut;
 import com.intellij.openapi.actionSystem.ShortcutSet;
+import com.intellij.openapi.application.WriteIntentReadAction;
 import com.intellij.openapi.editor.Caret;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.editor.actionSystem.EditorActionHandler;
@@ -21,11 +22,13 @@ import com.intellij.openapi.editor.markup.GutterIconRenderer;
 import com.intellij.openapi.editor.markup.LineMarkerRenderer;
 import com.intellij.openapi.project.DumbAwareAction;
 import com.intellij.openapi.ui.popup.Balloon;
+import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.wm.IdeFocusManager;
 import com.intellij.ui.JBColor;
 import com.intellij.ui.paint.LinePainter2D;
 import com.intellij.ui.scale.JBUIScale;
 import com.intellij.util.ui.accessibility.SimpleAccessible;
+import com.intellij.xml.util.XmlStringUtil;
 import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -84,7 +87,7 @@ final class AccessibleGutterLine extends JPanel {
   }
 
   private static @NotNull AccessibleGutterLine createAndActivate(@NotNull EditorGutterComponentImpl gutter) {
-    return new AccessibleGutterLine(gutter);
+    return WriteIntentReadAction.compute(() -> new AccessibleGutterLine(gutter));
   }
 
   void escape(boolean requestFocusToEditor) {
@@ -410,7 +413,8 @@ final class AccessibleGutterLine extends JPanel {
         accessibleContext = new AccessibleJLabel() {
           @Override
           public String getAccessibleName() {
-            return getText();
+            String text = getText();
+            return XmlStringUtil.isWrappedInHtml(text) ? StringUtil.removeHtmlTags(text, true) : text;
           }
         };
       }

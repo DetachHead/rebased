@@ -11,6 +11,7 @@ import com.intellij.ide.actions.searcheverywhere.SymbolSearchEverywhereContribut
 import com.intellij.ide.impl.OpenProjectTask
 import com.intellij.ide.impl.ProjectUtil
 import com.intellij.ide.impl.getProjectOriginUrl
+import com.intellij.ide.TrustedFiles
 import com.intellij.openapi.actionSystem.ActionPlaces
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.actionSystem.impl.SimpleDataContext
@@ -183,6 +184,7 @@ class NavigatorWithinProject(
               .firstOrNull()
           }
         } ?: return@withBackgroundProgress
+        readAction { element.containingFile?.virtualFile }?.let { TrustedFiles.markExternallyOpened(it) }
         withContext(Dispatchers.EDT) {
           PsiNavigateUtil.navigate(element)
         }
@@ -204,6 +206,7 @@ class NavigatorWithinProject(
     path = OSAgnosticPathUtil.expandUserHome(path)
     withBackgroundProgress(project, IdeBundle.message("navigate.command.search.reference.progress.title", pathText)) {
       val virtualFile = findFileByStringPath(path) ?: return@withBackgroundProgress
+      TrustedFiles.markExternallyOpened(virtualFile)
       val textEditor = withContext(Dispatchers.EDT) {
         writeIntentReadAction {
           FileEditorManager.getInstance(project).openFile(virtualFile, true).filterIsInstance<TextEditor>().firstOrNull()
@@ -237,23 +240,26 @@ class NavigatorWithinProject(
         editor.caretModel.moveToOffset(convertLocationToOffset(locationInFile, editor))
         editor.scrollingModel.scrollToCaret(ScrollType.CENTER)
         editor.selectionModel.removeSelection()
+        applySelections(editor)
         IdeFocusManager.getGlobalInstance().requestFocus(editor.contentComponent, true)
       }
     }
-    makeSelectionsVisible()
   }
 
   private suspend fun makeSelectionsVisible() {
     withContext(Dispatchers.EDT) {
       writeIntentReadAction {
-        val editor = FileEditorManager.getInstance(project).selectedTextEditor
-        selections.forEach {
-          editor?.selectionModel?.setSelection(
-            convertLocationToOffset(it.first, editor),
-            convertLocationToOffset(it.second, editor)
-          )
-        }
+        FileEditorManager.getInstance(project).selectedTextEditor?.let { applySelections(it) }
       }
+    }
+  }
+
+  private fun applySelections(editor: Editor) {
+    for (selection in selections) {
+      editor.selectionModel.setSelection(
+        convertLocationToOffset(selection.first, editor),
+        convertLocationToOffset(selection.second, editor)
+      )
     }
   }
 
@@ -276,7 +282,7 @@ class NavigatorWithinProject(
       val endLocation = parseLocationInFile(split[1])
 
       if (startLocation != null && endLocation != null) {
-        return@mapNotNull Pair(startLocation, startLocation)
+        return@mapNotNull Pair(startLocation, endLocation)
       }
       return@mapNotNull null
     }

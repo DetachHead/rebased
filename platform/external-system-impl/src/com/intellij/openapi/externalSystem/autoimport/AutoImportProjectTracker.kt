@@ -142,7 +142,7 @@ class AutoImportProjectTracker(
     }
   }
 
-  override fun scheduleChangeProcessing() {
+  fun scheduleChangeProcessing() {
     LOG.debug("Schedule change processing (isExplicitReload=false)")
 
     schedule(priority = 1, dispatchIterations = 1) {
@@ -371,6 +371,7 @@ class AutoImportProjectTracker(
   override fun markDirty(id: ExternalSystemProjectId) {
     val projectData = projectDataMap(id) { get(it) } ?: return
     projectData.status.markDirty(Stamp.nextStamp())
+    scheduleChangeProcessing()
   }
 
   override fun markDirtyAllProjects() {
@@ -378,6 +379,13 @@ class AutoImportProjectTracker(
     for (projectData in projectDataMap.values) {
       projectData.status.markDirty(modificationTimeStamp)
     }
+    scheduleChangeProcessing()
+  }
+
+  override fun markDirtyInternal(id: ExternalSystemProjectId) {
+    val projectData = projectDataMap(id) { get(it) } ?: return
+    projectData.status.markDirty(Stamp.nextStamp(), INTERNAL)
+    scheduleChangeProcessing()
   }
 
   private fun projectDataMap(
@@ -421,7 +429,7 @@ class AutoImportProjectTracker(
     LOG.debug("$projectId: Load State ($projectState)")
     val settingsTrackerState = projectState?.settingsTracker
     if (settingsTrackerState == null || projectState.isDirty || isWorkspaceModelCacheAbsentOrInvalid()) {
-      projectData.status.markDirty(Stamp.nextStamp(), EXTERNAL)
+      projectData.status.markDirty(Stamp.nextStamp())
       scheduleChangeProcessing()
       return
     }

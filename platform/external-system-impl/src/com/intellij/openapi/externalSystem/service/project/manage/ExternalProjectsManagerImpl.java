@@ -194,6 +194,12 @@ public final class ExternalProjectsManagerImpl implements ExternalProjectsManage
       return;
     }
 
+    // Ensures that all external system settings are loaded.
+    ExternalSystemManager.EP_NAME.forEachExtensionSafe(manager -> {
+      // Gets or loads external system's settings
+      manager.getSettingsProvider().fun(myProject);
+    });
+
     // load external projects data
     ExternalProjectsDataStorage.getInstance(myProject).load();
     myRunManagerListener.attach();

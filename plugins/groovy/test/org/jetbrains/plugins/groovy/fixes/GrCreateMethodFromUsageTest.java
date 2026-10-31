@@ -14,8 +14,8 @@ import java.util.List;
 
 public class GrCreateMethodFromUsageTest extends GrHighlightingTestBase {
   @Override
-  public final String getBasePath() {
-    return TestUtils.getTestDataPath() + "fixes/createMethodFromUsage/" + getTestName(true) + "/";
+  public final String getTestDataPath() {
+    return TestUtils.getAbsoluteTestDataPath() + "fixes/createMethodFromUsage/" + getTestName(true) + "/";
   }
 
   @Override

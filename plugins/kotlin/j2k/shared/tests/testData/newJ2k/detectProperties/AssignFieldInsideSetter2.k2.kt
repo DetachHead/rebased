@@ -1,12 +1,12 @@
 class C {
-    private var x: String? = ""
+    private var x = ""
     var other: C? = null
 
-    fun getX(): String? {
+    fun getX(): String {
         return x
     }
 
-    fun setX(x: String?) {
+    fun setX(x: String) {
         println("setter invoked")
         if (other != null) {
             this.other!!.x = x

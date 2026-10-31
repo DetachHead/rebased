@@ -42,7 +42,7 @@ public class Groovy16HighlightingTest extends LightJavaCodeInsightFixtureTestCas
   }
 
   @Override
-  public final String getBasePath() {
-    return TestUtils.getTestDataPath() + "highlighting/";
+  public final String getTestDataPath() {
+    return TestUtils.getAbsoluteTestDataPath() + "highlighting/";
   }
 }

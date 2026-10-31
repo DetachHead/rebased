@@ -1,10 +1,8 @@
 // Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.platform.projectView.frontend.impl
 
-import com.intellij.diagnostic.rethrowControlFlowException
 import com.intellij.ide.DefaultTreeExpander
 import com.intellij.ide.SelectInTarget
-import com.intellij.ide.ui.UISettings
 import com.intellij.ide.util.treeView.TreeState
 import com.intellij.openapi.actionSystem.CommonDataKeys
 import com.intellij.openapi.actionSystem.DataSink
@@ -21,16 +19,20 @@ import com.intellij.openapi.ui.SimpleToolWindowPanel
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.util.NlsSafe
 import com.intellij.openapi.util.registry.Registry
+import com.intellij.openapi.wm.IdeFocusManager
 import com.intellij.platform.projectView.actions.ProjectViewActionSupport
 import com.intellij.platform.projectView.frontend.pane.FrontendProjectViewPane
 import com.intellij.platform.projectView.frontend.pane.id
 import com.intellij.platform.projectView.pane.PROJECT_VIEW_SELECTED_NODE_IDS_KEY
+import com.intellij.platform.projectView.pane.ProjectViewChildrenLoaded
 import com.intellij.platform.projectView.pane.ProjectViewNodeModelImpl
 import com.intellij.platform.projectView.pane.ProjectViewNodePath
 import com.intellij.platform.projectView.pane.ProjectViewPaneDescriptorImpl
 import com.intellij.platform.projectView.pane.ProjectViewPaneId
+import com.intellij.platform.projectView.pane.ProjectViewPaneKind
 import com.intellij.platform.projectView.pane.ProjectViewPaneRequest
 import com.intellij.platform.projectView.pane.ProjectViewPaneStateEvent
+import com.intellij.platform.projectView.runSafelyCancellable
 import com.intellij.platform.projectView.settings.ProjectViewPaneOptionDTO
 import com.intellij.ui.AutoScrollToSourceHandler
 import com.intellij.ui.ClientProperty
@@ -38,6 +40,7 @@ import com.intellij.ui.ScrollPaneFactory
 import com.intellij.ui.stripe.ErrorStripe
 import com.intellij.ui.stripe.ErrorStripePainter
 import com.intellij.ui.stripe.TreeUpdater
+import com.intellij.ui.tree.RestoreSelectionListener
 import com.intellij.ui.treeStructure.CachingTreePath
 import com.intellij.ui.treeStructure.Tree
 import com.intellij.util.EditSourceOnDoubleClickHandler
@@ -50,10 +53,9 @@ import kotlinx.coroutines.CoroutineName
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.channels.BufferOverflow
-import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.ReceiveChannel
-import kotlinx.coroutines.channels.SendChannel
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
@@ -84,13 +86,13 @@ import kotlin.time.TimeSource
  */
 @Suppress("ConvertToExplicitBackingFields") // no, thank you, I don't want to write `componentToFocus` everywhere
 internal class TreeBasedFrontendProjectViewPane(
-  project: Project,
+  private val project: Project,
   descriptor: ProjectViewPaneDescriptorImpl,
 ) : FrontendProjectViewPane, UiDataProvider {
   private val paneTreeModel = FrontendProjectViewPaneTreeModel(project, descriptor)
   private val tree = FrontendProjectViewTree(paneTreeModel.treeModel)
   private val scrollPane = ScrollPaneFactory.createScrollPane(tree, true)
-  private val expandRequests = Channel<ExpandRequest>(capacity = 1, onBufferOverflow = BufferOverflow.DROP_OLDEST)
+  private val expandRequests = MutableSharedFlow<ExpandRequest>(extraBufferCapacity = 1, onBufferOverflow = BufferOverflow.DROP_OLDEST)
   private val treeExpander = ProjectViewTreeExpander(tree, expandRequests)
   private val autoscrollToSourceHandler = MyAutoscrollToSourceHandler(project)
   private val cutCopyPasteDeleteProvider = FrontendProjectViewCutCopyPasteDeleteProvider(paneTreeModel)
@@ -152,7 +154,7 @@ internal class TreeBasedFrontendProjectViewPane(
     EditSourceOnEnterKeyHandler.install(tree)
     autoscrollToSourceHandler.install(tree)
     tree.launchOnShow("expand requests") {
-      expandRequests.consumeAsFlow().collectLatest { expandRequest ->
+      expandRequests.collectLatest { expandRequest ->
         expand(expandRequest)
       }
     }
@@ -194,16 +196,23 @@ internal class TreeBasedFrontendProjectViewPane(
       else {
         LOG.debug { "The pane $id doesn't need to expand the first top node (already expanded something)" }
       }
+      if (tree.selectionPath == null && tree.rowCount > 0) {
+        LOG.debug { "The pane $id has no initial selection, selecting the first row" }
+        tree.selectionPath = tree.getPathForRow(0)
+      }
     }
+    tree.addTreeSelectionListener(RestoreSelectionListener())
     enableDnD(tree, paneTreeModel)
   }
 
   override suspend fun manage() {
     coroutineScope {
-      launch(CoroutineName("autoscrollToSourceHandler")) {
-        autoscrollToSourceHandler.manage()
+      launch(CoroutineName("paneTreeModel management for the pane $id")) {
+        runSafelyCancellable(LOG, taskDescription = { "paneTreeModel management for the pane $id" }) {
+          paneTreeModel.manage()
+        }
       }
-      launch(CoroutineName("single-click toggle") + Dispatchers.UI) {
+      launch(CoroutineName("single-click toggle for the pane $id") + Dispatchers.UI) {
         paneTreeModel.getOptionSupport().getActionStateFlow()
           .map { it?.optionStates?.get(ProjectViewPaneOptionDTO.OPEN_DIRECTORIES_WITH_SINGLE_CLICK)?.isSelected == true }
           .distinctUntilChanged()
@@ -211,9 +220,14 @@ internal class TreeBasedFrontendProjectViewPane(
             tree.toggleClickCount = if (singleClick) 1 else 2
           }
       }
-      launch(CoroutineName("select node requests") + Dispatchers.UI) {
-        paneTreeModel.selectionRequests.consumeAsFlow().collectLatest { nodePath ->
-          selectNode(nodePath)
+      launch(CoroutineName("select node requests for the pane $id") + Dispatchers.UI) {
+        paneTreeModel.selectionRequests.consumeAsFlow().collectLatest { request ->
+          runSafelyCancellable(LOG, taskDescription = { "select node requests for the pane $id" }) {
+            selectNode(request.nodePath)
+            if (request.requestFocus) {
+              IdeFocusManager.getGlobalInstance().requestFocusInProject(tree, project)
+            }
+          }
         }
       }
       if (Registry.`is`("error.stripe.enabled", defaultValue = true)) {
@@ -230,6 +244,24 @@ internal class TreeBasedFrontendProjectViewPane(
   suspend fun applyStateChange(event: ProjectViewPaneStateEvent) {
     withContext(Dispatchers.UI) {
       paneTreeModel.applyStateChange(event)
+      // Normally a newly loaded node can't be expanded.
+      // But it's possible when the pane was fully unloaded, and then reloaded again.
+      // Then, the frontend pane can retain some stale state, and in that state some nodes can be pre-expanded.
+      // We need to load every visible node, otherwise we may end with broken frontend-only nodes that can't do anything (IJPL-254925).
+      if (event is ProjectViewChildrenLoaded) {
+        loadVisibleGrandchildren(event.parentId)
+      }
+    }
+  }
+
+  private fun loadVisibleGrandchildren(parentId: Long) {
+    val parent = paneTreeModel.getTreePathById(parentId)?.lastPathComponent as? Node? ?: return
+    val children = parent.children().asSequence().filterIsInstance<Node>().toList()
+    for (child in children) {
+      if (tree.isExpanded(child.treePath)) {
+        LOG.debug { "The newly loaded node ${child.id} was previously expanded, requesting its children..." }
+        paneTreeModel.requestLoadChildren(child.id)
+      }
     }
   }
 
@@ -244,27 +276,25 @@ internal class TreeBasedFrontendProjectViewPane(
   }
 
   private suspend fun expand(expandRequest: ExpandRequest) {
-    try {
-      LOG.debug { "Executing the expand request $expandRequest" }
-      tree.suspendExpandCollapseAccessibilityAnnouncements()
-      coroutineScope {
-        for (path in expandRequest.paths) {
-          launch {
-            expand(path)
+    runSafelyCancellable(LOG, taskDescription = { "expand request for the pane $id: $expandRequest" }) {
+      try {
+        LOG.debug { "Executing the expand request $expandRequest" }
+        tree.suspendExpandCollapseAccessibilityAnnouncements()
+        coroutineScope {
+          for (path in expandRequest.paths) {
+            launch {
+              expand(path)
+            }
           }
         }
+        for (path in expandRequest.paths) {
+          tree.fireAccessibleTreeExpanded(path)
+        }
+        LOG.debug { "Executed the expand request $expandRequest" }
       }
-      for (path in expandRequest.paths) {
-        tree.fireAccessibleTreeExpanded(path)
+      finally {
+        tree.resumeExpandCollapseAccessibilityAnnouncements()
       }
-      LOG.debug { "Executed the expand request $expandRequest" }
-    }
-    catch (e: Throwable) {
-      rethrowControlFlowException(e)
-      LOG.error("An error has occurred while executing the expand request $expandRequest", e)
-    }
-    finally {
-      tree.resumeExpandCollapseAccessibilityAnnouncements()
     }
   }
 
@@ -382,6 +412,7 @@ internal class TreeBasedFrontendProjectViewPane(
 
   override fun uiDataSnapshot(sink: DataSink) {
     sink[ProjectViewPaneId.DATA_KEY] = paneTreeModel.descriptor.id
+    sink[ProjectViewPaneKind.DATA_KEY] = paneTreeModel.descriptor.kind
     sink[PROJECT_VIEW_SELECTED_NODE_IDS_KEY] = tree.selectionPaths?.mapNotNull { path ->
       (path?.lastPathComponent as? Node)?.projectViewNode?.id
     }
@@ -411,7 +442,7 @@ internal class TreeBasedFrontendProjectViewPane(
   }
 }
 
-private class ProjectViewTreeExpander(tree: Tree, private val expandRequests: SendChannel<ExpandRequest>) : DefaultTreeExpander(tree) {
+private class ProjectViewTreeExpander(tree: Tree, private val expandRequests: MutableSharedFlow<ExpandRequest>) : DefaultTreeExpander(tree) {
   override fun isExpandAllVisible(): Boolean {
     return Registry.`is`("ide.project.view.expand.all.action.visible") && !Registry.`is`("ide.project.view.replace.expand.all.with.expand.recursively")
   }
@@ -422,14 +453,14 @@ private class ProjectViewTreeExpander(tree: Tree, private val expandRequests: Se
 
   override fun expandSelected(tree: JTree) {
     val selection = tree.selectionPaths?.toList() ?: return
-    val result = expandRequests.trySend(ExpandRequest(selection))
-    check(!result.isFailure)
+    val result = expandRequests.tryEmit(ExpandRequest(selection))
+    check(result)
   }
 
   override fun expandAll(tree: JTree) {
     val root = tree.model?.root ?: return
-    val result = expandRequests.trySend(ExpandRequest(listOf(CachingTreePath(root))))
-    check(!result.isFailure)
+    val result = expandRequests.tryEmit(ExpandRequest(listOf(CachingTreePath(root))))
+    check(result)
   }
 
   override fun collapseAll(tree: JTree, strict: Boolean, keepSelectionLevel: Int) {
@@ -450,16 +481,6 @@ private class MyAutoscrollToSourceHandler(private val project: Project) : AutoSc
 
   private fun ProjectViewPaneOptionDTO.isOn(): Boolean =
     ProjectViewActionSupport.getInstance(project).getActionState()?.optionStates?.get(this)?.isSelected == true
-
-  suspend fun manage() {
-    // sync the setting from the backend, because it's used on the frontend
-    ProjectViewActionSupport.getInstance(project).getActionStateFlow().map {
-      it?.optionStates?.get(ProjectViewPaneOptionDTO.OPEN_IN_PREVIEW_TAB)?.isSelected == true
-    }.distinctUntilChanged()
-      .collectLatest {
-        UISettings.getInstance().openInPreviewTabIfPossible = it
-      }
-  }
 }
 
 private class MyTreeUpdater(

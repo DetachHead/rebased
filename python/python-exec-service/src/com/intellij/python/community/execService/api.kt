@@ -1,4 +1,4 @@
-// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.intellij.python.community.execService
 
 import com.intellij.execution.configurations.GeneralCommandLine
@@ -12,19 +12,26 @@ import com.intellij.openapi.components.service
 import com.intellij.openapi.util.NlsSafe
 import com.intellij.platform.eel.EelApi
 import com.intellij.platform.eel.getShell
+import com.intellij.platform.eel.path.EelPath
 import com.intellij.platform.eel.provider.asNioPath
+import com.intellij.platform.eel.provider.getEelDescriptor
 import com.intellij.platform.eel.provider.utils.EelProcessExecutionResult
 import com.intellij.platform.eel.provider.utils.stdoutString
 import com.intellij.platform.util.progress.reportRawProgress
 import com.intellij.python.community.execService.impl.Arg
+import com.intellij.python.community.execService.impl.ArgsAndEnv
+import com.intellij.python.community.execService.impl.DirEntry
 import com.intellij.python.community.execService.impl.ExecServiceImpl
 import com.intellij.python.community.execService.impl.PyExecBundle.message
+import com.intellij.python.community.execService.impl.Uploader
 import com.intellij.python.community.execService.impl.transformerToHandler
 import com.intellij.util.concurrency.annotations.RequiresBackgroundThread
 import com.jetbrains.python.PythonBinary
 import com.jetbrains.python.Result
 import com.jetbrains.python.errorProcessing.ExecError
 import com.jetbrains.python.errorProcessing.PyResult
+import com.jetbrains.python.venvReader.Directory
+import org.jetbrains.annotations.ApiStatus
 import org.jetbrains.annotations.CheckReturnValue
 import org.jetbrains.annotations.Nls
 import java.nio.file.Path
@@ -55,7 +62,13 @@ sealed interface BinaryToExec
  * [workDir] is pwd. As it should be on the same eel as [path] for most cases (except WSL), it is better not to set it at all.
  * Prefer full [path] over relative.
  */
-data class BinOnEel(val path: Path, internal val workDir: Path? = null) : BinaryToExec
+data class BinOnEel(val path: Path, internal val workDir: EelPath? = null) : BinaryToExec {
+  init {
+    require(workDir == null || workDir.descriptor == path.getEelDescriptor()) {
+      "The work directory $workDir and the binary $path are on two different eels"
+    }
+  }
+}
 
 /**
  * Legacy Targets-based approach. Do not use it, unless you know what you are doing
@@ -72,7 +85,7 @@ data class BinOnTarget(
     workingDir: Path? = null,
   ) : this({ it.setExePath(exePath) }, target, workingDir)
 
-  @RequiresBackgroundThread
+  @RequiresBackgroundThread(generateAssertion = false /* IJPL-115548 */)
   fun getLocalExePath(): Lazy<FullPathOnTarget> = lazy {
     val targetedCommandLineBuilder = TargetedCommandLineBuilder(target.createEnvironmentRequest(null))
     configureTargetCmdLine.invoke(targetedCommandLineBuilder)
@@ -80,7 +93,10 @@ data class BinOnTarget(
   }
 }
 
-fun PythonBinary.asBinToExec(): BinaryToExec = BinOnEel(this)
+/**
+ * [workDir] is an optional workdir that must be on the same eel
+ */
+fun PythonBinary.asBinToExec(workDir: EelPath? = null): BinaryToExec = BinOnEel(this, workDir = workDir)
 
 /**
  * Execute [binary] right directly on the eel it resides on.
@@ -100,13 +116,11 @@ suspend fun ExecService.execGetStdout(
   args: Args = Args(),
   options: ExecOptions = ExecOptions(),
   procListener: PyProcessListener? = null,
-): PyResult<String> = execute(
-  binary = binary,
-  args = args,
-  options = options,
-  processOutputTransformer = ZeroCodeStdoutTransformer,
-  procListener = procListener
-)
+): PyResult<String> = execute(binary = binary,
+                              args = args,
+                              options = options,
+                              processOutputTransformer = ZeroCodeStdoutTransformer,
+                              procListener = procListener)
 
 
 /**
@@ -120,8 +134,10 @@ suspend fun ExecService.execGetStdout(
   options: ExecOptions = ExecOptions(),
   procListener: PyProcessListener? = null,
 ): PyResult<String> {
-  val binary = eelApi.exec.findExeFilesInPath(binaryName).firstOrNull()?.asNioPath()
-               ?: return PyResult.localizedError(message("py.exec.fileNotFound", binaryName, eelApi.descriptor.name))
+  val binary =
+    eelApi.exec.findExeFilesInPath(binaryName).firstOrNull()?.asNioPath() ?: return PyResult.localizedError(message("py.exec.fileNotFound",
+                                                                                                                    binaryName,
+                                                                                                                    eelApi.descriptor.name))
   return execGetStdout(BinOnEel(binary), args, options, procListener)
 }
 
@@ -147,6 +163,7 @@ suspend fun ExecService.execGetStdoutInShell(
  *
  * @param[args] command line arguments
  * @param[options]  customizable process run options like timeout or environment variables to use
+ * @param[stdInConsumer] optional function that writes something into the process `stdin`
  * @return stdout or error. It is recommended to put this error into [com.jetbrains.python.errorProcessing.ErrorSink], but feel free to match and process it.
  */
 @CheckReturnValue
@@ -155,29 +172,37 @@ suspend fun <T> ExecService.execute(
   args: Args = Args(),
   options: ExecOptions = ExecOptions(),
   procListener: PyProcessListener? = null,
+  stdInConsumer: StdInConsumer? = null,
   processOutputTransformer: ProcessOutputTransformer<T>,
-): PyResult<T> {
-  return reportRawProgress { reporter ->
-    val ansiDecoder = AnsiEscapeDecoder()
-    val listener = procListener ?: PyProcessListener {
-      when (it) {
-        is ProcessEvent.ProcessStarted, is ProcessEvent.ProcessEnded -> Unit
-        is ProcessEvent.ProcessOutput -> {
-          val outType = when (it.stream) {
-            ProcessEvent.OutputType.STDOUT -> ProcessOutputTypes.STDOUT
-            ProcessEvent.OutputType.STDERR -> ProcessOutputTypes.STDERR
-          }
-          ansiDecoder.escapeText(it.line, outType) { text, _ ->
-            @Suppress("HardCodedStringLiteral")
-            reporter.text(text)
-          }
+): PyResult<T> = reportOutputAsProgress(procListener) { listener ->
+  executeAdvanced(binary, args, options, transformerToHandler(listener, stdInConsumer, processOutputTransformer))
+}
+
+/**
+ * Runs [code] and reports each output line of the process as progress.
+ * [code] gets [procListener]. If [procListener] is `null`, [code] gets a listener that writes to the progress bar.
+ */
+@ApiStatus.Internal
+suspend fun <T> reportOutputAsProgress(
+  procListener: PyProcessListener?,
+  code: suspend (PyProcessListener) -> PyResult<T>,
+): PyResult<T> = reportRawProgress { reporter ->
+  val ansiDecoder = AnsiEscapeDecoder()
+  val listener = procListener ?: PyProcessListener {
+    when (it) {
+      is ProcessEvent.ProcessStarted, is ProcessEvent.ProcessEnded -> Unit
+      is ProcessEvent.ProcessOutput -> {
+        val outType = when (it.stream) {
+          ProcessEvent.OutputType.STDOUT -> ProcessOutputTypes.STDOUT
+          ProcessEvent.OutputType.STDERR -> ProcessOutputTypes.STDERR
+        }
+        ansiDecoder.escapeText(it.line, outType) { text, _ ->
+          @Suppress("HardCodedStringLiteral") reporter.text(text)
         }
       }
     }
-    executeAdvanced(binary, args, options, transformerToHandler(procListener
-                                                                ?: listener, processOutputTransformer))
   }
-
+  code(listener)
 }
 
 
@@ -206,9 +231,10 @@ val ZeroCodeStdoutTransformerBool: ZeroCodeStdoutTransformerTyped<Boolean> = Zer
 /**
  * See also [ZeroCodeStdoutTransformer], [ZeroCodeStdoutTransformerBool]
  */
-class ZeroCodeStdoutTransformerTyped<T : Any>(val strParser: (String) -> T?) : ProcessOutputTransformer<T> {
+class ZeroCodeStdoutTransformerTyped<T : Any>(private val checkExitCode: Boolean = true, val strParser: (String) -> T?) :
+  ProcessOutputTransformer<T> {
   override fun invoke(processOutput: EelProcessExecutionResult): Result<T, String?> {
-    if (processOutput.exitCode != 0) {
+    if (checkExitCode && processOutput.exitCode != 0) {
       return Result.failure(message("py.exec.error.not.zero"))
     }
     val output = processOutput.stdoutString.trim()
@@ -241,9 +267,7 @@ open class ZeroCodeStdoutParserTransformer<T>(val stdoutParser: (String) -> Resu
  * Limits are set via Registry.
  */
 enum class ConcurrentProcessWeight {
-  LIGHT,
-  MEDIUM,
-  HEAVY
+  LIGHT, MEDIUM, HEAVY
 }
 
 /**
@@ -277,7 +301,8 @@ data class UploadConfig(
  * @property[tty] Much like [com.intellij.platform.eel.EelExecApi.Pty]
  * @property[weight] use it to limit the number of concurrent processes not to exhaust user resources, see [ConcurrentProcessWeight]
  * @property[uploadBeforeExecution] configuration for uploading files before command execution (Target-based execution only)
- * @property[downloadAfterExecution] configuration for downloading files after command execution (Target-based execution only)
+ * @property[downloadAfterExecution] configuration for downloading files after command execution (Target-based execution only).
+ * To download a directory that is not the working directory, see [DirScope.downloadAfterExecution].
  */
 data class ExecOptions(
   override val env: Map<String, String> = emptyMap(),
@@ -289,6 +314,20 @@ data class ExecOptions(
   override val downloadAfterExecution: DownloadConfig? = null,
 ) : ExecOptionsBase
 
+/**
+ * The default [ExecOptions].
+ * [ExecOptions] is immutable, so all call sites share one instance.
+ *
+ * Do not remove the `emptyMap()` argument. It selects the real constructor.
+ * Without it this initializer calls the function below and reads an uninitialized value.
+ */
+private val defaultExecOptions = ExecOptions(emptyMap())
+
+/**
+ * Returns the shared default [ExecOptions] instead of a new instance.
+ * Use the real constructor when you must set a property.
+ */
+fun ExecOptions(): ExecOptions = defaultExecOptions
 
 /**
  * Options for [ExecService.executeGetProcess]
@@ -302,15 +341,74 @@ data class ExecGetProcessOptions(
   override val downloadAfterExecution: DownloadConfig? = null,
 ) : ExecOptionsBase
 
-data class TtySize(val rows: UShort, val cols: UShort)
+/**
+ * The default [ExecGetProcessOptions].
+ * [ExecGetProcessOptions] is immutable, so all call sites share one instance.
+ *
+ * Do not remove the `emptyMap()` argument. It selects the real constructor.
+ * Without it this initializer calls the function below and reads an uninitialized value.
+ */
+private val defaultExecGetProcessOptions = ExecGetProcessOptions(emptyMap())
 
 /**
- * See [Args.addLocalFile]
+ * Returns the shared default [ExecGetProcessOptions] instead of a new instance.
+ * Use the real constructor when you must set a property.
  */
-fun interface FileArgGenerator {
-  fun generateArg(remoteFile: String): String
+fun ExecGetProcessOptions(): ExecGetProcessOptions = defaultExecGetProcessOptions
+
+data class TtySize(val rows: UShort, val cols: UShort)
+
+
+/**
+ * When we uploaded a [Args.addLocalFile] to a remote machine, how should we report it to a process?
+ */
+fun interface FileReporter {
+  /**
+   * The file is available on the remote machine as [fileOnRemoteMachine].
+   * Return a value (it can be [fileOnRemoteMachine]) and [HowToReportFile].
+   */
+  fun howToReportFile(fileOnRemoteMachine: FullPathOnTarget): Pair<String, HowToReportFile>
 }
 
+/**
+ * Local file provided to [Args.addLocalFile] will magically be available on a remote side.
+ * How would you like to pass it to a binary?
+ */
+sealed interface HowToReportFile {
+  /**
+   * As a positional argument, e.g. `/tmp/foo`
+   * */
+  data object AnArgument : HowToReportFile
+
+  /**
+   * As a value of env variable [varName]
+   */
+  class EnvVar(internal val varName: String) : HowToReportFile
+}
+
+
+/**
+ * Scope of [Args.addLocalDir].
+ */
+@ApiStatus.NonExtendable
+interface DirScope {
+  /**
+   * Give [file] (relative to the directory) to the process. [andReport] tells how to give it.
+   */
+  fun findChild(file: RelativePath, andReport: FileReporter)
+
+  /**
+   * Give the directory itself to the process. [andReport] tells how to give it.
+   */
+  fun reportDir(andReport: FileReporter)
+
+  /**
+   * After the process exits, copy the directory from the remote machine back to the local directory.
+   * Use it when the process writes files into the directory.
+   * If the directory is on the same machine as the process, nothing is copied.
+   */
+  fun downloadAfterExecution()
+}
 
 /**
  * ```kotlin
@@ -320,7 +418,7 @@ fun interface FileArgGenerator {
  * ```
  */
 class Args(vararg initialArgs: String) {
-  private val _args = CopyOnWriteArrayList<Arg>(initialArgs.map { Arg.StringArg(it) })
+  private val _args: MutableList<Arg> = CopyOnWriteArrayList<Arg>(initialArgs.map { Arg.StringArg(it) })
   fun addArgs(vararg args: String): Args {
     _args.addAll(args.map { Arg.StringArg(it) })
     return this
@@ -329,11 +427,49 @@ class Args(vararg initialArgs: String) {
   fun addArgs(args: List<String>): Args = addArgs(*args.toTypedArray())
 
   /**
-   * This file will be copied to remote machine, and its remote name will be added to the list of arguments.
-   * Use [argGenerator] to modify name
+   * This file will be copied to remote machine, and its remote name will be added to the list of arguments or env.
+   * Use [fileReporter] to control it.
    */
-  fun addLocalFile(localFile: Path, argGenerator: FileArgGenerator = FileArgGenerator { it }): Args {
-    _args.add(Arg.FileArg(localFile, argGenerator))
+  fun addLocalFile(localFile: Path, fileReporter: FileReporter = FileReporter { Pair(it, HowToReportFile.AnArgument) }): Args {
+    _args.add(Arg.FileArg(localFile, fileReporter))
+    return this
+  }
+
+
+  /**
+   * Make the full [localDir] available on the remote machine.
+   * In [dirScope], call [DirScope.findChild] for each file in [localDir] that you must give to the process.
+   * ```kotlin
+   *     addLocalDir(etc) {
+   *       findChild(RelativePath("passwd"), andReport = { it to AnArgument })
+   *       findChild(RelativePath{ "config.d" / "file.cfg"}, andReport = { it to EnvVar("MYENV") })
+   *     }
+   * ```
+   * To give the directory itself and get the files that the process writes into it:
+   * ```kotlin
+   *     addLocalDir(outputDir) {
+   *       reportDir(andReport = { it to AnArgument })
+   *       downloadAfterExecution()
+   *     }
+   * ```
+   */
+  fun addLocalDir(localDir: Directory, dirScope: DirScope.() -> Unit): Args {
+    val files = mutableListOf<Pair<DirEntry, FileReporter>>()
+    var download = false
+    object : DirScope {
+      override fun findChild(file: RelativePath, andReport: FileReporter) {
+        files.add(DirEntry.Child(file) to andReport)
+      }
+
+      override fun reportDir(andReport: FileReporter) {
+        files.add(DirEntry.Root to andReport)
+      }
+
+      override fun downloadAfterExecution() {
+        download = true
+      }
+    }.dirScope()
+    _args.add(Arg.DirArg(localDir, files, download))
     return this
   }
 
@@ -342,25 +478,25 @@ class Args(vararg initialArgs: String) {
     return this
   }
 
-  internal val localFiles: List<Path>
+  /**
+   * Arguments from [addLocalFile] and [addLocalDir].
+   */
+  internal val localArgs: List<Arg.LocalArg>
     get() = _args.mapNotNull {
       when (it) {
-        is Arg.FileArg -> it.file
+        is Arg.LocalArg -> it
         is Arg.StringArg -> null
       }
     }
 
-  internal suspend fun getArgs(mapFileToRemote: suspend (local: Path) -> String): List<String> =
-    _args.map {
-      when (it) {
-        is Arg.StringArg -> it.arg
-        is Arg.FileArg -> it.generator.generateArg(mapFileToRemote(it.file))
-      }
-    }
+  /**
+   * An eel or a target implementation calls this function. It must supply an [Uploader].
+   */
+  internal suspend fun getArgsAndEnv(uploader: Uploader): ArgsAndEnv = ArgsAndEnv.create(_args, uploader)
 }
 
 
 fun BinaryToExec.asGeneralCommandLine(): PyResult<GeneralCommandLine> = when (this) {
-  is BinOnEel -> PyResult.success(GeneralCommandLine(path.toString()).withWorkingDirectory(workDir))
+  is BinOnEel -> PyResult.success(GeneralCommandLine(path.toString()).withWorkingDirectory(workDir?.asNioPath()))
   is BinOnTarget -> PyResult.localizedError(message("py.exec.target.binaries.are.not.supported"))
 }

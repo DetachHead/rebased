@@ -57,14 +57,14 @@ private fun showNextMenu(event: AnActionEvent, isForwardDirection: Boolean) {
 
 private fun findFloatingToolbar(e: AnActionEvent): CodeFloatingToolbar? {
   val project = e.project ?: return null
-  val selectedEditor = FileEditorManager.getInstance(project).getSelectedTextEditor()
+  val selectedEditor = FileEditorManager.getInstance(project).selectedTextEditor
   val toolbar = CodeFloatingToolbar.getToolbar(selectedEditor) ?: return null
   if (!toolbar.isShown()) return null
   return toolbar
 }
 
 private fun showActionInPopup(project: Project, floatingToolbar: CodeFloatingToolbar, button: ActionButton){
-  val editor = FileEditorManager.getInstance(project).getSelectedTextEditor() ?: return
+  val editor = FileEditorManager.getInstance(project).selectedTextEditor ?: return
   val popup = JBPopupFactory.getInstance().createActionGroupPopup(
     null,
     DefaultActionGroup(button.action),

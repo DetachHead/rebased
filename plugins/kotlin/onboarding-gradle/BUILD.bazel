@@ -1,8 +1,38 @@
 load("@community//build:tests-options.bzl", "jps_test")
 load("@rules_jvm//:jvm.bzl", "jvm_library")
+load("//build:compiler-options.bzl", "create_kotlinc_options")
 load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
+jps_test(
+    name = "onboarding-gradle-tests_test",
+    tags = ["community-aggregator"],
+    runtime_deps = [":onboarding-gradle-tests_test_lib"],
+)
+
+### skip generation section `test intellij.kotlin.onboarding.gradle.tests`
+
+### auto-generated section `dev intellij.kotlin.onboarding.gradle` start
+content_module_jar(module = ":onboarding-gradle")
+### auto-generated section `dev intellij.kotlin.onboarding.gradle` end
+
 ### auto-generated section `build intellij.kotlin.onboarding.gradle` start
+create_kotlinc_options(
+    name = "custom_onboarding-gradle",
+    opt_in = [
+        "org.jetbrains.kotlin.psi.KtExperimentalApi",
+        "org.jetbrains.kotlin.psi.KtNonPublicApi",
+        "org.jetbrains.kotlin.psi.KtIdeApi",
+        "org.jetbrains.kotlin.analysis.api.KaExperimentalApi",
+        "org.jetbrains.kotlin.analysis.api.KaIdeApi",
+        "org.jetbrains.kotlin.analysis.api.KaPlatformInterface",
+        "org.jetbrains.kotlin.analysis.api.fir.diagnostics.KaUnstableDiagnosticApi",
+        "org.jetbrains.kotlin.analysis.api.KaNonPublicApi",
+        "org.jetbrains.kotlin.analysis.api.KaContextParameterApi",
+        "org.jetbrains.kotlin.analysis.api.permissions.KaAllowProhibitedAnalyzeFromWriteAction",
+    ],
+    x_context_parameters = True,
+)
+
 jvm_library(
     name = "onboarding-gradle",
     srcs = glob(
@@ -13,6 +43,7 @@ jvm_library(
         ],
         allow_empty = True,
     ),
+    kotlinc_opts = ":custom_onboarding-gradle",
     module_name = "intellij.kotlin.onboarding.gradle",
     resource_strip_prefix = "resources",
     resources = glob(
@@ -47,8 +78,6 @@ jvm_library(
     ],
 )
 
-content_module_jar(module = ":onboarding-gradle")
-
 jvm_library(
     name = "onboarding-gradle_test_lib",
     testonly = True,
@@ -56,6 +85,7 @@ jvm_library(
         [],
         allow_empty = True,
     ),
+    kotlinc_opts = ":custom_onboarding-gradle",
     module_name = "intellij.kotlin.onboarding.gradle",
     visibility = ["//visibility:public"],
     runtime_deps = [
@@ -68,8 +98,6 @@ jvm_library(
         "//platform/statistics:statistics_test_lib",
         "//platform/analysis-api:analysis_test_lib",
         "//platform/feedback:feedback_test_lib",
-        "//platform/testFramework",
-        "//platform/testFramework:testFramework_test_lib",
         "//platform/platform-api:ide_test_lib",
         "//platform/platform-impl:ide-impl_test_lib",
         "//platform/ide-core:ide-core_test_lib",
@@ -78,16 +106,8 @@ jvm_library(
         "//libraries/kotlinx/datetime:datetime_test_lib",
         "//libraries/kotlinx/serialization/core:core_test_lib",
         "//libraries/kotlinx/serialization/json:json_test_lib",
-        "//libraries/kotlin/test:libraries-kotlinTest",
-        "//libraries/kotlin/test:libraries-kotlinTest_test_lib",
-        "//libraries/kotlin/test-assertions-core-jvm:libraries-kotlinTestAssertionsCoreJvm",
-        "//libraries/kotlin/test-assertions-core-jvm:libraries-kotlinTestAssertionsCoreJvm_test_lib",
         "//libraries/kotlin/test-junit:libraries-kotlin-test-junit",
         "//libraries/kotlin/test-junit:libraries-kotlin-test-junit_test_lib",
-        "//libraries/junit5",
-        "//libraries/junit5:junit5_test_lib",
-        "//java/testFramework",
-        "//java/testFramework:testFramework_test_lib",
         "//plugins/gradle:gradle-common_test_lib",
         "//plugins/kotlin/project-configuration:project-configuration_test_lib",
         "//plugins/kotlin/base/facet:facet_test_lib",
@@ -110,6 +130,23 @@ exports_files(
 ### auto-generated section `iml intellij.kotlin.onboarding.gradle` end
 
 ### auto-generated section `build intellij.kotlin.onboarding.gradle.tests` start
+create_kotlinc_options(
+    name = "custom_onboarding-gradle-tests",
+    opt_in = [
+        "org.jetbrains.kotlin.psi.KtExperimentalApi",
+        "org.jetbrains.kotlin.psi.KtNonPublicApi",
+        "org.jetbrains.kotlin.psi.KtIdeApi",
+        "org.jetbrains.kotlin.analysis.api.KaExperimentalApi",
+        "org.jetbrains.kotlin.analysis.api.KaIdeApi",
+        "org.jetbrains.kotlin.analysis.api.KaPlatformInterface",
+        "org.jetbrains.kotlin.analysis.api.fir.diagnostics.KaUnstableDiagnosticApi",
+        "org.jetbrains.kotlin.analysis.api.KaNonPublicApi",
+        "org.jetbrains.kotlin.analysis.api.KaContextParameterApi",
+        "org.jetbrains.kotlin.analysis.api.permissions.KaAllowProhibitedAnalyzeFromWriteAction",
+    ],
+    x_context_parameters = True,
+)
+
 jvm_library(
     name = "onboarding-gradle-tests",
     srcs = glob(
@@ -135,6 +172,7 @@ jvm_library(
         "//plugins/kotlin/onboarding-gradle",
         "//plugins/kotlin/onboarding-gradle:onboarding-gradle_test_lib",
     ],
+    kotlinc_opts = ":custom_onboarding-gradle-tests",
     visibility = ["//visibility:public"],
     runtime_deps = [
         # do not sort,
@@ -177,8 +215,8 @@ jvm_library(
         "//libraries/kotlin/test-assertions-core-jvm:libraries-kotlinTestAssertionsCoreJvm_test_lib",
         "//libraries/kotlin/test-junit:libraries-kotlin-test-junit",
         "//libraries/kotlin/test-junit:libraries-kotlin-test-junit_test_lib",
-        "//libraries/junit5",
-        "//libraries/junit5:junit5_test_lib",
+        "//libraries/junit6",
+        "//libraries/junit6:junit6_test_lib",
         "//plugins/gradle:gradle-common",
         "//plugins/gradle:gradle-common_test_lib",
         "//plugins/kotlin/project-configuration",
@@ -207,10 +245,3 @@ exports_files(
     visibility = ["//visibility:public"],
 )
 ### auto-generated section `iml intellij.kotlin.onboarding.gradle.tests` end
-
-### auto-generated section `test intellij.kotlin.onboarding.gradle.tests` start
-jps_test(
-    name = "onboarding-gradle-tests_test",
-    runtime_deps = [":onboarding-gradle-tests_test_lib"],
-)
-### auto-generated section `test intellij.kotlin.onboarding.gradle.tests` end

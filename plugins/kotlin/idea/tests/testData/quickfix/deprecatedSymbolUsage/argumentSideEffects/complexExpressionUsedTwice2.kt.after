@@ -9,11 +9,10 @@ fun C.newFun(c: C){}
 
 fun foo() {
     val bar = 0
-    val bar1 = getBar()
-    bar1.<caret>newFun(bar1)
+    val c = getBar()
+    c.<caret>newFun(c)
 }
 
 fun getBar(): C = C()
 
-// FUS_QUICKFIX_NAME: org.jetbrains.kotlin.idea.quickfix.replaceWith.DeprecatedSymbolUsageFix
-// FUS_K2_QUICKFIX_NAME: org.jetbrains.kotlin.idea.k2.codeinsight.fixes.replaceWith.DeprecatedSymbolUsageFix
+// FUS_QUICKFIX_NAME: org.jetbrains.kotlin.idea.k2.codeinsight.fixes.replaceWith.DeprecatedSymbolUsageFix

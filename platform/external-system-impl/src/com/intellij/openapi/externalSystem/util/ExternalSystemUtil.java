@@ -6,6 +6,8 @@ import com.intellij.build.BuildConsoleUtils;
 import com.intellij.build.BuildContentDescriptor;
 import com.intellij.build.BuildDescriptor;
 import com.intellij.build.BuildEventDispatcher;
+import com.intellij.build.BuildViewSettingsProvider;
+import com.intellij.build.BuildViewSettingsProviderAdapter;
 import com.intellij.build.DefaultBuildDescriptor;
 import com.intellij.build.SyncViewManager;
 import com.intellij.build.events.BuildEvent;
@@ -106,10 +108,10 @@ import com.intellij.openapi.util.UserDataHolderBase;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.registry.Registry;
 import com.intellij.openapi.util.text.StringUtil;
-import com.intellij.openapi.vfs.LocalFileSystem;
 import com.intellij.openapi.vfs.StandardFileSystems;
 import com.intellij.openapi.vfs.VfsUtil;
 import com.intellij.openapi.vfs.VirtualFile;
+import com.intellij.openapi.vfs.VirtualFileManager;
 import com.intellij.openapi.wm.ToolWindow;
 import com.intellij.openapi.wm.ToolWindowId;
 import com.intellij.openapi.wm.ToolWindowManager;
@@ -404,6 +406,10 @@ public final class ExternalSystemUtil {
 
     var executionConsoleManager = getConsoleManagerFor(task);
     var executionConsole = executionConsoleManager.attachExecutionConsole(project, task, null, processHandler);
+    var consoleSettings = executionConsole instanceof BuildViewSettingsProvider
+                          ? new BuildViewSettingsProviderAdapter((BuildViewSettingsProvider)executionConsole)
+                          : executionConsoleManager.getExecutionConsoleSettings();
+
     attachExecutionConsole(project, executionConsole, processHandler);
 
     var buildDescriptor = createBuildDescriptor(importSpec, task, processHandler, executionConsole, executionConsoleManager);
@@ -413,7 +419,8 @@ public final class ExternalSystemUtil {
     try (var eventDispatcher = new ExternalSystemEventDispatcher(taskId, progressListener, false)) {
       var syncListener = new ExternalSystemSyncEventDispatcher(
         importSpec, task, processHandler, eventDispatcher, buildDescriptor,
-        BuildConsoleUtils.getDataContext(taskId, progressListener, executionConsole)
+        BuildConsoleUtils.getDataContext(taskId, progressListener, executionConsole),
+        consoleSettings
       );
       LOG.info("External project [" + externalProjectPath + "] sync started");
       var startTS = System.currentTimeMillis();
@@ -811,6 +818,10 @@ public final class ExternalSystemUtil {
     var runnerAndConfigurationSettings = environment.getRunnerAndConfigurationSettings();
     assert runnerAndConfigurationSettings != null;
     runnerAndConfigurationSettings.setActivateToolWindowBeforeRun(spec.getActivateToolWindowBeforeRun());
+    @Nullable java.util.function.Consumer<@NotNull RunnerAndConfigurationSettings> runConfigConsumer = spec.getRunConfigConsumer();
+    if (runConfigConsumer != null) {
+      runConfigConsumer.accept(runnerAndConfigurationSettings);
+    }
 
     UserDataHolderBase userData = spec.getUserData();
     if (userData != null) {
@@ -972,7 +983,7 @@ public final class ExternalSystemUtil {
     if (!app.isDispatchThread()) {
       assert !app.holdsReadLock();
     }
-    return LocalFileSystem.getInstance().refreshAndFindFileByNioFile(file.toPath());
+    return VirtualFileManager.getInstance().refreshAndFindFileByNioPath(file.toPath());
   }
 
   public static @Nullable VirtualFile findLocalFileByPath(String path) {
@@ -1192,6 +1203,7 @@ public final class ExternalSystemUtil {
     private final @NotNull BuildEventDispatcher eventDispatcher;
     private final @NotNull BuildDescriptor buildDescriptor;
     private final @NotNull DataContext dataContext;
+    private final @Nullable BuildViewSettingsProvider viewSettingsProvider;
 
     private final @NotNull Ref<Supplier<? extends FinishBuildEvent>> finishSyncEventSupplier = new Ref<>();
 
@@ -1201,7 +1213,8 @@ public final class ExternalSystemUtil {
       @NotNull ExternalSystemProcessHandler processHandler,
       @NotNull BuildEventDispatcher eventDispatcher,
       @NotNull BuildDescriptor buildDescriptor,
-      @NotNull DataContext dataContext
+      @NotNull DataContext dataContext,
+      @Nullable BuildViewSettingsProvider viewSettingsProvider
     ) {
       this.importSpec = importSpec;
       this.task = task;
@@ -1209,13 +1222,16 @@ public final class ExternalSystemUtil {
       this.eventDispatcher = eventDispatcher;
       this.buildDescriptor = buildDescriptor;
       this.dataContext = dataContext;
+      this.viewSettingsProvider = viewSettingsProvider;
     }
 
     @Override
     public void onStart(@NotNull String projectPath, @NotNull ExternalSystemTaskId id) {
       if (importSpec.isPreviewMode()) return;
       var eventMessage = BuildBundle.message("build.event.message.syncing");
-      eventDispatcher.onEvent(id, StartBuildEvent.builder(eventMessage, buildDescriptor).build());
+      eventDispatcher.onEvent(id, StartBuildEvent.builder(eventMessage, buildDescriptor)
+        .withBuildViewSettings(viewSettingsProvider)
+        .build());
     }
 
     @Override

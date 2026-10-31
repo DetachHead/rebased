@@ -2,14 +2,12 @@ package com.jetbrains.python.psi.search;
 
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.projectRoots.Sdk;
-import com.intellij.openapi.roots.ProjectRootManager;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.search.GlobalSearchScope;
 import com.intellij.psi.search.ProjectScope;
 import com.intellij.python.sdk.backend.PythonInterpreterKt;
 import com.intellij.python.sdk.backend.PythonInterpreterExtKt;
-import com.jetbrains.python.sdk.legacy.PythonSdkUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -32,7 +30,7 @@ public class PySearchUtilBase {
    * @see PySearchScopeBuilder
    */
   public static @NotNull GlobalSearchScope defaultSuggestionScope(@NotNull PsiElement anchor) {
-    return PySearchScopeBuilder.forPythonSdkOf(anchor)
+    return PySearchScopeBuilder.forModuleOf(anchor)
       .excludeStandardLibraryTests()
       .excludeThirdPartyPackageTests()
       .excludeThirdPartyPackageBundledDependencies()
@@ -53,14 +51,10 @@ public class PySearchUtilBase {
 
   public static @NotNull GlobalSearchScope excludeSdkTestScope(@NotNull GlobalSearchScope scope) {
     Project project = Objects.requireNonNull(scope.getProject());
-    Sdk sdk = ProjectRootManager.getInstance(project).getProjectSdk();
     // TODO cache the scope in project userdata (update when SDK paths change or different project SDK is selected)
-    if (sdk != null && PythonSdkUtil.isPythonSdk(sdk)) {
-      return scope.intersectWith(PySearchScopeBuilder.forPythonSdk(project, sdk)
-                                   .excludeStandardLibraryTests()
-                                   .build());
-    }
-    return scope;
+    return scope.intersectWith(PySearchScopeBuilder.forProject(project)
+                                 .excludeStandardLibraryTests()
+                                 .build());
   }
 
   public static @Nullable VirtualFile findLibDir(@NotNull Sdk sdk) {

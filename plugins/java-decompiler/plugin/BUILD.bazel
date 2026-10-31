@@ -1,6 +1,20 @@
 load("@community//build:tests-options.bzl", "jps_test")
-load("@community//platform/build-scripts/bazel-rules:dev_dist_plugin.bzl", "dev_dist_plugin")
+load("@jps_dynamic_deps_community//:targets.bzl", "dev_dist_plugin")
 load("@rules_jvm//:jvm.bzl", "jvm_library")
+
+### auto-generated section `dev intellij.java.decompiler` start
+dev_dist_plugin(
+    content_modules = ["intellij.java.decompiler.engine"],
+    descriptor = "resources/META-INF/plugin.xml",
+    jars = {
+        "lib/java-decompiler.jar": [
+            "intellij.java.decompiler",
+            "intellij.java.decompiler.engine",
+        ],
+    },
+    main_module = "intellij.java.decompiler",
+)
+### auto-generated section `dev intellij.java.decompiler` end
 
 ### auto-generated section `build intellij.java.decompiler` start
 jvm_library(
@@ -41,6 +55,7 @@ jvm_library(
         "//platform/core-impl",
         "//platform/lang-impl",
         "//platform/statistics",
+        "//platform/consoleView",
     ],
 )
 
@@ -67,8 +82,6 @@ jvm_library(
         "//platform/editor-ui-api:editor-ui_test_lib",
         "//platform/lang-api:lang_test_lib",
         "//platform/projectModel-api:projectModel_test_lib",
-        "//platform/testFramework",
-        "//platform/testFramework:testFramework_test_lib",
         "//java/java-psi-api:psi_test_lib",
         "//platform/ide-core-impl:ide-core-impl_test_lib",
         "//platform/ide-core:ide-core_test_lib",
@@ -77,17 +90,12 @@ jvm_library(
         "//platform/platform-impl:ide-impl_test_lib",
         "//platform/core-api:core_test_lib",
         "//platform/util:util-ui_test_lib",
-        "//java/testFramework",
-        "//java/testFramework:testFramework_test_lib",
         "//java/java-frontback-psi-api:frontback-psi_test_lib",
         "//platform/core-ui:core-ui_test_lib",
         "//platform/core-impl:core-impl_test_lib",
-        "//tools/intellij.tools.ide.metrics.benchmark:ide-metrics-benchmark",
-        "//tools/intellij.tools.ide.metrics.benchmark:ide-metrics-benchmark_test_lib",
         "//platform/lang-impl:lang-impl_test_lib",
         "//platform/statistics:statistics_test_lib",
-        "//platform/structure-view-impl:structureView",
-        "//platform/structure-view-impl:structureView_test_lib",
+        "//platform/consoleView:consoleView_test_lib",
     ],
 )
 ### auto-generated section `build intellij.java.decompiler` end
@@ -101,16 +109,6 @@ exports_files(
     visibility = ["//visibility:public"],
 )
 ### auto-generated section `iml intellij.java.decompiler` end
-
-### auto-generated section `dev intellij.java.decompiler` start
-dev_dist_plugin(
-    content_modules = ["//plugins/java-decompiler/engine"],
-    descriptor = "resources/META-INF/plugin.xml",
-    descriptor_module = ":java-decompiler",
-    libraries = ["@lib//:eclipse"],
-    main_module = "intellij.java.decompiler",
-)
-### auto-generated section `dev intellij.java.decompiler` end
 
 ### auto-generated section `build intellij.java.decompiler.tests` start
 jvm_library(
@@ -179,6 +177,8 @@ jvm_library(
         "//platform/util:util-ui",
         "//platform/util:util-ui_test_lib",
         "//platform/platform-impl:ide-impl",
+        "//platform/consoleView",
+        "//platform/consoleView:consoleView_test_lib",
         "//platform/core-api:core",
         "//platform/core-api:core_test_lib",
         "//java/testFramework",

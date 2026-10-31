@@ -57,18 +57,30 @@ import org.jetbrains.kotlin.asJava.unwrapped
 import org.jetbrains.kotlin.idea.KotlinLanguage
 import org.jetbrains.kotlin.idea.base.analysis.api.utils.allowAnalysisFromWriteActionInEdt
 import org.jetbrains.kotlin.idea.base.analysis.api.utils.shortenReferences
+import org.jetbrains.kotlin.idea.base.psi.addMemberDeclaration
+import org.jetbrains.kotlin.idea.base.psi.addModifierKeyword
+import org.jetbrains.kotlin.idea.base.psi.addSuperType
+import org.jetbrains.kotlin.idea.base.psi.appendParameter
+import org.jetbrains.kotlin.idea.base.psi.appendValueArgument
+import org.jetbrains.kotlin.idea.base.psi.convertImplicitDelegationCallToExplicit
+import org.jetbrains.kotlin.idea.base.psi.deleteParameter
+import org.jetbrains.kotlin.idea.base.psi.getOrCreateClassBody
 import org.jetbrains.kotlin.idea.base.psi.getOrCreateCompanionObject
+import org.jetbrains.kotlin.idea.base.psi.getOrCreatePrimaryConstructor
+import org.jetbrains.kotlin.idea.base.psi.insertValueArgumentAfter
+import org.jetbrains.kotlin.idea.base.psi.removeModifierKeyword
+import org.jetbrains.kotlin.idea.base.psi.removeSuperType
 import org.jetbrains.kotlin.idea.base.psi.replaced
+import org.jetbrains.kotlin.idea.base.psi.setCallableTypeReference
+import org.jetbrains.kotlin.idea.base.psi.setParameterTypeReference
 import org.jetbrains.kotlin.idea.base.util.reformatted
 import org.jetbrains.kotlin.idea.codeinsight.utils.resolveExpression
 import org.jetbrains.kotlin.idea.k2.refactoring.introduce.K2SemanticMatcher.isSemanticMatch
-import org.jetbrains.kotlin.idea.k2.refactoring.pushDown.getSuperTypeEntryBySymbol
 import org.jetbrains.kotlin.idea.refactoring.createJavaField
 import org.jetbrains.kotlin.idea.refactoring.createJavaMethod
 import org.jetbrains.kotlin.idea.refactoring.deleteWithCompanion
 import org.jetbrains.kotlin.idea.refactoring.isAbstract
 import org.jetbrains.kotlin.idea.refactoring.isCompanionMemberOf
-import org.jetbrains.kotlin.idea.refactoring.memberInfo.KtPsiClassWrapper
 import org.jetbrains.kotlin.idea.refactoring.pullUp.addMemberToTarget
 import org.jetbrains.kotlin.idea.refactoring.pullUp.canMoveMemberToJavaClass
 import org.jetbrains.kotlin.idea.refactoring.pullUp.doAddCallableMember
@@ -111,13 +123,12 @@ import org.jetbrains.kotlin.psi.KtSimpleNameExpression
 import org.jetbrains.kotlin.psi.KtSuperExpression
 import org.jetbrains.kotlin.psi.KtSuperTypeCallEntry
 import org.jetbrains.kotlin.psi.KtSuperTypeListEntry
+import org.jetbrains.kotlin.psi.KtSuperTypeEntry
 import org.jetbrains.kotlin.psi.KtThisExpression
 import org.jetbrains.kotlin.psi.KtTreeVisitorVoid
 import org.jetbrains.kotlin.psi.KtValueArgument
 import org.jetbrains.kotlin.psi.KtVisitor
 import org.jetbrains.kotlin.psi.KtVisitorVoid
-import org.jetbrains.kotlin.psi.createPrimaryConstructorIfAbsent
-import org.jetbrains.kotlin.psi.getOrCreateBody
 import org.jetbrains.kotlin.psi.psiUtil.allChildren
 import org.jetbrains.kotlin.psi.psiUtil.anyDescendantOfType
 import org.jetbrains.kotlin.psi.psiUtil.asAssignment
@@ -355,9 +366,9 @@ internal class K2PullUpHelper(
         if (currentModifier !in modifiersToLift) return
         if (ignoreUsages || willBeUsedInSourceClass(declaration, data.sourceClass, data.membersToMove)) {
             if (newModifier != KtTokens.DEFAULT_VISIBILITY_KEYWORD) {
-                declaration.addModifier(newModifier)
+                declaration.addModifierKeyword(newModifier)
             } else {
-                declaration.removeModifier(currentModifier)
+                declaration.removeModifierKeyword(currentModifier)
             }
         }
     }
@@ -366,7 +377,7 @@ internal class K2PullUpHelper(
         val member = info.member.namedUnwrappedElement as? KtNamedDeclaration ?: return
 
         if (data.isInterfaceTarget) {
-            member.removeModifier(KtTokens.PUBLIC_KEYWORD)
+            member.removeModifierKeyword(KtTokens.PUBLIC_KEYWORD)
         }
 
         val modifiersToLift = if (data.isInterfaceTarget) MODIFIERS_TO_LIFT_IN_INTERFACE else MODIFIERS_TO_LIFT_IN_SUPERCLASS
@@ -409,43 +420,38 @@ internal class K2PullUpHelper(
         return clashingSuperSymbol.psi as? KtCallableDeclaration
     }
 
-    private fun moveSuperInterface(member: KtNamedDeclaration, substitutor: PsiSubstitutor) {
-        val realMemberPsi = (member as? KtPsiClassWrapper)?.psiClass ?: member
-
-        val currentSpecifier = allowAnalysisFromWriteActionInEdt(member) {
-            val classSymbol = member.symbol as? KaClassSymbol ?: return
-            getSuperTypeEntryBySymbol(
-                data.sourceClass,
-                classSymbol,
-            ) ?: return
+    private fun moveSuperInterface(member: KtSuperTypeEntry, substitutor: PsiSubstitutor) {
+        val realMemberPsi = allowAnalysisFromWriteActionInEdt(member) {
+            member.typeReference?.type?.expandedSymbol?.psi ?: return
+        }
+        val targetAlreadyInheritsInterface = allowAnalysisFromWriteActionInEdt(member) {
+            val classSymbol = member.typeReference?.type?.expandedSymbol ?: return
+            data.getTargetClassSymbol().isSubClassOf(classSymbol)
         }
         when (data.targetClass) {
             is KtClass -> {
                 allowAnalysisFromWriteActionInEdt(data.sourceClass) {
                     addSuperTypeEntry(
-                        currentSpecifier,
+                        member,
                         data.targetClass,
                         data.getSourceToTargetClassSubstitutor(),
                     )
                 }
-                data.sourceClass.removeSuperTypeListEntry(currentSpecifier)
+                data.sourceClass.removeSuperType(member)
             }
 
             is PsiClass -> {
                 val elementFactory = JavaPsiFacade.getElementFactory(member.project)
 
                 val sourcePsiClass = data.sourceClass.toLightClass() ?: return
+                val sourceReferenceList = if (sourcePsiClass.isInterface) sourcePsiClass.extendsList else sourcePsiClass.implementsList
                 val superRef =
-                    sourcePsiClass.implementsList?.referenceElements?.firstOrNull { it.resolve()?.unwrapped == realMemberPsi } ?: return
+                    sourceReferenceList?.referenceElements?.firstOrNull { it.resolve()?.unwrapped == realMemberPsi } ?: return
                 val superTypeForTarget = substitutor.substitute(elementFactory.createType(superRef))
 
-                data.sourceClass.removeSuperTypeListEntry(currentSpecifier)
+                data.sourceClass.removeSuperType(member)
 
-                allowAnalysisFromWriteActionInEdt(data.sourceClass) {
-                    val classSymbol = member.symbol as KaClassSymbol
-                    val targetClassSymbol = data.getTargetClassSymbol()
-                    if (targetClassSymbol.isSubClassOf(classSymbol)) return
-                }
+                if (targetAlreadyInheritsInterface) return
 
                 val refList = if (data.isInterfaceTarget) data.targetClass.extendsList else data.targetClass.implementsList
                 refList?.add(elementFactory.createReferenceFromText(superTypeForTarget.canonicalText, null))
@@ -458,8 +464,8 @@ internal class K2PullUpHelper(
         if (member.isAbstract()) {
             member.deleteWithCompanion()
         } else {
-            member.addModifier(KtTokens.OVERRIDE_KEYWORD)
-            KtTokens.VISIBILITY_MODIFIERS.types.forEach { member.removeModifier(it as KtModifierKeywordToken) }
+            member.addModifierKeyword(KtTokens.OVERRIDE_KEYWORD)
+            KtTokens.VISIBILITY_MODIFIERS.types.forEach { member.removeModifierKeyword(it as KtModifierKeywordToken) }
             (member as? KtNamedFunction)?.valueParameters?.forEach { it.dropDefaultValue() }
         }
     }
@@ -486,7 +492,7 @@ internal class K2PullUpHelper(
                     newField.modifierList?.setModifierProperty(PsiModifier.STATIC, true)
                 }
                 if (member is KtParameter) {
-                    (member.parent as? KtParameterList)?.removeParameter(member)
+                    (member.parent as? KtParameterList)?.deleteParameter(member)
                 } else {
                     member.deleteWithCompanion()
                 }
@@ -537,12 +543,13 @@ internal class K2PullUpHelper(
     }
 
     override fun move(info: MemberInfoBase<PsiMember>, substitutor: PsiSubstitutor) {
-        val member = info.member.toKtDeclarationWrapperAware() ?: return
+        val member = info.member.toKtDeclarationWrapperAware(data.sourceClass) ?: return
 
-        if ((member is KtClass || member is KtPsiClassWrapper) && info.overrides != null) {
+        if (member is KtSuperTypeEntry && info.overrides != null) {
             moveSuperInterface(member, substitutor)
             return
         }
+        if (member !is KtNamedDeclaration) return
 
         val targetClass = data.targetClass
         if (targetClass is PsiClass) {
@@ -562,7 +569,7 @@ internal class K2PullUpHelper(
 
         fun moveClassOrObject(member: KtClassOrObject, memberCopy: KtClassOrObject): KtClassOrObject {
             if (data.isInterfaceTarget) {
-                memberCopy.removeModifier(KtTokens.INNER_KEYWORD)
+                memberCopy.removeModifierKeyword(KtTokens.INNER_KEYWORD)
             }
 
             val movedMember = addMemberToTarget(memberCopy, targetClass) as KtClassOrObject
@@ -599,7 +606,7 @@ internal class K2PullUpHelper(
                         )
                     }
                     if (renderedType != null) {
-                        memberCopy.typeReference = KtPsiFactory(member.project).createType(renderedType)
+                        memberCopy.setCallableTypeReference(KtPsiFactory(member.project).createType(renderedType))
                     }
                     makeAbstract(memberCopy, targetClass)
                 }
@@ -617,7 +624,7 @@ internal class K2PullUpHelper(
                 movedMember = doAddCallableMember(memberCopy, clashingSuper, classToAddTo)
                 if (member is KtParameter && movedMember is KtParameter) {
                     member.valOrVarKeyword?.delete()
-                    CONSTRUCTOR_VAL_VAR_MODIFIERS.forEach { member.removeModifier(it) }
+                    CONSTRUCTOR_VAL_VAR_MODIFIERS.forEach { member.removeModifierKeyword(it) }
 
                     allowAnalysisFromWriteActionInEdt(data.sourceClass) {
                         val superEntry: KtSuperTypeListEntry? = data.getSuperEntryForTargetClass()
@@ -639,9 +646,9 @@ internal class K2PullUpHelper(
                                 if (prevArgument != null && prevArgument.isNamed()) identifier(member.name!!) else null
                             val newArgument = psiFactory.createArgument(psiFactory.createExpression(member.name!!), newArgumentName)
                             if (prevArgument == null) {
-                                argumentList.addArgument(newArgument)
+                                argumentList.appendValueArgument(newArgument)
                             } else {
-                                argumentList.addArgumentAfter(newArgument, prevArgument)
+                                argumentList.insertValueArgumentAfter(newArgument, prevArgument)
                             }
                         }
                     }
@@ -651,7 +658,7 @@ internal class K2PullUpHelper(
             }
 
             if (originalIsAbstract && data.isInterfaceTarget) {
-                movedMember.removeModifier(KtTokens.ABSTRACT_KEYWORD)
+                movedMember.removeModifierKeyword(KtTokens.ABSTRACT_KEYWORD)
             }
 
             if (movedMember.hasModifier(KtTokens.ABSTRACT_KEYWORD)) {
@@ -685,8 +692,8 @@ internal class K2PullUpHelper(
         val psiFactory = KtPsiFactory(data.sourceClass.project)
 
         fun KtClassOrObject.getOrCreateClassInitializer(): KtAnonymousInitializer {
-            getOrCreateBody().declarations.lastOrNull { it is KtAnonymousInitializer }?.let { return it as KtAnonymousInitializer }
-            return addDeclaration(psiFactory.createAnonymousInitializer())
+            getOrCreateClassBody().declarations.lastOrNull { it is KtAnonymousInitializer }?.let { return it as KtAnonymousInitializer }
+            return addMemberDeclaration(psiFactory.createAnonymousInitializer())
         }
 
         fun KtElement.getConstructorBodyBlock(): KtBlockExpression? = when (this) {
@@ -713,13 +720,13 @@ internal class K2PullUpHelper(
             if (info.usedParameters.isEmpty()) return
             val constructor: KtConstructor<*> = when (constructorElement) {
                 is KtConstructor<*> -> constructorElement
-                is KtClass -> constructorElement.createPrimaryConstructorIfAbsent()
+                is KtClass -> constructorElement.getOrCreatePrimaryConstructor()
                 else -> return
             }
 
             with(constructor.getValueParameterList()!!) {
                 info.usedParameters.forEach {
-                    val newParameter = addParameter(it)
+                    val newParameter = appendParameter(it)
 
                     val renderedType = analyze(it) {
                         val originalType = it.symbol.returnType
@@ -728,7 +735,7 @@ internal class K2PullUpHelper(
                             .render(position = Variance.INVARIANT)
                     }
 
-                    newParameter.typeReference = KtPsiFactory(newParameter.project).createType(renderedType)
+                    newParameter.setParameterTypeReference(KtPsiFactory(newParameter.project).createType(renderedType))
                     shortenReferences(newParameter.typeReference!!)
                 }
             }
@@ -738,7 +745,7 @@ internal class K2PullUpHelper(
                     is KtPrimaryConstructor -> it.getContainingClassOrObject().getDelegatorToSuperCall()
                     is KtSecondaryConstructor -> {
                         if (it.hasImplicitDelegationCall()) {
-                            it.replaceImplicitDelegationCallWithExplicit(false)
+                            it.convertImplicitDelegationCallToExplicit(false)
                         } else {
                             it.getDelegationCall()
                         }
@@ -748,7 +755,7 @@ internal class K2PullUpHelper(
                 }
                 superCall?.valueArgumentList?.let { args ->
                     info.usedParameters.forEach { parameter ->
-                        args.addArgument(psiFactory.createArgument(psiFactory.createExpression(parameter.name ?: "_")))
+                        args.appendValueArgument(psiFactory.createArgument(psiFactory.createExpression(parameter.name ?: "_")))
                     }
                 }
             }
@@ -810,5 +817,5 @@ private fun addSuperTypeEntry(
 
     val renderedType = typeInTargetClass.render(position = Variance.INVARIANT)
     val newSpecifier = KtPsiFactory(targetClass.project).createSuperTypeEntry(renderedType)
-    shortenReferences(targetClass.addSuperTypeListEntry(newSpecifier))
+    shortenReferences(targetClass.addSuperType(newSpecifier))
 }

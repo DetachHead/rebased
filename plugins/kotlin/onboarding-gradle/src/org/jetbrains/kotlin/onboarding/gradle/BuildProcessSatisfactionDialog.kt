@@ -3,7 +3,6 @@ package org.jetbrains.kotlin.onboarding.gradle
 
 import com.intellij.icons.AllIcons
 import com.intellij.openapi.application.ApplicationInfo
-import com.intellij.openapi.application.EDT
 import com.intellij.openapi.externalSystem.util.ExternalSystemApiUtil
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.modules
@@ -20,14 +19,13 @@ import com.intellij.platform.feedback.dialog.uiBlocks.SegmentedButtonBlock
 import com.intellij.platform.feedback.dialog.uiBlocks.TextAreaBlock
 import com.intellij.platform.feedback.dialog.uiBlocks.TopLabelBlock
 import com.intellij.platform.feedback.impl.notification.ThanksForFeedbackNotification
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.encodeToJsonElement
 import org.gradle.util.GradleVersion
 import org.jetbrains.kotlin.idea.gradleJava.kotlinGradlePluginVersion
+import org.jetbrains.kotlin.onboarding.BuildProcessSatisfactionUtil
 import org.jetbrains.kotlin.onboarding.KotlinNewUserTracker
 import org.jetbrains.plugins.gradle.service.GradleInstallationManager
 import org.jetbrains.plugins.gradle.settings.GradleSettings
@@ -46,6 +44,8 @@ internal data class BuildProcessSatisfactionDialogData(
     val daysOfKotlinUsage: Int,
     val daysOfKotlinWithGradleUsage: Int,
     val daysOfGradleUsage: Int,
+    val kotlinFileCount: Int,
+    val javaFileCount: Int,
     val commonData: CommonFeedbackSystemData
 ) : SystemDataJsonSerializable {
     override fun serializeToJson(json: Json): JsonElement = json.encodeToJsonElement(this)
@@ -56,7 +56,7 @@ internal class BuildProcessSatisfactionDialog(
     forTest: Boolean
 ) : BlockBasedFeedbackDialogWithEmail<BuildProcessSatisfactionDialogData>(project, forTest) {
     /** Increase the additional number when feedback format is changed */
-    override val myFeedbackJsonVersion: Int = super.myFeedbackJsonVersion + 1
+    override val myFeedbackJsonVersion: Int = super.myFeedbackJsonVersion + 2
 
     private val distributionUrlRegex = Regex("""://services\.gradle\.org/distributions/gradle-([\w.\-_]+)-(?:all|bin)\.zip""")
     private fun getGradleWrapperVersion(): GradleVersion? {
@@ -83,15 +83,17 @@ internal class BuildProcessSatisfactionDialog(
         return ChronoUnit.DAYS.between(this, LocalDate.now()).toInt()
     }
 
-    private fun collectData(): BuildProcessSatisfactionDialogData {
+    override suspend fun computeSystemInfoData(): BuildProcessSatisfactionDialogData {
         val allExternalModulePaths = project.modules.mapNotNullTo(mutableSetOf()) {
             ExternalSystemApiUtil.getExternalProjectPath(it)?.toNioPathOrNull()
         }
+
         fun countExistingFiles(filename: String): Int {
             return allExternalModulePaths.count { path ->
                 VirtualFileManager.getInstance().findFileByNioPath(path / filename) != null
             }
         }
+
         val groovyCount = countExistingFiles("build.gradle")
         val ktsCount = countExistingFiles("build.gradle.kts")
         val gradleVersion = getGradleVersion()?.version ?: "UNKNOWN"
@@ -101,6 +103,8 @@ internal class BuildProcessSatisfactionDialog(
         val daysOfKotlinUsage = KotlinNewUserTracker.getInstance().getFirstKotlinUsageDate()?.daysSinceDate() ?: 0
         val daysOfKotlinWithGradleUsage = BuildProcessSatisfactionSurveyStore.getInstance().getFirstKotlinGradleUsageDate()?.daysSinceDate() ?: 0
         val daysOfGradleUsage = BuildProcessSatisfactionSurveyStore.getInstance().getFirstGradleUsageDate()?.daysSinceDate() ?: 0
+        val kotlinFileCount = BuildProcessSatisfactionUtil.getKotlinFileCount(project)
+        val javaFileCount = BuildProcessSatisfactionUtil.getJavaFileCount(project)
 
         return BuildProcessSatisfactionDialogData(
             gradleVersion = gradleVersion,
@@ -112,13 +116,10 @@ internal class BuildProcessSatisfactionDialog(
             daysOfGradleUsage = daysOfGradleUsage,
             daysOfKotlinWithGradleUsage = daysOfKotlinWithGradleUsage,
             commonData = CommonFeedbackSystemData.getCurrentData(),
+            kotlinFileCount = kotlinFileCount,
+            javaFileCount = javaFileCount,
         )
     }
-
-    override suspend fun computeSystemInfoData(): BuildProcessSatisfactionDialogData =
-        withContext(Dispatchers.EDT) { // collectData is rather complicated, and may need WIL and/or EDT
-            collectData()
-        }
 
     override val zendeskTicketTitle: String = "Kotlin Build Process in-IDE Feedback"
     override val zendeskFeedbackType: String = "Kotlin Build Process Feedback"
@@ -150,6 +151,12 @@ internal class BuildProcessSatisfactionDialog(
             }
             row(GradleFeedbackBundle.message("build.process.info.days.of.kotlin.gradle.usage")) {
                 label(systemInfoData.daysOfKotlinWithGradleUsage.toString())
+            }
+            row(GradleFeedbackBundle.message("build.process.info.number.of.java.files")) {
+                label(systemInfoData.javaFileCount.toString())
+            }
+            row(GradleFeedbackBundle.message("build.process.info.number.of.kotlin.files")) {
+                label(systemInfoData.kotlinFileCount.toString())
             }
         }
     }

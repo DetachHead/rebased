@@ -11,6 +11,7 @@ import com.intellij.openapi.vfs.VirtualFileFilter
 import com.intellij.openapi.vfs.newvfs.persistent.PersistentFsConnectionListener
 import com.intellij.platform.workspace.storage.EntityPointer
 import com.intellij.platform.workspace.storage.WorkspaceEntity
+import com.intellij.platform.workspace.storage.url.VirtualFileUrl
 import com.intellij.psi.search.GlobalSearchScope
 import com.intellij.util.Query
 import com.intellij.util.concurrency.annotations.RequiresReadLock
@@ -143,7 +144,7 @@ interface WorkspaceFileIndexEx : WorkspaceFileIndex {
    * There may be thousands of file sets in index, so visiting them all is generally discouraged.
    */
   @ApiStatus.Internal
-  @RequiresReadLock
+  @RequiresReadLock(generateAssertion = false /* IJPL-115548 */)
   fun visitFileSets(visitor: WorkspaceFileSetVisitor)
   
   @ApiStatus.Internal
@@ -153,8 +154,17 @@ interface WorkspaceFileIndexEx : WorkspaceFileIndex {
    * Use [isIndexable]
    */
   @ApiStatus.Internal
-  @RequiresReadLock
+  @RequiresReadLock(generateAssertion = false /* IJPL-115548 */)
   fun isUrlIndexableRecursiveFileSetRoot(url: String): Boolean
+
+  /**
+   * Returns the file sets and the exclusions registered exactly at [url]. The parents of [url] are not checked.
+   *
+   * If [url] or VFS already caches the file for [url], the function returns the data registered for this file.
+   * Otherwise, it returns the data registered for [url] while the file didn't exist.
+   */
+  @ApiStatus.Internal
+  fun getFileSetsAt(url: VirtualFileUrl): WorkspaceFileSets
 }
 
 internal class WorkspaceFileIndexCleaner: PersistentFsConnectionListener {

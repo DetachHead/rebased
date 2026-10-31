@@ -229,7 +229,7 @@ public class InlineMethodTest extends LightJavaCodeInsightFixtureTestCase {
   }
 
   @Override
-  public final String getBasePath() {
-    return TestUtils.getTestDataPath() + "groovy/refactoring/inlineMethod/";
+  public final String getTestDataPath() {
+    return TestUtils.getAbsoluteTestDataPath() + "groovy/refactoring/inlineMethod/";
   }
 }

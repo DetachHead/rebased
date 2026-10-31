@@ -7,7 +7,9 @@ import com.intellij.openapi.application.asContextElement
 import com.intellij.openapi.observable.properties.AtomicProperty
 import com.intellij.openapi.ui.DialogWrapper
 import com.intellij.openapi.ui.validation.WHEN_PROPERTY_CHANGED
-import com.intellij.platform.eel.provider.localEel
+import com.intellij.platform.eel.provider.getEelDescriptor
+import com.intellij.platform.eel.provider.toEelApi
+import com.intellij.platform.ide.progress.runWithModalProgressBlocking
 import com.intellij.ui.dsl.builder.panel
 import com.intellij.util.concurrency.annotations.RequiresEdt
 import com.intellij.util.ui.launchOnShow
@@ -48,7 +50,7 @@ internal class PythonAddLocalInterpreterDialog(
     return "create.python.interpreter"
   }
 
-  @RequiresEdt
+  @RequiresEdt(generateAssertion = false /* IJPL-115548 */)
   override fun doOKAction() {
     super.doOKAction()
     val addEnvironment = mainPanel.currentSdkManager
@@ -58,17 +60,22 @@ internal class PythonAddLocalInterpreterDialog(
     }
   }
 
+  @RequiresEdt
   override fun createCenterPanel(): JComponent {
-    val errorSink = ErrorSink().withProject(dialogPresenter.moduleOrProject.project)
+    val project = dialogPresenter.moduleOrProject.project
+    val eel = runWithModalProgressBlocking(project, title) {
+      project.getEelDescriptor().toEelApi()
+    }
+    val errorSink = ErrorSink().withProject(project)
 
     val rootPanel = panel {
-      model = PythonLocalAddInterpreterModel(ProjectPathFlows.create(basePath), EelFileSystem(eelApi = localEel))
+      model = PythonLocalAddInterpreterModel(ProjectPathFlows.create(basePath), EelFileSystem(eelApi = eel))
       model.navigator.selectionMode = AtomicProperty(PythonInterpreterSelectionMode.CUSTOM)
       mainPanel = PythonAddCustomInterpreter(
         model = model,
         module = dialogPresenter.moduleOrProject.moduleIfExists,
         errorSink = errorSink,
-        limitExistingEnvironments = false,
+        context = InterpreterCreationContext.ADD_INTERPRETER,
         bestGuessCreateSdkInfo = dialogPresenter.bestGuessCreateSdkInfo
       )
       mainPanel.setupUI(this, WHEN_PROPERTY_CHANGED(AtomicProperty(basePath)))

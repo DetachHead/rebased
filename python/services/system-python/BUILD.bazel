@@ -3,6 +3,10 @@ load("@rules_jvm//:jvm.bzl", "jvm_library")
 load("//build:compiler-options.bzl", "create_kotlinc_options")
 load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
+### auto-generated section `dev intellij.python.community.services.systemPython` start
+content_module_jar(module = ":system-python")
+### auto-generated section `dev intellij.python.community.services.systemPython` end
+
 ### auto-generated section `build intellij.python.community.services.systemPython` start
 create_kotlinc_options(
     name = "custom_system-python",
@@ -49,8 +53,6 @@ jvm_library(
         "//python/python-exec-service/execService.python",
     ],
 )
-
-content_module_jar(module = ":system-python")
 
 jvm_library(
     name = "system-python_test_lib",
@@ -171,8 +173,8 @@ jvm_library(
         "//platform/core-api:core_test_lib",
         "//platform/testFramework/junit5",
         "//platform/testFramework/junit5:junit5_test_lib",
-        "//libraries/junit5",
-        "//libraries/junit5:junit5_test_lib",
+        "//libraries/junit6",
+        "//libraries/junit6:junit6_test_lib",
         "//platform/projectModel-api:projectModel",
         "//platform/projectModel-api:projectModel_test_lib",
         "//python/testFramework",
@@ -202,8 +204,8 @@ jvm_library(
         "//platform/testFramework/junit5/eel:testFramework-junit5-eel-tests",
         "//platform/testFramework/junit5/eel:testFramework-junit5-eel-tests_test_lib",
         "//platform/ide-core",
-        "//libraries/junit5-params",
-        "//libraries/junit5-params:junit5-params_test_lib",
+        "//libraries/junit6-params",
+        "//libraries/junit6-params:junit6-params_test_lib",
     ],
 )
 ### auto-generated section `build intellij.python.community.services.systemPython.tests` end

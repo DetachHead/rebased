@@ -4,6 +4,22 @@
   "author": "JetBrains",
   "nameKey": "darcula.theme.name",
 
+  "colors": {
+    "toggle-on-bg": "#304C80",
+    "toggle-off-bg": "#FFFFFF29",
+    "toggle-off-border": "#00000000",
+    "toggle-on-border": "#366799",
+    "toggle-on-disabled-bg": "#43494A",
+    "toggle-off-disabled-bg": "#43494A",
+    "toggle-on-disabled-border": "#545556",
+    "toggle-off-disabled-border": "#545556",
+    "toggle-focus-border": "#366799",
+    "toggle-on-notch": "#DFE1E5",
+    "toggle-off-notch": "#CED0D6",
+    "toggle-on-disabled-notch": "#606060",
+    "toggle-off-disabled-notch": "#606060"
+  },
+
   "ui": {
     "*": {
       "background": "#3C3F41",

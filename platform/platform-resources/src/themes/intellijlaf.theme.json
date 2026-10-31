@@ -5,6 +5,20 @@
   "author": "JetBrains",
 
   "colors": {
+    "toggle-on-bg": "#3871E1",
+    "toggle-off-bg": "#00000030",
+    "toggle-off-border": "#FFFFFF00",
+    "toggle-on-border": "#3871E1",
+    "toggle-on-disabled-bg": "#F7F8F9",
+    "toggle-off-disabled-bg": "#F7F8F9",
+    "toggle-on-disabled-border": "#DDDFE4",
+    "toggle-off-disabled-border": "#DDDFE4",
+    "toggle-focus-border": "#3871E1",
+    "toggle-on-notch": "#FFFFFF",
+    "toggle-off-notch": "#FFFFFF",
+    "toggle-on-disabled-notch": "#C3C5CB",
+    "toggle-off-disabled-notch": "#C3C5CB",
+
     "black":  "#000000",
     "grey01": "#6e6e6e",
     "grey02": "#808080",

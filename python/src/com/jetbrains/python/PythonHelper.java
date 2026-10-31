@@ -1,4 +1,4 @@
-// Copyright 2000-2025 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+// Copyright 2000-2026 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package com.jetbrains.python;
 
 import com.intellij.execution.configurations.GeneralCommandLine;
@@ -9,6 +9,7 @@ import com.intellij.util.containers.ContainerUtil;
 import com.jetbrains.python.psi.LanguageLevel;
 import com.jetbrains.python.sdk.PythonEnvUtil;
 import com.jetbrains.python.sdk.PythonSdkType;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 
 import java.io.File;
@@ -20,10 +21,11 @@ import java.util.Map;
 import java.util.stream.Collectors;
 
 import static com.intellij.python.community.helpersLocator.PythonHelpersLocator.findPathInHelpers;
-import static com.intellij.python.community.helpersLocator.PythonHelpersLocator.findPathInHelpersPossibleNull;
 import static com.intellij.python.community.helpersLocator.PythonHelpersLocator.findPathStringInHelpers;
 import static com.intellij.python.community.helpersLocator.PythonHelpersLocator.getCommunityHelpersRoot;
 import static com.intellij.python.venv.VenvKt.VIRTUALENV_ZIPAPP_NAME;
+import static com.jetbrains.python.impl.HelperConstsKt.PY2_HELPER_DEPENDENCIES_DIR;
+import static com.jetbrains.python.impl.HelperConstsKt.PY3_HELPER_DEPENDENCIES_DIR;
 import static com.jetbrains.python.packaging.pip.PipPackageManagerEngine.PACKAGING_TOOL_NAME;
 
 public enum PythonHelper implements HelperPackage {
@@ -74,12 +76,10 @@ public enum PythonHelper implements HelperPackage {
   DOCSTRING_FORMATTER("docstring_formatter.py"),
 
   EXTRA_SYSPATH("extra_syspath.py"),
-  SYSPATH("syspath.py"),
+  SYSPATH(Constants.SYSPATH_PY),
 
   // Compatible with 3.8+
   PYCODESTYLE("pycodestyle.py"),
-  // Compatible with 3.6+
-  PYCODESTYLE_2_10_0("pycodestyle-2.10.0.py"),
   // Compatible with 2.7 and 3.5+
   PYCODESTYLE_2_8_0("pycodestyle-2.8.0.py"),
 
@@ -89,17 +89,15 @@ public enum PythonHelper implements HelperPackage {
 
   JUPYTER("pycharm", "jupyter");
 
-  public static final String PY3_HELPER_DEPENDENCIES_DIR = "py3only";
-  public static final String PY2_HELPER_DEPENDENCIES_DIR = "py2only";
 
-  private static @NotNull PathHelperPackage findModule(String moduleEntryPoint, String path, boolean asModule, String[] thirdPartyDependencies) {
+  private static @NotNull PathHelperPackage findModule(String moduleEntryPoint,
+                                                       String path,
+                                                       boolean asModule,
+                                                       String[] thirdPartyDependencies) {
     List<HelperDependency> dependencies = HelperDependency.findThirdPartyDependencies(thirdPartyDependencies);
 
-    if (findPathInHelpersPossibleNull(path + ".zip") != null) {
-      return new ModuleHelperPackage(moduleEntryPoint, path + ".zip", dependencies);
-    }
-    Path pathInHelpers = findPathInHelpersPossibleNull(path);
-    if (!asModule && pathInHelpers != null && new File(pathInHelpers.toFile(), moduleEntryPoint + ".py").isFile()) {
+    Path pathInHelpers = findPathInHelpers(path);
+    if (!asModule && new File(pathInHelpers.toFile(), moduleEntryPoint + ".py").isFile()) {
       return new ScriptPythonHelper(moduleEntryPoint + ".py", pathInHelpers.toFile(), dependencies);
     }
 
@@ -184,9 +182,6 @@ public enum PythonHelper implements HelperPackage {
     }
   }
 
-  /**
-   * Module Python helper can be executed from zip-archive
-   */
   public static class ModuleHelperPackage extends PathHelperPackage {
     private final String myModuleName;
 
@@ -238,7 +233,7 @@ public enum PythonHelper implements HelperPackage {
 
     private HelperDependency(@NotNull String pythonPath) { myPythonPath = pythonPath; }
 
-    public void addToPythonPath(@NotNull Map<String, String> environment) {
+    private void addToPythonPath(@NotNull Map<String, String> environment) {
       PythonEnvUtil.addToPythonPath(environment, myPythonPath);
     }
 
@@ -295,5 +290,10 @@ public enum PythonHelper implements HelperPackage {
 
   public @NotNull GeneralCommandLine newCommandLine(@NotNull Sdk pythonSdk, @NotNull List<String> parameters) {
     return myModule.newCommandLine(pythonSdk, parameters);
+  }
+
+  @ApiStatus.Internal
+  public static final class Constants {
+    public static final String SYSPATH_PY = "syspath.py";
   }
 }

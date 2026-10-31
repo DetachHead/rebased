@@ -2,6 +2,11 @@ package com.intellij.tools.build.bazel;
 
 import com.google.devtools.build.runfiles.Runfiles;
 import com.intellij.tools.build.bazel.impl.BazelIncBuildTest;
+import com.intellij.tools.build.bazel.jvmIncBuilder.impl.instrumentation.ThreadingModelInstrumenterTest;
+import com.intellij.tools.build.bazel.jvmIncBuilder.tmh.TMHAssertionGenerator2Test;
+import com.intellij.tools.build.bazel.jvmIncBuilder.tmh.TMHInstrumenter1Test;
+import com.intellij.tools.build.bazel.jvmIncBuilder.tmh.TMHInstrumenter2Test;
+import com.intellij.tools.build.bazel.jvmIncBuilder.tmh.TMHInstrumenterTest;
 import org.junit.BeforeClass;
 import org.junit.runner.RunWith;
 import org.junit.runners.Suite;
@@ -11,6 +16,7 @@ import static org.junit.Assert.fail;
 @RunWith(Suite.class)
 @Suite.SuiteClasses({
   JvmIncBuilderTest.class,
+  CrashRecoveryTest.class,
   KotlinTests.class,
   JavaTests.class,
   ZipBuilderTest.class,
@@ -22,7 +28,12 @@ import static org.junit.Assert.fail;
   JavaAnnotationProcessorTests.class,
   WarningLevelTests.class,
   BuildContextKotlinOptionsTest.class,
-  BuildContextJavaOptionsTest.class
+  BuildContextJavaOptionsTest.class,
+  TMHInstrumenter1Test.class,
+  TMHInstrumenter2Test.class,
+  ThreadingModelInstrumenterTest.class,
+  TMHAssertionGenerator2Test.class,
+  TMHInstrumenterTest.class
 })
 public class AllTests {
 
@@ -32,6 +43,7 @@ public class AllTests {
     adjustPath(BazelIncBuildTest.BAZEL_EXECUTABLE, preloaded);
     adjustPath(BazelIncBuildTest.BAZEL_TEST_WORKSPACE_FILE, preloaded);
     adjustPath(BazelIncBuildTest.RULES_JVM_SNAPSHOT_FILE, preloaded);
+    adjustPath("jvm-inc-builder.tmh.test-data", preloaded);
   }
 
   private static void adjustPath(String pathProperty, Runfiles.Preloaded runfiles) {

@@ -1,6 +1,10 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
 load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
 
+### auto-generated section `dev intellij.platform.todo` start
+content_module_jar(module = ":todo")
+### auto-generated section `dev intellij.platform.todo` end
+
 ### auto-generated section `build intellij.platform.todo` start
 jvm_library(
     name = "todo",
@@ -32,7 +36,6 @@ jvm_library(
         "//platform/lang-core",
         "//platform/lang-impl",
         "//platform/core-ui",
-        "//libraries/stream",
         "//platform/platform-impl/concurrency",
         "//platform/platform-impl:ide-impl",
         "//platform/platform-impl/rpc",
@@ -55,8 +58,6 @@ jvm_library(
         "//platform/util/coroutines",
     ],
 )
-
-content_module_jar(module = ":todo")
 
 jvm_library(
     name = "todo_test_lib",
@@ -81,7 +82,6 @@ jvm_library(
         "//platform/lang-core:lang-core_test_lib",
         "//platform/lang-impl:lang-impl_test_lib",
         "//platform/core-ui:core-ui_test_lib",
-        "//libraries/stream:stream_test_lib",
         "//platform/platform-impl/concurrency:concurrency_test_lib",
         "//platform/platform-impl:ide-impl_test_lib",
         "//platform/platform-impl/rpc:rpc_test_lib",
@@ -111,7 +111,6 @@ exports_files(
     [
         "intellij.platform.todo.iml",
         "resources/intellij.platform.todo.xml",
-        "module-content.yaml",
     ],
     visibility = ["//visibility:public"],
 )

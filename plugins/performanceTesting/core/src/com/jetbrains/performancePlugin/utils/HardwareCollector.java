@@ -23,12 +23,11 @@
  */
 package com.jetbrains.performancePlugin.utils;
 
-import com.intellij.jna.JnaLoader;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
 import com.intellij.troubleshooting.TroubleInfoCollector;
 import org.jetbrains.annotations.NotNull;
-import oshi.SystemInfo;
+import oshi.ffm.SystemInfo;
 import oshi.hardware.CentralProcessor;
 import oshi.hardware.CentralProcessor.TickType;
 import oshi.hardware.ComputerSystem;
@@ -70,10 +69,6 @@ public final class HardwareCollector implements TroubleInfoCollector {
   }
 
   public String collectHardwareInfo(Boolean skipNetworkReporting) {
-    if (!JnaLoader.isLoaded()) {
-      return "Failed to collect computer system info: JNA is not loaded)";
-    }
-
     try {
       SystemInfo si = new SystemInfo();
 
@@ -259,8 +254,8 @@ public final class HardwareCollector implements TroubleInfoCollector {
       OSProcess p = procs.get(i);
       info.add(String.format(" %5d %5.1f %4.1f %9s %9s %s", p.getProcessID(),
                              100d * (p.getKernelTime() + p.getUserTime()) / p.getUpTime(),
-                             100d * p.getResidentSetSize() / memory.getTotal(), FormatUtil.formatBytes(p.getVirtualSize()),
-                             FormatUtil.formatBytes(p.getResidentSetSize()), p.getName()));
+                             100d * p.getResidentMemory() / memory.getTotal(), FormatUtil.formatBytes(p.getVirtualSize()),
+                             FormatUtil.formatBytes(p.getResidentMemory()), p.getName()));
     }
     OSProcess p = os.getProcess(os.getProcessId());
     info.add("Current process environment: ");
@@ -302,7 +297,7 @@ public final class HardwareCollector implements TroubleInfoCollector {
       long total = fs.getTotalSpace();
       info.add(String.format(
         " %s (%s) [%s] %s of %s free (%.1f%%), %s of %s files free (%.1f%%) is %s "
-        + (fs.getLogicalVolume() != null && !fs.getLogicalVolume().isEmpty() ? "[%s]" : "%s")
+        + (!fs.getLogicalVolume().isEmpty() ? "[%s]" : "%s")
         + " and is mounted at %s",
         fs.getName(), fs.getDescription().isEmpty() ? "file system" : fs.getDescription(), fs.getType(),
         FormatUtil.formatBytes(usable), FormatUtil.formatBytes(fs.getTotalSpace()), 100d * usable / total,
@@ -319,9 +314,7 @@ public final class HardwareCollector implements TroubleInfoCollector {
     }
     else {
       for (NetworkIF net : list) {
-        if (net.getIfAlias() != null) {
-          sb.append("\n ").append(net);
-        }
+        sb.append("\n ").append(net);
       }
     }
     info.add(sb.toString());

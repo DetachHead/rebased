@@ -24,7 +24,7 @@ class J {
         takeNotNullCollection(returnNotNullCollection())
     }
 
-    private fun takeNotNullCollection(strings: MutableCollection<String>?) {
+    private fun takeNotNullCollection(strings: MutableCollection<String>) {
     }
 
     fun returnNotNullCollection(): MutableCollection<String> {

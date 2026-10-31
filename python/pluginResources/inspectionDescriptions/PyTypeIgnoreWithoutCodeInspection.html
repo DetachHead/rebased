@@ -1,0 +1,13 @@
+<html>
+<body>
+<p>Reports a <code># type: ignore</code> or <code># pycharm: ignore</code> comment that names no inspection code of this IDE.
+  An unknown code with the <code>pycharm:</code> namespace gets a report from a different inspection.</p>
+<p>Such a comment suppresses <b>every</b> inspection on its line. A comment in the leading comments of the
+  file suppresses every inspection in the file. It can therefore hide a problem that appears there later.</p>
+<p>A code of another type checker, such as mypy's <code>attr-defined</code>, names no inspection of this
+  IDE. Such a comment gets the same report.</p>
+<p>Name the inspection codes in brackets to suppress only the problems that you accept. For example, write
+  <code># type: ignore[unsupported-operator]</code> or <code># type: ignore[pycharm:PyTypeChecker]</code>.
+  For a comment on a line of code, the quick fix adds the codes of the problems on that line.</p>
+</body>
+</html>

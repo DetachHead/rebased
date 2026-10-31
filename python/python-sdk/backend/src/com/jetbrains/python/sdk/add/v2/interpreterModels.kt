@@ -16,29 +16,41 @@ interface MaybeSystemPython {
   val isBase: Boolean
 }
 
+/**
+ * [PythonSelectableInterpreter] that always has a [homePath].
+ * All types except [InstallableSelectableInterpreter] implement this interface.
+ */
+sealed interface InterpreterWithPath<P : PathHolder> {
+  val homePath: P
+}
+
 sealed class PythonSelectableInterpreter<P : PathHolder> : Comparable<PythonSelectableInterpreter<*>>, UiHolder, PythonInfoHolder {
   companion object {
     private val comparator = PythonInfoWithUiComparator<PythonSelectableInterpreter<*>>()
   }
 
+  /**
+   * Is `null` only for [InstallableSelectableInterpreter].
+   * To get a non-null value, use pattern matching or [InterpreterWithPath].
+   */
   abstract val homePath: P?
   abstract override val pythonInfo: PythonInfo
   override val ui: PyToolUIInfo? = null
-  override fun toString(): String = "PythonSelectableInterpreter(homePath='$homePath')"
+  override fun toString(): String = "PythonSelectableInterpreter(homePath='${homePath?.toStringForUI()}')"
 
   override fun compareTo(other: PythonSelectableInterpreter<*>): Int = comparator.compare(this, other)
 }
 
 class ExistingSelectableInterpreter<P : PathHolder>(
-  val sdkWrapper: SdkWrapper<P>,
+  val pythonInterpreterWrapper: PythonInterpreterWrapper<P>,
   override val pythonInfo: PythonInfo,
   val isSystemWide: Boolean,
-) : PythonSelectableInterpreter<P>() {
+) : PythonSelectableInterpreter<P>(), InterpreterWithPath<P> {
   override val homePath: P
-    get() = sdkWrapper.homePath
+    get() = pythonInterpreterWrapper.homePath
 
   override fun toString(): String {
-    return "ExistingSelectableInterpreter(sdk=${sdkWrapper.sdk}, pythonInfo=$pythonInfo, isSystemWide=$isSystemWide, homePath='$homePath')"
+    return "ExistingSelectableInterpreter(sdk=${pythonInterpreterWrapper.pythonInterpreter}, pythonInfo=$pythonInfo, isSystemWide=$isSystemWide, homePath='${homePath.toStringForUI()}')"
   }
 }
 
@@ -46,9 +58,9 @@ class ManuallyAddedSelectableInterpreter<P : PathHolder>(
   override val homePath: P,
   override val pythonInfo: PythonInfo,
   override val isBase: Boolean,
-) : PythonSelectableInterpreter<P>(), MaybeSystemPython {
+) : PythonSelectableInterpreter<P>(), MaybeSystemPython, InterpreterWithPath<P> {
   override fun toString(): String {
-    return "ManuallyAddedSelectableInterpreter(homePath='$homePath', pythonInfo=$pythonInfo)"
+    return "ManuallyAddedSelectableInterpreter(homePath='${homePath.toStringForUI()}', pythonInfo=$pythonInfo)"
   }
 }
 
@@ -56,7 +68,8 @@ class InstallableSelectableInterpreter<P : PathHolder>(
   override val pythonInfo: PythonInfo,
   val installableSdk: InstallablePythonSdk,
 ) : PythonSelectableInterpreter<P>() {
-  override val homePath: P? = null
+  override val homePath: Nothing?
+    get() = null
 }
 
 /**
@@ -67,8 +80,8 @@ class DetectedSelectableInterpreter<P : PathHolder>(
   override val pythonInfo: PythonInfo,
   override val isBase: Boolean,
   override val ui: PyToolUIInfo? = null,
-) : PythonSelectableInterpreter<P>(), MaybeSystemPython {
+) : PythonSelectableInterpreter<P>(), MaybeSystemPython, InterpreterWithPath<P> {
   override fun toString(): String {
-    return "DetectedSelectableInterpreter(homePath='$homePath', pythonInfo=$pythonInfo, isBase=$isBase, uiCustomization=$ui)"
+    return "DetectedSelectableInterpreter(homePath='${homePath.toStringForUI()}', pythonInfo=$pythonInfo, isBase=$isBase, uiCustomization=$ui)"
   }
 }

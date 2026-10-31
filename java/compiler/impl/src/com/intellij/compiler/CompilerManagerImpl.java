@@ -9,6 +9,7 @@ import com.intellij.compiler.impl.OneProjectItemCompileScope;
 import com.intellij.compiler.impl.ProjectCompileScope;
 import com.intellij.compiler.impl.javaCompiler.BackendCompiler;
 import com.intellij.compiler.server.BuildManager;
+import com.intellij.concurrency.ThreadContext;
 import com.intellij.execution.process.ProcessIOExecutorService;
 import com.intellij.execution.wsl.WSLDistribution;
 import com.intellij.ide.IdleTracker;
@@ -55,11 +56,12 @@ import com.intellij.openapi.util.NlsContexts;
 import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.registry.Registry;
-import com.intellij.openapi.vfs.LocalFileSystem;
 import com.intellij.openapi.vfs.VirtualFile;
+import com.intellij.openapi.vfs.WatchRoots;
 import com.intellij.util.ArrayUtil;
 import com.intellij.util.ObjectUtils;
 import com.intellij.util.SmartList;
+import com.intellij.util.concurrency.AppExecutorUtil;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.containers.FileCollectionFactory;
 import com.intellij.util.messages.MessageBusConnection;
@@ -85,6 +87,7 @@ import javax.tools.Diagnostic;
 import javax.tools.JavaFileObject;
 import java.io.File;
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.net.URI;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -96,6 +99,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 
@@ -118,7 +122,7 @@ public class CompilerManagerImpl extends CompilerManager {
   private final CompilationStatusListener myEventPublisher;
   private final Semaphore myCompilationSemaphore = new Semaphore(1, true);
   private final Set<ModuleType<?>> myValidationDisabledModuleTypes = new HashSet<>();
-  private final Set<LocalFileSystem.WatchRequest> myWatchRoots;
+  private final WatchRoots.Token myWatchRoot;
   private volatile ExternalJavacManager myExternalJavacManager;
 
   public CompilerManagerImpl(@NotNull Project project) {
@@ -157,15 +161,14 @@ public class CompilerManagerImpl extends CompilerManager {
 
     final File projectGeneratedSrcRoot = CompilerPaths.getGeneratedDataDirectory(project);
     projectGeneratedSrcRoot.mkdirs();
-    final LocalFileSystem lfs = LocalFileSystem.getInstance();
-    myWatchRoots = lfs.addRootsToWatch(Collections.singletonList(FileUtil.toCanonicalPath(projectGeneratedSrcRoot.getPath())), true);
+    myWatchRoot = WatchRoots.getInstance().watch(FileUtil.toCanonicalPath(projectGeneratedSrcRoot.getPath()), true);
     Disposer.register(JavaPluginDisposable.getInstance(project), () -> {
       final ExternalJavacManager manager = myExternalJavacManager;
       myExternalJavacManager = null;
       if (manager != null) {
         manager.stop();
       }
-      lfs.removeWatchedRoots(myWatchRoots);
+      myWatchRoot.close();
       if (ApplicationManager.getApplication().isUnitTestMode()) {    // force cleanup for created compiler system directory with generated sources
         FileUtil.delete(CompilerPaths.getCompilerSystemDirectory(project));
       }
@@ -545,23 +548,57 @@ public class CompilerManagerImpl extends CompilerManager {
             return null; // should not happen for real projects
           }
           final int listenPort = NetUtils.findAvailableSocketPort();
-          manager = new ExternalJavacManager(
-            compilerWorkingDir, ProcessIOExecutorService.INSTANCE, Registry.intValue("compiler.external.javac.keep.alive.timeout", 5*60*1000)
-          );
-          manager.setWslExecutablePath(WSLDistribution.findWslExe());
-          manager.start(listenPort);
+          // the manager lives as long as the project, so its event loop must not become a child of the first caller's job (e.g. the debugger's)
+          try {
+            manager = ThreadContext.resetThreadContext(() -> {
+              try {
+                return startJavacManager(compilerWorkingDir, listenPort);
+              }
+              catch (IOException e) {
+                throw new UncheckedIOException(e);
+              }
+            });
+          }
+          catch (UncheckedIOException e) {
+            throw e.getCause();
+          }
           myExternalJavacManager = manager;
-          IdleTask task = new IdleTask(manager);
-          task.removeIdleListener = IdleTracker.getInstance().addIdleListener(IdleTask.CHECK_PERIOD, task);
         }
       }
     }
     return manager;
   }
 
+  private static @NotNull ExternalJavacManager startJavacManager(@NotNull File compilerWorkingDir, int listenPort) throws IOException {
+    ExternalJavacManager manager = new ExternalJavacManager(
+      compilerWorkingDir, ProcessIOExecutorService.INSTANCE, Registry.intValue("compiler.external.javac.keep.alive.timeout", 5*60*1000)
+    );
+    manager.setWslExecutablePath(WSLDistribution.findWslExe());
+    manager.start(listenPort);
+    IdleTask task = new IdleTask(manager);
+    if (ApplicationManager.getApplication().isHeadlessEnvironment()) {
+      // IdleTracker starts the Swing event queue, which a headless app must not do
+      ScheduledFuture<?> future = AppExecutorUtil.getAppScheduledExecutorService()
+        .scheduleWithFixedDelay(task, IdleTask.CHECK_PERIOD, IdleTask.CHECK_PERIOD, TimeUnit.MILLISECONDS);
+      task.removeIdleListener = new AccessToken() {
+        @Override
+        public void finish() {
+          future.cancel(false);
+        }
+      };
+    }
+    else {
+      task.removeIdleListener = IdleTracker.getInstance().addIdleListener(IdleTask.CHECK_PERIOD, task);
+    }
+    return manager;
+  }
+
   @Override
   public @Nullable File getJavacCompilerWorkingDir() {
-    final File projectBuildDir = BuildManager.getInstance().getProjectSystemDirectory(myProject);
+    // a project without a presentable URL (e.g. in the language server) has no build system directory
+    final File projectBuildDir = myProject.getPresentableUrl() != null
+                                 ? BuildManager.getInstance().getProjectSystemDirectory(myProject)
+                                 : new File(CompilerPaths.getCompilerSystemDirectory(myProject), "javac");
     projectBuildDir.mkdirs();
     return projectBuildDir;
   }
