@@ -22,9 +22,6 @@
 #if (!$context.hasLibraries())
     <depends>com.intellij.modules.platform</depends>
 #end
-#if ($context.hasLibrary("compose"))
-    <depends>com.intellij.modules.compose</depends>
-#end
 #if ($context.hasLibrary("lsp"))
     <depends>com.intellij.modules.lsp</depends>
 #end
