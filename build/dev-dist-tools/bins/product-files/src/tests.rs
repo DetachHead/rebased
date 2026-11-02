@@ -655,11 +655,6 @@ fn the_tool_refuses_an_application_info_it_cannot_read() {
             r#"the version pattern "{0}'{1}'" is not literal text with the elements {0} to {3}"#,
         ),
         (
-            "release",
-            idea.replace(r#"eap="true""#, r#"eap="false""#),
-            "majorReleaseDate may be omitted only for EAP",
-        ),
-        (
             "date",
             idea.replace(r#"date="__BUILD_DATE__""#, r#"majorReleaseDate="2026-10-01""#),
             r#"the major release date "2026-10-01" is neither yyyyMMdd nor yyyyMMddHHmm"#,

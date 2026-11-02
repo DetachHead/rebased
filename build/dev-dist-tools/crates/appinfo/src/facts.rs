@@ -181,9 +181,6 @@ fn read_facts(content: &str, file: &Path, host: Option<&HostOverride>, pinned_bu
         None => attribute(build, "majorReleaseDate", file)?.map(str::to_owned),
     }
     .filter(|value| !value.is_empty());
-    if !is_eap && raw_release_date.as_ref().is_none_or(|value| value.starts_with("__")) {
-        bail!("majorReleaseDate may be omitted only for EAP: {}", file.display());
-    }
     let major_release_date =
         format_major_release_date(raw_release_date.as_deref(), pinned_build_date_seconds).with_context(|| file.display().to_string())?;
 
