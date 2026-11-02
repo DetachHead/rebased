@@ -187,10 +187,10 @@ open class AndroidStudioProperties(communityHomeDir: Path) : RebasedProperties(c
       .removing("intellij.featuresTrainer")
 
     productLayout.bundledPluginModules = defaultBundledPlugins + persistentListOf(
-      "intellij.android.compose-ide-plugin",
-      "intellij.android.design-plugin.descriptor",
-      "intellij.android.plugin.descriptor",
-      "intellij.android.smali",
+      //"intellij.android.compose-ide-plugin",
+      //"intellij.android.design-plugin.descriptor",
+      //"intellij.android.plugin.descriptor",
+      //"intellij.android.smali",
     )
   }
 
