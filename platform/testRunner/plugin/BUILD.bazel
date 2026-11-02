@@ -1,18 +1,4 @@
-load("@jps_dynamic_deps_community//:targets.bzl", "dev_dist_plugin")
 load("@rules_jvm//:jvm.bzl", "jvm_library")
-
-### auto-generated section `dev intellij.platform.testRunner.plugin` start
-dev_dist_plugin(
-    content_modules = [
-        # do not sort,
-        "intellij.platform.testRunner",
-        "intellij.platform.smRunner",
-        "intellij.platform.smRunner.vcs",
-        "intellij.platform.smRunner.dashboard",
-    ],
-    main_module = "intellij.platform.testRunner.plugin",
-)
-### auto-generated section `dev intellij.platform.testRunner.plugin` end
 
 ### auto-generated section `build intellij.platform.testRunner.plugin` start
 jvm_library(

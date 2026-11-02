@@ -73,38 +73,13 @@ dev_plugin(
         "//plugins/groovy/structuralsearch-groovy:structuralSearch_content_module_jar",
     ],
     descriptor = "//build/dev-dist-descriptors/intellij.groovy:intellij.groovy_dev_descriptor",
-    executable_files = [
-        "lib/agent/gragent.jar",
-        "lib/console.groovy",
-    ],
-    file_prefixes = {
-        "lib/standardDsls": "plugins/groovy/groovy-psi/standardDsls",
-    },
-    files = {
-        "lib/agent/gragent.jar": "//plugins/groovy:hotswap/gragent.jar",
-        "lib/console.groovy": "//plugins/groovy/groovy-psi:resources/conf/console.groovy",
-        "lib/standardDsls": "//plugins/groovy/groovy-psi:dev_dist_resources",
-    },
     jars = {
-        "lib/Groovy.jar": [
+        "lib/groovy.jar": [
             "intellij.groovy",
             "intellij.groovy.git",
-            "intellij.groovy.psi",
-        ],
-        "lib/groovy-jps.jar": [
-            "intellij.groovy.jps",
-        ],
-        "lib/groovy-rt.jar": [
             "intellij.groovy.rt",
-        ],
-        "lib/groovy-spock-rt.jar": [
-            "intellij.groovy.spock.rt",
-        ],
-        "lib/groovy-rt-class-loader.jar": [
-            "intellij.groovy.rt.classLoader",
-        ],
-        "lib/groovy-constants-rt.jar": [
-            "intellij.groovy.constants.rt",
+            "intellij.groovy.jps",
+            "intellij.groovy.psi",
         ],
     },
     main_module = "intellij.groovy",
@@ -119,9 +94,6 @@ dev_plugin(
         "//plugins/groovy/groovy-psi:psi": "intellij.groovy.psi",
         "//plugins/groovy/jps-plugin:jps": "intellij.groovy.jps",
         "//plugins/groovy/rt": "intellij.groovy.rt",
-        "//plugins/groovy/rt-constants:constants-rt": "intellij.groovy.constants.rt",
-        "//plugins/groovy/rt/classLoader": "intellij.groovy.rt.classLoader",
-        "//plugins/groovy/spock-rt": "intellij.groovy.spock.rt",
     },
-    plugin_directory = "plugins/Groovy",
+    plugin_directory = "plugins/groovy",
 )

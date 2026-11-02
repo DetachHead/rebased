@@ -1,5 +1,45 @@
+load("@jps_dynamic_deps_community//:targets.bzl", "dev_dist_plugin")
 load("@rules_jvm//:jvm.bzl", "jvm_library", "jvm_provided_library")
 load("//build:compiler-options.bzl", "create_kotlinc_options")
+
+### auto-generated section `dev intellij.kotlin.jsr223.plugin` start
+dev_dist_plugin(
+    content_modules = [
+        # do not sort,
+        "intellij.kotlin.jsr223",
+        "intellij.libraries.kotlinc.kotlin.script.runtime",
+        "intellij.libraries.kotlinc.kotlin.scripting.common",
+        "intellij.libraries.kotlinc.kotlin.scripting.jvm",
+        "intellij.kotlin.buildToolsRuntime",
+        "intellij.libraries.kotlin.tooling.core",
+    ],
+    descriptor = "resources/META-INF/plugin.xml",
+    jars = {
+        "lib/intellij.libraries.kotlinc.kotlin.script.runtime.jar": [
+            "intellij.libraries.kotlinc.kotlin.script.runtime",
+            "@lib//:libraries-kotlinc-kotlin-script-runtime-kotlinc-kotlin-script-runtime",
+        ],
+        "lib/intellij.libraries.kotlinc.kotlin.scripting.common.jar": [
+            "intellij.libraries.kotlinc.kotlin.scripting.common",
+            "@lib//:libraries-kotlinc-kotlin-scripting-common-kotlinc-kotlin-scripting-common",
+        ],
+        "lib/intellij.libraries.kotlinc.kotlin.scripting.jvm.jar": [
+            "intellij.libraries.kotlinc.kotlin.scripting.jvm",
+            "@lib//:libraries-kotlinc-kotlin-scripting-jvm-kotlinc-kotlin-scripting-jvm",
+        ],
+        "lib/intellij.libraries.kotlin.tooling.core.jar": [
+            "intellij.libraries.kotlin.tooling.core",
+            "@lib//:libraries-kotlin-tooling-core-kotlin-tooling-core",
+        ],
+        "lib/kotlin-jsr223-plugin.jar": ["intellij.kotlin.jsr223.plugin"],
+    },
+    main_module = "intellij.kotlin.jsr223.plugin",
+    module_jar_paths = {
+        "intellij.kotlin.jsr223": "lib/intellij.kotlin.jsr223.jar",
+        "intellij.kotlin.buildToolsRuntime": "lib/intellij.kotlin.buildToolsRuntime.jar",
+    },
+)
+### auto-generated section `dev intellij.kotlin.jsr223.plugin` end
 
 ### auto-generated section `build intellij.kotlin.jsr223.plugin` start
 create_kotlinc_options(

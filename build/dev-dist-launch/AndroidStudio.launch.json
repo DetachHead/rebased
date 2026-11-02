@@ -1,9 +1,9 @@
 {
   "productCode": "AI",
   "envVarBaseName": "IDEA",
-  "dataDirectoryName": "IdeaIC2026.3",
+  "dataDirectoryName": "IdeaIC263.SNAPSHOT",
   "minRequiredJavaVersion": 25,
-  "baseFileName": "idea",
+  "baseFileName": "rebased",
   "launch": {
     "mainClass": "com.intellij.idea.Main",
     "bootClassPathJarNames": [
@@ -13,12 +13,10 @@
       "multiRoutingFileSystem": true,
       "classLoader": "com.intellij.util.lang.PathClassLoader",
       "vendorName": "Google",
-      "pathsSelector": "IdeaIC2026.3",
+      "pathsSelector": "IdeaIC263.SNAPSHOT",
       "jnaNativeDir": "plugins/jna-plugin/lib/jna",
       "pty4jNativeDir": "plugins/pty4j-plugin/lib/pty4j",
-      "skikoNativeDir": "plugins/platform-compose-plugin/lib/skiko-awt-runtime-all",
       "platformPrefix": "AndroidStudio",
-      "splash": true,
       "nativeAccess": true
     }
   },
@@ -35,12 +33,10 @@
         "multiRoutingFileSystem": true,
         "classLoader": "com.intellij.util.lang.PathClassLoader",
         "vendorName": "Google",
-        "pathsSelector": "IdeaIC2026.3",
+        "pathsSelector": "IdeaIC263.SNAPSHOT",
         "jnaNativeDir": "plugins/jna-plugin/lib/jna",
         "pty4jNativeDir": "plugins/pty4j-plugin/lib/pty4j",
-        "skikoNativeDir": "plugins/platform-compose-plugin/lib/skiko-awt-runtime-all",
         "platformPrefix": "AndroidStudio",
-        "splash": true,
         "nativeAccess": true
       },
       "qodana": true,
@@ -177,7 +173,7 @@
     ]
   },
   "ideaProperties": {
-    "settingsDir": "IdeaIC",
+    "settingsDir": "IdeaIC.SNAPSHOT",
     "fatalErrorNotification": true
   }
 }

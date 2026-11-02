@@ -66,9 +66,9 @@ _PLATFORM_ASSETS = {
 _LAUNCH = struct(
     idea_properties = "//bin:idea.properties",
     vmoptions = {
-        "darwin": "idea.vmoptions",
-        "linux": "idea64.vmoptions",
-        "windows": "idea64.exe.vmoptions",
+        "darwin": "rebased.vmoptions",
+        "linux": "rebased64.vmoptions",
+        "windows": "rebased64.exe.vmoptions",
     },
     main_class = "com.intellij.idea.Main",
 )
@@ -95,7 +95,7 @@ DEV_DIST_LAUNCH_MODELS = {
 # these files. So an edit of a version, a suffix, a release date or the EAP flag changes no generated file.
 DEV_DIST_APPLICATION_INFOS = {
     "AndroidStudio": struct(source = "//android-customization:resources/idea/AndroidStudioApplicationInfo.xml"),
-    "Idea": struct(source = "//community-resources:resources/idea/IdeaApplicationInfo.xml"),
+    "Idea": struct(source = "//community-resources:resources/idea/RebasedApplicationInfo.xml"),
 }
 
 # The `lib/` jar order of the platform as a rule with two lists, for every product with the runtime module repository

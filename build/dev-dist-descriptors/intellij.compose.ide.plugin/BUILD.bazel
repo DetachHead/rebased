@@ -19,43 +19,42 @@ load("//platform/build-scripts/bazel-rules:dev_plugin.bzl", "dev_plugin")
 
 dev_dist_plugin_descriptor(
     content_modules = [
-        "intellij.platform.smRunner",
-        "intellij.platform.smRunner.dashboard",
-        "intellij.platform.smRunner.vcs",
-        "intellij.platform.testRunner",
+        "intellij.compose.ide.plugin.codeInsight",
+        "intellij.compose.ide.plugin.gradleTooling.rt",
+        "intellij.compose.ide.plugin.shared",
     ],
-    descriptor = "//platform/testRunner/plugin:resources/META-INF/plugin.xml",
-    main_module = "intellij.platform.testRunner.plugin",
+    descriptor = "//plugins/compose:resources/META-INF/plugin.xml",
+    main_module = "intellij.compose.ide.plugin",
     mode_refused_content_modules = {
         "frontend": [
-            "intellij.platform.smRunner.vcs",
-            "intellij.platform.smRunner.dashboard",
+            "intellij.compose.ide.plugin.shared",
+            "intellij.compose.ide.plugin.codeInsight",
         ],
     },
     refused_content_modules = [
-        "intellij.platform.smRunner.frontend.split",
-        "intellij.platform.smRunner.backend.split",
+        "intellij.compose.ide.plugin.shared.android",
+        "intellij.compose.ide.plugin.resources",
+        "intellij.compose.ide.plugin.resources.android",
     ],
 )
 
 dev_plugin(
-    name = "intellij.platform.testRunner.plugin_dev_plugin",
+    name = "intellij.compose.ide.plugin_dev_plugin",
     content_module_jars = [
-        "//platform/smRunner/dashboard:dashboard_content_module_jar",
-        "//platform/smRunner:smRunner_content_module_jar",
-        "//platform/testRunner:testRunner_content_module_jar",
+        "//plugins/compose/intellij.compose.ide.plugin.gradleTooling:ide-plugin-gradleTooling-rt_content_module_jar",
+        "//plugins/compose/intellij.compose.ide.plugin.shared:ide-plugin-shared_content_module_jar",
     ],
-    descriptor = "//build/dev-dist-descriptors/intellij.platform.testRunner.plugin:intellij.platform.testRunner.plugin_dev_descriptor",
+    descriptor = "//build/dev-dist-descriptors/intellij.compose.ide.plugin:intellij.compose.ide.plugin_dev_descriptor",
     jars = {
-        "lib/platform-testRunner-plugin.jar": [
-            "intellij.platform.testRunner.plugin",
-            "intellij.platform.smRunner.vcs",
+        "lib/compose-ide-plugin.jar": [
+            "intellij.compose.ide.plugin",
+            "intellij.compose.ide.plugin.codeInsight",
         ],
     },
-    main_module = "intellij.platform.testRunner.plugin",
+    main_module = "intellij.compose.ide.plugin",
     modules = {
-        "//platform/smRunner/vcs": "intellij.platform.smRunner.vcs",
-        "//platform/testRunner/plugin": "intellij.platform.testRunner.plugin",
+        "//plugins/compose/intellij.compose.ide.plugin.codeInsight:ide-plugin-codeInsight": "intellij.compose.ide.plugin.codeInsight",
+        "//plugins/compose:compose-ide-plugin": "intellij.compose.ide.plugin",
     },
-    plugin_directory = "plugins/platform-testRunner-plugin",
+    plugin_directory = "plugins/compose-ide-plugin",
 )

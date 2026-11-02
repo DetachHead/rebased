@@ -1,9 +1,9 @@
 {
   "productCode": "IC",
-  "envVarBaseName": "IDEA",
-  "dataDirectoryName": "IdeaIC2026.3",
+  "envVarBaseName": "REBASED",
+  "dataDirectoryName": "IdeaIC263.SNAPSHOT",
   "minRequiredJavaVersion": 25,
-  "baseFileName": "idea",
+  "baseFileName": "rebased",
   "launch": {
     "mainClass": "com.intellij.idea.Main",
     "bootClassPathJarNames": [
@@ -12,13 +12,11 @@
     "jvmArguments": {
       "multiRoutingFileSystem": true,
       "classLoader": "com.intellij.util.lang.PathClassLoader",
-      "vendorName": "JetBrains",
-      "pathsSelector": "IdeaIC2026.3",
+      "vendorName": "detachhead",
+      "pathsSelector": "IdeaIC263.SNAPSHOT",
       "jnaNativeDir": "plugins/jna-plugin/lib/jna",
       "pty4jNativeDir": "plugins/pty4j-plugin/lib/pty4j",
-      "skikoNativeDir": "plugins/platform-compose-plugin/lib/skiko-awt-runtime-all",
-      "platformPrefix": "Idea",
-      "splash": true,
+      "platformPrefix": "Rebased",
       "nativeAccess": true
     }
   },
@@ -34,13 +32,11 @@
       "jvmArguments": {
         "multiRoutingFileSystem": true,
         "classLoader": "com.intellij.util.lang.PathClassLoader",
-        "vendorName": "JetBrains",
-        "pathsSelector": "IdeaIC2026.3",
+        "vendorName": "detachhead",
+        "pathsSelector": "IdeaIC263.SNAPSHOT",
         "jnaNativeDir": "plugins/jna-plugin/lib/jna",
         "pty4jNativeDir": "plugins/pty4j-plugin/lib/pty4j",
-        "skikoNativeDir": "plugins/platform-compose-plugin/lib/skiko-awt-runtime-all",
-        "platformPrefix": "Idea",
-        "splash": true,
+        "platformPrefix": "Rebased",
         "nativeAccess": true
       },
       "qodana": true,
@@ -177,7 +173,7 @@
     ]
   },
   "ideaProperties": {
-    "settingsDir": "IdeaIC",
+    "settingsDir": "IdeaIC.SNAPSHOT",
     "fatalErrorNotification": true
   }
 }

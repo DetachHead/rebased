@@ -42,25 +42,6 @@ DEV_DIST_MODULE_SETS = {
             "intellij.platform.externalProcessAuthHelper",
         ],
     ),
-    "intellij.moduleSets.compose.runtime": struct(
-        modules = [
-            "intellij.libraries.compose.runtime.desktop",
-            "intellij.libraries.compose.swing",
-            "intellij.platform.compose.swing",
-        ],
-        nested = [
-        ],
-        packed = {
-            "intellij.libraries.compose.runtime.desktop": "//libraries/compose-runtime-desktop:compose-runtime-desktop_content_module_jar",
-            "intellij.libraries.compose.swing": "//libraries/compose-swing-ui:compose-swing_content_module_jar",
-            "intellij.platform.compose.swing": "//platform/compose/swing-ui:swing_content_module_jar",
-        },
-        module_system_loaded = [
-            "intellij.libraries.compose.runtime.desktop",
-            "intellij.libraries.compose.swing",
-            "intellij.platform.compose.swing",
-        ],
-    ),
     "intellij.moduleSets.core.ide": struct(
         modules = [
             "intellij.platform.ide",
@@ -554,19 +535,6 @@ DEV_DIST_MODULE_SETS = {
             ],
         },
     ),
-    "intellij.moduleSets.duplicates": struct(
-        modules = [
-            "intellij.platform.duplicates.analysis",
-        ],
-        nested = [
-        ],
-        packed = {
-            "intellij.platform.duplicates.analysis": "//platform/duplicates-analysis:duplicates-analysis_content_module_jar",
-        },
-        module_system_loaded = [
-            "intellij.platform.duplicates.analysis",
-        ],
-    ),
     "intellij.moduleSets.editor": struct(
         modules = [
             "intellij.platform.editor",
@@ -611,9 +579,6 @@ DEV_DIST_MODULE_SETS = {
             "intellij.platform.pluginManager.frontend",
             "intellij.platform.ide.updateChecker",
             "intellij.platform.eel.tcp",
-            "intellij.platform.completion.common",
-            "intellij.platform.completion.frontend",
-            "intellij.platform.completion.backend",
         ],
         nested = [
             "intellij.moduleSets.core.lang",
@@ -635,9 +600,6 @@ DEV_DIST_MODULE_SETS = {
         packed = {
             "intellij.libraries.download.pgp.verifier": "//libraries/download-pgp-verifier:download-pgp-verifier_content_module_jar",
             "intellij.platform.buildScripts.downloader": "//platform/build-scripts/downloader:downloader_content_module_jar",
-            "intellij.platform.completion.backend": "//platform/completion/backend:backend_content_module_jar",
-            "intellij.platform.completion.common": "//platform/completion/common:common_content_module_jar",
-            "intellij.platform.completion.frontend": "//platform/completion/frontend:frontend_content_module_jar",
             "intellij.platform.eel.tcp": "//platform/eel-tcp:eel-tcp_content_module_jar",
             "intellij.platform.feedback": "//platform/feedback:feedback_content_module_jar",
             "intellij.platform.ide.presentationAssistant": "//platform/platform-impl/presentation-assistant:presentation-assistant_content_module_jar",
@@ -657,9 +619,6 @@ DEV_DIST_MODULE_SETS = {
         },
         module_system_loaded = [
             "intellij.platform.buildScripts.downloader",
-            "intellij.platform.completion.backend",
-            "intellij.platform.completion.common",
-            "intellij.platform.completion.frontend",
             "intellij.platform.eel.tcp",
             "intellij.platform.feedback",
             "intellij.platform.ide.presentationAssistant",
@@ -677,7 +636,6 @@ DEV_DIST_MODULE_SETS = {
         ],
         mode_refused = {
             "frontend": [
-                "intellij.platform.completion.backend",
                 "intellij.platform.indexing.impl.backend",
                 "intellij.platform.managed.cache.backend",
                 "intellij.platform.pluginManager.backend",
@@ -816,12 +774,8 @@ DEV_DIST_MODULE_SETS = {
             "intellij.platform.collaborationTools.auth",
             "intellij.platform.collaborationTools.auth.base",
             "intellij.platform.collaborationTools.shared",
-            "intellij.platform.scriptDebugger.ui",
-            "intellij.platform.scriptDebugger.backend",
-            "intellij.platform.scriptDebugger.protocolReaderRuntime",
             "intellij.platform.diagnostic.freezeAnalyzer",
             "intellij.platform.warmup",
-            "intellij.platform.inspect",
             "intellij.spellchecker.vcs",
             "intellij.spellchecker.xml",
             "intellij.platform.buildView",
@@ -832,10 +786,7 @@ DEV_DIST_MODULE_SETS = {
             "intellij.platform.projectView.frontend",
             "intellij.emojipicker",
             "intellij.platform.ide.impl.wsl",
-            "intellij.platform.diagnostic.telemetry.agent.extension",
             "intellij.regexp",
-            "intellij.platform.langInjection",
-            "intellij.platform.langInjection.backend",
             "intellij.platform.versionDownloadManager",
         ],
         nested = [
@@ -851,7 +802,6 @@ DEV_DIST_MODULE_SETS = {
             "intellij.moduleSets.vcs",
             "intellij.moduleSets.lsp",
             "intellij.moduleSets.xml.runtime",
-            "intellij.moduleSets.duplicates",
         ],
         packed = {
             "intellij.emojipicker": "//plugins/emojipicker:emojipicker_content_module_jar",
@@ -863,18 +813,11 @@ DEV_DIST_MODULE_SETS = {
             "intellij.platform.collaborationTools.auth.base": "//platform/collaboration-tools/auth-base:collaborationTools-auth-base_content_module_jar",
             "intellij.platform.collaborationTools.shared": "//platform/collaboration-tools/shared:shared_content_module_jar",
             "intellij.platform.diagnostic.freezeAnalyzer": "//platform/diagnostic/freezeAnalyzer:freezeAnalyzer_content_module_jar",
-            "intellij.platform.diagnostic.telemetry.agent.extension": "//platform/diagnostic/telemetry/agent-extension:diagnostic-telemetry-agent-extension_content_module_jar",
             "intellij.platform.ide.impl.wsl": "//platform/platform-impl/eel:ide-impl-wsl_content_module_jar",
-            "intellij.platform.inspect": "//platform/inspect:inspect_content_module_jar",
-            "intellij.platform.langInjection": "//plugins/IntelliLang:langInjection_content_module_jar",
-            "intellij.platform.langInjection.backend": "//plugins/IntelliLang/backend:backend_content_module_jar",
             "intellij.platform.lvcs.impl": "//platform/lvcs-impl:lvcs-impl_content_module_jar",
             "intellij.platform.projectView": "//platform/projectView/shared:projectView_content_module_jar",
             "intellij.platform.projectView.backend": "//platform/projectView/backend:backend_content_module_jar",
             "intellij.platform.projectView.frontend": "//platform/projectView/frontend:frontend_content_module_jar",
-            "intellij.platform.scriptDebugger.backend": "//platform/script-debugger/backend:backend_content_module_jar",
-            "intellij.platform.scriptDebugger.protocolReaderRuntime": "//platform/script-debugger/protocol/protocol-reader-runtime:protocol-reader-runtime_content_module_jar",
-            "intellij.platform.scriptDebugger.ui": "//platform/script-debugger/debugger-ui:scriptDebugger-ui_content_module_jar",
             "intellij.platform.versionDownloadManager": "//platform/versionDownloadManager:versionDownloadManager_content_module_jar",
             "intellij.platform.warmup": "//platform/warmup:warmup_content_module_jar",
             "intellij.regexp": "//RegExpSupport:regexp_content_module_jar",
@@ -891,18 +834,11 @@ DEV_DIST_MODULE_SETS = {
             "intellij.platform.collaborationTools.auth.base",
             "intellij.platform.collaborationTools.shared",
             "intellij.platform.diagnostic.freezeAnalyzer",
-            "intellij.platform.diagnostic.telemetry.agent.extension",
             "intellij.platform.ide.impl.wsl",
-            "intellij.platform.inspect",
-            "intellij.platform.langInjection",
-            "intellij.platform.langInjection.backend",
             "intellij.platform.lvcs.impl",
             "intellij.platform.projectView",
             "intellij.platform.projectView.backend",
             "intellij.platform.projectView.frontend",
-            "intellij.platform.scriptDebugger.backend",
-            "intellij.platform.scriptDebugger.protocolReaderRuntime",
-            "intellij.platform.scriptDebugger.ui",
             "intellij.platform.versionDownloadManager",
             "intellij.platform.warmup",
             "intellij.regexp",
@@ -915,12 +851,8 @@ DEV_DIST_MODULE_SETS = {
                 "intellij.platform.collaborationTools",
                 "intellij.platform.collaborationTools.auth",
                 "intellij.platform.collaborationTools.auth.base",
-                "intellij.platform.inspect",
                 "intellij.platform.lvcs.impl",
                 "intellij.platform.projectView.backend",
-                "intellij.platform.scriptDebugger.backend",
-                "intellij.platform.scriptDebugger.protocolReaderRuntime",
-                "intellij.platform.scriptDebugger.ui",
                 "intellij.platform.versionDownloadManager",
                 "intellij.platform.warmup",
                 "intellij.spellchecker.vcs",
@@ -1516,25 +1448,6 @@ DEV_DIST_MODULE_SETS = {
             ],
         },
     ),
-    "intellij.moduleSets.platform.resources.defaults": struct(
-        modules = [
-            "intellij.platform.resources.fileTypes",
-            "intellij.platform.resources.applicationInfo",
-            "intellij.platform.resources.en.fileTemplates",
-        ],
-        nested = [
-        ],
-        loading = {
-            "intellij.platform.resources.applicationInfo": "embedded",
-            "intellij.platform.resources.en.fileTemplates": "embedded",
-            "intellij.platform.resources.fileTypes": "embedded",
-        },
-        packed = {
-            "intellij.platform.resources.applicationInfo": "//platform/platform-resources-application-info:resources-applicationInfo_content_module_jar",
-            "intellij.platform.resources.en.fileTemplates": "//platform/platform-resources-en-file-templates:resources-en-fileTemplates_content_module_jar",
-            "intellij.platform.resources.fileTypes": "//platform/platform-resources-file-types:resources-fileTypes_content_module_jar",
-        },
-    ),
     "intellij.moduleSets.polySymbols": struct(
         modules = [
             "intellij.platform.polySymbols",
@@ -1553,30 +1466,6 @@ DEV_DIST_MODULE_SETS = {
             "intellij.platform.polySymbols.backend",
             "intellij.platform.polySymbols.web",
         ],
-    ),
-    "intellij.moduleSets.rd.common": struct(
-        modules = [
-            "intellij.rd.ide.model.generated",
-            "intellij.rd.platform",
-            "intellij.rd.ui",
-            "intellij.platform.split.protocol",
-            "intellij.rd.client",
-            "intellij.rd.client.debugger",
-            "intellij.rd.client.base",
-            "intellij.rd.client.internal",
-        ],
-        nested = [
-        ],
-        loading = {
-            "intellij.platform.split.protocol": "on-demand",
-            "intellij.rd.client": "on-demand",
-            "intellij.rd.client.base": "on-demand",
-            "intellij.rd.client.debugger": "on-demand",
-            "intellij.rd.client.internal": "on-demand",
-            "intellij.rd.ide.model.generated": "on-demand",
-            "intellij.rd.platform": "on-demand",
-            "intellij.rd.ui": "on-demand",
-        },
     ),
     "intellij.moduleSets.rpc.backend.extended": struct(
         modules = [

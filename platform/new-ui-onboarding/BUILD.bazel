@@ -1,9 +1,4 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
-load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
-
-### auto-generated section `dev intellij.platform.ide.newUiOnboarding` start
-content_module_jar(module = ":new-ui-onboarding")
-### auto-generated section `dev intellij.platform.ide.newUiOnboarding` end
 
 ### auto-generated section `build intellij.platform.ide.newUiOnboarding` start
 jvm_library(

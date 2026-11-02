@@ -19,8 +19,6 @@ load("//platform/build-scripts/bazel-rules:dev_plugin.bzl", "dev_plugin")
 
 dev_dist_plugin_descriptor(
     content_modules = [
-        "intellij.gradle.analysis",
-        "intellij.gradle.dependencyUpdater",
         "intellij.gradle.java",
         "intellij.gradle.java.coverage",
         "intellij.gradle.java.groovy",
@@ -36,8 +34,6 @@ dev_dist_plugin_descriptor(
     mode_refused_content_modules = {
         "frontend": [
             "intellij.gradle.java.maven",
-            "intellij.gradle.analysis",
-            "intellij.gradle.dependencyUpdater",
             "intellij.gradle.java.performance",
             "intellij.gradle.java.toml",
             "intellij.gradle.java.groovy",
@@ -49,6 +45,8 @@ dev_dist_plugin_descriptor(
     },
     refused_content_modules = [
         "intellij.gradle.profiler",
+        "intellij.gradle.analysis",
+        "intellij.gradle.dependencyUpdater",
     ],
 )
 
@@ -56,8 +54,6 @@ dev_plugin(
     name = "intellij.gradle.java.plugin_dev_plugin",
     content_module_jars = [
         "//plugins/gradle-maven:gradle-java-maven_content_module_jar",
-        "//plugins/gradle/gradle-dependency-updater:dependencyUpdater_content_module_jar",
-        "//plugins/gradle/intellij.gradle.analysis:analysis_content_module_jar",
         "//plugins/gradle/java/coverage:coverage_content_module_jar",
         "//plugins/gradle/java/groovy/ml:ml_content_module_jar",
         "//plugins/gradle/java/groovy/toml:toml_content_module_jar",
