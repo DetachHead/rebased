@@ -68,7 +68,6 @@ val IDEA_BUNDLED_PLUGINS: PersistentList<String> = REBASED_BUNDLED_PLUGINS + per
 
 val CE_CLASS_VERSIONS: Map<String, String> = mapOf(
   "" to "25",
-  "plugins/java/lib/idea_rt.jar" to "1.8",
   "lib/forms_rt.jar" to "1.8",
   "lib/intellij.libraries.jetbrains.annotations.jar" to "1.8",
   "lib/util_rt.jar" to "1.8",
