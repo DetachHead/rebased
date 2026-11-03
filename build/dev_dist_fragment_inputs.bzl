@@ -26,265 +26,20 @@
 # readers take a product's dict by its key, so a shared body reads like an inline one. A residual jar struct
 # that two or more products write alike is one private `_RESIDUAL_JAR_<destination>` struct for the same
 # reason, and a product names it where it would state the struct.
-_RESIDUAL_JAR_external_system_rt = struct(
-    modules = [
-        "//platform/external-system-rt:externalSystem-rt",
-        "//platform/object-serializer:objectSerializer-annotations",
-    ],
-)
-
-_RESIDUAL_JAR_externalProcess_rt = struct(
-    modules = [
-        "//platform/external-process-auth-helper/rt",
-    ],
-)
-
-_RESIDUAL_JAR_forms_rt = struct(
-    modules = [
-        "//platform/forms_rt:java-guiForms-rt",
-    ],
-)
-
-_RESIDUAL_JAR_intellij_platform_starter = struct(
-    modules = [
-        "//platform/starter",
-    ],
-)
-
-_RESIDUAL_JAR_jetbrains_intellij_deps_java_atk_wrapper_linux = struct(
-    libraries = [
-        "@lib//:jetbrains-intellij-deps-java-atk-wrapper-linux",
-    ],
-)
-
-_RESIDUAL_JAR_jps_model = struct(
-    modules = [
-        "//jps/model-api:model",
-        "//jps/model-serialization",
-        "//jps/model-impl",
-    ],
-)
-
-_RESIDUAL_JAR_nio_fs = struct(
-    modules = [
-        "//platform/core-nio-fs",
-    ],
-)
-
-_RESIDUAL_JAR_platform_loader = struct(
-    modules = [
-        "//platform/util/rt-java8",
-        "//platform/util-class-loader:util-classLoader",
-        "//platform/util/zip",
-        "//platform/boot",
-        "//platform/runtime/repository",
-        "//platform/runtime/loader",
-    ],
-)
-
-_RESIDUAL_JAR_trove = struct(
-    modules = [
-        "//platform/util/trove",
-    ],
-    libraries = [
-        "@lib//:platform-util-trove-trove",
-    ],
-)
-
-_RESIDUAL_JAR_util_8 = struct(
-    modules = [
-        "//platform/util/jdom",
-        "//platform/util/xmlDom",
-        "//platform/tracing:tracing-rt",
-        "//platform/util/base",
-        "//platform/util/base/multiplatform",
-        "//platform/diagnostic",
-        "//platform/diagnostic/telemetry/rt",
-        "//platform/util",
-        "//platform/util/multiplatform",
-        "//platform/bootstrap/coroutine",
-        "//platform/eel",
-        "//platform/eel-nioFs",
-    ],
-    libraries = [
-        "@lib//:log4_j",
-        "@lib//:kotlin-stdlib",
-        "@lib//:slf4j-api",
-        "@lib//:slf4j-jdk14",
-    ],
-)
-
-_RESIDUAL_JAR_util = struct(
-    modules = [
-        "//platform/platform-util-io:ide-util-io",
-        "//platform/extensions",
-        "//platform/util/nanoxml",
-    ],
-)
-
-_RESIDUAL_JAR_util_rt = struct(
-    modules = [
-        "//platform/util-rt",
-    ],
-)
-
 DEV_DIST_FRAGMENT_INPUTS = {
-    "AndroidStudio": {
-        "platform_lib": struct(
-            modules = [
-                "intellij.ide.startup.importSettings",
-                "intellij.idea.android.customization",
-                "intellij.idea.community.customization",
-                "intellij.idea.community.ide.customization",
-                "intellij.idea.customization.backend",
-                "intellij.idea.customization.base",
-                "intellij.java.guiForms.rt",
-                "intellij.java.ide.newUiOnboarding",
-                "intellij.java.ide.resources",
-                "intellij.libraries.log4j.to.slf4j",
-                "intellij.libraries.sqlite",
-                "intellij.libraries.xmlbeans",
-                "intellij.platform.boot",
-                "intellij.platform.bootstrap.coroutine",
-                "intellij.platform.core.nio.fs",
-                "intellij.platform.coverage",
-                "intellij.platform.coverage.agent",
-                "intellij.platform.customization.min",
-                "intellij.platform.diagnostic",
-                "intellij.platform.diagnostic.telemetry.rt",
-                "intellij.platform.eel",
-                "intellij.platform.eel.nioFs",
-                "intellij.platform.extensions",
-                "intellij.platform.externalProcessAuthHelper.rt",
-                "intellij.platform.externalSystem.rt",
-                "intellij.platform.ide.newUiOnboarding",
-                "intellij.platform.ide.newUsersOnboarding",
-                "intellij.platform.ide.nonModalWelcomeScreen",
-                "intellij.platform.ide.nonModalWelcomeScreen.backend",
-                "intellij.platform.ide.nonModalWelcomeScreen.frontend",
-                "intellij.platform.ide.util.io",
-                "intellij.platform.jps.model",
-                "intellij.platform.jps.model.impl",
-                "intellij.platform.jps.model.serialization",
-                "intellij.platform.objectSerializer.annotations",
-                "intellij.platform.remoteServers.impl",
-                "intellij.platform.runtime.loader",
-                "intellij.platform.runtime.repository",
-                "intellij.platform.starter",
-                "intellij.platform.tracing.rt",
-                "intellij.platform.util",
-                "intellij.platform.util.base",
-                "intellij.platform.util.base.multiplatform",
-                "intellij.platform.util.classLoader",
-                "intellij.platform.util.jdom",
-                "intellij.platform.util.multiplatform",
-                "intellij.platform.util.nanoxml",
-                "intellij.platform.util.rt",
-                "intellij.platform.util.rt.java8",
-                "intellij.platform.util.trove",
-                "intellij.platform.util.xmlDom",
-                "intellij.platform.util.zip",
-                "intellij.xml.xmlbeans",
-            ],
-            project_libraries = [
-                "jetbrains.intellij.deps.java.atk.wrapper.linux",
-            ],
-            module_sets = [
-                "intellij.moduleSets.compose.runtime",
-                "intellij.moduleSets.ide.common",
-                "intellij.moduleSets.platform.resources.defaults",
-            ],
-            packed_content_module_jars = [
-                "//community-resources/ide-customization:ide-customization_content_module_jar",
-                "//idea/customization/backend:backend_content_module_jar",
-                "//idea/customization/base:base_content_module_jar",
-                "//idea/customization/min:min_content_module_jar",
-                "//java/ide-resources/newUiOnboarding:newUiOnboarding_content_module_jar",
-                "//java/ide-resources:ide-resources_content_module_jar",
-                "//libraries/log4j-to-slf4j:log4j-to-slf4j_content_module_jar",
-                "//libraries/sqlite:sqlite_content_module_jar",
-                "//libraries/xmlbeans:xmlbeans_content_module_jar",
-                "//platform/new-ui-onboarding:new-ui-onboarding_content_module_jar",
-                "//platform/new-users-onboarding:new-users-onboarding_content_module_jar",
-                "//platform/non-modal-welcome-screen/backend:backend_content_module_jar",
-                "//platform/non-modal-welcome-screen/frontend:frontend_content_module_jar",
-                "//platform/non-modal-welcome-screen:non-modal-welcome-screen_content_module_jar",
-                "//platform/remote-servers/impl:impl_content_module_jar",
-                "//plugins/coverage-common/intellij.platform.coverage.agent:coverage-agent_content_module_jar",
-                "//plugins/coverage-common:coverage_content_module_jar",
-                "//plugins/ide-startup/importSettings:importSettings_content_module_jar",
-                "//xml/xmlbeans:xmlbeans_content_module_jar",
-            ],
-            module_system_loaded = [
-                "//idea/customization/backend:backend_content_module_jar",
-                "//idea/customization/base:base_content_module_jar",
-                "//idea/customization/min:min_content_module_jar",
-                "//java/ide-resources/newUiOnboarding:newUiOnboarding_content_module_jar",
-                "//java/ide-resources:ide-resources_content_module_jar",
-                "//libraries/log4j-to-slf4j:log4j-to-slf4j_content_module_jar",
-                "//libraries/sqlite:sqlite_content_module_jar",
-                "//libraries/xmlbeans:xmlbeans_content_module_jar",
-                "//platform/new-ui-onboarding:new-ui-onboarding_content_module_jar",
-                "//platform/new-users-onboarding:new-users-onboarding_content_module_jar",
-                "//platform/non-modal-welcome-screen/backend:backend_content_module_jar",
-                "//platform/non-modal-welcome-screen/frontend:frontend_content_module_jar",
-                "//platform/non-modal-welcome-screen:non-modal-welcome-screen_content_module_jar",
-                "//platform/remote-servers/impl:impl_content_module_jar",
-                "//plugins/coverage-common/intellij.platform.coverage.agent:coverage-agent_content_module_jar",
-                "//plugins/coverage-common:coverage_content_module_jar",
-                "//plugins/ide-startup/importSettings:importSettings_content_module_jar",
-                "//xml/xmlbeans:xmlbeans_content_module_jar",
-            ],
-            residual_jars = {
-                "external-system-rt.jar": _RESIDUAL_JAR_external_system_rt,
-                "externalProcess-rt.jar": _RESIDUAL_JAR_externalProcess_rt,
-                "forms_rt.jar": _RESIDUAL_JAR_forms_rt,
-                "intellij.idea.android.customization.jar": struct(
-                    modules = [
-                        "//android-customization:idea-android-customization",
-                    ],
-                    patches = {
-                        "//android-customization:resources/idea/AndroidStudioApplicationInfo.xml": "idea/AndroidStudioApplicationInfo.xml",
-                        "//build/dev-dist-product-descriptors:AndroidStudio_product_descriptor": "META-INF/AndroidStudioPlugin.xml",
-                    },
-                    patched_module = "intellij.idea.android.customization",
-                ),
-                "intellij.idea.community.customization.jar": struct(
-                    modules = [
-                        "//community-resources:customization",
-                    ],
-                ),
-                "intellij.platform.starter.jar": _RESIDUAL_JAR_intellij_platform_starter,
-                "jetbrains.intellij.deps.java.atk.wrapper.linux.jar": _RESIDUAL_JAR_jetbrains_intellij_deps_java_atk_wrapper_linux,
-                "jps-model.jar": _RESIDUAL_JAR_jps_model,
-                "nio-fs.jar": _RESIDUAL_JAR_nio_fs,
-                "platform-loader.jar": _RESIDUAL_JAR_platform_loader,
-                "trove.jar": _RESIDUAL_JAR_trove,
-                "util-8.jar": _RESIDUAL_JAR_util_8,
-                "util.jar": _RESIDUAL_JAR_util,
-                "util_rt.jar": _RESIDUAL_JAR_util_rt,
-            },
-            plugin_classpath_prefix = "//build/dev-dist-product-descriptors:AndroidStudio_product_descriptor.plugin-classpath-prefix",
-        ),
-    },
     "Idea": {
         "platform_lib": struct(
             modules = [
-                "intellij.ide.startup.importSettings",
                 "intellij.idea.community.customization",
                 "intellij.idea.community.ide.customization",
                 "intellij.idea.customization.base",
                 "intellij.java.guiForms.rt",
-                "intellij.java.ide.newUiOnboarding",
-                "intellij.java.ide.resources",
                 "intellij.libraries.log4j.to.slf4j",
                 "intellij.libraries.sqlite",
                 "intellij.libraries.xmlbeans",
                 "intellij.platform.boot",
                 "intellij.platform.bootstrap.coroutine",
                 "intellij.platform.core.nio.fs",
-                "intellij.platform.coverage",
-                "intellij.platform.coverage.agent",
                 "intellij.platform.customization.min",
                 "intellij.platform.diagnostic",
                 "intellij.platform.diagnostic.telemetry.rt",
@@ -293,8 +48,6 @@ DEV_DIST_FRAGMENT_INPUTS = {
                 "intellij.platform.extensions",
                 "intellij.platform.externalProcessAuthHelper.rt",
                 "intellij.platform.externalSystem.rt",
-                "intellij.platform.ide.newUiOnboarding",
-                "intellij.platform.ide.newUsersOnboarding",
                 "intellij.platform.ide.nonModalWelcomeScreen",
                 "intellij.platform.ide.nonModalWelcomeScreen.backend",
                 "intellij.platform.ide.nonModalWelcomeScreen.frontend",
@@ -303,7 +56,6 @@ DEV_DIST_FRAGMENT_INPUTS = {
                 "intellij.platform.jps.model.impl",
                 "intellij.platform.jps.model.serialization",
                 "intellij.platform.objectSerializer.annotations",
-                "intellij.platform.remoteServers.impl",
                 "intellij.platform.runtime.loader",
                 "intellij.platform.runtime.repository",
                 "intellij.platform.starter",
@@ -320,78 +72,135 @@ DEV_DIST_FRAGMENT_INPUTS = {
                 "intellij.platform.util.trove",
                 "intellij.platform.util.xmlDom",
                 "intellij.platform.util.zip",
-                "intellij.xml.xmlbeans",
             ],
             project_libraries = [
                 "jetbrains.intellij.deps.java.atk.wrapper.linux",
             ],
             module_sets = [
-                "intellij.moduleSets.compose.runtime",
                 "intellij.moduleSets.ide.common",
-                "intellij.moduleSets.platform.resources.defaults",
             ],
             packed_content_module_jars = [
                 "//community-resources/ide-customization:ide-customization_content_module_jar",
                 "//idea/customization/base:base_content_module_jar",
                 "//idea/customization/min:min_content_module_jar",
-                "//java/ide-resources/newUiOnboarding:newUiOnboarding_content_module_jar",
-                "//java/ide-resources:ide-resources_content_module_jar",
                 "//libraries/log4j-to-slf4j:log4j-to-slf4j_content_module_jar",
                 "//libraries/sqlite:sqlite_content_module_jar",
                 "//libraries/xmlbeans:xmlbeans_content_module_jar",
-                "//platform/new-ui-onboarding:new-ui-onboarding_content_module_jar",
-                "//platform/new-users-onboarding:new-users-onboarding_content_module_jar",
                 "//platform/non-modal-welcome-screen/backend:backend_content_module_jar",
                 "//platform/non-modal-welcome-screen/frontend:frontend_content_module_jar",
                 "//platform/non-modal-welcome-screen:non-modal-welcome-screen_content_module_jar",
-                "//platform/remote-servers/impl:impl_content_module_jar",
-                "//plugins/coverage-common/intellij.platform.coverage.agent:coverage-agent_content_module_jar",
-                "//plugins/coverage-common:coverage_content_module_jar",
-                "//plugins/ide-startup/importSettings:importSettings_content_module_jar",
-                "//xml/xmlbeans:xmlbeans_content_module_jar",
             ],
             module_system_loaded = [
                 "//idea/customization/base:base_content_module_jar",
                 "//idea/customization/min:min_content_module_jar",
-                "//java/ide-resources/newUiOnboarding:newUiOnboarding_content_module_jar",
-                "//java/ide-resources:ide-resources_content_module_jar",
                 "//libraries/log4j-to-slf4j:log4j-to-slf4j_content_module_jar",
                 "//libraries/sqlite:sqlite_content_module_jar",
                 "//libraries/xmlbeans:xmlbeans_content_module_jar",
-                "//platform/new-ui-onboarding:new-ui-onboarding_content_module_jar",
-                "//platform/new-users-onboarding:new-users-onboarding_content_module_jar",
                 "//platform/non-modal-welcome-screen/backend:backend_content_module_jar",
                 "//platform/non-modal-welcome-screen/frontend:frontend_content_module_jar",
                 "//platform/non-modal-welcome-screen:non-modal-welcome-screen_content_module_jar",
-                "//platform/remote-servers/impl:impl_content_module_jar",
-                "//plugins/coverage-common/intellij.platform.coverage.agent:coverage-agent_content_module_jar",
-                "//plugins/coverage-common:coverage_content_module_jar",
-                "//plugins/ide-startup/importSettings:importSettings_content_module_jar",
-                "//xml/xmlbeans:xmlbeans_content_module_jar",
             ],
             residual_jars = {
-                "external-system-rt.jar": _RESIDUAL_JAR_external_system_rt,
-                "externalProcess-rt.jar": _RESIDUAL_JAR_externalProcess_rt,
-                "forms_rt.jar": _RESIDUAL_JAR_forms_rt,
+                "external-system-rt.jar": struct(
+                    modules = [
+                        "//platform/external-system-rt:externalSystem-rt",
+                        "//platform/object-serializer:objectSerializer-annotations",
+                    ],
+                ),
+                "externalProcess-rt.jar": struct(
+                    modules = [
+                        "//platform/external-process-auth-helper/rt",
+                    ],
+                ),
+                "forms_rt.jar": struct(
+                    modules = [
+                        "//platform/forms_rt:java-guiForms-rt",
+                    ],
+                ),
                 "intellij.idea.community.customization.jar": struct(
                     modules = [
                         "//community-resources:customization",
                     ],
                     patches = {
-                        "//community-resources:resources/idea/IdeaApplicationInfo.xml": "idea/IdeaApplicationInfo.xml",
-                        "//build/dev-dist-product-descriptors:idea_community_product_descriptor": "META-INF/IdeaPlugin.xml",
+                        "//community-resources:resources/idea/RebasedApplicationInfo.xml": "idea/RebasedApplicationInfo.xml",
+                        "//build/dev-dist-product-descriptors:idea_community_product_descriptor": "META-INF/plugin.xml",
                     },
                     patched_module = "intellij.idea.community.customization",
                 ),
-                "intellij.platform.starter.jar": _RESIDUAL_JAR_intellij_platform_starter,
-                "jetbrains.intellij.deps.java.atk.wrapper.linux.jar": _RESIDUAL_JAR_jetbrains_intellij_deps_java_atk_wrapper_linux,
-                "jps-model.jar": _RESIDUAL_JAR_jps_model,
-                "nio-fs.jar": _RESIDUAL_JAR_nio_fs,
-                "platform-loader.jar": _RESIDUAL_JAR_platform_loader,
-                "trove.jar": _RESIDUAL_JAR_trove,
-                "util-8.jar": _RESIDUAL_JAR_util_8,
-                "util.jar": _RESIDUAL_JAR_util,
-                "util_rt.jar": _RESIDUAL_JAR_util_rt,
+                "intellij.platform.starter.jar": struct(
+                    modules = [
+                        "//platform/starter",
+                    ],
+                ),
+                "jetbrains.intellij.deps.java.atk.wrapper.linux.jar": struct(
+                    libraries = [
+                        "@lib//:jetbrains-intellij-deps-java-atk-wrapper-linux",
+                    ],
+                ),
+                "jps-model.jar": struct(
+                    modules = [
+                        "//jps/model-api:model",
+                        "//jps/model-serialization",
+                        "//jps/model-impl",
+                    ],
+                ),
+                "nio-fs.jar": struct(
+                    modules = [
+                        "//platform/core-nio-fs",
+                    ],
+                ),
+                "platform-loader.jar": struct(
+                    modules = [
+                        "//platform/util/rt-java8",
+                        "//platform/util-class-loader:util-classLoader",
+                        "//platform/util/zip",
+                        "//platform/boot",
+                        "//platform/runtime/repository",
+                        "//platform/runtime/loader",
+                    ],
+                ),
+                "trove.jar": struct(
+                    modules = [
+                        "//platform/util/trove",
+                    ],
+                    libraries = [
+                        "@lib//:platform-util-trove-trove",
+                    ],
+                ),
+                "util-8.jar": struct(
+                    modules = [
+                        "//platform/util/jdom",
+                        "//platform/util/xmlDom",
+                        "//platform/tracing:tracing-rt",
+                        "//platform/util/base",
+                        "//platform/util/base/multiplatform",
+                        "//platform/diagnostic",
+                        "//platform/diagnostic/telemetry/rt",
+                        "//platform/util",
+                        "//platform/util/multiplatform",
+                        "//platform/bootstrap/coroutine",
+                        "//platform/eel",
+                        "//platform/eel-nioFs",
+                    ],
+                    libraries = [
+                        "@lib//:log4_j",
+                        "@lib//:kotlin-stdlib",
+                        "@lib//:slf4j-api",
+                        "@lib//:slf4j-jdk14",
+                    ],
+                ),
+                "util.jar": struct(
+                    modules = [
+                        "//platform/platform-util-io:ide-util-io",
+                        "//platform/extensions",
+                        "//platform/util/nanoxml",
+                    ],
+                ),
+                "util_rt.jar": struct(
+                    modules = [
+                        "//platform/util-rt",
+                    ],
+                ),
             },
             plugin_classpath_prefix = "//build/dev-dist-product-descriptors:idea_community_product_descriptor.plugin-classpath-prefix",
         ),

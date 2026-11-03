@@ -7,8 +7,6 @@ dev_dist_plugin(
         # do not sort,
         "intellij.gradle.java",
         "intellij.gradle.java.maven",
-        "intellij.gradle.analysis",
-        "intellij.gradle.dependencyUpdater",
         "intellij.gradle.java.performance",
         "intellij.gradle.java.toml",
         "intellij.gradle.java.groovy",

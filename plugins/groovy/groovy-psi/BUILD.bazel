@@ -1,20 +1,5 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
 
-### auto-generated section `dev intellij.groovy.psi` start
-filegroup(
-    name = "dev_dist_resources",
-    srcs = glob(
-        ["standardDsls/**"],
-    ),
-    visibility = ["//visibility:public"],
-)
-
-exports_files(
-    ["resources/conf/console.groovy"],
-    visibility = ["//visibility:public"],
-)
-### auto-generated section `dev intellij.groovy.psi` end
-
 ### auto-generated section `build intellij.groovy.psi` start
 jvm_library(
     name = "psi",

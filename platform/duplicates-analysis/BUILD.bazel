@@ -1,9 +1,4 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
-load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
-
-### auto-generated section `dev intellij.platform.duplicates.analysis` start
-content_module_jar(module = ":duplicates-analysis")
-### auto-generated section `dev intellij.platform.duplicates.analysis` end
 
 ### auto-generated section `build intellij.platform.duplicates.analysis` start
 jvm_library(

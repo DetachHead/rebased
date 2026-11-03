@@ -1,9 +1,4 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
-load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
-
-### auto-generated section `dev intellij.platform.vcs.impl.lang.todo.frontend` start
-content_module_jar(module = ":frontend")
-### auto-generated section `dev intellij.platform.vcs.impl.lang.todo.frontend` end
 
 ### auto-generated section `build intellij.platform.vcs.impl.lang.todo.frontend` start
 jvm_library(

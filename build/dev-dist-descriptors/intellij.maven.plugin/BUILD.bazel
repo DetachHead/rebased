@@ -15,6 +15,7 @@
 # A descriptor leaf derives its conventional descriptor rows from the bridge index of its half.
 
 load("@jps_dynamic_deps_community//:targets.bzl", "dev_dist_plugin_descriptor")
+load("//platform/build-scripts/bazel-rules:dev_plugin.bzl", "dev_plugin")
 
 dev_dist_plugin_descriptor(
     content_modules = [
@@ -48,4 +49,59 @@ dev_dist_plugin_descriptor(
         "intellij.maven.errorProne.compiler",
         "intellij.maven.completion.ex",
     ],
+)
+
+dev_plugin(
+    name = "intellij.maven.plugin_dev_plugin",
+    classpath_jars = [
+        "lib/intellij.maven.model.jar",
+        "lib/intellij.maven.jar",
+        "lib/maven-indexer-api-rt.jar",
+        "lib/modules/intellij.maven.proofreading.jar",
+        "lib/modules/intellij.maven.performanceTesting.jar",
+        "lib/modules/intellij.maven.groovy.jar",
+        "lib/modules/intellij.maven.completion.jar",
+        "lib/modules/intellij.maven.delegation.junit.jar",
+        "lib/modules/intellij.maven.delegation.testng.jar",
+        "lib/modules/intellij.maven.jps.jar",
+        "lib/modules/intellij.maven.jps.ide.jar",
+        "lib/maven-plugin.jar",
+    ],
+    content_module_jars = [
+        "//plugins/maven/completion:completion_content_module_jar",
+        "//plugins/maven/delegation/junit:junit_content_module_jar",
+        "//plugins/maven/delegation/testng:testng_content_module_jar",
+        "//plugins/maven/groovy:groovy_content_module_jar",
+        "//plugins/maven/jps/ide:ide_content_module_jar",
+        "//plugins/maven/jps:jps_content_module_jar",
+        "//plugins/maven/model:model_content_module_jar",
+        "//plugins/maven/performanceTesting:performanceTesting_content_module_jar",
+        "//plugins/maven/proofreading:proofreading_content_module_jar",
+    ],
+    descriptor = "//build/dev-dist-descriptors/intellij.maven.plugin:intellij.maven.plugin_dev_descriptor",
+    jars = {
+        "lib/intellij.maven.jar": [
+            "intellij.maven",
+            "@lib//:maven-plexus-archiver",
+        ],
+        "lib/maven-indexer-api-rt.jar": [
+            "@lib//:maven-jetbrains-idea-maven-indexer-api-rt",
+        ],
+        "lib/maven-plugin.jar": [
+            "intellij.maven.plugin",
+        ],
+    },
+    libraries = [
+        "@lib//:maven-jetbrains-idea-maven-indexer-api-rt",
+        "@lib//:maven-plexus-archiver",
+    ],
+    main_module = "intellij.maven.plugin",
+    module_jar_paths = {
+        "intellij.maven.model": "lib/intellij.maven.model.jar",
+    },
+    modules = {
+        "//plugins/maven": "intellij.maven",
+        "//plugins/maven/plugin": "intellij.maven.plugin",
+    },
+    plugin_directory = "plugins/maven-plugin",
 )

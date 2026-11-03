@@ -20,13 +20,12 @@ _MARKETPLACE_NAMES = {
     "x64": "x86_64",
 }
 
-_STAMPS_AndroidStudio = struct(
+_STAMPS_Idea = struct(
     marketplace_names = _MARKETPLACE_NAMES,
     # The product mode. A rule places no jar of a module the leaf refuses for this mode.
     mode = "monolith",
 )
 
 DEV_DIST_PRODUCT_INFO = {
-    "AndroidStudio": _STAMPS_AndroidStudio,
-    "Idea": _STAMPS_AndroidStudio,
+    "Idea": _STAMPS_Idea,
 }

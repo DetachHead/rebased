@@ -1,5 +1,4 @@
 load("@community//build:tests-options.bzl", "jps_test")
-load("@jps_dynamic_deps_community//:targets.bzl", "dev_dist_plugin")
 load("@rules_jvm//:jvm.bzl", "jvm_library")
 
 filegroup(
@@ -27,36 +26,6 @@ jps_test(
     runtime_deps = [":groovy-tests_test_lib"],
 )
 ### skip generation section `test intellij.groovy.tests`
-
-### auto-generated section `dev intellij.groovy` start
-exports_files(
-    ["hotswap/gragent.jar"],
-    visibility = ["//visibility:public"],
-)
-
-dev_dist_plugin(
-    content_modules = [
-        # do not sort,
-        "intellij.groovy.git",
-        "intellij.groovy.ant",
-        "intellij.groovy.copyright",
-        "intellij.groovy.byteCodeViewer",
-        "intellij.groovy.langInjection",
-        "intellij.groovy.structuralSearch",
-        "intellij.groovy.spock",
-        "intellij.libraries.hamcrest",
-        "intellij.libraries.junit4",
-        "intellij.libraries.opentest4j",
-        "intellij.groovy.constants.rt",
-        "intellij.groovy.jps",
-        "intellij.groovy.psi",
-        "intellij.groovy.rt",
-        "intellij.groovy.rt.classLoader",
-        "intellij.groovy.spock.rt",
-    ],
-    main_module = "intellij.groovy",
-)
-### auto-generated section `dev intellij.groovy` end
 
 ### auto-generated section `build intellij.groovy` start
 jvm_library(

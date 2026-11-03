@@ -1,9 +1,4 @@
 load("@rules_jvm//:jvm.bzl", "jvm_library")
-load("//platform/build-scripts/bazel-rules:content_module_jar.bzl", "content_module_jar")
-
-### auto-generated section `dev intellij.groovy.langInjection` start
-content_module_jar(module = ":langInjection")
-### auto-generated section `dev intellij.groovy.langInjection` end
 
 ### auto-generated section `build intellij.groovy.langInjection` start
 jvm_library(

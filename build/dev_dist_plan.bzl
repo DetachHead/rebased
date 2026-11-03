@@ -14,88 +14,79 @@
 # several products state alike is named after the field and the first of them. Products with equal plans
 # share one private `_PLAN_<first product>` struct. The readers take a product's struct by its key, so a
 # shared value reads like an inline one.
-_PLATFORM_ASSETS = {
-    "darwin_aarch64": [
-        struct(source = "@dev_launch_restarter_extracted//:macOS-AArch64/restarter", path = "bin/restarter", executable = True),
-        struct(source = "//bin:mac/fsnotifier", path = "bin/fsnotifier", executable = True),
-        struct(source = "//bin:mac/libmacscreenmenu64.dylib", path = "bin/libmacscreenmenu64.dylib", executable = True),
-        struct(source = "//bin:mac/libnst64.dylib", path = "bin/libnst64.dylib", executable = True),
-        struct(source = "//bin:mac/printenv", path = "bin/printenv", executable = True),
-    ],
-    "darwin_x64": [
-        struct(source = "@dev_launch_restarter_extracted//:macOS-X86_64/restarter", path = "bin/restarter", executable = True),
-        struct(source = "//bin:mac/fsnotifier", path = "bin/fsnotifier", executable = True),
-        struct(source = "//bin:mac/libmacscreenmenu64.dylib", path = "bin/libmacscreenmenu64.dylib", executable = True),
-        struct(source = "//bin:mac/libnst64.dylib", path = "bin/libnst64.dylib", executable = True),
-        struct(source = "//bin:mac/printenv", path = "bin/printenv", executable = True),
-    ],
-    "linux_aarch64": [
-        struct(source = "@dev_launch_restarter_extracted//:Linux-AArch64/restarter", path = "bin/restarter", executable = True),
-        struct(source = "//bin:linux/aarch64/fsnotifier", path = "bin/fsnotifier", executable = True),
-    ],
-    "linux_x64": [
-        struct(source = "@dev_launch_restarter_extracted//:Linux-X86_64/restarter", path = "bin/restarter", executable = True),
-        struct(source = "//bin:linux/amd64/fsnotifier", path = "bin/fsnotifier", executable = True),
-    ],
-    "windows_aarch64": [
-        struct(source = "@dev_launch_restarter_extracted//:Windows-AArch64/restarter.exe", path = "bin/restarter.exe", executable = True),
-        struct(source = "//bin:win/aarch64/WinProcessListHelper.exe", path = "bin/WinProcessListHelper.exe", executable = True),
-        struct(source = "//bin:win/aarch64/WinShellIntegrationBridge.dll", path = "bin/WinShellIntegrationBridge.dll", executable = True),
-        struct(source = "//bin:win/aarch64/elevator.exe", path = "bin/elevator.exe", executable = True),
-        struct(source = "//bin:win/aarch64/fsnotifier.exe", path = "bin/fsnotifier.exe", executable = True),
-        struct(source = "//bin:win/aarch64/launcher.exe", path = "bin/launcher.exe", executable = True),
-        struct(source = "//bin:win/aarch64/ttyfix", path = "bin/ttyfix", executable = True),
-        struct(source = "//bin:win/aarch64/wslhash", path = "bin/wslhash", executable = True),
-        struct(source = "//bin:win/aarch64/wslproxy", path = "bin/wslproxy", executable = True),
-        struct(source = "//bin:win/defender-exclusions.ps1", path = "bin/defender-exclusions.ps1", executable = True),
-    ],
-    "windows_x64": [
-        struct(source = "@dev_launch_restarter_extracted//:Windows-X86_64/restarter.exe", path = "bin/restarter.exe", executable = True),
-        struct(source = "//bin:win/amd64/WinProcessListHelper.exe", path = "bin/WinProcessListHelper.exe", executable = True),
-        struct(source = "//bin:win/amd64/WinShellIntegrationBridge.dll", path = "bin/WinShellIntegrationBridge.dll", executable = True),
-        struct(source = "//bin:win/amd64/elevator.exe", path = "bin/elevator.exe", executable = True),
-        struct(source = "//bin:win/amd64/fsnotifier.exe", path = "bin/fsnotifier.exe", executable = True),
-        struct(source = "//bin:win/amd64/launcher.exe", path = "bin/launcher.exe", executable = True),
-        struct(source = "//bin:win/amd64/ttyfix", path = "bin/ttyfix", executable = True),
-        struct(source = "//bin:win/amd64/wslhash", path = "bin/wslhash", executable = True),
-        struct(source = "//bin:win/amd64/wslproxy", path = "bin/wslproxy", executable = True),
-        struct(source = "//bin:win/defender-exclusions.ps1", path = "bin/defender-exclusions.ps1", executable = True),
-    ],
-}
-
-_LAUNCH = struct(
-    idea_properties = "//bin:idea.properties",
-    vmoptions = {
-        "darwin": "idea.vmoptions",
-        "linux": "idea64.vmoptions",
-        "windows": "idea64.exe.vmoptions",
-    },
-    main_class = "com.intellij.idea.Main",
-)
-
-_PLAN_AndroidStudio = struct(
-    platform_assets = _PLATFORM_ASSETS,
-    launch = _LAUNCH,
-)
-
 DEV_DIST_PLANS = {
-    "AndroidStudio": _PLAN_AndroidStudio,
-    "Idea": _PLAN_AndroidStudio,
+    "Idea": struct(
+        platform_assets = {
+            "darwin_aarch64": [
+                struct(source = "@dev_launch_restarter_extracted//:macOS-AArch64/restarter", path = "bin/restarter", executable = True),
+                struct(source = "//bin:mac/fsnotifier", path = "bin/fsnotifier", executable = True),
+                struct(source = "//bin:mac/libmacscreenmenu64.dylib", path = "bin/libmacscreenmenu64.dylib", executable = True),
+                struct(source = "//bin:mac/libnst64.dylib", path = "bin/libnst64.dylib", executable = True),
+                struct(source = "//bin:mac/printenv", path = "bin/printenv", executable = True),
+            ],
+            "darwin_x64": [
+                struct(source = "@dev_launch_restarter_extracted//:macOS-X86_64/restarter", path = "bin/restarter", executable = True),
+                struct(source = "//bin:mac/fsnotifier", path = "bin/fsnotifier", executable = True),
+                struct(source = "//bin:mac/libmacscreenmenu64.dylib", path = "bin/libmacscreenmenu64.dylib", executable = True),
+                struct(source = "//bin:mac/libnst64.dylib", path = "bin/libnst64.dylib", executable = True),
+                struct(source = "//bin:mac/printenv", path = "bin/printenv", executable = True),
+            ],
+            "linux_aarch64": [
+                struct(source = "@dev_launch_restarter_extracted//:Linux-AArch64/restarter", path = "bin/restarter", executable = True),
+                struct(source = "//bin:linux/aarch64/fsnotifier", path = "bin/fsnotifier", executable = True),
+            ],
+            "linux_x64": [
+                struct(source = "@dev_launch_restarter_extracted//:Linux-X86_64/restarter", path = "bin/restarter", executable = True),
+                struct(source = "//bin:linux/amd64/fsnotifier", path = "bin/fsnotifier", executable = True),
+            ],
+            "windows_aarch64": [
+                struct(source = "@dev_launch_restarter_extracted//:Windows-AArch64/restarter.exe", path = "bin/restarter.exe", executable = True),
+                struct(source = "//bin:win/aarch64/WinProcessListHelper.exe", path = "bin/WinProcessListHelper.exe", executable = True),
+                struct(source = "//bin:win/aarch64/WinShellIntegrationBridge.dll", path = "bin/WinShellIntegrationBridge.dll", executable = True),
+                struct(source = "//bin:win/aarch64/elevator.exe", path = "bin/elevator.exe", executable = True),
+                struct(source = "//bin:win/aarch64/fsnotifier.exe", path = "bin/fsnotifier.exe", executable = True),
+                struct(source = "//bin:win/aarch64/launcher.exe", path = "bin/launcher.exe", executable = True),
+                struct(source = "//bin:win/aarch64/ttyfix", path = "bin/ttyfix", executable = True),
+                struct(source = "//bin:win/aarch64/wslhash", path = "bin/wslhash", executable = True),
+                struct(source = "//bin:win/aarch64/wslproxy", path = "bin/wslproxy", executable = True),
+                struct(source = "//bin:win/defender-exclusions.ps1", path = "bin/defender-exclusions.ps1", executable = True),
+            ],
+            "windows_x64": [
+                struct(source = "@dev_launch_restarter_extracted//:Windows-X86_64/restarter.exe", path = "bin/restarter.exe", executable = True),
+                struct(source = "//bin:win/amd64/WinProcessListHelper.exe", path = "bin/WinProcessListHelper.exe", executable = True),
+                struct(source = "//bin:win/amd64/WinShellIntegrationBridge.dll", path = "bin/WinShellIntegrationBridge.dll", executable = True),
+                struct(source = "//bin:win/amd64/elevator.exe", path = "bin/elevator.exe", executable = True),
+                struct(source = "//bin:win/amd64/fsnotifier.exe", path = "bin/fsnotifier.exe", executable = True),
+                struct(source = "//bin:win/amd64/launcher.exe", path = "bin/launcher.exe", executable = True),
+                struct(source = "//bin:win/amd64/ttyfix", path = "bin/ttyfix", executable = True),
+                struct(source = "//bin:win/amd64/wslhash", path = "bin/wslhash", executable = True),
+                struct(source = "//bin:win/amd64/wslproxy", path = "bin/wslproxy", executable = True),
+                struct(source = "//bin:win/defender-exclusions.ps1", path = "bin/defender-exclusions.ps1", executable = True),
+            ],
+        },
+        launch = struct(
+            idea_properties = "//bin:idea.properties",
+            vmoptions = {
+                "darwin": "rebased.vmoptions",
+                "linux": "rebased64.vmoptions",
+                "windows": "rebased64.exe.vmoptions",
+            },
+            main_class = "com.intellij.idea.Main",
+        ),
+    ),
 }
 
 # The launch model of every product, which its `platform_resources` component renders. A model file takes the
 # case-safe name of its product, so two products never share one file on a case-insensitive disk. The map is
 # apart from the plans, so products with equal launch facts still share one plan.
 DEV_DIST_LAUNCH_MODELS = {
-    "AndroidStudio": "//build/dev-dist-launch:AndroidStudio.launch.json",
     "Idea": "//build/dev-dist-launch:idea_community.launch.json",
 }
 
 # The application info sources of every product. The product files action and the plugin descriptor actions read
 # these files. So an edit of a version, a suffix, a release date or the EAP flag changes no generated file.
 DEV_DIST_APPLICATION_INFOS = {
-    "AndroidStudio": struct(source = "//android-customization:resources/idea/AndroidStudioApplicationInfo.xml"),
-    "Idea": struct(source = "//community-resources:resources/idea/IdeaApplicationInfo.xml"),
+    "Idea": struct(source = "//community-resources:resources/idea/RebasedApplicationInfo.xml"),
 }
 
 # The `lib/` jar order of the platform as a rule with two lists, for every product with the runtime module repository
