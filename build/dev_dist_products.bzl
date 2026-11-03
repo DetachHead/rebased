@@ -19,13 +19,6 @@ def _ide(platform_set_prefix, images, plugin_xml, application_info, extra_projec
     )
 
 DEV_DIST_PRODUCTS = {
-    # `AndroidStudioProperties` extends the community IDEA properties, so its images are the community ones.
-    "AndroidStudio": _ide(
-        "android_studio",
-        "//build:idea_community_images",
-        "//android-customization:resources/META-INF/AndroidStudioPlugin.xml",
-        "//android-customization:resources/idea/AndroidStudioApplicationInfo.xml",
-    ),
     # `IdeaCommunityProperties`, the IDEA Community product.
     "Idea": _ide(
         "idea_community",
