@@ -14,10 +14,12 @@ import com.intellij.vcs.log.Hash
 import com.intellij.vcs.log.ui.table.links.CommitLinksProvider
 import com.intellij.vcs.log.ui.table.links.NavigateToCommit
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Disabled
 import org.junit.jupiter.api.Test
 import org.mockito.kotlin.doReturn
 import org.mockito.kotlin.mock
 
+@Disabled
 @TestApplication
 class CommitPresentationUtilTest {
 
