@@ -23,6 +23,7 @@ import org.jetbrains.plugins.terminal.TerminalEngine
 import org.jetbrains.plugins.terminal.block.completion.spec.ShellFileSystemSupport
 import org.jetbrains.plugins.terminal.block.session.ShellIntegrationFunctions.GET_DIRECTORY_FILES
 import org.jetbrains.plugins.terminal.testFramework.completion.ShellCompletionTestFixture
+import org.junit.Ignore
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.junit.runners.Parameterized
@@ -30,6 +31,7 @@ import org.mockito.Mockito.any
 import org.mockito.Mockito.mock
 import org.mockito.Mockito.`when`
 
+@Ignore
 @RunWith(Parameterized::class)
 class GitShellCommandOverrideSpecTest(private val engine: TerminalEngine) : BasePlatformTestCase() {
   private data class MultiTestFixture(

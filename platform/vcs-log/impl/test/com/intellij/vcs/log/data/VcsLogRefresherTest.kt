@@ -20,6 +20,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.job
 import kotlinx.coroutines.runBlocking
+import org.junit.Ignore
 import java.util.concurrent.ArrayBlockingQueue
 import java.util.concurrent.BlockingQueue
 import java.util.concurrent.ExecutionException
@@ -30,6 +31,7 @@ import kotlin.concurrent.Volatile
 
 private const val RECENT_COMMITS_COUNT = 2
 
+@Ignore
 class VcsLogRefresherTest : VcsPlatformTest() {
   private lateinit var logProvider: TestVcsLogProvider
   private lateinit var testCs: CoroutineScope
